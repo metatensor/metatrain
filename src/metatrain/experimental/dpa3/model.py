@@ -26,6 +26,20 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from deepmd.pt.model.model import get_standard_model
 
+def update_v1_v2(state_dict):
+    # This if-statement is necessary to handle cases when
+    # best_model_state_dict and model_state_dict are the same.
+    # In that case, the both are updated within the first call of
+    # this function in the PET.update_checkpoint() method.
+    if (
+        state_dict is not None
+        and "additive_models.0.model.type_to_index" not in state_dict
+    ):
+        state_dict["additive_models.0.model.type_to_index"] = state_dict.pop(
+            "additive_models.0.type_to_index"
+        )
+
+
 # Data processing
 def concatenate_structures(
     systems: List[System]
@@ -90,6 +104,14 @@ class DPA3(ModelInterface):
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
         self.atomic_types = dataset_info.atomic_types
+        
+        self.requested_nl = NeighborListOptions(
+            cutoff=self.hypers["descriptor"]["repflow"]["e_rcut"],
+            full_list=True,
+            strict=True,
+        )
+        self.targets_keys = list(dataset_info.targets.keys())[0]
+
         self.model = get_standard_model(hypers)
 
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
@@ -98,10 +120,8 @@ class DPA3(ModelInterface):
         }
         self.single_label = Labels.single()
 
-        self.num_properties: Dict[str, Dict[str, int]] = {}  # by target and block
-        self.basis_calculators = torch.nn.ModuleDict({})
-        self.heads = torch.nn.ModuleDict({})
-        self.last_layers = torch.nn.ModuleDict({})
+        self.num_properties: Dict[str, Dict[str, int]] = {}
+        
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
@@ -196,6 +216,9 @@ class DPA3(ModelInterface):
     
     def get_sel(self):
         return self.model.atomic_model.get_sel()
+    
+    def requested_neighbor_lists(self) -> List[NeighborListOptions]:
+        return [self.requested_nl]
 
     def forward(
         self,
@@ -205,6 +228,8 @@ class DPA3(ModelInterface):
     ) -> Dict[str, TensorMap]:
         
         device = systems[0].positions.device
+        position_dtype = systems[0].positions.dtype
+        atype_dtype = systems[0].types.dtype
         system_indices = torch.concatenate(
             [
                 torch.full(
@@ -215,6 +240,24 @@ class DPA3(ModelInterface):
                 for i_system, system in enumerate(systems)
             ],
         )
+
+        if self.single_label.values.device != device:
+            self.single_label = self.single_label.to(device)
+            self.key_labels = {
+                output_name: label.to(device)
+                for output_name, label in self.key_labels.items()
+            }
+            self.component_labels = {
+                output_name: [
+                    [labels.to(device) for labels in components_block]
+                    for components_block in components_tmap
+                ]
+                for output_name, components_tmap in self.component_labels.items()
+            }
+            self.property_labels = {
+                output_name: [labels.to(device) for labels in properties_tmap]
+                for output_name, properties_tmap in self.property_labels.items()
+            }
 
         return_dict: Dict[str, TensorMap] = {}
 
@@ -242,15 +285,15 @@ class DPA3(ModelInterface):
             system_index
         ) = concatenate_structures(systems)
         
-        positions = positions.to(torch.float64)
+        positions = positions.to(position_dtype)
         type_to_index = {atomic_type: idx for idx, atomic_type in enumerate(self.atomic_types)}
         type_to_index[-1] = -1 
 
         atype = torch.tensor(
             [[type_to_index[s.item()] for s in row] for row in species],
-            dtype=torch.int32
+            dtype=atype_dtype
         ).to(positions.device)
-        atype = atype.to(torch.int32)
+        atype = atype.to(atype_dtype)
         
         if torch.all(cells == 0).item():
             box = None
@@ -300,11 +343,11 @@ class DPA3(ModelInterface):
         blocks.append(TensorBlock(
             values=atomic_property_tensor,
             samples=invariant_coefficients,
-            components=self.component_labels["energy"][0],
-            properties=self.property_labels["energy"][0].to(device),
+            components=self.component_labels[self.targets_keys][0],
+            properties=self.property_labels[self.targets_keys][0].to(device),
         ))
         
-        atomic_properties["energy"] = TensorMap(self.key_labels["energy"].to(device), blocks)
+        atomic_properties[self.targets_keys] = TensorMap(self.key_labels[self.targets_keys].to(device), blocks)
         
         
         for output_name, atomic_property in atomic_properties.items():
@@ -333,7 +376,7 @@ class DPA3(ModelInterface):
                         return_dict[name],
                         additive_contributions[name],
                     )
-
+        
         return return_dict
         
 
@@ -447,13 +490,22 @@ class DPA3(ModelInterface):
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for DPA3")
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        if checkpoint["model_ckpt_version"] == 1:
+            checkpoints.update_v1_v2(checkpoint["model_state_dict"])
+            checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
+            checkpoint["model_ckpt_version"] = 2
+
+        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current "
+                f"model version is {cls.__checkpoint_version__}."
+            )
+        return checkpoint
     
     def get_checkpoint(self) -> Dict:
-        model_state_dict = self.state_dict()
-        model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {
             "architecture_name": "dpa3",
             "model_ckpt_version": self.__checkpoint_version__,
@@ -462,7 +514,7 @@ class DPA3(ModelInterface):
                 "model_hypers": self.hypers,
                 "dataset_info": self.dataset_info,
             },
-            "model_state_dict": model_state_dict,
+            "model_state_dict": self.state_dict(),
             "best_model_state_dict": None,
         }
         return checkpoint
