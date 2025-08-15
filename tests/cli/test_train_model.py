@@ -574,7 +574,7 @@ def test_same_name_targets_extra_data(
         train_model(options_extra)
 
 
-def test_continue(options, monkeypatch, tmp_path):
+def test_restart(options, monkeypatch, tmp_path):
     """Test that continuing training from a checkpoint runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
@@ -615,7 +615,8 @@ def test_finetune_no_read_from(options_pet, monkeypatch, tmp_path):
         train_model(options_pet)
 
 
-def test_continue_auto(options, caplog, monkeypatch, tmp_path):
+@pytest.mark.parametrize("move_folder", [True, False])
+def test_restart_auto(options, caplog, monkeypatch, tmp_path, move_folder):
     """Test that continuing with the `auto` keyword results in
     a continuation from the most recent checkpoint."""
     monkeypatch.chdir(tmp_path)
@@ -641,13 +642,18 @@ def test_continue_auto(options, caplog, monkeypatch, tmp_path):
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy(MODEL_PATH_64_BIT, checkpoint_dir / checkpoint_name)
 
+    # also check that the timestamp-based implementation works with moved folders
+    if move_folder:
+        shutil.move("outputs/", "tmp/outputs/")
+        shutil.move("tmp/outputs/", "outputs/")
+
     train_model(options, restart_from=_process_restart_from("auto"))
 
     assert str(true_checkpoint_dir) in caplog.text
     assert "model_3.ckpt" in caplog.text
 
 
-def test_continue_auto_no_outputs(options, caplog, monkeypatch, tmp_path):
+def test_restart_auto_no_outputs(options, caplog, monkeypatch, tmp_path):
     """Test that continuing with the `auto` keyword results in
     training from scratch if `outputs/` is not present."""
     monkeypatch.chdir(tmp_path)
@@ -659,7 +665,7 @@ def test_continue_auto_no_outputs(options, caplog, monkeypatch, tmp_path):
     assert "Restart training from" not in caplog.text
 
 
-def test_continue_different_dataset(options, monkeypatch, tmp_path):
+def test_restart_different_dataset(options, monkeypatch, tmp_path):
     """Test that continuing training from a checkpoint runs without an error raise
     with a different dataset than the original."""
     monkeypatch.chdir(tmp_path)
