@@ -35,11 +35,12 @@ from metatrain.utils.transfer import (
     batch_to,
 )
 
+from . import checkpoints
 from .model import SoapBpnn
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
 
     def __init__(self, hypers):
         super().__init__(hypers)
@@ -47,6 +48,7 @@ class Trainer(TrainerInterface):
         self.optimizer_state_dict = None
         self.scheduler_state_dict = None
         self.epoch = None
+        self.best_epoch = None
         self.best_metric = None
         self.best_model_state_dict = None
         self.best_optimizer_state_dict = None
@@ -485,6 +487,7 @@ class Trainer(TrainerInterface):
                 self.best_model_state_dict = copy.deepcopy(
                     (model.module if is_distributed else model).state_dict()
                 )
+                self.best_epoch = epoch
                 self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 
             if epoch % self.hypers["checkpoint_interval"] == 0:
@@ -516,6 +519,7 @@ class Trainer(TrainerInterface):
                 "epoch": self.epoch,
                 "optimizer_state_dict": self.optimizer_state_dict,
                 "scheduler_state_dict": self.scheduler_state_dict,
+                "best_epoch": self.best_epoch,
                 "best_metric": self.best_metric,
                 "best_model_state_dict": self.best_model_state_dict,
                 "best_optimizer_state_dict": self.best_optimizer_state_dict,
@@ -533,26 +537,25 @@ class Trainer(TrainerInterface):
         hypers: Dict[str, Any],
         context: Literal["restart", "finetune"],  # not used at the moment
     ) -> "Trainer":
-        epoch = checkpoint["epoch"]
-        optimizer_state_dict = checkpoint["optimizer_state_dict"]
-        scheduler_state_dict = checkpoint["scheduler_state_dict"]
-        best_metric = checkpoint["best_metric"]
-        best_model_state_dict = checkpoint["best_model_state_dict"]
-        best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
-
-        # Create the trainer
         trainer = cls(hypers)
-        trainer.optimizer_state_dict = optimizer_state_dict
-        trainer.scheduler_state_dict = scheduler_state_dict
-        trainer.epoch = epoch
-        trainer.best_metric = best_metric
-        trainer.best_model_state_dict = best_model_state_dict
-        trainer.best_optimizer_state_dict = best_optimizer_state_dict
+        trainer.optimizer_state_dict = checkpoint["optimizer_state_dict"]
+        trainer.scheduler_state_dict = checkpoint["scheduler_state_dict"]
+        trainer.epoch = checkpoint["epoch"]
+        trainer.best_epoch = checkpoint["best_epoch"]
+        trainer.best_metric = checkpoint["best_metric"]
+        trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
+        trainer.best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         return trainer
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["trainer_ckpt_version"] == v:
+                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["trainer_ckpt_version"] = v + 1
+
         if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using trainer "

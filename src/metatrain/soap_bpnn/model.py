@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
@@ -171,7 +172,7 @@ def concatenate_structures(
 
 
 class SoapBpnn(ModelInterface):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -670,18 +671,17 @@ class SoapBpnn(ModelInterface):
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
     ) -> "SoapBpnn":
-        model_data = checkpoint["model_data"]
-
         if context == "restart":
+            logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
-        elif context == "finetune" or context == "export":
+        elif context in {"finetune", "export"}:
+            logging.info(f"Using best model from epoch {checkpoint['best_epoch']}")
             model_state_dict = checkpoint["best_model_state_dict"]
-            if model_state_dict is None:
-                model_state_dict = checkpoint["model_state_dict"]
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
         # Create the model
+        model_data = checkpoint["model_data"]
         model = cls(
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
@@ -858,10 +858,11 @@ class SoapBpnn(ModelInterface):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        if checkpoint["model_ckpt_version"] == 1:
-            checkpoints.update_v1_v2(checkpoint["model_state_dict"])
-            checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
-            checkpoint["model_ckpt_version"] = 2
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
 
         if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
@@ -880,8 +881,10 @@ class SoapBpnn(ModelInterface):
                 "model_hypers": self.hypers,
                 "dataset_info": self.dataset_info,
             },
+            "epoch": None,
+            "best_epoch": None,
             "model_state_dict": self.state_dict(),
-            "best_model_state_dict": None,
+            "best_model_state_dict": self.state_dict(),
         }
         return checkpoint
 
