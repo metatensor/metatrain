@@ -269,7 +269,7 @@ class BaseCompositionModel(torch.nn.Module):
                                     *[len(c) for c in XTY_block.components],
                                     len(XTY_block.properties),
                                 ),
-                                fixed_weights[target_name][atomic_type],
+                                fixed_weights[target_name][int(atomic_type)],
                                 dtype=XTY_values.dtype,
                                 device=XTY_values.device,
                             )
