@@ -672,10 +672,10 @@ class SoapBpnn(ModelInterface):
         context: Literal["restart", "finetune", "export"],
     ) -> "SoapBpnn":
         if context == "restart":
-            logging.info(f"Use latest model from epoch {checkpoint['epoch']}")
+            logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
         elif context in {"finetune", "export"}:
-            logging.info(f"Use best model from epoch {checkpoint['best_epoch']}")
+            logging.info(f"Using best model from epoch {checkpoint['best_epoch']}")
             model_state_dict = checkpoint["best_model_state_dict"]
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")

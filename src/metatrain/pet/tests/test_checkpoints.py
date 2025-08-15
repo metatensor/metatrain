@@ -99,9 +99,9 @@ def test_get_checkpoint(context, caplog):
     PET.load_checkpoint(checkpoint, context)
 
     if context == "restart":
-        assert "Use latest model from epoch None" in caplog.text
+        assert "Using latest model from epoch None" in caplog.text
     else:
-        assert "Use best model from epoch None" in caplog.text
+        assert "Using best model from epoch None" in caplog.text
 
 
 @pytest.mark.parametrize("cls_type", ["model", "trainer"])
