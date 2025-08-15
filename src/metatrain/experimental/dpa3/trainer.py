@@ -309,7 +309,7 @@ class Trainer(TrainerInterface):
 
             for batch in train_dataloader:
                 optimizer.zero_grad()
-
+                model.to(device)
                 systems, targets, extra_data = batch
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
@@ -504,7 +504,7 @@ class Trainer(TrainerInterface):
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
-            "architecture_name": "soap_bpnn",
+            "architecture_name": "dpa3",
             "model_ckpt_version": model.__checkpoint_version__,
             "trainer_ckpt_version": self.__checkpoint_version__,
             "metadata": model.__default_metadata__,
@@ -551,6 +551,12 @@ class Trainer(TrainerInterface):
 
         return trainer
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for SoapBPNN")
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using trainer "
+                f"version {checkpoint['trainer_ckpt_version']}, while the current "
+                f"trainer version is {cls.__checkpoint_version__}."
+            )
+        return checkpoint
