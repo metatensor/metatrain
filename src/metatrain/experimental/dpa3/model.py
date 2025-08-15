@@ -349,7 +349,12 @@ class DPA3(ModelInterface):
         
         atomic_properties[self.targets_keys] = TensorMap(self.key_labels[self.targets_keys].to(device), blocks)
         
-        
+        if selected_atoms is not None:
+            for output_name, tmap in atomic_properties.items():
+                atomic_properties[output_name] = mts.slice(
+                    tmap, axis="samples", selection=selected_atoms
+                )
+
         for output_name, atomic_property in atomic_properties.items():
             
             if outputs[output_name].per_atom:
@@ -507,7 +512,7 @@ class DPA3(ModelInterface):
     
     def get_checkpoint(self) -> Dict:
         checkpoint = {
-            "architecture_name": "dpa3",
+            "architecture_name": "experimental.dpa3",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {

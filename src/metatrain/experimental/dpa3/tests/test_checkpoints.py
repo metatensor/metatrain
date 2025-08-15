@@ -3,7 +3,7 @@ import copy
 import pytest
 import torch
 
-from metatrain.dpa3 import DPA3, Trainer
+from metatrain.experimental.dpa3 import DPA3, Trainer
 from metatrain.utils.data import (
     DatasetInfo,
     get_atomic_types,
