@@ -5,7 +5,7 @@ import torch
 from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
-from metatrain.dpa3 import DPA3, Trainer
+from metatrain.experimental.dpa3 import DPA3, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import (
     read_systems,

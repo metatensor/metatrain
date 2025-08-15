@@ -4,7 +4,7 @@ import metatensor
 import torch
 from omegaconf import OmegaConf
 
-from metatrain.dpa3 import DPA3, Trainer
+from metatrain.experimental.dpa3 import DPA3, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info

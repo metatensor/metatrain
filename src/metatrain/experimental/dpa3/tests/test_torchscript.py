@@ -3,7 +3,7 @@ import copy
 import torch
 from metatomic.torch import System
 
-from metatrain.dpa3 import DPA3
+from metatrain.experimental.dpa3 import DPA3
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
