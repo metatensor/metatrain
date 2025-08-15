@@ -415,39 +415,13 @@ class BaseCompositionModel(torch.nn.Module):
         type. The value is 1 if the atom's type matches the atomic type, and 0
         otherwise.
         """
-        device = systems[0].positions.device
         dtype = systems[0].positions.dtype
-
-        system_ids = []
-        atom_ids = []
-        types = []
-
-        for sys_id, system in enumerate(systems):
-            n_atoms = system.types.shape[0]
-            system_ids.append(
-                torch.full((n_atoms,), sys_id, dtype=torch.int32, device=device)
-            )
-            atom_ids.append(torch.arange(n_atoms, dtype=torch.int32, device=device))
-            types.append(
-                system.types.to(torch.int32)
-            )  # Ensure type matches Labels requirement
-
-        # Concatenate all atom metadata
-        system_ids = torch.cat(system_ids)
-        atom_ids = torch.cat(atom_ids)
-        types = torch.cat(types)
-
-        # Build sample_labels: (n_atoms, 3) → [system, atom, center_type]
-        sample_values = torch.stack([system_ids, atom_ids, types], dim=1)
-        sample_labels = Labels(["system", "atom", "center_type"], sample_values)
-
-        # Build center_types_labels: (n_center_types, 1)
-        center_types_labels = Labels(["center_type"], center_types.reshape(-1, 1))
-
-        # Perform one-hot encoding
-        return mts.one_hot(sample_labels, center_types_labels).to(
-            dtype=dtype, device=device
+        all_types = torch.concatenate([system.types for system in systems])
+        all_types_as_indices = self.type_to_index[all_types]
+        one_hot_encoding = torch.nn.functional.one_hot(
+            all_types_as_indices, num_classes=len(center_types)
         )
+        return one_hot_encoding.to(dtype)
 
     def _sync_device_dtype(self, device: torch.device, dtype: torch.dtype):
         # manually move the TensorMap dicts:
