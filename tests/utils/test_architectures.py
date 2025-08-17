@@ -22,7 +22,7 @@ def is_None(*args, **kwargs) -> None:
 
 def test_find_all_architectures():
     all_arches = find_all_architectures()
-    assert len(all_arches) == 5
+    assert len(all_arches) == 6
 
     assert "gap" in all_arches
     assert "pet" in all_arches
@@ -30,6 +30,7 @@ def test_find_all_architectures():
     assert "experimental.nanopet" in all_arches
     assert "experimental.phace" in all_arches
     assert "deprecated.pet" in all_arches
+    assert "llpr" in all_arches
 
 
 def test_get_architecture_path():
@@ -39,6 +40,9 @@ def test_get_architecture_path():
 @pytest.mark.parametrize("name", find_all_architectures())
 def test_get_default_hypers(name):
     """Test that architecture hypers for all arches can be loaded."""
+    if name == "llpr":
+        # Skip this architecture as it is not a valid architecture but a wrapper
+        return
     default_hypers = get_default_hypers(name)
     assert type(default_hypers) is dict
     assert default_hypers["name"] == name
@@ -107,6 +111,9 @@ def test_get_architecture_name_err_no_such_arch():
 @pytest.mark.parametrize("name", find_all_architectures())
 def test_check_valid_default_architecture_options(name):
     """Test that all default hypers are according to the provided schema."""
+    if name == "llpr":
+        # Skip this architecture as it is not a valid architecture but a wrapper
+        return
     options = get_default_hypers(name)
     check_architecture_options(name=name, options=options)
 

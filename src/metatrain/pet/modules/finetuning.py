@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -26,6 +26,8 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
         strategy_cfg = strategy.get("config", {})
         lora_already_applied = any(isinstance(m, LoRALinear) for m in model.modules())
         if not lora_already_applied:
+            model_device = next(model.parameters()).device
+            model_dtype = next(model.parameters()).dtype
             model = inject_lora_layers(
                 model,
                 target_modules=tuple(
@@ -35,6 +37,8 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
                 ),
                 rank=strategy_cfg.get("rank", 4),
                 alpha=strategy_cfg.get("alpha", 8),
+                device=model_device,
+                dtype=model_dtype,
             )
 
         # Freeze all except LoRA
@@ -68,6 +72,8 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
         f"[{num_trainable_params / num_params:.2%} %]"
     )
 
+    model.finetune_config = strategy
+
     return model
 
 
@@ -76,6 +82,8 @@ def inject_lora_layers(
     target_modules: Tuple[str, ...] = ("input_linear", "output_linear"),
     rank: int = 4,
     alpha: float = 1.0,
+    device: Optional[str] = None,
+    dtype: Optional[torch.dtype] = None,
 ) -> nn.Module:
     """
     Inject LoRA layers into the model.
@@ -87,7 +95,9 @@ def inject_lora_layers(
             if hasattr(module, attr):
                 linear = getattr(module, attr)
                 if isinstance(linear, nn.Linear):
-                    setattr(module, attr, LoRALinear(linear, rank=rank, alpha=alpha))
+                    lora_linear = LoRALinear(linear, rank=rank, alpha=alpha)
+                    lora_linear = lora_linear.to(dtype=dtype, device=device)
+                    setattr(module, attr, lora_linear)
     return model
 
 

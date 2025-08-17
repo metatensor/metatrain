@@ -38,8 +38,11 @@ from .model import NanoPET
 
 
 class Trainer(TrainerInterface):
-    def __init__(self, train_hypers):
-        self.hypers = train_hypers
+    __checkpoint_version__ = 1
+
+    def __init__(self, hypers):
+        super().__init__(hypers)
+
         self.optimizer_state_dict = None
         self.scheduler_state_dict = None
         self.epoch = None
@@ -512,23 +515,23 @@ class Trainer(TrainerInterface):
         self.optimizer_state_dict = optimizer.state_dict()
         self.scheduler_state_dict = lr_scheduler.state_dict()
 
+        if is_distributed:
+            torch.distributed.destroy_process_group()
+
     def save_checkpoint(self, model, path: Union[str, Path]):
-        checkpoint = {
-            "architecture_name": "experimental.nanopet",
-            "metadata": model.__default_metadata__,
-            "model_data": {
-                "model_hypers": model.hypers,
-                "dataset_info": model.dataset_info,
-            },
-            "model_state_dict": model.state_dict(),
-            "train_hypers": self.hypers,
-            "epoch": self.epoch,
-            "optimizer_state_dict": self.optimizer_state_dict,
-            "scheduler_state_dict": self.scheduler_state_dict,
-            "best_metric": self.best_metric,
-            "best_model_state_dict": self.best_model_state_dict,
-            "best_optimizer_state_dict": self.best_optimizer_state_dict,
-        }
+        checkpoint = model.get_checkpoint()
+        checkpoint.update(
+            {
+                "trainer_ckpt_version": self.__checkpoint_version__,
+                "train_hypers": self.hypers,
+                "epoch": self.epoch,
+                "optimizer_state_dict": self.optimizer_state_dict,
+                "scheduler_state_dict": self.scheduler_state_dict,
+                "best_metric": self.best_metric,
+                "best_model_state_dict": self.best_model_state_dict,
+                "best_optimizer_state_dict": self.best_optimizer_state_dict,
+            }
+        )
         torch.save(
             checkpoint,
             check_file_extension(path, ".ckpt"),
@@ -538,7 +541,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        train_hypers: Dict[str, Any],
+        hypers: Dict[str, Any],
         context: Literal["restart", "finetune"],  # not used at the moment
     ) -> "Trainer":
         epoch = checkpoint["epoch"]
@@ -549,7 +552,7 @@ class Trainer(TrainerInterface):
         best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         # Create the trainer
-        trainer = cls(train_hypers)
+        trainer = cls(hypers)
         trainer.optimizer_state_dict = optimizer_state_dict
         trainer.scheduler_state_dict = scheduler_state_dict
         trainer.epoch = epoch
@@ -558,3 +561,7 @@ class Trainer(TrainerInterface):
         trainer.best_optimizer_state_dict = best_optimizer_state_dict
 
         return trainer
+
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        raise NotImplementedError("checkpoint upgrade is not implemented for NanoPET")

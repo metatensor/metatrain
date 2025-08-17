@@ -8,6 +8,7 @@ from metatensor.torch import TensorBlock, TensorMap
 from metatomic.torch import System, register_autograd_neighbors
 from scipy.spatial.transform import Rotation
 
+from . import torch_jit_script_unless_coverage
 from .data import TargetInfo
 
 
@@ -60,12 +61,12 @@ class RotationalAugmenter:
         if is_any_target_spherical or is_any_extra_data_spherical:
             try:
                 import spherical
-            except ImportError:
+            except ImportError as e:
                 # quaternionic (used below) is a dependency of spherical
                 raise ImportError(
-                    "To use spherical targets with nanoPET, please install the "
-                    "`spherical` package with `pip install spherical`."
-                )
+                    "To perform data augmentation on spherical targets, please "
+                    "install the `spherical` package with `pip install spherical`."
+                ) from e
 
             largest_l_targets = -1
             largest_l_extra_data = -1
@@ -212,8 +213,8 @@ def _apply_wigner_D_matrices(
     )
 
 
-@torch.jit.script  # script for speed
-def _apply_random_augmentations(  # pragma: no cover
+@torch_jit_script_unless_coverage  # script for speed
+def _apply_random_augmentations(
     systems: List[System],
     targets: Dict[str, TensorMap],
     transformations: List[torch.Tensor],

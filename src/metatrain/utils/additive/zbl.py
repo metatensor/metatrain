@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, List, Optional
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from ase.data import covalent_radii
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -16,25 +16,24 @@ class ZBL(torch.nn.Module):
     """
     A simple model for short-range repulsive interactions.
 
-    The implementation here is equivalent to its
-    `LAMMPS counterpart <https://docs.lammps.org/pair_zbl.html>`_, where we set the
-    inner cutoff to 0 and the outer cutoff to the sum of the covalent radii of the
-    two atoms as tabulated in ASE. Covalent radii that are not available in ASE are
-    set to 0.2 Å (and a warning is issued).
+    The implementation here is equivalent to its `LAMMPS counterpart
+    <https://docs.lammps.org/pair_zbl.html>`_, where we set the inner cutoff to 0 and
+    the outer cutoff to the sum of the covalent radii of the two atoms as tabulated in
+    ASE. Covalent radii that are not available in ASE are set to 0.2 Å (and a warning is
+    issued).
 
-    :param model_hypers: A dictionary of model hyperparameters. This contains the
-        "inner_cutoff" and "outer_cutoff" keys, which are the inner and outer cutoffs
-        for the ZBL potential.
+    :param hypers: A dictionary of model hyperparameters. This parameter is ignored and
+        is only present to be consistent with the general model API.
     :param dataset_info: An object containing information about the dataset, including
         target quantities and atomic types.
     """
 
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
 
-        # `model_hypers` should be an empty dictionary
+        # `hypers` should be an empty dictionary
         validate(
-            instance=model_hypers,
+            instance=hypers,
             schema={"type": "object", "additionalProperties": False},
         )
 
@@ -199,7 +198,7 @@ class ZBL(torch.nn.Module):
 
             # apply selected_atoms to the composition if needed
             if selected_atoms is not None:
-                targets_out[target_key] = metatensor.torch.slice(
+                targets_out[target_key] = mts.slice(
                     targets_out[target_key], "samples", selected_atoms
                 )
 

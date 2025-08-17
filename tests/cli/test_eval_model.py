@@ -75,7 +75,7 @@ def test_eval(monkeypatch, tmp_path, caplog, model_name, options):
     assert "energy RMSE (per atom)" in log
     assert "energy MAE (per atom)" in log
     assert "dataset with index" not in log
-    assert "evaluation time" in log
+    assert "Evaluation time" in log
     assert "ms per atom" in log
 
     # Test file is written predictions
@@ -106,7 +106,7 @@ def test_eval_batch_size(monkeypatch, tmp_path, caplog, model_name, options):
     assert "energy RMSE (per atom)" in log
     assert "energy MAE (per atom)" in log
     assert "dataset with index" not in log
-    assert "evaluation time" in log
+    assert "Evaluation time" in log
     assert "ms per atom" in log
     assert "inaccurate average timings" in log
 
@@ -123,7 +123,7 @@ def test_eval_export(monkeypatch, tmp_path, options):
         atomic_types={1, 6, 7, 8},
         targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
 
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
 
@@ -233,7 +233,7 @@ def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix):
     assert "energy RMSE (per atom)" in log
     assert "energy MAE (per atom)" in log
     assert "dataset with index" not in log
-    assert "evaluation time" in log
+    assert "Evaluation time" in log
     assert "ms per atom" in log
 
     # Test file is written predictions

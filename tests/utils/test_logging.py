@@ -1,4 +1,5 @@
 import csv
+import json
 import logging
 import re
 import sys
@@ -16,6 +17,7 @@ from metatrain.utils.logging import (
     MetricLogger,
     WandbHandler,
     get_cli_input,
+    human_readable,
     setup_logging,
 )
 
@@ -188,6 +190,7 @@ def test_wandb_handler_emit_data(monkeypatch, tmp_path):
 
     # First write
     handler.emit_data(keys, values, units)
+    handler.close()
 
 
 def test_wandb_handler_handler_emit_does_nothing(monkeypatch, tmp_path):
@@ -207,26 +210,63 @@ def test_wandb_handler_handler_emit_does_nothing(monkeypatch, tmp_path):
     )
 
     handler.emit(record)
+    handler.close()
 
 
-def test_custom_logger_logs_to_wandb(monkeypatch, tmp_path):
+class MockWandbRun:
+    """Mock class for wandb.Run to simulate logging behavior."""
+
+    def __init__(self, log_file):
+        self.log_file = log_file
+        self.logs = []
+
+    def log(self, data, step=None, commit=True):
+        entry = {"step": step, "commit": commit, "data": data}
+        self.logs.append(entry)
+        # Also write to file for inspection
+        with open(self.log_file, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+
+    def finish(self):
+        pass  # for compatibility
+
+
+@pytest.mark.parametrize("prefix", ["training", "test", "validation"])
+def test_custom_logger_logs_to_wandb(monkeypatch, tmp_path, prefix):
     monkeypatch.chdir(tmp_path)
 
     logger = CustomLogger("test_logger")
 
-    run = wandb.init(mode="offline")
-    handler = WandbHandler(run=run)
+    log_file = tmp_path / "wandb_log.jsonl"
+    mock_run = MockWandbRun(log_file)
+    handler = WandbHandler(run=mock_run)
 
     logger.addHandler(handler)
 
-    keys = ["Epoch", "Energy"]
+    keys = ["Epoch", f"{prefix} energy"]
     values = ["1", "-10.5"]
     units = ["", "kcal/mol"]
 
     logger.data(keys, values, units)
     logger.data(keys, values, units)
 
-    # TODO check that data is written to wandb
+    for handler in logger.handlers:
+        handler.close()
+
+    # Read logged entries
+    with open(log_file) as f:
+        lines = f.readlines()
+
+    assert len(lines) == 2
+    for line in lines:
+        entry = json.loads(line)
+        assert entry["step"] == 1
+        assert entry["commit"] is True
+
+        # Check cleaned key format
+        expected_key = f"{prefix}/energy [kcal per mol]"
+        assert expected_key in entry["data"]
+        assert entry["data"][expected_key] == -10.5
 
 
 @pytest.mark.parametrize("handler_cls", [WandbHandler, CSVFileHandler])
@@ -292,6 +332,7 @@ def test_metric_logger(caplog, monkeypatch, tmp_path):
     assert type(logger) is CustomLogger
 
     outputs = {
+        "energy": ModelOutput(unit="eV", explicit_gradients=["positions"]),
         "mtt::foo": ModelOutput(unit="eV"),
         "mtt::bar": ModelOutput(unit="hartree"),
     }
@@ -302,21 +343,41 @@ def test_metric_logger(caplog, monkeypatch, tmp_path):
     )
 
     names = ["train"]
+    train_metrics = [
+        {
+            "loss": 0.1,
+            "baz": 1e-5,
+            "energy RMSE": 1.0,
+            "energy_positions_gradients MAE": 0.5,
+            "mtt::foo RMSE": 1.0,
+            "mtt::bar RMSE": 0.1,
+        }
+    ]
 
-    train_metrics = [{"loss": 0.1, "mtt::foo RMSE": 1.0, "mtt::bar RMSE": 0.1}]
-    eval_metrics = [{"mtt::foo RMSE": 5.0, "mtt::bar RMSE": 10.0}]
+    # single dict to test that metrics will be converted to list
+    eval_metrics = {"mtt::foo RMSE": 5.0, "mtt::bar RMSE": 10.0}
 
     with setup_logging(logger, log_file="logfile.log", level=logging.INFO):
-        trainer_logger = MetricLogger(logger, capabilities, train_metrics, names)
-        trainer_logger.log(train_metrics, epoch=1)
+        trainer_logger = MetricLogger(
+            log_obj=logger,
+            dataset_info=capabilities,
+            initial_metrics=train_metrics,
+            names=names,
+        )
+        trainer_logger.log(metrics=train_metrics, epoch=1)
 
-        eval_logger = MetricLogger(logger, capabilities, eval_metrics)
-        eval_logger.log(eval_metrics)
+        eval_logger = MetricLogger(
+            log_obj=logger, dataset_info=capabilities, initial_metrics=eval_metrics
+        )
+        eval_logger.log(metrics=eval_metrics)
 
     # Test for correctly formatted log messages (only one space between words)
     # During training
     assert "Epoch:    1 | " in caplog.text
     assert "train loss: 1.000e-01 | " in caplog.text
+    assert "train baz: 1.000e-05 | " in caplog.text
+    assert "train energy RMSE: 1000.0 meV | " in caplog.text
+    assert "train energy_positions_gradients MAE: 500.00 meV/A | " in caplog.text
     assert "train mtt::bar RMSE: 0.10000 hartree | " in caplog.text
     assert "train mtt::foo RMSE: 1000.0 meV" in caplog.text  # eV converted to meV
 
@@ -330,11 +391,52 @@ def test_metric_logger(caplog, monkeypatch, tmp_path):
     assert rows[0] == [
         "Epoch",
         "train loss",
+        "train baz",
+        "train energy RMSE",
+        "train energy_positions_gradients MAE",
         "train mtt::bar RMSE",
         "train mtt::foo RMSE",
     ]
-    assert rows[1] == ["", "", "hartree", "meV"]
-    assert rows[2] == ["   1", "1.000e-01", "0.10000", "1000.0"]
+    assert rows[1] == ["", "", "", "meV", "meV/A", "hartree", "meV"]
+    assert rows[2] == [
+        "   1",
+        "1.000e-01",
+        "1.000e-05",
+        "1000.0",
+        "500.00",
+        "0.10000",
+        "1000.0",
+    ]
+
+
+def test_metric_logger_with_scales(caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.INFO)
+    logger = logging.getLogger(__name__)
+
+    assert type(logger) is CustomLogger
+
+    outputs = {"mtt::foo": ModelOutput(unit="eV")}
+    capabilities = ModelCapabilities(
+        length_unit="angstrom",
+        atomic_types=[1, 2, 3],
+        outputs=outputs,
+    )
+
+    names = "train"
+    train_metrics = {"mtt::foo RMSE": 1.0}
+
+    with setup_logging(logger, log_file="logfile.log", level=logging.INFO):
+        trainer_logger = MetricLogger(
+            log_obj=logger,
+            dataset_info=capabilities,
+            initial_metrics=train_metrics,
+            names=names,
+            scales={n: 5.0 for n in train_metrics.keys()},
+        )
+        trainer_logger.log(metrics=train_metrics, epoch=1)
+
+    assert "train mtt::foo RMSE: 5000.0 meV" in caplog.text
 
 
 def get_argv():
@@ -352,3 +454,37 @@ def test_get_cli_input_sys(monkeypatch):
     argv, argv_str = get_argv()
     monkeypatch.setattr(sys, "argv", argv)
     assert get_cli_input() == argv_str
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (0, "0"),
+        (123, "123"),
+        (999, "999"),
+        (1000, "1K"),
+        (1049, "1K"),
+        (1050, "1.1K"),
+        (1234, "1.2K"),
+        (9999, "10K"),
+        (20454, "20.5K"),
+        (99499, "99.5K"),
+        (99500, "99.5K"),
+        (100000, "100K"),
+        # Edge case around 1 million
+        (999499, "999K"),
+        (999500, "1M"),
+        (999999, "1M"),
+        (1000000, "1M"),
+        (1049999, "1M"),
+        (1050000, "1.1M"),
+        # Larger numbers
+        (123456789, "123M"),
+        (999999999999, "1T"),
+        # Max suffix
+        (1230000000000000, "1230T"),
+        (1230000000000000000, "1230000T"),
+    ],
+)
+def test_human_readable_parameter_counter(value, expected):
+    assert human_readable(value) == expected

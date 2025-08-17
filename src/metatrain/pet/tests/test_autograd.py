@@ -1,3 +1,4 @@
+import pytest
 import torch
 from metatomic.torch import ModelOutput, System
 
@@ -11,8 +12,15 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from . import MODEL_HYPERS
 
 
-def test_autograd_positions():
+@pytest.mark.parametrize("device", ("cpu", "cuda"))
+def test_autograd_positions(device):
     """Tests the basic functionality of the forward pass of the model."""
+
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+
+    device = torch.device(device)
+
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
@@ -22,18 +30,16 @@ def test_autograd_positions():
     )
 
     model = PET(MODEL_HYPERS, dataset_info)
-    model = model.to(torch.float64)
-
-    positions = torch.tensor(
-        [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=torch.float64, requires_grad=True
-    )
+    model = model.to(dtype=torch.float64, device=device)
 
     def compute(positions):
+        device = positions.device
+
         system = System(
-            types=torch.tensor([6, 6]),
+            types=torch.tensor([6, 6], device=device),
             positions=positions,
-            cell=torch.eye(3, dtype=torch.float64),
-            pbc=torch.tensor([True, True, True]),
+            cell=torch.eye(3, dtype=torch.float64, device=device),
+            pbc=torch.tensor([True, True, True], device=device),
         )
 
         system = get_system_with_neighbor_lists(
@@ -45,17 +51,25 @@ def test_autograd_positions():
         energy = output["energy"].block().values.sum()
         return energy
 
+    positions = torch.tensor(
+        [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
+        dtype=torch.float64,
+        requires_grad=True,
+        device=device,
+    )
     assert torch.autograd.gradcheck(compute, positions, fast_mode=True)
     assert torch.autograd.gradgradcheck(compute, positions, fast_mode=True)
 
-    if torch.cuda.is_available():
-        positions_cuda = positions.detach().cuda().requires_grad_(True)
-        assert torch.autograd.gradcheck(compute, positions_cuda, fast_mode=True)
-        assert torch.autograd.gradgradcheck(compute, positions_cuda, fast_mode=True)
 
-
-def test_autograd_cell():
+@pytest.mark.parametrize("device", ("cpu", "cuda"))
+def test_autograd_cell(device):
     """Tests the basic functionality of the forward pass of the model."""
+
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+
+    device = torch.device(device)
+
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
@@ -65,20 +79,21 @@ def test_autograd_cell():
     )
 
     model = PET(MODEL_HYPERS, dataset_info)
-    model = model.to(torch.float64)
-
-    cell = torch.eye(3, dtype=torch.float64, requires_grad=True)
+    model = model.to(dtype=torch.float64, device=device)
 
     def compute(cell):
+        device = cell.device
+
         system = System(
-            types=torch.tensor([6, 6]),
+            types=torch.tensor([6, 6], device=device),
             positions=torch.tensor(
                 [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
                 dtype=torch.float64,
+                device=device,
                 requires_grad=True,
             ),
             cell=cell,
-            pbc=torch.tensor([True, True, True]),
+            pbc=torch.tensor([True, True, True], device=device),
         )
 
         system = get_system_with_neighbor_lists(
@@ -90,10 +105,7 @@ def test_autograd_cell():
         energy = output["energy"].block().values.sum()
         return energy
 
+    cell = torch.eye(3, dtype=torch.float64, requires_grad=True, device=device)
+
     assert torch.autograd.gradcheck(compute, cell, fast_mode=True)
     assert torch.autograd.gradgradcheck(compute, cell, fast_mode=True)
-
-    if torch.cuda.is_available():
-        cell_cuda = cell.detach().cuda().requires_grad_(True)
-        assert torch.autograd.gradcheck(compute, cell_cuda, fast_mode=True)
-        assert torch.autograd.gradgradcheck(compute, cell_cuda, fast_mode=True)

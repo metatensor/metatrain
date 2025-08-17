@@ -2,7 +2,7 @@ import logging
 import warnings
 from typing import Dict, List, Optional, Union
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
@@ -27,7 +27,7 @@ class OldCompositionModel(torch.nn.Module):
     weights: Dict[str, TensorMap]
     outputs: Dict[str, ModelOutput]
 
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
         warnings.warn(
             "`OldCompositionModel` composition model is deprecated."
             " Please use `CompositionModel` instead.",
@@ -37,7 +37,7 @@ class OldCompositionModel(torch.nn.Module):
 
         # `model_hypers` should be an empty dictionary
         validate(
-            instance=model_hypers,
+            instance=hypers,
             schema={"type": "object", "additionalProperties": False},
         )
 
@@ -231,7 +231,7 @@ class OldCompositionModel(torch.nn.Module):
                                 # there is no center type, we need to add it
                                 # and we will rely on the fact that per-atom targets
                                 # should be in the same order as the atoms in the system
-                                targets[target_key] = metatensor.torch.append_dimension(
+                                targets[target_key] = mts.append_dimension(
                                     targets[target_key],
                                     "samples",
                                     "center_type",
@@ -285,7 +285,7 @@ class OldCompositionModel(torch.nn.Module):
                         if self.dataset_info.targets[target_key].per_atom:
                             # hack: metatensor.join doesn't work on single blocks;
                             # create TensorMaps, join, and then extract the joined block
-                            joined_blocks = metatensor.torch.join(
+                            joined_blocks = mts.join(
                                 [
                                     TensorMap(
                                         keys=Labels.single(),
@@ -296,8 +296,8 @@ class OldCompositionModel(torch.nn.Module):
                                 axis="samples",
                                 remove_tensor_name=True,
                             ).block()
-                            weights_tensor = metatensor.torch.sort_block(
-                                metatensor.torch.mean_over_samples_block(
+                            weights_tensor = mts.sort_block(
+                                mts.mean_over_samples_block(
                                     joined_blocks,
                                     [
                                         n
@@ -338,9 +338,9 @@ class OldCompositionModel(torch.nn.Module):
             # make sure to update the weights buffer with the new weights
             self.register_buffer(
                 target_key + "_composition_buffer",
-                metatensor.torch.save_buffer(
-                    self.weights[target_key].to("cpu", torch.float64)
-                ).to(device),
+                mts.save_buffer(self.weights[target_key].to("cpu", torch.float64)).to(
+                    device
+                ),
             )
 
     def restart(self, dataset_info: DatasetInfo) -> "OldCompositionModel":
@@ -403,7 +403,7 @@ class OldCompositionModel(torch.nn.Module):
         device = systems[0].positions.device
 
         # move weights (TensorMaps can't be treated as buffers for now)
-        self._move_weights_to_device_and_dtype(device, dtype)
+        self.weights_to(device, dtype)
 
         for output_name in outputs:
             if output_name not in self.weights:
@@ -458,7 +458,7 @@ class OldCompositionModel(torch.nn.Module):
 
             # apply selected_atoms to the composition if needed
             if selected_atoms is not None:
-                composition_result_dict[output_name] = metatensor.torch.slice(
+                composition_result_dict[output_name] = mts.slice(
                     composition_result_dict[output_name], "samples", selected_atoms
                 )
 
@@ -523,12 +523,10 @@ class OldCompositionModel(torch.nn.Module):
         )
         self.register_buffer(
             target_name + "_composition_buffer",
-            metatensor.torch.save_buffer(fake_weights),
+            mts.save_buffer(fake_weights),
         )
 
-    def _move_weights_to_device_and_dtype(
-        self, device: torch.device, dtype: torch.dtype
-    ):
+    def weights_to(self, device: torch.device, dtype: torch.dtype):
         if len(self.weights) != 0:
             if self.weights[list(self.weights.keys())[0]].device != device:
                 self.weights = {k: v.to(device) for k, v in self.weights.items()}
@@ -563,7 +561,7 @@ class OldCompositionModel(torch.nn.Module):
         # Reload the weights of the (old) targets, which are not stored in the model
         # state_dict, from the buffers
         for k in self.dataset_info.targets:
-            self.weights[k] = metatensor.torch.load_buffer(
+            self.weights[k] = mts.load_buffer(
                 self.__getattr__(k + "_composition_buffer")
             )
 

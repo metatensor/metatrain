@@ -18,15 +18,18 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
     """
     Abstract base class for a machine learning model in metatrain.
 
-    All architectures in metatrain must be implemented as sub-class of this class, and
-    implement the corresponding methods.
+    All architectures in metatrain must be implemented as sub-class of this class,
+    and implement the corresponding methods.
     """
 
-    def __init__(self):
+    def __init__(
+        self, hypers: Dict, dataset_info: DatasetInfo, metadata: ModelMetadata
+    ) -> None:
         """"""
         super().__init__()
 
         required_attributes = [
+            "__checkpoint_version__",
             "__supported_devices__",
             "__supported_dtypes__",
             "__default_metadata__",
@@ -35,8 +38,17 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
             if not hasattr(self.__class__, attribute):
                 raise TypeError(
                     f"missing '{attribute}' class attribute for "
-                    f"{self.__class__.__name__}"
+                    f"'{self.__class__.__module__}.{self.__class__.__name__}'"
                 )
+
+        self.hypers = hypers
+        """The model hyper passed at initialization"""
+
+        self.dataset_info = dataset_info
+        """The dataset info passed at initialization"""
+
+        self.metadata = metadata
+        """The metadata passed at initialization"""
 
     @abstractmethod
     def forward(
@@ -112,6 +124,23 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
             user.
         """
 
+    @classmethod
+    @abstractmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict["str", Any]) -> Dict["str", Any]:
+        """
+        Upgrade the checkpoint to the current version of the model.
+
+        :raises RuntimeError: if the checkpoint cannot be upgraded to the current
+            version of the model.
+        """
+
+    @abstractmethod
+    def get_checkpoint(self) -> Dict[str, Any]:
+        """
+        Get the checkpoint of the model. This should contain all the information
+        needed by `load_checkpoint` to recreate the same model instance.
+        """
+
 
 class TrainerInterface(metaclass=ABCMeta):
     """
@@ -122,11 +151,28 @@ class TrainerInterface(metaclass=ABCMeta):
     implement the corresponding methods.
     """
 
-    @abstractmethod
-    def __init__(self, train_hypers):
-        """
-        Create a trainer using the hyper-parameters in ``train_hypers``.
-        """
+    def __init__(self, hypers):
+        required_attributes = [
+            "__checkpoint_version__",
+        ]
+        for attribute in required_attributes:
+            if not hasattr(self.__class__, attribute):
+                raise TypeError(
+                    f"missing '{attribute}' class attribute for "
+                    f"'{self.__class__.__module__}.{self.__class__.__name__}'"
+                )
+
+        self.__dict__["__intialized"] = True
+
+        self.hypers = hypers
+        """The trainer hypers passed at intialization"""
+
+    def __setattr__(self, name, value):
+        if not hasattr(self, "__intialized") or not self.__dict__["__intialized"]:
+            raise ValueError(
+                "you must call `super().__init__(hypers)` before setting new fields"
+            )
+        super().__setattr__(name, value)
 
     @abstractmethod
     def train(
@@ -160,17 +206,27 @@ class TrainerInterface(metaclass=ABCMeta):
 
     @classmethod
     @abstractmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        """
+        Upgrade the checkpoint to the current version of the trainer.
+
+        :raises RuntimeError: if the checkpoint cannot be upgraded to the current
+            version of the trainer.
+        """
+
+    @classmethod
+    @abstractmethod
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        train_hypers: Dict[str, Any],
+        hypers: Dict[str, Any],
         context: Literal["restart", "finetune"],
     ) -> "TrainerInterface":
         """
         Create a trainer instance from data stored in the ``checkpoint``.
 
         :param checkpoint: Checkpoint's state dictionary.
-        :param train_hypers: Hyper-parameters for the trainer, as specified by the user.
+        :param hypers: Hyper-parameters for the trainer, as specified by the user.
         :param context: Context in which to load the model. Possible values are
             ``"restart"`` when restarting a stopped traininf run, and ``"finetune"``
             when loading a model for further fine-tuning or transfer learning. When

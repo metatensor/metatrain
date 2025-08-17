@@ -1,6 +1,6 @@
 from typing import List, Tuple
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
@@ -22,7 +22,7 @@ def read_systems(filename: str) -> List[System]:
 
 def _wrapped_metatensor_read(filename) -> TensorMap:
     try:
-        return metatensor.torch.load(filename)
+        return mts.load(filename)
     except Exception as e:
         raise ValueError(f"Failed to read '{filename}' with torch: {e}") from e
 
@@ -54,7 +54,7 @@ def read_energy(target: DictConfig) -> Tuple[TensorMap, TargetInfo]:
             )
         )
     ]
-    tensor_maps = metatensor.torch.split(tensor_map, "samples", selections)
+    tensor_maps = mts.split(tensor_map, "samples", selections)
     return tensor_maps, target_info
 
 
@@ -79,7 +79,7 @@ def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
         )
         for i in torch.unique(tensor_map.block(0).samples.column("system"))
     ]
-    tensor_maps = metatensor.torch.split(tensor_map, "samples", selections)
+    tensor_maps = mts.split(tensor_map, "samples", selections)
     return tensor_maps, target_info
 
 
@@ -116,12 +116,12 @@ def _check_tensor_map_metadata(tensor_map: TensorMap, layout: TensorMap):
         for name in block_from_layout.gradients_list():
             gradient_block = block.gradient(name)
             gradient_block_from_layout = block_from_layout.gradient(name)
-            if gradient_block.labels.names != gradient_block_from_layout.labels.names:
+            if gradient_block.samples.names != gradient_block_from_layout.samples.names:
                 raise ValueError(
                     f"Unexpected samples in metatensor targets "
                     f"for `{name}` gradient block: "
-                    f"expected: {gradient_block_from_layout.labels.names} "
-                    f"actual: {gradient_block.labels.names}"
+                    f"expected: {gradient_block_from_layout.samples.names} "
+                    f"actual: {gradient_block.samples.names}"
                 )
             if gradient_block.components != gradient_block_from_layout.components:
                 raise ValueError(

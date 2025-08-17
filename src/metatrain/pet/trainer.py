@@ -34,6 +34,7 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
+from . import checkpoints
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
@@ -44,18 +45,22 @@ def get_scheduler(optimizer, train_hypers):
             return epoch / train_hypers["num_epochs_warmup"]
         delta = epoch - train_hypers["num_epochs_warmup"]
         num_blocks = delta // train_hypers["scheduler_patience"]
-        return 0.5 ** (num_blocks)
+        return train_hypers["scheduler_factor"] ** (num_blocks)
 
     scheduler = LambdaLR(optimizer, func_lr_scheduler)
     return scheduler
 
 
 class Trainer(TrainerInterface):
-    def __init__(self, train_hypers):
-        self.hypers = train_hypers
+    __checkpoint_version__ = 3
+
+    def __init__(self, hypers):
+        super().__init__(hypers)
+
         self.optimizer_state_dict = None
         self.scheduler_state_dict = None
         self.epoch = None
+        self.best_epoch = None
         self.best_metric = None
         self.best_model_state_dict = None
         self.best_optimizer_state_dict = None
@@ -134,10 +139,26 @@ class Trainer(TrainerInterface):
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of the SOAP-BPNN are always in float64 (to avoid
-        # numerical errors in the composition weights, which can be very large).
+        # The additive models of PET are always in float64 (to avoid numerical errors in
+        # the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
+
+        logging.info("Calculating composition weights")
+
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["batch_size"],
+            is_distributed,
+            self.hypers["fixed_composition_weights"],
+        )
+
+        if self.hypers["scale_targets"]:
+            logging.info("Calculating scaling weights")
+            model.scaler.train_model(
+                train_datasets, model.additive_models, treat_as_additive=True
+            )
 
         logging.info("Setting up data loaders")
 
@@ -167,9 +188,7 @@ class Trainer(TrainerInterface):
             val_samplers = [None] * len(val_datasets)
 
         # Create a collate function:
-        targets_keys = list(
-            (model.module if is_distributed else model).dataset_info.targets.keys()
-        )
+        targets_keys = list(model.dataset_info.targets.keys())
         collate_fn = CollateFn(target_keys=targets_keys)
 
         # Create dataloader for the training datasets:
@@ -221,19 +240,6 @@ class Trainer(TrainerInterface):
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
-
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_dataloader,
-            model.additive_models[1:],
-            self.hypers["fixed_composition_weights"],
-        )
-
-        if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
-            )
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -396,10 +402,9 @@ class Trainer(TrainerInterface):
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets, extra_data = batch
-                systems = [system.to(device=device) for system in systems]
-                targets = {
-                    key: value.to(device=device) for key, value in targets.items()
-                }
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, device=device
+                )
                 for additive_model in (
                     model.module if is_distributed else model
                 ).additive_models:
@@ -409,12 +414,9 @@ class Trainer(TrainerInterface):
                 targets = remove_scale(
                     targets, (model.module if is_distributed else model).scaler
                 )
-                systems = [system.to(dtype=dtype) for system in systems]
-                targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
-                extra_data = {
-                    key: value.to(device=device, dtype=dtype)
-                    for key, value in extra_data.items()
-                }
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, dtype=dtype
+                )
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -453,7 +455,10 @@ class Trainer(TrainerInterface):
                 )
 
             # Now we log the information:
-            finalized_train_info = {"loss": train_loss, **finalized_train_info}
+            finalized_train_info = {
+                "loss": train_loss,
+                **finalized_train_info,
+            }
             finalized_val_info = {
                 "loss": val_loss,
                 **finalized_val_info,
@@ -485,6 +490,7 @@ class Trainer(TrainerInterface):
                     metrics=[finalized_train_info, finalized_val_info],
                     epoch=epoch,
                     rank=rank,
+                    learning_rate=old_lr,
                 )
 
             lr_scheduler.step()
@@ -515,6 +521,7 @@ class Trainer(TrainerInterface):
                 self.best_model_state_dict = copy.deepcopy(
                     (model.module if is_distributed else model).state_dict()
                 )
+                self.best_epoch = epoch
                 self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 
             if epoch % self.hypers["checkpoint_interval"] == 0:
@@ -534,23 +541,26 @@ class Trainer(TrainerInterface):
         self.optimizer_state_dict = optimizer.state_dict()
         self.scheduler_state_dict = lr_scheduler.state_dict()
 
+        if is_distributed:
+            torch.distributed.destroy_process_group()
+
     def save_checkpoint(self, model, path: Union[str, Path]):
-        checkpoint = {
-            "architecture_name": "pet",
-            "metadata": model.__default_metadata__,
-            "model_data": {
-                "model_hypers": model.hypers,
-                "dataset_info": model.dataset_info,
-            },
-            "model_state_dict": model.state_dict(),
-            "train_hypers": self.hypers,
-            "epoch": self.epoch,
-            "optimizer_state_dict": self.optimizer_state_dict,
-            "scheduler_state_dict": self.scheduler_state_dict,
-            "best_metric": self.best_metric,
-            "best_model_state_dict": self.best_model_state_dict,
-            "best_optimizer_state_dict": self.best_optimizer_state_dict,
-        }
+        checkpoint = model.get_checkpoint()
+        if self.best_model_state_dict is not None:
+            self.best_model_state_dict["finetune_config"] = model.finetune_config
+        checkpoint.update(
+            {
+                "trainer_ckpt_version": self.__checkpoint_version__,
+                "train_hypers": self.hypers,
+                "epoch": self.epoch,
+                "optimizer_state_dict": self.optimizer_state_dict,
+                "scheduler_state_dict": self.scheduler_state_dict,
+                "best_epoch": self.best_epoch,
+                "best_metric": self.best_metric,
+                "best_model_state_dict": self.best_model_state_dict,
+                "best_optimizer_state_dict": self.best_optimizer_state_dict,
+            }
+        )
         torch.save(
             checkpoint,
             check_file_extension(path, ".ckpt"),
@@ -560,23 +570,32 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        train_hypers: Dict[str, Any],
+        hypers: Dict[str, Any],
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
-        epoch = checkpoint["epoch"]
-        optimizer_state_dict = checkpoint["optimizer_state_dict"]
-        scheduler_state_dict = checkpoint["scheduler_state_dict"]
-        best_metric = checkpoint["best_metric"]
-        best_model_state_dict = checkpoint["best_model_state_dict"]
-        best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
-
-        # Create the trainer
-        trainer = cls(train_hypers)
-        trainer.optimizer_state_dict = optimizer_state_dict
-        trainer.scheduler_state_dict = scheduler_state_dict
-        trainer.epoch = epoch
-        trainer.best_metric = best_metric
-        trainer.best_model_state_dict = best_model_state_dict
-        trainer.best_optimizer_state_dict = best_optimizer_state_dict
+        trainer = cls(hypers)
+        trainer.optimizer_state_dict = checkpoint["optimizer_state_dict"]
+        trainer.scheduler_state_dict = checkpoint["scheduler_state_dict"]
+        trainer.epoch = checkpoint["epoch"]
+        trainer.best_epoch = checkpoint["best_epoch"]
+        trainer.best_metric = checkpoint["best_metric"]
+        trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
+        trainer.best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         return trainer
+
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["trainer_ckpt_version"] == v:
+                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["trainer_ckpt_version"] = v + 1
+
+        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using "
+                f"trainer version {checkpoint['trainer_ckpt_version']}, while the "
+                f"current trainer version is {cls.__checkpoint_version__}."
+            )
+        return checkpoint

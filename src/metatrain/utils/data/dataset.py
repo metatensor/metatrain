@@ -27,6 +27,24 @@ from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.units import get_gradient_units
 
 
+def _set(values: List[int]) -> List[int]:
+    """This function just does `list(set(values))`.
+
+    But set is not torchscript compatible, so we do it manually.
+    """
+    unique_values: List[int] = []
+    for at_type in values:
+        found = False
+        for seen in unique_values:
+            if seen == at_type:
+                found = True
+                break
+        if not found:
+            unique_values.append(at_type)
+
+    return unique_values
+
+
 class DatasetInfo:
     """A class that contains information about datasets.
 
@@ -51,9 +69,11 @@ class DatasetInfo:
         extra_data: Optional[Dict[str, TargetInfo]] = None,
     ):
         self.length_unit = length_unit if length_unit is not None else ""
-        self._atomic_types = set(atomic_types)
+        self._atomic_types = _set(atomic_types)
         self.targets = targets
-        self.extra_data = extra_data if extra_data is not None else {}
+        self.extra_data: Dict[str, TargetInfo] = (
+            extra_data if extra_data is not None else {}
+        )
 
     @property
     def atomic_types(self) -> List[int]:
@@ -62,20 +82,41 @@ class DatasetInfo:
 
     @atomic_types.setter
     def atomic_types(self, value: List[int]):
-        self._atomic_types = set(value)
+        self._atomic_types = _set(value)
+
+    @property
+    def device(self) -> Optional[torch.device]:
+        """Return the device where the tensors of DatasetInfo are located.
+
+        This function only checks the device of the first target
+        and assumes that all targets and extra data are on the same device.
+        This is guaranteed if the ``to()`` method has been used to move
+        the DatasetInfo to a specific device.
+        """
+        if len(self.targets) == 0:
+            return None
+        first_target = list(self.targets.values())[0]
+        return first_target.device
+
+    def to(
+        self, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None
+    ) -> "DatasetInfo":
+        """Return a copy with all tensors moved to the device and dtype."""
+        new = self.copy()
+        for key, target_info in new.targets.items():
+            new.targets[key] = target_info.to(device=device, dtype=dtype)
+        for key, extra_data in new.extra_data.items():
+            new.extra_data[key] = extra_data.to(device=device, dtype=dtype)
+        return new
 
     def __repr__(self):
-        return (
-            f"DatasetInfo(length_unit={self.length_unit!r}, "
-            f"atomic_types={self.atomic_types!r}, targets={self.targets!r})"
+        return "DatasetInfo(length_unit={!r}, atomic_types={!r}, targets={!r})".format(
+            self.length_unit, self.atomic_types, self.targets
         )
 
     def __eq__(self, other):
         if not isinstance(other, DatasetInfo):
-            raise NotImplementedError(
-                "Comparison between a DatasetInfo instance and a "
-                f"{type(other).__name__} instance is not implemented."
-            )
+            return False
         return (
             self.length_unit == other.length_unit
             and self._atomic_types == other._atomic_types
@@ -92,6 +133,7 @@ class DatasetInfo:
             extra_data=self.extra_data.copy(),
         )
 
+    @torch.jit.unused
     def update(self, other: "DatasetInfo") -> None:
         """Update this instance with the union of itself and ``other``.
 
@@ -100,7 +142,7 @@ class DatasetInfo:
         if self.length_unit != other.length_unit:
             raise ValueError(
                 "Can't update DatasetInfo with a different `length_unit`: "
-                f"({self.length_unit} != {other.length_unit})"
+                f"('{self.length_unit}' != '{other.length_unit}')"
             )
 
         self.atomic_types = self.atomic_types + other.atomic_types
@@ -135,6 +177,17 @@ class DatasetInfo:
         new.update(other)
         return new
 
+    @torch.jit.unused
+    def __setstate__(self, state):
+        """
+        Custom ``__setstate__`` to allow loading old checkpoints where ``extra_data`` is
+        missing.
+        """
+        self.length_unit = state["length_unit"]
+        self._atomic_types = state["_atomic_types"]
+        self.targets = state["targets"]
+        self.extra_data = state.get("extra_data", {})
+
 
 def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str:
     """Returns the statistics of a dataset or subset as a string."""
@@ -163,7 +216,8 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
             if "_gradients" not in key:  # not a gradient
                 tensors = [block.values for block in sample[key].blocks()]
             else:
-                original_key = key.split("_")[0]
+                # The name is <basename>_<gradname>_gradients
+                original_key = "_".join(key.split("_")[:-2])
                 gradient_name = key.replace(f"{original_key}_", "").replace(
                     "_gradients", ""
                 )
@@ -423,9 +477,11 @@ class DiskDataset(torch.utils.data.Dataset):
     class.
 
     :param path: Path to the zip file containing the dataset.
+    :param fields: List of fields to read from the dataset.
+        If None, all fields will be read.
     """
 
-    def __init__(self, path: Union[str, Path]):
+    def __init__(self, path: Union[str, Path], fields: Optional[List[str]] = None):
         self.zip_file = zipfile.ZipFile(path, "r")
         self._field_names = ["system"]
         # check that we have at least one sample:
@@ -438,7 +494,23 @@ class DiskDataset(torch.utils.data.Dataset):
         for file_name in self.zip_file.namelist():
             if file_name.startswith("0/") and file_name.endswith(".mts"):
                 self._field_names.append(file_name[2:-4])
-        self._sample_class = namedtuple("Sample", self._field_names)
+
+        # Determine which fields are going to be read
+        if fields is None:
+            self._fields_to_read = self._field_names
+        else:
+            # Check that the requested fields are present in the dataset
+            fields = ["system", *fields]
+            missing_fields = set(fields) - set(self._field_names)
+            if missing_fields:
+                raise ValueError(
+                    f"Fields {list(missing_fields)} were requested but "
+                    "are not present in this disk dataset. "
+                    f"Available fields: {self._field_names[1:]}"
+                )
+            self._fields_to_read = fields
+
+        self._sample_class = namedtuple("Sample", self._fields_to_read)
         self._len = len([f for f in self.zip_file.namelist() if f.endswith(".mta")])
 
     def __len__(self):
@@ -446,7 +518,7 @@ class DiskDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         system_and_targets = []
-        for field_name in self._field_names:
+        for field_name in self._fields_to_read:
             if field_name == "system":
                 with self.zip_file.open(f"{index}/system.mta", "r") as file:
                     system = load_system(file)

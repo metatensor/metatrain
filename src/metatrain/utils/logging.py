@@ -76,6 +76,15 @@ class WandbHandler(logging.Handler):
         super().__init__()
         self.run = run
 
+    def _clean_key(self, key: str) -> str:
+        for prefix in ["training", "test", "validation"]:
+            if key.startswith(prefix + " "):
+                return key.replace(prefix + " ", prefix + "/", 1)
+        return key
+
+    def _clean_unit(self, unit: str) -> str:
+        return unit.replace("/", " per ") if unit else unit
+
     def emit(self, record: logging.LogRecord):
         """Override default behavior to ignore standard log records."""
         pass
@@ -91,11 +100,19 @@ class WandbHandler(logging.Handler):
 
         data = {}
         for key, value, unit in zip(keys, values, units):
-            name = f"{key} [{unit}]" if unit else key
+            # Cleanup to prevent from grouping metrics by text before the last "/".
+            clean_key = self._clean_key(key)
+            clean_unit = self._clean_unit(unit)
+
+            name = f"{clean_key} [{clean_unit}]" if clean_unit else clean_key
             data[name] = float(value)
 
         epoch = int(data.pop("Epoch"))
         self.run.log(data, step=epoch, commit=True)
+
+    def close(self):
+        super().close()
+        self.run.finish()
 
 
 class CustomLogger(logging.Logger):
@@ -146,6 +163,8 @@ class MetricLogger:
             and units
         :param initial_metrics: initial training metrics
         :param names: names of the metrics (e.g., "train", "validation")
+        :param scales: scales for the metrics. If not provided, all metrics will be
+            scaled by 1.0
         """
         self.log_obj = log_obj
 
@@ -183,19 +202,22 @@ class MetricLogger:
         for name, metrics_dict in zip(names, initial_metrics):
             for key, value in metrics_dict.items():
                 value *= scales[key]
-                target_name = key.split(" ", 1)[0]
-                if key == "loss":
-                    # losses will be printed in scientific notation
-                    continue
-                unit = self._get_units(target_name)
-                value, unit = ev_to_mev(value, unit)
-                self.digits[f"{name}_{key}"] = _get_digits(value)
+                target_name = key.split(maxsplit=1)[0]
+
+                # Check if key is part of the model outputs, only then we can get units
+                if target_name in self.model_outputs or target_name.endswith(
+                    "_gradients"
+                ):
+                    unit = self._get_units(target_name)
+                    value, unit = ev_to_mev(value, unit)
+                    self.digits[f"{name}_{key}"] = _get_digits(value)
 
     def log(
         self,
         metrics: Union[Dict[str, float], List[Dict[str, float]]],
         epoch: Optional[int] = None,
         rank: Optional[int] = None,
+        learning_rate: Optional[float] = None,
     ):
         """
         Log the metrics.
@@ -222,24 +244,31 @@ class MetricLogger:
             values.append(f"{epoch:4}")
             units.append("")
 
+        if learning_rate is not None:
+            keys.append("learning rate")
+            values.append(f"{learning_rate:.3e}")
+            units.append("")
+
         if isinstance(metrics, dict):
             metrics = [metrics]
 
-        is_loss = False
+        is_training = False
         for name, metrics_dict in zip(self.names, metrics):
             for key in _sort_metric_names(metrics_dict.keys()):
                 value = metrics_dict[key] * self.scales[key]
 
+                key_split = key.split(maxsplit=1)
+                target_name = key_split[0]
+
+                # Use "loss" key to identify training or evaluation metrics.
                 if key == "loss":
-                    is_loss = True
+                    is_training = True
 
-                    # avoiding double spaces: only include non-empty strings (`if p`),
-                    keys.append(" ".join(p for p in [name, key] if p))
-                    values.append(f"{value:.3e}")
-                    units.append("")
-
-                else:  # special case: not a metric associated with a target
-                    target_name, metric = key.split(" ", 1)
+                # Not a metric associated with a target
+                if target_name in self.model_outputs or target_name.endswith(
+                    "_gradients"
+                ):
+                    metric = key_split[1]
                     external_name = to_external_name(target_name, self.model_outputs)  # type: ignore # noqa: E501
                     keys.append(" ".join(p for p in [name, external_name, metric] if p))
 
@@ -250,8 +279,13 @@ class MetricLogger:
                         f"{value:{self.digits[f'{name}_{key}'][0]}.{self.digits[f'{name}_{key}'][1]}f}"  # noqa: E501
                     )
                     units.append(unit)
+                else:
+                    # avoiding double spaces: only include non-empty strings (`if p`),
+                    keys.append(" ".join(p for p in [name, key] if p))
+                    values.append(f"{value:.3e}")
+                    units.append("")
 
-        if is_loss and isinstance(self.log_obj, CustomLogger):
+        if is_training and isinstance(self.log_obj, CustomLogger):
             self.log_obj.data(keys, values, units)
 
         # add space between value and unit only if the unit is not empty. Avoiding
@@ -421,3 +455,36 @@ def _sort_metric_names(name_list):
     # add the rest
     sorted_name_list.extend(sorted_remaining_name_list)
     return sorted_name_list
+
+
+def human_readable(n: Union[int, float]) -> str:
+    """Convert a number to a human-readable format with suffixes.
+
+    This function takes a number and formats it into a string with metric
+    suffixes (K for thousands, M for millions, B for billions, T for trillions).
+
+    :param n: The number to be converted.
+    :return: The human-readable string representation of the number.
+
+    """
+    suffixes = ["", "K", "M", "B", "T"]
+    idx = 0
+    x = float(n)
+
+    # repeatedly divide by 1000 to find the right suffix
+    while abs(x) >= 1000 and idx < len(suffixes) - 1:
+        x /= 1000
+        idx += 1
+
+    # one decimal if the reduced value is under 100, else integer
+    if abs(x) < 100:
+        s = f"{x:.1f}".rstrip("0").rstrip(".")
+    else:
+        s = f"{int(round(x))}"
+
+    # handle cases like 999999 so it does not become "1000K"
+    if s == "1000" and idx < len(suffixes) - 1:
+        s = "1"
+        idx += 1
+
+    return f"{s}{suffixes[idx]}"

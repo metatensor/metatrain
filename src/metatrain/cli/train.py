@@ -4,8 +4,8 @@ import json
 import logging
 import os
 import random
+import re
 import shutil
-import time
 from pathlib import Path
 from typing import Dict, Optional, Union
 
@@ -38,7 +38,7 @@ from ..utils.io import (
     trainer_from_checkpoint,
 )
 from ..utils.jsonschema import validate
-from ..utils.logging import ROOT_LOGGER, WandbHandler
+from ..utils.logging import ROOT_LOGGER, WandbHandler, human_readable
 from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
 from .eval import _eval_targets
 from .export import _has_extensions
@@ -94,8 +94,8 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         type=_process_restart_from,
         required=False,
         help=(
-            "Checkpoint file (.ckpt) to continue interrupted training. "
-            "Set to `'auto'` to use latest checkpoint from the outputs directory."
+            "Checkpoint file (.ckpt) to continue interrupted training. Set to `'auto'` "
+            "to take the most recent checkpoint from the outputs directory."
         ),
     )
     parser.add_argument(
@@ -118,47 +118,26 @@ def _prepare_train_model_args(args: argparse.Namespace) -> None:
     args.options = OmegaConf.merge(args.options, override_options)
 
 
-def _process_restart_from(restart_from: str) -> Optional[str]:
-    # covers the case where `restart_from` is `auto`
-    if restart_from == "auto":
-        # try to find the `outputs` directory; if it doesn't exist
-        # then we are not continuing from a previous run
-        if Path("outputs/").exists():
-            # take the latest year-month-day directory
-            dir = sorted(Path("outputs/").iterdir())[-1]
-            # take the latest hour-minute-second directory
-            dir = sorted(dir.iterdir())[-1]
-            # take the latest checkpoint. This cannot be done with
-            # `sorted` because some checkpoint files are named with
-            # the epoch number (e.g. `epoch_10.ckpt` would be before
-            # `epoch_8.ckpt`). We therefore sort by file creation time.
-            new_restart_from = str(
-                sorted(dir.glob("*.ckpt"), key=lambda f: f.stat().st_ctime)[-1]
-            )
-            logging.info(f"Auto-continuing from `{new_restart_from}`")
-        else:
-            new_restart_from = None
-            logging.info(
-                "Auto-continuation did not find any previous runs, "
-                "training from scratch"
-            )
-        # sleep for a few seconds to allow all processes to catch up. This is
-        # necessary because the `outputs` directory is created by the main
-        # process and the other processes might detect it by mistake if they're
-        # still executing this function
-        time.sleep(3)
-    else:
-        new_restart_from = restart_from
+def _process_restart_from(restart_from: str) -> Optional[Union[str, Path]]:
+    if restart_from != "auto":
+        return restart_from
 
-    return new_restart_from
+    pattern = re.compile(r".*\d{4}-\d{2}-\d{2}/\d{2}-\d{2}-\d{2}/*")
+    checkpoints = sorted(
+        (f for f in Path("outputs").glob("*/*/*.ckpt") if pattern.match(str(f))),
+        key=lambda f: f.stat().st_mtime,
+        reverse=True,
+    )
+
+    return checkpoints[0] if checkpoints else None
 
 
 def train_model(
     options: Union[DictConfig, Dict],
-    output: str = "model.pt",
-    extensions: str = "extensions/",
+    output: Union[str, Path] = "model.pt",
+    extensions: Union[str, Path] = "extensions/",
     checkpoint_dir: Union[str, Path] = ".",
-    restart_from: Optional[str] = None,
+    restart_from: Optional[Union[str, Path]] = None,
 ) -> None:
     """Train an atomistic machine learning model using provided ``options``.
 
@@ -174,6 +153,11 @@ def train_model(
         like the fully expanded training options for a later restart.
     :param restart_from: File to continue training from.
     """
+
+    output = Path(check_file_extension(filename=output, extension=".pt"))
+    extensions = Path(extensions)
+    checkpoint_dir = Path(checkpoint_dir)
+
     ###########################
     # VALIDATE BASE OPTIONS ###
     ###########################
@@ -464,9 +448,13 @@ def train_model(
     ###########################
 
     if is_main_process():
+        logging.info(
+            "Restart options: "
+            f"{checkpoint_dir.absolute().resolve() / 'options_restart.yaml'}"
+        )
         OmegaConf.save(
             config=options,
-            f=Path(checkpoint_dir) / "options_restart.yaml",
+            f=checkpoint_dir / "options_restart.yaml",
             resolve=True,
         )
 
@@ -494,16 +482,40 @@ def train_model(
     try:
         if training_context == "restart" and restart_from is not None:
             logging.info(f"Restarting training from '{restart_from}'")
-            model = model_from_checkpoint(path=restart_from, context=training_context)
-            model = model.restart(dataset_info)
-            trainer = trainer_from_checkpoint(
-                path=restart_from,
-                hypers=hypers["training"],
-                context=training_context,  # type: ignore
+            checkpoint = torch.load(
+                restart_from, weights_only=False, map_location="cpu"
             )
+            try:
+                model = model_from_checkpoint(checkpoint, context="restart")
+            except Exception as e:
+                raise ValueError(
+                    f"The file {restart_from} does not contain a valid checkpoint for "
+                    f"the '{architecture_name}' architecture"
+                ) from e
+            model = model.restart(dataset_info)
+            try:
+                trainer = trainer_from_checkpoint(
+                    checkpoint=checkpoint,
+                    hypers=hypers["training"],
+                    context=training_context,  # type: ignore
+                )
+            except Exception as e:
+                raise ValueError(
+                    f"The file {restart_from} does not contain a valid checkpoint for "
+                    f"the '{architecture_name}' trainer state"
+                ) from e
         elif training_context == "finetune" and restart_from is not None:
             logging.info(f"Starting finetuning from '{restart_from}'")
-            model = model_from_checkpoint(path=restart_from, context=training_context)
+            checkpoint = torch.load(
+                restart_from, weights_only=False, map_location="cpu"
+            )
+            try:
+                model = model_from_checkpoint(checkpoint, context="finetune")
+            except Exception as e:
+                raise ValueError(
+                    f"The file {restart_from} does not contain a valid checkpoint for "
+                    f"the '{architecture_name}' architecture"
+                ) from e
             model = model.restart(dataset_info)
             trainer = Trainer(hypers["training"])
         else:
@@ -511,12 +523,12 @@ def train_model(
             model = Model(hypers["model"], dataset_info)
             trainer = Trainer(hypers["training"])
     except Exception as e:
-        raise ArchitectureError(e)
+        raise ArchitectureError(e) from e
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logging.info(
         (
-            f"The model has {_human_readable(n_params)} parameters "
+            f"The model has {human_readable(n_params)} parameters "
             f"(actual number: {n_params})."
         )
     )
@@ -526,6 +538,10 @@ def train_model(
     ###########################
 
     logging.info("Calling trainer")
+    logging.info(
+        "Intermediate checkpoints (if available): "
+        f"{checkpoint_dir.absolute().resolve()}"
+    )
     try:
         trainer.train(
             model=model,
@@ -536,7 +552,7 @@ def train_model(
             checkpoint_dir=str(checkpoint_dir),
         )
     except Exception as e:
-        raise ArchitectureError(e)
+        raise ArchitectureError(e) from e
 
     if not is_main_process():
         return  # only save and evaluate on the main process
@@ -545,59 +561,53 @@ def train_model(
     # SAVE FINAL MODEL ########
     ###########################
 
-    output_checked = check_file_extension(filename=output, extension=".pt")
-    logging.info(
-        "Training finished, saving final checkpoint "
-        f"to `{str(Path(output_checked).stem)}.ckpt`"
-    )
+    logging.info("Training finished!")
+
+    checkpoint_output = output.with_suffix(".ckpt")
     try:
-        trainer.save_checkpoint(model, f"{Path(output_checked).stem}.ckpt")
+        trainer.save_checkpoint(model, checkpoint_output)
     except Exception as e:
         raise ArchitectureError(e)
 
-    mts_atomistic_model = model.export()
-    if _has_extensions():
-        extensions_path = str(Path(extensions).absolute().resolve())
-    else:
-        extensions_path = None
+    if checkpoint_output.exists():
+        # Reload ensuring (best) model intended for inference
+        model = load_model(checkpoint_output)
 
-    if extensions_path is not None:
-        logging.info(
-            f"Exporting model to `{output_checked}` and extensions to "
-            f"`{extensions_path}`"
-        )
-    else:
-        logging.info(f"Exporting model to `{output_checked}`")
-    # get device from the model. This device could be different from devices[0]
-    # defined above in the case of multi-GPU and/or distributed training
+        logging.info(f"Final checkpoint: {checkpoint_output.absolute().resolve()}")
+
+    mts_atomistic_model = model.export()
+    # Final device could be different from devices[0] defined above in the case of
+    # multi-GPU and/or distributed training
     final_device = next(
         itertools.chain(
             mts_atomistic_model.parameters(),
             mts_atomistic_model.buffers(),
         )
     ).device
-    mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
-    # the model is first saved and then reloaded 1) for good practice and 2) because
-    # AtomisticModel only torchscripts (makes faster) during save()
 
-    # Copy the exported model and the checkpoint also to the checkpoint directory
-    checkpoint_path = Path(checkpoint_dir)
-    if checkpoint_path != Path("."):
-        shutil.copy(output_checked, Path(checkpoint_dir) / output_checked)
-        if Path(f"{Path(output_checked).stem}.ckpt").exists():
-            # inside the if because some models don't have a checkpoint (e.g., GAP)
-            shutil.copy(
-                f"{Path(output_checked).stem}.ckpt",
-                Path(checkpoint_dir) / f"{Path(output_checked).stem}.ckpt",
-            )
+    # model is first saved and then reloaded 1) for good practice and 2) because
+    # `AtomisticModel` only torchscripts (makes faster) during `save()`
+    mts_atomistic_model.save(
+        file=output,
+        collect_extensions=extensions if _has_extensions() else None,
+    )
+
+    logging.info(f"Exported model: {output.absolute().resolve()}")
+    if extensions.exists():
+        logging.info(f"Extensions path: {extensions.absolute().resolve()}")
+
+    if checkpoint_dir.absolute().resolve() != Path.cwd():
+        shutil.copy(output, checkpoint_dir / output)
+        if checkpoint_output.exists():
+            shutil.copy(checkpoint_output, checkpoint_dir / checkpoint_output)
 
     ###########################
     # EVALUATE FINAL MODEL ####
     ###########################
 
     mts_atomistic_model = load_model(
-        path=output_checked,
-        extensions_directory=extensions_path,
+        path=output,
+        extensions_directory=extensions if _has_extensions() else None,
     )
     mts_atomistic_model = mts_atomistic_model.to(final_device)
 
@@ -670,23 +680,3 @@ def _get_batch_size_from_hypers(hypers: Union[Dict, DictConfig]) -> Optional[int
         ):
             return value
     return None
-
-
-def _human_readable(n):
-    """
-    Turn a number into a human-friendly string
-    """
-    suffixes = ["", "K", "M", "B", "T"]
-    if n == 0:
-        return "0"
-    # figure out which suffix to use
-    idx = min(int(np.log10(abs(n)) // 3), len(suffixes) - 1)
-    value = n / (1000**idx)
-    # pick formatting: one decimal if <10, otherwise integer with commas
-    if value < 10:
-        s = f"{value:.1f}"
-    else:
-        s = f"{int(value):,d}"
-    # drop any trailing ".0"
-    s = s.rstrip(".0")
-    return f"{s}{suffixes[idx]}"

@@ -1,8 +1,9 @@
+import logging
 import warnings
 from math import prod
 from typing import Any, Dict, List, Literal, Optional
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.operations._add import _add_block_block
@@ -24,6 +25,7 @@ from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
+from . import checkpoints
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import remap_neighborlists, systems_to_batch
 from .modules.transformer import CartesianTransformer
@@ -39,6 +41,7 @@ class PET(ModelInterface):
 
     """
 
+    __checkpoint_version__ = 4
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -46,11 +49,10 @@ class PET(ModelInterface):
     )
     component_labels: Dict[str, List[List[Labels]]]
 
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__()
-        self.dataset_info = dataset_info
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
+
         self.atomic_types = dataset_info.atomic_types
-        self.hypers = model_hypers
         self.requested_nl = NeighborListOptions(
             cutoff=self.hypers["cutoff"],
             full_list=True,
@@ -130,7 +132,7 @@ class PET(ModelInterface):
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
         composition_model = CompositionModel(
-            model_hypers={},
+            hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
@@ -162,9 +164,11 @@ class PET(ModelInterface):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
+        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
+
+        self.finetune_config: Dict[str, Any] = {}
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -211,9 +215,7 @@ class PET(ModelInterface):
 
         return self
 
-    def requested_neighbor_lists(
-        self,
-    ) -> List[NeighborListOptions]:
+    def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
 
     def forward(
@@ -622,7 +624,7 @@ class PET(ModelInterface):
 
         if selected_atoms is not None:
             for output_name, tmap in atomic_predictions_tmap_dict.items():
-                atomic_predictions_tmap_dict[output_name] = metatensor.torch.slice(
+                atomic_predictions_tmap_dict[output_name] = mts.slice(
                     tmap, axis="samples", selection=selected_atoms
                 )
 
@@ -685,20 +687,23 @@ class PET(ModelInterface):
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
     ) -> "PET":
-        model_data = checkpoint["model_data"]
-
         if context == "restart":
+            logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
-        elif context == "finetune" or context == "export":
+        elif context in {"finetune", "export"}:
+            logging.info(f"Using best model from epoch {checkpoint['best_epoch']}")
             model_state_dict = checkpoint["best_model_state_dict"]
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
-        finetune_config = checkpoint["train_hypers"].get("finetune", {})
-
         # Create the model
-        model = cls(**model_data)
+        model_data = checkpoint["model_data"]
+        model = cls(
+            hypers=model_data["model_hypers"],
+            dataset_info=model_data["dataset_info"],
+        )
 
+        finetune_config = model_state_dict.pop("finetune_config", {})
         if finetune_config:
             # Apply the finetuning strategy
             model = apply_finetuning_strategy(model, finetune_config)
@@ -709,9 +714,7 @@ class PET(ModelInterface):
         model.additive_models[0].sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
-        metadata = checkpoint.get("metadata", None)
-        if metadata is not None:
-            model.__default_metadata__ = metadata
+        model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
 
         return model
 
@@ -727,9 +730,7 @@ class PET(ModelInterface):
 
         # Additionally, the composition model contains some `TensorMap`s that cannot
         # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0]._move_weights_to_device_and_dtype(
-            torch.device("cpu"), torch.float64
-        )
+        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
         for additive_model in self.additive_models:
@@ -746,10 +747,7 @@ class PET(ModelInterface):
             dtype=dtype_to_str(dtype),
         )
 
-        if metadata is None:
-            metadata = self.__default_metadata__
-        else:
-            metadata = merge_metadata(self.__default_metadata__, metadata)
+        metadata = merge_metadata(self.metadata, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 
@@ -888,3 +886,38 @@ class PET(ModelInterface):
             values=sample_values,
         )
         return system_indices, sample_labels
+
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
+
+        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current model "
+                f"version is {cls.__checkpoint_version__}."
+            )
+
+        return checkpoint
+
+    def get_checkpoint(self) -> Dict:
+        model_state_dict = self.state_dict()
+        model_state_dict["finetune_config"] = self.finetune_config
+        checkpoint = {
+            "architecture_name": "pet",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.metadata,
+            "model_data": {
+                "model_hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "epoch": None,
+            "best_epoch": None,
+            "model_state_dict": model_state_dict,
+            "best_model_state_dict": self.state_dict(),
+        }
+        return checkpoint

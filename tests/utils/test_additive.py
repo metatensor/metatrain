@@ -1,13 +1,12 @@
 import logging
 from pathlib import Path
 
-import metatensor.torch
+import metatensor.torch as mts
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
-from torch.utils.data import DataLoader
 
 from metatrain.utils.additive import (
     ZBL,
@@ -15,7 +14,7 @@ from metatrain.utils.additive import (
     OldCompositionModel,
     remove_additive,
 )
-from metatrain.utils.data import CollateFn, Dataset, DatasetInfo
+from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -28,6 +27,37 @@ from metatrain.utils.neighbor_lists import (
 
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
+
+
+def test_composition_model_float32_error():
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ).to(torch.float32),
+    ]
+    energies = [1.0]
+    dataset = Dataset.from_dict({"system": systems, "energy": energies})
+
+    composition_model = CompositionModel(
+        hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 8],
+            targets={"energy": get_energy_target_info({"unit": "eV"})},
+        ),
+    )
+    with pytest.raises(
+        ValueError,
+        match=(
+            "The composition model only supports float64 "
+            "during training. Got dtype: torch.float32."
+        ),
+    ):
+        # This should raise an error because the systems are in float32
+        composition_model.train_model(dataset, [], batch_size=1, is_distributed=False)
 
 
 def test_old_composition_model_train():
@@ -89,7 +119,7 @@ def test_old_composition_model_train():
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -155,7 +185,8 @@ def test_old_composition_model_train():
     )
 
 
-def test_composition_model_train():
+@pytest.mark.parametrize("fixed_weights", [True, False])
+def test_composition_model_train(fixed_weights):
     """Test the calculation of composition weights for a per-structure scalar."""
 
     # Here we use three synthetic structures:
@@ -212,11 +243,9 @@ def test_composition_model_train():
         for i, e in enumerate(energies)
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
-    collate_fn = CollateFn(target_keys=["energy"])
-    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -237,7 +266,45 @@ def test_composition_model_train():
         pbc=torch.tensor([True, True, True]),
     )
 
-    composition_model.train_model(dataloader, additive_models=[])
+    if fixed_weights:
+        fixed_weights = {"energy": {1: 2.0, 8: 1.0}}
+    else:
+        fixed_weights = None
+
+    composition_model.train_model(
+        dataset, [], batch_size=1, is_distributed=False, fixed_weights=fixed_weights
+    )
+    assert composition_model.atomic_types == [1, 8]
+    output_H = composition_model(
+        [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+    )
+    torch.testing.assert_close(
+        output_H["energy"].block().values, torch.tensor([[2.0]], dtype=torch.float64)
+    )
+    output_O = composition_model(
+        [system_O], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+    )
+    torch.testing.assert_close(
+        output_O["energy"].block().values, torch.tensor([[1.0]], dtype=torch.float64)
+    )
+
+    composition_model.train_model([dataset], [], batch_size=1, is_distributed=False)
+    output_H = composition_model(
+        [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+    )
+    torch.testing.assert_close(
+        output_H["energy"].block().values, torch.tensor([[2.0]], dtype=torch.float64)
+    )
+    output_O = composition_model(
+        [system_O], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+    )
+    torch.testing.assert_close(
+        output_O["energy"].block().values, torch.tensor([[1.0]], dtype=torch.float64)
+    )
+
+    composition_model.train_model(
+        [dataset, dataset, dataset], [], batch_size=1, is_distributed=False
+    )
     assert composition_model.atomic_types == [1, 8]
     output_H = composition_model(
         [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
@@ -279,7 +346,7 @@ def test_old_composition_model_predict():
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 6, 7, 8],
@@ -308,7 +375,7 @@ def test_old_composition_model_predict():
     assert output["mtt::U0"].block().values.shape != (5, 1)
 
     # with selected_atoms
-    selected_atoms = metatensor.torch.Labels(
+    selected_atoms = mts.Labels(
         names=["system", "atom"],
         values=torch.tensor([[0, 0]]),
     )
@@ -332,8 +399,12 @@ def test_old_composition_model_predict():
     assert output["mtt::U0"].block().values.shape == (1, 1)
 
 
-def test_composition_model_predict():
+@pytest.mark.parametrize("device", ("cpu", "cuda"))
+def test_composition_model_predict(device):
     """Test the prediction of composition energies."""
+
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
 
     dataset_path = RESOURCES_PATH / "qm9_reduced_100.xyz"
     systems = read_systems(dataset_path)
@@ -356,67 +427,158 @@ def test_composition_model_predict():
     }
     targets, target_info = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
-    collate_fn = CollateFn(target_keys=["mtt::U0"])
-    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 6, 7, 8],
             targets=target_info,
         ),
     )
+    composition_model.train_model(
+        [dataset], additive_models=[], batch_size=1, is_distributed=False
+    )
 
-    composition_model.train_model(dataloader, additive_models=[])
+    systems_to_predict = [system.to(device=device) for system in systems[:5]]
 
     # per_atom = False
     output = composition_model(
-        systems[:5],
+        systems_to_predict,
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
     )
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system"]
     assert output["mtt::U0"].block().values.shape == (5, 1)
+    assert output["mtt::U0"].block().values.device.type == device
 
     # per_atom = True
     output = composition_model(
-        systems[:5],
+        systems_to_predict,
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
     )
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system", "atom"]
     assert output["mtt::U0"].block().values.shape != (5, 1)
+    assert output["mtt::U0"].block().values.device.type == device
 
     # with selected_atoms
-    selected_atoms = metatensor.torch.Labels(
+    selected_atoms = mts.Labels(
         names=["system", "atom"],
         values=torch.tensor([[0, 0]]),
-    )
+    ).to(device=device)
 
     output = composition_model(
-        systems[:5],
+        systems_to_predict,
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
         selected_atoms=selected_atoms,
     )
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system", "atom"]
     assert output["mtt::U0"].block().values.shape == (1, 1)
-
-    # with selected_atoms
-    selected_atoms = metatensor.torch.Labels(
-        names=["system"],
-        values=torch.tensor([[0]]),
-    )
+    assert output["mtt::U0"].block().values.device.type == device
 
     output = composition_model(
-        systems[:5],
+        systems_to_predict,
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
         selected_atoms=selected_atoms,
     )
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system"]
     assert output["mtt::U0"].block().values.shape == (1, 1)
+    assert output["mtt::U0"].block().values.device.type == device
+
+
+def test_composition_model_predict_consistency():
+    """Test the prediction consistency between the old and new composition model."""
+
+    dataset_path = RESOURCES_PATH / "qm9_reduced_100.xyz"
+    systems = read_systems(dataset_path)
+
+    conf = {
+        "mtt::U0": {
+            "quantity": "energy",
+            "read_from": dataset_path,
+            "file_format": ".xyz",
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets, target_info = read_targets(OmegaConf.create(conf))
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets=target_info,
+    )
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
+
+    # Init and train the old composition model
+    old_composition_model = OldCompositionModel(
+        hypers={},
+        dataset_info=dataset_info,
+    )
+    old_composition_model.train_model(dataset, [])
+
+    # Init and train the new composition model
+    new_composition_model = CompositionModel(
+        hypers={},
+        dataset_info=dataset_info,
+    )
+    new_composition_model.train_model(
+        [dataset], additive_models=[], batch_size=1, is_distributed=False
+    )
+
+    n_structures = 100
+    n_atoms = sum([len(system.positions) for system in systems[:n_structures]])
+
+    for per_atom, selected_atoms, sample_names, shape in [
+        [True, None, ["system", "atom"], (n_atoms, 1)],
+        [False, None, ["system"], (n_structures, 1)],
+        [
+            True,
+            Labels(names=["system", "atom"], values=torch.tensor([[0, 0], [1, 1]])),
+            ["system", "atom"],
+            (2, 1),
+        ],
+        [
+            False,
+            Labels(names=["system", "atom"], values=torch.tensor([[0, 0], [1, 1]])),
+            ["system"],
+            (2, 1),
+        ],
+    ]:
+        output_options = {
+            "mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=per_atom)
+        }
+        old_output = old_composition_model(
+            systems[:n_structures],
+            output_options,
+            selected_atoms=selected_atoms,
+        )
+        assert "mtt::U0" in old_output
+        assert old_output["mtt::U0"].block().samples.names == sample_names
+        assert old_output["mtt::U0"].block().values.shape == shape
+
+        new_output = new_composition_model(
+            systems[:n_structures],
+            output_options,
+            selected_atoms=selected_atoms,
+        )
+        assert "mtt::U0" in new_output
+        assert new_output["mtt::U0"].block().samples.names == sample_names
+        assert new_output["mtt::U0"].block().values.shape == shape
+
+        # Check that the outputs are consistent
+        assert torch.allclose(
+            old_output["mtt::U0"].block().values, new_output["mtt::U0"].block().values
+        )
 
 
 def test_old_composition_model_torchscript(tmpdir):
@@ -429,7 +591,7 @@ def test_old_composition_model_torchscript(tmpdir):
     )
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -460,7 +622,7 @@ def test_composition_model_torchscript(tmpdir):
     )
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -507,7 +669,7 @@ def test_old_remove_additive():
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 6, 7, 8],
@@ -517,7 +679,7 @@ def test_old_remove_additive():
     composition_model.train_model(dataset, [])
 
     # concatenate all targets
-    targets["mtt::U0"] = metatensor.torch.join(targets["mtt::U0"], axis="samples")
+    targets["mtt::U0"] = mts.join(targets["mtt::U0"], axis="samples")
 
     std_before = targets["mtt::U0"].block().values.std().item()
     remove_additive(systems, targets, composition_model, target_info)
@@ -552,21 +714,21 @@ def test_remove_additive():
     }
     targets, target_info = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
-    collate_fn = CollateFn(target_keys=["mtt::U0"])
-    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 6, 7, 8],
             targets=target_info,
         ),
     )
-    composition_model.train_model(dataloader, additive_models=[])
+    composition_model.train_model(
+        [dataset], additive_models=[], batch_size=1, is_distributed=False
+    )
 
     # concatenate all targets
-    targets["mtt::U0"] = metatensor.torch.join(targets["mtt::U0"], axis="samples")
+    targets["mtt::U0"] = mts.join(targets["mtt::U0"], axis="samples")
 
     std_before = targets["mtt::U0"].block().values.std().item()
     remove_additive(systems, targets, composition_model, target_info)
@@ -639,7 +801,7 @@ def test_old_composition_model_missing_types(caplog):
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1],
@@ -653,7 +815,7 @@ def test_old_composition_model_missing_types(caplog):
         composition_model.train_model(dataset, [])
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8, 100],
@@ -726,11 +888,9 @@ def test_composition_model_missing_types(caplog):
         for i, e in enumerate(energies)
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
-    collate_fn = CollateFn(target_keys=["energy"])
-    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1],
@@ -741,7 +901,7 @@ def test_composition_model_missing_types(caplog):
         ValueError,
         match="unexpected atom types",
     ):
-        composition_model.train_model(dataloader, [])
+        composition_model.train_model([dataset], [], batch_size=1, is_distributed=False)
 
 
 def test_old_composition_model_wrong_target():
@@ -750,7 +910,7 @@ def test_old_composition_model_wrong_target():
     """
     with pytest.raises(ValueError, match="does not support target quantity force"):
         OldCompositionModel(
-            model_hypers={},
+            hypers={},
             dataset_info=DatasetInfo(
                 length_unit="angstrom",
                 atomic_types=[1],
@@ -775,7 +935,7 @@ def test_composition_model_wrong_target():
     """
     with pytest.raises(ValueError, match="does not support target quantity force"):
         CompositionModel(
-            model_hypers={},
+            hypers={},
             dataset_info=DatasetInfo(
                 length_unit="angstrom",
                 atomic_types=[1],
@@ -820,7 +980,7 @@ def test_zbl():
     _, target_info = read_targets(OmegaConf.create(conf))
 
     zbl = ZBL(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 6, 7, 8],
@@ -841,7 +1001,7 @@ def test_zbl():
     assert output["mtt::U0"].block().values.shape != (5, 1)
 
     # with selected_atoms
-    selected_atoms = metatensor.torch.Labels(
+    selected_atoms = mts.Labels(
         names=["system", "atom"],
         values=torch.tensor([[0, 0]]),
     )
@@ -937,18 +1097,14 @@ def test_old_composition_model_train_per_atom(where_is_center_type):
         tensor_map_1 = tensor_map_1.keys_to_samples("center_type")
         tensor_map_2 = tensor_map_2.keys_to_samples("center_type")
     if where_is_center_type == "nowhere":
-        tensor_map_1 = metatensor.torch.remove_dimension(
-            tensor_map_1, "samples", "center_type"
-        )
-        tensor_map_2 = metatensor.torch.remove_dimension(
-            tensor_map_2, "samples", "center_type"
-        )
+        tensor_map_1 = mts.remove_dimension(tensor_map_1, "samples", "center_type")
+        tensor_map_2 = mts.remove_dimension(tensor_map_2, "samples", "center_type")
 
     energies = [tensor_map_1, tensor_map_2]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -1058,20 +1214,14 @@ def test_composition_model_train_per_atom(where_is_center_type):
         tensor_map_1 = tensor_map_1.keys_to_samples("center_type")
         tensor_map_2 = tensor_map_2.keys_to_samples("center_type")
     if where_is_center_type == "nowhere":
-        tensor_map_1 = metatensor.torch.remove_dimension(
-            tensor_map_1, "samples", "center_type"
-        )
-        tensor_map_2 = metatensor.torch.remove_dimension(
-            tensor_map_2, "samples", "center_type"
-        )
+        tensor_map_1 = mts.remove_dimension(tensor_map_1, "samples", "center_type")
+        tensor_map_2 = mts.remove_dimension(tensor_map_2, "samples", "center_type")
 
     energies = [tensor_map_1, tensor_map_2]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
-    collate_fn = CollateFn(target_keys=["energy"])
-    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -1102,7 +1252,7 @@ def test_composition_model_train_per_atom(where_is_center_type):
         pbc=torch.tensor([True, True, True]),
     )
 
-    composition_model.train_model(dataloader, [])
+    composition_model.train_model([dataset], [], batch_size=1, is_distributed=False)
     assert composition_model.atomic_types == [1, 8]
     output_H = composition_model(
         [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
@@ -1179,7 +1329,7 @@ def test_old_composition_many_subtargets():
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -1287,11 +1437,9 @@ def test_composition_many_subtargets():
         for i, e in enumerate(energies)
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
-    collate_fn = CollateFn(target_keys=["energy"])
-    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -1322,7 +1470,7 @@ def test_composition_many_subtargets():
         pbc=torch.tensor([True, True, True]),
     )
 
-    composition_model.train_model(dataloader, [])
+    composition_model.train_model([dataset], [], batch_size=1, is_distributed=False)
     assert composition_model.atomic_types == [1, 8]
     output_H = composition_model(
         [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
@@ -1418,7 +1566,7 @@ def test_old_composition_spherical():
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -1558,11 +1706,9 @@ def test_composition_spherical():
         for i, e in enumerate(energies)
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
-    collate_fn = CollateFn(target_keys=["energy"])
-    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -1600,7 +1746,7 @@ def test_composition_spherical():
         pbc=torch.tensor([True, True, True]),
     )
 
-    composition_model.train_model(dataloader, [])
+    composition_model.train_model([dataset], [], batch_size=1, is_distributed=False)
     assert composition_model.atomic_types == [1, 8]
     output_H = composition_model(
         [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}

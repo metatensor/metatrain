@@ -2,10 +2,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
-import metatensor
-import metatensor.torch
+import metatensor.torch as mts
 import torch
-from metatensor.torch import TensorMap
 
 from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
@@ -16,12 +14,13 @@ from metatrain.utils.neighbor_lists import (
 )
 
 from . import GAP
-from .model import torch_tensor_map_to_core
 
 
 class Trainer(TrainerInterface):
-    def __init__(self, train_hypers):
-        self.hypers = train_hypers
+    __checkpoint_version__ = 1
+
+    def __init__(self, hypers):
+        super().__init__(hypers)
 
     def train(
         self,
@@ -63,7 +62,7 @@ class Trainer(TrainerInterface):
                 "equivariant learning which is not supported yet."
             )
         train_dataset = train_datasets[0]
-        train_y = metatensor.torch.join(
+        train_y = mts.join(
             [sample[output_name] for sample in train_dataset],
             axis="samples",
             remove_tensor_name=True,
@@ -106,10 +105,6 @@ class Trainer(TrainerInterface):
         train_tensor = train_tensor.keys_to_properties(
             ["neighbor_1_type", "neighbor_2_type"]
         )
-        # change backend
-        train_tensor = TensorMap(train_y.keys, train_tensor.blocks())
-        train_tensor = torch_tensor_map_to_core(train_tensor)
-        train_y = torch_tensor_map_to_core(train_y)
 
         logging.info("Selecting sparse points")
         lens = len(train_tensor[0].values)
@@ -119,7 +114,7 @@ class Trainer(TrainerInterface):
                 f"should be smaller than the number of environments ({lens})"
             )
         sparse_points = model._sampler.fit_transform(train_tensor)
-        sparse_points = metatensor.operations.remove_gradients(sparse_points)
+        sparse_points = mts.remove_gradients(sparse_points)
         alpha_energy = self.hypers["regularizer"]
         if self.hypers["regularizer_forces"] is None:
             alpha_forces = alpha_energy
@@ -148,7 +143,11 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers_train: Dict[str, Any],
+        hypers: Dict[str, Any],
         context: Literal["restart", "finetune"],
     ) -> "GAP":
         raise ValueError("GAP does not allow restarting training")
+
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        raise NotImplementedError("checkpoint upgrade is not implemented for GAP")

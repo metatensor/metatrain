@@ -1,6 +1,6 @@
 from typing import Dict, List, Union
 
-import metatensor.torch
+import metatensor.torch as mts
 import numpy as np
 import torch
 from metatensor.torch import TensorMap
@@ -15,29 +15,28 @@ from .transfer import batch_to
 
 class Scaler(torch.nn.Module):
     """
-    A class that scales the targets of regression problems to unit standard
-    deviation.
+    A class that scales the targets of regression problems to unit standard deviation.
 
-    In most cases, this should be used in conjunction with a composition model
-    (that removes the multi-dimensional "mean" across the composition space) and/or
-    other additive models. See the `train_model` method for more details.
+    In most cases, this should be used in conjunction with a composition model (that
+    removes the multi-dimensional "mean" across the composition space) and/or other
+    additive models. See the `train_model` method for more details.
 
     The scaling is performed per-atom, i.e., in cases where the targets are
-    per-structure, the standard deviation is calculated on the targets divided by
-    the number of atoms in each structure.
+    per-structure, the standard deviation is calculated on the targets divided by the
+    number of atoms in each structure.
 
-    :param model_hypers: A dictionary of model hyperparameters. The paramater is ignored
-        and is only present to be consistent with the general model API.
+    :param hypers: A dictionary of model hyperparameters. This parameter is ignored and
+        is only present to be consistent with the general model API.
     :param dataset_info: An object containing information about the dataset, including
         target quantities and atomic types.
     """
 
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
 
-        # `model_hypers` should be an empty dictionary
+        # `hypers` should be an empty dictionary
         validate(
-            instance=model_hypers,
+            instance=hypers,
             schema={"type": "object", "additionalProperties": False},
         )
 
@@ -189,7 +188,7 @@ class Scaler(torch.nn.Module):
                 scale = float(
                     self.scales[self.output_name_to_output_index[target_key]].item()
                 )
-                scaled_target = metatensor.torch.multiply(target, scale)
+                scaled_target = mts.multiply(target, scale)
                 scaled_outputs[target_key] = scaled_target
             else:
                 scaled_outputs[target_key] = target
@@ -247,8 +246,6 @@ def remove_scale(
         scale = float(
             scaler.scales[scaler.output_name_to_output_index[target_key]].item()
         )
-        scaled_targets[target_key] = metatensor.torch.multiply(
-            targets[target_key], 1.0 / scale
-        )
+        scaled_targets[target_key] = mts.multiply(targets[target_key], 1.0 / scale)
 
     return scaled_targets

@@ -7,15 +7,17 @@ coverage:
       default:
         informational: true
   ignore:
+    # no need to report coverage of the test code themself
     - "tests/.*"
     - "examples/.*"
+    - "src/metatrain/utils/testing/.*"
+    # we don't check coverage for the architectures
     - "src/metatrain/deprecated/.*"
     - "src/metatrain/experimental/.*"
     - "src/metatrain/gap/.*"
     - "src/metatrain/pet/.*"
     - "src/metatrain/soap_bpnn/.*"
+    # we don't currently run distributed tests on CI
     - "src/metatrain/utils/distributed/.*"
-    - "src/metatrain/utils/sum_over_atoms.py"
-    - "src/metatrain/utils/augmentation.py"
 
 comment: false

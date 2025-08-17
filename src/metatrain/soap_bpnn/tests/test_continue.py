@@ -76,7 +76,8 @@ def test_continue(monkeypatch, tmp_path):
     )
 
     trainer.save_checkpoint(model, "temp.ckpt")
-    model_after = model_from_checkpoint("temp.ckpt", context="restart")
+    checkpoint = torch.load("temp.ckpt", weights_only=False, map_location="cpu")
+    model_after = model_from_checkpoint(checkpoint, context="restart")
     assert isinstance(model_after, SoapBpnn)
     model_after.restart(dataset_info)
 

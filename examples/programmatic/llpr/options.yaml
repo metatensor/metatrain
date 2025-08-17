@@ -11,11 +11,11 @@ architecture:
 
 # Section defining the parameters for system and target data
 training_set:
-  systems: "qm9_reduced_100.xyz"
+  systems: qm9_reduced_100.xyz
   targets:
     energy:
-      key: "U0"
-      unit: "hartree" # very important to run simulations
+      key: U0
+      unit: hartree  # very important to run simulations
 
 validation_set: 0.1
 test_set: 0.0
