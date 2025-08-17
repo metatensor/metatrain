@@ -1,6 +1,6 @@
 import warnings
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any, Literal
 
 import metatensor.torch
 import torch
@@ -17,7 +17,7 @@ from metatomic.torch import (
 from .modules.tensor_product import TensorProduct
 
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL, OldCompositionModel
+from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.io import check_file_extension
@@ -46,7 +46,7 @@ warnings.filterwarnings(
 
 
 class PhACE(ModelInterface):
-
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -58,7 +58,8 @@ class PhACE(ModelInterface):
     U_dict_parity: Dict[str, torch.Tensor]
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__()
+        super().__init__(model_hypers, dataset_info, self.__default_metadata__)
+        
         self.hypers = model_hypers
         self.dataset_info = dataset_info
         self.new_outputs = list(dataset_info.targets.keys())
@@ -178,15 +179,15 @@ class PhACE(ModelInterface):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = OldCompositionModel(
-            model_hypers={},
+        composition_model = CompositionModel(
+            hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if OldCompositionModel.is_valid_target(target_name, target_info)
+                    if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
@@ -196,7 +197,7 @@ class PhACE(ModelInterface):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
+        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
 
@@ -237,7 +238,7 @@ class PhACE(ModelInterface):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if OldCompositionModel.is_valid_target(target_info)
+                    if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
@@ -470,18 +471,38 @@ class PhACE(ModelInterface):
 
         return return_dict
 
-    @classmethod
-    def load_checkpoint(cls, path: Union[str, Path]) -> "PhACE":
+    def requested_neighbor_lists(
+        self,
+    ) -> List[NeighborListOptions]:
+        return [self.requested_nl]
 
-        # Load the checkpoint
-        checkpoint = torch.load(path)
-        model_hypers = checkpoint["model_hypers"]
-        model_state_dict = checkpoint["model_state_dict"]
+    @classmethod
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "SoapBpnn":
+        if context == "restart":
+            logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
+            model_state_dict = checkpoint["model_state_dict"]
+        elif context in {"finetune", "export"}:
+            logging.info(f"Using best model from epoch {checkpoint['best_epoch']}")
+            model_state_dict = checkpoint["best_model_state_dict"]
+        else:
+            raise ValueError("Unknown context tag for checkpoint loading!")
 
         # Create the model
-        model = cls(**model_hypers)
-        dtype = next(iter(model_state_dict["embeddings.weight"])).dtype
+        model_data = checkpoint["model_data"]
+        model = cls(
+            hypers=model_data["model_hypers"],
+            dataset_info=model_data["dataset_info"],
+        )
+        dtype = next(iter(model_state_dict.values())).dtype
         model.to(dtype).load_state_dict(model_state_dict)
+        model.additive_models[0].sync_tensor_maps()
+
+        # Loading the metadata from the checkpoint
+        model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
 
         return model
 
@@ -597,3 +618,23 @@ class PhACE(ModelInterface):
             },
             check_file_extension(path, ".ckpt"),
         )
+
+    def get_checkpoint(self) -> Dict:
+        checkpoint = {
+            "architecture_name": "phace",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.metadata,
+            "model_data": {
+                "model_hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "epoch": None,
+            "best_epoch": None,
+            "model_state_dict": self.state_dict(),
+            "best_model_state_dict": self.state_dict(),
+        }
+        return checkpoint
+    
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        return ValueError()

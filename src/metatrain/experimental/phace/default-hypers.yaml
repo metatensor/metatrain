@@ -35,6 +35,7 @@ architecture:
     scale_targets: true
     fixed_composition_weights: {}
     per_structure_targets: []
+    log_separate_blocks: False
     log_mae: False
     loss:
       type: mse
