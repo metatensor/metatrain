@@ -82,6 +82,7 @@ gap = [
 metamace = [
     "mace-torch",
     "cuequivariance-torch",
+    "e3nn==0.5.6",
 ]
 
 [tool.check-manifest]
