@@ -124,9 +124,12 @@ class MetaMACE(ModelInterface):
         #     )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
+        # scaler: this is also handled by the trainer at training time
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
+
+        self.finetune_config: Dict[str, Any] = {}
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -147,11 +150,12 @@ class MetaMACE(ModelInterface):
         if len(new_atomic_types) > 0:
             raise ValueError(
                 f"New atomic types found in the dataset: {new_atomic_types}. "
-                "The nanoPET model does not support adding new atomic types."
+                "The MetaMACE model does not support adding new atomic types."
             )
 
         # register new outputs as new last layers
         for target_name, target in new_targets.items():
+            self.target_names.append(target_name)
             self._add_output(target_name, target)
 
         self.dataset_info = merged_info
@@ -429,7 +433,7 @@ class MetaMACE(ModelInterface):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(return_dict)
+            return_dict = self.scaler(return_dict, remove=False)
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
                 for name, output in outputs.items():
@@ -470,11 +474,6 @@ class MetaMACE(ModelInterface):
 
         return return_dict
 
-    def requested_neighbor_lists(
-        self,
-    ) -> List[NeighborListOptions]:
-        return [self.requested_nl]
-
     @classmethod
     def load_checkpoint(
         cls,
@@ -511,7 +510,7 @@ class MetaMACE(ModelInterface):
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for NanoPET")
+            raise ValueError(f"unsupported dtype {dtype} for MetaMACE")
 
         # Make sure the model is all in the same dtype
         # For example, after training, the additive models could still be in
@@ -523,6 +522,9 @@ class MetaMACE(ModelInterface):
         self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         interaction_ranges = [self.hypers["num_interactions"] * self.hypers["cutoff"]]
+        for additive_model in self.additive_models:
+            if hasattr(additive_model, "cutoff_radius"):
+                interaction_ranges.append(additive_model.cutoff_radius)
         interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
@@ -587,10 +589,18 @@ class MetaMACE(ModelInterface):
     
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for MetaMACE")
+        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current model "
+                f"version is {cls.__checkpoint_version__}."
+            )
+
+        return checkpoint
 
     def get_checkpoint(self) -> Dict:
         model_state_dict = self.state_dict()
+        model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {
             "architecture_name": "experimental.metamace",
             "model_ckpt_version": self.__checkpoint_version__,
