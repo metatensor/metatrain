@@ -34,7 +34,27 @@ from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
 from .model import PhACE
+import math
 
+
+def get_scheduler(optimizer, train_hypers, steps_per_epoch):
+    total_steps = train_hypers["num_epochs"] * steps_per_epoch
+    warmup_steps = int(0.1 * total_steps)
+    min_lr_ratio = 0.0  # hardcoded for now
+
+    # 2. Define the LR schedule function
+    def lr_lambda(current_step: int):
+        if current_step < warmup_steps:
+            # Linear warmup
+            return float(current_step) / float(max(1, warmup_steps))
+        else:
+            # Cosine decay
+            progress = (current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+            cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+    return scheduler
 
 class Trainer(TrainerInterface):
     __checkpoint_version__ = 1
@@ -277,12 +297,8 @@ class Trainer(TrainerInterface):
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a scheduler:
-        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            factor=self.hypers["scheduler_factor"],
-            patience=self.hypers["scheduler_patience"],
-            threshold=0.001,
-        )
+        steps_per_epoch = len(train_dataloader)
+        lr_scheduler = get_scheduler(optimizer, self.hypers, steps_per_epoch)
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
             if not (model.module if is_distributed else model).has_new_targets:
@@ -359,6 +375,7 @@ class Trainer(TrainerInterface):
                         scripted_model.parameters(), self.hypers["gradient_clipping"]
                     )
                 optimizer.step()
+                lr_scheduler.step()
 
                 if is_distributed:
                     # sum the loss over all processes
@@ -466,29 +483,11 @@ class Trainer(TrainerInterface):
                     metrics=[finalized_train_info, finalized_val_info],
                     epoch=epoch,
                     rank=rank,
+                    learning_rate=old_lr,
                 )
 
-            lr_scheduler.step(val_loss)
             new_lr = lr_scheduler.get_last_lr()[0]
-            if new_lr != old_lr:
-                if new_lr < 1e-7:
-                    logging.info("Learning rate is too small, stopping training")
-                    break
-                else:
-                    logging.info(f"Changing learning rate from {old_lr} to {new_lr}")
-                    old_lr = new_lr
-                    # load best model and optimizer state dict, re-initialize scheduler
-                    (scripted_model.module if is_distributed else scripted_model).load_state_dict(
-                        self.best_model_state_dict
-                    )
-                    optimizer.load_state_dict(self.best_optimizer_state_dict)
-                    for param_group in optimizer.param_groups:
-                        param_group["lr"] = new_lr
-                    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                        optimizer,
-                        factor=self.hypers["scheduler_factor"],
-                        patience=self.hypers["scheduler_patience"],
-                    )
+            old_lr = new_lr
 
             val_metric = get_selected_metric(
                 finalized_val_info, self.hypers["best_model_metric"]
