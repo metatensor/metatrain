@@ -10,15 +10,19 @@ from metatrain.utils.data import read_systems
 from metatrain.utils.io import load_model, model_from_checkpoint
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
-from . import DATASET_PATH, DATASET_WITH_FORCES_PATH
+from . import DATASET_WITH_FORCES_PATH
 
 
-@pytest.mark.parametrize("version", ["0.3.2", "1.1.0"])
+LEGACY_VERSIONS = ["0.3.2", "0.4.1", "1.0.0"]
+STABLE_VERSIONS = ["1.0.1", "1.1.0"]
+
+
+@pytest.mark.parametrize("version", LEGACY_VERSIONS + STABLE_VERSIONS)
 def test_pet_mad_consistency(version, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     path = f"https://huggingface.co/lab-cosmo/pet-mad/resolve/v{version}/models/pet-mad-v{version}.ckpt"
 
-    if version == "0.3.2":
+    if version in LEGACY_VERSIONS:
         if urlparse(path).scheme:
             path, _ = urlretrieve(path)
 
@@ -28,9 +32,7 @@ def test_pet_mad_consistency(version, monkeypatch, tmp_path):
 
     pet_mad_model = load_model(path).eval()
 
-    systems_1 = read_systems(DATASET_PATH)[:5]
-    systems_2 = read_systems(DATASET_WITH_FORCES_PATH)[:5]
-    systems = systems_1 + systems_2
+    systems = read_systems(DATASET_WITH_FORCES_PATH)[:5]
     for system in systems:
         system.positions.requires_grad_(True)
         get_system_with_neighbor_lists(system, pet_mad_model.requested_neighbor_lists())
@@ -42,11 +44,11 @@ def test_pet_mad_consistency(version, monkeypatch, tmp_path):
 
     expected_output = torch.tensor(
         [
-            [-23.622837066650],
-            [-19.629840850830],
-            [-14.371686935425],
-            [-22.696590423584],
-            [-19.644466400146],
+            [-36.721317291260],
+            [-37.199848175049],
+            [-37.049076080322],
+            [-36.586517333984],
+            [-37.476135253906],
         ]
     )
 
