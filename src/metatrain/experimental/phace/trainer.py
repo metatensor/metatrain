@@ -138,8 +138,13 @@ class Trainer(TrainerInterface):
                 train_datasets, model.additive_models, treat_as_additive=True
             )
 
+        torch.jit.set_fusion_strategy([("DYNAMIC", 0)])
+        scripted_model = torch.jit.script(model)
         if is_distributed:
-            model = DistributedDataParallel(model, device_ids=[device])
+            scripted_model = DistributedDataParallel(
+                scripted_model, device_ids=[device], find_unused_parameters=False
+            )
+
         logging.info("Setting up data loaders")
 
         if is_distributed:
@@ -263,7 +268,7 @@ class Trainer(TrainerInterface):
 
         # Create an optimizer:
         optimizer = torch.optim.Adam(
-            model.parameters(), lr=self.hypers["learning_rate"], amsgrad=True
+            scripted_model.parameters(), lr=self.hypers["learning_rate"], amsgrad=True
         )
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
@@ -320,7 +325,7 @@ class Trainer(TrainerInterface):
                     systems, targets, extra_data, device=device
                 )
                 for additive_model in (
-                    model.module if is_distributed else model
+                    scripted_model.module if is_distributed else scripted_model
                 ).additive_models:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
@@ -328,14 +333,14 @@ class Trainer(TrainerInterface):
                 targets = remove_scale(
                     targets,
                     (
-                        model.module if is_distributed else model
+                        scripted_model.module if is_distributed else scripted_model
                     ).scaler,
                 )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
                 )
                 predictions = evaluate_model(
-                    model,
+                    scripted_model,
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=True,
@@ -351,7 +356,7 @@ class Trainer(TrainerInterface):
                 train_loss_batch.backward()
                 if self.hypers["gradient_clipping"] is not None:
                     torch.nn.utils.clip_grad_norm_(
-                        model.parameters(), self.hypers["gradient_clipping"]
+                        scripted_model.parameters(), self.hypers["gradient_clipping"]
                     )
                 optimizer.step()
 
@@ -384,20 +389,20 @@ class Trainer(TrainerInterface):
                     systems, targets, extra_data, device=device
                 )
                 for additive_model in (
-                    model.module if is_distributed else model
+                    scripted_model.module if is_distributed else scripted_model
                 ).additive_models:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                    targets, (scripted_model.module if is_distributed else scripted_model).scaler
                 )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
                 )
 
                 predictions = evaluate_model(
-                    model,
+                    scripted_model,
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
@@ -473,7 +478,7 @@ class Trainer(TrainerInterface):
                     logging.info(f"Changing learning rate from {old_lr} to {new_lr}")
                     old_lr = new_lr
                     # load best model and optimizer state dict, re-initialize scheduler
-                    (model.module if is_distributed else model).load_state_dict(
+                    (scripted_model.module if is_distributed else scripted_model).load_state_dict(
                         self.best_model_state_dict
                     )
                     optimizer.load_state_dict(self.best_optimizer_state_dict)
@@ -491,7 +496,7 @@ class Trainer(TrainerInterface):
             if val_metric < self.best_metric:
                 self.best_metric = val_metric
                 self.best_model_state_dict = copy.deepcopy(
-                    (model.module if is_distributed else model).state_dict()
+                    (scripted_model.module if is_distributed else scripted_model).state_dict()
                 )
                 self.best_epoch = epoch
                 self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
@@ -503,8 +508,13 @@ class Trainer(TrainerInterface):
                 self.scheduler_state_dict = lr_scheduler.state_dict()
                 self.epoch = epoch
                 if rank == 0:
+                    model.load_state_dict(
+                        (
+                            scripted_model.module if is_distributed else scripted_model
+                        ).state_dict()
+                    )
                     self.save_checkpoint(
-                        (model.module if is_distributed else model),
+                        model,
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
 
