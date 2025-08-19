@@ -2,6 +2,7 @@ import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union, Any, Literal
 
+from metatrain.utils.metadata import merge_metadata
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -13,6 +14,7 @@ from metatomic.torch import (
     NeighborListOptions,
     System,
 )
+import logging
 
 from .modules.tensor_product import TensorProduct
 
@@ -34,6 +36,7 @@ from .modules.tensor_product import (
     uncouple_features,
 )
 from .utils import systems_to_batch
+from metatomic.torch import AtomisticModel
 
 
 warnings.filterwarnings(
@@ -57,23 +60,23 @@ class PhACE(ModelInterface):
     U_dict: Dict[int, torch.Tensor]
     U_dict_parity: Dict[str, torch.Tensor]
 
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__(model_hypers, dataset_info, self.__default_metadata__)
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
         
-        self.hypers = model_hypers
+        self.hypers = hypers
         self.dataset_info = dataset_info
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = sorted(dataset_info.atomic_types)
 
-        self.cutoff_radius = model_hypers["cutoff"]
+        self.cutoff_radius = hypers["cutoff"]
         self.dataset_info = dataset_info
-        self.model_hypers = model_hypers
+        self.hypers = hypers
 
-        self.nu_scaling = model_hypers["nu_scaling"]
-        self.mp_scaling = model_hypers["mp_scaling"]
-        self.overall_scaling = model_hypers["overall_scaling"]
+        self.nu_scaling = hypers["nu_scaling"]
+        self.mp_scaling = hypers["mp_scaling"]
+        self.overall_scaling = hypers["overall_scaling"]
 
-        n_channels = model_hypers["num_element_channels"]
+        n_channels = hypers["num_element_channels"]
 
         # Embedding of the atomic types
         self.embeddings = torch.nn.Embedding(len(self.atomic_types), n_channels)
@@ -87,17 +90,17 @@ class PhACE(ModelInterface):
         )
         self.register_buffer("species_to_species_index", species_to_species_index)
 
-        self.nu_max = model_hypers["max_correlation_order_per_layer"]
-        self.num_message_passing_layers = model_hypers["num_message_passing_layers"]
+        self.nu_max = hypers["max_correlation_order_per_layer"]
+        self.num_message_passing_layers = hypers["num_message_passing_layers"]
         if self.num_message_passing_layers < 1:
             raise ValueError("Number of message-passing layers must be at least 1")
 
         # The message passing is invariant for the first layer
         self.invariant_message_passer = InvariantMessagePasser(
-            model_hypers,
+            hypers,
             self.atomic_types,
             self.mp_scaling,
-            model_hypers["disable_nu_0"],
+            hypers["disable_nu_0"],
         )
 
         self.atomic_types = self.atomic_types
@@ -144,7 +147,7 @@ class PhACE(ModelInterface):
         # A module that precomputes quantities that are useful in all message-passing
         # steps (spherical harmonics, distances)
         self.precomputer = Precomputer(
-            self.l_max, use_sphericart=model_hypers["use_sphericart"]
+            self.l_max, use_sphericart=hypers["use_sphericart"]
         )
 
         tensor_product = TensorProduct(self.k_max_l)
@@ -159,7 +162,7 @@ class PhACE(ModelInterface):
         generalized_cg_iterators: List[CGIterator] = []
         for _ in range(self.num_message_passing_layers - 1):
             equivariant_message_passer = EquivariantMessagePasser(
-                model_hypers,
+                hypers,
                 self.atomic_types,
                 tensor_product,
                 self.mp_scaling,
@@ -193,7 +196,7 @@ class PhACE(ModelInterface):
         )
         additive_models = [composition_model]
         if self.hypers["zbl"]:
-            additive_models.append(ZBL(model_hypers, dataset_info))
+            additive_models.append(ZBL(hypers, dataset_info))
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
@@ -497,7 +500,9 @@ class PhACE(ModelInterface):
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
         )
-        dtype = next(iter(model_state_dict.values())).dtype
+        state_dict_iterator = iter(model_state_dict.values())
+        next(state_dict_iterator)  # skip an int tensor
+        dtype = next(state_dict_iterator).dtype
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
 
@@ -533,7 +538,7 @@ class PhACE(ModelInterface):
             dtype=dtype_to_str(dtype),
         )
 
-        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
+        return AtomisticModel(self.eval(), ModelMetadata(), capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
 
@@ -607,21 +612,9 @@ class PhACE(ModelInterface):
             )
         ]
 
-    def save_checkpoint(self, path: Union[str, Path]):
-        torch.save(
-            {
-                "model_model_hypers": {
-                    "model_model_hypers": self.model_hypers,
-                    "dataset_info": self.dataset_info,
-                },
-                "model_state_dict": self.state_dict(),
-            },
-            check_file_extension(path, ".ckpt"),
-        )
-
     def get_checkpoint(self) -> Dict:
         checkpoint = {
-            "architecture_name": "phace",
+            "architecture_name": "experimental.phace",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {
