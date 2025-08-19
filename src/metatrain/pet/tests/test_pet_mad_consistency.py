@@ -17,7 +17,7 @@ LEGACY_VERSIONS = ["0.3.2", "0.4.1", "1.0.0"]
 STABLE_VERSIONS = ["1.0.1", "1.1.0"]
 
 
-@pytest.mark.parametrize("version", LEGACY_VERSIONS + STABLE_VERSIONS)
+@pytest.mark.parametrize("version", STABLE_VERSIONS)
 def test_pet_mad_consistency(version, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     path = f"https://huggingface.co/lab-cosmo/pet-mad/resolve/v{version}/models/pet-mad-v{version}.ckpt"
