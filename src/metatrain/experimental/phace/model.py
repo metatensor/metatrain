@@ -445,6 +445,21 @@ class PhACE(ModelInterface):
                     output_layer(return_dict[output_name]),
                     self.overall_scaling,
                 )
+            if self.component_labels[output_name][0][0].names == ["xyz"]:
+                # modify to extract xyz from spherical L=1
+                tmap_as_spherical = return_dict[output_name]
+                cartesian_values = tmap_as_spherical.block().values[:, [2, 0, 1]]
+                return_dict[output_name] = TensorMap(
+                    keys=self.key_labels[output_name],
+                    blocks=[
+                        TensorBlock(
+                            values=cartesian_values,
+                            samples=tmap_as_spherical.block().samples,
+                            components=self.component_labels[output_name][0],
+                            properties=self.property_labels[output_name][0]
+                        )
+                    ]
+                )
 
         for output_name in self.last_layers:
             if output_name in outputs:
@@ -542,8 +557,11 @@ class PhACE(ModelInterface):
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
 
-        if target_info.is_cartesian:
-            raise NotImplementedError("PhACE does not support Cartesian targets.")
+        self.outputs[target_name] = ModelOutput(
+            quantity=target_info.quantity,
+            unit=target_info.unit,
+            per_atom=True,
+        )
 
         if target_name not in self.head_types:
             if target_info.is_scalar:
@@ -555,15 +573,9 @@ class PhACE(ModelInterface):
             # specified by the user
             use_mlp = self.head_types[target_name] == "mlp"
 
-        self.outputs[target_name] = ModelOutput(
-            quantity=target_info.quantity,
-            unit=target_info.unit,
-            per_atom=True,
-        )
-
         if use_mlp:
-            if target_info.is_spherical:
-                raise ValueError("MLP heads are not supported for spherical targets.")
+            if target_info.is_spherical or target_info.is_cartesian:
+                raise ValueError("MLP heads are only supported for scalar targets.")
             self.heads[target_name] = InvariantMLP(
                 self.k_max_l[0], self.head_num_layers
             )
@@ -576,6 +588,18 @@ class PhACE(ModelInterface):
             )
             if [(0, 1)] not in self.requested_LS_tuples:
                 self.requested_LS_tuples.append((0, 1))
+        elif target_info.is_cartesian:
+            # here, we handle Cartesian targets
+            if len(target_info.layout.block().components) == 1:
+                self.last_layers[target_name] = EquivariantLastLayer(
+                    [(1, 1)],
+                    self.k_max_l,
+                    [block.components for block in target_info.layout.blocks()],
+                    [block.properties for block in target_info.layout.blocks()],
+                )
+                self.requested_LS_tuples.append((1, 1))
+            else:
+                raise NotImplementedError("PhACE only supports Cartesian targets with rank=1.")
         else:  # spherical equivariant
             irreps = []
             for key in target_info.layout.keys:
