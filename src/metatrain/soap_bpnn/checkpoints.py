@@ -18,7 +18,7 @@ def model_update_v1_v2(state_dict):
 # ===== Trainer checkpoint updates =====
 
 
-def trainer_update_v1_v2(checkpoint):
+def trainer_update_v2_v3(checkpoint):
     old_loss_hypers = checkpoint["train_hypers"]["loss"].copy()
     dataset_info = checkpoint["model_data"]["dataset_info"]
     new_loss_hypers = {}

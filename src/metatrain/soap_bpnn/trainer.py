@@ -39,7 +39,7 @@ from .model import SoapBpnn
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
 
     def __init__(self, hypers):
         super().__init__(hypers)
@@ -193,11 +193,13 @@ class Trainer(TrainerInterface):
                     sampler=train_sampler,
                     shuffle=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     collate_fn=collate_fn,
                 )
