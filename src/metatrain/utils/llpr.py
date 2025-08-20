@@ -1,5 +1,6 @@
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from collections import defaultdict
+from typing import Any, DefaultDict, Dict, List, Literal, Optional, Union
 
 import metatensor.torch as mts
 import numpy as np
@@ -109,18 +110,21 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
         # register buffers for ensemble weights and ensemble outputs
         ensemble_outputs = {}
+        self.llpr_ensemble_layers = torch.nn.ModuleDict()
+        self.ensemble_weights_computed = defaultdict(lambda: False)
+
         for name in self.outputs_list:
-            ensemble_weights_name = (
-                "mtt::aux::" + name.replace("mtt::", "") + "_ensemble_weights"
-            )
-            if ensemble_weights_name == "mtt::aux::energy_ensemble_weights":
-                ensemble_weights_name = "energy_ensemble_weights"
-            if ensemble_weights_name not in ensemble_weight_sizes:
-                continue
-            self.register_buffer(
-                ensemble_weights_name,
-                torch.zeros(ensemble_weight_sizes[ensemble_weights_name], dtype=dtype),
-            )
+            # ensemble_weights_name = (
+            #     "mtt::aux::" + name.replace("mtt::", "") + "_ensemble_weights"
+            # )
+            # if ensemble_weights_name == "mtt::aux::energy_ensemble_weights":
+            #     ensemble_weights_name = "energy_ensemble_weights"
+            # if ensemble_weights_name not in ensemble_weight_sizes:
+            #     continue
+            # self.register_buffer(
+            #     ensemble_weights_name,
+            #     torch.zeros(ensemble_weight_sizes[ensemble_weights_name], dtype=dtype),
+            # )
             ensemble_output_name = (
                 "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
             )
@@ -251,23 +255,19 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 requested_ensembles.append(name)
 
         for name in requested_ensembles:
+
+            base_name = name.replace("aux::", "").replace("_ensemble", "")
             ll_features_name = name.replace("_ensemble", "_last_layer_features")
+            # ensemble generation check
+            if not self.ensemble_weights_computed[base_name]:
+                raise RuntimeError(f"Ensemble weights have not been computed for {name}.")
             if ll_features_name == "energy_last_layer_features":
                 # special case for energy_ensemble
                 ll_features_name = "mtt::aux::energy_last_layer_features"
             ll_features = return_dict[ll_features_name]
-            # get the ensemble weights (getattr not supported by torchscript)
-            ensemble_weights = torch.tensor(0.0)
-            for buffer_name, buffer in self.named_buffers():
-                if buffer_name == name + "_weights":
-                    ensemble_weights = buffer
-            # the ensemble weights should always be found (checks are performed
-            # in the generate_ensemble method and in the metatensor wrapper)
-            ensemble_values = torch.einsum(
-                "ij, jk -> ik",
-                ll_features.block().values,
-                ensemble_weights,
-            )
+
+            self.llpr_ensemble_layers[base_name].to(ll_features.block().values.device)
+            ensemble_values = self.llpr_ensemble_layers[base_name](ll_features.block().values)
 
             # since we know the exact mean of the ensemble from the model's prediction,
             # it should be mathematically correct to use it to re-center the ensemble.
@@ -492,7 +492,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
         self.is_calibrated = True
 
     def generate_ensemble(
-        self, weight_tensors: Dict[str, torch.Tensor], n_members: int
+        self,
+        weight_tensors: Dict[str, torch.Tensor],
+        n_members: Dict[str, int],
     ) -> None:
         """Generate an ensemble of weights for the model.
 
@@ -505,8 +507,6 @@ class LLPRUncertaintyModel(torch.nn.Module):
             values should be 1D PyTorch tensors.
         :param n_members: The number of members in the ensemble.
         """
-        # note: we could also allow n_members to be different for each output
-
         # basic checks
         if not self.is_calibrated:
             raise ValueError(
@@ -516,7 +516,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             if key not in self.capabilities.outputs.keys():
                 raise ValueError(f"Output '{key}' not supported by model")
             if len(weight_tensors[key].shape) != 1:
-                raise ValueError("All weights must be 1D tensors")
+                raise ValueError("All weights must be 1D tensors")  #TODO: discuss multi-dimensional targets 
 
         # sampling; each member is sampled from a multivariate normal distribution
         # with mean given by the input weights and covariance given by the inverse
@@ -524,8 +524,17 @@ class LLPRUncertaintyModel(torch.nn.Module):
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
         for name, weights in weight_tensors.items():
+
+            # basic input checks for n_members
+            if n_members[name] < 0:
+                raise AssertionError(f"Invalid n_ens value for {name}.")
+            elif n_members[name] > 0 and n_members[name] < 8:  #TODO: discuss n_members threshold 
+                raise AssertionError(f"`n_members` for {name} too small.")
+
+            self.n_
             uncertainty_name = _get_uncertainty_name(name)
             rng = np.random.default_rng()
+
             ensemble_weights = rng.multivariate_normal(
                 weights.clone().detach().cpu().numpy(),
                 self._get_inv_covariance(uncertainty_name)
@@ -537,18 +546,31 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 size=n_members,
                 method="svd",
             ).T
-            ensemble_weights = torch.tensor(
-                ensemble_weights, device=device, dtype=dtype
+
+            # instantiate 1D torch Linear that goes from ll_feat_size to n_members
+            self.llpr_ensemble_layers[name] = torch.nn.Linear(
+                self.ll_feat_size,
+                n_members[name],
+                bias=False,
             )
-            ensemble_weights_name = (
-                "mtt::aux::" + name.replace("mtt::", "") + "_ensemble_weights"
-            )
-            if ensemble_weights_name == "mtt::aux::energy_ensemble_weights":
-                ensemble_weights_name = "energy_ensemble_weights"
-            self.register_buffer(
-                ensemble_weights_name,
-                ensemble_weights,
-            )
+
+            # assign the weights of the layer with the generated ones
+            with torch.no_grad():
+                self.llpr_ensemble_layers[name].weight.copy(ensemble_weights.T)
+            self.ensemble_weights_computed[name] = True
+
+            # ensemble_weights = torch.tensor(
+            #     ensemble_weights, device=device, dtype=dtype
+            # )
+            # ensemble_weights_name = (
+            #     "mtt::aux::" + name.replace("mtt::", "") + "_ensemble_weights"
+            # )
+            # if ensemble_weights_name == "mtt::aux::energy_ensemble_weights":
+            #     ensemble_weights_name = "energy_ensemble_weights"
+            # self.register_buffer(
+            #     ensemble_weights_name,
+            #     ensemble_weights,
+            # )
 
         # add the ensembles to the capabilities
         old_outputs = self.capabilities.outputs
