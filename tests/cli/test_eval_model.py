@@ -75,7 +75,7 @@ def test_eval(monkeypatch, tmp_path, caplog, model_name, options):
     assert "energy RMSE (per atom)" in log
     assert "energy MAE (per atom)" in log
     assert "dataset with index" not in log
-    assert "evaluation time" in log
+    assert "Evaluation time" in log
     assert "ms per atom" in log
 
     # Test file is written predictions
@@ -106,7 +106,7 @@ def test_eval_batch_size(monkeypatch, tmp_path, caplog, model_name, options):
     assert "energy RMSE (per atom)" in log
     assert "energy MAE (per atom)" in log
     assert "dataset with index" not in log
-    assert "evaluation time" in log
+    assert "Evaluation time" in log
     assert "ms per atom" in log
     assert "inaccurate average timings" in log
 
@@ -233,7 +233,7 @@ def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix):
     assert "energy RMSE (per atom)" in log
     assert "energy MAE (per atom)" in log
     assert "dataset with index" not in log
-    assert "evaluation time" in log
+    assert "Evaluation time" in log
     assert "ms per atom" in log
 
     # Test file is written predictions
