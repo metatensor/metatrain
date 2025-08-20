@@ -34,7 +34,6 @@ from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
-from . import checkpoints
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
@@ -208,13 +207,11 @@ class Trainer(TrainerInterface):
                     sampler=train_sampler,
                     shuffle=(
                         # the sampler takes care of this (if present)
-                        train_sampler
-                        is None
+                        train_sampler is None
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        train_sampler
-                        is None
+                        train_sampler is None
                     ),
                     collate_fn=collate_fn,
                 )
@@ -582,6 +579,7 @@ class Trainer(TrainerInterface):
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         for v in range(1, cls.__checkpoint_version__):
             if checkpoint["trainer_ckpt_version"] == v:
+                print(v, checkpoint["train_hypers"])
                 update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
                 update(checkpoint)
                 checkpoint["trainer_ckpt_version"] = v + 1

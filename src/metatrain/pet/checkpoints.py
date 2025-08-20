@@ -35,7 +35,9 @@ def model_update_v3_v4(checkpoint):
 
 
 def trainer_update_v1_v2(checkpoint):
-    checkpoint["train_hypers"] = checkpoint["train_hypers"].get("scheduler_factor", 0.5)
+    checkpoint["train_hypers"]["scheduler_factor"] = checkpoint["train_hypers"].get(
+        "scheduler_factor", 0.5
+    )
 
 
 def trainer_update_v2_v3(checkpoint):

@@ -1,7 +1,6 @@
 import glob
 import gzip
 import os
-from pathlib import Path
 
 import pytest
 import torch
@@ -82,6 +81,7 @@ def make_checkpoint_load_tests(DEFAULT_HYPERS):
 
             if context != "export":
                 if checkpoint["trainer_ckpt_version"] != trainer.__checkpoint_version__:
+                    print(context)
                     checkpoint = trainer.__class__.upgrade_checkpoint(checkpoint)
 
                 trainer.load_checkpoint(checkpoint, DEFAULT_HYPERS, context)
