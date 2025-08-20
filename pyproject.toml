@@ -79,6 +79,11 @@ gap = [
     "skmatter",
     "scipy",
 ]
+mace = [
+    "mace-torch",
+    "cuequivariance-torch",
+    # manually install this afterwards: e3nn==0.5.6
+]
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]
