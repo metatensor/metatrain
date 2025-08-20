@@ -445,21 +445,22 @@ class PhACE(ModelInterface):
                     output_layer(return_dict[output_name]),
                     self.overall_scaling,
                 )
-            if self.component_labels[output_name][0][0].names == ["xyz"]:
-                # modify to extract xyz from spherical L=1
-                tmap_as_spherical = return_dict[output_name]
-                cartesian_values = tmap_as_spherical.block().values[:, [2, 0, 1]]
-                return_dict[output_name] = TensorMap(
-                    keys=self.key_labels[output_name],
-                    blocks=[
-                        TensorBlock(
-                            values=cartesian_values,
-                            samples=tmap_as_spherical.block().samples,
-                            components=self.component_labels[output_name][0],
-                            properties=self.property_labels[output_name][0]
-                        )
-                    ]
-                )
+            if len(self.component_labels[output_name][0]) > 0:
+                if self.component_labels[output_name][0][0].names == ["xyz"]:
+                    # modify to extract xyz from spherical L=1
+                    tmap_as_spherical = return_dict[output_name]
+                    cartesian_values = tmap_as_spherical.block().values[:, [2, 0, 1]]
+                    return_dict[output_name] = TensorMap(
+                        keys=self.key_labels[output_name],
+                        blocks=[
+                            TensorBlock(
+                                values=cartesian_values,
+                                samples=tmap_as_spherical.block().samples,
+                                components=self.component_labels[output_name][0],
+                                properties=self.property_labels[output_name][0]
+                            )
+                        ]
+                    )
 
         for output_name in self.last_layers:
             if output_name in outputs:
