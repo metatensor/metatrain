@@ -30,12 +30,23 @@ def test_pet_mad_consistency(version, monkeypatch, tmp_path):
         checkpoint = convert_checkpoint_from_legacy_pet(checkpoint)
         pet_mad_model = model_from_checkpoint(checkpoint, context="export").eval()
 
-    pet_mad_model = load_model(path).eval()
+    msg1 = (
+        "trying to upgrade an old model checkpoint with unknown version, this "
+        "might fail and require manual modifications"
+    )
+    msg2 = (
+        "PET assumes that Cartesian tensors of rank 2 are stress-like, meaning that "
+        "they are symmetric and intensive. If this is not the case, please use a "
+        "different model."
+    )
+    with pytest.warns(UserWarning, match=f"({msg1}|{msg2})"):
+        pet_mad_model = load_model(path).eval()
 
     systems = read_systems(DATASET_WITH_FORCES_PATH)[:5]
     for system in systems:
         system.positions.requires_grad_(True)
         get_system_with_neighbor_lists(system, pet_mad_model.requested_neighbor_lists())
+
     systems = [system.to(torch.float32) for system in systems]
 
     outputs = {"energy": ModelOutput(per_atom=False)}
