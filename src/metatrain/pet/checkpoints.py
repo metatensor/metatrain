@@ -36,6 +36,11 @@ def model_update_v4_v5(checkpoint):
     )
 
 
+def model_update_v5_v6(checkpoint):
+    if not checkpoint["best_model_state_dict"]:
+        checkpoint["best_model_state_dict"] = checkpoint["model_state_dict"]
+
+
 ###########################
 # TRAINER #################
 ###########################
