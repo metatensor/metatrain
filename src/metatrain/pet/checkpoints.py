@@ -6,9 +6,10 @@
 def model_update_v1_v2(checkpoint):
     for key in ["model_state_dict", "best_model_state_dict"]:
         if (state_dict := checkpoint.get(key)) is not None:
-            state_dict["additive_models.0.model.type_to_index"] = state_dict.pop(
-                "additive_models.0.type_to_index"
-            )
+            if "additive_models.0.model.type_to_index" not in state_dict:
+                state_dict["additive_models.0.model.type_to_index"] = state_dict.pop(
+                    "additive_models.0.type_to_index"
+                )
 
 
 def model_update_v2_v3(checkpoint):
@@ -27,6 +28,17 @@ def model_update_v3_v4(checkpoint):
 
     if checkpoint["best_model_state_dict"] is not None:
         checkpoint["best_model_state_dict"] = checkpoint.get("best_model_state_dict")
+
+
+def model_update_v4_v5(checkpoint):
+    checkpoint["model_data"]["dataset_info"]._atomic_types = list(
+        checkpoint["model_data"]["dataset_info"]._atomic_types
+    )
+
+
+def model_update_v5_v6(checkpoint):
+    if not checkpoint["best_model_state_dict"]:
+        checkpoint["best_model_state_dict"] = checkpoint["model_state_dict"]
 
 
 ###########################
