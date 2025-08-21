@@ -63,7 +63,8 @@ def test_regression_init():
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-def test_regression_energies_forces_train(device):
+@pytest.mark.parametrize("scheduler", ["step", "cosine"])
+def test_regression_energies_forces_train(device, scheduler):
     """Regression test for the model when trained for 2 epoch on a small dataset"""
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
@@ -95,6 +96,7 @@ def test_regression_energies_forces_train(device):
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
+    hypers["training"]["scheduler"] = scheduler
     hypers["training"]["scheduler_patience"] = 1
     hypers["training"]["fixed_composition_weights"] = {}
     loss_conf = {"energy": CONF_LOSS.copy()}
@@ -126,25 +128,40 @@ def test_regression_energies_forces_train(device):
         model, systems[:5], targets=target_info_dict, is_training=False
     )
 
-    expected_output = torch.tensor(
-        [
-            [20.386034011841],
-            [20.353490829468],
-            [20.303865432739],
-            [20.413286209106],
-            [20.318788528442],
-        ],
-        device=device,
-    )
+    if scheduler == "step":
+        expected_output = torch.tensor(
+            [
+                [20.386034011841],
+                [20.353490829468],
+                [20.303865432739],
+                [20.413286209106],
+                [20.318788528442],
+            ],
+            device=device,
+        )
+        expected_gradients_output = torch.tensor(
+            [0.208536088467, -0.117365449667, -0.278660595417], device=device
+        )
+    else:
+        assert scheduler == "cosine"
+        expected_output = torch.tensor(
+            [
+                [20.386032104492],
+                [20.353490829468],
+                [20.303865432739],
+                [20.413286209106],
+                [20.318786621094],
+            ],
+            device=device,
+        )
+        expected_gradients_output = torch.tensor(
+            [0.208536326885, -0.117365628481, -0.278660625219], device=device
+        )
 
-    expected_gradients_output = torch.tensor(
-        [0.208536088467, -0.117365449667, -0.278660595417], device=device
-    )
-
-    # # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["energy"].block().values)
-    # print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
+    # if you need to change the hardcoded values:
+    torch.set_printoptions(precision=12)
+    print(output["energy"].block().values)
+    print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
 
     torch.testing.assert_close(output["energy"].block().values, expected_output)
     torch.testing.assert_close(

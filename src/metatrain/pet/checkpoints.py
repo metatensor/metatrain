@@ -70,6 +70,7 @@ def trainer_update_v3_v4(checkpoint):
         }
     checkpoint["train_hypers"]["loss"] = new_loss_hypers
 
+
 def trainer_update_v4_v5(checkpoint):
     if checkpoint["train_hypers"].get("scheduler") is None:
         checkpoint["train_hypers"]["scheduler"] = "step"
