@@ -28,9 +28,15 @@ def batch_to(
         key: value.to(dtype=dtype, device=device) for key, value in targets.items()
     }
     if extra_data is not None:
+        new_dtypes: List[Optional[int]] = []
+        for key in extra_data.keys():
+            if key.endswith("_mask"):  # masks should always be boolean
+                new_dtypes.append(torch.bool)
+            else:
+                new_dtypes.append(dtype)
         extra_data = {
-            key: value.to(dtype=dtype, device=device)
-            for key, value in extra_data.items()
+            key: value.to(dtype=_dtype, device=device)
+            for (key, value), _dtype in zip(extra_data.items(), new_dtypes)
         }
 
     return systems, targets, extra_data

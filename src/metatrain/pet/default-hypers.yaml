@@ -27,6 +27,7 @@ architecture:
     scheduler: step
     scheduler_reduce_lr_every: epoch  # or optimizer_step
     scheduler_patience: 250
+    scheduler_factor: 0.5
     log_interval: 1
     checkpoint_interval: 100
     scale_targets: false
@@ -36,8 +37,4 @@ architecture:
     log_separate_blocks: false
     best_model_metric: rmse_prod
     grad_clip_norm: .inf
-    loss:
-      type: mse
-      weights: {}
-      reduction: mean
-      sliding_factor: null
+    loss: mse

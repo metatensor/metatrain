@@ -1,3 +1,4 @@
+import logging
 import warnings
 from math import prod
 from typing import Any, Dict, List, Literal, Optional
@@ -40,7 +41,7 @@ class PET(ModelInterface):
 
     """
 
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 6
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -686,25 +687,23 @@ class PET(ModelInterface):
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
     ) -> "PET":
-        model_data = checkpoint["model_data"]
-
         if context == "restart":
+            logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
-        elif context == "finetune" or context == "export":
+        elif context in {"finetune", "export"}:
+            logging.info(f"Using best model from epoch {checkpoint['best_epoch']}")
             model_state_dict = checkpoint["best_model_state_dict"]
-            if model_state_dict is None:
-                model_state_dict = checkpoint["model_state_dict"]
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
-        finetune_config = model_state_dict.pop("finetune_config", {})
-
         # Create the model
+        model_data = checkpoint["model_data"]
         model = cls(
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
         )
 
+        finetune_config = model_state_dict.pop("finetune_config", {})
         if finetune_config:
             # Apply the finetuning strategy
             model = apply_finetuning_strategy(model, finetune_config)
@@ -890,14 +889,11 @@ class PET(ModelInterface):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        if checkpoint["model_ckpt_version"] == 1:
-            checkpoints.update_v1_v2(checkpoint["model_state_dict"])
-            checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
-            checkpoint["model_ckpt_version"] = 2
-        if checkpoint["model_ckpt_version"] == 2:
-            checkpoints.update_v2_v3(checkpoint["model_state_dict"])
-            checkpoints.update_v2_v3(checkpoint["best_model_state_dict"])
-            checkpoint["model_ckpt_version"] = 3
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
 
         if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
@@ -919,7 +915,9 @@ class PET(ModelInterface):
                 "model_hypers": self.hypers,
                 "dataset_info": self.dataset_info,
             },
+            "epoch": None,
+            "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": None,
+            "best_model_state_dict": self.state_dict(),
         }
         return checkpoint

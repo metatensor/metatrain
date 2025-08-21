@@ -22,10 +22,9 @@ from metatrain.utils.distributed.distributed_data_parallel import (
 )
 from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
-from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import TensorMapDictLoss
+from metatrain.utils.loss import LossAggregator
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -35,6 +34,7 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
+from . import checkpoints
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
@@ -83,7 +83,7 @@ def get_scheduler(optimizer, train_hypers, steps_per_epoch):
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 4
 
     def __init__(self, hypers):
         super().__init__(hypers)
@@ -91,6 +91,7 @@ class Trainer(TrainerInterface):
         self.optimizer_state_dict = None
         self.scheduler_state_dict = None
         self.epoch = None
+        self.best_epoch = None
         self.best_metric = None
         self.best_model_state_dict = None
         self.best_optimizer_state_dict = None
@@ -284,29 +285,22 @@ class Trainer(TrainerInterface):
             for gradient_name in target_info.gradients:
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
-        # Create a loss weight dict:
-        loss_weights_dict = {}
-        for output_name in outputs_list:
-            loss_weights_dict[output_name] = (
-                self.hypers["loss"]["weights"][
-                    to_external_name(output_name, train_targets)
-                ]
-                if to_external_name(output_name, train_targets)
-                in self.hypers["loss"]["weights"]
-                else 1.0
-            )
-        loss_weights_dict_external = {
-            to_external_name(key, train_targets): value
-            for key, value in loss_weights_dict.items()
-        }
-        loss_hypers = copy.deepcopy(self.hypers["loss"])
-        loss_hypers["weights"] = loss_weights_dict
-        logging.info(f"Training with loss weights: {loss_weights_dict_external}")
-
         # Create a loss function:
-        loss_fn = TensorMapDictLoss(
-            **loss_hypers,
+        loss_hypers = self.hypers["loss"]
+        loss_fn = LossAggregator(
+            targets=train_targets,
+            config=loss_hypers,
         )
+        logging.info("Using the following loss functions:")
+        for name, info in loss_fn.metadata.items():
+            logging.info(f"{name}:")
+            main = {k: v for k, v in info.items() if k != "gradients"}
+            logging.info(main)
+            if "gradients" not in info or len(info["gradients"]) == 0:
+                continue
+            logging.info("With gradients:")
+            for grad, ginfo in info["gradients"].items():
+                logging.info(f"\t{name}::{grad}: {ginfo}")
 
         if self.hypers["weight_decay"] is not None:
             optimizer = torch.optim.AdamW(
@@ -406,7 +400,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = loss_fn(predictions, targets)
+                train_loss_batch = loss_fn(predictions, targets, extra_data)
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
@@ -486,8 +480,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
-                val_loss_batch = loss_fn(predictions, targets)
+                val_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
                     # sum the loss over all processes
@@ -512,7 +505,10 @@ class Trainer(TrainerInterface):
                 )
 
             # Now we log the information:
-            finalized_train_info = {"loss": train_loss, **finalized_train_info}
+            finalized_train_info = {
+                "loss": train_loss,
+                **finalized_train_info,
+            }
             finalized_val_info = {
                 "loss": val_loss,
                 **finalized_val_info,
@@ -544,6 +540,7 @@ class Trainer(TrainerInterface):
                     metrics=[finalized_train_info, finalized_val_info],
                     epoch=epoch,
                     rank=rank,
+                    learning_rate=old_lr,
                 )
 
             val_metric = get_selected_metric(
@@ -554,6 +551,7 @@ class Trainer(TrainerInterface):
                 self.best_model_state_dict = copy.deepcopy(
                     (model.module if is_distributed else model).state_dict()
                 )
+                self.best_epoch = epoch
                 self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 
             if epoch % self.hypers["checkpoint_interval"] == 0:
@@ -587,6 +585,7 @@ class Trainer(TrainerInterface):
                 "epoch": self.epoch,
                 "optimizer_state_dict": self.optimizer_state_dict,
                 "scheduler_state_dict": self.scheduler_state_dict,
+                "best_epoch": self.best_epoch,
                 "best_metric": self.best_metric,
                 "best_model_state_dict": self.best_model_state_dict,
                 "best_optimizer_state_dict": self.best_optimizer_state_dict,
@@ -604,26 +603,26 @@ class Trainer(TrainerInterface):
         hypers: Dict[str, Any],
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
-        epoch = checkpoint["epoch"]
-        optimizer_state_dict = checkpoint["optimizer_state_dict"]
-        scheduler_state_dict = checkpoint["scheduler_state_dict"]
-        best_metric = checkpoint["best_metric"]
-        best_model_state_dict = checkpoint["best_model_state_dict"]
-        best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
-
-        # Create the trainer
         trainer = cls(hypers)
-        trainer.optimizer_state_dict = optimizer_state_dict
-        trainer.scheduler_state_dict = scheduler_state_dict
-        trainer.epoch = epoch
-        trainer.best_metric = best_metric
-        trainer.best_model_state_dict = best_model_state_dict
-        trainer.best_optimizer_state_dict = best_optimizer_state_dict
+        trainer.optimizer_state_dict = checkpoint["optimizer_state_dict"]
+        trainer.scheduler_state_dict = checkpoint["scheduler_state_dict"]
+        trainer.epoch = checkpoint["epoch"]
+        trainer.best_epoch = checkpoint["best_epoch"]
+        trainer.best_metric = checkpoint["best_metric"]
+        trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
+        trainer.best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         return trainer
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["trainer_ckpt_version"] == v:
+                print(v, checkpoint["train_hypers"])
+                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["trainer_ckpt_version"] = v + 1
+
         if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using "
