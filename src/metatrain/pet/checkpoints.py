@@ -69,3 +69,10 @@ def trainer_update_v3_v4(checkpoint):
             "sliding_factor": old_loss_hypers.get("sliding_factor", None),
         }
     checkpoint["train_hypers"]["loss"] = new_loss_hypers
+
+def trainer_update_v4_v5(checkpoint):
+    if checkpoint["train_hypers"].get("scheduler") is None:
+        checkpoint["train_hypers"]["scheduler"] = "step"
+
+    if checkpoint["train_hypers"].get("scheduler_reduce_lr_every") is None:
+        checkpoint["train_hypers"]["scheduler_reduce_lr_every"] = "epoch"
