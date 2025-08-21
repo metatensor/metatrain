@@ -407,25 +407,22 @@ class Trainer(TrainerInterface):
                 )
                 optimizer.step()
 
-                lr_scheduler.step()
-                new_lr = lr_scheduler.get_last_lr()[0]
-                if new_lr != old_lr:
-                    if epoch >= self.hypers["num_epochs_warmup"]:
-                        if new_lr < 1e-7:
-                            logging.info(
-                                "Learning rate is too small, stopping training"
-                            )
-                            break
-                        logging.info(
-                            f"Changing learning rate from {old_lr} to {new_lr}"
-                        )
-                    elif epoch == self.hypers["num_epochs_warmup"] - 1:
+                if self.hypers["scheduler_reduce_lr_every"] == "optimizer_step":
+                    lr_scheduler.step()
+                    new_lr = lr_scheduler.get_last_lr()[0]
+                    # only log end of warm-up or finishing training. LR logged
+                    # automatically.
+                    if (
+                        epoch
+                        == (self.hypers["num_epochs_warmup"] * steps_per_epoch) - 1
+                    ):
                         logging.info(
                             "Finished warm-up. "
                             f"Now training with learning rate {new_lr}"
                         )
-                    else:  # epoch < self.hypers["num_epochs_warmup"] - 1:
-                        pass  # we don't clutter the log at every warm-up step
+                    if new_lr < 1e-7:
+                        logging.info("Learning rate is too small, stopping training")
+                        break
                     old_lr = new_lr
 
                 if is_distributed:
@@ -436,6 +433,20 @@ class Trainer(TrainerInterface):
                 train_rmse_calculator.update(predictions, targets)
                 if self.hypers["log_mae"]:
                     train_mae_calculator.update(predictions, targets)
+
+            if self.hypers["scheduler_reduce_lr_every"] == "epoch":
+                lr_scheduler.step()
+                new_lr = lr_scheduler.get_last_lr()[0]
+                assert steps_per_epoch == 1
+                if epoch == (self.hypers["num_epochs_warmup"] * steps_per_epoch) - 1:
+                    logging.info(
+                        f"Finished warm-up. Now training with learning rate {new_lr}"
+                    )
+                if new_lr < 1e-7:
+                    logging.info("Learning rate is too small, stopping training")
+                    break
+                old_lr = new_lr
+
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
                 is_distributed=is_distributed,
