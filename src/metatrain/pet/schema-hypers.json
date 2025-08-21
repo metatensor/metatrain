@@ -88,6 +88,20 @@
             "null"
           ]
         },
+        "scheduler": {
+          "type": "string",
+          "enum": [
+            "step",
+            "cosine"
+          ]
+        },
+        "scheduler_reduce_lr_every": {
+          "type": "string",
+          "enum": [
+            "epoch",
+            "optimizer_step"
+          ]
+        },
         "scheduler_patience": {
           "type": "integer"
         },

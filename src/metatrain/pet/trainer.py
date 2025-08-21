@@ -40,25 +40,46 @@ from .modules.finetuning import apply_finetuning_strategy
 
 
 def get_scheduler(optimizer, train_hypers, steps_per_epoch):
+    # If the LR decay is per-epoch, `steps_per_epoch` should be 1
+    if train_hypers["scheduler_reduce_lr_every"] == "epoch":
+        assert steps_per_epoch == 1
+
     total_steps = train_hypers["num_epochs"] * steps_per_epoch
     warmup_steps = train_hypers["num_epochs_warmup"] * steps_per_epoch
-    min_lr_ratio = 0.0  # hardcoded for now
 
-    # 2. Define the LR schedule function
-    def lr_lambda(current_step: int):
-        if current_step < warmup_steps:
-            # Linear warmup
-            return float(current_step) / float(max(1, warmup_steps))
-        else:
+    if train_hypers["scheduler"] == "step":
+        patience = train_hypers["scheduler_patience"] * steps_per_epoch
+
+        def step_lr_lambda(current_step):
+            if current_step < warmup_steps:  # linear warmup
+                return current_step / warmup_steps
+
+            # Step decay
+            delta = current_step - warmup_steps
+            num_blocks = delta // patience
+            return 0.5 ** (num_blocks)
+
+        lr_lambda = step_lr_lambda
+
+    else:
+        assert train_hypers["scheduler"] == "cosine"
+
+        def cosine_lr_lambda(current_step):
+            min_lr_ratio = 0.0  # hardcoded for now
+
+            if current_step < warmup_steps:  # linear warmup
+                return current_step / warmup_steps
+
             # Cosine decay
-            progress = (current_step - warmup_steps) / float(
-                max(1, total_steps - warmup_steps)
+            progress = (current_step - warmup_steps) / max(
+                1, total_steps - warmup_steps
             )
             cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
             return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
 
-    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
-    return scheduler
+        lr_lambda = cosine_lr_lambda
+
+    return LambdaLR(optimizer, lr_lambda)
 
 
 class Trainer(TrainerInterface):
@@ -304,7 +325,13 @@ class Trainer(TrainerInterface):
             if not (model.module if is_distributed else model).has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
-        lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
+        # Create a learning rate scheduler, either with per-epoch or per-optimizer step
+        # LR decay.
+        if self.hypers["scheduler_reduce_lr_every"] == "epoch":
+            steps_per_epoch = 1
+        else:
+            steps_per_epoch = len(train_dataloader)
+        lr_scheduler = get_scheduler(optimizer, self.hypers, steps_per_epoch)
 
         if self.scheduler_state_dict is not None and not is_finetune:
             # same as the optimizer, try to load the scheduler state dict
