@@ -158,10 +158,10 @@ def test_regression_energies_forces_train(device, scheduler):
             [0.208536326885, -0.117365628481, -0.278660625219], device=device
         )
 
-    # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["energy"].block().values)
-    print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
+    # # if you need to change the hardcoded values:
+    # torch.set_printoptions(precision=12)
+    # print(output["energy"].block().values)
+    # print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
 
     torch.testing.assert_close(output["energy"].block().values, expected_output)
     torch.testing.assert_close(
