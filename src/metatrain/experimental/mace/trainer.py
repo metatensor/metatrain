@@ -9,7 +9,6 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
-from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
@@ -310,10 +309,6 @@ class Trainer(TrainerInterface):
         logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
         logging.info(f"Initial learning rate: {old_lr}")
 
-        rotational_augmenter = RotationalAugmenter(
-            train_targets, extra_data_info_dict=extra_data_info
-        )
-
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
         # Train the model:
@@ -339,11 +334,6 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = batch
-                # systems, targets, extra_data = (
-                #     rotational_augmenter.apply_random_augmentations(
-                #         systems, targets, extra_data=extra_data
-                #     )
-                # )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
