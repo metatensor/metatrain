@@ -183,7 +183,7 @@ def _eval_targets(
     timings_per_atom = []
 
     # Main evaluation loop
-    for batch in tqdm.tqdm(dataloader):
+    for batch in tqdm.tqdm(dataloader, ncols=100):
         systems, batch_targets, _ = batch
         systems = [system.to(dtype=dtype, device=device) for system in systems]
         batch_targets = {
