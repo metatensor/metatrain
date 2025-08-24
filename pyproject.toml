@@ -80,6 +80,10 @@ gap = [
     "skmatter",
     "scipy",
 ]
+uea = [
+    "wigners",
+    "sphericart[torch]",
+]
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]
