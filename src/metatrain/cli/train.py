@@ -249,12 +249,13 @@ def train_model(
                 "Wandb is enabled but not installed. "
                 "Please install wandb using `pip install wandb` to use this logger."
             )
-        logging.info("Setting up wandb logging")
+        if is_main_process():
+            logging.info("Setting up wandb logging")
 
-        run = wandb.init(
-            **options["wandb"], config=OmegaConf.to_container(options, resolve=True)
-        )
-        ROOT_LOGGER.addHandler(WandbHandler(run))
+            run = wandb.init(
+                **options["wandb"], config=OmegaConf.to_container(options, resolve=True)
+            )
+            ROOT_LOGGER.addHandler(WandbHandler(run))
 
     ############################
     # SET UP TRAINING SET ######
