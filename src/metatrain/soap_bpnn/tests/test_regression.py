@@ -1,3 +1,4 @@
+import copy
 import random
 
 import numpy as np
@@ -182,7 +183,7 @@ def test_regression_train_spherical(device):
 
     dataset, target_info_dict, _ = get_dataset(conf)
 
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["batch_size"] = 1
     hypers["training"]["loss"]["mtt::electron_density_basis"] = hypers["training"][
