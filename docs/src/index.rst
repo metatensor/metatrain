@@ -20,3 +20,4 @@
    tutorials/index
    advanced-concepts/index
    dev-docs/index
+   cite
