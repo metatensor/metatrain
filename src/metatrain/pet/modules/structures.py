@@ -1,8 +1,8 @@
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import torch
-from metatensor.torch import Labels, TensorBlock
-from metatomic.torch import NeighborListOptions, System, register_autograd_neighbors
+from metatensor.torch import Labels
+from metatomic.torch import NeighborListOptions, System
 
 from .nef import (
     compute_reversed_neighbor_list,
@@ -15,6 +15,7 @@ from .nef import (
 def concatenate_structures(
     systems: List[System],
     neighbor_list_options: NeighborListOptions,
+    selected_atoms: Optional[Labels] = None,
 ):
     positions: List[torch.Tensor] = []
     centers: List[torch.Tensor] = []
@@ -22,9 +23,11 @@ def concatenate_structures(
     species: List[torch.Tensor] = []
     cell_shifts: List[torch.Tensor] = []
     cells: List[torch.Tensor] = []
+    system_indices: List[torch.Tensor] = []
+    atom_indices: List[torch.Tensor] = []
     node_counter = 0
 
-    for system in systems:
+    for i, system in enumerate(systems):
         assert len(system.known_neighbor_lists()) >= 1, "no neighbor list found"
         neighbor_list = system.get_neighbor_list(neighbor_list_options)
         nl_values = neighbor_list.samples.values
@@ -33,8 +36,35 @@ def concatenate_structures(
         neighbors_values = nl_values[:, 1]
         cell_shifts_values = nl_values[:, 2:]
 
-        positions.append(system.positions)
-        species.append(system.types)
+        if selected_atoms is not None:
+            system_selected_atoms = selected_atoms.values[:, 1][
+                selected_atoms.values[:, 0] == i
+            ]
+            unique_centers = torch.unique(centers_values)
+            system_selected_atoms = torch.unique(
+                torch.cat([system_selected_atoms, unique_centers])
+            )
+            # calculate the mapping from the ghost atoms to the real atoms
+            ghost_to_real_index = torch.full(
+                [
+                    int(unique_centers.max()) + 1,
+                ],
+                -1,
+                device=centers_values.device,
+                dtype=centers_values.dtype,
+            )
+            for j, unique_center_index in enumerate(unique_centers):
+                ghost_to_real_index[unique_center_index] = j
+
+            centers_values = ghost_to_real_index[centers_values]
+            neighbors_values = ghost_to_real_index[neighbors_values]
+        else:
+            system_selected_atoms = torch.arange(
+                len(system), device=system.positions.device
+            )
+
+        positions.append(system.positions[system_selected_atoms])
+        species.append(system.types[system_selected_atoms])
 
         centers.append(centers_values + node_counter)
         neighbors.append(neighbors_values + node_counter)
@@ -42,7 +72,13 @@ def concatenate_structures(
 
         cells.append(system.cell)
 
-        node_counter += len(system.positions)
+        node_counter += len(system_selected_atoms)
+        system_indices.append(
+            torch.full((len(system_selected_atoms),), i, device=system.positions.device)
+        )
+        atom_indices.append(
+            torch.arange(len(system_selected_atoms), device=system.positions.device)
+        )
 
     positions = torch.cat(positions)
     centers = torch.cat(centers)
@@ -50,6 +86,17 @@ def concatenate_structures(
     species = torch.cat(species)
     cells = torch.stack(cells)
     cell_shifts = torch.cat(cell_shifts)
+    system_indices = torch.cat(system_indices)
+    atom_indices = torch.cat(atom_indices)
+
+    sample_values = torch.stack(
+        [system_indices, atom_indices],
+        dim=1,
+    )
+    sample_labels = Labels(
+        names=["system", "atom"],
+        values=sample_values,
+    )
 
     return (
         positions,
@@ -58,138 +105,37 @@ def concatenate_structures(
         species,
         cells,
         cell_shifts,
+        system_indices,
+        sample_labels,
     )
 
 
-def remap_neighborlists(
-    systems: List[System],
+def save_system(
+    system: System,
     neighbor_list_options: NeighborListOptions,
     selected_atoms: Optional[Labels] = None,
-) -> List[System]:
-    """
-    This function remaps the neighbor lists from the LAMMPS format
-    to ASE format. The main difference between LAMMPS and ASE neighbor
-    lists is that LAMMPS treats both real and ghost atoms as real atoms.
-    Because of that, there is a certain degree of duplication in the data.
-    Moreover, in the case of domain decomposition, the indices of the atoms
-    may not be contiguous.This function removes the ghost atoms from the
-    positions and types, while remapping the indices of the neighbor lists
-    to a contiguous format.
-    """
-
-    new_systems: List[System] = []
-    for i, system in enumerate(systems):
-        assert len(system.known_neighbor_lists()) >= 1, (
-            "the system must have at least one neighbor list"
-        )
-        if selected_atoms is not None:
-            selected_atoms_index = selected_atoms.values[:, 1][
-                selected_atoms.values[:, 0] == i
-            ]
-        else:
-            selected_atoms_index = torch.arange(
-                len(system), device=system.positions.device
-            )
-        nl = system.get_neighbor_list(neighbor_list_options)
-        nl_values = nl.samples.values
-
-        centers = nl_values[:, 0]
-        neighbors = nl_values[:, 1]
-        cell_shifts = nl_values[:, 2:]
-
-        unique_neighbors_index = torch.unique(centers)
-        unique_index = torch.unique(
-            torch.cat((selected_atoms_index, unique_neighbors_index))
-        )
-
-        centers, neighbors, unique_neighbors_index = remap_to_contiguous_indexing(
-            centers,
-            neighbors,
-            unique_neighbors_index,
-            unique_index,
-            device=system.positions.device,
-        )
-
-        index = torch.argsort(centers, stable=True)
-
-        centers = centers[index].contiguous()
-        neighbors = neighbors[index].contiguous()
-        cell_shifts = cell_shifts[index].contiguous()
-        positions = system.positions[unique_index]
-        types = system.types[unique_index]
-        distances = nl.values[index].contiguous()
-
-        new_system = System(
-            positions=positions,
-            types=types,
-            cell=system.cell,
-            pbc=system.pbc,
-        )
-
-        new_nl = TensorBlock(
-            samples=Labels(
-                names=nl.samples.names,
-                values=torch.cat(
-                    (
-                        centers.unsqueeze(1),
-                        neighbors.unsqueeze(1),
-                        cell_shifts,
-                    ),
-                    dim=1,
-                ),
-            ),
-            components=nl.components,
-            properties=nl.properties,
-            values=distances.detach(),
-        )
-
-        register_autograd_neighbors(system, new_nl)
-        new_system.add_neighbor_list(neighbor_list_options, new_nl)
-        new_systems.append(new_system)
-
-    return new_systems
-
-
-def remap_to_contiguous_indexing(
-    centers: torch.Tensor,
-    neighbors: torch.Tensor,
-    unique_neighbors_index: torch.Tensor,
-    unique_index: torch.Tensor,
-    device: torch.device,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    This helper function remaps the indices of center and neighbor atoms
-    from arbitrary indexing to contgious indexing, i.e.
-
-    from
-    0, 1, 2, 54, 55, 56
-    to
-    0, 1, 2, 3, 4, 5.
-
-    This remapping is required by internal implementation of PET neighbor lists, where
-    indices of the atoms cannot exceed the total amount of atoms in the system.
-
-    Shifted indices come from LAMMPS neighborlists in the case of domain decomposition
-    enabled, since they contain not only the atoms in the unit cell, but also so-called
-    ghost atoms, which may have a different indexing. Thus, to avoid further errors, we
-    remap the indices to a contiguous format.
-
-    """
-    index_map = torch.empty(
-        int(unique_index.max().item()) + 1, dtype=torch.int64, device=device
-    )
-    index_map[unique_index] = torch.arange(len(unique_index), device=device)
-    centers = index_map[centers]
-    neighbors = index_map[neighbors]
-    unique_neighbors_index = index_map[unique_neighbors_index]
-    return centers, neighbors, unique_neighbors_index
+):
+    positions = system.positions
+    types = system.types
+    cell = system.cell
+    pbc = system.pbc
+    system_data = {
+        "positions": positions,
+        "types": types,
+        "cell": cell,
+        "pbc": pbc,
+    }
+    nl = system.get_neighbor_list(neighbor_list_options)
+    nl.to(dtype=torch.float64).save("nl.mta")
+    torch.save(system_data, "system.pt")
+    if selected_atoms is not None:
+        selected_atoms.to("cpu").save("selected_atoms.mta")
 
 
 def systems_to_batch(
     systems: List[System],
     options: NeighborListOptions,
     all_species_list: List[int],
-    system_indices: torch.Tensor,
     species_to_species_index: torch.Tensor,
     selected_atoms: Optional[Labels] = None,
 ):
@@ -206,6 +152,7 @@ def systems_to_batch(
     - `num_neghbors`: The number of neighbors for each central atom
     - `reversed_neighbor_list`: The reversed neighbor list for each central atom
     """
+    # save_system(systems[0], options, selected_atoms)
     (
         positions,
         centers,
@@ -213,7 +160,9 @@ def systems_to_batch(
         species,
         cells,
         cell_shifts,
-    ) = concatenate_structures(systems, options)
+        system_indices,
+        sample_labels,
+    ) = concatenate_structures(systems, options, selected_atoms)
 
     # somehow the backward of this operation is very slow at evaluation,
     # where there is only one cell, therefore we simplify the calculation
@@ -233,9 +182,14 @@ def systems_to_batch(
     else:
         max_edges_per_node = int(torch.max(num_neghbors))
 
+    if selected_atoms is not None:
+        num_nodes = int(centers.max()) + 1
+    else:
+        num_nodes = len(positions)
+
     # Convert to NEF (Node-Edge-Feature) format:
     nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
-        centers, len(positions), max_edges_per_node
+        centers, num_nodes, max_edges_per_node
     )
 
     # Element indices
@@ -267,4 +221,6 @@ def systems_to_batch(
         neighbors_index,
         num_neghbors,
         reversed_neighbor_list,
+        system_indices,
+        sample_labels,
     )
