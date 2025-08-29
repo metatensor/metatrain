@@ -110,28 +110,6 @@ def concatenate_structures(
     )
 
 
-def save_system(
-    system: System,
-    neighbor_list_options: NeighborListOptions,
-    selected_atoms: Optional[Labels] = None,
-):
-    positions = system.positions
-    types = system.types
-    cell = system.cell
-    pbc = system.pbc
-    system_data = {
-        "positions": positions,
-        "types": types,
-        "cell": cell,
-        "pbc": pbc,
-    }
-    nl = system.get_neighbor_list(neighbor_list_options)
-    nl.to(dtype=torch.float64).save("nl.mta")
-    torch.save(system_data, "system.pt")
-    if selected_atoms is not None:
-        selected_atoms.to("cpu").save("selected_atoms.mta")
-
-
 def systems_to_batch(
     systems: List[System],
     options: NeighborListOptions,

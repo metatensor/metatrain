@@ -852,40 +852,6 @@ class PET(ModelInterface):
             block.properties for block in target_info.layout.blocks()
         ]
 
-    def _get_system_indices_and_labels(
-        self,
-        systems: List[System],
-        device: torch.device,
-        selected_atoms: Optional[Labels] = None,
-    ):
-        system_indices_list = []
-        atom_indices_list = []
-        for i, system in enumerate(systems):
-            if selected_atoms is not None:
-                selected_atoms_index = selected_atoms.values[:, 1][
-                    selected_atoms.values[:, 0] == i
-                ]
-            else:
-                selected_atoms_index = torch.arange(len(system), device=device)
-            system_indices_list.append(
-                torch.full((len(selected_atoms_index),), i, device=device)
-            )
-            atom_indices_list.append(
-                torch.arange(len(selected_atoms_index), device=device)
-            )
-        system_indices = torch.concatenate(system_indices_list)
-        atom_indices = torch.concatenate(atom_indices_list)
-
-        sample_values = torch.stack(
-            [system_indices, atom_indices],
-            dim=1,
-        )
-        sample_labels = Labels(
-            names=["system", "atom"],
-            values=sample_values,
-        )
-        return system_indices, sample_labels
-
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         for v in range(1, cls.__checkpoint_version__):
