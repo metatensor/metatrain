@@ -26,7 +26,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .modules.finetuning import apply_finetuning_strategy
-from .modules.structures import remap_neighborlists, systems_to_batch
+from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func
 
@@ -242,13 +242,6 @@ class PET(ModelInterface):
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
 
-        if not self.training:
-            # While running the model with LAMMPS, we need to remap the
-            # neighbor lists from LAMMPS to ASE format. By default, LAMMPS
-            # treats all ghost atoms as real (central), what creates a
-            # singificant computational overhead.
-            systems = remap_neighborlists(systems, nl_options, selected_atoms)
-
         if self.single_label.values.device != device:
             self.single_label = self.single_label.to(device)
             self.key_labels = {
@@ -266,10 +259,6 @@ class PET(ModelInterface):
                 output_name: [labels.to(device) for labels in properties_tmap]
                 for output_name, properties_tmap in self.property_labels.items()
             }
-
-        system_indices, sample_labels = self._get_system_indices_and_labels(
-            systems, device
-        )
 
         # We convert a list of systems to a batch required for the PET model.
         # The batch consists of the following tensors:
@@ -296,11 +285,12 @@ class PET(ModelInterface):
             neighbors_index,
             num_neghbors,
             reversed_neighbor_list,
+            system_indices,
+            sample_labels,
         ) = systems_to_batch(
             systems,
             nl_options,
             self.atomic_types,
-            system_indices,
             self.species_to_species_index,
             selected_atoms,
         )
@@ -872,41 +862,6 @@ class PET(ModelInterface):
         self.property_labels[target_name] = [
             block.properties for block in target_info.layout.blocks()
         ]
-
-    def _get_system_indices_and_labels(
-        self, systems: List[System], device: torch.device
-    ):
-        system_indices = torch.concatenate(
-            [
-                torch.full(
-                    (len(system),),
-                    i_system,
-                    device=device,
-                )
-                for i_system, system in enumerate(systems)
-            ],
-        )
-
-        sample_values = torch.stack(
-            [
-                system_indices,
-                torch.concatenate(
-                    [
-                        torch.arange(
-                            len(system),
-                            device=device,
-                        )
-                        for system in systems
-                    ],
-                ),
-            ],
-            dim=1,
-        )
-        sample_labels = Labels(
-            names=["system", "atom"],
-            values=sample_values,
-        )
-        return system_indices, sample_labels
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
