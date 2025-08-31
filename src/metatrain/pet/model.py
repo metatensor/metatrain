@@ -1,4 +1,3 @@
-import logging
 import warnings
 from math import prod
 from typing import Any, Dict, List, Literal, Optional
@@ -41,7 +40,7 @@ class PET(ModelInterface):
 
     """
 
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -61,6 +60,9 @@ class PET(ModelInterface):
 
         self.cutoff = float(self.hypers["cutoff"])
         self.cutoff_width = float(self.hypers["cutoff_width"])
+        self.node_embedding = torch.nn.Embedding(
+            len(self.atomic_types) + 1, 4*self.hypers["d_pet"]
+        )
         self.embedding = torch.nn.Embedding(
             len(self.atomic_types) + 1, self.hypers["d_pet"]
         )
@@ -80,13 +82,25 @@ class PET(ModelInterface):
 
         self.gnn_layers = torch.nn.ModuleList(gnn_layers)
 
+        combination_rmsnorms = []
+        combination_mlps = []
+        for i in range(self.hypers["num_gnn_layers"]):
+            rmsnorm = torch.nn.LayerNorm(2 * self.hypers["d_pet"])
+            mlp = torch.nn.Sequential(
+                torch.nn.Linear(2 * self.hypers["d_pet"], 2 * self.hypers["d_pet"]),
+                torch.nn.SiLU(),
+                torch.nn.Linear(2 * self.hypers["d_pet"], self.hypers["d_pet"]),
+            )
+            combination_rmsnorms.append(rmsnorm)
+            combination_mlps.append(mlp)
+        self.combination_rmsnorms = torch.nn.ModuleList(combination_rmsnorms)
+        self.combination_mlps = torch.nn.ModuleList(combination_mlps)
+
         self.node_heads = torch.nn.ModuleDict()
         self.edge_heads = torch.nn.ModuleDict()
         self.node_last_layers = torch.nn.ModuleDict()
         self.edge_last_layers = torch.nn.ModuleDict()
-        self.last_layer_feature_size = (
-            self.hypers["num_gnn_layers"] * self.hypers["d_head"] * 2
-        )
+        self.last_layer_feature_size = self.hypers["d_head"] * 2
 
         self.outputs = {
             "features": ModelOutput(unit="", per_atom=True)
@@ -307,10 +321,11 @@ class PET(ModelInterface):
         edge_features_list: List[torch.Tensor] = []
 
         input_messages = self.embedding(element_indices_neighbors)
-        for gnn_layer in self.gnn_layers:
+        input_node_embeddings = self.node_embedding(element_indices_nodes)
+        for combination_norm, combination_mlp, gnn_layer in zip(self.combination_rmsnorms, self.combination_mlps, self.gnn_layers):
             output_node_embeddings, output_edge_embeddings = gnn_layer(
+                input_node_embeddings,
                 input_messages,
-                element_indices_nodes,
                 element_indices_neighbors,
                 edge_vectors,
                 padding_mask,
@@ -318,19 +333,23 @@ class PET(ModelInterface):
                 cutoff_factors,
                 use_manual_attention,
             )
-            node_features_list.append(output_node_embeddings)
-            edge_features_list.append(output_edge_embeddings)
 
             # The GNN contraction happens by reordering the messages,
             # using a reversed neighbor list, so the new input message
             # from atom `j` to atom `i` in on the GNN layer N+1 is a
             # reversed message from atom `i` to atom `j` on the GNN layer N.
+            input_node_embeddings = output_node_embeddings
             new_input_messages = output_edge_embeddings[
                 neighbors_index, reversed_neighbor_list
             ]
-            input_messages = 0.5 * (input_messages + new_input_messages)
+            # input_messages = 0.5 * (output_edge_embeddings + new_input_messages)
+            concatenated = torch.cat([output_edge_embeddings, new_input_messages], dim=-1)
+            input_messages = input_messages + output_edge_embeddings + combination_mlp(combination_norm(concatenated))
 
-        # If the long-range module is actuvated, we add the long-range features
+        node_features_list.append(input_node_embeddings)
+        edge_features_list.append(input_messages)
+
+        # If the long-range module is activated, we add the long-range features
         # on top of the node features
 
         if self.long_range:
@@ -687,23 +706,25 @@ class PET(ModelInterface):
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
     ) -> "PET":
+        model_data = checkpoint["model_data"]
+
         if context == "restart":
-            logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
-        elif context in {"finetune", "export"}:
-            logging.info(f"Using best model from epoch {checkpoint['best_epoch']}")
+        elif context == "finetune" or context == "export":
             model_state_dict = checkpoint["best_model_state_dict"]
+            if model_state_dict is None:
+                model_state_dict = checkpoint["model_state_dict"]
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
+        finetune_config = model_state_dict.pop("finetune_config", {})
+
         # Create the model
-        model_data = checkpoint["model_data"]
         model = cls(
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
         )
 
-        finetune_config = model_state_dict.pop("finetune_config", {})
         if finetune_config:
             # Apply the finetuning strategy
             model = apply_finetuning_strategy(model, finetune_config)
@@ -787,12 +808,12 @@ class PET(ModelInterface):
         self.node_heads[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.Sequential(
-                    torch.nn.Linear(self.hypers["d_pet"], self.hypers["d_head"]),
+                    torch.nn.Linear(4*self.hypers["d_pet"], self.hypers["d_head"]),
                     torch.nn.SiLU(),
                     torch.nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
                     torch.nn.SiLU(),
                 )
-                for _ in range(self.hypers["num_gnn_layers"])
+                for _ in range(1)
             ]
         )
 
@@ -804,7 +825,7 @@ class PET(ModelInterface):
                     torch.nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
                     torch.nn.SiLU(),
                 )
-                for _ in range(self.hypers["num_gnn_layers"])
+                for _ in range(1)
             ]
         )
 
@@ -820,7 +841,7 @@ class PET(ModelInterface):
                         for key, shape in self.output_shapes[target_name].items()
                     }
                 )
-                for _ in range(self.hypers["num_gnn_layers"])
+                for _ in range(1)
             ]
         )
 
@@ -836,7 +857,7 @@ class PET(ModelInterface):
                         for key, shape in self.output_shapes[target_name].items()
                     }
                 )
-                for _ in range(self.hypers["num_gnn_layers"])
+                for _ in range(1)
             ]
         )
 
@@ -889,11 +910,14 @@ class PET(ModelInterface):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["model_ckpt_version"] == v:
-                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
+        if checkpoint["model_ckpt_version"] == 1:
+            checkpoints.update_v1_v2(checkpoint["model_state_dict"])
+            checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
+            checkpoint["model_ckpt_version"] = 2
+        if checkpoint["model_ckpt_version"] == 2:
+            checkpoints.update_v2_v3(checkpoint["model_state_dict"])
+            checkpoints.update_v2_v3(checkpoint["best_model_state_dict"])
+            checkpoint["model_ckpt_version"] = 3
 
         if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
@@ -915,9 +939,7 @@ class PET(ModelInterface):
                 "model_hypers": self.hypers,
                 "dataset_info": self.dataset_info,
             },
-            "epoch": None,
-            "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": self.state_dict(),
+            "best_model_state_dict": None,
         }
         return checkpoint

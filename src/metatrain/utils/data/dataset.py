@@ -27,24 +27,6 @@ from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.units import get_gradient_units
 
 
-def _set(values: List[int]) -> List[int]:
-    """This function just does `list(set(values))`.
-
-    But set is not torchscript compatible, so we do it manually.
-    """
-    unique_values: List[int] = []
-    for at_type in values:
-        found = False
-        for seen in unique_values:
-            if seen == at_type:
-                found = True
-                break
-        if not found:
-            unique_values.append(at_type)
-
-    return unique_values
-
-
 class DatasetInfo:
     """A class that contains information about datasets.
 
@@ -69,11 +51,9 @@ class DatasetInfo:
         extra_data: Optional[Dict[str, TargetInfo]] = None,
     ):
         self.length_unit = length_unit if length_unit is not None else ""
-        self._atomic_types = _set(atomic_types)
+        self._atomic_types = set(atomic_types)
         self.targets = targets
-        self.extra_data: Dict[str, TargetInfo] = (
-            extra_data if extra_data is not None else {}
-        )
+        self.extra_data = extra_data if extra_data is not None else {}
 
     @property
     def atomic_types(self) -> List[int]:
@@ -82,41 +62,20 @@ class DatasetInfo:
 
     @atomic_types.setter
     def atomic_types(self, value: List[int]):
-        self._atomic_types = _set(value)
-
-    @property
-    def device(self) -> Optional[torch.device]:
-        """Return the device where the tensors of DatasetInfo are located.
-
-        This function only checks the device of the first target
-        and assumes that all targets and extra data are on the same device.
-        This is guaranteed if the ``to()`` method has been used to move
-        the DatasetInfo to a specific device.
-        """
-        if len(self.targets) == 0:
-            return None
-        first_target = list(self.targets.values())[0]
-        return first_target.device
-
-    def to(
-        self, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None
-    ) -> "DatasetInfo":
-        """Return a copy with all tensors moved to the device and dtype."""
-        new = self.copy()
-        for key, target_info in new.targets.items():
-            new.targets[key] = target_info.to(device=device, dtype=dtype)
-        for key, extra_data in new.extra_data.items():
-            new.extra_data[key] = extra_data.to(device=device, dtype=dtype)
-        return new
+        self._atomic_types = set(value)
 
     def __repr__(self):
-        return "DatasetInfo(length_unit={!r}, atomic_types={!r}, targets={!r})".format(
-            self.length_unit, self.atomic_types, self.targets
+        return (
+            f"DatasetInfo(length_unit={self.length_unit!r}, "
+            f"atomic_types={self.atomic_types!r}, targets={self.targets!r})"
         )
 
     def __eq__(self, other):
         if not isinstance(other, DatasetInfo):
-            return False
+            raise NotImplementedError(
+                "Comparison between a DatasetInfo instance and a "
+                f"{type(other).__name__} instance is not implemented."
+            )
         return (
             self.length_unit == other.length_unit
             and self._atomic_types == other._atomic_types
@@ -133,7 +92,6 @@ class DatasetInfo:
             extra_data=self.extra_data.copy(),
         )
 
-    @torch.jit.unused
     def update(self, other: "DatasetInfo") -> None:
         """Update this instance with the union of itself and ``other``.
 
@@ -177,7 +135,6 @@ class DatasetInfo:
         new.update(other)
         return new
 
-    @torch.jit.unused
     def __setstate__(self, state):
         """
         Custom ``__setstate__`` to allow loading old checkpoints where ``extra_data`` is
@@ -643,3 +600,180 @@ def _save_indices(
                     test,
                     fmt="%d",
                 )
+
+import numpy as np
+import torch
+from torch.utils.data import Dataset as TorchDataset
+from metatensor.torch import TensorMap, Labels, TensorBlock
+from metatomic.torch import System
+import metatensor.torch
+import os
+
+
+def memmap_collate_fn(batch):
+    non_system_keys = [key for key in batch[0].keys() if key != "system"]
+    systems = [sample["system"] for sample in batch]
+    targets = {k: [] for k in non_system_keys}
+    for sample in batch:
+        for key in non_system_keys:
+            targets[key].append(sample[key])
+    targets = {k: metatensor.torch.join(v, "samples", remove_tensor_name=True) for k, v in targets.items()}
+    return systems, targets, {}
+
+class MemmapArray:
+    """Small helper to reopen np.memmap lazily in each worker."""
+    def __init__(self, path, shape, dtype, mode="r"):
+        self.path  = str(path)
+        self.shape = tuple(shape)
+        self.dtype = np.dtype(dtype)
+        self.mode  = mode
+        self._mm   = None
+
+    def _ensure_open(self):
+        if self._mm is None:
+            self._mm = np.memmap(self.path, dtype=self.dtype, mode=self.mode, shape=self.shape)
+
+    def __getitem__(self, idx):
+        self._ensure_open()
+        return self._mm[idx]
+
+    def close(self):
+        if self._mm is not None:
+            # np.memmap closes when deleted; explicit close via _mmap isn't public.
+            self._mm._mmap.close()
+            self._mm = None
+
+
+class MemmapDataset(TorchDataset):
+    def __init__(self, path, conservative, non_conservative):
+        path = Path(path)
+        self.with_cell_and_stress = os.path.exists(path/"c.bin") and os.path.exists(path/"s.bin")
+        self.conservative = conservative
+        self.non_conservative = non_conservative
+
+        self.N = np.load(path/"N.npy")
+        self.n = np.load(path/"n.npy")
+        self.x = MemmapArray(path/"x.bin", (self.n[-1], 3), "float32", mode="r")
+        self.a = MemmapArray(path/"a.bin", (self.n[-1],), "int32", mode="r")
+        if self.with_cell_and_stress:
+            self.c = MemmapArray(path/"c.bin", (self.N, 3, 3), "float32", mode="r")
+        self.e = MemmapArray(path/"e.bin", (self.N, 1), "float32", mode="r")
+        self.f = MemmapArray(path/"f.bin", (self.n[-1], 3), "float32", mode="r")
+        if self.with_cell_and_stress:
+            self.s = MemmapArray(path/"s.bin", (self.N, 3, 3), "float32", mode="r")
+
+    def __len__(self):
+        return self.N
+
+    def __getitem__(self, i):
+        a = torch.tensor(self.a[self.n[i]:self.n[i+1]], dtype=torch.int32)
+        x = torch.tensor(self.x[self.n[i]:self.n[i+1]], dtype=torch.float64)
+        if self.with_cell_and_stress: c = torch.tensor(self.c[i], dtype=torch.float64)
+
+        e = torch.tensor(self.e[i], dtype=torch.float64)
+        f = torch.tensor(self.f[self.n[i]:self.n[i+1]], dtype=torch.float64)
+        if self.with_cell_and_stress: s = torch.tensor(self.s[i], dtype=torch.float64)
+
+        system = System(
+            positions=x,
+            types=a,
+            cell=(c if self.with_cell_and_stress else torch.zeros(3, 3, dtype=torch.float64)),
+            pbc=(torch.tensor([True, True, True]) if self.with_cell_and_stress else torch.tensor([False, False, False]))
+        )
+
+        target_dict = {}
+        energy_block = TensorBlock(
+            values=e.unsqueeze(-1),
+            samples=Labels(names=["system"], values=torch.tensor([[i]], dtype=torch.int32)),
+            components=[],
+            properties=Labels.range("energy", 1)
+        )
+        if self.non_conservative:
+            forces = TensorMap(
+                keys=Labels.single(),
+                blocks=[
+                    TensorBlock(
+                        values=f.unsqueeze(-1),
+                        samples=Labels(names=["system", "atom"], values=torch.tensor([[i, j] for j in range(len(a))], dtype=torch.int32)),
+                        components=[Labels.range("xyz", 3)],
+                        properties=Labels.range("non_conservative_forces", 1)
+                    )
+                ]
+            )
+            target_dict["non_conservative_forces"] = forces
+            if self.with_cell_and_stress:
+                stress = TensorMap(
+                    keys=Labels.single(),
+                    blocks=[
+                        TensorBlock(
+                            values=s.unsqueeze(0).unsqueeze(-1),
+                            samples=Labels(names=["system"], values=torch.tensor([[i]], dtype=torch.int32)),
+                            components=[Labels.range("xyz_1", 3), Labels.range("xyz_2", 3)],
+                            properties=Labels.range("non_conservative_stress", 1)
+                        )
+                    ]
+                )
+                target_dict["non_conservative_stress"] = stress
+        if self.conservative:
+            energy_block.add_gradient(
+                "positions",
+                TensorBlock(
+                    values=-f.unsqueeze(-1),
+                    samples=Labels(names=["sample", "atom"], values=torch.tensor([[0, j] for j in range(len(a))], dtype=torch.int32)),
+                    components=[Labels.range("xyz", 3)],
+                    properties=Labels.range("energy", 1)
+                )
+            )
+            if self.with_cell_and_stress:
+                energy_block.add_gradient(
+                    "strain",
+                    TensorBlock(
+                        values=(s * torch.abs(torch.det(c))).unsqueeze(0).unsqueeze(-1),
+                        samples=Labels(names=["sample"], values=torch.tensor([[0]], dtype=torch.int32)),
+                        components=[Labels.range("xyz_1", 3), Labels.range("xyz_2", 3)],
+                        properties=Labels.range("energy", 1)
+                    )
+                )
+
+        energy = TensorMap(
+            keys=Labels.single(),
+            blocks=[energy_block],
+        )
+        target_dict["energy"] = energy
+
+        return {"system": system, **target_dict}
+
+    def get_target_info(self, target_config: DictConfig) -> Dict[str, TargetInfo]:
+        """
+        Get information about the targets in the dataset.
+
+        :param target_config: The user-provided (through the yaml file) target
+            configuration.
+        """
+        target_info_dict = {}
+        for target_key, target in target_config.items():
+            is_energy = (
+                (target["quantity"] == "energy")
+                and (not target["per_atom"])
+                and target["num_subtargets"] == 1
+                and target["type"] == "scalar"
+            )
+            tensor_map = self[0][target_key]  # always > 0 samples, see above
+            if is_energy:
+                if len(tensor_map) != 1:
+                    raise ValueError("Energy TensorMaps should have exactly one block.")
+                add_position_gradients = tensor_map.block().has_gradient("positions")
+                add_strain_gradients = tensor_map.block().has_gradient("strain")
+                target_info = get_energy_target_info(
+                    target, add_position_gradients, add_strain_gradients
+                )
+                _check_tensor_map_metadata(tensor_map, target_info.layout)
+                target_info_dict[target_key] = target_info
+            else:
+                target_info = get_generic_target_info(target)
+                _check_tensor_map_metadata(tensor_map, target_info.layout)
+                # make sure that the properties of the target_info.layout also match the
+                # actual properties of the tensor maps
+                target_info.layout = _empty_tensor_map_like(tensor_map)
+                target_info_dict[target_key] = target_info
+        return target_info_dict

@@ -3,7 +3,7 @@ from typing import Dict, List, Tuple
 from metatensor.torch import TensorMap
 from omegaconf import DictConfig
 
-from .dataset import Dataset, DiskDataset
+from .dataset import Dataset, DiskDataset, MemmapDataset
 from .readers import read_extra_data, read_systems, read_targets
 from .target_info import TargetInfo
 
@@ -32,6 +32,18 @@ def get_dataset(
         dataset = DiskDataset(
             options["systems"]["read_from"],
             fields=[*options["targets"], *options.get("extra_data", {})],
+        )
+        target_info_dictionary = dataset.get_target_info(options["targets"])
+        if "extra_data" in options:
+            extra_data_info_dictionary = dataset.get_target_info(options["extra_data"])
+    elif options["systems"]["read_from"].endswith("_mm/"):  # mmap dataset
+        conservative = True
+        if "forces" in options["targets"]["energy"]:
+            conservative = options["targets"]["energy"]["forces"]
+        dataset = MemmapDataset(
+            options["systems"]["read_from"],
+            conservative=conservative,
+            non_conservative=("non_conservative_forces" in options["targets"])
         )
         target_info_dictionary = dataset.get_target_info(options["targets"])
         if "extra_data" in options:

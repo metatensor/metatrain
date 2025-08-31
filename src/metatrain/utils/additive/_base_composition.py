@@ -418,9 +418,7 @@ class BaseCompositionModel(torch.nn.Module):
         dtype = systems[0].positions.dtype
         all_types = torch.concatenate([system.types for system in systems])
         all_types_as_indices = self.type_to_index[all_types]
-        one_hot_encoding = torch.nn.functional.one_hot(
-            all_types_as_indices, num_classes=len(center_types)
-        )
+        one_hot_encoding = torch.nn.functional.one_hot(all_types_as_indices, num_classes=len(center_types))
         return one_hot_encoding.to(dtype)
 
     def _sync_device_dtype(self, device: torch.device, dtype: torch.dtype):

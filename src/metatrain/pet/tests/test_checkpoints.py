@@ -1,5 +1,4 @@
 import copy
-import logging
 
 import pytest
 import torch
@@ -82,7 +81,7 @@ test_loading_old_checkpoints = make_checkpoint_load_tests(DEFAULT_HYPERS)
 
 
 @pytest.mark.parametrize("context", ["finetune", "restart", "export"])
-def test_get_checkpoint(context, caplog):
+def test_get_checkpoint(context):
     """
     Test that the checkpoint created by the model.get_checkpoint()
     function can be loaded back in all possible contexts.
@@ -94,31 +93,4 @@ def test_get_checkpoint(context, caplog):
     )
     model = PET(MODEL_HYPERS, dataset_info)
     checkpoint = model.get_checkpoint()
-
-    caplog.set_level(logging.INFO)
     PET.load_checkpoint(checkpoint, context)
-
-    if context == "restart":
-        assert "Using latest model from epoch None" in caplog.text
-    else:
-        assert "Using best model from epoch None" in caplog.text
-
-
-@pytest.mark.parametrize("cls_type", ["model", "trainer"])
-def test_failed_checkpoint_upgrade(cls_type):
-    """Test error raised when trying to upgrade an invalid checkpoint version."""
-    checkpoint = {f"{cls_type}_ckpt_version": 9999}
-
-    if cls_type == "model":
-        cls = PET
-        version = PET.__checkpoint_version__
-    else:
-        cls = Trainer
-        version = Trainer.__checkpoint_version__
-
-    match = (
-        f"Unable to upgrade the checkpoint: the checkpoint is using {cls_type} version "
-        f"9999, while the current {cls_type} version is {version}."
-    )
-    with pytest.raises(RuntimeError, match=match):
-        cls.upgrade_checkpoint(checkpoint)

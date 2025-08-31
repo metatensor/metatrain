@@ -91,9 +91,6 @@
         "scheduler_patience": {
           "type": "integer"
         },
-        "scheduler_factor": {
-          "type": "number"
-        },
         "log_interval": {
           "type": "integer"
         },
@@ -114,6 +111,15 @@
               "additionalProperties": {
                 "type": "number"
               }
+            }
+          },
+          "additionalProperties": false
+        },
+        "fixed_scaling_weights": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "number"
             }
           },
           "additionalProperties": false

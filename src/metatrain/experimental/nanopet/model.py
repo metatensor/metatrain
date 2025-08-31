@@ -59,6 +59,8 @@ class NanoPET(ModelInterface):
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
 
+    component_labels: Dict[str, List[List[Labels]]]
+
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
@@ -117,6 +119,10 @@ class NanoPET(ModelInterface):
         self.heads = torch.nn.ModuleDict()
         self.head_types = self.hypers["heads"]
         self.last_layers = torch.nn.ModuleDict()
+        self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
+        self.key_labels: Dict[str, Labels] = {}
+        self.component_labels: Dict[str, List[List[Labels]]] = {}
+        self.property_labels: Dict[str, List[Labels]] = {}
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -234,8 +240,23 @@ class NanoPET(ModelInterface):
 
         device = systems[0].device
 
-        self.single_label = self.single_label.to(device)
-        self.dataset_info = self.dataset_info.to(device)
+        if self.single_label.values.device != device:
+            self.single_label = self.single_label.to(device)
+            self.key_labels = {
+                output_name: label.to(device)
+                for output_name, label in self.key_labels.items()
+            }
+            self.component_labels = {
+                output_name: [
+                    [labels.to(device) for labels in components_block]
+                    for components_block in components_tmap
+                ]
+                for output_name, components_tmap in self.component_labels.items()
+            }
+            self.property_labels = {
+                output_name: [labels.to(device) for labels in properties_tmap]
+                for output_name, properties_tmap in self.property_labels.items()
+            }
 
         system_indices = torch.concatenate(
             [
@@ -445,8 +466,6 @@ class NanoPET(ModelInterface):
 
         atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
         for output_name, last_layer in self.last_layers.items():
-            target_info = self.dataset_info.targets[output_name]
-
             if output_name in outputs:
                 atomic_features = atomic_features_dict[output_name]
                 atomic_properties_by_block = []
@@ -454,13 +473,13 @@ class NanoPET(ModelInterface):
                     atomic_properties_by_block.append(
                         last_layer_by_block(atomic_features)
                     )
-                all_components = target_info.component_labels
+                all_components = self.component_labels[output_name]
                 if len(all_components[0]) == 2 and all(
                     "xyz" in comp.names[0] for comp in all_components[0]
                 ):
                     # rank-2 Cartesian tensor, symmetrize
                     tensor_as_three_by_three = atomic_properties_by_block[0].reshape(
-                        -1, 3, 3, list(target_info.blocks_shape.values())[0][-1]
+                        -1, 3, 3, list(self.output_shapes[output_name].values())[0][-1]
                     )
                     volumes = torch.stack(
                         [torch.abs(torch.det(system.cell)) for system in systems]
@@ -486,13 +505,13 @@ class NanoPET(ModelInterface):
                     )
                     for atomic_property, shape, components, properties in zip(
                         atomic_properties_by_block,
-                        target_info.blocks_shape.values(),
-                        target_info.component_labels,
-                        target_info.property_labels,
+                        self.output_shapes[output_name].values(),
+                        self.component_labels[output_name],
+                        self.property_labels[output_name],
                     )
                 ]
                 atomic_properties_tmap_dict[output_name] = TensorMap(
-                    keys=target_info.layout.keys,
+                    keys=self.key_labels[output_name],
                     blocks=blocks,
                 )
 
@@ -577,9 +596,6 @@ class NanoPET(ModelInterface):
         # float64
         self.to(dtype)
 
-        # Move dataset info to CPU so that it can be saved
-        self.dataset_info = self.dataset_info.to(device="cpu")
-
         # Additionally, the composition model contains some `TensorMap`s that cannot
         # be registered correctly with Pytorch. This funciton moves them:
         self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
@@ -622,6 +638,16 @@ class NanoPET(ModelInterface):
                     "NanoPET does not support Cartesian tensors with rank > 2."
                 )
 
+        # one output shape for each tensor block, grouped by target (i.e. tensormap)
+        self.output_shapes[target_name] = {}
+        for key, block in target_info.layout.items():
+            dict_key = target_name
+            for n, k in zip(key.names, key.values):
+                dict_key += f"_{n}_{int(k)}"
+            self.output_shapes[target_name][dict_key] = [
+                len(comp.values) for comp in block.components
+            ] + [len(block.properties.values)]
+
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
@@ -661,9 +687,17 @@ class NanoPET(ModelInterface):
                     prod(shape),
                     bias=False,
                 )
-                for key, shape in target_info.blocks_shape.items()
+                for key, shape in self.output_shapes[target_name].items()
             }
         )
+
+        self.key_labels[target_name] = target_info.layout.keys
+        self.component_labels[target_name] = [
+            block.components for block in target_info.layout.blocks()
+        ]
+        self.property_labels[target_name] = [
+            block.properties for block in target_info.layout.blocks()
+        ]
 
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
@@ -676,7 +710,7 @@ class NanoPET(ModelInterface):
             "metadata": self.metadata,
             "model_data": {
                 "model_hypers": self.hypers,
-                "dataset_info": self.dataset_info.to(device="cpu"),
+                "dataset_info": self.dataset_info,
             },
             "model_state_dict": self.state_dict(),
             "best_model_state_dict": None,

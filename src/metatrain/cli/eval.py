@@ -238,7 +238,7 @@ def _eval_targets(
     mean_per_atom = np.mean(timings_per_atom)
     std_per_atom = np.std(timings_per_atom)
     logging.info(
-        f"Evaluation time: {total_time:.2f} s "
+        f"evaluation time: {total_time:.2f} s "
         f"[{1000.0 * mean_per_atom:.4f} ± "
         f"{1000.0 * std_per_atom:.4f} ms per atom]"
     )

@@ -1,5 +1,4 @@
 import copy
-import logging
 
 import pytest
 import torch
@@ -84,7 +83,7 @@ test_loading_old_checkpoints = make_checkpoint_load_tests(DEFAULT_HYPERS)
 
 
 @pytest.mark.parametrize("context", ["finetune", "restart", "export"])
-def test_get_checkpoint(context, caplog):
+def test_get_checkpoint(context):
     """
     Test that the checkpoint created by the model.get_checkpoint()
     function can be loaded back in all possible contexts.
@@ -96,14 +95,7 @@ def test_get_checkpoint(context, caplog):
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
     checkpoint = model.get_checkpoint()
-
-    caplog.set_level(logging.INFO)
     SoapBpnn.load_checkpoint(checkpoint, context)
-
-    if context == "restart":
-        assert "Using latest model from epoch None" in caplog.text
-    else:
-        assert "Using best model from epoch None" in caplog.text
 
 
 @pytest.mark.parametrize("cls_type", ["model", "trainer"])

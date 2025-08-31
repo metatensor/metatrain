@@ -12,10 +12,6 @@ class AttentionBlock(nn.Module):
         self.input_linear = nn.Linear(total_dim, 3 * total_dim)
         self.output_linear = nn.Linear(total_dim, total_dim)
 
-        nn.init.xavier_uniform_(self.input_linear.weight)
-        nn.init.constant_(self.input_linear.bias, 0.0)
-        nn.init.constant_(self.output_linear.bias, 0.0)
-
         self.num_heads = num_heads
         self.epsilon = epsilon
 
@@ -47,6 +43,19 @@ class AttentionBlock(nn.Module):
         x = self.output_linear(x)
         return x
 
+class FeedForward(nn.Module):
+    def __init__(self, d_model):
+        super().__init__()
+        d_ff = 2 * d_model
+        # Single projection produces both "value" and "gate"
+        self.w_in = nn.Linear(d_model, 2 * d_ff)
+        self.w_out = nn.Linear(d_ff, d_model)
+
+    def forward(self, x):
+        # Split the output into two chunks
+        v, g = self.w_in(x).chunk(2, dim=-1)
+        # SwiGLU activation
+        return self.w_out(v * torch.sigmoid(g))
 
 class TransformerLayer(torch.nn.Module):
     def __init__(
@@ -65,42 +74,36 @@ class TransformerLayer(torch.nn.Module):
             raise ValueError("unknown transformer type")
         self.transformer_type = transformer_type
         self.d_model = d_model
-        self.norm_attention = nn.LayerNorm(d_model)
-        self.norm_mlp = nn.LayerNorm(d_model)
+        self.norm_attention = nn.RMSNorm(d_model)
+        self.norm_mlp = nn.RMSNorm(d_model)
         self.dropout = nn.Dropout(dropout)
 
         self.activation = activation
 
-        self.mlp = nn.Sequential(
-            nn.Linear(d_model, dim_feedforward),
-            self.activation,
-            nn.Dropout(dropout),
-            nn.Linear(dim_feedforward, d_model),
-            nn.Dropout(dropout),
-        )
+        self.mlp = FeedForward(d_model)
+
+        self.center_contraction = nn.Linear(4*d_model, d_model)
+        self.center_expansion = nn.Linear(d_model, 4*d_model)
+        self.norm_center_features = nn.RMSNorm(4*d_model)
+        self.center_mlp = FeedForward(4*d_model)
 
     def forward(
         self,
+        center_features: torch.Tensor,
         tokens: torch.Tensor,
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
-    ) -> torch.Tensor:
-        if self.transformer_type == "PostLN":
-            tokens = self.norm_attention(
-                tokens
-                + self.dropout(
-                    self.attention(tokens, cutoff_factors, use_manual_attention)
-                )
-            )
-            tokens = self.norm_mlp(tokens + self.mlp(tokens))
-        if self.transformer_type == "PreLN":
-            tokens = tokens + self.dropout(
-                self.attention(
-                    self.norm_attention(tokens), cutoff_factors, use_manual_attention
-                )
-            )
-            tokens = tokens + self.mlp(self.norm_mlp(tokens))
-        return tokens
+    ):
+        all_tokens = torch.concatenate([self.center_contraction(center_features), tokens], dim=1)
+        new_tokens = self.attention(
+            self.norm_attention(all_tokens), cutoff_factors, use_manual_attention
+        )
+        new_center_features, new_tokens = torch.split(new_tokens, [1, tokens.shape[1]], dim=1)
+        center_features = center_features + self.center_expansion(new_center_features)
+        tokens = tokens + new_tokens
+        center_features = center_features + self.center_mlp(self.norm_center_features(center_features))
+        tokens = tokens + self.mlp(self.norm_mlp(tokens))
+        return center_features, tokens
 
 
 class Transformer(torch.nn.Module):
@@ -119,7 +122,7 @@ class Transformer(torch.nn.Module):
 
         self.final_norm = DummyModule()  # for torchscript
         if transformer_type == "PreLN":
-            self.final_norm = nn.LayerNorm(d_model)
+            self.final_norm = nn.RMSNorm(d_model)
         self.layers = nn.ModuleList(
             [
                 TransformerLayer(
@@ -136,15 +139,14 @@ class Transformer(torch.nn.Module):
 
     def forward(
         self,
+        center_features: torch.Tensor,
         tokens: torch.Tensor,
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
-    ) -> torch.Tensor:
+    ):
         for layer in self.layers:
-            tokens = layer(tokens, cutoff_factors, use_manual_attention)
-        if self.transformer_type == "PreLN":
-            tokens = self.final_norm(tokens)
-        return tokens
+            center_features, tokens = layer(center_features, tokens, cutoff_factors, use_manual_attention)
+        return center_features, tokens
 
 
 class CartesianTransformer(torch.nn.Module):
@@ -190,12 +192,12 @@ class CartesianTransformer(torch.nn.Module):
         if not is_first:
             self.neighbor_embedder = nn.Embedding(n_atomic_species + 1, d_model)
 
-        self.node_embedder = nn.Embedding(n_atomic_species + 1, d_model)
+        # self.node_embedder = nn.Embedding(n_atomic_species + 1, d_model)
 
     def forward(
         self,
+        input_node_embeddings: torch.Tensor,
         input_messages: torch.Tensor,
-        element_indices_nodes: torch.Tensor,
         element_indices_neighbors: torch.Tensor,
         edge_vectors: torch.Tensor,
         padding_mask: torch.Tensor,
@@ -203,7 +205,7 @@ class CartesianTransformer(torch.nn.Module):
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
     ):
-        node_elements_embedding = self.node_embedder(element_indices_nodes)
+        node_elements_embedding = input_node_embeddings
         edge_embedding = [edge_vectors, edge_distances[:, :, None]]
         edge_embedding = torch.cat(edge_embedding, dim=2)
         edge_embedding = self.edge_embedder(edge_embedding)
@@ -222,7 +224,8 @@ class CartesianTransformer(torch.nn.Module):
             tokens = torch.cat([edge_embedding, input_messages], dim=2)
 
         tokens = self.compress(tokens)
-        tokens = torch.cat([node_elements_embedding[:, None, :], tokens], dim=1)
+        node_elements_embedding = node_elements_embedding[:, None, :]
+        # tokens = torch.cat([node_elements_embedding[:, None, :], tokens], dim=1)
 
         padding_mask_with_central_token = torch.ones(
             padding_mask.shape[0], dtype=torch.bool, device=padding_mask.device
@@ -243,14 +246,16 @@ class CartesianTransformer(torch.nn.Module):
         initial_num_tokens = edge_vectors.shape[1]
         max_num_tokens = input_messages.shape[1]
 
-        output_messages = self.trans(
-            tokens[:, : (max_num_tokens + 1), :],
+        output_center_features, output_messages = self.trans(
+            node_elements_embedding,
+            tokens[:, : (max_num_tokens), :],
             cutoff_factors=cutoff_factors[
-                :, : (max_num_tokens + 1), : (max_num_tokens + 1)
+                :, : (max_num_tokens+1), : (max_num_tokens+1)
             ],
             use_manual_attention=use_manual_attention,
         )
         if max_num_tokens < initial_num_tokens:
+            raise ValueError("Max num tokens is less than initial num tokens")
             padding = torch.zeros(
                 output_messages.shape[0],
                 initial_num_tokens - max_num_tokens,
@@ -259,9 +264,10 @@ class CartesianTransformer(torch.nn.Module):
             )
             output_messages = torch.cat([output_messages, padding], dim=1)
 
-        output_node_embeddings = output_messages[:, 0, :]
-        output_edge_embeddings = output_messages[:, 1:, :]
-        return output_node_embeddings, output_edge_embeddings
+        # output_node_embeddings = output_messages[:, 0, :]
+        # output_edge_embeddings = output_messages[:, 1:, :]
+        output_center_features = output_center_features[:, 0, :]
+        return output_center_features, output_messages
 
 
 def manual_attention(q, k, v, attn_mask):

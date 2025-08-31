@@ -56,6 +56,7 @@ class Scaler(torch.nn.Module):
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
         additive_models: List[torch.nn.Module],
+        fixed_scaling_weights: Dict[str, float],
         treat_as_additive: bool,
     ) -> None:
         """
@@ -84,71 +85,73 @@ class Scaler(torch.nn.Module):
         # Fill the scales for each "new" target (i.e. those that do not already
         # have scales from a previous training run)
         for target_key in self.new_targets:
-            datasets_with_target = []
-            for dataset in datasets:
-                if target_key in get_all_targets(dataset):
-                    datasets_with_target.append(dataset)
-            if len(datasets_with_target) == 0:
-                raise ValueError(
-                    f"Target {target_key} in the model's new capabilities is not "
-                    "present in any of the training datasets."
-                )
-
-            sum_of_squared_targets = 0.0
-            total_num_elements = 0
-            for dataset in datasets_with_target:
-                for sample in dataset:
-                    systems = [sample["system"]]
-                    targets = {target_key: sample[target_key]}
-
-                    systems, targets, _ = batch_to(systems, targets, device=device)
-
-                    for additive_model in additive_models:
-                        target_info_dict = {target_key: self.new_targets[target_key]}
-                        targets = remove_additive(
-                            systems,
-                            targets,
-                            additive_model,
-                            target_info_dict,
-                        )
-
-                    # calculate standard deviations on per-atom quantities
-                    targets = average_by_num_atoms(
-                        targets,
-                        systems,
-                        per_structure_keys=[],
+            if target_key in fixed_scaling_weights:
+                self.scales[self.output_name_to_output_index[target_key]] = fixed_scaling_weights[target_key]
+            else:
+                datasets_with_target = []
+                for dataset in datasets:
+                    if target_key in get_all_targets(dataset):
+                        datasets_with_target.append(dataset)
+                if len(datasets_with_target) == 0:
+                    raise ValueError(
+                        f"Target {target_key} in the model's new capabilities is not "
+                        "present in any of the training datasets."
                     )
+                sum_of_squared_targets = 0.0
+                total_num_elements = 0
+                for dataset in datasets_with_target:
+                    for sample in dataset:
+                        systems = [sample["system"]]
+                        targets = {target_key: sample[target_key]}
 
-                    target_info = self.new_targets[target_key]
-                    if (
-                        target_info.quantity == "energy"
-                        and "positions" in target_info.gradients
-                    ):
-                        # special case: here we want to scale with respect to the forces
-                        # rather than the energies
-                        sum_of_squared_targets += torch.sum(
-                            targets[target_key].block().gradient("positions").values
-                            ** 2
-                        ).item()
-                        total_num_elements += (
-                            targets[target_key]
-                            .block()
-                            .gradient("positions")
-                            .values.numel()
-                        )
-                    else:
-                        sum_of_squared_targets += sum(
-                            torch.sum(block.values**2).item()
-                            for block in targets[target_key].blocks()
-                        )
-                        total_num_elements += sum(
-                            block.values.numel()
-                            for block in targets[target_key].blocks()
+                        systems, targets, _ = batch_to(systems, targets, device=device)
+
+                        for additive_model in additive_models:
+                            target_info_dict = {target_key: self.new_targets[target_key]}
+                            targets = remove_additive(
+                                systems,
+                                targets,
+                                additive_model,
+                                target_info_dict,
+                            )
+
+                        # calculate standard deviations on per-atom quantities
+                        targets = average_by_num_atoms(
+                            targets,
+                            systems,
+                            per_structure_keys=[],
                         )
 
-            self.scales[self.output_name_to_output_index[target_key]] = np.sqrt(
-                sum_of_squared_targets / total_num_elements
-            )
+                        target_info = self.new_targets[target_key]
+                        if (
+                            target_info.quantity == "energy"
+                            and "positions" in target_info.gradients
+                        ):
+                            # special case: here we want to scale with respect to the forces
+                            # rather than the energies
+                            sum_of_squared_targets += torch.sum(
+                                targets[target_key].block().gradient("positions").values
+                                ** 2
+                            ).item()
+                            total_num_elements += (
+                                targets[target_key]
+                                .block()
+                                .gradient("positions")
+                                .values.numel()
+                            )
+                        else:
+                            sum_of_squared_targets += sum(
+                                torch.sum(block.values**2).item()
+                                for block in targets[target_key].blocks()
+                            )
+                            total_num_elements += sum(
+                                block.values.numel()
+                                for block in targets[target_key].blocks()
+                            )
+
+                self.scales[self.output_name_to_output_index[target_key]] = np.sqrt(
+                    sum_of_squared_targets / total_num_elements
+                )
 
     def restart(self, dataset_info: DatasetInfo) -> "Scaler":
         # merge old and new dataset info
