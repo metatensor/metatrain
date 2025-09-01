@@ -75,14 +75,17 @@ a table summarizing losses that require or allow additional parameters:
     * - ``mae``
       - Mean absolute error
       - N/A
-    * - ``mse_masked``
-      - Masked mean squared error
-      - N/A
-    * - ``mae_masked``
-      - Masked mean absolute error
-      - N/A
     * - ``huber``
       - Huber loss
+      - ``delta``: Threshold at which to switch from squared error to absolute error.
+    * - ``masked_mse``
+      - Masked mean squared error
+      - N/A
+    * - ``masked_mae``
+      - Masked mean absolute error
+      - N/A
+    * - ``masked_huber``
+      - Masked Huber loss
       - ``delta``: Threshold at which to switch from squared error to absolute error.
 
 
