@@ -262,7 +262,7 @@ class PET(ModelInterface):
         #   `j` in the original neighborlist, the position of atom `i` in the list of
         #   neighbors of atom `j` is returned.
         # - `system_indices` [n_atoms]: The indices of the systems for each central atom
-        # - `sample_labels` [n_atoms]: The metatensor.torch.Labels object, contatining
+        # - `sample_labels` [n_atoms, 2]: The metatensor.torch.Labels object, containing
         #   indices of each atom in each system.
 
         (
