@@ -21,10 +21,9 @@ from metatrain.utils.distributed.distributed_data_parallel import (
 )
 from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
-from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import TensorMapDictLoss
+from metatrain.utils.loss import LossAggregator
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -52,7 +51,7 @@ def get_scheduler(optimizer, train_hypers):
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
 
     def __init__(self, hypers):
         super().__init__(hypers)
@@ -254,29 +253,22 @@ class Trainer(TrainerInterface):
             for gradient_name in target_info.gradients:
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
-        # Create a loss weight dict:
-        loss_weights_dict = {}
-        for output_name in outputs_list:
-            loss_weights_dict[output_name] = (
-                self.hypers["loss"]["weights"][
-                    to_external_name(output_name, train_targets)
-                ]
-                if to_external_name(output_name, train_targets)
-                in self.hypers["loss"]["weights"]
-                else 1.0
-            )
-        loss_weights_dict_external = {
-            to_external_name(key, train_targets): value
-            for key, value in loss_weights_dict.items()
-        }
-        loss_hypers = copy.deepcopy(self.hypers["loss"])
-        loss_hypers["weights"] = loss_weights_dict
-        logging.info(f"Training with loss weights: {loss_weights_dict_external}")
-
         # Create a loss function:
-        loss_fn = TensorMapDictLoss(
-            **loss_hypers,
+        loss_hypers = self.hypers["loss"]
+        loss_fn = LossAggregator(
+            targets=train_targets,
+            config=loss_hypers,
         )
+        logging.info("Using the following loss functions:")
+        for name, info in loss_fn.metadata.items():
+            logging.info(f"{name}:")
+            main = {k: v for k, v in info.items() if k != "gradients"}
+            logging.info(main)
+            if "gradients" not in info or len(info["gradients"]) == 0:
+                continue
+            logging.info("With gradients:")
+            for grad, ginfo in info["gradients"].items():
+                logging.info(f"\t{name}::{grad}: {ginfo}")
 
         if self.hypers["weight_decay"] is not None:
             optimizer = torch.optim.AdamW(
@@ -370,7 +362,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = loss_fn(predictions, targets)
+                train_loss_batch = loss_fn(predictions, targets, extra_data)
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
@@ -429,8 +421,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
-                val_loss_batch = loss_fn(predictions, targets)
+                val_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
                     # sum the loss over all processes
@@ -588,6 +579,7 @@ class Trainer(TrainerInterface):
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         for v in range(1, cls.__checkpoint_version__):
             if checkpoint["trainer_ckpt_version"] == v:
+                print(v, checkpoint["train_hypers"])
                 update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
                 update(checkpoint)
                 checkpoint["trainer_ckpt_version"] = v + 1

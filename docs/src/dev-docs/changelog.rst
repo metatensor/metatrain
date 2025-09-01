@@ -15,11 +15,27 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 .. Added
 .. #####
 
-.. Changed
-.. #######
+Changed
+#######
+
+- Refactored the ``loss.py`` module to provide an easier to extend interface for custom
+  loss functions.
+- Updated the trainer checkpoints to account for changes in the loss-related hypers.
 
 .. Removed
 .. #######
+
+Unreleased
+----------
+
+Version 2025.9.1 - 2025-08-21
+-----------------------------
+
+Fixed
+#####
+
+- Fixed incompatibilities with PET-MAD when updating checkpoints and exporting
+
 
 Version 2025.9 - 2025-08-18
 ---------------------------

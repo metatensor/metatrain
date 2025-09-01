@@ -93,8 +93,6 @@ def test_torchscript_integers():
     new_hypers["soap"]["density"]["scaling"]["scale"] = 2
     new_hypers["soap"]["density"]["scaling"]["exponent"] = 7
 
-    # print(new_hypers)
-
     target_info_dict = {}
     target_info_dict["mtt::U0"] = get_energy_target_info({"unit": "eV"})
 

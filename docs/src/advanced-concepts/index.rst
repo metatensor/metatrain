@@ -9,6 +9,7 @@ such as output naming, auxiliary outputs, and wrapper models.
    :maxdepth: 1
 
    output-naming
+   loss-functions
    auxiliary-outputs
    multi-gpu
    auto-restarting
