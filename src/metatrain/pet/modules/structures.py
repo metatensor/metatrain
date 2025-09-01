@@ -197,7 +197,6 @@ def systems_to_batch(
         edge_vectors,
         nef_mask,
         neighbors_index,
-        num_neghbors,
         reversed_neighbor_list,
         system_indices,
         sample_labels,

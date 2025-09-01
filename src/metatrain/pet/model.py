@@ -228,12 +228,6 @@ class PET(ModelInterface):
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
 
-        # While running the model with LAMMPS, we need to remap the
-        # neighbor lists from LAMMPS to ASE format. By default, LAMMPS
-        # treats all ghost atoms as real (central), what creates a
-        # singificant computational overhead.
-        # systems = remap_neighborlists(systems, nl_options, selected_atoms)
-
         if self.single_label.values.device != device:
             self.single_label = self.single_label.to(device)
             self.key_labels = {
@@ -252,10 +246,6 @@ class PET(ModelInterface):
                 for output_name, properties_tmap in self.property_labels.items()
             }
 
-        # system_indices, sample_labels = self._get_system_indices_and_labels(
-        #     systems, device, selected_atoms
-        # )
-
         # We convert a list of systems to a batch required for the PET model.
         # The batch consists of the following tensors:
         # - `element_indices_nodes` [n_atoms]: The atomic species of the central atoms
@@ -267,11 +257,13 @@ class PET(ModelInterface):
         #   neighbors are real, and which are padded
         # - `neighbors_index` [n_atoms, max_num_neighbors]: The indices of the
         #   neighboring atoms for each central atom
-        # - `num_neghbors` [n_atoms]: The number of neighbors for each central atom
         # - `reversed_neighbor_list` [n_atoms, max_num_neighbors]: The reversed neighbor
         #   list for each central atom, where for each center atom `i` and its neighbor
         #   `j` in the original neighborlist, the position of atom `i` in the list of
         #   neighbors of atom `j` is returned.
+        # - `system_indices` [n_atoms]: The indices of the systems for each central atom
+        # - `sample_labels` [n_atoms]: The metatensor.torch.Labels object, contatining
+        #   indices of each atom in each system.
 
         (
             element_indices_nodes,
@@ -279,7 +271,6 @@ class PET(ModelInterface):
             edge_vectors,
             padding_mask,
             neighbors_index,
-            num_neghbors,
             reversed_neighbor_list,
             system_indices,
             sample_labels,
