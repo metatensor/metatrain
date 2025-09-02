@@ -36,7 +36,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 from . import checkpoints
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.nef import nef_array_to_edges
-from .modules.structures import remap_neighborlists, systems_to_batch
+from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func
 
@@ -259,6 +259,47 @@ class PET(ModelInterface):
         system_indices, node_sample_labels = get_system_indices_and_node_sample_labels(
             systems, device
         )
+
+        # We convert a list of systems to a batch required for the PET model.
+        # The batch consists of the following tensors: f
+        # - `element_indices_nodes` [n_atoms]: The atomic species of the central atoms
+        # - `element_indices_neighbors` [n_atoms]: The atomic species of the neighboring
+        #   atoms
+        # - `edge_vectors` [n_atoms, max_num_neighbors, 3]: The cartedian edge vectors
+        #   between the central atoms and their neighbors
+        # - `padding_mask` [n_atoms, max_num_neighbors]: A padding mask indicating which
+        #   neighbors are real, and which are padded
+        # - `neighbors_index` [n_atoms, max_num_neighbors]: The indices of the
+        #   neighboring atoms for each central atom
+        # - `reversed_neighbor_list` [n_atoms, max_num_neighbors]: The reversed neighbor
+        #   list for each central atom, where for each center atom `i` and its neighbor
+        #   `j` in the original neighborlist, the position of atom `i` in the list of
+        #   neighbors of atom `j` is returned.
+        # - `system_indices` [n_atoms]: The indices of the systems for each central atom
+        # - `node_sample_labels` [n_atoms, 2]: The metatensor.torch.Labels object,
+        #   containing indices of each atom in each system.
+        # - `centers` [n_atoms]: TODO
+        # - `nef_to_edges_neighbor` [n_atoms, max_num_neighbors]: TODO
+
+        (
+            element_indices_nodes,
+            element_indices_neighbors,
+            edge_vectors,
+            padding_mask,
+            neighbors_index,
+            reversed_neighbor_list,
+            system_indices,
+            node_sample_labels,
+            centers,
+            nef_to_edges_neighbor,
+        ) = systems_to_batch(
+            systems,
+            nl_options,
+            self.atomic_types,
+            self.species_to_species_index,
+            selected_atoms,
+        )
+
         if (
             any([kind == "per_pair" for kind in self.sample_kinds.values()])
             or "edge_features" in outputs
@@ -282,44 +323,6 @@ class PET(ModelInterface):
             edge_samples_mask_2_center_triu = torch.tensor(
                 [], dtype=torch.bool, device=device
             )
-
-        # We convert a list of systems to a batch required for the PET model.
-        # The batch consists of the following tensors: f
-        # - `element_indices_nodes` [n_atoms]: The atomic species of the central atoms
-        # - `element_indices_neighbors` [n_atoms]: The atomic species of the neighboring
-        #   atoms
-        # - `edge_vectors` [n_atoms, max_num_neighbors, 3]: The cartedian edge vectors
-        #   between the central atoms and their neighbors
-        # - `padding_mask` [n_atoms, max_num_neighbors]: A padding mask indicating which
-        #   neighbors are real, and which are padded
-        # - `neighbors_index` [n_atoms, max_num_neighbors]: The indices of the
-        #   neighboring atoms for each central atom
-        # - `reversed_neighbor_list` [n_atoms, max_num_neighbors]: The reversed neighbor
-        #   list for each central atom, where for each center atom `i` and its neighbor
-        #   `j` in the original neighborlist, the position of atom `i` in the list of
-        #   neighbors of atom `j` is returned.
-        # - `system_indices` [n_atoms]: The indices of the systems for each central atom
-        # - `sample_labels` [n_atoms, 2]: The metatensor.torch.Labels object, containing
-        #   indices of each atom in each system.
-
-        (
-            element_indices_nodes,
-            element_indices_neighbors,
-            edge_vectors,
-            padding_mask,
-            neighbors_index,
-            reversed_neighbor_list,
-            system_indices,
-            sample_labels,
-            centers,
-            nef_to_edges_neighbor,
-        ) = systems_to_batch(
-            systems,
-            nl_options,
-            self.atomic_types,
-            self.species_to_species_index,
-            selected_atoms,
-        )
 
         # if we are predicting per-pair outputs that are permutationally symmetrized, we
         # need some samples masks for edges with different and same atom types, and a
