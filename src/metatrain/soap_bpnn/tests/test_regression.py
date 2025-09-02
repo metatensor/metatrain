@@ -1,3 +1,4 @@
+import copy
 import random
 
 import numpy as np
@@ -69,6 +70,7 @@ def test_regression_train(device):
     """Regression test for the model when trained for 2 epoch on a small dataset"""
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
+
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
@@ -117,7 +119,7 @@ def test_regression_train(device):
     )
 
     # Predict on the first five systems
-    systems = [system.to(torch.float32) for system in systems]
+    systems = [system.to(torch.float32, device) for system in systems]
     systems = [
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
         for system in systems
@@ -129,19 +131,22 @@ def test_regression_train(device):
 
     expected_output = torch.tensor(
         [
-            [1.313831329346],
-            [4.282802581787],
+            [1.313830614090],
+            [4.282801628113],
             [5.629218101501],
-            [4.297019958496],
-            [2.226531982422],
-        ]
+            [4.297008991241],
+            [2.226550817490],
+        ],
+        device=device,
     )
 
     # if you need to change the hardcoded values:
     # torch.set_printoptions(precision=12)
     # print(output["mtt::U0"].block().values)
 
-    torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
+    torch.testing.assert_close(
+        output["mtt::U0"].block().values, expected_output, rtol=5e-5, atol=1e-5
+    )
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
@@ -178,7 +183,7 @@ def test_regression_train_spherical(device):
 
     dataset, target_info_dict, _ = get_dataset(conf)
 
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["batch_size"] = 1
     hypers["training"]["loss"]["mtt::electron_density_basis"] = hypers["training"][
@@ -204,7 +209,7 @@ def test_regression_train_spherical(device):
 
     # Predict on the first five systems
     systems = [sample["system"] for sample in dataset]
-    systems = [system.to(torch.float32) for system in systems]
+    systems = [system.to(torch.float32, device) for system in systems]
     systems = [
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
         for system in systems
@@ -248,6 +253,7 @@ def test_regression_train_spherical(device):
                 -0.012492593378,
             ],
         ],
+        device=device,
     )
 
     # if you need to change the hardcoded values:

@@ -130,7 +130,7 @@ def _process_restart_from(restart_from: str) -> Optional[Union[str, Path]]:
     pattern = re.compile(r".*\d{4}-\d{2}-\d{2}/\d{2}-\d{2}-\d{2}/*")
     checkpoints = sorted(
         (f for f in Path("outputs").glob("*/*/*.ckpt") if pattern.match(str(f))),
-        key=lambda f: f.stat().st_ctime,
+        key=lambda f: f.stat().st_mtime,
         reverse=True,
     )
 
@@ -531,7 +531,7 @@ def train_model(
             model = Model(hypers["model"], dataset_info)
             trainer = Trainer(hypers["training"])
     except Exception as e:
-        raise ArchitectureError(e)
+        raise ArchitectureError(e) from e
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logging.info(
@@ -560,7 +560,7 @@ def train_model(
             checkpoint_dir=str(checkpoint_dir),
         )
     except Exception as e:
-        raise ArchitectureError(e)
+        raise ArchitectureError(e) from e
 
     if not is_main_process():
         return  # only save and evaluate on the main process
@@ -576,7 +576,11 @@ def train_model(
         trainer.save_checkpoint(model, checkpoint_output)
     except Exception as e:
         raise ArchitectureError(e)
+
     if checkpoint_output.exists():
+        # Reload ensuring (best) model intended for inference
+        model = load_model(checkpoint_output)
+
         logging.info(f"Final checkpoint: {checkpoint_output.absolute().resolve()}")
 
     mts_atomistic_model = model.export()

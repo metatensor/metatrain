@@ -1,3 +1,4 @@
+import logging
 import warnings
 from math import prod
 from typing import Any, Dict, List, Literal, Optional
@@ -49,7 +50,7 @@ class PET(ModelInterface):
 
     """
 
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 6
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -237,13 +238,6 @@ class PET(ModelInterface):
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
 
-        if not self.training:
-            # While running the model with LAMMPS, we need to remap the
-            # neighbor lists from LAMMPS to ASE format. By default, LAMMPS
-            # treats all ghost atoms as real (central), what creates a
-            # singificant computational overhead.
-            systems = remap_neighborlists(systems, nl_options, selected_atoms)
-
         if self.single_label.values.device != device:
             self.single_label = self.single_label.to(device)
             self.key_labels = {
@@ -300,11 +294,13 @@ class PET(ModelInterface):
         #   neighbors are real, and which are padded
         # - `neighbors_index` [n_atoms, max_num_neighbors]: The indices of the
         #   neighboring atoms for each central atom
-        # - `num_neghbors` [n_atoms]: The number of neighbors for each central atom
         # - `reversed_neighbor_list` [n_atoms, max_num_neighbors]: The reversed neighbor
         #   list for each central atom, where for each center atom `i` and its neighbor
         #   `j` in the original neighborlist, the position of atom `i` in the list of
         #   neighbors of atom `j` is returned.
+        # - `system_indices` [n_atoms]: The indices of the systems for each central atom
+        # - `sample_labels` [n_atoms, 2]: The metatensor.torch.Labels object, containing
+        #   indices of each atom in each system.
 
         (
             element_indices_nodes,
@@ -312,15 +308,15 @@ class PET(ModelInterface):
             edge_vectors,
             padding_mask,
             neighbors_index,
-            num_neghbors,
             reversed_neighbor_list,
+            system_indices,
+            sample_labels,
             centers,
             nef_to_edges_neighbor,
         ) = systems_to_batch(
             systems,
             nl_options,
             self.atomic_types,
-            system_indices,
             self.species_to_species_index,
             selected_atoms,
         )
@@ -1011,25 +1007,23 @@ class PET(ModelInterface):
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
     ) -> "PET":
-        model_data = checkpoint["model_data"]
-
         if context == "restart":
+            logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
-        elif context == "finetune" or context == "export":
+        elif context in {"finetune", "export"}:
+            logging.info(f"Using best model from epoch {checkpoint['best_epoch']}")
             model_state_dict = checkpoint["best_model_state_dict"]
-            if model_state_dict is None:
-                model_state_dict = checkpoint["model_state_dict"]
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
-        finetune_config = model_state_dict.pop("finetune_config", {})
-
         # Create the model
+        model_data = checkpoint["model_data"]
         model = cls(
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
         )
 
+        finetune_config = model_state_dict.pop("finetune_config", {})
         if finetune_config:
             # Apply the finetuning strategy
             model = apply_finetuning_strategy(model, finetune_config)
@@ -1211,14 +1205,11 @@ class PET(ModelInterface):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        if checkpoint["model_ckpt_version"] == 1:
-            checkpoints.model_update_v1_v2(checkpoint["model_state_dict"])
-            checkpoints.model_update_v1_v2(checkpoint["best_model_state_dict"])
-            checkpoint["model_ckpt_version"] = 2
-        if checkpoint["model_ckpt_version"] == 2:
-            checkpoints.model_update_v2_v3(checkpoint["model_state_dict"])
-            checkpoints.model_update_v2_v3(checkpoint["best_model_state_dict"])
-            checkpoint["model_ckpt_version"] = 3
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
 
         if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
@@ -1240,8 +1231,10 @@ class PET(ModelInterface):
                 "model_hypers": self.hypers,
                 "dataset_info": self.dataset_info,
             },
+            "epoch": None,
+            "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": None,
+            "best_model_state_dict": self.state_dict(),
         }
         return checkpoint
 
