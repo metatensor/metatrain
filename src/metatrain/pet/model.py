@@ -34,6 +34,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .modules.finetuning import apply_finetuning_strategy
+from .modules.nef import nef_array_to_edges
 from .modules.structures import remap_neighborlists, systems_to_batch
 from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func
@@ -313,6 +314,8 @@ class PET(ModelInterface):
             neighbors_index,
             num_neghbors,
             reversed_neighbor_list,
+            centers,
+            nef_to_edges_neighbor,
         ) = systems_to_batch(
             systems,
             nl_options,
@@ -768,13 +771,17 @@ class PET(ModelInterface):
                                 # atoms and neighbors in the samples axis and slice out
                                 # the samples not in the actual neighbor list
 
-                                edge_atomic_predictions = (
-                                    edge_atomic_predictions.reshape(
-                                        -1, edge_atomic_predictions.shape[-1]
-                                    )
+                                edge_atomic_predictions = nef_array_to_edges(
+                                    edge_atomic_predictions,
+                                    centers,
+                                    nef_to_edges_neighbor,
                                 )
                                 edge_atomic_predictions = edge_atomic_predictions[
-                                    padding_mask.reshape(-1)
+                                    nef_array_to_edges(
+                                        padding_mask.unsqueeze(-1),
+                                        centers,
+                                        nef_to_edges_neighbor,
+                                    ).squeeze(-1)
                                 ]
 
                                 if "s2_pi" in key:

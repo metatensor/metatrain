@@ -267,4 +267,6 @@ def systems_to_batch(
         neighbors_index,
         num_neghbors,
         reversed_neighbor_list,
+        centers,
+        nef_to_edges_neighbor,
     )
