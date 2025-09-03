@@ -42,7 +42,7 @@ class PET(ModelInterface):
 
     __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
-    __supported_dtypes__ = [torch.float32, torch.float64]
+    __supported_dtypes__ = [torch.bfloat16, torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
@@ -595,8 +595,8 @@ class PET(ModelInterface):
                         -1, 3, 3, list(self.output_shapes[output_name].values())[0][-1]
                     )
                     volumes = torch.stack(
-                        [torch.abs(torch.det(system.cell)) for system in systems]
-                    )
+                        [torch.abs(torch.det(system.cell.to(torch.float32))) for system in systems]
+                    ).to(tensor_as_three_by_three.dtype)
                     volumes_by_atom = (
                         volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
                     )

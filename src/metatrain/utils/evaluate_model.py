@@ -265,8 +265,11 @@ def _prepare_system(
     system: System, positions_grad: bool, strain_grad: bool, check_consistency: bool
 ):
     """
-    Prepares a system for gradient calculation.
+    Prepares a system for gradient calculation, if necessary.
     """
+    if (not positions_grad) and (not strain_grad):
+        return system, None
+
     if strain_grad:
         strain = torch.eye(
             3,

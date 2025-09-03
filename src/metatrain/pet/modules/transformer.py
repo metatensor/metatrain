@@ -235,7 +235,7 @@ class CartesianTransformer(torch.nn.Module):
         )
 
         cutoff_subfactors = torch.ones(
-            padding_mask.shape[0], device=padding_mask.device
+            padding_mask.shape[0], dtype=cutoff_factors.dtype, device=padding_mask.device
         )
         cutoff_factors = torch.cat([cutoff_subfactors[:, None], cutoff_factors], dim=1)
         cutoff_factors[~total_padding_mask] = 0.0

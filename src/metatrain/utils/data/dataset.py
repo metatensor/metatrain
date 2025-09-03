@@ -644,6 +644,23 @@ class MemmapArray:
             self._mm = None
 
 
+# class SystemWrapper:
+#     def __init__(self, system):
+#         self.system = system
+
+#     def __getstate__(self):
+#         state = {
+#             "positions": self.system.positions,
+#             "types": self.system.types,
+#             "cell": self.system.cell,
+#             "pbc": self.system.pbc,
+#         }
+#         return state
+
+#     def __setstate__(self, state):
+#         self.system = System(**state)
+
+
 class MemmapDataset(TorchDataset):
     def __init__(self, path, conservative, non_conservative):
         path = Path(path)
@@ -741,6 +758,7 @@ class MemmapDataset(TorchDataset):
         )
         target_dict["energy"] = energy
 
+        # return {"system": SystemWrapper(system), **target_dict}
         return {"system": system, **target_dict}
 
     def get_target_info(self, target_config: DictConfig) -> Dict[str, TargetInfo]:

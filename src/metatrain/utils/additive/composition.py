@@ -256,7 +256,7 @@ class CompositionModel(torch.nn.Module):
         self.target_infos = {
             target_name: target_info
             for target_name, target_info in merged_info.targets.items()
-            if target_name not in self.dataset_info.targets
+            # if target_name not in self.dataset_info.targets
         }
 
         self.dataset_info = merged_info

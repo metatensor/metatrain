@@ -23,13 +23,13 @@ def batch_to(
     :param dtype: Desired floating point data type.
     """
 
-    systems = [system.to(dtype=dtype, device=device) for system in systems]
+    systems = [system.to(dtype=dtype, device=device, non_blocking=True) for system in systems]
     targets = {
-        key: value.to(dtype=dtype, device=device) for key, value in targets.items()
+        key: value.to(dtype=dtype, device=device, non_blocking=True) for key, value in targets.items()
     }
     if extra_data is not None:
         extra_data = {
-            key: value.to(dtype=dtype, device=device)
+            key: value.to(dtype=dtype, device=device, non_blocking=True)
             for key, value in extra_data.items()
         }
 

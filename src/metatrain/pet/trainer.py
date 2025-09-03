@@ -239,6 +239,7 @@ class Trainer(TrainerInterface):
                         train_sampler is None
                     ),
                     collate_fn=collate_fn,
+                    # num_workers=4,
                 )
             )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
@@ -261,6 +262,7 @@ class Trainer(TrainerInterface):
                     shuffle=False,
                     drop_last=False,
                     collate_fn=collate_fn,
+                    # num_workers=4,
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
@@ -362,6 +364,7 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = batch
+                # systems = [system.system for system in systems]
 
                 requested_neighbor_lists = get_requested_neighbor_lists(model)
                 for system in systems:
@@ -434,6 +437,7 @@ class Trainer(TrainerInterface):
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets, extra_data = batch
+                # systems = [system.system for system in systems]
 
                 requested_neighbor_lists = get_requested_neighbor_lists(model)
                 for system in systems:
@@ -563,6 +567,8 @@ class Trainer(TrainerInterface):
 
         if is_distributed:
             torch.distributed.destroy_process_group()
+
+        exit(0)
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = model.get_checkpoint()
