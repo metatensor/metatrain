@@ -160,7 +160,7 @@ class Scaler(torch.nn.Module):
         self.new_targets = {
             key: value
             for key, value in merged_info.targets.items()
-            if key not in self.dataset_info.targets
+            # if key not in self.dataset_info.targets
         }
 
         # register new outputs
