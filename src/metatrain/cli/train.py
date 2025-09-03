@@ -241,7 +241,7 @@ def train_model(
         torch.cuda.manual_seed_all(options["seed"])
 
     # setup wandb logging
-    if hasattr(options, "wandb"):
+    if hasattr(options, "wandb") and is_main_process():
         try:
             import wandb
         except ImportError:
