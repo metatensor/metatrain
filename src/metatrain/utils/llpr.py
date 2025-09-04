@@ -151,15 +151,30 @@ class LLPRUncertaintyModel(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        if all("_uncertainty" not in output for output in outputs):
-            # no uncertainties requested
+        has_uncertainty = any("_uncertainty" in output for output in outputs)
+        has_ensemble = any(output.endswith("_ensemble") for output in outputs)
+        if not has_uncertainty and not has_ensemble:
+            # no uncertainties or ensembles requested
             return self.model(systems, outputs, selected_atoms)
 
-        if not self.inv_covariance_computed:
+        # Check requirements based on what's requested
+        if has_uncertainty and not self.inv_covariance_computed:
             raise ValueError(
-                "Trying to predict with LLPR, but inverse covariance has not "
+                "Trying to predict with LLPR uncertainty, but inverse covariance has not "
                 "been computed yet."
             )
+        
+        # For ensemble requests, check if ensemble weights exist (which implies calibration was done)
+        if has_ensemble:
+            requested_ensembles = [name for name in outputs.keys() if name.endswith("_ensemble")]
+            for ensemble_name in requested_ensembles:
+                ensemble_weights_name = ensemble_name + "_weights"
+                weights_exist = any(buffer_name == ensemble_weights_name for buffer_name, _ in self.named_buffers())
+                if not weights_exist:
+                    raise ValueError(
+                        f"Requested ensemble '{ensemble_name}' but ensemble weights have not "
+                        f"been generated yet. Call generate_ensemble() first."
+                    )
 
         outputs_for_model: Dict[str, ModelOutput] = {}
         for name, output in outputs.items():
@@ -179,6 +194,30 @@ class LLPRUncertaintyModel(torch.nn.Module):
                         per_atom=output.per_atom,
                     )
                 )
+            elif name.endswith("_ensemble"):
+                # request corresponding features for ensemble
+                ll_features_name = name.replace("_ensemble", "_last_layer_features")
+                if ll_features_name == "energy_last_layer_features":
+                    # special case for energy_ensemble
+                    ll_features_name = "mtt::aux::energy_last_layer_features"
+                outputs_for_model[ll_features_name] = ModelOutput(
+                    quantity="",
+                    unit="",
+                    per_atom=output.per_atom,
+                )
+                
+                # also request the original output for re-centering the ensemble
+                original_name = (
+                    name.replace("_ensemble", "").replace("aux::", "")
+                    if name.replace("_ensemble", "").replace("aux::", "") in outputs
+                    else name.replace("_ensemble", "").replace("mtt::aux::", "")
+                )
+                if original_name not in outputs_for_model:
+                    outputs_for_model[original_name] = ModelOutput(
+                        quantity="",
+                        unit="",
+                        per_atom=output.per_atom,
+                    )
         for name, output in outputs.items():
             # remove uncertainties from the requested outputs for the
             # wrapped model
