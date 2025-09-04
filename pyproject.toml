@@ -61,6 +61,9 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
+dpa3 = [
+    "deepmd-kit>=3.1.0"
+]
 soap-bpnn = [
     "torch-spex>=0.1,<0.2",
     "wigners",
