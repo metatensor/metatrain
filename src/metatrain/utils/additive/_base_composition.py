@@ -75,8 +75,8 @@ class BaseCompositionModel(torch.nn.Module):
         :param target_name: Name of the target to add.
         :param layout: Layout of the target as a :py:class:`TensorMap`.
         """
-        if target_name in self.target_names:
-            raise ValueError(f"target {target_name} already exists in the model.")
+        # if target_name in self.target_names:
+        #     raise ValueError(f"target {target_name} already exists in the model.")
 
         self.target_names.append(target_name)
         self.is_fitted[target_name] = False
