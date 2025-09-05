@@ -200,4 +200,6 @@ def systems_to_batch(
         reversed_neighbor_list,
         system_indices,
         sample_labels,
+        centers,
+        nef_to_edges_neighbor,
     )
