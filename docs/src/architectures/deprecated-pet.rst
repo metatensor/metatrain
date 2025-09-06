@@ -84,7 +84,7 @@ Selection of ``R_CUT``
 A good starting point is to select a cutoff radius that ensures about 20-30 neighbors on
 average. This can be done by analyzing the neighbor lists for different cutoffs before
 launching the training script. `This
-<https://wiki.fysik.dtu.dk/ase/ase/neighborlist.html>`_ is an example of a neighbor list
+<https://ase-lib.org/ase/neighborlist.html>`_ is an example of a neighbor list
 constructor in Python.
 
 For finite configurations, such as small molecules in COLL/QM9/rmd17 datasets, it makes
