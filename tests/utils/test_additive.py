@@ -185,7 +185,8 @@ def test_old_composition_model_train():
     )
 
 
-def test_composition_model_train():
+@pytest.mark.parametrize("fixed_weights", [True, False])
+def test_composition_model_train(fixed_weights):
     """Test the calculation of composition weights for a per-structure scalar."""
 
     # Here we use three synthetic structures:
@@ -265,7 +266,14 @@ def test_composition_model_train():
         pbc=torch.tensor([True, True, True]),
     )
 
-    composition_model.train_model(dataset, [], batch_size=1, is_distributed=False)
+    if fixed_weights:
+        fixed_weights = {"energy": {1: 2.0, 8: 1.0}}
+    else:
+        fixed_weights = None
+
+    composition_model.train_model(
+        dataset, [], batch_size=1, is_distributed=False, fixed_weights=fixed_weights
+    )
     assert composition_model.atomic_types == [1, 8]
     output_H = composition_model(
         [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}

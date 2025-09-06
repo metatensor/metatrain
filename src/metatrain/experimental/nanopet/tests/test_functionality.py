@@ -509,7 +509,7 @@ def test_nanopet_rank_2(per_atom):
         "meaning that they are symmetric and intensive. "
         "If this is not the case, please use a different model."
     )
-    with pytest.warns(match=message):
+    with pytest.warns(UserWarning, match=message):
         model = NanoPET(MODEL_HYPERS, dataset_info)
 
     system = System(

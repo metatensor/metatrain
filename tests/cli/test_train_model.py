@@ -127,6 +127,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "std " in stdout_log
     assert "[INFO]" in stdout_log
     assert stdout_log.count("Epoch:    0") == 1
+    assert re.search(r"Using best model from epoch \d+", stdout_log)
     assert "loss" in stdout_log
     assert "validation" in stdout_log
     assert "train" in stdout_log
@@ -574,7 +575,7 @@ def test_same_name_targets_extra_data(
         train_model(options_extra)
 
 
-def test_continue(options, monkeypatch, tmp_path):
+def test_restart(options, monkeypatch, tmp_path):
     """Test that continuing training from a checkpoint runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
@@ -615,7 +616,8 @@ def test_finetune_no_read_from(options_pet, monkeypatch, tmp_path):
         train_model(options_pet)
 
 
-def test_continue_auto(options, caplog, monkeypatch, tmp_path):
+@pytest.mark.parametrize("move_folder", [True, False])
+def test_restart_auto(options, caplog, monkeypatch, tmp_path, move_folder):
     """Test that continuing with the `auto` keyword results in
     a continuation from the most recent checkpoint."""
     monkeypatch.chdir(tmp_path)
@@ -641,13 +643,18 @@ def test_continue_auto(options, caplog, monkeypatch, tmp_path):
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy(MODEL_PATH_64_BIT, checkpoint_dir / checkpoint_name)
 
+    # also check that the timestamp-based implementation works with moved folders
+    if move_folder:
+        shutil.move("outputs/", "tmp/outputs/")
+        shutil.move("tmp/outputs/", "outputs/")
+
     train_model(options, restart_from=_process_restart_from("auto"))
 
     assert str(true_checkpoint_dir) in caplog.text
     assert "model_3.ckpt" in caplog.text
 
 
-def test_continue_auto_no_outputs(options, caplog, monkeypatch, tmp_path):
+def test_restart_auto_no_outputs(options, caplog, monkeypatch, tmp_path):
     """Test that continuing with the `auto` keyword results in
     training from scratch if `outputs/` is not present."""
     monkeypatch.chdir(tmp_path)
@@ -659,7 +666,7 @@ def test_continue_auto_no_outputs(options, caplog, monkeypatch, tmp_path):
     assert "Restart training from" not in caplog.text
 
 
-def test_continue_different_dataset(options, monkeypatch, tmp_path):
+def test_restart_different_dataset(options, monkeypatch, tmp_path):
     """Test that continuing training from a checkpoint runs without an error raise
     with a different dataset than the original."""
     monkeypatch.chdir(tmp_path)
@@ -861,36 +868,67 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
     """Test that training via the training cli runs without an error raise
     when learning from a `DiskDataset`."""
     monkeypatch.chdir(tmp_path)
-    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+    shutil.copy(DATASET_PATH_CARBON, "carbon.xyz")
 
-    disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100.zip")
+    disk_dataset_writer = DiskDatasetWriter("carbon.zip")
 
-    frames = read("qm9_reduced_100.xyz", index=":100")
-    systems = [
-        get_system_with_neighbor_lists(
+    all_atoms = read("carbon.xyz", index=":100")
+    for count, atoms in enumerate(all_atoms):
+        system = systems_to_torch(atoms, dtype=torch.float64)
+        system = get_system_with_neighbor_lists(
             system,
             [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
         )
-        for system in systems_to_torch(frames, dtype=torch.float64)
-    ]
-    energy = TensorMap(
-        keys=Labels.single(),
-        blocks=[
+        energy_block = TensorBlock(
+            values=torch.tensor([[atoms.get_potential_energy()]], dtype=torch.float64),
+            samples=Labels(
+                names=["system"],
+                values=torch.tensor([[count]]),
+            ),
+            components=[],
+            properties=Labels("energy", torch.tensor([[0]])),
+        )
+        energy_block.add_gradient(
+            "positions",
             TensorBlock(
-                samples=Labels.range("system", len(systems)),
-                components=[],
-                properties=Labels.range("energy", 1),
-                values=torch.tensor(
-                    [[frame.info["U0"]] for frame in frames], dtype=torch.float64
+                values=-torch.tensor(
+                    atoms.arrays["force"], dtype=torch.float64
+                ).unsqueeze(-1),
+                samples=Labels(
+                    names=["sample", "atom"],
+                    values=torch.tensor([[0, i] for i in range(len(atoms))]),
                 ),
-            )
-        ],
-    )
-    disk_dataset_writer.write(systems, {"energy": energy})
+                components=[Labels("xyz", torch.tensor([[0], [1], [2]]))],
+                properties=Labels("energy", torch.tensor([[0]])),
+            ),
+        )
+        energy_block.add_gradient(
+            "strain",
+            TensorBlock(
+                values=-torch.tensor(atoms.info["virial"], dtype=torch.float64)
+                .unsqueeze(0)
+                .unsqueeze(-1)
+                .contiguous(),
+                samples=Labels(
+                    names=["sample"],
+                    values=torch.tensor([[0]]),
+                ),
+                components=[
+                    Labels("xyz_1", torch.tensor([[0], [1], [2]])),
+                    Labels("xyz_2", torch.tensor([[0], [1], [2]])),
+                ],
+                properties=Labels("energy", torch.tensor([[0]])),
+            ),
+        )
+        energy = TensorMap(
+            keys=Labels.single(),
+            blocks=[energy_block],
+        )
+        disk_dataset_writer.write([system], {"energy": energy})
     disk_dataset_writer.finish()
 
-    options["training_set"]["systems"]["read_from"] = "qm9_reduced_100.zip"
-    options["training_set"]["targets"]["energy"]["read_from"] = "qm9_reduced_100.zip"
+    options["training_set"]["systems"]["read_from"] = "carbon.zip"
+    options["training_set"]["targets"]["energy"]["read_from"] = "carbon.zip"
     train_model(options)
 
 

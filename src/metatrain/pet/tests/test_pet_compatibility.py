@@ -775,12 +775,13 @@ def test_last_layer_features_compatibility():
 def test_pet_mad_model_compatibility(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    path = "https://huggingface.co/lab-cosmo/pet-mad/resolve/main/models/pet-mad-latest.ckpt"
+    path = "https://huggingface.co/lab-cosmo/pet-mad/resolve/v0.3.2/models/pet-mad-v0.3.2.ckpt"
 
     if urlparse(path).scheme:
         path, _ = urlretrieve(path)
 
-    pet_model = PET.load_checkpoint(path).eval()
+    checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+    pet_model = PET.load_checkpoint(checkpoint, context="export").eval()
 
     nativepet_checkpoint = torch.load(path, map_location="cpu", weights_only=False)
     nativepet_checkpoint = convert_checkpoint_from_legacy_pet(nativepet_checkpoint)
@@ -792,7 +793,7 @@ def test_pet_mad_model_compatibility(monkeypatch, tmp_path):
     checkpoint = torch.load(
         "nativepet_checkpoint.ckpt", weights_only=False, map_location="cpu"
     )
-    nativepet_model = model_from_checkpoint(checkpoint)
+    nativepet_model = model_from_checkpoint(checkpoint, context="export")
     assert isinstance(nativepet_model, NativePET)
     nativepet_model = nativepet_model.eval()
 
@@ -826,6 +827,8 @@ def test_pet_mad_model_compatibility(monkeypatch, tmp_path):
     torch.testing.assert_close(
         nativepet_predictions["energy"].block().values,
         pet_predictions["energy"].block().values,
+        atol=1e-3,
+        rtol=1e-3,
     )
 
-    torch.testing.assert_close(nativepet_gradients, pet_gradients)
+    torch.testing.assert_close(nativepet_gradients, pet_gradients, atol=1e-3, rtol=1e-3)

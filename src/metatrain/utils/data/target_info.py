@@ -306,8 +306,8 @@ def get_energy_target_info(
             # float64: otherwise metatensor can't serialize
             values=torch.empty(0, 3, 3, 1, dtype=torch.float64),
             samples=Labels(
-                names=["sample", "atom"],
-                values=torch.empty((0, 2), dtype=torch.int32),
+                names=["sample"],
+                values=torch.empty((0, 1), dtype=torch.int32),
             ),
             components=[
                 Labels(

@@ -7,6 +7,7 @@ from typing import Dict, Optional, Union
 
 import numpy as np
 import torch
+import tqdm
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import AtomisticModel
 from omegaconf import DictConfig, OmegaConf
@@ -182,7 +183,7 @@ def _eval_targets(
     timings_per_atom = []
 
     # Main evaluation loop
-    for batch in dataloader:
+    for batch in tqdm.tqdm(dataloader, ncols=100):
         systems, batch_targets, _ = batch
         systems = [system.to(dtype=dtype, device=device) for system in systems]
         batch_targets = {
@@ -238,7 +239,7 @@ def _eval_targets(
     mean_per_atom = np.mean(timings_per_atom)
     std_per_atom = np.std(timings_per_atom)
     logging.info(
-        f"evaluation time: {total_time:.2f} s "
+        f"Evaluation time: {total_time:.2f} s "
         f"[{1000.0 * mean_per_atom:.4f} ± "
         f"{1000.0 * std_per_atom:.4f} ms per atom]"
     )
