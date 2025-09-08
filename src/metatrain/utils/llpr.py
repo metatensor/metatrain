@@ -627,20 +627,23 @@ class LLPRUncertaintyModel(torch.nn.Module):
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
         for name, weights in weight_tensors.items():
+
             uncertainty_name = _get_uncertainty_name(name)
             rng = np.random.default_rng()
-
             self.n_ens[name] = n_ens[name]
 
+            ensemble_weights = []
             max_multiplier = -1
 
+            cur_multiplier = self.get_buffer("multiplier_" + uncertainty_name).detach().cpu().numpy()
+            cur_inv_cov = self.get_buffer("inv_covariance_" + uncertainty_name).detach().cpu().numpy()
+
             for ii in range(weights.shape[0]):
-                if np.isnan(self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy()):
+                if np.isnan(cur_multiplier[ii]):
                     print(f"multiplier is NaN for channel # {ii}! We resort to the max_multiplier value...")
                     cur_ensemble_weights = rng.multivariate_normal(
                         weights[ii].clone().detach().cpu().numpy(),
-                        self.inv_covariances[uncertainty_name].clone().detach().cpu().numpy()
-                        * max_multiplier,
+                        cur_inv_cov * max_multiplier,
                         size=n_ens[name],
                         method="svd",
                     ).T
@@ -648,13 +651,12 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     print("ens. generation for energy channel -- #", ii)
                     cur_ensemble_weights = rng.multivariate_normal(
                         weights[ii].clone().detach().cpu().numpy(),
-                        self.inv_covariances[uncertainty_name].clone().detach().cpu().numpy()
-                        * self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy(),
+                        cur_inv_cov * cur_multiplier[ii],
                         size=n_ens[name],
                         method="svd",
                     ).T
-                    if max_multiplier < self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy():
-                        max_multiplier = self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy()
+                    if max_multiplier < cur_multiplier[ii]:
+                        max_multiplier = cur_multiplier[ii]
 
                 cur_ensemble_weights = torch.tensor(
                     cur_ensemble_weights, device=device, dtype=dtype
