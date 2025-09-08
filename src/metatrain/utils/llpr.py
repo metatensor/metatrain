@@ -222,7 +222,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ll_features.block().values,
             ).unsqueeze(1)
 
-            if len(self.num_subtargets[orig_name]) == 0:
+            if self.num_subtargets[orig_name] == 1:
                 cur_prop = Labels(
                     names=["_"],
                     values=torch.tensor(
@@ -244,8 +244,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ),
                 blocks=[
                     TensorBlock(
-                        # the output is a standard deviation (not a variance)
-                        values=torch.sqrt(one_over_pr_values),
+                        values=one_over_pr_values.expand(-1, self.num_subtargets[orig_name]),
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
                         properties=cur_prop,
@@ -526,7 +525,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 )
 
                 if self.dos and name == "mtt::dos":
-                    cur_mask = extra_data["mask"].block().values.to(device=device, dtype=dtype)
+                    cur_mask = extra_data["mtt::mask"].block().values.to(device=device, dtype=dtype)
                     all_masks.append(cur_mask)
                     _, cur_shifts = get_dynamic_shift_agnostic_mse(
                             outputs[name].block().values.detach(),
