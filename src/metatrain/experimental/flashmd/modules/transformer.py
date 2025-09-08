@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from metatrain.flashmd.modules.encoder import NodeEncoder
+from metatrain.experimental.flashmd.modules.encoder import NodeEncoder
 from metatrain.pet.modules.transformer import Transformer
 from metatrain.pet.modules.utilities import DummyModule
 

@@ -1,5 +1,3 @@
-from typing import Dict
-
 import torch
 
 class NodeEncoder(torch.nn.Module):

@@ -32,8 +32,8 @@ from metatrain.utils.scaler import remove_scale
 from .model import FlashMD
 from .modules.augmentation import RotationalAugmenter
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from ..utils.data import TargetInfo
-from ..utils.data.target_info import get_energy_target_info
+from metatrain.utils.data import TargetInfo
+from metatrain.utils.data.target_info import get_energy_target_info
 
 from metatomic.torch import load_atomistic_model, ModelOutput, ModelEvaluationOptions, System
 from ase.data import atomic_masses

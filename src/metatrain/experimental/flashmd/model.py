@@ -17,8 +17,8 @@ from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.scaler import Scaler
-from metatrain.flashmd.modules.transformer import CartesianTransformer
-from metatrain.flashmd.modules.structures import systems_to_batch
+from metatrain.experimental.flashmd.modules.transformer import CartesianTransformer
+from metatrain.experimental.flashmd.modules.structures import systems_to_batch
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.pet.modules.utilities import cutoff_func
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer

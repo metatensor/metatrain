@@ -1,7 +1,7 @@
 import pytest
 from metatensor.torch import TensorMap, Labels, TensorBlock
 import torch
-from metatrain.flashmd.model import FlashMD
+from metatrain.experimental.flashmd.model import FlashMD
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import TargetInfo
 from omegaconf import OmegaConf
@@ -12,7 +12,7 @@ from metatrain.utils.neighbor_lists import get_requested_neighbor_lists, get_sys
 @pytest.mark.filterwarnings('ignore::UserWarning')
 def test_it_works():
   # load default hyper parameters for FlashMD
-  full_hypers = OmegaConf.load("src/metatrain/flashmd/default-hypers.yaml")
+  full_hypers = OmegaConf.load("src/metatrain/experimental/flashmd/default-hypers.yaml")
   model_hypers = dict(full_hypers)["architecture"]["model"]
 
   # define dataset (especially the targets)
