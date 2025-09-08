@@ -814,14 +814,14 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     cur_ensemble_weights, device=device, dtype=dtype
                 )
                 ensemble_weights.append(cur_ensemble_weights)    # DOS specific
-            ensemble_weights = torch.stack(ensemble_weights, axis=-1)   # DOS specific, shape pred_size, n_ens
+            ensemble_weights = torch.stack(ensemble_weights, axis=-1)   # DOS specific, shape ll_Feat, n_ens, n_channel
             print(ensemble_weights.shape)
             ensemble_weights = ensemble_weights.reshape(
                     ensemble_weights.shape[0],
                     -1,
-            )
+            ) # DOS specific, shape ll_feat, n_ens*n_channel
             print(ensemble_weights.shape)
-            # 1D Linear that goes from ll_feat_size to ensemble_weights * n_ens
+            # 1D Linear that goes from ll_feat_size to n_channel * n_ens
             self.llpr_ensemble_layers[name] = torch.nn.Linear(
                 self.ll_feat_size,
                 weights.shape[0] * n_ens[name],
@@ -852,3 +852,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
             supported_devices=self.capabilities.supported_devices,
             dtype=self.capabilities.dtype,
         )
+
+    def __getattr__(self, name):
+        try:
+            return super().__getattr__(name)
+        except AttributeError:
+            return getattr(self.model, name)
