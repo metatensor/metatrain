@@ -1,5 +1,6 @@
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from collections import defaultdict
+from typing import Any, Dict, DefaultDict, List, Literal, Optional, Union
 
 import metatensor.torch as mts
 import numpy as np
@@ -18,6 +19,7 @@ from metatrain.utils.data.target_info import is_auxiliary_output
 from metatrain.utils.io import check_file_extension, model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 
+from metatrain.pet.DOSutils import get_dynamic_shift_agnostic_mse
 
 class LLPRUncertaintyModel(torch.nn.Module):
     __checkpoint_version__ = 1
@@ -47,7 +49,11 @@ class LLPRUncertaintyModel(torch.nn.Module):
     """
 
     def __init__(
-        self, model, ensemble_weight_sizes: Optional[Dict[str, List[int]]] = None
+        self,
+        model,
+        ensemble_weight_sizes: Optional[Dict[str, List[int]]] = None,
+        num_subtargets: Optional[DefaultDict] = defaultdict(lambda: 1),
+        dos: bool = False,
     ) -> None:
         super().__init__()
 
@@ -101,7 +107,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             )
             self.register_buffer(
                 f"multiplier_{uncertainty_name}",
-                torch.tensor([1.0], dtype=dtype),
+                torch.ones(num_subtargets[name], dtype=dtype),
             )
 
         if ensemble_weight_sizes is None:
@@ -110,17 +116,6 @@ class LLPRUncertaintyModel(torch.nn.Module):
         # register buffers for ensemble weights and ensemble outputs
         ensemble_outputs = {}
         for name in self.outputs_list:
-            ensemble_weights_name = (
-                "mtt::aux::" + name.replace("mtt::", "") + "_ensemble_weights"
-            )
-            if ensemble_weights_name == "mtt::aux::energy_ensemble_weights":
-                ensemble_weights_name = "energy_ensemble_weights"
-            if ensemble_weights_name not in ensemble_weight_sizes:
-                continue
-            self.register_buffer(
-                ensemble_weights_name,
-                torch.zeros(ensemble_weight_sizes[ensemble_weights_name], dtype=dtype),
-            )
             ensemble_output_name = (
                 "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
             )
@@ -140,10 +135,18 @@ class LLPRUncertaintyModel(torch.nn.Module):
             dtype=self.capabilities.dtype,
         )
 
+        self.n_ens = defaultdict(lambda: 0)
+        self.llpr_ensemble_layers = torch.nn.ModuleDict()
+        self.ensemble_weights_computed = defaultdict(lambda: False)
+        self.num_subtargets = num_subtargets
+
         # flags
         self.covariance_computed = False
         self.inv_covariance_computed = False
         self.is_calibrated = False
+        self.is_recalibrated = False
+
+        self.dos = dos
 
     def forward(
         self,
@@ -208,6 +211,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             property_name = (
                 "energy" if uncertainty_name == "energy_uncertainty" else "_"
             )
+            orig_name = name.replace("_uncertainty", "").replace("aux::", "")
 
             # compute PRs
             # the code is the same for PR and LPR
@@ -217,6 +221,20 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 self._get_inv_covariance(uncertainty_name),
                 ll_features.block().values,
             ).unsqueeze(1)
+
+            if len(self.num_subtargets[orig_name]) == 0:
+                cur_prop = Labels(
+                    names=["_"],
+                    values=torch.tensor(
+                        [[0]], device=ll_features.block().values.device
+                    ),
+                )
+            else:
+                cur_prop = Labels.range(
+                    "properties",
+                    self.num_subtargets[orig_name],
+                ).to(ll_features.block().values.device)
+
             uncertainty = TensorMap(
                 keys=Labels(
                     names=["_"],
@@ -230,18 +248,30 @@ class LLPRUncertaintyModel(torch.nn.Module):
                         values=torch.sqrt(one_over_pr_values),
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
-                        properties=Labels(
-                            names=[property_name],
-                            values=torch.tensor(
-                                [[0]], device=ll_features.block().values.device
-                            ),
-                        ),
+                        properties=cur_prop,
+                    )
+                ],
+            )
+
+            tsm_multiplier = TensorMap(
+                keys=Labels(
+                    names=["_"],
+                    values=torch.tensor(
+                        [[0]], device=ll_features.block().values.device
+                    ),
+                ),
+                blocks=[
+                    TensorBlock(
+                        values=self._get_multiplier(uncertainty_name).expand(len(systems), -1),
+                        samples=ll_features.block().samples,
+                        components=ll_features.block().components,
+                        properties=cur_prop,
                     )
                 ],
             )
 
             return_dict[uncertainty_name] = mts.multiply(
-                uncertainty, float(self._get_multiplier(uncertainty_name).item())
+                uncertainty, tsm_multiplier
             )
 
         # now deal with potential ensembles (see generate_ensemble method)
@@ -251,22 +281,20 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 requested_ensembles.append(name)
 
         for name in requested_ensembles:
+            orig_name = name.replace("_uncertainty", "").replace("aux::", "")
             ll_features_name = name.replace("_ensemble", "_last_layer_features")
             if ll_features_name == "energy_last_layer_features":
                 # special case for energy_ensemble
                 ll_features_name = "mtt::aux::energy_last_layer_features"
             ll_features = return_dict[ll_features_name]
-            # get the ensemble weights (getattr not supported by torchscript)
-            ensemble_weights = torch.tensor(0.0)
-            for buffer_name, buffer in self.named_buffers():
-                if buffer_name == name + "_weights":
-                    ensemble_weights = buffer
-            # the ensemble weights should always be found (checks are performed
-            # in the generate_ensemble method and in the metatensor wrapper)
-            ensemble_values = torch.einsum(
-                "ij, jk -> ik",
-                ll_features.block().values,
-                ensemble_weights,
+
+            self.llpr_ensemble_layers[orig_name].to(ll_features.block().values.device)
+            ensemble_values = self.llpr_ensemble_layers[orig_name](ll_features.block().values)
+
+            ensemble_values = ensemble_values.reshape(
+                ensemble_values.shape[0],
+                self.n_ens[base_name],
+                -1,
             )
 
             # since we know the exact mean of the ensemble from the model's prediction,
@@ -276,18 +304,18 @@ class LLPRUncertaintyModel(torch.nn.Module):
             # this also takes care of additive contributions that are not present in the
             # last layer, which can be composition, short-range models, a bias in the
             # last layer, etc.
-            original_name = (
-                name.replace("_ensemble", "").replace("aux::", "")
-                if name.replace("_ensemble", "").replace("aux::", "") in outputs
-                else name.replace("_ensemble", "").replace("mtt::aux::", "")
-            )
-            ensemble_values = (
-                ensemble_values
-                - ensemble_values.mean(dim=1, keepdim=True)
-                + return_dict[original_name].block().values
-            )
 
-            property_name = "energy" if name == "energy_ensemble" else "ensemble_member"
+            # original_name = (
+            #     name.replace("_ensemble", "").replace("aux::", "")
+            #     if name.replace("_ensemble", "").replace("aux::", "") in outputs
+            #     else name.replace("_ensemble", "").replace("mtt::aux::", "")
+            # )
+            # ensemble_values = (
+            #     ensemble_values
+            #     - ensemble_values.mean(dim=1, keepdim=True)
+            #     + return_dict[original_name].block().values
+            # )
+
             ensemble = TensorMap(
                 keys=Labels(
                     names=["_"],
@@ -297,14 +325,15 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ),
                 blocks=[
                     TensorBlock(
-                        values=ensemble_values,
+                        values=ensemble_values.reshape(ensemble_values.shape[0], -1),
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
                         properties=Labels(
-                            names=[property_name],
-                            values=torch.arange(
-                                ensemble_values.shape[1], device=ensemble_values.device
-                            ).unsqueeze(1),
+                            names=['ensemble_member', 'energy_channel'],   # DOS specific
+                            values=torch.cartesian_prod(
+                                torch.arange(ensemble_values.shape[1], device=ensemble_values.device),    # DOS specific, double-check!
+                                torch.arange(ensemble_values.shape[2], device=ensemble_values.device),    # DOS specific, double-check!
+                            )
                         ),
                     )
                 ],
@@ -436,16 +465,35 @@ class LLPRUncertaintyModel(torch.nn.Module):
         # property for outputs with multiple properties
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
+
         all_predictions = {}  # type: ignore
         all_targets = {}  # type: ignore
         all_uncertainties = {}  # type: ignore
+
+        if self.dos:
+            all_masks = []
+            all_shifts = []
+            all_lens = []
+
         for batch in valid_loader:
+
             systems, targets, extra_data = batch
+
             systems = [system.to(device=device, dtype=dtype) for system in systems]
+
+            if self.dos:
+                lens = [len(system) for system in systems]
+                all_lens += lens
+
             targets = {
                 name: target.to(device=device, dtype=dtype)
                 for name, target in targets.items()
             }
+            extra_data = {
+                name: data.to(device=device, dtype=dtype)
+                for name, data in extra_data.items()
+            }
+
             # evaluate the targets and their uncertainties, not per atom
             requested_outputs = {}
             for name in targets:
@@ -460,18 +508,37 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     unit="",
                     per_atom=False,
                 )
+
             outputs = self.forward(systems, requested_outputs)
+
             for name, target in targets.items():
                 uncertainty_name = _get_uncertainty_name(name)
+
                 if name not in all_predictions:
                     all_predictions[name] = []
                     all_targets[name] = []
                     all_uncertainties[uncertainty_name] = []
+
                 all_predictions[name].append(outputs[name].block().values.detach())
                 all_targets[name].append(target.block().values)
                 all_uncertainties[uncertainty_name].append(
                     outputs[uncertainty_name].block().values.detach()
                 )
+
+                if self.dos and name == "mtt::dos":
+                    cur_mask = extra_data["mask"].block().values.to(device=device, dtype=dtype)
+                    all_masks.append(cur_mask)
+                    _, cur_shifts = get_dynamic_shift_agnostic_mse(
+                            outputs[name].block().values.detach(),
+                            target.block().values * torch.tensor(lens).unsqueeze(-1).to(device=device, dtype=dtype),
+                            cur_mask,
+                            return_shift=True)
+                    all_shifts.append(cur_shifts)
+
+        if self.dos:
+            all_masks = torch.cat(all_masks, dim=0)
+            all_shifts = torch.cat(all_shifts, dim=0)
+            all_lens = torch.tensor(all_lens, device=device, dtype=dtype)
 
         for name in all_predictions:
             all_predictions[name] = torch.cat(all_predictions[name], dim=0)
@@ -483,16 +550,56 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
         for name in all_predictions:
             # compute the uncertainty multiplier
-            residuals = all_predictions[name] - all_targets[name]
             uncertainty_name = _get_uncertainty_name(name)
             uncertainties = all_uncertainties[uncertainty_name]
-            multiplier = self._get_multiplier(uncertainty_name)
-            multiplier[:] = torch.sqrt(torch.mean(residuals**2 / uncertainties**2))
+
+            if name == "mtt::dos":
+                dos_predictions = all_predictions[name]
+                orig_dos_targets = all_targets[name]
+
+                revised_dos_targets = torch.zeros(dos_predictions.shape, dtype=dtype, device=device)
+                revised_masks = torch.zeros(dos_predictions.shape, dtype=dtype, device=device)
+
+                # broadcasting tensors
+                rows = torch.arange(dos_predictions.shape[0]).unsqueeze(1)
+                cols = all_shifts.unsqueeze(1) + torch.arange(orig_dos_targets.shape[1]).to(device=device)
+
+                # revised DOS target via broadcasting
+                revised_dos_targets[rows, cols] = orig_dos_targets
+
+                # get revised masks, padding the low E end with 1's
+                revised_masks[rows, cols] = all_masks
+                low_e_cols = torch.arange(dos_predictions.shape[1]).unsqueeze(0).expand(len(rows), -1).to(device=device)
+                low_e_mask = low_e_cols < all_shifts.unsqueeze(1)
+                revised_masks[low_e_mask] = 1
+                mask_count = revised_masks.sum(dim=0)
+
+                # raw residuals
+                resid = all_predictions[name] - (revised_dos_targets * all_lens.unsqueeze(-1))
+                resid_masked_sum = ((resid ** 2) * revised_masks).sum(dim=0)
+                resid_masked_mean = resid_masked_sum / mask_count.clamp(min=1)
+
+                uncer_masked_sum = (uncertainties * revised_masks).sum(dim=0)
+                uncer_masked_mean = uncer_masked_sum / mask_count.clamp(min=1)
+
+                # true/pred ratios
+                ratios = resid_masked_mean / uncer_masked_mean
+                ratios = torch.where(mask_count > 0, ratios, torch.tensor(float('nan')))
+
+                multiplier = self._get_multiplier(uncertainty_name)
+                multiplier[:] = ratios
+
+            else:
+                residuals = all_predictions[name] - all_targets[name]
+                multiplier = self._get_multiplier(uncertainty_name)
+                multiplier[:] = torch.sqrt(torch.mean(residuals**2 / uncertainties**2))
 
         self.is_calibrated = True
 
     def generate_ensemble(
-        self, weight_tensors: Dict[str, torch.Tensor], n_members: int
+        self,
+        weight_tensors: Dict[str, torch.Tensor],
+        n_ens: Dict[str, int],
     ) -> None:
         """Generate an ensemble of weights for the model.
 
@@ -515,40 +622,63 @@ class LLPRUncertaintyModel(torch.nn.Module):
         for key in weight_tensors:
             if key not in self.capabilities.outputs.keys():
                 raise ValueError(f"Output '{key}' not supported by model")
-            if len(weight_tensors[key].shape) != 1:
-                raise ValueError("All weights must be 1D tensors")
+            # if len(weight_tensors[key].shape) != 1:
+            #     raise ValueError("All weights must be 1D tensors")
 
-        # sampling; each member is sampled from a multivariate normal distribution
-        # with mean given by the input weights and covariance given by the inverse
-        # covariance matrix
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
         for name, weights in weight_tensors.items():
             uncertainty_name = _get_uncertainty_name(name)
             rng = np.random.default_rng()
-            ensemble_weights = rng.multivariate_normal(
-                weights.clone().detach().cpu().numpy(),
-                self._get_inv_covariance(uncertainty_name)
-                .clone()
-                .detach()
-                .cpu()
-                .numpy()
-                * self._get_multiplier(uncertainty_name).item() ** 2,
-                size=n_members,
-                method="svd",
-            ).T
-            ensemble_weights = torch.tensor(
-                ensemble_weights, device=device, dtype=dtype
+
+            self.n_ens[name] = n_ens[name]
+
+            max_multiplier = -1
+
+            for ii in range(weights.shape[0]):
+                if np.isnan(self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy()):
+                    print(f"multiplier is NaN for channel # {ii}! We resort to the max_multiplier value...")
+                    cur_ensemble_weights = rng.multivariate_normal(
+                        weights[ii].clone().detach().cpu().numpy(),
+                        self.inv_covariances[uncertainty_name].clone().detach().cpu().numpy()
+                        * max_multiplier,
+                        size=n_ens[name],
+                        method="svd",
+                    ).T
+                else:
+                    print("ens. generation for energy channel -- #", ii)
+                    cur_ensemble_weights = rng.multivariate_normal(
+                        weights[ii].clone().detach().cpu().numpy(),
+                        self.inv_covariances[uncertainty_name].clone().detach().cpu().numpy()
+                        * self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy(),
+                        size=n_ens[name],
+                        method="svd",
+                    ).T
+                    if max_multiplier < self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy():
+                        max_multiplier = self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy()
+
+                cur_ensemble_weights = torch.tensor(
+                    cur_ensemble_weights, device=device, dtype=dtype
+                )
+                ensemble_weights.append(cur_ensemble_weights)    # DOS specific
+            ensemble_weights = torch.stack(ensemble_weights, axis=-1)   # DOS specific, shape ll_Feat, n_ens, n_channel
+            print(ensemble_weights.shape)
+
+            ensemble_weights = ensemble_weights.reshape(
+                    ensemble_weights.shape[0],
+                    -1,
+            ) # DOS specific, shape ll_feat, n_ens*n_channel
+            print(ensemble_weights.shape)
+            # 1D Linear that goes from ll_feat_size to n_channel * n_ens
+            self.llpr_ensemble_layers[name] = torch.nn.Linear(
+                self.ll_feat_size,
+                weights.shape[0] * n_ens[name],
+                bias=False
             )
-            ensemble_weights_name = (
-                "mtt::aux::" + name.replace("mtt::", "") + "_ensemble_weights"
-            )
-            if ensemble_weights_name == "mtt::aux::energy_ensemble_weights":
-                ensemble_weights_name = "energy_ensemble_weights"
-            self.register_buffer(
-                ensemble_weights_name,
-                ensemble_weights,
-            )
+
+            with torch.no_grad():
+                self.llpr_ensemble_layers[name].weight.copy_(ensemble_weights.T)
+            self.ensemble_weights_computed[name] = True
 
         # add the ensembles to the capabilities
         old_outputs = self.capabilities.outputs
@@ -671,11 +801,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
     def _get_multiplier(self, name: str):
         name = "multiplier_" + name
-        requested_buffer = torch.tensor(0)
         for n, buffer in self.named_buffers():
             if n == name:
-                requested_buffer = buffer
-        return requested_buffer
+                return buffer
 
 
 def _get_uncertainty_name(name: str):
