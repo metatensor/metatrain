@@ -17,6 +17,7 @@ jobs:
           - soap-bpnn
           - pet
           - nanopet
+          - flashmd
           - deprecated-pet
 
     runs-on: ubuntu-22.04

@@ -11,8 +11,10 @@ from metatrain.utils.neighbor_lists import get_requested_neighbor_lists, get_sys
 
 @pytest.mark.filterwarnings('ignore::UserWarning')
 def test_it_works():
+  "Run a forward pass of FlashMD on two small systems and verify the output shapes."
+
   # load default hyper parameters for FlashMD
-  full_hypers = OmegaConf.load("src/metatrain/experimental/flashmd/default-hypers.yaml")
+  full_hypers = OmegaConf.load("../default-hypers.yaml")
   model_hypers = dict(full_hypers)["architecture"]["model"]
 
   # define dataset (especially the targets)
