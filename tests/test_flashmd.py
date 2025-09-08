@@ -1,3 +1,4 @@
+import pytest
 from metatensor.torch import TensorMap, Labels, TensorBlock
 import torch
 from metatrain.flashmd.model import FlashMD
@@ -8,6 +9,7 @@ from metatomic.torch import System, ModelOutput
 from metatrain.utils.neighbor_lists import get_requested_neighbor_lists, get_system_with_neighbor_lists
 
 
+@pytest.mark.filterwarnings('ignore::UserWarning')
 def test_it_works():
   pet_default_hypers = OmegaConf.load("src/metatrain/pet/default-hypers.yaml")
   
@@ -16,8 +18,8 @@ def test_it_works():
     "hamiltonian": "direct",
     "integrator": "euler",
     "heads": {
-      "mtt::delta_q": "linear",
-      "mtt::delta_p": "linear",
+      "positions": "linear",
+      "momenta": "linear",
     },
   }
   model_hypers = {**dict(pet_default_hypers)["architecture"]["model"], **model_hypers}
@@ -31,12 +33,14 @@ def test_it_works():
           keys=Labels.single(),
           blocks=[
             TensorBlock(
-              values=torch.empty((0, 1)),
+              values=torch.empty((0, 3, 1)),
               samples=Labels(
-                names=["system"],
-                values=torch.empty((0,1), dtype=int),
+                names=["system", "atom"],
+                values=torch.empty((0, 2), dtype=int),
               ),
-              components=[],
+              components=[
+                Labels.range("xyz", 3),
+              ],
               properties=Labels.range("length", 1),
             )
           ]
@@ -44,7 +48,7 @@ def test_it_works():
         quantity="length",
         unit="angstrom",
       )
-      for name in ["mtt::delta_q", "mtt::delta_p"]
+      for name in ["positions", "momenta"]
     },
   )
 
@@ -81,9 +85,33 @@ def test_it_works():
   ]
 
   # add random momenta to the systems
+  for system in systems:
+    num_atoms = len(system)
+    tmap = TensorMap(
+      keys=Labels.single(),
+      blocks=[
+        TensorBlock(
+          # TODO: get the momenta from the system if available!
+          values=torch.randn(num_atoms, 3, dtype=dtype),
+          samples=Labels(
+            names=["system"],
+            values=torch.arange(num_atoms, dtype=int).unsqueeze(-1),
+          ),
+          components=[],
+          properties=Labels.range("length", 3),
+        ),
+      ]
+    )
+    system.add_data("momenta", tmap)
 
   outputs = {
-    "mtt::delta_q": ModelOutput(quantity="length", unit="angstrom", per_atom=True),
-    "mtt::delta_p": ModelOutput(quantity="length", unit="angstrom", per_atom=True),
+    "positions": ModelOutput(quantity="length", unit="angstrom", per_atom=True),
+    "momenta": ModelOutput(quantity="length", unit="angstrom", per_atom=True),
   }
   result_dict = model(systems, outputs)
+
+  assert set(result_dict.keys()) == set(outputs.keys())
+
+  # 2+3=5 atoms in total, both outputs are 3D vectors per atom
+  assert result_dict["positions"][0].values.shape == (5, 3, 1)
+  assert result_dict["momenta"][0].values.shape == (5, 3, 1)
