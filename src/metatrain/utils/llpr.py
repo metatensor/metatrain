@@ -42,15 +42,65 @@ class LLPRUncertaintyModel(torch.nn.Module):
         super().__init__()
 
         self.model = model
-        self.ll_feat_size = self.model.module.last_layer_feature_size
+        self.ll_feat_size = self.model.last_layer_feature_size
+
+        # we need the capabilities of the model to be able to infer the capabilities
+        # of the LLPR model. Here, we do a trick: we call export on the model to to make
+        # it handle the conversion from dataset_info to capabilities
+        old_capabilities = self.model.export().capabilities()
+        dtype = getattr(torch, old_capabilities.dtype)
 
         # update capabilities: now we have additional outputs for the uncertainty
-        old_capabilities = self.model.capabilities()
         additional_capabilities = {}
-        self.uncertainty_multipliers = {}
+        self.outputs_list = []
+        for name, output in old_capabilities.outputs.items():
+            if is_auxiliary_output(name):
+                continue  # auxiliary output
+            elif "mask" in name:
+                continue  # DOS-specific
+            self.outputs_list.append(name)
+            uncertainty_name = _get_uncertainty_name(name)
+            additional_capabilities[uncertainty_name] = ModelOutput(
+                quantity=output.quantity,
+                unit=output.unit,
+                per_atom=output.per_atom,
+            )
+        self.capabilities = ModelCapabilities(
+            outputs={**old_capabilities.outputs, **additional_capabilities},
+            atomic_types=old_capabilities.atomic_types,
+            interaction_range=old_capabilities.interaction_range,
+            length_unit=old_capabilities.length_unit,
+            supported_devices=old_capabilities.supported_devices,
+            dtype=old_capabilities.dtype,
+        )
 
+        for name in self.outputs_list:
+            if "mask" in name:
+                continue  # DOS-specific        
+            uncertainty_name = _get_uncertainty_name(name)
+            self.register_buffer(
+                f"covariance_{uncertainty_name}",
+                torch.zeros(
+                    (self.ll_feat_size, self.ll_feat_size),
+                    dtype=dtype,
+                ),
+            )
+            self.register_buffer(
+                f"inv_covariance_{uncertainty_name}",
+                torch.zeros(
+                    (self.ll_feat_size, self.ll_feat_size),
+                    dtype=dtype,
+                ),
+            )
+
+        self.uncertainty_multipliers = {}
         # TODO: read `num_targets` from capabilities instead of user input
         self.num_subtargets = num_subtargets
+        self.uncertainty_multipliers[uncertainty_name] = torch.ones(
+                    num_subtargets[name],
+                    device=device,
+                    dtype=dtype,
+                )
 
         # DOS-specific
         self.dos = dos
@@ -61,57 +111,6 @@ class LLPRUncertaintyModel(torch.nn.Module):
         self.n_ens = defaultdict(lambda: 0)
         self.llpr_ensemble_layers = torch.nn.ModuleDict()
         self.ensemble_weights_computed = defaultdict(lambda: False)
-
-        for name, output in old_capabilities.outputs.items():
-
-            if is_auxiliary_output(name):
-                continue  # skip auxiliary outputs
-            elif "mask" in name:
-                continue  # DOS-specific
-
-            uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
-            additional_capabilities[uncertainty_name] = ModelOutput(
-                quantity="",
-                unit=f"({output.unit})^2",
-                per_atom=True,
-            )
-
-            # TODO: read `num_targets` from capabilities instead of user input
-            self.uncertainty_multipliers[uncertainty_name] = torch.ones(
-                    num_subtargets[name],
-                    device=device,
-                    dtype=dtype,
-                )
-
-        self.capabilities = ModelCapabilities(
-            outputs={**old_capabilities.outputs, **additional_capabilities},
-            atomic_types=old_capabilities.atomic_types,
-            interaction_range=old_capabilities.interaction_range,
-            length_unit=old_capabilities.length_unit,
-            supported_devices=old_capabilities.supported_devices,
-            dtype=old_capabilities.dtype,
-        )
-
-        # register covariance and inverse covariance buffers
-        device = next(self.model.parameters()).device
-        dtype = getattr(torch, old_capabilities.dtype)
-        self.covariances = {
-            uncertainty_name: torch.zeros(
-                (self.ll_feat_size, self.ll_feat_size),
-                device=device,
-                dtype=dtype,
-            )
-            for uncertainty_name in self.uncertainty_multipliers.keys()
-        }
-
-        self.inv_covariances = {
-            uncertainty_name: torch.zeros(
-                (self.ll_feat_size, self.ll_feat_size),
-                device=device,
-                dtype=dtype,
-            )
-            for uncertainty_name in self.uncertainty_multipliers.keys()
-        }
 
         # flags
         self.covariance_computed = False
@@ -858,3 +857,10 @@ class LLPRUncertaintyModel(torch.nn.Module):
             return super().__getattr__(name)
         except AttributeError:
             return getattr(self.model, name)
+
+def _get_uncertainty_name(name: str):
+    if name == "energy":
+        uncertainty_name = "energy_uncertainty"
+    else:
+        uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
+    return uncertainty_name
