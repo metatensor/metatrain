@@ -1,17 +1,20 @@
 architecture:
-
   name: flashmd
-
   model:
     hamiltonian: direct
     integrator: euler
     cutoff: 5.0
     cutoff_width: 0.5
     d_pet: 128
+    d_head: 128
+    d_feedforward: 512
     num_heads: 4
     num_attention_layers: 2
     num_gnn_layers: 2
-    heads: {}
+    heads: {
+      positions: linear,
+      momenta: linear
+    }
     zbl: False
     long_range: 
       enable: false

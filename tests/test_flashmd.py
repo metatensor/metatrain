@@ -11,19 +11,11 @@ from metatrain.utils.neighbor_lists import get_requested_neighbor_lists, get_sys
 
 @pytest.mark.filterwarnings('ignore::UserWarning')
 def test_it_works():
-  pet_default_hypers = OmegaConf.load("src/metatrain/pet/default-hypers.yaml")
-  
-  model_hypers = {
-    "d_pet": 16,
-    "hamiltonian": "direct",
-    "integrator": "euler",
-    "heads": {
-      "positions": "linear",
-      "momenta": "linear",
-    },
-  }
-  model_hypers = {**dict(pet_default_hypers)["architecture"]["model"], **model_hypers}
+  # load default hyper parameters for FlashMD
+  full_hypers = OmegaConf.load("src/metatrain/flashmd/default-hypers.yaml")
+  model_hypers = dict(full_hypers)["architecture"]["model"]
 
+  # define dataset (especially the targets)
   dataset_info = DatasetInfo(
     length_unit="angstrom",
     atomic_types=[1, 6],
