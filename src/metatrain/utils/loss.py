@@ -1,14 +1,14 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, Optional, Type, List
+from typing import Any, Dict, List, Optional, Type
 
 import metatensor.torch as mts
 import torch
 from metatensor.torch import TensorMap
+from metatomic.torch import System
 from torch.nn.modules.loss import _Loss
 
 from metatrain.utils.data import TargetInfo
-from metatomic.torch import System
 
 
 class LossInterface(ABC):
@@ -764,13 +764,17 @@ class FlashMDLoss(LossAggregator):
         # Check that the keys targets and config are "positions" and "momenta"
         expected_keys = {"positions", "momenta"}
         if set(targets.keys()) != expected_keys:
-            raise ValueError(f"Expected targets keys to be {expected_keys}, got {set(targets.keys())}")
+            raise ValueError(
+                f"Expected target keys to be {expected_keys}, got {set(targets.keys())}"
+            )
         if set(config.keys()) != expected_keys:
-            raise ValueError(f"Expected config keys to be {expected_keys}, got {set(config.keys())}")
+            raise ValueError(
+                f"Expected config keys to be {expected_keys}, got {set(config.keys())}"
+            )
 
         super().__init__(targets, config)
 
-    def compute(
+    def compute(  # type: ignore
         self,
         systems: List[System],
         predictions: Dict[str, TensorMap],
@@ -783,7 +787,7 @@ class FlashMDLoss(LossAggregator):
 
         if extra_data is not None:
             raise ValueError("FlashMDLoss does not accept extra_data.")
-        
+
         if "positions" not in predictions or "momenta" not in predictions:
             raise ValueError("Predictions must contain both 'positions' and 'momenta'.")
         if "positions" not in targets or "momenta" not in targets:
@@ -794,10 +798,12 @@ class FlashMDLoss(LossAggregator):
         all_masses = []
         for system in systems:
             if "masses" not in system.known_data():
-                raise ValueError("System is missing 'masses' data required for FlashMDLoss.")
+                raise ValueError(
+                    "System is missing 'masses' data required for FlashMDLoss."
+                )
             masses = system.get_data("masses").squeeze(-1)  # [n_atoms]
             all_masses.append(masses)
-        all_masses= torch.concat(all_masses, dim=0)  # [total_n_atoms]
+        all_masses = torch.concat(all_masses, dim=0)  # [total_n_atoms]
 
         scaled_predictions = {}
         scaled_targets = {}
@@ -834,10 +840,10 @@ def flashmd_scale_tensor_map_by_sqrt_masses(
 
     if len(tensor_map) != 1:
         raise ValueError("Expected TensorMap with a single block.")
-        
+
     if len(tensor_map.block().shape) != 3:
         raise ValueError("Expected TensorMap blocks to have three dimensions.")
-    
+
     return mts.TensorMap(
         keys=tensor_map.keys,
         blocks=[

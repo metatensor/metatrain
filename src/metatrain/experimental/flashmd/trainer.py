@@ -264,16 +264,9 @@ class Trainer(TrainerInterface):
             for grad, ginfo in info["gradients"].items():
                 logging.info(f"\t{name}::{grad}: {ginfo}")
 
-        if self.hypers["weight_decay"] is not None:
-            optimizer = torch.optim.AdamW(
-                model.parameters(),
-                lr=self.hypers["learning_rate"],
-                weight_decay=self.hypers["weight_decay"],
-            )
-        else:
-            optimizer = torch.optim.Adam(
-                model.parameters(), lr=self.hypers["learning_rate"]
-            )
+        optimizer = torch.optim.Adam(
+            model.parameters(), lr=self.hypers["learning_rate"]
+        )
 
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
@@ -358,9 +351,9 @@ class Trainer(TrainerInterface):
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
                 train_loss_batch.backward()
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), self.hypers["grad_clip_norm"]
-                )
+                # torch.nn.utils.clip_grad_norm_(
+                #     model.parameters(), self.hypers["grad_clip_norm"]
+                # )
                 optimizer.step()
 
                 if is_distributed:

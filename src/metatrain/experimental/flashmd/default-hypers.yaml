@@ -19,11 +19,12 @@ architecture:
       interpolation_nodes: 5
       mesh_spacing: 1.33
   training:
+    num_epochs_warmup: 1
     masses: {}
     distributed: false
     distributed_port: 39591
     batch_size: 16
-    num_epochs: 10000
+    num_epochs: 1000
     learning_rate: 3e-4
     scheduler_patience: 100
     scheduler_factor: 0.8

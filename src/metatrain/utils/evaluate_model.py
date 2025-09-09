@@ -302,4 +302,7 @@ def _prepare_system(
         register_autograd_neighbors(system, neighbors)
         new_system.add_neighbor_list(options, neighbors)
 
+    for name in system.known_data():
+        new_system.add_data(name, system.get_data(name))
+
     return new_system, strain

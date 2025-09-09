@@ -71,7 +71,7 @@ def concatenate_structures(
             )
         tmap = system.get_data("momenta")
         block = tmap[0]
-        momenta.append(block.values[system_selected_atoms])
+        momenta.append(block.values[system_selected_atoms].squeeze(-1))
         species.append(system.types[system_selected_atoms])
 
         centers.append(centers_values + node_counter)
