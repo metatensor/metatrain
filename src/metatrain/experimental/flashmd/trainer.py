@@ -23,7 +23,7 @@ from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import LossAggregator
+from metatrain.utils.loss import FlashMDLoss, LossAggregator
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -249,7 +249,7 @@ class Trainer(TrainerInterface):
 
         # Create a loss function:
         loss_hypers = self.hypers["loss"]
-        loss_fn = LossAggregator(
+        loss_fn = FlashMDLoss(
             targets=train_targets,
             config=loss_hypers,
         )
@@ -349,7 +349,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = loss_fn(predictions, targets, extra_data)
+                train_loss_batch = loss_fn.compute(systems, predictions, targets)
                 train_loss_batch.backward()
                 # torch.nn.utils.clip_grad_norm_(
                 #     model.parameters(), self.hypers["grad_clip_norm"]
@@ -408,7 +408,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                val_loss_batch = loss_fn(predictions, targets, extra_data)
+                val_loss_batch = loss_fn.compute(systems, predictions, targets)
 
                 if is_distributed:
                     # sum the loss over all processes

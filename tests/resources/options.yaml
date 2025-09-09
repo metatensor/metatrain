@@ -3,10 +3,19 @@ seed: 42
 architecture:
   name: experimental.flashmd
   training:
-    masses: {1: 0.8, 6: 12}
+    #masses: {1: 0.8} #, 6: 12}
     batch_size: 4
     num_epochs: 10
     log_interval: 1
+    loss:
+      positions:
+        type: mse
+        weight: 0.
+        reduction: mean
+      momenta:
+        type: mse
+        weight: 1.
+        reduction: mean
 
 training_set:
   systems:

@@ -748,7 +748,6 @@ def create_loss(
     except TypeError as e:
         raise TypeError(f"Error constructing loss '{loss_type}': {e}") from e
 
-
 class FlashMDLoss(LossAggregator):
     """
     Documentation.
@@ -784,7 +783,6 @@ class FlashMDLoss(LossAggregator):
         """
         Sum over all scheduled losses present in the predictions.
         """
-
         if extra_data is not None:
             raise ValueError("FlashMDLoss does not accept extra_data.")
 
@@ -801,7 +799,7 @@ class FlashMDLoss(LossAggregator):
                 raise ValueError(
                     "System is missing 'masses' data required for FlashMDLoss."
                 )
-            masses = system.get_data("masses").squeeze(-1)  # [n_atoms]
+            masses = system.get_data("masses").block().values.squeeze(-1)  # [n_atoms]
             all_masses.append(masses)
         all_masses = torch.concat(all_masses, dim=0)  # [total_n_atoms]
 
@@ -820,7 +818,7 @@ class FlashMDLoss(LossAggregator):
             targets["momenta"], "divide", all_masses
         )
 
-        super().compute(predictions, targets)
+        return super().compute(scaled_predictions, scaled_targets)
 
 
 def flashmd_scale_tensor_map_by_sqrt_masses(
@@ -853,10 +851,10 @@ def flashmd_scale_tensor_map_by_sqrt_masses(
                 properties=tensor_map.block().properties,
                 values=(
                     tensor_map.block().values
-                    * torch.sqrt(masses[:, None])  # [n_atoms, 1]
+                    * torch.sqrt(masses[:, None, None])  # [n_atoms, 1, 1]
                     if multiply_or_divide == "multiply"
                     else tensor_map.block().values
-                    / torch.sqrt(masses[:, None])  # [n_atoms, 1]
+                    / torch.sqrt(masses[:, None, None])  # [n_atoms, 1, 1]
                 ),
             )
         ],
