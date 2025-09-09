@@ -1,8 +1,8 @@
-from metatrain.experimental.flashmd.model import FlashMD
+from metatrain.experimental.flashmd.model import FlashMDPET
 from metatrain.experimental.flashmd.trainer import Trainer
 
 
-__model__ = FlashMD
+__model__ = FlashMDPET
 __trainer__ = Trainer
 
 __authors__ = [

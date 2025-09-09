@@ -4,7 +4,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
-from metatrain.experimental.flashmd.model import FlashMD
+from metatrain.experimental.flashmd.model import FlashMDPET
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import TargetInfo
 from metatrain.utils.neighbor_lists import (
@@ -51,7 +51,7 @@ def test_it_works():
     )
 
     # create a FlashMD model and attach a (random) raw PET model
-    model = FlashMD(model_hypers, dataset_info)
+    model = FlashMDPET(model_hypers, dataset_info)
 
     # define example systems
     dtype = torch.float32

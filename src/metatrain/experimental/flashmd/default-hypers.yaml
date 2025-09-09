@@ -19,6 +19,7 @@ architecture:
       interpolation_nodes: 5
       mesh_spacing: 1.33
   training:
+    masses: {}
     distributed: false
     distributed_port: 39591
     batch_size: 16

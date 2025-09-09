@@ -5,7 +5,7 @@
     "name": {
       "type": "string",
       "enum": [
-        "experimental.nanopet_md"
+        "experimental.flashmd"
       ]
     },
     "model": {
@@ -74,6 +74,15 @@
     "training": {
       "type": "object",
       "properties": {
+        "masses": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[0-9]+$"
+          },
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
         "distributed": {
           "type": "boolean"
         },
