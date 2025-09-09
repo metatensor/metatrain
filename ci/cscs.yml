@@ -43,6 +43,9 @@ test tox:
   timeout: 1h
   script:
     - tox -r
+  after_script:
+    # cleanup after the script to prevent blowing up the filesystem
+    - rm -rf .tox
   variables:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
