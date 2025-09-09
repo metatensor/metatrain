@@ -240,9 +240,6 @@ class BaseCompositionModel(torch.nn.Module):
         Based on the pre-accumulated quantities from the training data, fits the
         compositions for each target.
         """
-
-        # TODO: add an option to pass a subset of the names of the targets to fit.
-
         if targets_to_fit is None:
             targets_to_fit = self.target_names
 
