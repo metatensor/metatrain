@@ -3,7 +3,7 @@ from typing import Dict, List, Union
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import ModelOutput
+from metatomic.torch import ModelOutput, System
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.data import (
@@ -43,6 +43,7 @@ class Scaler(torch.nn.Module):
         )
 
         self.dataset_info = dataset_info
+        self.atomic_types = sorted(dataset_info.atomic_types)
         self.target_infos = {
             target_name: target_info
             for target_name, target_info in dataset_info.targets.items()
@@ -50,6 +51,7 @@ class Scaler(torch.nn.Module):
 
         # Initialize the scaler model
         self.model = BaseScaler(
+            atomic_types=self.atomic_types,
             layouts={
                 target_name: target_info.layout
                 for target_name, target_info in self.target_infos.items()
@@ -178,35 +180,37 @@ class Scaler(torch.nn.Module):
                         for target_name in targets
                     },
                 )
-            self.model.accumulate(targets, extra_data)
+            self.model.accumulate(systems, targets, extra_data)
 
         if is_distributed:
             torch.distributed.barrier()
             # All-reduce the accumulated TensorMaps across all processes
             for target_name in self.N.keys():
-                for N_block, Y_block, Y2_block in zip(
-                    self.model.N[target_name],
-                    self.model.Y[target_name],
-                    self.model.Y2[target_name],
-                    strict=True,
-                ):
-                    torch.distributed.all_reduce(N_block.values)
-                    torch.distributed.all_reduce(Y_block.values)
-                    torch.distributed.all_reduce(Y2_block.values)
+                for atomic_type in self.atomic_types:
+                    for N_block, Y_block, Y2_block in zip(
+                        self.model.N[target_name][atomic_type],
+                        self.model.Y[target_name][atomic_type],
+                        self.model.Y2[target_name][atomic_type],
+                        strict=True,
+                    ):
+                        torch.distributed.all_reduce(N_block.values)
+                        torch.distributed.all_reduce(Y_block.values)
+                        torch.distributed.all_reduce(Y2_block.values)
 
         # Compute the scales on all ranks
         self.model.fit()
 
         # update the buffer weights now they are fitted
         for target_name in self.model.scales.keys():
-            self.register_buffer(
-                target_name + "_scaler_buffer",
-                mts.save_buffer(
-                    mts.make_contiguous(
-                        self.model.scales[target_name].to("cpu", torch.float64)
-                    )
-                ).to(device),
-            )
+            for atomic_type in self.atomic_types:
+                self.register_buffer(
+                    target_name + f"_{atomic_type}" + "_scaler_buffer",
+                    mts.save_buffer(
+                        mts.make_contiguous(
+                            self.model.scales[target_name][atomic_type].to("cpu", torch.float64)
+                        )
+                    ).to(device),
+                )
 
     def restart(self, dataset_info: DatasetInfo) -> "Scaler":
         """
@@ -234,6 +238,7 @@ class Scaler(torch.nn.Module):
 
     def forward(
         self,
+        systems: List[System],
         outputs: Dict[str, TensorMap],
         remove: bool,
     ) -> Dict[str, TensorMap]:
@@ -250,7 +255,7 @@ class Scaler(torch.nn.Module):
 
         self.scales_to(device, dtype)
 
-        scaled_outputs = self.model.forward(outputs, remove)
+        scaled_outputs = self.model.forward(systems, outputs, remove)
 
         return scaled_outputs
 
@@ -266,41 +271,53 @@ class Scaler(torch.nn.Module):
 
         layout = target_info.layout
 
-        fake_scales = TensorMap(
-            keys=layout.keys,
-            blocks=[
-                TensorBlock(
-                    values=torch.zeros(
-                        1,
-                        *[len(comp) for comp in block.components],
-                        len(block.properties),
-                        dtype=torch.float64,
-                    ),
-                    samples=Labels(
-                        names=["sample"],
-                        values=torch.tensor([[0]], dtype=torch.int),
-                    ),
-                    components=block.components,
-                    properties=block.properties,
-                )
-                for block in layout.blocks()
-            ],
-        )
-        self.register_buffer(
-            target_name + "_scaler_buffer",
-            mts.save_buffer(mts.make_contiguous(fake_scales)),
-        )
+        for atomic_type in self.atomic_types:
+
+            fake_scales = TensorMap(
+                keys=layout.keys,
+                blocks=[
+                    TensorBlock(
+                        values=torch.zeros(
+                            1,
+                            *[len(comp) for comp in block.components],
+                            len(block.properties),
+                            dtype=torch.float64,
+                        ),
+                        samples=Labels(
+                            names=["sample"],
+                            values=torch.tensor([[0]], dtype=torch.int),
+                        ),
+                        components=block.components,
+                        properties=block.properties,
+                    )
+                    for block in layout.blocks()
+                ],
+            )
+            self.register_buffer(
+                target_name + f"_{atomic_type}" + "_scaler_buffer",
+                mts.save_buffer(mts.make_contiguous(fake_scales)),
+            )
 
     def scales_to(self, device: torch.device, dtype: torch.dtype):
         if len(self.model.scales) != 0:
-            if self.model.scales[list(self.model.scales.keys())[0]].device != device:
-                self.model.scales = {
-                    k: v.to(device) for k, v in self.model.scales.items()
-                }
-            if self.model.scales[list(self.model.scales.keys())[0]].dtype != dtype:
-                self.model.scales = {
-                    k: v.to(dtype) for k, v in self.model.scales.items()
-                }
+
+            if self.model.scales[list(self.model.scales.keys())[0]][self.atomic_types[0]].device != device:
+
+                scales = {}
+                for target_name in self.target_infos.keys():
+                    scales[target_name] = {}
+                    for atomic_type in self.atomic_types:
+                        scales[target_name][atomic_type] = self.model.scales[target_name][atomic_type].to(device)
+                self.model.scales = scales
+
+            if self.model.scales[list(self.model.scales.keys())[0]][self.atomic_types[0]].dtype != dtype:
+
+                scales = {}
+                for target_name in self.target_infos.keys():
+                    scales[target_name] = {}
+                    for atomic_type in self.atomic_types:
+                        scales[target_name][atomic_type] = self.model.scales[target_name][atomic_type].to(dtype)
+                self.model.scales = scales
 
         self.model._sync_device_dtype(device, dtype)
 
@@ -308,9 +325,10 @@ class Scaler(torch.nn.Module):
         # Reload the scales of the (old) targets, which are not stored in the model
         # state_dict, from the buffers
         for k in self.dataset_info.targets:
-            self.model.scales[k] = mts.load_buffer(
-                self.__getattr__(k + "_scaler_buffer")
-            )
+            for atomic_type in self.atomic_types:
+                self.model.scales[k][atomic_type] = mts.load_buffer(
+                    self.__getattr__(k + f"_{atomic_type}" + "_scaler_buffer")
+                )
 
 
 # ===== Remove scale =====

@@ -9,6 +9,8 @@ from typing import Dict, List, Optional
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
+from metatomic.torch import ModelOutput, System
+
 
 class BaseScaler(torch.nn.Module):
     """
@@ -22,13 +24,14 @@ class BaseScaler(torch.nn.Module):
     """
 
     # Needed for torchscript compatibility
+    atomic_types: List[int]
     target_names: List[str]
-    scales: Dict[str, TensorMap]
-    N: Dict[str, TensorMap]
-    Y: Dict[str, TensorMap]
-    Y2: Dict[str, TensorMap]
+    scales: Dict[str, Dict[int, TensorMap]]
+    N: Dict[str, Dict[int, TensorMap]]
+    Y: Dict[str, Dict[int, TensorMap]]
+    Y2: Dict[str, Dict[int, TensorMap]]
 
-    def __init__(self, layouts: Dict[str, TensorMap]) -> None:
+    def __init__(self, atomic_types, layouts: Dict[str, TensorMap]) -> None:
         """
         Initializes the composition model with the given atomic types and layouts.
 
@@ -40,12 +43,15 @@ class BaseScaler(torch.nn.Module):
         """
         super().__init__()
 
+        self.atomic_types = atomic_types
         self.target_names = []
-        self.N = {}
-        self.Y = {}
-        self.Y2 = {}
-        self.scales = {}
-        self.is_fitted: Dict[str, bool] = {}
+        self.N = {target_name: {} for target_name in layouts}
+        self.Y = {target_name: {} for target_name in layouts}
+        self.Y2 = {target_name: {} for target_name in layouts}
+        self.scales = {target_name: {} for target_name in layouts}
+        self.is_fitted: Dict[str, Dict[str, bool]] = {
+            target_name: {} for target_name in layouts
+        }
 
         # Add targets based on provided layouts
         for target_name, layout in layouts.items():
@@ -62,91 +68,81 @@ class BaseScaler(torch.nn.Module):
             raise ValueError(f"target {target_name} already exists in the model.")
 
         self.target_names.append(target_name)
-        self.is_fitted[target_name] = False
 
-        # Initialize TensorMaps for XTX and XTY for this target.
-        #
-        #  - N is a tensor with a single value
-        #  - XTY is a matrix of shape (n_atomic_types, n_components, n_properties)
-        #
-        # Both are initialized with zeros, and accumulated during fitting by iterating
-        # over batches in the passed dataloader.
-        #
-        # The weights are also a matrix of shape (n_atomic_types, n_components,
-        # n_properties), and are initialized for torchscript compatibility.
-        #
-        # Then a linear system is solved for each target to obtain the composition
-        # weights, which are stored in the `weights` attribute.
-        self.N[target_name] = TensorMap(
-            layout.keys,
-            blocks=[
-                TensorBlock(
-                    values=torch.zeros(
-                        1,
-                        1,
-                        dtype=torch.float64,
-                    ),
-                    samples=Labels(["_"], torch.tensor([[0]])),
-                    components=[],
-                    properties=Labels(["_"], torch.tensor([[0]])),
-                )
-                for block in layout
-            ],
-        )
-        self.Y[target_name] = TensorMap(
-            layout.keys,
-            blocks=[
-                TensorBlock(
-                    values=torch.zeros(
-                        1,
-                        *[len(comp) for comp in block.components],
-                        len(block.properties),
-                        dtype=torch.float64,
-                    ),
-                    samples=Labels(["_"], torch.tensor([[0]])),
-                    components=block.components,
-                    properties=block.properties,
-                )
-                for block in layout
-            ],
-        )
-        self.Y2[target_name] = TensorMap(
-            layout.keys,
-            blocks=[
-                TensorBlock(
-                    values=torch.zeros(
-                        1,
-                        *[len(comp) for comp in block.components],
-                        len(block.properties),
-                        dtype=torch.float64,
-                    ),
-                    samples=Labels(["_"], torch.tensor([[0]])),
-                    components=block.components,
-                    properties=block.properties,
-                )
-                for block in layout
-            ],
-        )
-        self.scales[target_name] = TensorMap(
-            layout.keys,
-            blocks=[
-                TensorBlock(
-                    values=torch.ones(
-                        1,
-                        *[len(comp) for comp in block.components],
-                        len(block.properties),
-                        dtype=torch.float64,
-                    ),
-                    samples=Labels(["_"], torch.tensor([[0]])),
-                    components=block.components,
-                    properties=block.properties,
-                )
-                for block in layout
-            ],
-        )
+        # Initialize TensorMaps for the quantities to accumulate
+        for atomic_type in self.atomic_types:
+            self.is_fitted[target_name][atomic_type] = False
+            self.N[target_name][atomic_type] = TensorMap(
+                layout.keys,
+                blocks=[
+                    TensorBlock(
+                        values=torch.zeros(
+                            1,
+                            1,
+                            dtype=torch.float64,
+                        ),
+                        samples=Labels(["_"], torch.tensor([[0]])),
+                        components=[],
+                        properties=Labels(["_"], torch.tensor([[0]])),
+                    )
+                    for block in layout
+                ],
+            )
+            self.Y[target_name][atomic_type] = TensorMap(
+                layout.keys,
+                blocks=[
+                    TensorBlock(
+                        values=torch.zeros(
+                            1,
+                            *[len(comp) for comp in block.components],
+                            len(block.properties),
+                            dtype=torch.float64,
+                        ),
+                        samples=Labels(["_"], torch.tensor([[0]])),
+                        components=block.components,
+                        properties=block.properties,
+                    )
+                    for block in layout
+                ],
+            )
+            self.Y2[target_name][atomic_type] = TensorMap(
+                layout.keys,
+                blocks=[
+                    TensorBlock(
+                        values=torch.zeros(
+                            1,
+                            *[len(comp) for comp in block.components],
+                            len(block.properties),
+                            dtype=torch.float64,
+                        ),
+                        samples=Labels(["_"], torch.tensor([[0]])),
+                        components=block.components,
+                        properties=block.properties,
+                    )
+                    for block in layout
+                ],
+            )
+            self.scales[target_name][atomic_type] = TensorMap(
+                layout.keys,
+                blocks=[
+                    TensorBlock(
+                        values=torch.ones(
+                            1,
+                            *[len(comp) for comp in block.components],
+                            len(block.properties),
+                            dtype=torch.float64,
+                        ),
+                        samples=Labels(["_"], torch.tensor([[0]])),
+                        components=block.components,
+                        properties=block.properties,
+                    )
+                    for block in layout
+                ],
+            )
 
     def accumulate(
         self,
+        systems: List[System],
         targets: Dict[str, TensorMap],
         extra_data: Optional[Dict[str, TensorMap]] = None,
     ) -> None:
@@ -178,43 +174,86 @@ class BaseScaler(torch.nn.Module):
                 ):
                     # special case for the energy with attached gradients: here we want
                     # to scale with respect to the forces rather than the energies
-                    Y = block.gradient("positions").values
+                    Y_block = block.gradient("positions")
                 else:
-                    Y = block.values
+                    Y_block = block
 
-                Y = Y.to(device=device, dtype=dtype)
+                Y_block = Y_block.to(device=device, dtype=dtype)
+                assert Y_block.samples.names == ["system", "atom"]  # only per-atom targets for now
 
-                # Compute the number of samples in this block, account for the mask if
-                # available
-                if mask is None:
-                    self.N[target_name][key].values[:] += Y.shape[0]
-                else:
-                    # Count N as the number of samples where the mask is True for at
-                    # least one property (in other words where the mask for a given
-                    # sample is not all False)
-                    mask_values = mask.block(key).values
-                    samples_mask = mask_values.any(dim=list(range(1, Y.dim())))
-                    self.N[target_name][key].values[:] += samples_mask.sum()
-                    Y = Y[samples_mask]
+                atom_indices_expected = torch.cat(
+                    [
+                        torch.arange(len(system.types), device=device)
+                        for system in systems
+                    ]
+                )
+                labels_values_expected = torch.tensor(
+                    [
+                        [A, i]
+                        for A, system in enumerate(systems)
+                        for i in range(len(system.types))
+                    ]
+                )
+                assert torch.all(
+                    Y_block.samples.values[:, 1] == labels_values_expected[:, 1]
+                ), (
+                    "Samples do not match expected system and atom indices.",
+                    Y_block.samples.values,
+                    labels_values_expected,
+                )
+                # assert torch.all(
+                #     Y_block.samples["atom"] == atom_indices_expected
+                # ), "Atom indices in samples do not match expected indices."
 
-                # Compute the Y and Y2 values
-                Y_values = torch.sum(
-                    Y, dim=tuple(range(len(Y.shape) - 1)), keepdim=True
-                )
-                Y2_values = torch.sum(
-                    Y**2, dim=list(range(len(Y.shape) - 1)), keepdim=True
+                Y_block_types = torch.cat(
+                    [
+                        system.types for system in systems
+                    ]
                 )
 
-                # Repeat the along the component axes (if any) and accumulate
-                n_components: List[int] = []
-                for comp in Y.shape[1:-1]:
-                    n_components.append(comp)
-                self.Y[target_name][key].values[:] += Y_values.repeat(
-                    1, *n_components, 1
-                )
-                self.Y2[target_name][key].values[:] += Y2_values.repeat(
-                    1, *n_components, 1
-                )
+                # aligned per-row atomic types for this block
+                # Y_block_types = _aligned_type_vector(Y_block.samples, systems, Y_block.values.device)
+
+                for atomic_type in self.atomic_types:
+
+                    # Slice the block to only include samples of the current atomic type
+                    samples_type_mask = (Y_block_types == atomic_type)
+                    Y = Y_block.values[samples_type_mask]
+
+                    # Compute the number of samples in this block, account for the mask if
+                    # available
+                    if mask is None:
+                        N = Y.shape[0]
+                    else:
+                        # Count N as the number of samples where the mask is True for at
+                        # least one property (in other words where the mask for a given
+                        # sample is not all False). This handles the case where samples
+                        # are padded.
+                        pad_mask_values = mask.block(key).values[samples_type_mask]
+                        samples_pad_mask = pad_mask_values.any(
+                            dim=list(range(1, Y.dim()))
+                        )
+                        N = samples_pad_mask.sum()
+                        Y = Y[samples_pad_mask]
+
+                    # Compute the Y and Y2 values, sum over samples, take the norm over
+                    # components, and divide by the number of components
+                    Y_values = torch.sum(Y, dim=0, keepdim=True)
+                    Y2_values = torch.sum(Y**2, dim=0, keepdim=True)
+                    Y_values = torch.norm(Y_values, dim=1, keepdim=True)
+                    Y2_values = torch.norm(Y2_values, dim=1, keepdim=True)
+
+                    # Repeat the along the component axes (if any) and accumulate
+                    n_components: List[int] = []
+                    for comp in Y.shape[1:-1]:
+                        n_components.append(comp)
+                    self.N[target_name][atomic_type][key].values[:] += N
+                    self.Y[target_name][atomic_type][key].values[:] += Y_values.repeat(
+                        1, *n_components, 1
+                    )
+                    self.Y2[target_name][atomic_type][key].values[
+                        :
+                    ] += Y2_values.repeat(1, *n_components, 1)
 
     def fit(self) -> None:
         """
@@ -224,45 +263,75 @@ class BaseScaler(torch.nn.Module):
 
         # fit
         for target_name in self.target_names:
-            if self.is_fitted[target_name]:  # already fitted
-                continue
 
-            blocks = []
-            for key in self.N[target_name].keys:
-                N_block = self.N[target_name][key]
-                Y_block = self.Y[target_name][key]
-                Y2_block = self.Y2[target_name][key]
+            for atomic_type in self.atomic_types:
+                if self.is_fitted[target_name][atomic_type]:  # already fitted
+                    print(f"Already fitted:", target_name, atomic_type)
+                    continue
 
-                N_values = N_block.values
-                Y_values = Y_block.values
-                Y2_values = Y2_block.values
+                blocks = []
+                for key in self.N[target_name][atomic_type].keys:
+                    N_block = self.N[target_name][atomic_type][key]
+                    Y_block = self.Y[target_name][atomic_type][key]
+                    Y2_block = self.Y2[target_name][atomic_type][key]
 
-                # Compute the standard deviation
-                N = N_values.item()  # (do not use Bessel's correction)
-                scale_vals = torch.sqrt((Y2_values / N) - (Y_values / N) ** 2)
+                    N_values = N_block.values
+                    Y_values = Y_block.values
+                    Y2_values = Y2_block.values
 
-                blocks.append(
-                    TensorBlock(
-                        values=scale_vals.contiguous(),
-                        samples=Labels(["_"], torch.tensor([[0]])).to(
-                            device=scale_vals.device
-                        ),
-                        components=[
-                            comp.to(device=scale_vals.device)
-                            for comp in Y_block.components
-                        ],
-                        properties=Y_block.properties.to(device=scale_vals.device),
+                    # Compute the standard deviation
+                    N = N_values.item()  # (do not use Bessel's correction)
+                    
+                    if N <= 0:
+                        # keep ones for this block (as initialized) and move on
+                        blocks.append(
+                            TensorBlock(
+                                values=torch.ones_like(Y_block.values),
+                                samples=Y_block.samples,
+                                components=Y_block.components,
+                                properties=Y_block.properties,
+                            )
+                        )
+                        continue
+
+                    # Divide the scales by sqrt(num components) to account for the
+                    # fact that we took the norm over components when accumulating
+                    # Y and Y2
+                    if len(Y_values.shape) == 2:
+                        component_factor = 1
+                    else:
+                        component_factor = Y_values.shape[1]
+
+                    import math
+
+                    scale_vals = (
+                        torch.sqrt((Y2_values / N) - (Y_values / N) ** 2) 
+                        / math.sqrt(component_factor)
                     )
-                )
 
-            self.scales[target_name] = TensorMap(
-                self.N[target_name].keys.to(device=scale_vals.device),
-                blocks,
-            )
-            self.is_fitted[target_name] = True
+                    blocks.append(
+                        TensorBlock(
+                            values=scale_vals.contiguous(),
+                            samples=Labels(["_"], torch.tensor([[0]])).to(
+                                device=scale_vals.device
+                            ),
+                            components=[
+                                comp.to(device=scale_vals.device)
+                                for comp in Y_block.components
+                            ],
+                            properties=Y_block.properties.to(device=scale_vals.device),
+                        )
+                    )
+
+                self.scales[target_name][atomic_type] = TensorMap(
+                    self.N[target_name][atomic_type].keys.to(device=scale_vals.device),
+                    blocks,
+                )
+                self.is_fitted[target_name][atomic_type] = True
 
     def forward(
         self,
+        systems: List[System],
         outputs: Dict[str, TensorMap],
         remove: bool,
     ) -> Dict[str, TensorMap]:
@@ -289,26 +358,41 @@ class BaseScaler(torch.nn.Module):
                 scaled_outputs[output_name] = outputs[output_name]
                 continue
 
-            scales_map = self.scales[output_name]
+            # scales_map = self.scales[output_name]
             output_map = outputs[output_name]
-            n_blocks = len(scales_map)  # TorchScript-friendly integer
+            n_blocks = len(output_map)  # TorchScript-friendly integer
 
             scaled_blocks: List[TensorBlock] = []
             for i in range(n_blocks):
-                scales_block = scales_map.block(i)
                 output_block = output_map.block(i)
-
-                assert scales_block.properties == output_block.properties, (
-                    f"Properties of scales block {scales_block.properties} "
-                    f"do not match output block {output_block.properties} "
-                    f"for key {self.scales[output_name].keys[i]}."
+                output_block_types = torch.cat(
+                    [system.types for system in systems]
                 )
+                scaled_vals = output_block.values
 
-                # Scale the values of the output block
-                if remove:  # remove the scaler
-                    scaled_vals = output_block.values / scales_block.values
-                else:  # apply the scaler
-                    scaled_vals = output_block.values * scales_block.values
+                for atomic_type in self.atomic_types:
+                    type_mask = output_block_types == atomic_type
+                    if type_mask.sum() == 0:
+                        continue
+
+                    # Find the scales block
+                    scales_block = self.scales[output_name][atomic_type].block(i)
+
+                    assert scales_block.properties == output_block.properties, (
+                        f"Properties of scales block {scales_block.properties} "
+                        f"do not match output block {output_block.properties} "
+                        f"for key {self.scales[output_name].keys[i]}."
+                    )
+
+                    # Get the scales for this atomic type
+                    scales = scales_block.values
+
+                    # Scale the values of the output block
+                    if remove:  # remove the scaler
+                        scaled_vals[type_mask] = output_block.values[type_mask] / scales_block.values
+                    else:  # apply the scaler
+                        scaled_vals[type_mask] = output_block.values[type_mask] * scales_block.values
+
                 scaled_blocks.append(
                     TensorBlock(
                         values=scaled_vals,
@@ -329,18 +413,45 @@ class BaseScaler(torch.nn.Module):
         # manually move the TensorMap dicts:
 
         self.N = {
-            target_name: tensor.to(device=device, dtype=dtype)
-            for target_name, tensor in self.N.items()
+            target_name: {
+                atomic_type: tensor.to(device=device, dtype=dtype)
+                for atomic_type, tensor in self.N[target_name].items()
+            }
+            for target_name in self.N.keys()
         }
         self.Y = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.Y.items()
+            target_name: {
+                atomic_type: tm.to(device=device, dtype=dtype)
+                for atomic_type, tm in self.Y[target_name].items()
+            }
+            for target_name in self.Y.keys()
         }
         self.Y2 = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.Y2.items()
+            target_name: {
+                atomic_type: tm.to(device=device, dtype=dtype)
+                for atomic_type, tm in self.Y2[target_name].items()
+            }
+            for target_name in self.Y2.keys()
         }
         self.scales = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.scales.items()
+            target_name: {
+                atomic_type: tm.to(device=device, dtype=dtype)
+                for atomic_type, tm in self.scales[target_name].items()
+            }
+            for target_name in self.scales.keys()
         }
+
+# def _aligned_type_vector(block_samples, systems, device):
+#     # block_samples: Labels with names incl. "system","atom"
+#     s_col = block_samples.names.index("system")
+#     a_col = block_samples.names.index("atom")
+#     sample_sys = block_samples.values[:, s_col].long()
+#     sample_atom = block_samples.values[:, a_col].long()
+
+#     # per-system atom count & prefix sum to map (sys, atom) -> global idx
+#     lens = [len(sys.types) for sys in systems]
+#     offsets = torch.tensor([0] + lens[:-1], device=device).cumsum(0)
+
+#     global_idx = offsets[sample_sys] + sample_atom
+#     all_types = torch.cat([sys.types for sys in systems]).to(device)
+#     return all_types[global_idx]  # 1D tensor, length == n_samples_of_block
