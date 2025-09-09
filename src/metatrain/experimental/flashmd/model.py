@@ -17,7 +17,6 @@ from metatomic.torch import (
 )
 
 from metatrain.pet.modules.finetuning import apply_finetuning_strategy
-from metatrain.pet.modules.structures import systems_to_batch
 from metatrain.pet.modules.utilities import cutoff_func
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
@@ -29,6 +28,7 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
+from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
 
 

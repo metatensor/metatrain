@@ -3,7 +3,6 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
-import checkpoints
 import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
@@ -34,8 +33,8 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
+from . import checkpoints
 from .model import FlashMDPET
-from .modules.finetuning import apply_finetuning_strategy
 
 
 def get_scheduler(optimizer, train_hypers):
@@ -76,7 +75,6 @@ class Trainer(TrainerInterface):
         assert dtype in FlashMDPET.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
-        is_finetune = "finetune" in self.hypers
 
         if is_distributed:
             distr_env = DistributedEnvironment(self.hypers["distributed_port"])
@@ -131,10 +129,6 @@ class Trainer(TrainerInterface):
                     # The following line attaches the neighbors lists to the system,
                     # and doesn't require to reassign the system to the dataset:
                     get_system_with_neighbor_lists(system, requested_neighbor_lists)
-
-        # Apply fine-tuning strategy if provided
-        if is_finetune:
-            model = apply_finetuning_strategy(model, self.hypers["finetune"])
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
@@ -281,7 +275,7 @@ class Trainer(TrainerInterface):
                 model.parameters(), lr=self.hypers["learning_rate"]
             )
 
-        if self.optimizer_state_dict is not None and not is_finetune:
+        if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
             if not (model.module if is_distributed else model).has_new_targets:
@@ -289,7 +283,7 @@ class Trainer(TrainerInterface):
 
         lr_scheduler = get_scheduler(optimizer, self.hypers)
 
-        if self.scheduler_state_dict is not None and not is_finetune:
+        if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
             if not (model.module if is_distributed else model).has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
