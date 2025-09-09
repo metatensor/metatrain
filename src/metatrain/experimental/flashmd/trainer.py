@@ -33,7 +33,8 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
-from metatrain.experimental.flashmd.model import FlashMD
+from . import checkpoints
+from .model import FlashMD
 
 
 def get_scheduler(optimizer, train_hypers):
@@ -74,7 +75,6 @@ class Trainer(TrainerInterface):
         assert dtype in FlashMD.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
-        is_finetune = "finetune" in self.hypers
 
         if is_distributed:
             distr_env = DistributedEnvironment(self.hypers["distributed_port"])
@@ -129,10 +129,6 @@ class Trainer(TrainerInterface):
                     # The following line attaches the neighbors lists to the system,
                     # and doesn't require to reassign the system to the dataset:
                     get_system_with_neighbor_lists(system, requested_neighbor_lists)
-
-        # Apply fine-tuning strategy if provided
-        if is_finetune:
-            model = apply_finetuning_strategy(model, self.hypers["finetune"])
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
