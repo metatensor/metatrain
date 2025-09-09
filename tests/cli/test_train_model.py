@@ -640,6 +640,38 @@ def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
     assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
 
 
+def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn = copy.deepcopy(options_pet)
+    options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
+        "method": "heads",
+        "read_from": str(MODEL_PATH_PET),
+        "config": {
+            "head_modules": ["node_heads", "edge_heads"],
+            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+        },
+    }
+    options_pet_transfer_learn["training_set"]["systems"]["read_from"] = (
+        "ethanol_reduced_100.xyz"
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
+        options_pet_transfer_learn["training_set"]["targets"].pop("energy")
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"]["key"] = (
+        "energy"
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"]["forces"] = {
+        "key": "forces",
+    }
+    shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet_transfer_learn)
+
+    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+
+
 @pytest.mark.parametrize("move_folder", [True, False])
 def test_restart_auto(options, caplog, monkeypatch, tmp_path, move_folder):
     """Test that continuing with the `auto` keyword results in

@@ -557,9 +557,16 @@ class LossAggregator(LossInterface):
         self.metadata: Dict[str, Dict[str, Any]] = {}
 
         for target_name, target_info in targets.items():
-            if target_name not in config:  # this can happen when transfer learning
-                continue
-            target_config = config[target_name]
+            target_config = config.get(
+                target_name,
+                {
+                    "type": "mse",
+                    "weight": 1.0,
+                    "reduction": "mean",
+                    "sliding_factor": None,
+                    "gradients": {},
+                },
+            )
 
             # Create main loss and its scheduler
             base_loss = create_loss(
@@ -606,7 +613,15 @@ class LossAggregator(LossInterface):
             for gradient_name in target_info.layout[0].gradients_list():
                 gradient_key = f"{target_name}_grad_{gradient_name}"
 
-                gradient_specific_config = gradient_config[gradient_name]
+                gradient_specific_config = gradient_config.get(
+                    gradient_name,
+                    {
+                        "type": "mse",
+                        "weight": 1.0,
+                        "reduction": "mean",
+                        "sliding_factor": None,
+                    },
+                )
 
                 grad_loss = create_loss(
                     gradient_specific_config["type"],
