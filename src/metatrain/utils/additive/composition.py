@@ -72,7 +72,9 @@ class CompositionModel(torch.nn.Module):
         # keeps track of dtype and device of the composition model
         self.register_buffer("dummy_buffer", torch.randn(1))
 
+        self.new_outputs = []
         for target_name, target_info in self.dataset_info.targets.items():
+            self.new_outputs.append(target_name)
             self._add_output(target_name, target_info)
 
     def _get_dataloader(
@@ -182,7 +184,7 @@ class CompositionModel(torch.nn.Module):
             targets = {
                 target_name: targets[target_name]
                 for target_name, target in targets.items()
-                if target_name not in fixed_weights
+                if target_name not in fixed_weights and target_name in self.new_outputs
             }
             if len(targets) == 0:
                 break
@@ -203,7 +205,7 @@ class CompositionModel(torch.nn.Module):
         if is_distributed:
             torch.distributed.barrier()
             # All-reduce the accumulated TensorMaps across all processes
-            for target_name in self.model.XTX.keys():
+            for target_name in self.new_outputs:
                 for XTX_block, XTY_block in zip(
                     self.model.XTX[target_name],
                     self.model.XTY[target_name],
@@ -213,7 +215,7 @@ class CompositionModel(torch.nn.Module):
                     torch.distributed.all_reduce(XTY_block.values)
 
         # Fit the model on all ranks
-        self.model.fit(fixed_weights)
+        self.model.fit(fixed_weights, targets_to_fit=self.new_outputs)
 
         # update the buffer weights now they are fitted
         for target_name in self.model.weights.keys():
@@ -261,7 +263,12 @@ class CompositionModel(torch.nn.Module):
         self.dataset_info = merged_info
 
         # register new outputs
+        self.new_outputs = []
+        buffer_names = [n for n, _ in self.named_buffers()]
         for target_name, target_info in self.target_infos.items():
+            if target_name + "_composition_buffer" in buffer_names:
+                continue
+            self.new_outputs.append(target_name)
             self.model.add_output(target_name, target_info.layout)
             self._add_output(target_name, target_info)
 

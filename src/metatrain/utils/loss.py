@@ -557,6 +557,8 @@ class LossAggregator(LossInterface):
         self.metadata: Dict[str, Dict[str, Any]] = {}
 
         for target_name, target_info in targets.items():
+            if target_name not in config:  # this can happen when transfer learning
+                continue
             target_config = config[target_name]
 
             # Create main loss and its scheduler

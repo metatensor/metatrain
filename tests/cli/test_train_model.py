@@ -624,8 +624,11 @@ def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
     options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
         "method": "heads",
         "read_from": str(MODEL_PATH_PET),
+        "config": {
+            "head_modules": ["node_heads", "edge_heads"],
+            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+        },
     }
-    print(options_pet_transfer_learn)
     options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
         options_pet_transfer_learn["training_set"]["targets"].pop("energy")
     )

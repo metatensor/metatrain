@@ -55,7 +55,6 @@ class BaseCompositionModel(torch.nn.Module):
         self.XTX = {}
         self.XTY = {}
         self.weights = {}
-        self.is_fitted: Dict[str, bool] = {}
 
         # go from an atomic type to its position in `self.atomic_types`
         self.register_buffer(
@@ -79,7 +78,6 @@ class BaseCompositionModel(torch.nn.Module):
             raise ValueError(f"target {target_name} already exists in the model.")
 
         self.target_names.append(target_name)
-        self.is_fitted[target_name] = False
         valid_sample_names = [
             ["system"],
             [
@@ -236,6 +234,7 @@ class BaseCompositionModel(torch.nn.Module):
     def fit(
         self,
         fixed_weights: Optional[Dict[str, Dict[int, float]]] = None,
+        targets_to_fit: Optional[List[str]] = None,
     ) -> None:
         """
         Based on the pre-accumulated quantities from the training data, fits the
@@ -244,14 +243,14 @@ class BaseCompositionModel(torch.nn.Module):
 
         # TODO: add an option to pass a subset of the names of the targets to fit.
 
+        if targets_to_fit is None:
+            targets_to_fit = self.target_names
+
         if fixed_weights is None:
             fixed_weights = {}
 
         # fit
-        for target_name in self.target_names:
-            if self.is_fitted[target_name]:  # already fitted
-                continue
-
+        for target_name in targets_to_fit:
             blocks = []
             for key in self.XTX[target_name].keys:
                 XTX_block = self.XTX[target_name][key]
@@ -296,7 +295,6 @@ class BaseCompositionModel(torch.nn.Module):
                 self.XTX[target_name].keys.to(device=weight_vals.device),
                 blocks,
             )
-            self.is_fitted[target_name] = True
 
     def forward(
         self,
