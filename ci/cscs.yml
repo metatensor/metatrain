@@ -42,7 +42,7 @@ test tox:
   image: $BASE_IMAGE
   timeout: 1h
   script:
-    - tox -- --verbose
+    - tox -- --verbose --durations=0
   after_script:
     # cleanup after the script to prevent blowing up the filesystem
     - rm -rf .tox
