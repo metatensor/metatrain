@@ -34,7 +34,7 @@ from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
-from .model import FlashMDPET
+from .model import FlashMD
 
 
 def get_scheduler(optimizer, train_hypers):
@@ -65,14 +65,14 @@ class Trainer(TrainerInterface):
 
     def train(
         self,
-        model: FlashMDPET,
+        model: FlashMD,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        assert dtype in FlashMDPET.__supported_dtypes__
+        assert dtype in FlashMD.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 
@@ -132,7 +132,7 @@ class Trainer(TrainerInterface):
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of FlashMDPET are always in float64 (to avoid numerical
+        # The additive models of FlashMD are always in float64 (to avoid numerical
         # errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
