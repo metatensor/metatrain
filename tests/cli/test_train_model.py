@@ -890,6 +890,21 @@ def test_train_generic_target(monkeypatch, tmp_path):
     train_model(options)
 
 
+def test_train_direct_forces(monkeypatch, tmp_path):
+    """Test training on a Cartesian vector target"""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
+
+    # run training with original options
+    options = OmegaConf.load(OPTIONS_PET_PATH)
+    options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
+    options["training_set"]["targets"]["energy"]["type"] = {"cartesian": {"rank": 1}}
+    options["training_set"]["targets"]["energy"]["per_atom"] = True
+    options["training_set"]["targets"]["energy"]["key"] = "forces"
+
+    train_model(options)
+
+
 @pytest.mark.parametrize("with_scalar_part", [False, True])
 def test_train_generic_target_metatensor(monkeypatch, tmp_path, with_scalar_part):
     """Test training on a spherical rank-2 tensor target in metatensor format"""
