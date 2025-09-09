@@ -15,18 +15,29 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 .. Added
 .. #####
 
-Changed
-#######
-
-- Refactored the ``loss.py`` module to provide an easier to extend interface for custom
-  loss functions.
-- Updated the trainer checkpoints to account for changes in the loss-related hypers.
+.. Changed
+.. #######
 
 .. Removed
 .. #######
 
 Unreleased
 ----------
+
+Version 2025.10 - 2025-09-09
+----------------------------
+
+Fixed
+#####
+
+- Fixed a bug with the composition model during transfer-learning
+
+Changed
+#######
+
+- Refactored the ``loss.py`` module to provide an easier to extend interface for custom
+  loss functions.
+- Updated the trainer checkpoints to account for changes in the loss-related hypers.
 
 Version 2025.9.1 - 2025-08-21
 -----------------------------
