@@ -191,12 +191,17 @@ def _apply_random_augmentations(
                     key,
                     TensorMap(
                         keys=system.get_data(key).keys,
-                        blocks=[TensorBlock(
-                            values=(system.get_data(key).block().values.squeeze(-1) @ transformation.T).unsqueeze(-1),
-                            samples=system.get_data(key).block().samples,
-                            components=system.get_data(key).block().components,
-                            properties=system.get_data(key).block().properties,
-                        )],
+                        blocks=[
+                            TensorBlock(
+                                values=(
+                                    system.get_data(key).block().values.squeeze(-1)
+                                    @ transformation.T
+                                ).unsqueeze(-1),
+                                samples=system.get_data(key).block().samples,
+                                components=system.get_data(key).block().components,
+                                properties=system.get_data(key).block().properties,
+                            )
+                        ],
                     ),
                 )
             else:

@@ -4,7 +4,9 @@
   "properties": {
     "name": {
       "type": "string",
-      "enum": ["experimental.nanopet_md"]
+      "enum": [
+        "experimental.nanopet_md"
+      ]
     },
     "model": {
       "type": "object",
@@ -38,7 +40,10 @@
           "patternProperties": {
             ".*": {
               "type": "string",
-              "enum": ["linear", "mlp"]
+              "enum": [
+                "linear",
+                "mlp"
+              ]
             }
           },
           "additionalProperties": false
@@ -128,7 +133,11 @@
         },
         "best_model_metric": {
           "type": "string",
-          "enum": ["rmse_prod", "mae_prod", "loss"]
+          "enum": [
+            "rmse_prod",
+            "mae_prod",
+            "loss"
+          ]
         },
         "loss": {
           "type": "object",
@@ -144,13 +153,20 @@
             },
             "reduction": {
               "type": "string",
-              "enum": ["sum", "mean", "none"]
+              "enum": [
+                "sum",
+                "mean",
+                "none"
+              ]
             },
             "type": {
               "oneOf": [
                 {
                   "type": "string",
-                  "enum": ["mse", "mae"]
+                  "enum": [
+                    "mse",
+                    "mae"
+                  ]
                 },
                 {
                   "type": "object",
@@ -168,7 +184,9 @@
                           "additionalProperties": false
                         }
                       },
-                      "required": ["deltas"],
+                      "required": [
+                        "deltas"
+                      ],
                       "additionalProperties": false
                     }
                   },

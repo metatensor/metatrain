@@ -1,5 +1,6 @@
 import torch
 
+
 class NodeEncoder(torch.nn.Module):
     """
     An encoder of edges. It generates a fixed-size representation of the
@@ -32,7 +33,7 @@ class NodeEncoder(torch.nn.Module):
         )
 
         self.compressor = torch.nn.Linear(
-            in_features=2*hidden_size, out_features=hidden_size, bias=False
+            in_features=2 * hidden_size, out_features=hidden_size, bias=False
         )
 
     def forward(
@@ -47,9 +48,7 @@ class NodeEncoder(torch.nn.Module):
         momenta_features = self.momenta_encoder(momenta)
 
         # Concatenate
-        encoded_features = torch.cat(
-            [center_features, momenta_features], dim=-1
-        )
+        encoded_features = torch.cat([center_features, momenta_features], dim=-1)
 
         # Compress
         compressed_features = self.compressor(encoded_features)

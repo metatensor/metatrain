@@ -1,15 +1,17 @@
 import torch
 import torch.nn as nn
+
 from metatrain.experimental.flashmd.modules.encoder import NodeEncoder
 from metatrain.pet.modules.transformer import Transformer
 from metatrain.pet.modules.utilities import DummyModule
+
 
 class CartesianTransformer(torch.nn.Module):
     """
     A custom transformer adapted to work with FlashMD inputs. These use momenta in
     addition to atomic types as node features.
     """
-    
+
     def __init__(
         self,
         hypers,

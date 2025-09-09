@@ -1,9 +1,12 @@
+import logging
 import warnings
 from math import prod
-from typing import Literal, Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -13,15 +16,21 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.utils.abc import ModelInterface
-from metatrain.utils.data import DatasetInfo, TargetInfo
-from metatrain.utils.additive import ZBL, CompositionModel
-from metatrain.utils.scaler import Scaler
-from metatrain.experimental.flashmd.modules.transformer import CartesianTransformer
-from metatrain.experimental.flashmd.modules.structures import systems_to_batch
-from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.pet.modules.finetuning import apply_finetuning_strategy
+from metatrain.pet.modules.structures import systems_to_batch
 from metatrain.pet.modules.utilities import cutoff_func
+from metatrain.utils.abc import ModelInterface
+from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
+from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.scaler import Scaler
+from metatrain.utils.sum_over_atoms import sum_over_atoms
+
+from . import checkpoints
+from .modules.transformer import CartesianTransformer
+
 
 class FlashMDPET(ModelInterface):
     """
@@ -164,7 +173,7 @@ class FlashMDPET(ModelInterface):
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
-    def restart(self, dataset_info: DatasetInfo) -> "PET":
+    def restart(self, dataset_info: DatasetInfo) -> "FlashMDPET":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -671,7 +680,7 @@ class FlashMDPET(ModelInterface):
         cls,
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
-    ) -> "PET":
+    ) -> "FlashMDPET":
         if context == "restart":
             logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
@@ -873,7 +882,6 @@ class FlashMDPET(ModelInterface):
         return checkpoint
 
 
-
 class FlashMD(torch.nn.Module):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
@@ -883,7 +891,9 @@ class FlashMD(torch.nn.Module):
 
     component_labels: dict[str, list[list[Labels]]]
 
-    def __init__(self, model_hypers: dict, dataset_info: DatasetInfo, is_direct: bool = True) -> None:
+    def __init__(
+        self, model_hypers: dict, dataset_info: DatasetInfo, is_direct: bool = True
+    ) -> None:
         super().__init__()
         # checks on targets inside the RotationalAugmenter class in the trainer
 
@@ -923,7 +933,7 @@ class FlashMD(torch.nn.Module):
 
         # scaler: this is also handled by the trainer at training time
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
-    
+
     def forward(
         self,
         systems: List[System],
@@ -957,7 +967,10 @@ class FlashMD(torch.nn.Module):
             return_dict = self.model(systems, outputs, selected_atoms)
         else:
             qs = [system.positions.detach() for system in systems]
-            ps = [system.get_data("momenta").block().values.squeeze(-1).detach() for system in systems]
+            ps = [
+                system.get_data("momenta").block().values.squeeze(-1).detach()
+                for system in systems
+            ]
 
             if self.is_euler:
                 dHdqs, dHdps = self._get_H_derivatives(systems, qs, ps)
@@ -966,19 +979,22 @@ class FlashMD(torch.nn.Module):
 
             elif self.is_vv:
                 dHdqs = self._get_dHdq(systems, qs, ps)
-                ps = [p - 0.5*dHdq for p, dHdq in zip(ps, dHdqs)]
+                ps = [p - 0.5 * dHdq for p, dHdq in zip(ps, dHdqs)]
 
                 dHdps = self._get_dHdp(systems, qs, ps)
                 qs = [q + dHdp for q, dHdp in zip(qs, dHdps)]
 
                 dHdqs = self._get_dHdq(systems, qs, ps)
-                ps = [p - 0.5*dHdq for p, dHdq in zip(ps, dHdqs)]
-            
+                ps = [p - 0.5 * dHdq for p, dHdq in zip(ps, dHdqs)]
+
             else:
                 raise ValueError()
 
             delta_qs = [q - system.positions for q, system in zip(qs, systems)]
-            delta_ps = [p - system.get_data("momenta").block().values.squeeze(-1) for p, system in zip(ps, systems)]
+            delta_ps = [
+                p - system.get_data("momenta").block().values.squeeze(-1)
+                for p, system in zip(ps, systems)
+            ]
 
             delta_qs = torch.concatenate(delta_qs)
             delta_ps = torch.concatenate(delta_ps)
@@ -1015,7 +1031,9 @@ class FlashMD(torch.nn.Module):
             )
 
             for output_name in outputs:
-                atomic_features = (delta_qs if output_name == "mtt::delta_q" else delta_ps)
+                atomic_features = (
+                    delta_qs if output_name == "mtt::delta_q" else delta_ps
+                )
                 atomic_properties_by_block = [atomic_features]
                 blocks = [
                     TensorBlock(
@@ -1041,12 +1059,13 @@ class FlashMD(torch.nn.Module):
             return_dict = self.scaler(return_dict)
 
         return return_dict
-        
 
-    def _get_H_derivatives(self, systems: List[System], qs: List[torch.Tensor], ps: List[torch.Tensor]):
+    def _get_H_derivatives(
+        self, systems: List[System], qs: List[torch.Tensor], ps: List[torch.Tensor]
+    ):
         tensors_with_grads = self._prepare_grad(qs + ps)
-        qs = tensors_with_grads[:len(systems)]
-        ps = tensors_with_grads[len(systems):]
+        qs = tensors_with_grads[: len(systems)]
+        ps = tensors_with_grads[len(systems) :]
         hamiltonians = self._evaluate_hamiltonian(systems, qs, ps)
         gradients = torch.autograd.grad(
             hamiltonians,
@@ -1055,11 +1074,13 @@ class FlashMD(torch.nn.Module):
             retain_graph=self.training,
             create_graph=self.training,
         )
-        dHdqs = gradients[:len(systems)]
-        dHdps = gradients[len(systems):]
+        dHdqs = gradients[: len(systems)]
+        dHdps = gradients[len(systems) :]
         return dHdqs, dHdps
-    
-    def _get_dHdq(self, systems: List[System], qs: List[torch.Tensor], ps: List[torch.Tensor]):
+
+    def _get_dHdq(
+        self, systems: List[System], qs: List[torch.Tensor], ps: List[torch.Tensor]
+    ):
         qs = self._prepare_grad(qs)
         hamiltonians = self._evaluate_hamiltonian(systems, qs, ps)
         dHdqs = torch.autograd.grad(
@@ -1070,8 +1091,10 @@ class FlashMD(torch.nn.Module):
             create_graph=self.training,
         )
         return dHdqs
-    
-    def _get_dHdp(self, systems: List[System], qs: List[torch.Tensor], ps: List[torch.Tensor]):
+
+    def _get_dHdp(
+        self, systems: List[System], qs: List[torch.Tensor], ps: List[torch.Tensor]
+    ):
         ps = self._prepare_grad(ps)
         hamiltonians = self._evaluate_hamiltonian(systems, qs, ps)
         dHdps = torch.autograd.grad(
@@ -1088,7 +1111,9 @@ class FlashMD(torch.nn.Module):
             tensor.requires_grad_(True)
         return tensors
 
-    def _evaluate_hamiltonian(self, systems: List[System], qs: List[torch.Tensor], ps: List[torch.Tensor]):
+    def _evaluate_hamiltonian(
+        self, systems: List[System], qs: List[torch.Tensor], ps: List[torch.Tensor]
+    ):
         # systems is used as a template here
         new_systems: List[System] = []
         for system, q, p in zip(systems, qs, ps):
@@ -1100,7 +1125,9 @@ class FlashMD(torch.nn.Module):
                 pbc=system.pbc,
             )
             for nl_options in system.known_neighbor_lists():
-                new_system.add_neighbor_list(nl_options, system.get_neighbor_list(nl_options))
+                new_system.add_neighbor_list(
+                    nl_options, system.get_neighbor_list(nl_options)
+                )
             new_system.add_data(
                 "momenta",
                 TensorMap(
@@ -1112,15 +1139,18 @@ class FlashMD(torch.nn.Module):
                             components=p_tmap.block().components,
                             properties=p_tmap.block().properties,
                         )
-                    ]
-                )
+                    ],
+                ),
             )
             new_systems.append(new_system)
-        return self.model(
-            new_systems,
-            {"mtt::hamiltonian": ModelOutput()}
-        )["mtt::hamiltonian"].block().values
-    
+        return (
+            self.model(new_systems, {"mtt::hamiltonian": ModelOutput()})[
+                "mtt::hamiltonian"
+            ]
+            .block()
+            .values
+        )
+
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}

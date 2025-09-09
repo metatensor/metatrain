@@ -1,14 +1,16 @@
-import torch
 from typing import List, Optional
 
+import torch
 from metatensor.torch import Labels
 from metatomic.torch import NeighborListOptions, System
+
 from metatrain.pet.modules.nef import (
     compute_reversed_neighbor_list,
     edge_array_to_nef,
     get_corresponding_edges,
     get_nef_indices,
 )
+
 
 def concatenate_structures(
     systems: list[System],
@@ -63,8 +65,10 @@ def concatenate_structures(
             )
 
         positions.append(system.positions[system_selected_atoms])
-        if not "momenta" in system.known_data():
-            raise ValueError("System does not contain momenta data, which is required for FlashMD.")
+        if "momenta" not in system.known_data():
+            raise ValueError(
+                "System does not contain momenta data, which is required for FlashMD."
+            )
         tmap = system.get_data("momenta")
         block = tmap[0]
         momenta.append(block.values[system_selected_atoms])

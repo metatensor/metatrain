@@ -11,19 +11,15 @@ architecture:
     num_heads: 4
     num_attention_layers: 2
     num_gnn_layers: 2
-    heads: {
-      positions: linear,
-      momenta: linear
-    }
-    zbl: False
-    long_range: 
+    heads: {positions: linear, momenta: linear}
+    zbl: false
+    long_range:
       enable: false
       smearing: 1.4
       interpolation_nodes: 5
       mesh_spacing: 1.33
-
   training:
-    distributed: False
+    distributed: false
     distributed_port: 39591
     batch_size: 16
     num_epochs: 10000
@@ -35,7 +31,7 @@ architecture:
     scale_targets: true
     fixed_composition_weights: {}
     per_structure_targets: []
-    log_mae: False
+    log_mae: false
     log_separate_blocks: false
     best_model_metric: rmse_prod
     loss:
