@@ -31,7 +31,6 @@ training_set:
       per_atom: true
     momenta:
       quantity: momentum
-      unit: sqrt(eV*u)
       type:
         cartesian:
           rank: 1

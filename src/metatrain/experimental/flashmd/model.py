@@ -867,7 +867,7 @@ class FlashMD(ModelInterface):
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {
-            "architecture_name": "pet",
+            "architecture_name": "experimental.flashmd",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {
