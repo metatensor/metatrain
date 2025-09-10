@@ -701,7 +701,7 @@ class FlashMD(ModelInterface):
                     components=block.components,
                     properties=block.properties,
                 )
-                for block in positions_tensormap
+                for block in positions_tensormap.blocks()
             ],
         )
 
@@ -727,7 +727,7 @@ class FlashMD(ModelInterface):
                     components=block.components,
                     properties=block.properties,
                 )
-                for block in positions_tensormap
+                for block in positions_tensormap.blocks()
             ],
         )
 

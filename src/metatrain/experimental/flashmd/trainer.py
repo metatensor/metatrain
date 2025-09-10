@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
 import ase.data
+from metatensor.torch import TensorMap, TensorBlock, Labels
 import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
@@ -31,11 +32,65 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.transfer import batch_to
+from metatomic.torch import System
 
 from . import checkpoints
 from .model import FlashMD
 from .modules.loss import FlashMDLoss
 from .modules.scaler import remove_scale
+
+@torch.jit.script
+def empty_masses(system: System) -> torch.Tensor:
+    """
+    Create an empty masses tensor for a system.
+
+    This is required because TorchScript doesn't support creating tensors
+    directly with `torch.empty(len(system), dtype=system.dtype)`.
+    """
+    return torch.empty(len(system), dtype=system.dtype).unsqueeze(-1)
+    
+def verify_masses(systems: list[System], model: FlashMD):
+    """Attach masses to systems that don't have them yet."""
+    for system in systems:
+        if "masses" not in system.known_data():
+            # obtain the masses from the atomic types
+            values = empty_masses(system)
+            for idx, atomic_number in enumerate(system.types):
+                values[idx, 0] = model.masses[atomic_number]
+
+            # wrap everything in a tensor map and attach to the system
+            label_values = torch.column_stack([
+                torch.zeros(len(system), dtype=int),
+                torch.arange(len(system)),
+            ])
+
+            masses_map = TensorMap(
+                keys=Labels.single(),
+                blocks=[
+                    TensorBlock(
+                        values=values,
+                        samples=Labels(
+                            names=["system", "atom"],
+                            values=label_values,
+                        ),
+                        components=[],
+                        properties=Labels.range("mass", 1),
+                    )
+                ],
+            )
+            system.add_data("masses", masses_map)
+        else:
+            # verify that the masses are correct (compare them to the ones stored in the model)
+            masses = system.get_data("masses")
+            for atom_index in range(len(system)):
+                atomic_number = system.types[atom_index].item()
+                mass = masses.block(0).values[atom_index, 0].item()
+                if mass != model.masses[atomic_number]:
+                    raise ValueError(
+                        f"The mass of atom {atom_index} in a system is {mass}, "
+                        f"while the expected mass for atomic number {atomic_number} "
+                        f"is {model.masses[atomic_number]}."
+                    )
 
 
 def get_scheduler(optimizer, train_hypers):
@@ -333,6 +388,7 @@ class Trainer(TrainerInterface):
                         systems, targets, extra_data=extra_data
                     )
                 )
+                system = verify_masses(systems, model)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
@@ -345,6 +401,7 @@ class Trainer(TrainerInterface):
                 targets = remove_scale(
                     systems, targets, (model.module if is_distributed else model).scaler
                 )
+
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
                 )
@@ -392,6 +449,7 @@ class Trainer(TrainerInterface):
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets, extra_data = batch
+                system = verify_masses(systems, model)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
