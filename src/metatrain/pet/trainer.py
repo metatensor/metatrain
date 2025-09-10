@@ -345,11 +345,11 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = batch
-                # systems, targets, extra_data = (
-                #     rotational_augmenter.apply_random_augmentations(
-                #         systems, targets, extra_data=extra_data
-                #     )
-                # )
+                systems, targets, extra_data = (
+                    rotational_augmenter.apply_random_augmentations(
+                        systems, targets, extra_data=extra_data
+                    )
+                )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
@@ -473,9 +473,9 @@ class Trainer(TrainerInterface):
 
             if epoch == start_epoch:
                 # TODO: understand how to modify this
-                scaler_scales = (
-                    model.module if is_distributed else model
-                ).scaler.get_scales_dict()
+                # scaler_scales = (
+                #     model.module if is_distributed else model
+                # ).scaler.get_scales_dict()
 
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
@@ -507,8 +507,7 @@ class Trainer(TrainerInterface):
                 break
             if epoch == self.hypers["num_epochs_warmup"] - 1:
                 logging.info(
-                    "Finished warm-up. "
-                    f"Now training with learning rate {new_lr}"
+                    f"Finished warm-up. Now training with learning rate {new_lr}"
                 )
             old_lr = new_lr
 

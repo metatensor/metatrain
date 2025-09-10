@@ -207,7 +207,9 @@ class Scaler(torch.nn.Module):
                     target_name + f"_{atomic_type}" + "_scaler_buffer",
                     mts.save_buffer(
                         mts.make_contiguous(
-                            self.model.scales[target_name][atomic_type].to("cpu", torch.float64)
+                            self.model.scales[target_name][atomic_type].to(
+                                "cpu", torch.float64
+                            )
                         )
                     ).to(device),
                 )
@@ -272,7 +274,6 @@ class Scaler(torch.nn.Module):
         layout = target_info.layout
 
         for atomic_type in self.atomic_types:
-
             fake_scales = TensorMap(
                 keys=layout.keys,
                 blocks=[
@@ -300,23 +301,34 @@ class Scaler(torch.nn.Module):
 
     def scales_to(self, device: torch.device, dtype: torch.dtype):
         if len(self.model.scales) != 0:
-
-            if self.model.scales[list(self.model.scales.keys())[0]][self.atomic_types[0]].device != device:
-
-                scales = {}
+            if (
+                self.model.scales[list(self.model.scales.keys())[0]][
+                    self.atomic_types[0]
+                ].device
+                != device
+            ):
+                scales: Dict[str, Dict[int, TensorMap]] = {}
                 for target_name in self.target_infos.keys():
                     scales[target_name] = {}
                     for atomic_type in self.atomic_types:
-                        scales[target_name][atomic_type] = self.model.scales[target_name][atomic_type].to(device)
+                        scales[target_name][atomic_type] = self.model.scales[
+                            target_name
+                        ][atomic_type].to(device)
                 self.model.scales = scales
 
-            if self.model.scales[list(self.model.scales.keys())[0]][self.atomic_types[0]].dtype != dtype:
-
+            if (
+                self.model.scales[list(self.model.scales.keys())[0]][
+                    self.atomic_types[0]
+                ].dtype
+                != dtype
+            ):
                 scales = {}
                 for target_name in self.target_infos.keys():
                     scales[target_name] = {}
                     for atomic_type in self.atomic_types:
-                        scales[target_name][atomic_type] = self.model.scales[target_name][atomic_type].to(dtype)
+                        scales[target_name][atomic_type] = self.model.scales[
+                            target_name
+                        ][atomic_type].to(dtype)
                 self.model.scales = scales
 
         self.model._sync_device_dtype(device, dtype)
@@ -330,16 +342,17 @@ class Scaler(torch.nn.Module):
                     self.__getattr__(k + f"_{atomic_type}" + "_scaler_buffer")
                 )
 
-    def get_scales_dict(self) -> Dict[str, float]:
+    def get_scales_dict(self) -> Dict[str, Dict[str, float]]:
         """
-        Return a dictionary mapping each target (and atomic type, block, property) to its scale.
+        Return a dictionary mapping each target (and atomic type, block, property) to
+        its scale.
         """
-        scales_dict = {}
+        scales_dict: Dict[str, Dict[str, float]] = {}
         for target_name, atomic_scales in self.model.scales.items():
             scales_dict[target_name] = {}
             for atomic_type, tensor_map in atomic_scales.items():
                 for block_i, block in enumerate(tensor_map.blocks()):
-                    for prop_i, prop in enumerate(block.properties.values):
+                    for prop_i, _ in enumerate(block.properties.values):
                         key = f"type_{atomic_type}_block_{block_i}_prop_{prop_i}"
                         scale_value = float(block.values.flatten()[prop_i].item())
                         scales_dict[target_name][key] = scale_value

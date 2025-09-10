@@ -8,8 +8,7 @@ from typing import Dict, List, Optional
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-
-from metatomic.torch import ModelOutput, System
+from metatomic.torch import System
 
 
 class BaseScaler(torch.nn.Module):
@@ -49,7 +48,7 @@ class BaseScaler(torch.nn.Module):
         self.Y = {target_name: {} for target_name in layouts}
         self.Y2 = {target_name: {} for target_name in layouts}
         self.scales = {target_name: {} for target_name in layouts}
-        self.is_fitted: Dict[str, Dict[str, bool]] = {
+        self.is_fitted: Dict[str, Dict[int, bool]] = {
             target_name: {} for target_name in layouts
         }
 
@@ -189,13 +188,12 @@ class BaseScaler(torch.nn.Module):
                 Y_block_types = torch.cat([system.types for system in systems])
 
                 for atomic_type in self.atomic_types:
-
                     # Slice the block to only include samples of the current atomic type
                     samples_type_mask = Y_block_types == atomic_type
                     Y = Y_block.values[samples_type_mask]
 
-                    # Compute the number of samples in this block, account for the mask if
-                    # available
+                    # Compute the number of samples in this block, account for the mask
+                    # if available
                     if mask is None:
                         N = Y.shape[0]
                     else:
@@ -230,10 +228,9 @@ class BaseScaler(torch.nn.Module):
 
         # fit
         for target_name in self.target_names:
-
             for atomic_type in self.atomic_types:
                 if self.is_fitted[target_name][atomic_type]:  # already fitted
-                    print(f"Already fitted:", target_name, atomic_type)
+                    print("Already fitted:", target_name, atomic_type)
                     continue
 
                 blocks = []
@@ -356,9 +353,6 @@ class BaseScaler(torch.nn.Module):
                         f"do not match output block {output_block.properties} "
                         f"for key {self.scales[output_name].keys[i]}."
                     )
-
-                    # Get the scales for this atomic type
-                    scales = scales_block.values
 
                     # Scale the values of the output block
                     if remove:  # remove the scaler
