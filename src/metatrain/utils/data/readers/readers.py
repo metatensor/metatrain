@@ -193,6 +193,8 @@ _standard_outputs_list = {
     "energy",
     "non_conservative_forces",
     "non_conservative_stress",
+    "positions",
+    "momenta",
 }
 
 
