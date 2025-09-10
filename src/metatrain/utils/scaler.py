@@ -330,11 +330,26 @@ class Scaler(torch.nn.Module):
                     self.__getattr__(k + f"_{atomic_type}" + "_scaler_buffer")
                 )
 
+    # def get_scales_dict(self) -> Dict[str, float]:
+    #     """
+    #     Return a dictionary mapping each target (and atomic type, block, property) to its scale.
+    #     """
+    #     scales_dict = {}
+    #     for target_name, atomic_scales in self.model.scales.items():
+    #         for atomic_type, tensor_map in atomic_scales.items():
+    #             for block_i, block in enumerate(tensor_map.blocks()):
+    #                 for prop_i, prop in enumerate(block.properties.values):
+    #                     key = f"{target_name}_{atomic_type}_block{block_i}_prop{prop_i}"
+    #                     scale_value = float(block.values.flatten()[prop_i].item())
+    #                     scales_dict[key] = scale_value
+    #     return scales_dict
+
 
 # ===== Remove scale =====
 
 
 def remove_scale(
+    systems: List[System],
     targets: Dict[str, TensorMap],
     scaler: Scaler,
 ):
@@ -344,4 +359,4 @@ def remove_scale(
     :param targets: Dictionary containing the targets to be scaled.
     :param scaler: The scaler used to scale the targets.
     """
-    return scaler(targets, remove=True)
+    return scaler(systems, targets, remove=True)

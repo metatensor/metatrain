@@ -179,45 +179,19 @@ class BaseScaler(torch.nn.Module):
                     Y_block = block
 
                 Y_block = Y_block.to(device=device, dtype=dtype)
-                assert Y_block.samples.names == ["system", "atom"]  # only per-atom targets for now
+                assert Y_block.samples.names == [
+                    "system",
+                    "atom",
+                ]  # only per-atom targets for now
 
-                atom_indices_expected = torch.cat(
-                    [
-                        torch.arange(len(system.types), device=device)
-                        for system in systems
-                    ]
-                )
-                labels_values_expected = torch.tensor(
-                    [
-                        [A, i]
-                        for A, system in enumerate(systems)
-                        for i in range(len(system.types))
-                    ]
-                )
-                assert torch.all(
-                    Y_block.samples.values[:, 1] == labels_values_expected[:, 1]
-                ), (
-                    "Samples do not match expected system and atom indices.",
-                    Y_block.samples.values,
-                    labels_values_expected,
-                )
-                # assert torch.all(
-                #     Y_block.samples["atom"] == atom_indices_expected
-                # ), "Atom indices in samples do not match expected indices."
-
-                Y_block_types = torch.cat(
-                    [
-                        system.types for system in systems
-                    ]
-                )
-
-                # aligned per-row atomic types for this block
-                # Y_block_types = _aligned_type_vector(Y_block.samples, systems, Y_block.values.device)
+                # Here it is assumed that the samples of the block correspond to the
+                # full ordered list of atoms in the batch of systems
+                Y_block_types = torch.cat([system.types for system in systems])
 
                 for atomic_type in self.atomic_types:
 
                     # Slice the block to only include samples of the current atomic type
-                    samples_type_mask = (Y_block_types == atomic_type)
+                    samples_type_mask = Y_block_types == atomic_type
                     Y = Y_block.values[samples_type_mask]
 
                     # Compute the number of samples in this block, account for the mask if
@@ -236,24 +210,17 @@ class BaseScaler(torch.nn.Module):
                         N = samples_pad_mask.sum()
                         Y = Y[samples_pad_mask]
 
-                    # Compute the Y and Y2 values, sum over samples, take the norm over
-                    # components, and divide by the number of components
+                    # Compute the Y and Y2 values and sum over samples
                     Y_values = torch.sum(Y, dim=0, keepdim=True)
                     Y2_values = torch.sum(Y**2, dim=0, keepdim=True)
-                    Y_values = torch.norm(Y_values, dim=1, keepdim=True)
-                    Y2_values = torch.norm(Y2_values, dim=1, keepdim=True)
 
                     # Repeat the along the component axes (if any) and accumulate
                     n_components: List[int] = []
                     for comp in Y.shape[1:-1]:
                         n_components.append(comp)
                     self.N[target_name][atomic_type][key].values[:] += N
-                    self.Y[target_name][atomic_type][key].values[:] += Y_values.repeat(
-                        1, *n_components, 1
-                    )
-                    self.Y2[target_name][atomic_type][key].values[
-                        :
-                    ] += Y2_values.repeat(1, *n_components, 1)
+                    self.Y[target_name][atomic_type][key].values[:] += Y_values
+                    self.Y2[target_name][atomic_type][key].values[:] += Y2_values
 
     def fit(self) -> None:
         """
@@ -281,7 +248,7 @@ class BaseScaler(torch.nn.Module):
 
                     # Compute the standard deviation
                     N = N_values.item()  # (do not use Bessel's correction)
-                    
+
                     if N <= 0:
                         # keep ones for this block (as initialized) and move on
                         blocks.append(
@@ -294,6 +261,16 @@ class BaseScaler(torch.nn.Module):
                         )
                         continue
 
+                    # Take the norm over components and re-expand the component dims
+                    Y_values = torch.norm(Y_values, dim=1, keepdim=True)
+                    Y2_values = torch.norm(Y2_values, dim=1, keepdim=True)
+                    Y_values = Y_values.repeat(
+                        1, *[len(comp) for comp in Y_block.components], 1
+                    )
+                    Y2_values = Y2_values.repeat(
+                        1, *[len(comp) for comp in Y_block.components], 1
+                    )
+
                     # Divide the scales by sqrt(num components) to account for the
                     # fact that we took the norm over components when accumulating
                     # Y and Y2
@@ -304,10 +281,9 @@ class BaseScaler(torch.nn.Module):
 
                     import math
 
-                    scale_vals = (
-                        torch.sqrt((Y2_values / N) - (Y_values / N) ** 2) 
-                        / math.sqrt(component_factor)
-                    )
+                    scale_vals = torch.sqrt(
+                        (Y2_values / N) - (Y_values / N) ** 2
+                    ) / math.sqrt(component_factor)
 
                     blocks.append(
                         TensorBlock(
@@ -358,16 +334,13 @@ class BaseScaler(torch.nn.Module):
                 scaled_outputs[output_name] = outputs[output_name]
                 continue
 
-            # scales_map = self.scales[output_name]
             output_map = outputs[output_name]
             n_blocks = len(output_map)  # TorchScript-friendly integer
 
             scaled_blocks: List[TensorBlock] = []
             for i in range(n_blocks):
                 output_block = output_map.block(i)
-                output_block_types = torch.cat(
-                    [system.types for system in systems]
-                )
+                output_block_types = torch.cat([system.types for system in systems])
                 scaled_vals = output_block.values
 
                 for atomic_type in self.atomic_types:
@@ -389,9 +362,13 @@ class BaseScaler(torch.nn.Module):
 
                     # Scale the values of the output block
                     if remove:  # remove the scaler
-                        scaled_vals[type_mask] = output_block.values[type_mask] / scales_block.values
+                        scaled_vals[type_mask] = (
+                            output_block.values[type_mask] / scales_block.values
+                        )
                     else:  # apply the scaler
-                        scaled_vals[type_mask] = output_block.values[type_mask] * scales_block.values
+                        scaled_vals[type_mask] = (
+                            output_block.values[type_mask] * scales_block.values
+                        )
 
                 scaled_blocks.append(
                     TensorBlock(
@@ -440,18 +417,3 @@ class BaseScaler(torch.nn.Module):
             }
             for target_name in self.scales.keys()
         }
-
-# def _aligned_type_vector(block_samples, systems, device):
-#     # block_samples: Labels with names incl. "system","atom"
-#     s_col = block_samples.names.index("system")
-#     a_col = block_samples.names.index("atom")
-#     sample_sys = block_samples.values[:, s_col].long()
-#     sample_atom = block_samples.values[:, a_col].long()
-
-#     # per-system atom count & prefix sum to map (sys, atom) -> global idx
-#     lens = [len(sys.types) for sys in systems]
-#     offsets = torch.tensor([0] + lens[:-1], device=device).cumsum(0)
-
-#     global_idx = offsets[sample_sys] + sample_atom
-#     all_types = torch.cat([sys.types for sys in systems]).to(device)
-#     return all_types[global_idx]  # 1D tensor, length == n_samples_of_block

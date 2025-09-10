@@ -360,7 +360,7 @@ class Trainer(TrainerInterface):
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                    systems, targets, (model.module if is_distributed else model).scaler
                 )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
@@ -420,7 +420,7 @@ class Trainer(TrainerInterface):
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                    systems, targets, (model.module if is_distributed else model).scaler
                 )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
@@ -470,12 +470,13 @@ class Trainer(TrainerInterface):
                 "loss": val_loss,
                 **finalized_val_info,
             }
+            print(finalized_train_info)
 
             if epoch == start_epoch:
                 # TODO: understand how to modify this
-                # scaler_scales = (
-                #     model.module if is_distributed else model
-                # ).scaler.get_scales_dict()
+                scaler_scales = (
+                    model.module if is_distributed else model
+                ).scaler.get_scales_dict()
 
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
@@ -484,14 +485,14 @@ class Trainer(TrainerInterface):
                     ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
-                    # scales={
-                    #     key: (
-                    #         scaler_scales[key.split(" ")[0]]
-                    #         if ("MAE" in key or "RMSE" in key)
-                    #         else 1.0
-                    #     )
-                    #     for key in finalized_train_info.keys()
-                    # },
+                    scales={
+                        key: (
+                            scaler_scales[key.split(" ")[0]]
+                            if ("MAE" in key or "RMSE" in key)
+                            else 1.0
+                        )
+                        for key in finalized_train_info.keys()
+                    },
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(
