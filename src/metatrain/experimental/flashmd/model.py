@@ -24,10 +24,10 @@ from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
+from .modules.scaler import Scaler
 from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
 
@@ -169,6 +169,15 @@ class FlashMD(ModelInterface):
         self.single_label = Labels.single()
 
         self.finetune_config: Dict[str, Any] = {}
+
+        self.register_buffer(
+            "masses", torch.full((max(self.atomic_types) + 1,), float("nan"))
+        )
+
+    def set_masses(self, masses: Dict[int, float]):
+        self.scaler.set_masses(masses)
+        for atomic_number, mass in masses.items():
+            self.masses[atomic_number] = mass
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -672,6 +681,55 @@ class FlashMD(ModelInterface):
                         else:
                             output_blocks.append(b)
                     return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
+
+        # modify p
+        positions_tensormap = return_dict["momenta"]
+        return_dict["momenta"] = TensorMap(
+            keys=positions_tensormap.keys,
+            blocks=[
+                TensorBlock(
+                    values=block.values
+                    * torch.sqrt(
+                        torch.concatenate(
+                            [
+                                system.get_data("masses").block().values.unsqueeze(-1)
+                                for system in systems
+                            ]
+                        )
+                    ),
+                    samples=block.samples,
+                    components=block.components,
+                    properties=block.properties,
+                )
+                for block in positions_tensormap
+            ],
+        )
+
+        # add positions to delta_q
+        positions_tensormap = return_dict["positions"]
+        return_dict["positions"] = TensorMap(
+            keys=positions_tensormap.keys,
+            blocks=[
+                TensorBlock(
+                    values=block.values
+                    / torch.sqrt(
+                        torch.concatenate(
+                            [
+                                system.get_data("masses").block().values.unsqueeze(-1)
+                                for system in systems
+                            ]
+                        )
+                    )
+                    + torch.concatenate(
+                        [system.positions for system in systems]
+                    ).unsqueeze(-1),
+                    samples=block.samples,
+                    components=block.components,
+                    properties=block.properties,
+                )
+                for block in positions_tensormap
+            ],
+        )
 
         return return_dict
 

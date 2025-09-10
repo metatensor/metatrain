@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
+import ase.data
 import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
@@ -23,18 +24,18 @@ from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import FlashMDLoss, LossAggregator
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
-from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
 from .model import FlashMD
+from .modules.loss import FlashMDLoss
+from .modules.scaler import remove_scale
 
 
 def get_scheduler(optimizer, train_hypers):
@@ -73,6 +74,15 @@ class Trainer(TrainerInterface):
         checkpoint_dir: str,
     ):
         assert dtype in FlashMD.__supported_dtypes__
+
+        # Set masses for the model
+        atomic_mass_dict = {
+            atomic_number: self.hypers["masses"].get(
+                atomic_number, ase.data.atomic_masses[atomic_number]
+            )
+            for atomic_number in model.dataset_info.atomic_types
+        }
+        model.set_masses(atomic_mass_dict)
 
         is_distributed = self.hypers["distributed"]
 
@@ -317,6 +327,7 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = batch
+
                 systems, targets, extra_data = (
                     rotational_augmenter.apply_random_augmentations(
                         systems, targets, extra_data=extra_data
@@ -332,7 +343,7 @@ class Trainer(TrainerInterface):
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                    systems, targets, (model.module if is_distributed else model).scaler
                 )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
@@ -391,7 +402,7 @@ class Trainer(TrainerInterface):
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                    systems, targets, (model.module if is_distributed else model).scaler
                 )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
@@ -566,7 +577,6 @@ class Trainer(TrainerInterface):
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         for v in range(1, cls.__checkpoint_version__):
             if checkpoint["trainer_ckpt_version"] == v:
-                print(v, checkpoint["train_hypers"])
                 update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
                 update(checkpoint)
                 checkpoint["trainer_ckpt_version"] = v + 1
