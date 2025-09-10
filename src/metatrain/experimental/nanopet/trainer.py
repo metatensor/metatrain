@@ -29,8 +29,8 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from metatrain.utils.old_scaler import remove_scale
 from metatrain.utils.per_atom import average_by_num_atoms
-from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
