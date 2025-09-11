@@ -7,6 +7,7 @@ from metatomic.torch import System
 
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.loss import LossAggregator
+from metatrain.experimental.flashmd.modules.utils import verify_masses
 
 
 class FlashMDLoss(LossAggregator):
@@ -15,7 +16,7 @@ class FlashMDLoss(LossAggregator):
     """
 
     def __init__(
-        self, targets: Dict[str, TargetInfo], config: Dict[str, Dict[str, Any]]
+        self, targets: Dict[str, TargetInfo], config: Dict[str, Dict[str, Any]], masses: torch.Tensor
     ):
         """
         :param targets: mapping from target names to :py:class:`TargetInfo`.
@@ -31,6 +32,7 @@ class FlashMDLoss(LossAggregator):
             raise ValueError(
                 f"Expected config keys to be {expected_keys}, got {set(config.keys())}"
             )
+        self.masses = masses
 
         super().__init__(targets, config)
 
@@ -52,8 +54,10 @@ class FlashMDLoss(LossAggregator):
         if "positions" not in targets or "momenta" not in targets:
             raise ValueError("Targets must contain both 'positions' and 'momenta'.")
 
-        # Scaling by the square root of the masses
+        # ensure that all systems have masses
+        verify_masses(systems, self.masses)
 
+        # Scaling by the square root of the masses
         all_masses = []
         for system in systems:
             if "masses" not in system.known_data():

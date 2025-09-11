@@ -16,6 +16,7 @@ from metatomic.torch import (
     System,
 )
 
+from metatrain.experimental.flashmd.modules.utils import verify_masses
 from metatrain.pet.modules.finetuning import apply_finetuning_strategy
 from metatrain.pet.modules.utilities import cutoff_func
 from metatrain.utils.abc import ModelInterface
@@ -25,6 +26,7 @@ from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.sum_over_atoms import sum_over_atoms
+from metatomic.torch import System
 
 from . import checkpoints
 from .modules.scaler import Scaler
@@ -274,6 +276,8 @@ class FlashMD(ModelInterface):
         # - `system_indices` [n_atoms]: The indices of the systems for each central atom
         # - `sample_labels` [n_atoms, 2]: The metatensor.torch.Labels object, containing
         #   indices of each atom in each system.
+
+        verify_masses(systems, self.masses)
 
         (
             element_indices_nodes,
