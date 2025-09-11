@@ -33,16 +33,27 @@ class Trainer(TrainerInterface):
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        # Load the wrapped model from checkpoint and set it as the
+        # Load the wrapped model from checkpoint and set it as the wrapped model of the
+        # LLPR model:
         wrapped_model_checkpoint_path = self.hypers["model_checkpoint"]
         checkpoint = torch.load(
             wrapped_model_checkpoint_path, weights_only=False, map_location="cpu"
         )
-        model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], "export")
+        wrapped_model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], "export")
+        model.set_wrapped_model(wrapped_model)
 
         device = devices[0]  # this trainer doesn't support multi-GPU training
         # check device and dtype against wrapped model class
-
+        if device.type not in wrapped_model.__class__.__supported_devices__:
+            raise ValueError(
+                f"Device {device} not supported by the wrapped model. "
+                f"Supported devices are {wrapped_model.__class__.__supported_devices__}"
+            )
+        if dtype not in wrapped_model.__class__.__supported_dtypes__:
+            raise ValueError(
+                f"dtype {dtype} not supported by the wrapped model. "
+                f"Supported dtypes are {wrapped_model.__class__.__supported_dtypes__}"
+            )
         logging.info(f"Training on device {device} with dtype {dtype}")
 
         logging.info("Calculating neighbor lists for the datasets")

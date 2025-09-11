@@ -69,8 +69,6 @@ class LLPRUncertaintyModel(ModelInterface):
         hypers = self.hypers
         dataset_info = self.dataset_info
 
-        # checks between dataset_info and model dataset info
-
         # ensemble weight sizes need to be extracted from the hypers
 
         self.model = model
@@ -82,6 +80,29 @@ class LLPRUncertaintyModel(ModelInterface):
         # get its dtype
         old_capabilities = self.model.export().capabilities()
         dtype = getattr(torch, old_capabilities.dtype)
+
+        # checks between dataset_info and model outputs
+        if dataset_info.length_unit != old_capabilities.length_unit:
+            raise ValueError(
+                "The length unit in the dataset info is different from the "
+                "length unit of the wrapped model"
+            )
+        for atomic_type in dataset_info.atomic_types:
+            if atomic_type not in old_capabilities.atomic_types:
+                raise ValueError(
+                    f"Atomic type {atomic_type} not supported by the wrapped model"
+                )
+        for target_name, target in dataset_info.targets.items():
+           if target_name not in old_capabilities.outputs:
+               raise ValueError(
+                   f"Target {target_name} not supported by the wrapped model"
+               )
+           if target.unit != old_capabilities.outputs[target_name].unit:
+               raise ValueError(
+                   f"Target {target_name} has unit {target.unit}, but the "
+                   f"wrapped model has unit "
+                   f"{old_capabilities.outputs[target_name].unit}"
+               )
 
         # update capabilities: now we have additional outputs for the uncertainty
         additional_capabilities = {}
