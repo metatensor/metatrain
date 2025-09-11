@@ -44,7 +44,7 @@ class Trainer(TrainerInterface):
         checkpoint = torch.load(
             wrapped_model_checkpoint_path, weights_only=False, map_location="cpu"
         )
-        wrapped_model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], "export")
+        wrapped_model = model_from_checkpoint(checkpoint, "export")
         model.set_wrapped_model(wrapped_model)
 
         device = devices[0]  # this trainer doesn't support multi-GPU training
@@ -95,7 +95,7 @@ class Trainer(TrainerInterface):
 
         # Create dataloader for the training datasets:
         train_dataloaders = []
-        for train_dataset, train_sampler in zip(train_datasets):
+        for train_dataset in train_datasets:
             if len(train_dataset) < self.hypers["batch_size"]:
                 raise ValueError(
                     f"A training dataset has fewer samples "
@@ -107,7 +107,6 @@ class Trainer(TrainerInterface):
                 DataLoader(
                     dataset=train_dataset,
                     batch_size=self.hypers["batch_size"],
-                    sampler=train_sampler,
                     shuffle=False,
                     drop_last=False,
                     collate_fn=collate_fn,
@@ -117,7 +116,7 @@ class Trainer(TrainerInterface):
 
         # Create dataloader for the validation datasets:
         val_dataloaders = []
-        for val_dataset, val_sampler in zip(val_datasets):
+        for val_dataset in val_datasets:
             if len(val_dataset) < self.hypers["batch_size"]:
                 raise ValueError(
                     f"A validation dataset has fewer samples "
@@ -129,7 +128,6 @@ class Trainer(TrainerInterface):
                 DataLoader(
                     dataset=val_dataset,
                     batch_size=self.hypers["batch_size"],
-                    sampler=val_sampler,
                     shuffle=False,
                     drop_last=False,
                     collate_fn=collate_fn,
@@ -142,7 +140,7 @@ class Trainer(TrainerInterface):
         model.compute_covariance(train_dataloader)
         model.compute_inverse_covariance(self.hypers["regularizer"])
         model.calibrate(val_dataloader)
-        model.generate_ensemble(**self.hypers["ensemble"])
+        model.generate_ensemble()
 
     def save_checkpoint(self, model, checkpoint_dir: Union[str, Path]):
         # The LLPR trainer won't save a checkpoint since it doesn't support restarting

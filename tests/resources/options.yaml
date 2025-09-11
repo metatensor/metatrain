@@ -1,14 +1,10 @@
 seed: 42
 
 architecture:
-  name: soap_bpnn
+  name: llpr
   training:
+    model_checkpoint: pet-mad-latest.ckpt
     batch_size: 5
-    num_epochs: 1
-  model:
-    soap:
-      max_radial: 4
-      max_angular: 2
 
 training_set:
   systems:
@@ -19,5 +15,5 @@ training_set:
       key: U0
       unit: eV
 
-test_set: 0.5
 validation_set: 0.1
+test_set: 0.0

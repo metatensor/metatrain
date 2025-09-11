@@ -5,12 +5,37 @@
     "name": {
       "type": "string",
       "enum": [
-        "pet"
+        "llpr"
       ]
     },
     "model": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "ensembles": {
+          "type": "object",
+          "properties": {
+            "means": {
+              "type": "object",
+              "patternProperties": {
+                ".*": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              },
+              "additionalProperties": false
+            },
+            "num_members": {
+              "type": "object",
+              "patternProperties": {
+                ".*": { "type": "integer" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "additionalProperties": false
+      },
       "additionalProperties": false
     },
     "training": {
@@ -18,6 +43,12 @@
       "properties": {
         "batch_size": {
           "type": "integer"
+        },
+        "model_checkpoint": {
+          "type": ["string", "null"]
+        },
+        "regularizer": {
+          "type": ["number", "null"]
         }
       },
       "additionalProperties": false
