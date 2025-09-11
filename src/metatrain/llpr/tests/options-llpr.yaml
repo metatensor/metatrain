@@ -10,9 +10,9 @@ architecture:
           - node_last_layers.energy.1.energy___0.weight
           - edge_last_layers.energy.0.energy___0.weight
           - edge_last_layers.energy.1.energy___0.weight
-      num_members: {energy: 8}
+      num_members: {energy: 10000000}  # needed to converge the tests
   training:
-    model_checkpoint: pet-mad-latest.ckpt
+    model_checkpoint: model.ckpt
     batch_size: 4
 
 training_set:
