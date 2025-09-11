@@ -211,7 +211,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             property_name = (
                 "energy" if uncertainty_name == "energy_uncertainty" else "_"
             )
-            orig_name = name.replace("_uncertainty", "").replace("aux::", "")
+            orig_name = uncertainty_name.replace("_uncertainty", "").replace("aux::", "")
 
             # compute PRs
             # the code is the same for PR and LPR
@@ -234,7 +234,6 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     "properties",
                     self.num_subtargets[orig_name],
                 ).to(ll_features.block().values.device)
-
             uncertainty = TensorMap(
                 keys=Labels(
                     names=["_"],
@@ -244,7 +243,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ),
                 blocks=[
                     TensorBlock(
-                        values=one_over_pr_values.expand(-1, self.num_subtargets[orig_name]),
+                        values=one_over_pr_values.expand((-1, self.num_subtargets[orig_name])),
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
                         properties=cur_prop,
@@ -280,7 +279,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 requested_ensembles.append(name)
 
         for name in requested_ensembles:
-            orig_name = name.replace("_uncertainty", "").replace("aux::", "")
+            orig_name = name.replace("_ensemble", "").replace("aux::", "")
             ll_features_name = name.replace("_ensemble", "_last_layer_features")
             if ll_features_name == "energy_last_layer_features":
                 # special case for energy_ensemble
@@ -292,7 +291,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
             ensemble_values = ensemble_values.reshape(
                 ensemble_values.shape[0],
-                self.n_ens[base_name],
+                self.n_ens[orig_name],
                 -1,
             )
 
@@ -314,7 +313,6 @@ class LLPRUncertaintyModel(torch.nn.Module):
             #     - ensemble_values.mean(dim=1, keepdim=True)
             #     + return_dict[original_name].block().values
             # )
-
             ensemble = TensorMap(
                 keys=Labels(
                     names=["_"],
@@ -324,17 +322,20 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ),
                 blocks=[
                     TensorBlock(
-                        values=ensemble_values.reshape(ensemble_values.shape[0], -1),
-                        samples=ll_features.block().samples,
-                        components=ll_features.block().components,
-                        properties=Labels(
-                            names=['ensemble_member', 'energy_channel'],   # DOS specific
+                        values=ensemble_values.reshape(ensemble_values.shape[0] * ensemble_values.shape[1], -1),
+                        samples=Labels(
+                            names=['system', 'ensemble_member'],
                             values=torch.cartesian_prod(
-                                torch.arange(ensemble_values.shape[1], device=ensemble_values.device),    # DOS specific, double-check!
-                                torch.arange(ensemble_values.shape[2], device=ensemble_values.device),    # DOS specific, double-check!
-                            )
+                                torch.arange(ensemble_values.shape[0], device=ensemble_values.device),
+                                torch.arange(ensemble_values.shape[1], device=ensemble_values.device),
+                                ),
+                            ),
+                        components=ll_features.block().components,
+                        properties=Labels.range(
+                            "energy_channel",
+                            self.num_subtargets[orig_name],
+                            ).to(ensemble_values.device),
                         ),
-                    )
                 ],
             )
             return_dict[name] = ensemble
