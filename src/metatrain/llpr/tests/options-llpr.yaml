@@ -1,0 +1,28 @@
+seed: 42
+
+architecture:
+  name: llpr
+  model:
+    ensembles:
+      means:
+        energy:
+          - node_last_layers.energy.0.energy___0.weight
+          - node_last_layers.energy.1.energy___0.weight
+          - edge_last_layers.energy.0.energy___0.weight
+          - edge_last_layers.energy.1.energy___0.weight
+      num_members: {energy: 8}
+  training:
+    model_checkpoint: pet-mad-latest.ckpt
+    batch_size: 4
+
+training_set:
+  systems:
+    read_from: qm9_reduced_100.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: U0
+      unit: eV
+
+validation_set: 0.1
+test_set: 0.1

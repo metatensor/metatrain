@@ -19,6 +19,7 @@ from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import is_auxiliary_output
 from metatrain.utils.io import check_file_extension, model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
+from . import checkpoints
 
 
 class LLPRUncertaintyModel(ModelInterface):
@@ -171,7 +172,7 @@ class LLPRUncertaintyModel(ModelInterface):
                 ensemble_weights_name = "energy_ensemble_weights"
             self.register_buffer(
                 ensemble_weights_name,
-                torch.zeros(ensemble_weight_sizes[name], dtype=dtype),
+                torch.zeros((self.ll_feat_size, ensemble_weight_sizes[name]), dtype=dtype),
             )
             ensemble_output_name = (
                 "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
@@ -208,12 +209,6 @@ class LLPRUncertaintyModel(ModelInterface):
         outputs_for_model: Dict[str, ModelOutput] = {}
         for name, output in outputs.items():
             if name.endswith("_uncertainty"):
-                base_name = name.replace("_uncertainty", "").replace("mtt::aux::", "")
-                if base_name not in outputs and f"mtt::{base_name}" not in outputs:
-                    raise ValueError(
-                        f"Requested uncertainty '{name}' without corresponding "
-                        f"output `{base_name}` (or `mtt::{base_name}`)."
-                    )
                 # request corresponding features
                 target_name = name.replace("mtt::aux::", "").replace("_uncertainty", "")
                 outputs_for_model[f"mtt::aux::{target_name}_last_layer_features"] = (
@@ -606,8 +601,10 @@ class LLPRUncertaintyModel(ModelInterface):
         }
 
         checkpoint = {
-            "hypers": self.hypers,
-            "dataset_info": self.dataset_info,
+            "model_data": {
+                "hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
             "architecture_name": "llpr",
             "model_ckpt_version": self.__checkpoint_version__,
             "wrapped_model_checkpoint": wrapped_model_checkpoint,
@@ -631,10 +628,10 @@ class LLPRUncertaintyModel(ModelInterface):
                 "in the TorchScript format for final usage."
             )
         elif context == "export":
-            llpr_model = cls(checkpoint["hypers"], checkpoint["dataset_info"])
+            llpr_model = cls(**checkpoint["model_data"])
             llpr_model.set_wrapped_model(model)
             dtype = next(model.parameters()).dtype
-            llpr_model.to(dtype).load_state_dict(checkpoint["state_dict"])
+            llpr_model.to(dtype).load_state_dict(checkpoint["state_dict"], strict=False)
             return llpr_model
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
@@ -688,9 +685,22 @@ class LLPRUncertaintyModel(ModelInterface):
                 requested_buffer = buffer
         return requested_buffer
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("TODO")
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
+
+        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current model "
+                f"version is {cls.__checkpoint_version__}."
+            )
+
+        return checkpoint
 
     def get_checkpoint(self) -> Dict[str, Any]:
         raise NotImplementedError("LLPR does not support get_checkpoint")

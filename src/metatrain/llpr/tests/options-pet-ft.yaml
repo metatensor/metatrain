@@ -1,0 +1,22 @@
+seed: 42
+
+architecture:
+  name: pet
+  training:
+    finetune:
+      read_from: pet-llpr.ckpt
+      strategy: full
+    batch_size: 1
+    num_epochs: 1
+
+training_set:
+  systems:
+    read_from: qm9_reduced_100.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: U0
+      unit: eV
+
+validation_set: 0.1
+test_set: 0.1
