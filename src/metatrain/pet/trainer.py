@@ -77,6 +77,7 @@ class Trainer(TrainerInterface):
 
         is_distributed = self.hypers["distributed"]
         is_finetune = "finetune" in self.hypers
+        is_llpr_ens_recalib = self.hypers["llpr_calib"]
 
         if is_distributed:
             distr_env = DistributedEnvironment(self.hypers["distributed_port"])
@@ -140,24 +141,24 @@ class Trainer(TrainerInterface):
         model.to(device=device, dtype=dtype)
         # The additive models of PET are always in float64 (to avoid numerical errors in
         # the composition weights, which can be very large).
-        for additive_model in model.additive_models:
-            additive_model.to(dtype=torch.float64)
+        # for additive_model in model.additive_models:
+        ##    additive_model.to(dtype=torch.float64)
 
-        logging.info("Calculating composition weights")
+        # logging.info("Calculating composition weights")
 
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
-            is_distributed,
-            self.hypers["fixed_composition_weights"],
-        )
+        #model.additive_models[0].train_model(  # this is the composition model
+        #    train_datasets,
+        #    model.additive_models[1:],
+        #    self.hypers["batch_size"],
+        #    is_distributed,
+        #    self.hypers["fixed_composition_weights"],
+        #)
 
-        if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
-            )
+#        if self.hypers["scale_targets"]:
+#            logging.info("Calculating scaling weights")
+#            model.scaler.train_model(
+#                train_datasets, model.additive_models, treat_as_additive=True
+#            )
 
         logging.info("Setting up data loaders")
 
@@ -338,30 +339,35 @@ class Trainer(TrainerInterface):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
-                )
+
+#                for additive_model in (
+#                    model.module if is_distributed else model
+#                ).additive_models:
+#                    targets = remove_additive(
+#                        systems, targets, additive_model, train_targets
+#                    )
+#                targets = remove_scale(
+#                    targets, (model.module if is_distributed else model).scaler
+#                )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
                 )
+
                 predictions = evaluate_model(
                     model,
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=True,
+                    is_llpr_ens_recalib=is_llpr_ens_recalib,
                 )
 
                 # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                if not is_llpr_ens_recalib:
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(targets, systems, per_structure_targets)
+
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
@@ -374,14 +380,14 @@ class Trainer(TrainerInterface):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                train_rmse_calculator.update(predictions, targets)
-                if self.hypers["log_mae"]:
-                    train_mae_calculator.update(predictions, targets)
-            finalized_train_info = train_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets,
-                is_distributed=is_distributed,
-                device=device,
-            )
+                # train_rmse_calculator.update(predictions, targets)
+#                if self.hypers["log_mae"]:
+#                    train_mae_calculator.update(predictions, targets)
+#            finalized_train_info = train_rmse_calculator.finalize(
+#                not_per_atom=["positions_gradients"] + per_structure_targets,
+#                is_distributed=is_distributed,
+#                device=device,
+#            )
             if self.hypers["log_mae"]:
                 finalized_train_info.update(
                     train_mae_calculator.finalize(
@@ -397,45 +403,51 @@ class Trainer(TrainerInterface):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
-                )
+#                for additive_model in (
+#                    model.module if is_distributed else model
+#                ).additive_models:
+#                    targets = remove_additive(
+#                        systems, targets, additive_model, train_targets
+#                    )
+#                targets = remove_scale(
+#                    targets, (model.module if is_distributed else model).scaler
+#                )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
                 )
+
+                cur_eval_targets = {key: train_targets[key] for key in targets.keys()}
+
                 predictions = evaluate_model(
                     model,
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
+                    is_llpr_ens_recalib=is_llpr_ens_recalib,
                 )
 
                 # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                if not is_llpr_ens_recalib:
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(targets, systems, per_structure_targets)
+
                 val_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
                     # sum the loss over all processes
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
-                val_rmse_calculator.update(predictions, targets)
-                if self.hypers["log_mae"]:
-                    val_mae_calculator.update(predictions, targets)
+#                val_rmse_calculator.update(predictions, targets)
+#                if self.hypers["log_mae"]:
+#                    val_mae_calculator.update(predictions, targets)
 
-            finalized_val_info = val_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets,
-                is_distributed=is_distributed,
-                device=device,
-            )
+#            finalized_val_info = val_rmse_calculator.finalize(
+#                not_per_atom=["positions_gradients"] + per_structure_targets,
+#                is_distributed=is_distributed,
+#                device=device,
+#            )
             if self.hypers["log_mae"]:
                 finalized_val_info.update(
                     val_mae_calculator.finalize(
@@ -446,43 +458,43 @@ class Trainer(TrainerInterface):
                 )
 
             # Now we log the information:
-            finalized_train_info = {
-                "loss": train_loss,
-                **finalized_train_info,
-            }
-            finalized_val_info = {
-                "loss": val_loss,
-                **finalized_val_info,
-            }
+#            finalized_train_info = {
+#                "loss": train_loss,
+#                **finalized_train_info,
+#            }
+#            finalized_val_info = {
+#                "loss": val_loss,
+#                **finalized_val_info,
+#            }
 
-            if epoch == start_epoch:
-                scaler_scales = (
-                    model.module if is_distributed else model
-                ).scaler.get_scales_dict()
+#            if epoch == start_epoch:
+#                scaler_scales = (
+#                    model.module if is_distributed else model
+#                ).scaler.get_scales_dict()
 
-                metric_logger = MetricLogger(
-                    log_obj=ROOT_LOGGER,
-                    dataset_info=(
-                        model.module if is_distributed else model
-                    ).dataset_info,
-                    initial_metrics=[finalized_train_info, finalized_val_info],
-                    names=["training", "validation"],
-                    scales={
-                        key: (
-                            scaler_scales[key.split(" ")[0]]
-                            if ("MAE" in key or "RMSE" in key)
-                            else 1.0
-                        )
-                        for key in finalized_train_info.keys()
-                    },
-                )
-            if epoch % self.hypers["log_interval"] == 0:
-                metric_logger.log(
-                    metrics=[finalized_train_info, finalized_val_info],
-                    epoch=epoch,
-                    rank=rank,
-                    learning_rate=old_lr,
-                )
+#                metric_logger = MetricLogger(
+#                    log_obj=ROOT_LOGGER,
+#                    dataset_info=(
+#                        model.module if is_distributed else model
+#                    ).dataset_info,
+#                    initial_metrics=[finalized_train_info, finalized_val_info],
+#                    names=["training", "validation"],
+#                    scales={
+#                        key: (
+#                            scaler_scales[key.split(" ")[0]]
+#                            if ("MAE" in key or "RMSE" in key)
+#                            else 1.0
+#                        )
+#                        for key in finalized_train_info.keys()
+#                    },
+#                )
+#            if epoch % self.hypers["log_interval"] == 0:
+#                metric_logger.log(
+#                    metrics=[finalized_train_info, finalized_val_info],
+#                    epoch=epoch,
+#                    rank=rank,
+#                    learning_rate=old_lr,
+#                )
 
             lr_scheduler.step()
             new_lr = lr_scheduler.get_last_lr()[0]
@@ -504,28 +516,28 @@ class Trainer(TrainerInterface):
                         pass  # we don't clutter the log at every warm-up step
                     old_lr = new_lr
 
-            val_metric = get_selected_metric(
-                finalized_val_info, self.hypers["best_model_metric"]
-            )
-            if val_metric < self.best_metric:
-                self.best_metric = val_metric
-                self.best_model_state_dict = copy.deepcopy(
-                    (model.module if is_distributed else model).state_dict()
-                )
-                self.best_epoch = epoch
-                self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
+#            val_metric = get_selected_metric(
+#                finalized_val_info, self.hypers["best_model_metric"]
+#            )
+#            if val_metric < self.best_metric:
+#                self.best_metric = val_metric
+#                self.best_model_state_dict = copy.deepcopy(
+#                    (model.module if is_distributed else model).state_dict()
+#                )
+#                self.best_epoch = epoch
+#                self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 
-            if epoch % self.hypers["checkpoint_interval"] == 0:
-                if is_distributed:
-                    torch.distributed.barrier()
-                self.optimizer_state_dict = optimizer.state_dict()
-                self.scheduler_state_dict = lr_scheduler.state_dict()
-                self.epoch = epoch
-                if rank == 0:
-                    self.save_checkpoint(
-                        (model.module if is_distributed else model),
-                        Path(checkpoint_dir) / f"model_{epoch}.ckpt",
-                    )
+#            if epoch % self.hypers["checkpoint_interval"] == 0:
+#                if is_distributed:
+#                    torch.distributed.barrier()
+#                self.optimizer_state_dict = optimizer.state_dict()
+#                self.scheduler_state_dict = lr_scheduler.state_dict()
+#                self.epoch = epoch
+#                if rank == 0:
+#                    self.save_checkpoint(
+#                        (model.module if is_distributed else model),
+#                        Path(checkpoint_dir) / f"model_{epoch}.ckpt",
+#                    )
 
         # prepare for the checkpoint that will be saved outside the function
         self.epoch = epoch

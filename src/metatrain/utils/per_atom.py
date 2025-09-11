@@ -59,6 +59,7 @@ def divide_by_num_atoms(tensor_map: TensorMap, num_atoms: torch.Tensor) -> Tenso
         if "atom" in block.samples.names:
             new_block = block
         else:
+            print(block.values.shape)
             values = block.values / num_atoms.view(
                 -1, *[1] * (len(block.values.shape) - 1)
             )

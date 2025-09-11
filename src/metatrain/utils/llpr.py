@@ -58,6 +58,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         super().__init__()
 
         self.model = model
+        self.dataset_info = self.model.dataset_info
         self.ll_feat_size = self.model.last_layer_feature_size
 
         # we need the capabilities of the model to be able to infer the capabilities
@@ -68,11 +69,11 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
         # update capabilities: now we have additional outputs for the uncertainty
         additional_capabilities = {}
-        self.outputs_list = []
+        self.outputs = {}
         for name, output in old_capabilities.outputs.items():
             if is_auxiliary_output(name):
                 continue  # auxiliary output
-            self.outputs_list.append(name)
+            self.outputs[name] = output
             uncertainty_name = _get_uncertainty_name(name)
             additional_capabilities[uncertainty_name] = ModelOutput(
                 quantity=output.quantity,
@@ -89,7 +90,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         )
 
         # register covariance, inverse covariance and multiplier buffers
-        for name in self.outputs_list:
+        for name in self.outputs.keys():
             uncertainty_name = _get_uncertainty_name(name)
             self.register_buffer(
                 f"covariance_{uncertainty_name}",
@@ -115,7 +116,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
         # register buffers for ensemble weights and ensemble outputs
         ensemble_outputs = {}
-        for name in self.outputs_list:
+        for name in self.outputs.keys():
             ensemble_output_name = (
                 "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
             )
@@ -154,9 +155,10 @@ class LLPRUncertaintyModel(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        # no uncertainties or ensembles requested
         if all("_uncertainty" not in output for output in outputs):
-            # no uncertainties requested
-            return self.model(systems, outputs, selected_atoms)
+            if all("_ensemble" not in output for output in outputs):
+                return self.model(systems, outputs, selected_atoms)
 
         if not self.inv_covariance_computed:
             raise ValueError(
@@ -166,15 +168,15 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
         outputs_for_model: Dict[str, ModelOutput] = {}
         for name, output in outputs.items():
-            if name.endswith("_uncertainty"):
-                base_name = name.replace("_uncertainty", "").replace("mtt::aux::", "")
+            if name.endswith("_uncertainty") or name.endswith("_ensemble"):
+                base_name = name.replace("_uncertainty", "").replace("_ensemble", "").replace("mtt::aux::", "")
                 if base_name not in outputs and f"mtt::{base_name}" not in outputs:
                     raise ValueError(
                         f"Requested uncertainty '{name}' without corresponding "
                         f"output `{base_name}` (or `mtt::{base_name}`)."
                     )
                 # request corresponding features
-                target_name = name.replace("mtt::aux::", "").replace("_uncertainty", "")
+                target_name = name.replace("mtt::aux::", "").replace("_uncertainty", "").replace("_ensemble", "")
                 outputs_for_model[f"mtt::aux::{target_name}_last_layer_features"] = (
                     ModelOutput(
                         quantity="",
@@ -412,7 +414,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 "been computed yet."
             )
 
-        for name in self.outputs_list:
+        for name in self.outputs.keys():
             uncertainty_name = _get_uncertainty_name(name)
             covariance = self._get_covariance(uncertainty_name)
             inv_covariance = self._get_inv_covariance(uncertainty_name)
@@ -806,6 +808,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
         for n, buffer in self.named_buffers():
             if n == name:
                 return buffer
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
 
 
 def _get_uncertainty_name(name: str):

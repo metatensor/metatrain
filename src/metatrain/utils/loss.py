@@ -4,11 +4,11 @@ from typing import Any, Dict, Optional, Type
 
 import metatensor.torch as mts
 import torch
-from metatensor.torch import TensorMap
+from metatensor.torch import TensorMap, TensorBlock, Labels
 from torch.nn.modules.loss import _Loss
 
 from metatrain.utils.data import TargetInfo
-
+from metatrain.pet.DOSutils import get_dynamic_shift_agnostic_mse
 
 class LossInterface(ABC):
     """
@@ -562,7 +562,8 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         self,
         pred_mean: TensorMap,
         target: TensorMap,
-        pred_var: Optional[TensorMap] = None,
+        pred_var:TensorMap,
+        mask: Optional[TensorMap] = None,
     ) -> torch.Tensor:
         """
         Flatten prediction and target blocks (and optional mask), then
@@ -596,17 +597,26 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
             block_pred_var = pred_var.block(single_key)
 
             flat_pred_mean = extract_flattened_values_from_block(block_pred_mean)
-            flat_pred_target = extract_flattened_values_from_block(block_target)
+            flat_target = extract_flattened_values_from_block(block_target)
             flat_pred_var = extract_flattened_values_from_block(block_pred_var)
 
-            list_pred_mean_segments.append(flat_pred_mean)
-            list_target_segments.append(flat_pred_target)
-            list_pred_var_segments.append(flat_pred_var)
+            if mask is not None:
+                block_mask = mask.block(single_key)
+                flat_mask = extract_flattened_values_from_block(block_mask).bool()
 
+                flat_pred_mean = flat_pred_mean[flat_mask]
+                flat_target = flat_target[flat_mask]
+                flat_pred_var = flat_pred_var[flat_mask]
+
+            list_pred_mean_segments.append(flat_pred_mean)
+            list_target_segments.append(flat_target)
+            list_pred_var_segments.append(flat_pred_var)
+ 
         # Concatenate all segments and apply the torch loss
         all_pred_mean_flattened = torch.cat(list_pred_mean_segments)
         all_targets_flattened = torch.cat(list_target_segments)
         all_pred_var_flattened = torch.cat(list_pred_var_segments)
+
         return self.torch_loss(
             all_pred_mean_flattened,
             all_targets_flattened,
@@ -631,7 +641,8 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
             should have the same metadata as the target and prediction tensors.
         :return: Scalar loss tensor.
         """
-        tsm_pred = predictions[self.target]
+        ens_name = "mtt::aux::" + self.target.replace("mtt::", "") + "_ensemble"
+        tsm_pred = predictions[ens_name]
         tsm_targ = targets[self.target]
 
         # Check gradients are present in the target TensorMap
@@ -646,7 +657,64 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         tsm_pred_mean = mts.mean_over_samples(tsm_pred, ["ensemble_member"])
         tsm_pred_var = mts.var_over_samples(tsm_pred, ["ensemble_member"])
 
-        return self.compute_flattened(tsm_pred_mean, tsm_targ, tsm_pred_var)
+        if self.target == "mtt::dos":
+
+                dtype = tsm_pred_mean.block().values.dtype
+                device = tsm_pred_mean.block().values.device
+
+                cur_pred = tsm_pred_mean.block().values.detach()
+                cur_targ = tsm_targ.block().values.detach()
+                cur_mask = extra_data["mtt::mask"].block().values.detach()
+                _, cur_shift = get_dynamic_shift_agnostic_mse(cur_pred, cur_targ, cur_mask, return_shift=True)
+ 
+                revised_dos_targets = torch.zeros(cur_pred.shape, dtype=dtype, device=device)
+                revised_masks = torch.zeros(cur_pred.shape, dtype=dtype, device=device)
+
+                # broadcasting tensors
+                rows = torch.arange(cur_pred.shape[0]).unsqueeze(1).to(device)
+                cols = cur_shift.unsqueeze(1) + torch.arange(cur_targ.shape[1]).to(device)
+
+                # revised DOS target via broadcasting
+                revised_dos_targets[rows, cols] = cur_targ
+
+                # get revised masks, padding the low E end with 1's
+                revised_masks[rows, cols] = cur_mask
+                low_e_cols = torch.arange(cur_pred.shape[1]).unsqueeze(0).expand(len(rows), -1).to(device=device)
+                low_e_mask = low_e_cols < cur_shift.unsqueeze(1)
+                revised_masks[low_e_mask] = 1
+                mask_count = revised_masks.sum(dim=0)
+
+                tsm_revised_targ = TensorMap(
+                        keys=Labels(
+                            names=["_"],
+                            values=torch.tensor([[0]], device=device),
+                            ),
+                        blocks=[
+                            TensorBlock(
+                                values=revised_dos_targets,
+                                samples=tsm_pred_mean.block().samples,
+                                components=tsm_pred_mean.block().components,
+                                properties=tsm_pred_mean.block().properties,
+                                )
+                            ],
+                        )
+
+                tsm_cur_mask = TensorMap(
+                        keys=Labels(
+                            names=["_"],
+                            values=torch.tensor([[0]], device=device),
+                            ),
+                        blocks=[
+                            TensorBlock(
+                                values=revised_masks,
+                                samples=tsm_pred_mean.block().samples,
+                                components=tsm_pred_mean.block().components,
+                                properties=tsm_pred_mean.block().properties,
+                                )
+                            ],
+                        )
+
+        return self.compute_flattened(tsm_pred_mean, tsm_revised_targ, tsm_pred_var, tsm_cur_mask)
 
 # --- aggregator -----------------------------------------------------------------------
 

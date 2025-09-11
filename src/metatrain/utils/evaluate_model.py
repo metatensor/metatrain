@@ -27,6 +27,7 @@ def evaluate_model(
     systems: List[System],
     targets: Dict[str, TargetInfo],
     is_training: bool,
+    is_llpr_ens_recalib: bool = True,
     check_consistency: bool = False,
 ) -> Dict[str, TensorMap]:
     """
@@ -39,10 +40,10 @@ def evaluate_model(
     :param targets: The names of the targets to evaluate (keys), along with their
         associated gradients (values).
     :param is_training: Whether the model is being computed during training.
+    :param is_llpr_ens_recalib: Whether the LLPR ensemble is being recalibrated.
 
     :returns: The predictions of the model for the requested targets.
     """
-
     # ignore warnings about gradients
     warnings.filterwarnings(
         action="ignore",
@@ -82,7 +83,7 @@ def evaluate_model(
     systems = new_systems
 
     # Based on the keys of the targets, get the outputs of the model:
-    model_outputs = _get_model_outputs(model, systems, targets, check_consistency)
+    model_outputs = _get_model_outputs(model, systems, targets, check_consistency, is_llpr_ens_recalib)
 
     for energy_target in energy_targets:
         # If the energy target requires gradients, compute them:
@@ -235,6 +236,7 @@ def _get_model_outputs(
     systems: List[System],
     targets: Dict[str, TargetInfo],
     check_consistency: bool,
+    is_llpr_ens_recalib: bool,
 ) -> Dict[str, TensorMap]:
     if is_atomistic_model(model):
         # put together an EvaluationOptions object
@@ -249,15 +251,23 @@ def _get_model_outputs(
         )
         return model(systems, options, check_consistency=check_consistency)
     else:
-        return model(
-            systems,
-            {
-                key: ModelOutput(
-                    quantity=value.quantity, unit=value.unit, per_atom=value.per_atom
+        target_dict = {}
+        for key, value in targets.items():
+            target_dict[key] = ModelOutput(
+                    quantity=value.quantity,
+                    unit=value.unit,
+                    per_atom=value.per_atom,
+                    )
+
+            if is_llpr_ens_recalib:
+                ens_name = "mtt::aux::" + key.replace("mtt::", "") + "_ensemble"
+                target_dict[ens_name] = ModelOutput(
+                        quantity="",
+                        unit="",
+                        per_atom = value.per_atom,
                 )
-                for key, value in targets.items()
-            },
-        )
+
+        return model(systems, target_dict)
 
 
 @torch_jit_script_unless_coverage
