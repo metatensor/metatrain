@@ -1,0 +1,10 @@
+architecture:
+  name: llpr
+  model: {}
+  training:
+    model_checkpoint: null
+    batch_size: 16
+    regularizer: null
+    ensembles:
+      means: {}
+      num_members: {}

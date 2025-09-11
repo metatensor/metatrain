@@ -35,6 +35,11 @@ class Trainer(TrainerInterface):
     ):
         # Load the wrapped model from checkpoint and set it as the wrapped model of the
         # LLPR model:
+        if self.hypers["model_checkpoint"] is None:
+            raise ValueError(
+                "A model checkpoint must be provided to train the LLPR "
+                "(model_checkpoint, under training, in the hypers)"
+            )
         wrapped_model_checkpoint_path = self.hypers["model_checkpoint"]
         checkpoint = torch.load(
             wrapped_model_checkpoint_path, weights_only=False, map_location="cpu"
