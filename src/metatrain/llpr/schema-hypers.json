@@ -19,7 +19,9 @@
               "patternProperties": {
                 ".*": {
                   "type": "array",
-                  "items": { "type": "string" }
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "additionalProperties": false
@@ -27,7 +29,9 @@
             "num_members": {
               "type": "object",
               "patternProperties": {
-                ".*": { "type": "integer" }
+                ".*": {
+                  "type": "integer"
+                }
               },
               "additionalProperties": false
             }
@@ -45,10 +49,16 @@
           "type": "integer"
         },
         "model_checkpoint": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "regularizer": {
-          "type": ["number", "null"]
+          "type": [
+            "number",
+            "null"
+          ]
         }
       },
       "additionalProperties": false

@@ -93,16 +93,16 @@ class LLPRUncertaintyModel(ModelInterface):
                     f"Atomic type {atomic_type} not supported by the wrapped model"
                 )
         for target_name, target in dataset_info.targets.items():
-           if target_name not in old_capabilities.outputs:
-               raise ValueError(
-                   f"Target {target_name} not supported by the wrapped model"
-               )
-           if target.unit != old_capabilities.outputs[target_name].unit:
-               raise ValueError(
-                   f"Target {target_name} has unit {target.unit}, but the "
-                   f"wrapped model has unit "
-                   f"{old_capabilities.outputs[target_name].unit}"
-               )
+            if target_name not in old_capabilities.outputs:
+                raise ValueError(
+                    f"Target {target_name} not supported by the wrapped model"
+                )
+            if target.unit != old_capabilities.outputs[target_name].unit:
+                raise ValueError(
+                    f"Target {target_name} has unit {target.unit}, but the "
+                    f"wrapped model has unit "
+                    f"{old_capabilities.outputs[target_name].unit}"
+                )
 
         # update capabilities: now we have additional outputs for the uncertainty
         additional_capabilities = {}
@@ -171,7 +171,7 @@ class LLPRUncertaintyModel(ModelInterface):
                 ensemble_weights_name = "energy_ensemble_weights"
             self.register_buffer(
                 ensemble_weights_name,
-                torch.zeros(ensemble_weight_sizes[ensemble_weights_name], dtype=dtype),
+                torch.zeros(ensemble_weight_sizes[name], dtype=dtype),
             )
             ensemble_output_name = (
                 "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
@@ -536,7 +536,15 @@ class LLPRUncertaintyModel(ModelInterface):
             values should be 1D PyTorch tensors.
         :param n_members: The number of members in the ensemble.
         """
-        weight_tensors = {}
+        weight_tensors = {
+            name: torch.concatenate(
+                [
+                    self.model.state_dict()[tensor_name].flatten()
+                    for tensor_name in tensor_names
+                ]
+            )
+            for name, tensor_names in self.hypers["ensembles"]["means"].items()
+        }  # type: ignore
 
         # sampling; each member is sampled from a multivariate normal distribution
         # with mean given by the input weights and covariance given by the inverse
@@ -554,7 +562,7 @@ class LLPRUncertaintyModel(ModelInterface):
                 .cpu()
                 .numpy()
                 * self._get_multiplier(uncertainty_name).item() ** 2,
-                size=n_members,
+                size=self.hypers["ensembles"]["num_members"][name],
                 method="svd",
             ).T
             ensemble_weights = torch.tensor(
@@ -679,22 +687,14 @@ class LLPRUncertaintyModel(ModelInterface):
             if n == name:
                 requested_buffer = buffer
         return requested_buffer
-    
-    @classmethod
-    def load_checkpoint(
-        cls,
-        checkpoint: Dict[str, Any],
-        context: Literal["restart", "finetune", "export"],
-    ) -> "LLPRUncertaintyModel":
-        raise NotImplementedError("LLPR does not allow loading checkpoints")
 
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for LLPR")
+        raise NotImplementedError("TODO")
 
     def get_checkpoint(self) -> Dict[str, Any]:
-        raise NotImplementedError("LLPR does not support checkpointing")
-    
+        raise NotImplementedError("LLPR does not support get_checkpoint")
+
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         raise ValueError("supported_outputs is not implemented for LLPR")
 
