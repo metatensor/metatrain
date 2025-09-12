@@ -13,10 +13,12 @@ from .data import TargetInfo
 
 
 def get_random_rotation():
+    """Random 3D rotation that is Haar uniformly distributed over SO(3)."""
     return Rotation.random()
 
 
 def get_random_inversion():
+    """Randomly choose an inversion factor -1 or 1."""
     return random.choice([1, -1])
 
 
