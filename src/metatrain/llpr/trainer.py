@@ -143,8 +143,7 @@ class Trainer(TrainerInterface):
         model.generate_ensemble()
 
     def save_checkpoint(self, model, checkpoint_dir: Union[str, Path]):
-        # The LLPR trainer won't save a checkpoint since it doesn't support restarting
-        return
+        model.save_checkpoint(checkpoint_dir)
 
     @classmethod
     def load_checkpoint(

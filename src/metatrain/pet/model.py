@@ -411,7 +411,15 @@ class PET(ModelInterface):
         # per-node contribution.
 
         last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
-        for output_name in self.target_names:
+        for output_name in node_last_layer_features_dict.keys():
+            if (
+                output_name not in outputs
+                and f"mtt::aux::{
+                    output_name.replace('mtt::aux::', '')
+                }_last_layer_features"
+                not in outputs
+            ):
+                continue
             if output_name not in last_layer_features_dict:
                 last_layer_features_dict[output_name] = []
             for i in range(len(node_last_layer_features_dict[output_name])):
@@ -434,14 +442,6 @@ class PET(ModelInterface):
                 "_last_layer_features", ""
             )
             # the corresponding output could be base_name or mtt::base_name
-            if (
-                f"mtt::{base_name}" not in last_layer_features_dict
-                and base_name not in last_layer_features_dict
-            ):
-                raise ValueError(
-                    f"Features {output_name} can only be requested "
-                    f"if the corresponding output {base_name} is also requested."
-                )
             if f"mtt::{base_name}" in last_layer_features_dict:
                 base_name = f"mtt::{base_name}"
             last_layer_features_values = torch.cat(

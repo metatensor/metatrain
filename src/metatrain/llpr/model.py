@@ -19,6 +19,7 @@ from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import is_auxiliary_output
 from metatrain.utils.io import check_file_extension, model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
+
 from . import checkpoints
 
 
@@ -172,7 +173,9 @@ class LLPRUncertaintyModel(ModelInterface):
                 ensemble_weights_name = "energy_ensemble_weights"
             self.register_buffer(
                 ensemble_weights_name,
-                torch.zeros((self.ll_feat_size, ensemble_weight_sizes[name]), dtype=dtype),
+                torch.zeros(
+                    (self.ll_feat_size, ensemble_weight_sizes[name]), dtype=dtype
+                ),
             )
             ensemble_output_name = (
                 "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
@@ -202,15 +205,21 @@ class LLPRUncertaintyModel(ModelInterface):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        if all("_uncertainty" not in output for output in outputs):
+        if all(output.endswith("_uncertainty") for output in outputs) and all(
+            output.endswith("_ensemble") for output in outputs
+        ):
             # no uncertainties requested
             return self.model(systems, outputs, selected_atoms)
 
         outputs_for_model: Dict[str, ModelOutput] = {}
         for name, output in outputs.items():
-            if name.endswith("_uncertainty"):
+            if name.endswith("_uncertainty") or name.endswith("_ensemble"):
                 # request corresponding features
-                target_name = name.replace("mtt::aux::", "").replace("_uncertainty", "")
+                target_name = (
+                    name.replace("mtt::aux::", "")
+                    .replace("_uncertainty", "")
+                    .replace("_ensemble", "")
+                )
                 outputs_for_model[f"mtt::aux::{target_name}_last_layer_features"] = (
                     ModelOutput(
                         quantity="",
@@ -218,8 +227,20 @@ class LLPRUncertaintyModel(ModelInterface):
                         per_atom=output.per_atom,
                     )
                 )
+                # for the ensemble, we also need the original output
+                if name.endswith("_ensemble"):
+                    if (
+                        name.replace("_ensemble", "") not in outputs
+                        and name.replace("mtt::aux::", "").replace("_ensemble", "")
+                        not in outputs
+                    ):
+                        raise ValueError(
+                            f"Ensemble output {name} can only be requested if the "
+                            "corresponding raw output is also requested"
+                        )
+
         for name, output in outputs.items():
-            # remove uncertainties from the requested outputs for the
+            # remove uncertainties and ensembles from the requested outputs for the
             # wrapped model
             if name.startswith("mtt::aux") and name.endswith("_uncertainty"):
                 continue

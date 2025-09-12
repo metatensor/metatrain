@@ -4,8 +4,8 @@ architecture:
   name: pet
   training:
     finetune:
-      read_from: pet-llpr.ckpt
-      strategy: full
+      read_from: model-llpr.ckpt
+      method: full
     batch_size: 1
     num_epochs: 1
 

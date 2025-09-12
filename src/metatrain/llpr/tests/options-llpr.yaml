@@ -1,4 +1,5 @@
 seed: 42
+device: cpu
 
 architecture:
   name: llpr
@@ -10,7 +11,7 @@ architecture:
           - node_last_layers.energy.1.energy___0.weight
           - edge_last_layers.energy.0.energy___0.weight
           - edge_last_layers.energy.1.energy___0.weight
-      num_members: {energy: 10000000}  # needed to converge the tests
+      num_members: {energy: 100000}  # needed to converge the std in the tests
   training:
     model_checkpoint: model.ckpt
     batch_size: 4

@@ -8,5 +8,7 @@ def model_update_v1_v2(checkpoint):
             "means": {"energy": []},
         },
     }
-    checkpoint["model_data"]["dataset_info"] = checkpoint["wrapped_model_checkpoint"]["model_data"]["dataset_info"]
+    checkpoint["model_data"]["dataset_info"] = checkpoint["wrapped_model_checkpoint"][
+        "model_data"
+    ]["dataset_info"]
     return checkpoint
