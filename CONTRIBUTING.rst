@@ -160,7 +160,7 @@ How to Perform a Release
 1. **Prepare a Release Pull Request**
 
    - Based on the main branch create branch ``release-2025.3`` and a PR.
-   - Ensure that all `CI tests <https://github.com/lab-cosmo/torch-pme/actions>`_ pass.
+   - Ensure that all `CI tests <https://github.com/metatensor/metatrain/actions>`_ pass.
    - Optionally, run the tests locally to double-check.
 
 2. **Update the Changelog**
