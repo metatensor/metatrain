@@ -137,6 +137,26 @@ class Trainer(TrainerInterface):
         if is_finetune:
             model = apply_finetuning_strategy(model, self.hypers["finetune"])
 
+        # Custom modification of free vs. fixed weights
+        # We keep the head weights and last layer ensemble weights trainable,
+        # everything else fixed. 
+        if is_llpr_ens_recalib:
+
+            head_keywords = ['node_heads', 'edge_heads']
+            last_layer_keywords = ['node_last_layers', 'edge_last_layers']
+
+            for name, param in model.model.named_parameters():  # llpr_model.model
+                if any(name.startswith(kw) for kw in head_keywords + last_layer_keywords):
+                    print(name)
+                    param.requires_grad = True
+                else:
+                    param.requires_grad = False
+
+            for key, layers in model.llpr_ensemble_layers.items():
+                for _, param in layers.named_parameters():
+                    print(_)
+                    param.requires_grad = True
+
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
         # The additive models of PET are always in float64 (to avoid numerical errors in
@@ -305,6 +325,18 @@ class Trainer(TrainerInterface):
         rotational_augmenter = RotationalAugmenter(
             train_targets, extra_data_info_dict=extra_data_info
         )
+
+
+
+
+
+
+
+
+
+
+
+
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
