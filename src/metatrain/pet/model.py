@@ -414,9 +414,7 @@ class PET(ModelInterface):
         for output_name in node_last_layer_features_dict.keys():
             if (
                 output_name not in outputs
-                and f"mtt::aux::{
-                    output_name.replace('mtt::aux::', '')
-                }_last_layer_features"
+                and f"mtt::aux::{output_name.replace('mtt::aux::', '')}_last_layer_features"  # noqa: E501
                 not in outputs
             ):
                 continue

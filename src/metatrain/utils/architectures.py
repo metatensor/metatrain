@@ -168,7 +168,6 @@ def find_all_architectures() -> List[str]:
     architecture_names = []
     for option_file_path in options_files_path:
         architecture_names.append(get_architecture_name(option_file_path))
-    architecture_names.append("llpr")
 
     return architecture_names
 

@@ -1,5 +1,4 @@
 seed: 42
-device: cpu
 
 architecture:
   name: llpr
