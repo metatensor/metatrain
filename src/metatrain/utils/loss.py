@@ -538,9 +538,7 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
 
 class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
     """
-    Masked Huber loss on :py:class:`TensorMap` entries.
-
-    :param delta: threshold parameter for HuberLoss.
+    Ensemble NLL Loss
     """
 
     def __init__(
@@ -628,6 +626,7 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
         extra_data: Optional[Dict[str, TensorMap]] = None,
+        validation = False,
     ) -> torch.Tensor:
         """
         Gather and flatten target and prediction blocks, then compute loss.
@@ -682,7 +681,7 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
                 low_e_cols = torch.arange(cur_pred.shape[1]).unsqueeze(0).expand(len(rows), -1).to(device=device)
                 low_e_mask = low_e_cols < cur_shift.unsqueeze(1)
                 revised_masks[low_e_mask] = 1
-                mask_count = revised_masks.sum(dim=0)
+                # mask_count = revised_masks.sum(dim=0)
 
                 tsm_revised_targ = TensorMap(
                         keys=Labels(

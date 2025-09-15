@@ -359,6 +359,7 @@ class Trainer(TrainerInterface):
                 val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
             train_loss = 0.0
+            train_count = 0
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
@@ -371,6 +372,7 @@ class Trainer(TrainerInterface):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
+                train_count += len(systems)
 
 #                for additive_model in (
 #                    model.module if is_distributed else model
@@ -398,7 +400,7 @@ class Trainer(TrainerInterface):
                     predictions = average_by_num_atoms(
                         predictions, systems, per_structure_targets
                     )
-                    targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                    # targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
                 train_loss_batch.backward()
@@ -411,6 +413,7 @@ class Trainer(TrainerInterface):
                     # sum the loss over all processes
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
+            train_loss /= train_count
 
                 # train_rmse_calculator.update(predictions, targets)
 #                if self.hypers["log_mae"]:
@@ -420,21 +423,23 @@ class Trainer(TrainerInterface):
 #                is_distributed=is_distributed,
 #                device=device,
 #            )
-            if self.hypers["log_mae"]:
-                finalized_train_info.update(
-                    train_mae_calculator.finalize(
-                        not_per_atom=["positions_gradients"] + per_structure_targets,
-                        is_distributed=is_distributed,
-                        device=device,
-                    )
-                )
+            # if self.hypers["log_mae"]:
+            #     finalized_train_info.update(
+            #         train_mae_calculator.finalize(
+            #             not_per_atom=["positions_gradients"] + per_structure_targets,
+            #             is_distributed=is_distributed,
+            #             device=device,
+            #         )
+            #     )
 
             val_loss = 0.0
+            val_count = 0
             for batch in val_dataloader:
                 systems, targets, extra_data = batch
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
+                val_count += len(systems)
 #                for additive_model in (
 #                    model.module if is_distributed else model
 #                ).additive_models:
@@ -448,7 +453,7 @@ class Trainer(TrainerInterface):
                     systems, targets, extra_data, dtype=dtype
                 )
 
-                cur_eval_targets = {key: train_targets[key] for key in targets.keys()}
+                # cur_eval_targets = {key: train_targets[key] for key in targets.keys()}
 
                 predictions = evaluate_model(
                     model,
@@ -463,7 +468,7 @@ class Trainer(TrainerInterface):
                     predictions = average_by_num_atoms(
                         predictions, systems, per_structure_targets
                     )
-                    targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                    # targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 val_loss_batch = loss_fn(predictions, targets, extra_data)
 
@@ -471,46 +476,45 @@ class Trainer(TrainerInterface):
                     # sum the loss over all processes
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
-#                val_rmse_calculator.update(predictions, targets)
-#                if self.hypers["log_mae"]:
-#                    val_mae_calculator.update(predictions, targets)
+            val_loss /= val_count
+        #        val_rmse_calculator.update(predictions, targets)
+        #        if self.hypers["log_mae"]:
+        #            val_mae_calculator.update(predictions, targets)
 
-#            finalized_val_info = val_rmse_calculator.finalize(
-#                not_per_atom=["positions_gradients"] + per_structure_targets,
-#                is_distributed=is_distributed,
-#                device=device,
-#            )
-            if self.hypers["log_mae"]:
-                finalized_val_info.update(
-                    val_mae_calculator.finalize(
-                        not_per_atom=["positions_gradients"] + per_structure_targets,
-                        is_distributed=is_distributed,
-                        device=device,
-                    )
-                )
+        #    finalized_val_info = val_rmse_calculator.finalize(
+        #        not_per_atom=["positions_gradients"] + per_structure_targets,
+        #        is_distributed=is_distributed,
+        #        device=device,
+        #    )
+        #     if self.hypers["log_mae"]:
+        #         finalized_val_info.update(
+        #             val_mae_calculator.finalize(
+        #                 not_per_atom=["positions_gradients"] + per_structure_targets,
+        #                 is_distributed=is_distributed,
+        #                 device=device,
+        #             )
+        #         )
 
-            # Now we log the information:
-#            finalized_train_info = {
-#                "loss": train_loss,
-#                **finalized_train_info,
-#            }
-#            finalized_val_info = {
-#                "loss": val_loss,
-#                **finalized_val_info,
-#            }
-
-#            if epoch == start_epoch:
+            finalized_train_info = {
+               "loss": train_loss,
+            #    **finalized_train_info,
+           }
+            finalized_val_info = {
+               "loss": val_loss,
+            #    **finalized_val_info,
+           }
+            if epoch == start_epoch:
 #                scaler_scales = (
 #                    model.module if is_distributed else model
 #                ).scaler.get_scales_dict()
 
-#                metric_logger = MetricLogger(
-#                    log_obj=ROOT_LOGGER,
-#                    dataset_info=(
-#                        model.module if is_distributed else model
-#                    ).dataset_info,
-#                    initial_metrics=[finalized_train_info, finalized_val_info],
-#                    names=["training", "validation"],
+               metric_logger = MetricLogger(
+                   log_obj=ROOT_LOGGER,
+                   dataset_info=(
+                       model.module if is_distributed else model
+                   ).dataset_info,
+                   initial_metrics=[finalized_train_info, finalized_val_info],
+                   names=["training", "validation"],
 #                    scales={
 #                        key: (
 #                            scaler_scales[key.split(" ")[0]]
@@ -519,14 +523,14 @@ class Trainer(TrainerInterface):
 #                        )
 #                        for key in finalized_train_info.keys()
 #                    },
-#                )
-#            if epoch % self.hypers["log_interval"] == 0:
-#                metric_logger.log(
-#                    metrics=[finalized_train_info, finalized_val_info],
-#                    epoch=epoch,
-#                    rank=rank,
-#                    learning_rate=old_lr,
-#                )
+               )
+            if epoch % self.hypers["log_interval"] == 0:
+               metric_logger.log(
+                   metrics=[finalized_train_info, finalized_val_info],
+                   epoch=epoch,
+                   rank=rank,
+                   learning_rate=old_lr,
+               )
 
             lr_scheduler.step()
             new_lr = lr_scheduler.get_last_lr()[0]
@@ -548,16 +552,17 @@ class Trainer(TrainerInterface):
                         pass  # we don't clutter the log at every warm-up step
                     old_lr = new_lr
 
-#            val_metric = get_selected_metric(
+        #    val_metric = get_selected_metric(
 #                finalized_val_info, self.hypers["best_model_metric"]
 #            )
-#            if val_metric < self.best_metric:
-#                self.best_metric = val_metric
-#                self.best_model_state_dict = copy.deepcopy(
-#                    (model.module if is_distributed else model).state_dict()
-#                )
-#                self.best_epoch = epoch
-#                self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
+            val_metric = val_loss
+            if val_metric < self.best_metric:
+               self.best_metric = val_metric
+               self.best_model_state_dict = copy.deepcopy(
+                   (model.module if is_distributed else model).state_dict()
+               )
+               self.best_epoch = epoch
+               self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 
 #            if epoch % self.hypers["checkpoint_interval"] == 0:
 #                if is_distributed:
