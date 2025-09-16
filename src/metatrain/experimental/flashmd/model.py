@@ -277,11 +277,14 @@ class FlashMD(ModelInterface):
         # - `sample_labels` [n_atoms, 2]: The metatensor.torch.Labels object, containing
         #   indices of each atom in each system.
 
+        # Here, we once verify that all systems have masses attached.
         verify_masses(systems, self.masses)
 
         (
             element_indices_nodes,
+            positions,
             momenta,
+            masses,
             element_indices_neighbors,
             edge_vectors,
             padding_mask,
@@ -687,25 +690,17 @@ class FlashMD(ModelInterface):
                     return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
 
         # modify p
-        positions_tensormap = return_dict["momenta"]
+        momenta_tensormap = return_dict["momenta"]
         return_dict["momenta"] = TensorMap(
-            keys=positions_tensormap.keys,
+            keys=momenta_tensormap.keys,
             blocks=[
                 TensorBlock(
-                    values=block.values
-                    * torch.sqrt(
-                        torch.concatenate(
-                            [
-                                system.get_data("masses").block().values.unsqueeze(-1)
-                                for system in systems
-                            ]
-                        )
-                    ),
+                    values=block.values * masses[:, None, None],
                     samples=block.samples,
                     components=block.components,
                     properties=block.properties,
                 )
-                for block in positions_tensormap.blocks()
+                for block in momenta_tensormap.blocks()
             ],
         )
 
@@ -715,18 +710,7 @@ class FlashMD(ModelInterface):
             keys=positions_tensormap.keys,
             blocks=[
                 TensorBlock(
-                    values=block.values
-                    / torch.sqrt(
-                        torch.concatenate(
-                            [
-                                system.get_data("masses").block().values.unsqueeze(-1)
-                                for system in systems
-                            ]
-                        )
-                    )
-                    + torch.concatenate(
-                        [system.positions for system in systems]
-                    ).unsqueeze(-1),
+                    values=block.values * masses[:, None, None] + positions[..., None],
                     samples=block.samples,
                     components=block.components,
                     properties=block.properties,

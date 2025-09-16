@@ -397,6 +397,7 @@ def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
                 )
             )
 
+    name = "positions" if target["unit"] == "A" else "momenta"
     block = TensorBlock(
         # float64: otherwise metatensor can't serialize
         values=torch.empty(
@@ -408,7 +409,7 @@ def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
             values=torch.empty((0, len(sample_names)), dtype=torch.int32),
         ),
         components=components,
-        properties=Labels.range("properties", target["num_subtargets"]),
+        properties=Labels.range(name, target["num_subtargets"]),
     )
     layout = TensorMap(
         keys=Labels.single(),

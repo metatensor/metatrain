@@ -20,6 +20,7 @@ def concatenate_structures(
     positions: list[torch.Tensor] = []
     momenta: list[torch.Tensor] = []
     centers: list[torch.Tensor] = []
+    masses: list[torch.Tensor] = []
     neighbors: list[torch.Tensor] = []
     species: list[torch.Tensor] = []
     cell_shifts: list[torch.Tensor] = []
@@ -75,6 +76,9 @@ def concatenate_structures(
         species.append(system.types[system_selected_atoms])
 
         centers.append(centers_values + node_counter)
+        tmap = system.get_data("masses")
+        block = tmap[0]
+        masses.append(block.values[system_selected_atoms].squeeze(-1))
         neighbors.append(neighbors_values + node_counter)
         cell_shifts.append(cell_shifts_values)
 
@@ -91,6 +95,7 @@ def concatenate_structures(
     positions = torch.cat(positions)
     momenta = torch.cat(momenta)
     centers = torch.cat(centers)
+    masses = torch.cat(masses)
     neighbors = torch.cat(neighbors)
     species = torch.cat(species)
     cells = torch.stack(cells)
@@ -111,6 +116,7 @@ def concatenate_structures(
         positions,
         momenta,
         centers,
+        masses,
         neighbors,
         species,
         cells,
@@ -146,6 +152,7 @@ def systems_to_batch(
         positions,
         momenta,
         centers,
+        masses,
         neighbors,
         species,
         cells,
@@ -205,7 +212,9 @@ def systems_to_batch(
     neighbors_index = edge_array_to_nef(neighbors, nef_indices).to(torch.int64)
     return (
         element_indices_nodes,
+        positions,
         momenta,
+        masses,
         element_indices_neighbors,
         edge_vectors,
         nef_mask,
