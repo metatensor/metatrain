@@ -710,8 +710,6 @@ class LLPRUncertaintyModel(torch.nn.Module):
         state_dict = {
             k: v for k, v in self.state_dict().items() if not k.startswith("model.")
         }
-        state_dict["num_subtargets"] = self.num_subtargets
-        state_dict["n_ens"] = self.n_ens
         state_dict["dos"] = self.dos
         
 
@@ -733,6 +731,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
         cls,
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export", "recalib"],
+        num_subtargets: Optional[DefaultDict] = defaultdict(lambda: 1),
+        n_ens: Optional[DefaultDict] = defaultdict(lambda: 1),
     ) -> "LLPRUncertaintyModel":
         if context == "finetune":
             model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], context)
@@ -745,9 +745,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
             )
         elif context == "recalib":
             model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], "restart")
-            wrapped_model = cls(model, checkpoint["state_dict"]["num_subtargets"])
-
-            wrapped_model.n_ens = checkpoint["state_dict"]["n_ens"]
+            wrapped_model = cls(model, num_subtargets)
+            wrapped_model.n_ens = n_ens
             wrapped_model.covariance_computed = checkpoint["llpr_flags"]["covariance_computed"]
             wrapped_model.inv_covariance_computed = checkpoint["llpr_flags"]["inv_covariance_computed"]
             wrapped_model.is_calibrated = checkpoint["llpr_flags"]["is_calibrated"]
