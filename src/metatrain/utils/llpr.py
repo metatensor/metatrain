@@ -728,7 +728,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        context: Literal["restart", "finetune", "export"],
+        context: Literal["restart", "finetune", "export", "recalib"],
     ) -> "LLPRUncertaintyModel":
         model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], context)
         if context == "finetune":
@@ -739,6 +739,32 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 "Please consider finetuning the model, or just export it "
                 "in the TorchScript format for final usage."
             )
+        elif context == "recalib":
+
+            self.model = model
+            self.covariance_computed = checkpoint["llpr_flags"]["covariance_computed"]
+            self.inv_covariance_computed = checkpoint["llpr_flags"]["inv_covariance_computed"]
+            self.is_calibrated = checkpoint["llpr_flags"]["is_calibrated"]
+
+            for key, val in checkpoint["state_dict"].items():
+                if "covariance_" in key:
+                    self.get_buffer(key).copy_(val)
+                elif "inv_covariance_" in key:
+                    self.get_buffer(key).copy_(val)
+                elif "multiplier_" in key:
+                    self.get_buffer(key).copy_(val)
+                elif "llpr_ensemble_layers" in key:
+                    orig_name = key.split(".")[1]
+                    if orig_name in module_dict:
+                        self.llpr_ensemble_layers[orig_name].weight.copy(val)
+                    else:
+                        self.llpr_ensemble_layers[orig_name] = torch.nn.Linear(
+                            self.ll_feat_size,
+                            weights.shape[0] * n_ens[name],
+                            bias=False
+                        )
+                        self.llpr_ensemble_layers[orig_name].weight.copy(val)
+
         elif context == "export":
             # Find the size of the ensemble weights, if any:
             ensemble_weight_sizes = {}
