@@ -345,8 +345,9 @@ class Trainer(TrainerInterface):
             self.best_metric = float("inf")
         logging.info("Starting training")
         epoch = start_epoch
-
+        print ("Training is about to start")
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
+            print ("Starting Epoch ", epoch)
             if is_distributed:
                 for train_sampler in train_samplers:
                     train_sampler.set_epoch(epoch)
@@ -564,17 +565,17 @@ class Trainer(TrainerInterface):
                self.best_epoch = epoch
                self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 
-#            if epoch % self.hypers["checkpoint_interval"] == 0:
-#                if is_distributed:
-#                    torch.distributed.barrier()
-#                self.optimizer_state_dict = optimizer.state_dict()
-#                self.scheduler_state_dict = lr_scheduler.state_dict()
-#                self.epoch = epoch
-#                if rank == 0:
-#                    self.save_checkpoint(
-#                        (model.module if is_distributed else model),
-#                        Path(checkpoint_dir) / f"model_{epoch}.ckpt",
-#                    )
+            # if epoch % self.hypers["checkpoint_interval"] == 0:
+            #     if is_distributed:
+            #        torch.distributed.barrier()
+            #     self.optimizer_state_dict = optimizer.state_dict()
+            #     self.scheduler_state_dict = lr_scheduler.state_dict()
+            #     self.epoch = epoch
+            #     if rank == 0:
+            #         self.save_checkpoint(
+            #            (model.module if is_distributed else model),
+            #            Path(checkpoint_dir) / f"model_{epoch}.ckpt",
+            #        )
 
         # prepare for the checkpoint that will be saved outside the function
         self.epoch = epoch
