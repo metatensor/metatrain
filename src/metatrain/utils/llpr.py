@@ -602,6 +602,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         self,
         weight_tensors: Dict[str, torch.Tensor],
         n_ens: Dict[str, int],
+        bias_tensors: Optional[Dict[str, torch.Tensor]] = None,
     ) -> None:
         """Generate an ensemble of weights for the model.
 
@@ -674,12 +675,23 @@ class LLPRUncertaintyModel(torch.nn.Module):
             ) # DOS specific, shape ll_feat, n_ens*n_channel
             print(ensemble_weights.shape)
             # 1D Linear that goes from ll_feat_size to n_channel * n_ens
-            self.llpr_ensemble_layers[name] = torch.nn.Linear(
-                self.ll_feat_size,
-                weights.shape[0] * n_ens[name],
-                bias=False
-            )
 
+            if bias_tensors and name in bias_tensors.keys():
+                self.llpr_ensemble_layers[name] = torch.nn.Linear(
+                    self.ll_feat_size,
+                    weights.shape[0] * n_ens[name],
+                    bias=True,
+                )
+                with torch.no_grad():
+                    self.llpr_ensemble_layers[name].bias.copy_(
+                        bias_tensors[name].repeat(n_ens[name])
+                    )
+            else:
+                self.llpr_ensemble_layers[name] = torch.nn.Linear(
+                    self.ll_feat_size,
+                    weights.shape[0] * n_ens[name],
+                    bias=False,
+                )                
             with torch.no_grad():
                 self.llpr_ensemble_layers[name].weight.copy_(ensemble_weights.T)
             self.ensemble_weights_computed[name] = True
@@ -759,14 +771,25 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     wrapped_model.get_buffer(key).copy_(val)
                 elif "multiplier_" in key:
                     wrapped_model.get_buffer(key).copy_(val)
-                elif "llpr_ensemble_layers" in key:
+                elif "llpr_ensemble_layers" in key and "weight" in key:
                     orig_name = key.split(".")[1]
-                    wrapped_model.llpr_ensemble_layers[orig_name] = torch.nn.Linear(
-                        wrapped_model.ll_feat_size,
-                        val.shape[0],
-                        bias=False
-                    )
-                    with torch.no_grad():                    
+                    if key.replace("weight", "bias") in checkpoint["state_dict"]:
+                        wrapped_model.llpr_ensemble_layers[orig_name] = torch.nn.Linear(
+                            wrapped_model.ll_feat_size,
+                            val.shape[0],
+                            bias=True
+                        )
+                        with torch.no_grad():                    
+                            wrapped_model.llpr_ensemble_layers[orig_name].bias.copy_(
+                                checkpoint["state_dict"][key.replace("weight", "bias")]
+                            )
+                    else:
+                        wrapped_model.llpr_ensemble_layers[orig_name] = torch.nn.Linear(
+                            wrapped_model.ll_feat_size,
+                            val.shape[0],
+                            bias=False
+                        )
+                    with torch.no_grad():
                         wrapped_model.llpr_ensemble_layers[orig_name].weight.copy_(val)
                     ## need to be fixed later, but we set this True here for now
                     wrapped_model.ensemble_weights_computed = True
