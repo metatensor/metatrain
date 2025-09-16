@@ -98,7 +98,6 @@ def _concatenate_tensormaps(
         target: mts.join(
             [pred[target] for pred in tensormaps_shifted_systems],
             axis="samples",
-            remove_tensor_name=True,
         )
         for target in tensormaps_shifted_systems[0].keys()
     }

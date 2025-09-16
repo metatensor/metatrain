@@ -294,7 +294,6 @@ class OldCompositionModel(torch.nn.Module):
                                     for b in block_list
                                 ],
                                 axis="samples",
-                                remove_tensor_name=True,
                             ).block()
                             weights_tensor = mts.sort_block(
                                 mts.mean_over_samples_block(

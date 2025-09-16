@@ -139,7 +139,7 @@ def test_read_energy(tmpdir, energy_tensor_map):
         mts.save("energy.mts", energy_tensor_map)
         tensor_maps, _ = read_energy(OmegaConf.create(conf))
 
-    tensor_map = mts.join(tensor_maps, axis="samples", remove_tensor_name=True)
+    tensor_map = mts.join(tensor_maps, axis="samples")
     assert mts.equal(tensor_map, energy_tensor_map)
 
 
@@ -159,7 +159,7 @@ def test_read_generic_scalar(tmpdir, scalar_tensor_map):
         mts.save("generic.mts", scalar_tensor_map)
         tensor_maps, _ = read_generic(OmegaConf.create(conf))
 
-    tensor_map = mts.join(tensor_maps, axis="samples", remove_tensor_name=True)
+    tensor_map = mts.join(tensor_maps, axis="samples")
     assert mts.equal(tensor_map, scalar_tensor_map)
 
 
@@ -186,7 +186,7 @@ def test_read_generic_spherical(tmpdir, spherical_tensor_map):
         mts.save("generic.mts", spherical_tensor_map)
         tensor_maps, _ = read_generic(OmegaConf.create(conf))
 
-    tensor_map = mts.join(tensor_maps, axis="samples", remove_tensor_name=True)
+    tensor_map = mts.join(tensor_maps, axis="samples")
     assert mts.equal(tensor_map, spherical_tensor_map)
 
 
@@ -210,7 +210,7 @@ def test_read_generic_cartesian(tmpdir, cartesian_tensor_map):
         mts.save("generic.mts", cartesian_tensor_map)
         tensor_maps, _ = read_generic(OmegaConf.create(conf))
 
-    tensor_map = mts.join(tensor_maps, axis="samples", remove_tensor_name=True)
+    tensor_map = mts.join(tensor_maps, axis="samples")
 
     assert mts.equal(tensor_map, cartesian_tensor_map)
 

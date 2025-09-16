@@ -65,7 +65,6 @@ class Trainer(TrainerInterface):
         train_y = mts.join(
             [sample[output_name] for sample in train_dataset],
             axis="samples",
-            remove_tensor_name=True,
         )
         model._keys = train_y.keys
         train_structures = [sample["system"] for sample in train_dataset]

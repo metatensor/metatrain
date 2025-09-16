@@ -84,7 +84,7 @@ class Scaler(torch.nn.Module):
 
         # Fill the scales for each "new" target (i.e. those that do not already
         # have scales from a previous training run)
-        for target_key in self.new_targets:
+        for target_key in self.output_name_to_output_index.keys():
             if target_key in fixed_scaling_weights:
                 self.scales[self.output_name_to_output_index[target_key]] = fixed_scaling_weights[target_key]
             else:
@@ -160,7 +160,7 @@ class Scaler(torch.nn.Module):
         self.new_targets = {
             key: value
             for key, value in merged_info.targets.items()
-            # if key not in self.dataset_info.targets
+            if key not in self.dataset_info.targets
         }
 
         # register new outputs

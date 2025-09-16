@@ -280,7 +280,6 @@ class CollateFn:
     ):
         self.target_keys: Set[str] = set(target_keys)
         self.join_kwargs: Dict[str, Any] = join_kwargs or {
-            "remove_tensor_name": True,
             "different_keys": "union",
         }
 
@@ -617,7 +616,7 @@ def memmap_collate_fn(batch):
     for sample in batch:
         for key in non_system_keys:
             targets[key].append(sample[key])
-    targets = {k: metatensor.torch.join(v, "samples", remove_tensor_name=True) for k, v in targets.items()}
+    targets = {k: metatensor.torch.join(v, "samples") for k, v in targets.items()}
     return systems, targets, {}
 
 class MemmapArray:
@@ -663,6 +662,8 @@ class MemmapArray:
 
 class MemmapDataset(TorchDataset):
     def __init__(self, path, conservative, non_conservative):
+        if conservative:
+            torch.set_float32_matmul_precision('highest')
         path = Path(path)
         self.with_cell_and_stress = os.path.exists(path/"c.bin") and os.path.exists(path/"s.bin")
         self.conservative = conservative
