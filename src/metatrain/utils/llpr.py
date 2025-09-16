@@ -745,7 +745,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             )
         elif context == "recalib":
             model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], "restart")
-            wrapped_model = cls(model, num_subtargets)
+            wrapped_model = cls(model, ensemble_weight_sizes=None, num_subtargets=num_subtargets)
             wrapped_model.n_ens = n_ens
             wrapped_model.covariance_computed = checkpoint["llpr_flags"]["covariance_computed"]
             wrapped_model.inv_covariance_computed = checkpoint["llpr_flags"]["inv_covariance_computed"]
@@ -761,15 +761,15 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     wrapped_model.get_buffer(key).copy_(val)
                 elif "llpr_ensemble_layers" in key:
                     orig_name = key.split(".")[1]
-                    if orig_name in module_dict:
-                        wrapped_model.llpr_ensemble_layers[orig_name].weight.copy(val)
-                    else:
-                        wrapped_model.llpr_ensemble_layers[orig_name] = torch.nn.Linear(
-                            wrapped_model.ll_feat_size,
-                            val.shape[0],
-                            bias=False
-                        )
-                        wrapped_model.llpr_ensemble_layers[orig_name].weight.copy(val)
+                    wrapped_model.llpr_ensemble_layers[orig_name] = torch.nn.Linear(
+                        wrapped_model.ll_feat_size,
+                        val.shape[0],
+                        bias=False
+                    )
+                    with torch.no_grad():                    
+                        wrapped_model.llpr_ensemble_layers[orig_name].weight.copy_(val)
+                    ## need to be fixed later, but we set this True here for now
+                    wrapped_model.ensemble_weights_computed = True
 
             return wrapped_model
 
