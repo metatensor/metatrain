@@ -666,7 +666,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 )
                 ensemble_weights.append(cur_ensemble_weights)    # DOS specific
             ensemble_weights = torch.stack(ensemble_weights, axis=-1)   # DOS specific, shape ll_Feat, n_ens, n_channel
-            print(ensemble_weights.shape)
+            print(ensemble_weights.shape) 
+            torch.save(ensemble_weights, f"./initialized_ensemble_weights.pt")
 
             ensemble_weights = ensemble_weights.reshape(
                     ensemble_weights.shape[0],
