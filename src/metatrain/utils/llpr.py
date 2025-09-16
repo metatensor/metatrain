@@ -710,6 +710,10 @@ class LLPRUncertaintyModel(torch.nn.Module):
         state_dict = {
             k: v for k, v in self.state_dict().items() if not k.startswith("model.")
         }
+        state_dict["num_subtargets"] = self.num_subtargets
+        state_dict["n_ens"] = self.n_ens
+        state_dict["dos"] = self.dos
+        
 
         checkpoint = {
             "architecture_name": "llpr",
@@ -730,8 +734,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export", "recalib"],
     ) -> "LLPRUncertaintyModel":
-        model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], context)
         if context == "finetune":
+            model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], context)
             return model
         elif context == "restart":
             raise NotImplementedError(
@@ -740,30 +744,35 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 "in the TorchScript format for final usage."
             )
         elif context == "recalib":
+            model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], "restart")
+            wrapped_model = cls(model, checkpoint["state_dict"]["num_subtargets"])
 
-            self.model = model
-            self.covariance_computed = checkpoint["llpr_flags"]["covariance_computed"]
-            self.inv_covariance_computed = checkpoint["llpr_flags"]["inv_covariance_computed"]
-            self.is_calibrated = checkpoint["llpr_flags"]["is_calibrated"]
+            wrapped_model.n_ens = checkpoint["state_dict"]["n_ens"]
+            wrapped_model.covariance_computed = checkpoint["llpr_flags"]["covariance_computed"]
+            wrapped_model.inv_covariance_computed = checkpoint["llpr_flags"]["inv_covariance_computed"]
+            wrapped_model.is_calibrated = checkpoint["llpr_flags"]["is_calibrated"]
+            wrapped_model.dos = checkpoint["state_dict"]["dos"]
 
             for key, val in checkpoint["state_dict"].items():
                 if "covariance_" in key:
-                    self.get_buffer(key).copy_(val)
+                    wrapped_model.get_buffer(key).copy_(val)
                 elif "inv_covariance_" in key:
-                    self.get_buffer(key).copy_(val)
+                    wrapped_model.get_buffer(key).copy_(val)
                 elif "multiplier_" in key:
-                    self.get_buffer(key).copy_(val)
+                    wrapped_model.get_buffer(key).copy_(val)
                 elif "llpr_ensemble_layers" in key:
                     orig_name = key.split(".")[1]
                     if orig_name in module_dict:
-                        self.llpr_ensemble_layers[orig_name].weight.copy(val)
+                        wrapped_model.llpr_ensemble_layers[orig_name].weight.copy(val)
                     else:
-                        self.llpr_ensemble_layers[orig_name] = torch.nn.Linear(
-                            self.ll_feat_size,
-                            weights.shape[0] * n_ens[name],
+                        wrapped_model.llpr_ensemble_layers[orig_name] = torch.nn.Linear(
+                            wrapped_model.ll_feat_size,
+                            val.shape[0],
                             bias=False
                         )
-                        self.llpr_ensemble_layers[orig_name].weight.copy(val)
+                        wrapped_model.llpr_ensemble_layers[orig_name].weight.copy(val)
+
+            return wrapped_model
 
         elif context == "export":
             # Find the size of the ensemble weights, if any:
