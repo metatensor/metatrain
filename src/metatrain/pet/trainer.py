@@ -153,9 +153,13 @@ class Trainer(TrainerInterface):
                     param.requires_grad = False
 
             for key, layers in model.llpr_ensemble_layers.items():
-                for _, param in layers.named_parameters():
-                    print(_)
-                    param.requires_grad = True
+                for name, param in layers.named_parameters():
+                    if name == "weight":
+                        print(name, "trainable")
+                        param.requires_grad = True
+                    elif name == "bias":
+                        print(name, "fixed")
+                        param.requires_grad = False
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
