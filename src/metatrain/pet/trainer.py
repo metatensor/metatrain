@@ -1,5 +1,6 @@
 import copy
 import logging
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
@@ -38,15 +39,25 @@ from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
 
-def get_scheduler(optimizer, train_hypers):
-    def func_lr_scheduler(epoch):
-        if epoch < train_hypers["num_epochs_warmup"]:
-            return epoch / train_hypers["num_epochs_warmup"]
-        delta = epoch - train_hypers["num_epochs_warmup"]
-        num_blocks = delta // train_hypers["scheduler_patience"]
-        return train_hypers["scheduler_factor"] ** (num_blocks)
+def get_scheduler(optimizer, train_hypers, steps_per_epoch):
+    total_steps = train_hypers["num_epochs"] * steps_per_epoch
+    warmup_steps = train_hypers["num_epochs_warmup"] * steps_per_epoch
+    min_lr_ratio = 0.0  # hardcoded for now
 
-    scheduler = LambdaLR(optimizer, func_lr_scheduler)
+    # 2. Define the LR schedule function
+    def lr_lambda(current_step: int):
+        if current_step < warmup_steps:
+            # Linear warmup
+            return float(current_step) / float(max(1, warmup_steps))
+        else:
+            # Cosine decay
+            progress = (current_step - warmup_steps) / float(
+                max(1, total_steps - warmup_steps)
+            )
+            cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
+
+    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
     return scheduler
 
 
@@ -156,7 +167,10 @@ class Trainer(TrainerInterface):
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
             model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
+                train_datasets,
+                model.additive_models,
+                self.hypers["batch_size"],
+                is_distributed,
             )
 
         logging.info("Setting up data loaders")
@@ -287,7 +301,8 @@ class Trainer(TrainerInterface):
             if not (model.module if is_distributed else model).has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
-        lr_scheduler = get_scheduler(optimizer, self.hypers)
+        steps_per_epoch = len(train_dataloader)
+        lr_scheduler = get_scheduler(optimizer, self.hypers, steps_per_epoch)
 
         if self.scheduler_state_dict is not None and not is_finetune:
             # same as the optimizer, try to load the scheduler state dict
@@ -345,7 +360,7 @@ class Trainer(TrainerInterface):
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                    systems, targets, (model.module if is_distributed else model).scaler
                 )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
@@ -368,15 +383,16 @@ class Trainer(TrainerInterface):
                     model.parameters(), self.hypers["grad_clip_norm"]
                 )
                 optimizer.step()
+                lr_scheduler.step()
 
                 if is_distributed:
                     # sum the loss over all processes
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                train_rmse_calculator.update(predictions, targets)
+                train_rmse_calculator.update(predictions, targets, extra_data)
                 if self.hypers["log_mae"]:
-                    train_mae_calculator.update(predictions, targets)
+                    train_mae_calculator.update(predictions, targets, extra_data)
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
                 is_distributed=is_distributed,
@@ -404,7 +420,7 @@ class Trainer(TrainerInterface):
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                    systems, targets, (model.module if is_distributed else model).scaler
                 )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
@@ -427,9 +443,9 @@ class Trainer(TrainerInterface):
                     # sum the loss over all processes
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
-                val_rmse_calculator.update(predictions, targets)
+                val_rmse_calculator.update(predictions, targets, extra_data)
                 if self.hypers["log_mae"]:
-                    val_mae_calculator.update(predictions, targets)
+                    val_mae_calculator.update(predictions, targets, extra_data)
 
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -456,9 +472,10 @@ class Trainer(TrainerInterface):
             }
 
             if epoch == start_epoch:
-                scaler_scales = (
-                    model.module if is_distributed else model
-                ).scaler.get_scales_dict()
+                # TODO: understand how to modify this
+                # scaler_scales = (
+                #     model.module if is_distributed else model
+                # ).scaler.get_scales_dict()
 
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
@@ -467,14 +484,14 @@ class Trainer(TrainerInterface):
                     ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
-                    scales={
-                        key: (
-                            scaler_scales[key.split(" ")[0]]
-                            if ("MAE" in key or "RMSE" in key)
-                            else 1.0
-                        )
-                        for key in finalized_train_info.keys()
-                    },
+                    # scales={
+                    #     key: (
+                    #         scaler_scales[key.split(" ")[0]]
+                    #         if ("MAE" in key or "RMSE" in key)
+                    #         else 1.0
+                    #     )
+                    #     for key in finalized_train_info.keys()
+                    # },
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(
@@ -484,25 +501,15 @@ class Trainer(TrainerInterface):
                     learning_rate=old_lr,
                 )
 
-            lr_scheduler.step()
             new_lr = lr_scheduler.get_last_lr()[0]
-            if new_lr != old_lr:
-                if new_lr < 1e-7:
-                    logging.info("Learning rate is too small, stopping training")
-                    break
-                else:
-                    if epoch >= self.hypers["num_epochs_warmup"]:
-                        logging.info(
-                            f"Changing learning rate from {old_lr} to {new_lr}"
-                        )
-                    elif epoch == self.hypers["num_epochs_warmup"] - 1:
-                        logging.info(
-                            "Finished warm-up. "
-                            f"Now training with learning rate {new_lr}"
-                        )
-                    else:  # epoch < self.hypers["num_epochs_warmup"] - 1:
-                        pass  # we don't clutter the log at every warm-up step
-                    old_lr = new_lr
+            if new_lr < 1e-7:
+                logging.info("Learning rate is too small, stopping training")
+                break
+            if epoch == self.hypers["num_epochs_warmup"] - 1:
+                logging.info(
+                    f"Finished warm-up. Now training with learning rate {new_lr}"
+                )
+            old_lr = new_lr
 
             val_metric = get_selected_metric(
                 finalized_val_info, self.hypers["best_model_metric"]

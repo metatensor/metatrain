@@ -20,7 +20,7 @@ from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
+from metatrain.utils.scaler import OldScaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from .modules.encoder import Encoder
@@ -175,7 +175,7 @@ class NanoPET(ModelInterface):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
+        self.scaler = OldScaler(hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
 

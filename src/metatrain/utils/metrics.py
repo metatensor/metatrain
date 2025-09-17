@@ -1,5 +1,5 @@
 import copy
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch.distributed
 from metatensor.torch import TensorMap
@@ -18,7 +18,12 @@ class RMSEAccumulator:
         self.information: Dict[str, Tuple[float, int]] = {}
         self.separate_blocks = separate_blocks
 
-    def update(self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]):
+    def update(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ):
         """Updates the accumulator with new predictions and targets.
 
         :param predictions: A dictionary of predictions, where the keys correspond
@@ -30,6 +35,14 @@ class RMSEAccumulator:
 
         for key, target in targets.items():
             prediction = predictions[key]
+
+            # Get the mask from extra data if present
+            mask = None
+            if extra_data is not None:
+                mask_key = f"{key}_mask"
+                if mask_key in extra_data:
+                    mask = extra_data[mask_key]
+
             for block_key in target.keys:
                 target_block = target.block(block_key)
                 prediction_block = prediction.block(block_key)
@@ -45,11 +58,28 @@ class RMSEAccumulator:
                 if key_to_write not in self.information:  # create key if not present
                     self.information[key_to_write] = (0.0, 0)
 
+                if mask is None:
+                    rmse_value = (
+                        ((prediction_block.values - target_block.values) ** 2)
+                        .sum()
+                        .item()
+                    )
+                else:
+                    mask_block = mask.block(block_key)
+                    rmse_value = (
+                        (
+                            (
+                                prediction_block.values[mask_block.values]
+                                - target_block.values[mask_block.values]
+                            )
+                            ** 2
+                        )
+                        .sum()
+                        .item()
+                    )
+
                 self.information[key_to_write] = (
-                    self.information[key_to_write][0]
-                    + ((prediction_block.values - target_block.values) ** 2)
-                    .sum()
-                    .item(),
+                    self.information[key_to_write][0] + rmse_value,
                     self.information[key_to_write][1] + prediction_block.values.numel(),
                 )
 
@@ -62,11 +92,29 @@ class RMSEAccumulator:
                             f"{key_to_write}_{gradient_name}_gradients"
                         ] = (0.0, 0)
                     prediction_gradient = prediction_block.gradient(gradient_name)
+
+                    if mask is None:
+                        gradient_rmse_value = (
+                            ((prediction_gradient.values - target_gradient.values) ** 2)
+                            .sum()
+                            .item()
+                        )
+                    else:
+                        mask_gradient = mask_block.gradient(gradient_name)
+                        gradient_rmse_value = (
+                            (
+                                (
+                                    prediction_gradient.values[mask_gradient.values]
+                                    - target_gradient.values[mask_gradient.values]
+                                )
+                                ** 2
+                            )
+                            .sum()
+                            .item()
+                        )
                     self.information[f"{key_to_write}_{gradient_name}_gradients"] = (
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][0]
-                        + ((prediction_gradient.values - target_gradient.values) ** 2)
-                        .sum()
-                        .item(),
+                        + gradient_rmse_value,
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][1]
                         + prediction_gradient.values.numel(),
                     )
@@ -123,7 +171,12 @@ class MAEAccumulator:
         self.information: Dict[str, Tuple[float, int]] = {}
         self.separate_blocks = separate_blocks
 
-    def update(self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]):
+    def update(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ):
         """Updates the accumulator with new predictions and targets.
 
         :param predictions: A dictionary of predictions, where the keys correspond
@@ -135,6 +188,14 @@ class MAEAccumulator:
 
         for key, target in targets.items():
             prediction = predictions[key]
+
+            # Get the mask from extra data if present
+            mask = None
+            if extra_data is not None:
+                mask_key = f"{key}_mask"
+                if mask_key in extra_data:
+                    mask = extra_data[mask_key]
+
             for block_key in target.keys:
                 target_block = target.block(block_key)
                 prediction_block = prediction.block(block_key)
@@ -150,12 +211,27 @@ class MAEAccumulator:
                 if key_to_write not in self.information:  # create key if not present
                     self.information[key_to_write] = (0.0, 0)
 
+                if mask is None:
+                    mae_value = (
+                        (prediction_block.values - target_block.values)
+                        .abs()
+                        .sum()
+                        .item()
+                    )
+                else:
+                    mask_block = mask.block(block_key)
+                    mae_value = (
+                        (
+                            prediction_block.values[mask_block.values]
+                            - target_block.values[mask_block.values]
+                        )
+                        .abs()
+                        .sum()
+                        .item()
+                    )
+
                 self.information[key_to_write] = (
-                    self.information[key_to_write][0]
-                    + (prediction_block.values - target_block.values)
-                    .abs()
-                    .sum()
-                    .item(),
+                    self.information[key_to_write][0] + mae_value,
                     self.information[key_to_write][1] + prediction_block.values.numel(),
                 )
 
@@ -168,12 +244,29 @@ class MAEAccumulator:
                             f"{key_to_write}_{gradient_name}_gradients"
                         ] = (0.0, 0)
                     prediction_gradient = prediction_block.gradient(gradient_name)
+
+                    if mask is None:
+                        gradient_mae_value = (
+                            (prediction_gradient.values - target_gradient.values)
+                            .abs()
+                            .sum()
+                            .item()
+                        )
+                    else:
+                        mask_gradient = mask_block.gradient(gradient_name)
+                        gradient_mae_value = (
+                            (
+                                prediction_gradient.values[mask_gradient.values]
+                                - target_gradient.values[mask_gradient.values]
+                            )
+                            .abs()
+                            .sum()
+                            .item()
+                        )
+
                     self.information[f"{key_to_write}_{gradient_name}_gradients"] = (
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][0]
-                        + (prediction_gradient.values - target_gradient.values)
-                        .abs()
-                        .sum()
-                        .item(),
+                        + gradient_mae_value,
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][1]
                         + prediction_gradient.values.numel(),
                     )
