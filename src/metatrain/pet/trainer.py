@@ -567,6 +567,14 @@ class Trainer(TrainerInterface):
                    (model.module if is_distributed else model).state_dict()
                )
                model.save_checkpoint(f"{checkpoint_dir}/best_model.ckpt")
+               torch.save(
+                   {
+                       "train_metric": train_loss,
+                       "best_val_metric": self.best_metric,
+                       "best_epoch": epoch,
+                   },
+                   f"{checkpoint_dir}/best_metric.ckpt",
+               )
                self.best_epoch = epoch
                self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 
@@ -582,6 +590,14 @@ class Trainer(TrainerInterface):
                 #        Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                 #    )
                     model.save_checkpoint(f"{checkpoint_dir}/model_{epoch}.ckpt")
+                    torch.save(
+                        {
+                            "train_metric": train_loss,
+                            "val_metric": val_loss,
+                            "epoch": epoch,
+                        },
+                        f"{checkpoint_dir}/metric_{epoch}.ckpt",
+                    )
 
         # prepare for the checkpoint that will be saved outside the function
         self.epoch = epoch
