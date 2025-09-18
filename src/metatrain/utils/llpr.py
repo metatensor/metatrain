@@ -281,7 +281,11 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 requested_ensembles.append(name)
 
         for name in requested_ensembles:
-            orig_name = name.replace("_ensemble", "").replace("aux::", "")
+            orig_name = (
+                name.replace("_ensemble", "").replace("aux::", "")
+                if name.replace("_ensemble", "").replace("aux::", "") in outputs
+                else name.replace("_ensemble", "").replace("mtt::aux::", "")
+            )
             ll_features_name = name.replace("_ensemble", "_last_layer_features")
             if ll_features_name == "energy_last_layer_features":
                 # special case for energy_ensemble
@@ -305,16 +309,12 @@ class LLPRUncertaintyModel(torch.nn.Module):
             # last layer, which can be composition, short-range models, a bias in the
             # last layer, etc.
 
-            # original_name = (
-            #     name.replace("_ensemble", "").replace("aux::", "")
-            #     if name.replace("_ensemble", "").replace("aux::", "") in outputs
-            #     else name.replace("_ensemble", "").replace("mtt::aux::", "")
-            # )
-            # ensemble_values = (
-            #     ensemble_values
-            #     - ensemble_values.mean(dim=1, keepdim=True)
-            #     + return_dict[original_name].block().values
-            # )
+            ensemble_values = (
+                ensemble_values # num_batch, ens, en_channel
+                - ensemble_values.mean(dim=1, keepdim=True)  # num_batch, 1, en_channel
+                + return_dict[orig_name].block().values.unsqueeze(1) # num_batch, 1, en_channel
+            )
+
             ensemble = TensorMap(
                 keys=Labels(
                     names=["_"],
@@ -334,7 +334,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                             ),
                         components=ll_features.block().components,
                         properties=Labels.range(
-                            "energy_channel",
+                            "energy_channel",  # change back to property for general case
                             self.num_subtargets[orig_name],
                             ).to(ensemble_values.device),
                         ),
@@ -602,7 +602,6 @@ class LLPRUncertaintyModel(torch.nn.Module):
         self,
         weight_tensors: Dict[str, torch.Tensor],
         n_ens: Dict[str, int],
-        bias_tensors: Optional[Dict[str, torch.Tensor]] = None,
     ) -> None:
         """Generate an ensemble of weights for the model.
 
@@ -676,23 +675,11 @@ class LLPRUncertaintyModel(torch.nn.Module):
             ) # DOS specific, shape ll_feat, n_ens*n_channel
             print(ensemble_weights.shape)
             # 1D Linear that goes from ll_feat_size to n_channel * n_ens
-
-            if bias_tensors and name in bias_tensors.keys():
-                self.llpr_ensemble_layers[name] = torch.nn.Linear(
-                    self.ll_feat_size,
-                    weights.shape[0] * n_ens[name],
-                    bias=True,
-                )
-                with torch.no_grad():
-                    self.llpr_ensemble_layers[name].bias.copy_(
-                        bias_tensors[name].repeat(n_ens[name])
-                    )
-            else:
-                self.llpr_ensemble_layers[name] = torch.nn.Linear(
-                    self.ll_feat_size,
-                    weights.shape[0] * n_ens[name],
-                    bias=False,
-                )                
+            self.llpr_ensemble_layers[name] = torch.nn.Linear(
+                self.ll_feat_size,
+                weights.shape[0] * n_ens[name],
+                bias=False,
+            )
             with torch.no_grad():
                 self.llpr_ensemble_layers[name].weight.copy_(ensemble_weights.T)
             self.ensemble_weights_computed[name] = True
@@ -774,22 +761,11 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     wrapped_model.get_buffer(key).copy_(val)
                 elif "llpr_ensemble_layers" in key and "weight" in key:
                     orig_name = key.split(".")[1]
-                    if key.replace("weight", "bias") in checkpoint["state_dict"]:
-                        wrapped_model.llpr_ensemble_layers[orig_name] = torch.nn.Linear(
-                            wrapped_model.ll_feat_size,
-                            val.shape[0],
-                            bias=True
-                        )
-                        with torch.no_grad():                    
-                            wrapped_model.llpr_ensemble_layers[orig_name].bias.copy_(
-                                checkpoint["state_dict"][key.replace("weight", "bias")]
-                            )
-                    else:
-                        wrapped_model.llpr_ensemble_layers[orig_name] = torch.nn.Linear(
-                            wrapped_model.ll_feat_size,
-                            val.shape[0],
-                            bias=False
-                        )
+                    wrapped_model.llpr_ensemble_layers[orig_name] = torch.nn.Linear(
+                        wrapped_model.ll_feat_size,
+                        val.shape[0],
+                        bias=False,
+                    )
                     with torch.no_grad():
                         wrapped_model.llpr_ensemble_layers[orig_name].weight.copy_(val)
                     ## need to be fixed later, but we set this True here for now
