@@ -13,7 +13,7 @@ from .per_atom import average_by_num_atoms
 from .transfer import batch_to
 
 
-class Scaler(torch.nn.Module):
+class OldScaler(torch.nn.Module):
     """
     A class that scales the targets of regression problems to unit standard deviation.
 
@@ -72,7 +72,7 @@ class Scaler(torch.nn.Module):
         """
         if not treat_as_additive:
             raise ValueError(
-                "The Scaler class can currently only be trained by treating targets "
+                "The OldScaler class can currently only be trained by treating targets "
                 "as additive."
             )
 
@@ -150,7 +150,7 @@ class Scaler(torch.nn.Module):
                 sum_of_squared_targets / total_num_elements
             )
 
-    def restart(self, dataset_info: DatasetInfo) -> "Scaler":
+    def restart(self, dataset_info: DatasetInfo) -> "OldScaler":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
 
@@ -233,7 +233,7 @@ class Scaler(torch.nn.Module):
 
 def remove_scale(
     targets: Dict[str, TensorMap],
-    scaler: Scaler,
+    scaler: OldScaler,
 ):
     """
     Scale all targets to a standard deviation of one.
