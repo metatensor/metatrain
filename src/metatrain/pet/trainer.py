@@ -157,9 +157,6 @@ class Trainer(TrainerInterface):
                     if name == "weight":
                         print(name, "trainable")
                         param.requires_grad = True
-                    elif name == "bias":
-                        print(name, "fixed")
-                        param.requires_grad = False
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
