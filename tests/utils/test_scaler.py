@@ -8,7 +8,7 @@ from omegaconf import OmegaConf
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
-from metatrain.utils.scaler import Scaler, remove_scale
+from metatrain.utils.old_scaler import OldScaler, remove_scale
 
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
@@ -72,7 +72,7 @@ def test_scaler_train():
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
-    scaler = Scaler(
+    scaler = OldScaler(
         hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -131,7 +131,7 @@ def test_scale():
     targets, target_info = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
-    scaler = Scaler(
+    scaler = OldScaler(
         hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -178,7 +178,7 @@ def test_scale():
 def test_scaler_torchscript(tmpdir):
     """Test the torchscripting, saving and loading of a scaler model."""
 
-    scaler = Scaler(
+    scaler = OldScaler(
         hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",

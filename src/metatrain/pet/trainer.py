@@ -9,7 +9,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import TrainerInterface
-from metatrain.utils.additive import remove_additive
+from metatrain.utils.additive import remove_additive, remove_scale
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
     CollateFn,
@@ -31,7 +31,6 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
-from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints

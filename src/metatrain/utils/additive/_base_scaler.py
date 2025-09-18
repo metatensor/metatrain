@@ -195,66 +195,88 @@ class BaseScaler(torch.nn.Module):
                 mask = extra_data[target_name + "_mask"]
 
             for key, block in target.items():
-                # Get the target block values
-                if (
-                    target.keys.names == ["_"]
-                    and len(target[0].components) == 0
-                    and "positions" in target[0].gradients_list()
-                ):
-                    # special case for the energy with attached gradients: here we want
-                    # to scale with respect to the forces rather than the energies
-                    Y_block = block.gradient("positions")
-                else:
-                    Y_block = block
+                if self.sample_kinds[target_name] == "per_structure":
 
-                Y_block = Y_block.to(device=device, dtype=dtype)
-                assert Y_block.samples.names == [
-                    "system",
-                    "atom",
-                ]  # only per-atom targets for now
-
-                # Here it is assumed that the samples of the block correspond to the
-                # full ordered list of atoms in the batch of systems
-                Y_block_types = torch.cat([system.types for system in systems])
-
-                for atomic_type in self.atomic_types:
-                    # Slice the block to only include samples of the current atomic type
-                    samples_type_mask = Y_block_types == atomic_type
-                    Y = Y_block.values[samples_type_mask]
-
-                    # Compute the number of samples in this block, account for the mask
-                    # if available
-                    if mask is None:
-                        N = Y.shape[0]
-                    else:
-                        # Count N as the number of samples where the mask is True for at
-                        # least one property (in other words where the mask for a given
-                        # sample is not all False). This handles the case where samples
-                        # are padded.
-                        pad_mask_values = mask.block(key).values[samples_type_mask]
-                        samples_pad_mask = pad_mask_values.any(
-                            dim=list(range(1, Y.dim()))
+                    if (
+                        target.keys.names == ["_"]
+                        and len(target[0].components) == 0
+                        and "positions" in target[0].gradients_list()
+                    ):
+                        # special case for the energy with attached gradients: here we want
+                        # to scale with respect to the forces rather than the energies
+                        Y_block = block.gradient("positions").to(
+                            device=device, dtype=dtype
                         )
-                        N = samples_pad_mask.sum()
-                        Y = Y[samples_pad_mask]
+                        Y = Y_block.values
 
-                    # Compute the Y and Y2 values and sum over samples
-                    Y_values = torch.sum(Y, dim=0, keepdim=True)
-                    Y2_values = torch.sum(Y**2, dim=0, keepdim=True)
+                        # Flatten the forces, compute the Y and Y2 values and sum over
+                        # samples
+                        Y = Y.flatten()
+                        N = Y.shape[0]
+                        Y_values = torch.sum(Y, dim=0)
+                        Y2_values = torch.sum(Y**2, dim=0)
 
-                    # Repeat the along the component axes (if any) and accumulate
-                    n_components: List[int] = []
-                    for comp in Y.shape[1:-1]:
-                        n_components.append(comp)
-                    self.N[target_name][key].values[
-                        self.type_to_index[atomic_type]
-                    ] += N
-                    self.Y[target_name][key].values[
-                        self.type_to_index[atomic_type]
-                    ] += Y_values.squeeze(0)
-                    self.Y2[target_name][key].values[
-                        self.type_to_index[atomic_type]
-                    ] += Y2_values.squeeze(0)
+                    else:  # generic per-structure target
+
+                        Y_block = block.to(device=device, dtype=dtype)
+                        Y = Y_block.values
+
+                        # Compute the Y and Y2 values and sum over samples
+                        N = Y.shape[0]
+                        Y_values = torch.sum(Y, dim=0, keepdim=True)
+                        Y2_values = torch.sum(Y**2, dim=0, keepdim=True)
+
+                    self.N[target_name][key].values[0] += N
+                    self.Y[target_name][key].values[0] += Y_values.squeeze(0)
+                    self.Y2[target_name][key].values[0] += Y2_values.squeeze(0)
+
+                else:
+
+                    assert self.sample_kinds[target_name] == "per_atom"
+                    Y_block = block.to(device=device, dtype=dtype)
+
+                    # Here it is assumed that the samples of the block correspond to the
+                    # full ordered list of atoms in the batch of systems
+                    Y_block_types = torch.cat([system.types for system in systems])
+
+                    for atomic_type in self.atomic_types:
+                        # Slice the block to only include samples of the current atomic type
+                        samples_type_mask = Y_block_types == atomic_type
+                        Y = Y_block.values[samples_type_mask]
+
+                        # Compute the number of samples in this block, account for the mask
+                        # if available
+                        if mask is None:
+                            N = Y.shape[0]
+                        else:
+                            # Count N as the number of samples where the mask is True for at
+                            # least one property (in other words where the mask for a given
+                            # sample is not all False). This handles the case where samples
+                            # are padded.
+                            pad_mask_values = mask.block(key).values[samples_type_mask]
+                            samples_pad_mask = pad_mask_values.any(
+                                dim=list(range(1, Y.dim()))
+                            )
+                            N = samples_pad_mask.sum()
+                            Y = Y[samples_pad_mask]
+
+                        # Compute the Y and Y2 values and sum over samples
+                        Y_values = torch.sum(Y, dim=0, keepdim=True)
+                        Y2_values = torch.sum(Y**2, dim=0, keepdim=True)
+
+                        # Repeat the along the component axes (if any) and accumulate
+                        n_components: List[int] = []
+                        for comp in Y.shape[1:-1]:
+                            n_components.append(comp)
+                        self.N[target_name][key].values[
+                            self.type_to_index[atomic_type]
+                        ] += N
+                        self.Y[target_name][key].values[
+                            self.type_to_index[atomic_type]
+                        ] += Y_values.squeeze(0)
+                        self.Y2[target_name][key].values[
+                            self.type_to_index[atomic_type]
+                        ] += Y2_values.squeeze(0)
 
     def fit(
         self,
@@ -301,18 +323,14 @@ class BaseScaler(torch.nn.Module):
                     # Compute the standard deviation
                     N_type = N_values_type.item()  # (do not use Bessel's correction)
 
-                    if N_type <= 0:
+                    if N_type <= 0:  # this can only happen for per-atom targets
+                        assert self.sample_kinds[target_name] == "per_atom"
+                        print(
+                            f"Per-atom target {target_name} has not enough samples in "
+                            f"block {key} for atomic type {self.atomic_types[type_index]} "
+                            "to compute statistics, skipping."
+                        )
                         continue
-
-                    # Take the norm over components and re-expand the component dims
-                    Y_values_type = torch.norm(Y_values_type, dim=1, keepdim=True)
-                    Y2_values_type = torch.norm(Y2_values_type, dim=1, keepdim=True)
-                    Y_values_type = Y_values_type.repeat(
-                        1, *[len(comp) for comp in Y_block.components], 1
-                    )
-                    Y2_values_type = Y2_values_type.repeat(
-                        1, *[len(comp) for comp in Y_block.components], 1
-                    )
 
                     # Divide the scales by sqrt(num components) to account for the
                     # fact that we took the norm over components when accumulating
@@ -320,8 +338,20 @@ class BaseScaler(torch.nn.Module):
                     if len(Y_values_type.shape) == 2:
                         component_factor = 1
                     else:
+
                         component_factor = Y_values_type.shape[1]
 
+                        # Take the norm over components and re-expand the component dims
+                        Y_values_type = torch.norm(Y_values_type, dim=1, keepdim=True)
+                        Y2_values_type = torch.norm(Y2_values_type, dim=1, keepdim=True)
+                        Y_values_type = Y_values_type.repeat(
+                            1, *[len(comp) for comp in Y_block.components], 1
+                        )
+                        Y2_values_type = Y2_values_type.repeat(
+                            1, *[len(comp) for comp in Y_block.components], 1
+                        )
+
+                    # Compute std
                     scale_vals_type = torch.sqrt(
                         (Y2_values_type / N_type) - (Y_values_type / N_type) ** 2
                     ) / math.sqrt(component_factor)
@@ -329,6 +359,9 @@ class BaseScaler(torch.nn.Module):
                     # If any scales are zero, set them to 1.0
                     if torch.any(scale_vals_type == 0):
                         scale_vals_type[scale_vals_type == 0] = 1.0
+
+                    # Add a jitter
+                    scale_vals_type += 1e-8  # TODO: make customizable
 
                     scale_vals_type = scale_vals_type.contiguous()
                     block.values[type_index][:] = scale_vals_type
@@ -388,31 +421,76 @@ class BaseScaler(torch.nn.Module):
                 output_block_types = torch.cat([system.types for system in systems])
                 scaled_vals = output_block.values
 
-                for atomic_type in self.atomic_types:
-                    type_mask = output_block_types == atomic_type
-                    if type_mask.sum() == 0:
-                        continue
+
+                if self.sample_kinds[output_name] == "per_structure":
 
                     # Scale the values of the output block
                     if remove:  # remove the scaler
-                        scaled_vals[type_mask] = (
-                            output_block.values[type_mask]
-                            / scales_block.values[self.type_to_index[atomic_type]]
-                        )
+                        scaled_vals /= scales_block.values[0]
                     else:  # apply the scaler
-                        scaled_vals[type_mask] = (
-                            output_block.values[type_mask]
-                            * scales_block.values[self.type_to_index[atomic_type]]
-                        )
+                        scaled_vals *= scales_block.values[0]
 
-                prediction_blocks.append(
-                    TensorBlock(
+                    prediction_block = TensorBlock(
                         values=scaled_vals,
                         samples=output_block.samples,
                         components=output_block.components,
                         properties=output_block.properties,
                     )
-                )
+
+                    # Gradients are scaled by the same factor as the values TODO: is
+                    # this in general true, for per-structure targets with gradients
+                    # that aren't the energy?
+                    if len(output_block.gradients_list()) > 0:
+                        for parameter, gradient in output_block.gradients():
+                            if len(gradient.gradients_list()) != 0:
+                                raise NotImplementedError("gradients of gradients are not supported")
+
+                            if remove:  # remove the scaler
+                                scaled_gradient_vals = gradient.values / scales_block.values[0]
+                            else:
+                                scaled_gradient_vals = gradient.values * scales_block.values[0]
+
+                            prediction_block.add_gradient(
+                                parameter=parameter,
+                                gradient=TensorBlock(
+                                    values=scaled_gradient_vals,
+                                    samples=gradient.samples,
+                                    components=gradient.components,
+                                    properties=gradient.properties,
+                                ),
+                            )
+
+                else:
+
+                    assert self.sample_kinds[output_name] == "per_atom"
+
+                    # TODO: gradients of per-atom targets are not supported
+                    if len(output_block.gradients_list()) > 0:
+                        raise NotImplementedError(
+                            "scaling of gradients is not implemented for per-atom targets"
+                        )
+
+                    
+                    atomic_type_idxs = list(range(len(self.atomic_types)))
+
+                    for atomic_type in self.atomic_types:
+                        type_mask = output_block_types == atomic_type
+                        if type_mask.sum() == 0:
+                            continue
+
+                        # Scale the values of the output block
+                        if remove:  # remove the scaler
+                            scaled_vals[type_mask] /= scales_block.values[self.type_to_index[atomic_type]]
+                        else:  # apply the scaler
+                            scaled_vals[type_mask] *= scales_block.values[self.type_to_index[atomic_type]]
+
+                    prediction_block = TensorBlock(
+                        values=scaled_vals,
+                        samples=output_block.samples,
+                        components=output_block.components,
+                        properties=output_block.properties,
+                    )
+                prediction_blocks.append(prediction_block)
 
             predictions[output_name] = TensorMap(
                 outputs[output_name].keys,
