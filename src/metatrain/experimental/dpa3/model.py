@@ -15,7 +15,7 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL, OldCompositionModel
+from metatrain.utils.additive import ZBL,CompositionModel
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
@@ -87,7 +87,7 @@ def concatenate_structures(
 class DPA3(ModelInterface):
     __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
-    __supported_dtypes__ = [torch.float64, torch.float32]
+    __supported_dtypes__ = [torch.float32,torch.float64]
     __default_metadata__ = ModelMetadata(
         references={
             "implementation": [
@@ -104,6 +104,14 @@ class DPA3(ModelInterface):
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
         self.atomic_types = dataset_info.atomic_types
+        self.dtype = self.hypers["descriptor"]["precision"]
+        
+        if self.dtype == "float64":
+            self.dtype = torch.float64
+        elif self.dtype == "float32":
+            self.dtype = torch.float32
+        else:
+            raise ValueError(f"Unsupported precision: {self.dtype}")
         
         self.requested_nl = NeighborListOptions(
             cutoff=self.hypers["descriptor"]["repflow"]["e_rcut"],
@@ -113,7 +121,7 @@ class DPA3(ModelInterface):
         self.targets_keys = list(dataset_info.targets.keys())[0]
 
         self.model = get_standard_model(hypers)
-
+        
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
         self.outputs = {
             "features": ModelOutput(unit="", per_atom=True)
@@ -128,7 +136,7 @@ class DPA3(ModelInterface):
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
 
-        composition_model = OldCompositionModel(
+        composition_model = CompositionModel(
             hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
@@ -136,59 +144,12 @@ class DPA3(ModelInterface):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if OldCompositionModel.is_valid_target(target_name, target_info)
+                    if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
         additive_models = [composition_model]
         self.additive_models = torch.nn.ModuleList(additive_models)
-
-        self.reverse_precision_dict ={
-            torch.float16: "float16",
-            torch.float32: "float32",
-            torch.float64: "float64",
-            torch.int32: "int32",
-            torch.int64: "int64",
-            torch.bfloat16: "bfloat16",
-            torch.bool: "bool",
-        }
-
-    def _input_type_cast(
-        self,
-        coord: torch.Tensor,
-        box: Optional[torch.Tensor] = None,
-        fparam: Optional[torch.Tensor] = None,
-        aparam: Optional[torch.Tensor] = None,
-        ) -> tuple[
-            torch.Tensor,
-            Optional[torch.Tensor],
-            Optional[torch.Tensor],
-            Optional[torch.Tensor],
-            str,
-        ]:
-        """Cast the input data to global float type."""
-        input_prec = self.reverse_precision_dict[coord.dtype]
-        
-        _lst: list[Optional[torch.Tensor]] = [
-            vv.to(coord.dtype) if vv is not None else None
-            for vv in [box, fparam, aparam]
-        ]
-        box, fparam, aparam = _lst
-        if (
-            input_prec
-            == self.reverse_precision_dict[self.global_pt_float_precision]
-        ):
-            return coord, box, fparam, aparam, input_prec
-        else:
-            pp = torch.float32
-            return (
-                coord.to(pp),
-                box.to(pp) if box is not None else None,
-                fparam.to(pp) if fparam is not None else None,
-                aparam.to(pp) if aparam is not None else None,
-                input_prec,
-            )
-    
 
 
     def _add_output(self, target_name: str, target: TargetInfo) -> None:
@@ -226,10 +187,10 @@ class DPA3(ModelInterface):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        
         device = systems[0].positions.device
-        position_dtype = systems[0].positions.dtype
+        
         atype_dtype = systems[0].types.dtype
+
         system_indices = torch.concatenate(
             [
                 torch.full(
@@ -285,7 +246,7 @@ class DPA3(ModelInterface):
             system_index
         ) = concatenate_structures(systems)
         
-        positions = positions.to(position_dtype)
+        
         type_to_index = {atomic_type: idx for idx, atomic_type in enumerate(self.atomic_types)}
         type_to_index[-1] = -1 
 
@@ -418,7 +379,7 @@ class DPA3(ModelInterface):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if OldCompositionModel.is_valid_target(target_name, target_info)
+                    if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )

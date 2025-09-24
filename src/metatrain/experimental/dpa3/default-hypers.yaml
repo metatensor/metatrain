@@ -33,7 +33,7 @@ architecture:
         sel_reduce_factor: 10.0
       activation_function: "custom_silu:10.0"
       use_tebd_bias: false
-      precision: "float64"
+      precision: "float32"
       concat_output_tebd: false
     fitting_net:
       neuron:
@@ -42,7 +42,7 @@ architecture:
         - 240
       resnet_dt: true
       seed: 1
-      precision: "float64"
+      precision: "float32"
       activation_function: "custom_silu:10.0"
       type: "ener"
       numb_fparam: 0

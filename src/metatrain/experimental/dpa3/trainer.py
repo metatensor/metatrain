@@ -61,7 +61,7 @@ class Trainer(TrainerInterface):
         checkpoint_dir: str,
     ):
         assert dtype in DPA3.__supported_dtypes__
-
+        
         is_distributed = self.hypers["distributed"]
 
         if is_distributed:
@@ -126,9 +126,12 @@ class Trainer(TrainerInterface):
             additive_model.to(dtype=torch.float64)
         
         logging.info("Calculating composition weights")
+        
         model.additive_models[0].train_model(  # this is the composition model
             train_datasets,
             model.additive_models[1:],
+            self.hypers["batch_size"],
+            is_distributed,
             self.hypers["fixed_composition_weights"],
         )
 
@@ -311,6 +314,7 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
                 model.to(device)
                 systems, targets, extra_data = batch
+                
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
@@ -338,7 +342,8 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
+                
+                
                 train_loss_batch = loss_fn(predictions, targets)
 
                 train_loss_batch.backward()
