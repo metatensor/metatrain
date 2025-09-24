@@ -1,8 +1,8 @@
 # architecture used to train the model
 architecture:
-  name: experimental.dpa3
+  name: soap_bpnn
   training:
-    num_epochs: 2  # a very short training run
+    num_epochs: 5  # a very short training run
     batch_size: 10
 
 # Mandatory section defining the parameters for system and target data of the
