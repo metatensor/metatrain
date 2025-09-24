@@ -1,6 +1,6 @@
 export METATENSOR_DEBUG_EXTENSIONS_LOADING=1
 
-# mtt train options.yaml
+mtt train options.yaml
 
 package_dir=$(python -c "import site; print(site.getsitepackages()[0])")
 cp $package_dir/deepmd/lib/*.so extensions/deepmd/lib/
