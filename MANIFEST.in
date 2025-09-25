@@ -17,5 +17,6 @@ exclude .readthedocs.yml
 exclude CODEOWNERS
 exclude CONTRIBUTING.rst
 exclude tox.ini
+exclude CITATION.cff
 
 global-exclude *.py[cod] __pycache__/* *.so *.dylib

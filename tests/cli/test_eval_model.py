@@ -48,6 +48,7 @@ def test_eval_cli(monkeypatch, tmp_path):
 
     output = subprocess.check_output(command, stderr=subprocess.STDOUT)
 
+    assert "100%|██████████" in output.decode()
     assert b"energy RMSE" in output
 
     assert Path("output.xyz").is_file()
