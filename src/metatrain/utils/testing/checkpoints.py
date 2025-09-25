@@ -65,7 +65,7 @@ def checkpoint_did_not_change(monkeypatch, tmp_path, model_trainer):
             ) from e
 
 
-def make_checkpoint_load_tests(DEFAULT_HYPERS, incompatible_checkpoints=None):
+def make_checkpoint_load_tests(DEFAULT_HYPERS, *, incompatible_trainer_checkpoints=None):
     if incompatible_checkpoints is None:
         incompatible_checkpoints = []
 
