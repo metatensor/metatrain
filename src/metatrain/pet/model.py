@@ -373,6 +373,12 @@ class PET(ModelInterface):
                 ],
             )
             features_options = outputs["features"]
+            if selected_atoms is not None:
+                feature_tmap = mts.slice(
+                    feature_tmap,
+                    axis="samples",
+                    selection=selected_atoms,
+                )
             if features_options.per_atom:
                 return_dict["features"] = feature_tmap
             else:
@@ -464,6 +470,12 @@ class PET(ModelInterface):
                     )
                 ],
             )
+            if selected_atoms is not None:
+                last_layer_feature_tmap = mts.slice(
+                    last_layer_feature_tmap,
+                    axis="samples",
+                    selection=selected_atoms,
+                )
             last_layer_features_options = outputs[output_name]
             if last_layer_features_options.per_atom:
                 return_dict[output_name] = last_layer_feature_tmap
