@@ -81,7 +81,6 @@ If you wish to test only specific functionalities, for example:
 
   tox -e lint          # code style
   tox -e tests         # unit tests of the main library
-  tox -e examples      # test the examples
 
 
 You can also use ``tox -e format`` to use tox to do actual formatting instead of just
