@@ -40,46 +40,24 @@ from .modules.finetuning import apply_finetuning_strategy
 
 
 def get_scheduler(optimizer, train_hypers, steps_per_epoch):
-    # If the LR decay is per-epoch, `steps_per_epoch` should be 1
-    if train_hypers["scheduler_reduce_lr_every"] == "epoch":
-        assert steps_per_epoch == 1
-
     total_steps = train_hypers["num_epochs"] * steps_per_epoch
-    warmup_steps = train_hypers["num_epochs_warmup"] * steps_per_epoch
+    warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
+    min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
 
-    if train_hypers["scheduler"] == "step":
-        patience = train_hypers["scheduler_patience"] * steps_per_epoch
-
-        def step_lr_lambda(current_step):
-            if current_step < warmup_steps:  # linear warmup
-                return current_step / warmup_steps
-
-            # Step decay
-            delta = current_step - warmup_steps
-            num_blocks = delta // patience
-            return 0.5 ** (num_blocks)
-
-        lr_lambda = step_lr_lambda
-
-    else:
-        assert train_hypers["scheduler"] == "cosine"
-
-        def cosine_lr_lambda(current_step):
-            min_lr_ratio = 0.0  # hardcoded for now
-
-            if current_step < warmup_steps:  # linear warmup
-                return current_step / warmup_steps
-
+    def lr_lambda(current_step: int):
+        if current_step < warmup_steps:
+            # Linear warmup
+            return float(current_step) / float(max(1, warmup_steps))
+        else:
             # Cosine decay
-            progress = (current_step - warmup_steps) / max(
-                1, total_steps - warmup_steps
+            progress = (current_step - warmup_steps) / float(
+                max(1, total_steps - warmup_steps)
             )
             cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
             return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
 
-        lr_lambda = cosine_lr_lambda
-
-    return LambdaLR(optimizer, lr_lambda)
+    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+    return scheduler
 
 
 class Trainer(TrainerInterface):
@@ -319,13 +297,8 @@ class Trainer(TrainerInterface):
             if not (model.module if is_distributed else model).has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
-        # Create a learning rate scheduler, either with per-epoch or per-optimizer step
-        # LR decay.
-        if self.hypers["scheduler_reduce_lr_every"] == "epoch":
-            steps_per_epoch = 1
-        else:
-            steps_per_epoch = len(train_dataloader)
-        lr_scheduler = get_scheduler(optimizer, self.hypers, steps_per_epoch)
+        # Create a learning rate scheduler
+        lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
 
         if self.scheduler_state_dict is not None and not is_finetune:
             # same as the optimizer, try to load the scheduler state dict
@@ -335,9 +308,7 @@ class Trainer(TrainerInterface):
         per_structure_targets = self.hypers["per_structure_targets"]
 
         # Log the initial learning rate:
-        old_lr = optimizer.param_groups[0]["lr"]
         logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
-        logging.info(f"Initial learning rate: {old_lr}")
 
         rotational_augmenter = RotationalAugmenter(
             train_targets, extra_data_info_dict=extra_data_info
@@ -352,6 +323,7 @@ class Trainer(TrainerInterface):
         epoch = start_epoch
 
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
+            lr = optimizer.param_groups[0]["lr"]
             if is_distributed:
                 for train_sampler in train_samplers:
                     train_sampler.set_epoch(epoch)
@@ -406,24 +378,7 @@ class Trainer(TrainerInterface):
                     model.parameters(), self.hypers["grad_clip_norm"]
                 )
                 optimizer.step()
-
-                if self.hypers["scheduler_reduce_lr_every"] == "optimizer_step":
-                    lr_scheduler.step()
-                    new_lr = lr_scheduler.get_last_lr()[0]
-                    # only log end of warm-up or finishing training. LR logged
-                    # automatically.
-                    if (
-                        epoch
-                        == (self.hypers["num_epochs_warmup"] * steps_per_epoch) - 1
-                    ):
-                        logging.info(
-                            "Finished warm-up. "
-                            f"Now training with learning rate {new_lr}"
-                        )
-                    if new_lr < 1e-7:
-                        logging.info("Learning rate is too small, stopping training")
-                        break
-                    old_lr = new_lr
+                lr_scheduler.step()
 
                 if is_distributed:
                     # sum the loss over all processes
@@ -433,20 +388,6 @@ class Trainer(TrainerInterface):
                 train_rmse_calculator.update(predictions, targets)
                 if self.hypers["log_mae"]:
                     train_mae_calculator.update(predictions, targets)
-
-            if self.hypers["scheduler_reduce_lr_every"] == "epoch":
-                lr_scheduler.step()
-                new_lr = lr_scheduler.get_last_lr()[0]
-                assert steps_per_epoch == 1
-                if epoch == (self.hypers["num_epochs_warmup"] * steps_per_epoch) - 1:
-                    logging.info(
-                        f"Finished warm-up. Now training with learning rate {new_lr}"
-                    )
-                if new_lr < 1e-7:
-                    logging.info("Learning rate is too small, stopping training")
-                    break
-                old_lr = new_lr
-
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
                 is_distributed=is_distributed,
@@ -551,7 +492,7 @@ class Trainer(TrainerInterface):
                     metrics=[finalized_train_info, finalized_val_info],
                     epoch=epoch,
                     rank=rank,
-                    learning_rate=old_lr,
+                    learning_rate=lr,
                 )
 
             val_metric = get_selected_metric(
@@ -629,7 +570,6 @@ class Trainer(TrainerInterface):
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         for v in range(1, cls.__checkpoint_version__):
             if checkpoint["trainer_ckpt_version"] == v:
-                print(v, checkpoint["train_hypers"])
                 update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
                 update(checkpoint)
                 checkpoint["trainer_ckpt_version"] = v + 1

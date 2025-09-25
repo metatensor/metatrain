@@ -65,12 +65,18 @@ def checkpoint_did_not_change(monkeypatch, tmp_path, model_trainer):
             ) from e
 
 
-def make_checkpoint_load_tests(DEFAULT_HYPERS):
+def make_checkpoint_load_tests(DEFAULT_HYPERS, incompatible_checkpoints=None):
+    if incompatible_checkpoints is None:
+        incompatible_checkpoints = []
+
     @pytest.mark.parametrize("context", ["restart", "finetune", "export"])
     def test_loading_old_checkpoints(model_trainer, context):
         model, trainer = model_trainer
 
         for path in glob.glob("checkpoints/*.ckpt.gz"):
+            if path in incompatible_checkpoints and context == "restart":
+                continue
+
             with gzip.open(path, "rb") as fd:
                 checkpoint = torch.load(fd, weights_only=False)
 
@@ -79,9 +85,8 @@ def make_checkpoint_load_tests(DEFAULT_HYPERS):
 
             model.load_checkpoint(checkpoint, context)
 
-            if context != "export":
+            if context == "restart":
                 if checkpoint["trainer_ckpt_version"] != trainer.__checkpoint_version__:
-                    print(context)
                     checkpoint = trainer.__class__.upgrade_checkpoint(checkpoint)
 
                 trainer.load_checkpoint(checkpoint, DEFAULT_HYPERS, context)
