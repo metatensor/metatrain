@@ -65,16 +65,18 @@ def checkpoint_did_not_change(monkeypatch, tmp_path, model_trainer):
             ) from e
 
 
-def make_checkpoint_load_tests(DEFAULT_HYPERS, *, incompatible_trainer_checkpoints=None):
-    if incompatible_checkpoints is None:
-        incompatible_checkpoints = []
+def make_checkpoint_load_tests(
+    DEFAULT_HYPERS, *, incompatible_trainer_checkpoints=None
+):
+    if incompatible_trainer_checkpoints is None:
+        incompatible_trainer_checkpoints = []
 
     @pytest.mark.parametrize("context", ["restart", "finetune", "export"])
     def test_loading_old_checkpoints(model_trainer, context):
         model, trainer = model_trainer
 
         for path in glob.glob("checkpoints/*.ckpt.gz"):
-            if path in incompatible_checkpoints and context == "restart":
+            if path in incompatible_trainer_checkpoints and context == "restart":
                 continue
 
             with gzip.open(path, "rb") as fd:

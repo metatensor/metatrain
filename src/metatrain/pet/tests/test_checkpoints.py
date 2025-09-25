@@ -86,7 +86,7 @@ test_checkpoint_did_not_change = checkpoint_did_not_change
 
 test_loading_old_checkpoints = make_checkpoint_load_tests(
     DEFAULT_HYPERS,
-    [
+    incompatible_trainer_checkpoints=[
         "checkpoints/model-v1_trainer-v1.ckpt.gz",
         "checkpoints/model-v2_trainer-v1.ckpt.gz",
         "checkpoints/model-v3_trainer-v1.ckpt.gz",
