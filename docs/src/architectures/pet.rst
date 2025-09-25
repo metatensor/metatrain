@@ -96,9 +96,8 @@ training
 :param distributed_port: Port for DDP communication
 :param batch_size: Training batch size
 :param num_epochs: Number of epochs
+:param warmup_fraction: Fraction of training steps used for learning rate warmup
 :param learning_rate: Learning rate
-:param scheduler_patience: LR scheduler patience
-:param scheduler_factor: LR reduction factor
 :param log_interval: Interval to log metrics
 :param checkpoint_interval: Interval to save checkpoints
 :param scale_targets: Normalize targets to unit std during training
