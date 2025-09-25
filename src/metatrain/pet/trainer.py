@@ -323,7 +323,6 @@ class Trainer(TrainerInterface):
         epoch = start_epoch
 
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
-            lr = optimizer.param_groups[0]["lr"]
             if is_distributed:
                 for train_sampler in train_samplers:
                     train_sampler.set_epoch(epoch)
@@ -492,7 +491,7 @@ class Trainer(TrainerInterface):
                     metrics=[finalized_train_info, finalized_val_info],
                     epoch=epoch,
                     rank=rank,
-                    learning_rate=lr,
+                    learning_rate=optimizer.param_groups[0]["lr"],
                 )
 
             val_metric = get_selected_metric(
