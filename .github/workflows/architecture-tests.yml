@@ -18,6 +18,7 @@ jobs:
           - pet
           - nanopet
           - deprecated-pet
+          - uea
 
     runs-on: ubuntu-22.04
 
