@@ -18,7 +18,7 @@ sphinx_gallery_conf = {
     "default_thumb_file": os.path.join(ROOT, "docs/src/logo/metatrain-512.png"),
     "examples_dirs": [
         os.path.join(ROOT, "examples", "ase"),
-        os.path.join(ROOT, "examples", "programmatic", "llpr"),
+        os.path.join(ROOT, "examples", "llpr"),
         os.path.join(ROOT, "examples", "zbl"),
         os.path.join(ROOT, "examples", "programmatic", "use_architectures_outside"),
         os.path.join(ROOT, "examples", "programmatic", "disk_dataset"),
@@ -26,7 +26,7 @@ sphinx_gallery_conf = {
     ],
     "gallery_dirs": [
         os.path.join(ROOT, "docs", "src", "examples", "ase"),
-        os.path.join(ROOT, "docs", "src", "examples", "programmatic", "llpr"),
+        os.path.join(ROOT, "docs", "src", "examples",  "llpr"),
         os.path.join(ROOT, "docs", "src", "examples", "zbl"),
         os.path.join(ROOT, "docs", "src", "examples", "programmatic", "use_architectures_outside"),
         os.path.join(ROOT, "docs", "src", "examples", "programmatic", "disk_dataset"),
