@@ -30,7 +30,7 @@ from ..utils.data import (
 from ..utils.data.dataset import _save_indices, _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
-from ..utils.errors import ArchitectureError
+from ..utils.errors import ArchitectureError, OutOfMemoryError
 from ..utils.io import (
     check_file_extension,
     load_model,
@@ -559,6 +559,8 @@ def train_model(
             val_datasets=val_datasets,
             checkpoint_dir=str(checkpoint_dir),
         )
+    except torch.cuda.OutOfMemoryError as e:
+        raise ArchitectureError(OutOfMemoryError(e)) from e
     except Exception as e:
         raise ArchitectureError(e) from e
 
