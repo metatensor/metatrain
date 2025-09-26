@@ -69,7 +69,7 @@ def test_prediction():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
@@ -120,7 +120,7 @@ def test_per_atom_predictions_functionality():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
@@ -172,7 +172,7 @@ def test_selected_atoms_functionality():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
@@ -236,6 +236,7 @@ def test_vector_output(per_atom):
         atomic_types=[1, 6, 7, 8],
         targets={
             "forces": get_generic_target_info(
+                "forces",
                 {
                     "quantity": "forces",
                     "unit": "",
@@ -244,7 +245,7 @@ def test_vector_output(per_atom):
                     },
                     "num_subtargets": 100,
                     "per_atom": per_atom,
-                }
+                },
             )
         },
     )
@@ -258,7 +259,7 @@ def test_output_features():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
 
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)

@@ -23,7 +23,7 @@ def test_forces(is_training):
         atomic_types={1, 6, 7, 8},
         targets={
             "energy": get_energy_target_info(
-                {"unit": "eV"}, add_position_gradients=True
+                "energy", {"unit": "eV"}, add_position_gradients=True
             )
         },
     )
@@ -90,7 +90,9 @@ def test_virial(is_training):
         length_unit="angstrom",
         atomic_types={6},
         targets={
-            "energy": get_energy_target_info({"unit": "eV"}, add_strain_gradients=True)
+            "energy": get_energy_target_info(
+                "energy", {"unit": "eV"}, add_strain_gradients=True
+            )
         },
     )
     model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
@@ -169,6 +171,7 @@ def test_both(is_training):
         atomic_types={6},
         targets={
             "energy": get_energy_target_info(
+                "energy",
                 {"unit": "eV"},
                 add_position_gradients=True,
                 add_strain_gradients=True,

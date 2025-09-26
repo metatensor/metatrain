@@ -98,7 +98,7 @@ def test_get_checkpoint(context, caplog):
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
     checkpoint = model.get_checkpoint()

@@ -24,7 +24,9 @@ def test_prediction():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
 
@@ -49,7 +51,9 @@ def test_pet_padding():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
 
@@ -100,7 +104,9 @@ def test_prediction_subset_elements():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
 
@@ -131,7 +137,9 @@ def test_prediction_subset_atoms():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
 
@@ -205,7 +213,9 @@ def test_output_last_layer_features():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
 
@@ -310,7 +320,9 @@ def test_output_per_atom():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
 
@@ -370,13 +382,14 @@ def test_vector_output(per_atom):
         atomic_types=[1, 6, 7, 8],
         targets={
             "forces": get_generic_target_info(
+                "forces",
                 {
                     "quantity": "forces",
                     "unit": "",
                     "type": {"cartesian": {"rank": 1}},
                     "num_subtargets": 100,
                     "per_atom": per_atom,
-                }
+                },
             )
         },
     )
@@ -405,6 +418,7 @@ def test_spherical_output(per_atom):
         atomic_types=[1, 6, 7, 8],
         targets={
             "spherical_tensor": get_generic_target_info(
+                "spherical_tensor",
                 {
                     "quantity": "spherical_tensor",
                     "unit": "",
@@ -413,7 +427,7 @@ def test_spherical_output(per_atom):
                     },
                     "num_subtargets": 100,
                     "per_atom": per_atom,
-                }
+                },
             )
         },
     )
@@ -443,6 +457,7 @@ def test_spherical_output_multi_block(per_atom):
         atomic_types=[1, 6, 7, 8],
         targets={
             "spherical_tensor": get_generic_target_info(
+                "spherical_tensor",
                 {
                     "quantity": "spherical_tensor",
                     "unit": "",
@@ -457,7 +472,7 @@ def test_spherical_output_multi_block(per_atom):
                     },
                     "num_subtargets": 100,
                     "per_atom": per_atom,
-                }
+                },
             )
         },
     )
@@ -506,7 +521,9 @@ def test_pet_single_atom():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
     model = PET(MODEL_HYPERS, dataset_info)
@@ -532,13 +549,14 @@ def test_pet_rank_2(per_atom):
         atomic_types=[1, 6, 7, 8],
         targets={
             "stress": get_generic_target_info(
+                "stress",
                 {
                     "quantity": "stress",
                     "unit": "",
                     "type": {"cartesian": {"rank": 2}},
                     "num_subtargets": 100,
                     "per_atom": per_atom,
-                }
+                },
             )
         },
     )
