@@ -22,7 +22,7 @@ def is_None(*args, **kwargs) -> None:
 
 def test_find_all_architectures():
     all_arches = find_all_architectures()
-    assert len(all_arches) == 6
+    assert len(all_arches) == 7
 
     assert "gap" in all_arches
     assert "pet" in all_arches
