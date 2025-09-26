@@ -42,7 +42,7 @@ def scalar_tensor_map():
                     values=torch.tensor([[0, 0], [0, 1], [1, 0]], dtype=torch.int32),
                 ),
                 components=[],
-                properties=Labels.range("properties", 10),
+                properties=Labels.range("scalar", 10),
             )
         ],
     )
@@ -68,7 +68,7 @@ def spherical_tensor_map():
                         values=torch.arange(0, 1, dtype=torch.int32).reshape(-1, 1),
                     ),
                 ],
-                properties=Labels.range("properties", 1),
+                properties=Labels.range("spherical", 1),
             ),
             TensorBlock(
                 values=torch.rand(2, 5, 1, dtype=torch.float64),
@@ -82,7 +82,7 @@ def spherical_tensor_map():
                         values=torch.arange(-2, 3, dtype=torch.int32).reshape(-1, 1),
                     ),
                 ],
-                properties=Labels.range("properties", 1),
+                properties=Labels.range("spherical", 1),
             ),
         ],
     )
@@ -109,7 +109,7 @@ def cartesian_tensor_map():
                         values=torch.arange(0, 3, dtype=torch.int32).reshape(-1, 1),
                     ),
                 ],
-                properties=Labels.range("properties", 1),
+                properties=Labels.range("cartesian", 1),
             ),
         ],
     )

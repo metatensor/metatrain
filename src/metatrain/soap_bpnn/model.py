@@ -74,7 +74,7 @@ class MLPMap(ModuleMap):
         )
         out_properties = [
             Labels(
-                names=["properties"],
+                names=["feature"],
                 values=torch.arange(
                     hypers["num_neurons_per_layer"],
                 ).reshape(-1, 1),
@@ -98,7 +98,7 @@ class LayerNormMap(ModuleMap):
         )
         out_properties = [
             Labels(
-                names=["properties"],
+                names=["feature"],
                 values=torch.arange(n_layer).reshape(-1, 1),
             )
             for _ in range(len(in_keys))
@@ -898,7 +898,7 @@ def _remove_center_type_from_properties(tensor_map: TensorMap) -> TensorMap:
                 samples=block.samples,
                 components=block.components,
                 properties=Labels(
-                    names=["properties"],
+                    names=["feature"],
                     values=torch.arange(
                         block.values.shape[-1], device=block.values.device
                     ).reshape(-1, 1),

@@ -233,7 +233,7 @@ def test_output_last_layer_features():
         128,
     )
     assert features.properties.names == [
-        "properties",
+        "feature",
     ]
 
     last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block()
@@ -246,7 +246,7 @@ def test_output_last_layer_features():
         128,
     )
     assert last_layer_features.properties.names == [
-        "properties",
+        "feature",
     ]
 
     # last-layer features per system:
@@ -284,7 +284,7 @@ def test_output_last_layer_features():
         128,
     )
     assert outputs["mtt::aux::energy_last_layer_features"].block().properties.names == [
-        "properties",
+        "feature",
     ]
 
 

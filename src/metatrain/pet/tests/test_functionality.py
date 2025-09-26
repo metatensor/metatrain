@@ -259,7 +259,7 @@ def test_output_last_layer_features():
         MODEL_HYPERS["d_pet"] * MODEL_HYPERS["num_gnn_layers"] * 2,
     )
     assert features.properties.names == [
-        "properties",
+        "feature",
     ]
 
     last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block()
@@ -272,7 +272,7 @@ def test_output_last_layer_features():
         MODEL_HYPERS["d_head"] * MODEL_HYPERS["num_gnn_layers"] * 2,
     )
     assert last_layer_features.properties.names == [
-        "properties",
+        "feature",
     ]
 
     # last-layer features per system:
@@ -310,7 +310,7 @@ def test_output_last_layer_features():
         MODEL_HYPERS["d_head"] * MODEL_HYPERS["num_gnn_layers"] * 2,
     )
     assert outputs["mtt::aux::energy_last_layer_features"].block().properties.names == [
-        "properties",
+        "feature",
     ]
 
 
