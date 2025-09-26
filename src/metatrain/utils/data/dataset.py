@@ -57,11 +57,27 @@ class SystemWrapper:
             "types": self.system.types,
             "cell": self.system.cell,
             "pbc": self.system.pbc,
+            "extra_data": {
+                name: self.system.get_data(name) for name in self.system.known_data()
+            },
+            "neighbor_lists": {
+                nl_options: self.system.get_neighbor_list(nl_options)
+                for nl_options in self.system.known_neighbor_lists()
+            },
         }
         return state
 
     def __setstate__(self, state):
-        self.system = System(**state)
+        self.system = System(
+            positions=state["positions"],
+            types=state["types"],
+            cell=state["cell"],
+            pbc=state["pbc"],
+        )
+        for name, data in state["extra_data"].items():
+            self.system.add_data(name, data)
+        for nl_options, nl in state["neighbor_lists"].items():
+            self.system.add_neighbor_list(nl_options, nl)
 
 
 class DatasetInfo:
