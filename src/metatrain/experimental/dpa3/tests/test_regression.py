@@ -100,7 +100,7 @@ def test_regression_energies_forces_train():
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model,
-        dtype=torch.float64,
+        dtype=torch.float32,
         devices=[torch.device("cpu")],
         train_datasets=[dataset],
         val_datasets=[dataset],
