@@ -73,6 +73,12 @@ class LongRangeFeaturizer(torch.nn.Module):
         self.charges_map = torch.nn.Linear(feature_dim, feature_dim)
         """Map the short-range features to atomic charges."""
 
+        self.out_projection = torch.nn.Sequential(
+            torch.nn.Linear(feature_dim, feature_dim),
+            torch.nn.SiLU(),
+            torch.nn.Linear(feature_dim, feature_dim),
+        )
+
     def forward(
         self,
         systems: List[System],
@@ -109,10 +115,9 @@ class LongRangeFeaturizer(torch.nn.Module):
             ]
             last_len_edges += len(neighbor_indices_system)
 
-            if system.pbc.any() and not system.pbc.all():
+            if system.pbc.any() and system.pbc.sum() < 2:
                 raise NotImplementedError(
-                    "Long-range features are not currently supported for systems "
-                    "with mixed periodic and non-periodic boundary conditions."
+                    "Long-range features are not currently supported for 1D systems "
                 )
 
             if system.pbc.all():  # periodic
@@ -123,6 +128,7 @@ class LongRangeFeaturizer(torch.nn.Module):
                         positions=system.positions,
                         neighbor_indices=neighbor_indices_system,
                         neighbor_distances=neighbor_distances_system,
+                        periodic=system.pbc,
                     )
                 else:
                     potential = self.p3m_calculator.forward(
@@ -131,6 +137,7 @@ class LongRangeFeaturizer(torch.nn.Module):
                         positions=system.positions,
                         neighbor_indices=neighbor_indices_system,
                         neighbor_distances=neighbor_distances_system,
+                        periodic=system.pbc,
                     )
             else:  # non-periodic
                 # compute the distance between all pairs of atoms
@@ -154,7 +161,8 @@ class LongRangeFeaturizer(torch.nn.Module):
                     neighbor_indices=neighbor_indices_system,
                     neighbor_distances=neighbor_distances_system,
                 )
-            long_range_features.append(potential * system_charges)
+            long_range_features.append(self.out_projection(potential))
+
         return torch.concatenate(long_range_features)
 
 
