@@ -10,7 +10,7 @@ import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
 from metatensor.torch import TensorMap, load_buffer
-from metatomic.torch import load_system
+from metatomic.torch import System, load_system
 from omegaconf import DictConfig
 from torch.utils.data import Subset
 
@@ -43,6 +43,25 @@ def _set(values: List[int]) -> List[int]:
             unique_values.append(at_type)
 
     return unique_values
+
+
+class SystemWrapper:
+    """A wrapper for ``metatomic.torch.System`` that makes it pickle-compatible."""
+
+    def __init__(self, system):
+        self.system = system
+
+    def __getstate__(self):
+        state = {
+            "positions": self.system.positions,
+            "types": self.system.types,
+            "cell": self.system.cell,
+            "pbc": self.system.pbc,
+        }
+        return state
+
+    def __setstate__(self, state):
+        self.system = System(**state)
 
 
 class DatasetInfo:
@@ -352,6 +371,7 @@ class CollateFn:
             else:
                 extra[key] = value
 
+        systems = [SystemWrapper(system) for system in systems]
         return systems, targets, extra
 
 

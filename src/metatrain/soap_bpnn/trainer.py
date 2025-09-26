@@ -201,6 +201,7 @@ class Trainer(TrainerInterface):
                         train_sampler is None
                     ),
                     collate_fn=collate_fn,
+                    num_workers=4,
                 )
             )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
@@ -223,6 +224,7 @@ class Trainer(TrainerInterface):
                     shuffle=False,
                     drop_last=False,
                     collate_fn=collate_fn,
+                    num_workers=4,
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
@@ -307,6 +309,7 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = batch
+                systems = [system.system for system in systems]
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
@@ -366,6 +369,7 @@ class Trainer(TrainerInterface):
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets, extra_data = batch
+                systems = [system.system for system in systems]
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )

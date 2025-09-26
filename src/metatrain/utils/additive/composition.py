@@ -179,6 +179,7 @@ class CompositionModel(torch.nn.Module):
         # accumulate
         for batch in dataloader:
             systems, targets, _ = batch
+            systems = [system.system for system in systems]
             systems, targets, _ = batch_to(systems, targets, device=device)
             # only accumulate the targets that do not use fixed weights
             targets = {

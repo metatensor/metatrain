@@ -170,7 +170,7 @@ def _eval_targets(
     cycled = itertools.cycle(dataloader)
     for _ in range(10):
         batch = next(cycled)
-        systems = [s.to(device=device, dtype=dtype) for s in batch[0]]
+        systems = [s.system.to(device=device, dtype=dtype) for s in batch[0]]
         evaluate_model(
             model,
             systems,
@@ -185,6 +185,7 @@ def _eval_targets(
     # Main evaluation loop
     for batch in tqdm.tqdm(dataloader, ncols=100):
         systems, batch_targets, _ = batch
+        systems = [system.system for system in systems]
         systems = [system.to(dtype=dtype, device=device) for system in systems]
         batch_targets = {
             k: v.to(device=device, dtype=dtype) for k, v in batch_targets.items()
