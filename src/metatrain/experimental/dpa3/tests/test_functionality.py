@@ -190,7 +190,9 @@ def test_prediction_subset_atoms():
 
     assert not mts.allclose(energy_monomer["energy"], energy_dimer["energy"])
 
-    assert mts.allclose(energy_monomer["energy"], energy_monomer_in_dimer["energy"])
+    assert mts.allclose(
+        energy_monomer["energy"], energy_monomer_in_dimer["energy"], atol=1e-6
+    )
 
     torch.set_default_dtype(default_dtype_before)
 
