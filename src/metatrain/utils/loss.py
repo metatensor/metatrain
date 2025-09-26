@@ -662,10 +662,10 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
                 dtype = tsm_pred_orig.block().values.dtype
                 device = tsm_pred_orig.block().values.device
 
-                cur_pred = tsm_pred_orig.block().values.detach()
+                cur_pred = tsm_pred_orig.block().values
                 cur_targ = tsm_targ.block().values.detach()
                 cur_mask = extra_data["mtt::mask"].block().values.detach()
-                _, cur_shift = get_dynamic_shift_agnostic_mse(cur_pred, cur_targ, cur_mask, return_shift=True)
+                _, cur_shift = get_dynamic_shift_agnostic_mse(cur_pred, cur_targ, cur_mask, return_shift=True) #Basically freezing the shift
 
                 revised_dos_targets = torch.zeros(cur_pred.shape, dtype=dtype, device=device)
                 revised_masks = torch.zeros(cur_pred.shape, dtype=dtype, device=device)
