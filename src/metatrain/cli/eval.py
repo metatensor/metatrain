@@ -184,8 +184,8 @@ def _eval_targets(
 
     # Main evaluation loop
     for batch in tqdm.tqdm(dataloader, ncols=100):
-        systems, batch_targets, _ = batch
-        systems = [system.system for system in systems]
+        system_wrappers, batch_targets, _ = batch
+        systems = [w.system for w in system_wrappers]
         systems = [system.to(dtype=dtype, device=device) for system in systems]
         batch_targets = {
             k: v.to(device=device, dtype=dtype) for k, v in batch_targets.items()
