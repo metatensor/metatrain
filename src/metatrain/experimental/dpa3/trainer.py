@@ -61,7 +61,7 @@ class Trainer(TrainerInterface):
         checkpoint_dir: str,
     ):
         assert dtype in DPA3.__supported_dtypes__
-        
+
         is_distributed = self.hypers["distributed"]
 
         if is_distributed:
@@ -124,9 +124,9 @@ class Trainer(TrainerInterface):
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
-        
+
         logging.info("Calculating composition weights")
-        
+
         model.additive_models[0].train_model(  # this is the composition model
             train_datasets,
             model.additive_models[1:],
@@ -139,7 +139,7 @@ class Trainer(TrainerInterface):
             logging.info("Calculating scaling weights")
             model.scaler.train_model(
                 train_datasets, model.additive_models, treat_as_additive=True
-            )        
+            )
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -226,7 +226,7 @@ class Trainer(TrainerInterface):
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
-        
+
         # Extract all the possible outputs and their gradients:
         train_targets = (model.module if is_distributed else model).dataset_info.targets
         outputs_list = []
@@ -314,7 +314,7 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
                 model.to(device)
                 systems, targets, extra_data = batch
-                
+
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
@@ -330,7 +330,7 @@ class Trainer(TrainerInterface):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
                 )
-                
+
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -342,8 +342,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                
-                
+
                 train_loss_batch = loss_fn(predictions, targets)
 
                 train_loss_batch.backward()
@@ -356,7 +355,7 @@ class Trainer(TrainerInterface):
                 train_rmse_calculator.update(predictions, targets)
                 if self.hypers["log_mae"]:
                     train_mae_calculator.update(predictions, targets)
-            
+
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
                 is_distributed=is_distributed,

@@ -1,14 +1,7 @@
 seed: 42
 
 architecture:
-  name: soap_bpnn
-  training:
-    batch_size: 5
-    num_epochs: 1
-  model:
-    soap:
-      max_radial: 4
-      max_angular: 2
+  name: experimental.dpa3
 
 training_set:
   systems:

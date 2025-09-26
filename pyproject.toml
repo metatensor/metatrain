@@ -81,7 +81,8 @@ mace = [
 ]
 flashmd = []
 dpa3 = [
-    "deepmd-kit>=3.1.0"
+    "deepmd-kit>=3.1.0",
+    "torch>=2.7",
 ]
 
 [tool.check-manifest]

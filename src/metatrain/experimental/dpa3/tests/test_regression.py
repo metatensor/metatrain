@@ -30,7 +30,7 @@ def test_regression_init():
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
     )
-    model = DPA3(MODEL_HYPERS, dataset_info).to('cpu')
+    model = DPA3(MODEL_HYPERS, dataset_info).to("cpu")
 
     # Predict on the first five systems
     systems = read_systems(DATASET_PATH)[:5]
@@ -42,7 +42,7 @@ def test_regression_init():
         systems,
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
     )
-    
+
     expected_output = torch.tensor(
         [
             [-8.196924407132],
@@ -50,13 +50,14 @@ def test_regression_init():
             [-4.913442698461],
             [-6.568228343430],
             [-4.895156818840],
-        ],dtype=torch.float64
+        ],
+        dtype=torch.float64,
     )
 
     # if you need to change the hardcoded values:
     # torch.set_printoptions(precision=12)
     # print(output["mtt::U0"].block().values)
-    
+
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
 
 
@@ -95,7 +96,7 @@ def test_regression_energies_forces_train():
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[6], targets=target_info_dict
     )
-    model = DPA3(MODEL_HYPERS, dataset_info).to('cpu')
+    model = DPA3(MODEL_HYPERS, dataset_info).to("cpu")
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model,
@@ -114,19 +115,20 @@ def test_regression_energies_forces_train():
     output = evaluate_model(
         model, systems[:5], targets=target_info_dict, is_training=False
     )
-    
+
     expected_output = torch.tensor(
         [
             [-0.555318677882],
             [-0.569078342763],
             [-0.579769296313],
             [-0.518369165620],
-            [-0.556493731493]
-        ],dtype=torch.float64
+            [-0.556493731493],
+        ],
+        dtype=torch.float64,
     )
 
     expected_gradients_output = torch.tensor(
-        [-0.006725381569,  0.008463345547,  0.025475740380],dtype=torch.float64
+        [-0.006725381569, 0.008463345547, 0.025475740380], dtype=torch.float64
     )
 
     # if you need to change the hardcoded values:

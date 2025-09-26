@@ -17,6 +17,7 @@ from metatrain.utils.testing.checkpoints import (
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
+
 # from pathlib import Path
 
 # from metatrain.utils.architectures import get_default_hypers
@@ -66,7 +67,6 @@ def model_trainer():
 
     # minimize the size of the checkpoint on disk
     hypers = copy.deepcopy(MODEL_HYPERS)
-    
 
     model = DPA3(hypers, dataset_info)
 
@@ -125,6 +125,7 @@ def test_failed_checkpoint_upgrade(cls_type):
     )
     with pytest.raises(RuntimeError, match=match):
         cls.upgrade_checkpoint(checkpoint)
+
 
 if __name__ == "__main__":
     test_get_checkpoint("finetune")
