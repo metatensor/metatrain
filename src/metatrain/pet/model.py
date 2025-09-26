@@ -364,7 +364,7 @@ class PET(ModelInterface):
                         samples=sample_labels,
                         components=[],
                         properties=Labels(
-                            names=["properties"],
+                            names=["feature"],
                             values=torch.arange(
                                 features.shape[-1], device=features.device
                             ).reshape(-1, 1),
@@ -455,7 +455,7 @@ class PET(ModelInterface):
                         samples=sample_labels,
                         components=[],
                         properties=Labels(
-                            names=["properties"],
+                            names=["feature"],
                             values=torch.arange(
                                 last_layer_features_values.shape[-1],
                                 device=last_layer_features_values.device,

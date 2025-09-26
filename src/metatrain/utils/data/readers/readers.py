@@ -176,7 +176,7 @@ def _read_conf_section(
             ) from e
 
         # execute reader and collect outputs
-        tensormaps, info = reader_fn(entry)
+        tensormaps, info = reader_fn(key, entry)
 
         # enforce double precision (dtype == 7)
         if not all(t.dtype == 7 for t in tensormaps):
@@ -193,6 +193,8 @@ _standard_outputs_list = {
     "energy",
     "non_conservative_forces",
     "non_conservative_stress",
+    "positions",
+    "momenta",
 }
 
 

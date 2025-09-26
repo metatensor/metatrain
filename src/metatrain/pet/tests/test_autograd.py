@@ -25,7 +25,9 @@ def test_autograd_positions(device):
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
 
@@ -74,7 +76,9 @@ def test_autograd_cell(device):
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
 

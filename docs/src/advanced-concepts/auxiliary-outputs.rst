@@ -76,9 +76,9 @@ mtt::aux::{target}_last_layer_features
       equivariant.
 
   * - properties
-    - ``"properties"``
+    - ``"feature"``
     - the last-layer features have a single property dimension named
-      ``"properties"``, with entries ranging from 0 to the number of features
+      ``"feature"``, with entries ranging from 0 to the number of features
       in the last layer.
 
 features

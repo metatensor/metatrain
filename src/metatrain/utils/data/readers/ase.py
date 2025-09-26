@@ -214,7 +214,9 @@ def _read_virial_stress_ase(
     return blocks
 
 
-def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
+def read_energy(
+    target_name: str, target: DictConfig
+) -> Tuple[List[TensorMap], TargetInfo]:
     target_key = target["key"]
 
     blocks = _read_energy_ase(
@@ -289,12 +291,14 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
         for block in blocks
     ]
     target_info = get_energy_target_info(
-        target, add_position_gradients, add_strain_gradients
+        target_name, target, add_position_gradients, add_strain_gradients
     )
     return tensor_map_list, target_info
 
 
-def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
+def read_generic(
+    target_name: str, target: DictConfig
+) -> Tuple[List[TensorMap], TargetInfo]:
     filename = target["read_from"]
     frames = read(filename, ":")
 
@@ -312,7 +316,7 @@ def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
                 "representation. Please use the metatensor reader."
             )
 
-    target_info = get_generic_target_info(target)
+    target_info = get_generic_target_info(target_name, target)
     components = target_info.layout.block().components
     properties = target_info.layout.block().properties
     shape_after_samples = target_info.layout.block().shape[1:]
