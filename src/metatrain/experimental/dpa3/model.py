@@ -1,10 +1,9 @@
 from typing import Any, Dict, List, Literal, Optional
-import copy
+
 import metatensor.torch as mts
 import torch
+from deepmd.pt.model.model import get_standard_model
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.learn.nn import Linear as LinearMap
-from metatensor.torch.learn.nn import ModuleMap
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -15,35 +14,17 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL,CompositionModel
+from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
-from deepmd.pt.model.model import get_standard_model
-
-def update_v1_v2(state_dict):
-    # This if-statement is necessary to handle cases when
-    # best_model_state_dict and model_state_dict are the same.
-    # In that case, the both are updated within the first call of
-    # this function in the PET.update_checkpoint() method.
-    if (
-        state_dict is not None
-        and "additive_models.0.model.type_to_index" not in state_dict
-    ):
-        state_dict["additive_models.0.model.type_to_index"] = state_dict.pop(
-            "additive_models.0.type_to_index"
-        )
-
 
 # Data processing
-def concatenate_structures(
-    systems: List[System]
-):
+def concatenate_structures(systems: List[System]):
     device = systems[0].positions.device
     positions = []
     species = []
@@ -58,28 +39,30 @@ def concatenate_structures(
         atom_nums.append(len(system.positions))
         atom_index_list.append(torch.arange(start=0, end=len(system.positions)))
         system_index_list.append(torch.full((len(system.positions),), i))
-    max_atom_num = max(atom_nums) 
+    max_atom_num = max(atom_nums)
     atom_index = torch.cat(atom_index_list, dim=0).to(torch.int32).to(device)
     system_index = torch.cat(system_index_list, dim=0).to(torch.int32).to(device)
-    
-    positions = torch.zeros((len(systems), max_atom_num, 3), dtype=systems[0].positions.dtype)
+
+    positions = torch.zeros(
+        (len(systems), max_atom_num, 3), dtype=systems[0].positions.dtype
+    )
     species = torch.full((len(systems), max_atom_num), -1, dtype=systems[0].types.dtype)
-    cells = torch.stack([system.cell for system in systems])  # 形状为 [batch_size, 3, 3] 或相应的晶胞形状
-    
+    cells = torch.stack(
+        [system.cell for system in systems]
+    )  # 形状为 [batch_size, 3, 3] 或相应的晶胞形状
 
     for i, system in enumerate(systems):
-        positions[i, :len(system.positions)] = system.positions
-        species[i, :len(system.positions)] = system.types
+        positions[i, : len(system.positions)] = system.positions
+        species[i, : len(system.positions)] = system.types
         cells[i] = system.cell
         node_counter += len(system.positions)
-    
 
     return (
         positions.to(device),
         species.to(device),
         cells.to(device),
         atom_index,
-        system_index
+        system_index,
     )
 
 
@@ -87,7 +70,7 @@ def concatenate_structures(
 class DPA3(ModelInterface):
     __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
-    __supported_dtypes__ = [torch.float32,torch.float64]
+    __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
         references={
             "implementation": [
@@ -105,14 +88,14 @@ class DPA3(ModelInterface):
         super().__init__(hypers, dataset_info, self.__default_metadata__)
         self.atomic_types = dataset_info.atomic_types
         self.dtype = self.hypers["descriptor"]["precision"]
-        
+
         if self.dtype == "float64":
             self.dtype = torch.float64
         elif self.dtype == "float32":
             self.dtype = torch.float32
         else:
             raise ValueError(f"Unsupported precision: {self.dtype}")
-        
+
         self.requested_nl = NeighborListOptions(
             cutoff=self.hypers["descriptor"]["repflow"]["e_rcut"],
             full_list=True,
@@ -121,15 +104,13 @@ class DPA3(ModelInterface):
         self.targets_keys = list(dataset_info.targets.keys())[0]
 
         self.model = get_standard_model(hypers)
-        
+
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
-        self.outputs = {
-            "features": ModelOutput(unit="", per_atom=True)
-        }
+        self.outputs: Dict[str, ModelOutput] = {}
         self.single_label = Labels.single()
 
         self.num_properties: Dict[str, Dict[str, int]] = {}
-        
+
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
@@ -151,13 +132,10 @@ class DPA3(ModelInterface):
         additive_models = [composition_model]
         self.additive_models = torch.nn.ModuleList(additive_models)
 
-
     def _add_output(self, target_name: str, target: TargetInfo) -> None:
+        if not target.is_scalar:
+            raise ValueError("The DPA3 architecture can only predict scalars.")
         self.num_properties[target_name] = {}
-        ll_features_name = (
-            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
-        )
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
         self.key_labels[target_name] = target.layout.keys
         self.component_labels[target_name] = [
             block.components for block in target.layout.blocks()
@@ -165,19 +143,18 @@ class DPA3(ModelInterface):
         self.property_labels[target_name] = [
             block.properties for block in target.layout.blocks()
         ]
-
         self.outputs[target_name] = ModelOutput(
             quantity=target.quantity,
             unit=target.unit,
             per_atom=True,
         )
-    
+
     def get_rcut(self):
         return self.model.atomic_model.get_rcut()
-    
+
     def get_sel(self):
         return self.model.atomic_model.get_sel()
-    
+
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
 
@@ -188,19 +165,8 @@ class DPA3(ModelInterface):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         device = systems[0].positions.device
-        
-        atype_dtype = systems[0].types.dtype
 
-        system_indices = torch.concatenate(
-            [
-                torch.full(
-                    (len(system),),
-                    i_system,
-                    device=device,
-                )
-                for i_system, system in enumerate(systems)
-            ],
-        )
+        atype_dtype = systems[0].types.dtype
 
         if self.single_label.values.device != device:
             self.single_label = self.single_label.to(device)
@@ -222,45 +188,26 @@ class DPA3(ModelInterface):
 
         return_dict: Dict[str, TensorMap] = {}
 
-        sample_values = torch.stack(
-            [
-                system_indices,
-                torch.concatenate(
-                    [
-                        torch.arange(
-                            len(system),
-                            device=device,
-                        )
-                        for system in systems
-                    ],
-                ),
-            ],
-            dim=1,
+        (positions, species, cells, atom_index, system_index) = concatenate_structures(
+            systems
         )
 
-        (
-            positions,
-            species,
-            cells,
-            atom_index,
-            system_index
-        ) = concatenate_structures(systems)
-        
-        
-        type_to_index = {atomic_type: idx for idx, atomic_type in enumerate(self.atomic_types)}
-        type_to_index[-1] = -1 
+        type_to_index = {
+            atomic_type: idx for idx, atomic_type in enumerate(self.atomic_types)
+        }
+        type_to_index[-1] = -1
 
         atype = torch.tensor(
             [[type_to_index[s.item()] for s in row] for row in species],
-            dtype=atype_dtype
+            dtype=atype_dtype,
         ).to(positions.device)
         atype = atype.to(atype_dtype)
-        
+
         if torch.all(cells == 0).item():
             box = None
         else:
             box = cells
-            
+
         model_ret = self.model.forward_common(
             positions,
             atype,
@@ -269,7 +216,7 @@ class DPA3(ModelInterface):
             aparam=None,
             do_atomic_virial=False,
         )
-        
+
         if self.model.get_fitting_net() is not None:
             model_predict = {}
             model_predict["atom_energy"] = model_ret["energy"]
@@ -284,32 +231,34 @@ class DPA3(ModelInterface):
         else:
             model_predict = model_ret
             model_predict["updated_coord"] += positions
-            
+
         atomic_properties: Dict[str, TensorMap] = {}
         blocks: List[TensorBlock] = []
-        
+
         system_col = system_index
         atom_col = atom_index
-        
+
         values = torch.stack([system_col, atom_col], dim=0).transpose(0, 1)
         invariant_coefficients = Labels(
-            names=["system", "atom"],
-            values=values.to(device)
+            names=["system", "atom"], values=values.to(device)
         )
-        
 
         mask = torch.abs(model_predict["atom_energy"]) > 1e-10
         atomic_property_tensor = model_predict["atom_energy"][mask].unsqueeze(-1)
-        
-        blocks.append(TensorBlock(
-            values=atomic_property_tensor,
-            samples=invariant_coefficients,
-            components=self.component_labels[self.targets_keys][0],
-            properties=self.property_labels[self.targets_keys][0].to(device),
-        ))
-        
-        atomic_properties[self.targets_keys] = TensorMap(self.key_labels[self.targets_keys].to(device), blocks)
-        
+
+        blocks.append(
+            TensorBlock(
+                values=atomic_property_tensor,
+                samples=invariant_coefficients,
+                components=self.component_labels[self.targets_keys][0],
+                properties=self.property_labels[self.targets_keys][0].to(device),
+            )
+        )
+
+        atomic_properties[self.targets_keys] = TensorMap(
+            self.key_labels[self.targets_keys].to(device), blocks
+        )
+
         if selected_atoms is not None:
             for output_name, tmap in atomic_properties.items():
                 atomic_properties[output_name] = mts.slice(
@@ -317,13 +266,12 @@ class DPA3(ModelInterface):
                 )
 
         for output_name, atomic_property in atomic_properties.items():
-            
             if outputs[output_name].per_atom:
                 return_dict[output_name] = atomic_property
             else:
                 # sum the atomic property to get the total property
                 return_dict[output_name] = sum_over_atoms(atomic_property)
-        
+
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
             return_dict = self.scaler(return_dict)
@@ -342,9 +290,8 @@ class DPA3(ModelInterface):
                         return_dict[name],
                         additive_contributions[name],
                     )
-        
+
         return return_dict
-        
 
     def restart(self, dataset_info: DatasetInfo) -> "DPA3":
         # merge old and new dataset info
@@ -432,10 +379,10 @@ class DPA3(ModelInterface):
 
         # Additionally, the composition model contains some `TensorMap`s that cannot
         # be registered correctly with Pytorch. This funciton moves them:
-        
+
         self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
-        interaction_ranges = [self.hypers['descriptor']['repflow']['e_rcut']]
+        interaction_ranges = [self.hypers["descriptor"]["repflow"]["e_rcut"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)
@@ -458,19 +405,9 @@ class DPA3(ModelInterface):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        if checkpoint["model_ckpt_version"] == 1:
-            checkpoints.update_v1_v2(checkpoint["model_state_dict"])
-            checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
-            checkpoint["model_ckpt_version"] = 2
-
-        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {checkpoint['model_ckpt_version']}, while the current "
-                f"model version is {cls.__checkpoint_version__}."
-            )
+        # version is still one, there are no new versions
         return checkpoint
-    
+
     def get_checkpoint(self) -> Dict:
         checkpoint = {
             "architecture_name": "experimental.dpa3",
@@ -484,6 +421,6 @@ class DPA3(ModelInterface):
             "best_model_state_dict": None,
         }
         return checkpoint
-    
+
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs

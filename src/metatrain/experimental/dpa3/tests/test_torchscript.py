@@ -21,7 +21,7 @@ def test_torchscript():
             "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
         },
     )
-    
+
     model = DPA3(MODEL_HYPERS, dataset_info).to("cpu")
     system = System(
         types=torch.tensor([6, 1, 8, 7]),
@@ -32,7 +32,7 @@ def test_torchscript():
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    
+
     model = torch.jit.script(model)
     model(
         [system],
