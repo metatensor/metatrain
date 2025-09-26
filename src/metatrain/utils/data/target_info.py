@@ -364,7 +364,7 @@ def _get_scalar_target_info(target_name: str, target: DictConfig) -> TargetInfo:
             values=torch.empty((0, len(sample_names)), dtype=torch.int32),
         ),
         components=[],
-        properties=Labels.range("properties", target["num_subtargets"]),
+        properties=Labels.range(target_name, target["num_subtargets"]),
     )
     layout = TensorMap(
         keys=Labels.single(),
@@ -409,7 +409,7 @@ def _get_cartesian_target_info(target_name: str, target: DictConfig) -> TargetIn
             values=torch.empty((0, len(sample_names)), dtype=torch.int32),
         ),
         components=components,
-        properties=Labels.range("properties", target["num_subtargets"]),
+        properties=Labels.range(target_name, target["num_subtargets"]),
     )
     layout = TensorMap(
         keys=Labels.single(),
@@ -454,7 +454,7 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
                 values=torch.empty((0, len(sample_names)), dtype=torch.int32),
             ),
             components=components,
-            properties=Labels.range("properties", target["num_subtargets"]),
+            properties=Labels.range(target_name, target["num_subtargets"]),
         )
         keys.append([irrep["o3_lambda"], irrep["o3_sigma"]])
         blocks.append(block)
