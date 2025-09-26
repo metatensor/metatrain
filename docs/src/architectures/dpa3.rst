@@ -1,4 +1,4 @@
-.. _architecture-nanopet:
+.. _architecture-dpa3:
 
 DPA3 (experimental)
 ======================
