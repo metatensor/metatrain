@@ -5,7 +5,7 @@ NanoPET (experimental)
 
 .. warning::
 
-  This is an **experimental model**. You should not use it for anything important.
+  This is an **experimental architecture**. You should not use it for anything important.
 
 This is a more user-friendly re-implementation of the original
 PET :footcite:p:`pozdnyakov_smooth_2023` (which lives in https://github.com/spozdn/pet),

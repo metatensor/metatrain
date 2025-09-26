@@ -28,6 +28,7 @@ def test_find_all_architectures():
     assert "pet" in all_arches
     assert "soap_bpnn" in all_arches
     assert "experimental.nanopet" in all_arches
+    assert "experimental.dpa3" in all_arches
     assert "deprecated.pet" in all_arches
     assert "llpr" in all_arches
 

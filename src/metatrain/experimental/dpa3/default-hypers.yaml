@@ -1,13 +1,9 @@
 architecture:
   name: experimental.dpa3
   model:
-    type_map:
-      - "H"
-      - "C"
-      - "N"
-      - "O"
+    type_map: [H, C, N, O]
     descriptor:
-      type: "dpa3"
+      type: dpa3
       repflow:
         n_dim: 128
         e_dim: 64
@@ -25,26 +21,23 @@ architecture:
         a_compress_e_rate: 2
         a_compress_use_split: true
         update_angle: true
-        update_style: "res_residual"
+        update_style: res_residual
         update_residual: 0.1
-        update_residual_init: "const"
+        update_residual_init: const
         smooth_edge_update: true
         use_dynamic_sel: true
         sel_reduce_factor: 10.0
-      activation_function: "custom_silu:10.0"
+      activation_function: custom_silu:10.0
       use_tebd_bias: false
-      precision: "float32"
+      precision: float32
       concat_output_tebd: false
     fitting_net:
-      neuron:
-        - 240
-        - 240
-        - 240
+      neuron: [240, 240, 240]
       resnet_dt: true
       seed: 1
-      precision: "float32"
-      activation_function: "custom_silu:10.0"
-      type: "ener"
+      precision: float32
+      activation_function: custom_silu:10.0
+      type: ener
       numb_fparam: 0
       numb_aparam: 0
       dim_case_embd: 0

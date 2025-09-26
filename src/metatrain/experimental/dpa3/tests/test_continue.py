@@ -16,6 +16,7 @@ from metatrain.utils.neighbor_lists import (
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
+
 def test_continue(monkeypatch, tmp_path):
     """Tests that a model can be checkpointed and loaded
     for a continuation of the training process"""
@@ -100,7 +101,3 @@ def test_continue(monkeypatch, tmp_path):
     output_after = model_after(systems[:5], {"mtt::U0": model_after.outputs["mtt::U0"]})
 
     assert metatensor.torch.allclose(output_before["mtt::U0"], output_after["mtt::U0"])
-
-if __name__ == "__main__":
-    tmp_path = "/aisi/mnt/data_nas/liwentao/devel_workspace/metatrain/metatrain/src/metatrain/dpa3/tests/tmp"
-    test_continue(monkeypatch, tmp_path)

@@ -1,7 +1,5 @@
 import metatensor.torch as mts
-import pytest
 import torch
-from jsonschema.exceptions import ValidationError
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
@@ -10,7 +8,6 @@ from metatrain.utils.architectures import check_architecture_options
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
-    get_generic_target_info,
 )
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
@@ -190,7 +187,7 @@ def test_prediction_subset_atoms():
         {"energy": ModelOutput(per_atom=False)},
         selected_atoms=selection_labels,
     )
-    
+
     assert not mts.allclose(energy_monomer["energy"], energy_dimer["energy"])
 
     assert mts.allclose(energy_monomer["energy"], energy_monomer_in_dimer["energy"])
@@ -243,9 +240,9 @@ def test_fixed_composition_weights():
         }
     }
     hypers = OmegaConf.create(hypers)
-    check_architecture_options(name="experimental.dpa3", options=OmegaConf.to_container(hypers))
-
-
+    check_architecture_options(
+        name="experimental.dpa3", options=OmegaConf.to_container(hypers)
+    )
 
 
 def test_pet_single_atom():
@@ -269,5 +266,3 @@ def test_pet_single_atom():
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
     outputs = {"energy": ModelOutput(per_atom=False)}
     model([system], outputs)
-
-
