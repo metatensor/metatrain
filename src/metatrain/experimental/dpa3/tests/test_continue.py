@@ -67,7 +67,7 @@ def test_continue(monkeypatch, tmp_path):
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model,
-        dtype=torch.float64,
+        dtype=torch.float32,
         devices=[torch.device("cpu")],
         train_datasets=[dataset],
         val_datasets=[dataset],
@@ -83,7 +83,7 @@ def test_continue(monkeypatch, tmp_path):
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model_after,
-        dtype=torch.float64,
+        dtype=torch.float32,
         devices=[torch.device("cpu")],
         train_datasets=[dataset],
         val_datasets=[dataset],
