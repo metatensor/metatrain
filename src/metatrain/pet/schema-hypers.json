@@ -189,7 +189,11 @@
               ]
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "required": [
+            "read_from",
+            "method"
+          ]
         },
         "grad_clip_norm": {
           "type": "number"
