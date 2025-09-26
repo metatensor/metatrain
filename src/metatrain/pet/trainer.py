@@ -339,6 +339,7 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = batch
+                systems = [system.system for system in systems]
                 systems, targets, extra_data = (
                     rotational_augmenter.apply_random_augmentations(
                         systems, targets, extra_data=extra_data
@@ -404,6 +405,7 @@ class Trainer(TrainerInterface):
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets, extra_data = batch
+                systems = [system.system for system in systems]
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
