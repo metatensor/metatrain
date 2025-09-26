@@ -19,6 +19,7 @@ dependencies = [
     "jsonschema",
     "omegaconf >= 2.3.0",
     "python-hostlist",
+    "tqdm",
     "vesin",
 ]
 

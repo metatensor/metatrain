@@ -27,7 +27,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .modules.finetuning import apply_finetuning_strategy
-from .modules.structures import remap_neighborlists, systems_to_batch
+from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func
 
@@ -41,7 +41,7 @@ class PET(ModelInterface):
 
     """
 
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 6
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -228,13 +228,6 @@ class PET(ModelInterface):
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
 
-        if not self.training:
-            # While running the model with LAMMPS, we need to remap the
-            # neighbor lists from LAMMPS to ASE format. By default, LAMMPS
-            # treats all ghost atoms as real (central), what creates a
-            # singificant computational overhead.
-            systems = remap_neighborlists(systems, nl_options, selected_atoms)
-
         if self.single_label.values.device != device:
             self.single_label = self.single_label.to(device)
             self.key_labels = {
@@ -253,10 +246,6 @@ class PET(ModelInterface):
                 for output_name, properties_tmap in self.property_labels.items()
             }
 
-        system_indices, sample_labels = self._get_system_indices_and_labels(
-            systems, device
-        )
-
         # We convert a list of systems to a batch required for the PET model.
         # The batch consists of the following tensors:
         # - `element_indices_nodes` [n_atoms]: The atomic species of the central atoms
@@ -268,11 +257,13 @@ class PET(ModelInterface):
         #   neighbors are real, and which are padded
         # - `neighbors_index` [n_atoms, max_num_neighbors]: The indices of the
         #   neighboring atoms for each central atom
-        # - `num_neghbors` [n_atoms]: The number of neighbors for each central atom
         # - `reversed_neighbor_list` [n_atoms, max_num_neighbors]: The reversed neighbor
         #   list for each central atom, where for each center atom `i` and its neighbor
         #   `j` in the original neighborlist, the position of atom `i` in the list of
         #   neighbors of atom `j` is returned.
+        # - `system_indices` [n_atoms]: The indices of the systems for each central atom
+        # - `sample_labels` [n_atoms, 2]: The metatensor.torch.Labels object, containing
+        #   indices of each atom in each system.
 
         (
             element_indices_nodes,
@@ -280,13 +271,13 @@ class PET(ModelInterface):
             edge_vectors,
             padding_mask,
             neighbors_index,
-            num_neghbors,
             reversed_neighbor_list,
+            system_indices,
+            sample_labels,
         ) = systems_to_batch(
             systems,
             nl_options,
             self.atomic_types,
-            system_indices,
             self.species_to_species_index,
             selected_atoms,
         )
@@ -851,41 +842,6 @@ class PET(ModelInterface):
         self.property_labels[target_name] = [
             block.properties for block in target_info.layout.blocks()
         ]
-
-    def _get_system_indices_and_labels(
-        self, systems: List[System], device: torch.device
-    ):
-        system_indices = torch.concatenate(
-            [
-                torch.full(
-                    (len(system),),
-                    i_system,
-                    device=device,
-                )
-                for i_system, system in enumerate(systems)
-            ],
-        )
-
-        sample_values = torch.stack(
-            [
-                system_indices,
-                torch.concatenate(
-                    [
-                        torch.arange(
-                            len(system),
-                            device=device,
-                        )
-                        for system in systems
-                    ],
-                ),
-            ],
-            dim=1,
-        )
-        sample_labels = Labels(
-            names=["system", "atom"],
-            values=sample_values,
-        )
-        return system_indices, sample_labels
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:

@@ -1,3 +1,4 @@
+import copy
 import glob
 import logging
 import os
@@ -15,6 +16,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import NeighborListOptions, systems_to_torch
 from omegaconf import OmegaConf
 
+import metatrain.soap_bpnn
 from metatrain import RANDOM_SEED
 from metatrain.cli.train import _process_restart_from, train_model
 from metatrain.utils.data.readers.ase import read
@@ -616,6 +618,61 @@ def test_finetune_no_read_from(options_pet, monkeypatch, tmp_path):
         train_model(options_pet)
 
 
+def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn = copy.deepcopy(options_pet)
+    options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
+        "method": "heads",
+        "read_from": str(MODEL_PATH_PET),
+        "config": {
+            "head_modules": ["node_heads", "edge_heads"],
+            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+        },
+    }
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
+        options_pet_transfer_learn["training_set"]["targets"].pop("energy")
+    )
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet_transfer_learn)
+
+    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+
+
+def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn = copy.deepcopy(options_pet)
+    options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
+        "method": "heads",
+        "read_from": str(MODEL_PATH_PET),
+        "config": {
+            "head_modules": ["node_heads", "edge_heads"],
+            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+        },
+    }
+    options_pet_transfer_learn["training_set"]["systems"]["read_from"] = (
+        "ethanol_reduced_100.xyz"
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
+        options_pet_transfer_learn["training_set"]["targets"].pop("energy")
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"]["key"] = (
+        "energy"
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"]["forces"] = {
+        "key": "forces",
+    }
+    shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet_transfer_learn)
+
+    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+
+
 @pytest.mark.parametrize("move_folder", [True, False])
 def test_restart_auto(options, caplog, monkeypatch, tmp_path, move_folder):
     """Test that continuing with the `auto` keyword results in
@@ -745,6 +802,24 @@ def test_architecture_error(options, monkeypatch, tmp_path):
         train_model(options)
 
 
+def test_oom_error(options, monkeypatch, tmp_path):
+    """Test an error raise if there is problem wth the architecture."""
+
+    def oom_error(*args, **kwargs):
+        raise torch.cuda.OutOfMemoryError()
+
+    monkeypatch.setattr(metatrain.soap_bpnn.Trainer, "train", oom_error)
+
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    match = (
+        "The error above likely means that the model ran out of memory during training."
+    )
+    with pytest.raises(ArchitectureError, match=match):
+        train_model(options)
+
+
 def test_train_split_failure(monkeypatch, tmp_path):
     """Test the potential problem from a split of large to very large datasets.
 
@@ -828,6 +903,21 @@ def test_train_generic_target(monkeypatch, tmp_path):
     options["training_set"]["targets"]["energy"]["type"] = {
         "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
     }
+    options["training_set"]["targets"]["energy"]["per_atom"] = True
+    options["training_set"]["targets"]["energy"]["key"] = "forces"
+
+    train_model(options)
+
+
+def test_train_direct_forces(monkeypatch, tmp_path):
+    """Test training on a Cartesian vector target"""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
+
+    # run training with original options
+    options = OmegaConf.load(OPTIONS_PET_PATH)
+    options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
+    options["training_set"]["targets"]["energy"]["type"] = {"cartesian": {"rank": 1}}
     options["training_set"]["targets"]["energy"]["per_atom"] = True
     options["training_set"]["targets"]["energy"]["key"] = "forces"
 

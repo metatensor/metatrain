@@ -24,21 +24,63 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
-Added
-#####
-
-- Additional logs to the checkpoints, model and the output dirs at the end of training
-- When downloading checkpoints and models from Hugging Face, the files will be cached
-  locally and re-used.
-- ``extra_data`` is now a valid section in the ``options.yaml`` file, allowing users to
-  add custom data to the training set. The data is contained in the dataloader and can
-  be used in custom loss functions or models.
-- ``mtt eval`` can be used to evaluate models on a ``DiskDataset``.
+Version 2025.10 - 2025-09-09
+----------------------------
 
 Fixed
 #####
 
-- Log is shown when training with ``restart="auto"``
+- Fixed a bug with the composition model during transfer-learning
+
+Changed
+#######
+
+- Refactored the ``loss.py`` module to provide an easier to extend interface for custom
+  loss functions.
+- Updated the trainer checkpoints to account for changes in the loss-related hypers.
+
+Version 2025.9.1 - 2025-08-21
+-----------------------------
+
+Fixed
+#####
+
+- Fixed incompatibilities with PET-MAD when updating checkpoints and exporting
+
+
+Version 2025.9 - 2025-08-18
+---------------------------
+
+Added
+#####
+
+- Use the best model instead of the latest model for evaluation at the end of training.
+- Log the best epoch when loading checkpoints.
+- Allow changing the scheduler factor in PET.
+- Introduce checkpoint versioning and updating.
+- Added CI tests on GPU.
+- Log the number of model parameters before training starts.
+- Add additional logs to the checkpoints, model, and output directories at the end of
+  training.
+- Cache files locally and re-use them when downloading checkpoints and models from
+  Hugging Face.
+- ``extra_data`` is now a valid section in the ``options.yaml`` file, allowing users to
+  add custom data to the training set. The data is included in the dataloader and can be
+  used in custom loss functions or models.
+- ``mtt eval`` can now evaluate models on a ``DiskDataset``.
+
+Changed
+#######
+
+- Updated to a new general composition model.
+- Updated to a new implementation of LLPR.
+
+Fixed
+#####
+
+- Fixed ``device`` and ``dtype`` not being set during LoRA fine-tuning in PET.
+- Log messages are now shown when training with ``restart="auto"``.
+- Fixed incorrect sub-section naming in the Wandb logger.
 
 Version 2025.8 - 2025-06-11
 ---------------------------

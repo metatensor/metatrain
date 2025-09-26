@@ -81,7 +81,6 @@ If you wish to test only specific functionalities, for example:
 
   tox -e lint          # code style
   tox -e tests         # unit tests of the main library
-  tox -e examples      # test the examples
 
 
 You can also use ``tox -e format`` to use tox to do actual formatting instead of just
@@ -160,7 +159,7 @@ How to Perform a Release
 1. **Prepare a Release Pull Request**
 
    - Based on the main branch create branch ``release-2025.3`` and a PR.
-   - Ensure that all `CI tests <https://github.com/lab-cosmo/torch-pme/actions>`_ pass.
+   - Ensure that all `CI tests <https://github.com/metatensor/metatrain/actions>`_ pass.
    - Optionally, run the tests locally to double-check.
 
 2. **Update the Changelog**

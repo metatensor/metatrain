@@ -30,7 +30,7 @@ from ..utils.data import (
 from ..utils.data.dataset import _save_indices, _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
-from ..utils.errors import ArchitectureError
+from ..utils.errors import ArchitectureError, OutOfMemoryError
 from ..utils.io import (
     check_file_extension,
     load_model,
@@ -39,7 +39,12 @@ from ..utils.io import (
 )
 from ..utils.jsonschema import validate
 from ..utils.logging import ROOT_LOGGER, WandbHandler, human_readable
-from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
+from ..utils.omegaconf import (
+    BASE_OPTIONS,
+    check_units,
+    expand_dataset_config,
+    expand_loss_config,
+)
 from .eval import _eval_targets
 from .export import _has_extensions
 from .formatter import CustomHelpFormatter
@@ -205,7 +210,6 @@ def train_model(
         {"architecture": get_default_hypers(architecture_name)},
         options,
     )
-    hypers = OmegaConf.to_container(options["architecture"])
 
     ###########################
     # PROCESS BASE PARAMETERS #
@@ -237,7 +241,7 @@ def train_model(
         torch.cuda.manual_seed_all(options["seed"])
 
     # setup wandb logging
-    if hasattr(options, "wandb"):
+    if hasattr(options, "wandb") and is_main_process():
         try:
             import wandb
         except ImportError:
@@ -385,6 +389,10 @@ def train_model(
             dataset, _, _ = get_dataset(test_options)
             test_datasets.append(dataset)
             test_indices.append(None)
+
+    # Expand loss options and finalize the hypers
+    options = expand_loss_config(options)
+    hypers = OmegaConf.to_container(options["architecture"])
 
     ############################################
     # SAVE TRAIN, VALIDATION, TEST INDICES #####
@@ -551,6 +559,8 @@ def train_model(
             val_datasets=val_datasets,
             checkpoint_dir=str(checkpoint_dir),
         )
+    except torch.cuda.OutOfMemoryError as e:
+        raise ArchitectureError(OutOfMemoryError(e)) from e
     except Exception as e:
         raise ArchitectureError(e) from e
 

@@ -58,19 +58,9 @@ hyperparameters to tune are (in decreasing order of importance):
 - ``num_attention_layers``: The number of attention layers in each layer of the graph
   neural network. Depending on the dataset, increasing this hyperparameter might lead to
   better accuracy, at the cost of increased training and evaluation time.
-- ``loss``: This section describes the loss function to be used, and it has three
-  subsections. 1. ``weights``. This controls the weighting of different contributions
-  to the loss (e.g., energy, forces, virial, etc.). The default values of 1.0 for all
-  targets work well for most datasets, but they might need to be adjusted. For example,
-  to set a weight of 1.0 for the energy and 0.1 for the forces, you can set the
-  following in the ``options.yaml`` file under ``loss``:
-  ``weights: {"energy": 1.0, "forces": 0.1}``. 2. ``type``. This controls the type of
-  loss to be used. The default value is ``mse``, and other options are ``mae`` and
-  ``huber``. ``huber`` is a subsection of its own, and it requires the user to specify
-  the ``deltas`` parameters in a similar way to how the ``weights`` are specified (e.g.,
-  ``deltas: {"energy": 0.1, "forces": 0.01}``). 3. ``reduction``. This controls how the
-  loss is reduced over batches. The default value is ``mean``, and the other allowed
-  option is ``sum``.
+- ``loss``: This section describes the loss function to be used. See the
+  :doc:`dedicated documentation page <../advanced-concepts/loss-functions>` for more
+  details.
 - ``long_range``: In some systems and datasets, enabling long-range Coulomb interactions
   might be beneficial for the accuracy of the model and/or its physical correctness.
   See below for a breakdown of the long-range section of the model hyperparameters.
@@ -106,9 +96,8 @@ training
 :param distributed_port: Port for DDP communication
 :param batch_size: Training batch size
 :param num_epochs: Number of epochs
+:param warmup_fraction: Fraction of training steps used for learning rate warmup
 :param learning_rate: Learning rate
-:param scheduler_patience: LR scheduler patience
-:param scheduler_factor: LR reduction factor
 :param log_interval: Interval to log metrics
 :param checkpoint_interval: Interval to save checkpoints
 :param scale_targets: Normalize targets to unit std during training
