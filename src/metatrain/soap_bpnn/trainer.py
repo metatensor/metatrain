@@ -95,31 +95,6 @@ class Trainer(TrainerInterface):
         else:
             logging.info(f"Training on device {device} with dtype {dtype}")
 
-        # Calculate the neighbor lists in advance (in particular, this
-        # needs to happen before the additive models are trained, as they
-        # might need them):
-        logging.info("Calculating neighbor lists for the datasets")
-        requested_neighbor_lists = get_requested_neighbor_lists(model)
-        for dataset in train_datasets + val_datasets:
-            # If the dataset is a disk dataset, the NLs are already attached, we will
-            # just check the first system
-            if _is_disk_dataset(dataset):
-                system = dataset[0]["system"]
-                for options in requested_neighbor_lists:
-                    if options not in system.known_neighbor_lists():
-                        raise ValueError(
-                            "The requested neighbor lists are not attached to the "
-                            f"system. Neighbor list {options} is missing from the "
-                            "first system in the disk dataset. Make sure you save "
-                            "the neighbor lists in the systems when saving the dataset."
-                        )
-            else:
-                for sample in dataset:
-                    system = sample["system"]
-                    # The following line attaches the neighbors lists to the system,
-                    # and doesn't require to reassign the system to the dataset:
-                    get_system_with_neighbor_lists(system, requested_neighbor_lists)
-
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
         # The additive models of the SOAP-BPNN are always in float64 (to avoid
@@ -176,7 +151,11 @@ class Trainer(TrainerInterface):
         targets_keys = list(
             (model.module if is_distributed else model).dataset_info.targets.keys()
         )
-        collate_fn = CollateFn(target_keys=targets_keys)
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
+        collate_fn_train = CollateFn(
+            target_keys=list(train_targets.keys()),
+            requested_neighbor_lists=requested_neighbor_lists,
+        )
 
         # Create dataloader for the training datasets:
         if self.hypers["num_workers"] is None:
