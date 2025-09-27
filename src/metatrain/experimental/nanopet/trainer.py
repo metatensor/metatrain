@@ -15,6 +15,7 @@ from metatrain.utils.data import (
     CombinedDataLoader,
     Dataset,
     _is_disk_dataset,
+    get_num_workers,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
@@ -172,7 +173,17 @@ class Trainer(TrainerInterface):
             (model.module if is_distributed else model).dataset_info.targets.keys()
         )
         collate_fn = CollateFn(target_keys=targets_keys)
+
         # Create dataloader for the training datasets:
+        if self.hypers["num_workers"] is None:
+            num_workers = get_num_workers()
+            logging.info(
+                "Number of workers for data-loading not provided and chosen "
+                f"automatically. Using {num_workers} workers."
+            )
+        else:
+            num_workers = self.hypers["num_workers"]
+
         train_dataloaders = []
         for train_dataset, train_sampler in zip(train_datasets, train_samplers):
             if len(train_dataset) < self.hypers["batch_size"]:
@@ -196,6 +207,7 @@ class Trainer(TrainerInterface):
                         train_sampler is None
                     ),
                     collate_fn=collate_fn,
+                    num_workers=num_workers,
                 )
             )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
@@ -218,6 +230,7 @@ class Trainer(TrainerInterface):
                     shuffle=False,
                     drop_last=False,
                     collate_fn=collate_fn,
+                    num_workers=num_workers,
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)

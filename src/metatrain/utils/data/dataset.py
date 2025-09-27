@@ -1,4 +1,5 @@
 import math
+import multiprocessing
 import os
 import warnings
 import zipfile
@@ -679,3 +680,19 @@ def _save_indices(
                     test,
                     fmt="%d",
                 )
+
+
+def get_num_workers() -> int:
+    """Gets a good number of workers for data loading."""
+
+    # len(os.sched_getaffinity(0)) detects thread counts set by slurm,
+    # multiprocessing.cpu_count() doesn't but is more portable
+    num_threads = min(len(os.sched_getaffinity(0)), multiprocessing.cpu_count())
+
+    reserve = 4  # main training process, NCCL, GPU driver, loggers, ...
+    cap = 8  # above this can overwhelm the filesystem
+
+    # can't go below 0, in that case the main training process will handle data loading
+    num_workers = max(0, min(num_threads - reserve, cap))
+
+    return num_workers
