@@ -4,19 +4,16 @@ import math
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
-import copy
 import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import TrainerInterface
-from metatrain.utils.additive import remove_additive
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
-    _is_disk_dataset,
     get_num_workers,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
@@ -30,10 +27,8 @@ from metatrain.utils.loss import LossAggregator
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
-    get_system_with_neighbor_lists,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
-from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
@@ -177,7 +172,9 @@ class Trainer(TrainerInterface):
         # Extract additive models and scaler and move them to CPU/float64 so they
         # can be used in the collate function
         model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
-        additive_models = copy.deepcopy(model.additive_models.to(dtype=torch.float64, device="cpu"))
+        additive_models = copy.deepcopy(
+            model.additive_models.to(dtype=torch.float64, device="cpu")
+        )
         model.additive_models.to(device)
         model.additive_models[0].weights_to(device=device, dtype=torch.float64)
         scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
@@ -196,14 +193,14 @@ class Trainer(TrainerInterface):
             requested_neighbor_lists=requested_neighbor_lists,
             additive_models=additive_models,
             scaler=scaler,
-            callables=[rotational_augmenter.apply_random_augmentations]
+            callables=[rotational_augmenter.apply_random_augmentations],
         )
         collate_fn_val = CollateFn(
             target_info_dict=train_targets,
             requested_neighbor_lists=requested_neighbor_lists,
             additive_models=additive_models,
             scaler=scaler,
-            callables=[]  # no augmentation for validation
+            callables=[],  # no augmentation for validation
         )
 
         # Create dataloader for the training datasets:
