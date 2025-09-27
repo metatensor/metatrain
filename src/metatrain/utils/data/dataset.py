@@ -11,7 +11,7 @@ import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
 from metatensor.torch import TensorMap, load_buffer
-from metatomic.torch import System, load_system
+from metatomic.torch import System, load_system, NeighborListOptions
 from omegaconf import DictConfig
 from torch.utils.data import Subset
 
@@ -26,6 +26,7 @@ from metatrain.utils.data.target_info import (
 )
 from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.units import get_gradient_units
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
 def _set(values: List[int]) -> List[int]:
@@ -355,11 +356,15 @@ class CollateFn:
     def __init__(
         self,
         target_keys: List[str],
+        requested_neighbor_lists: Optional[List[NeighborListOptions]] = None,
         callables: Optional[List[Callable[[Dict[str, Any]], Dict[str, Any]]]] = None,
         join_kwargs: Optional[Dict[str, Any]] = None,
     ):
         self.target_keys: Set[str] = set(target_keys)
-        self.callables: List[Callable] = callables or []
+        self.requested_neighbor_lists: List[NeighborListOptions] = (
+            requested_neighbor_lists if requested_neighbor_lists is not None else []
+        )
+        self.callables: List[Callable] = callables if callables is not None else []
         self.join_kwargs: Dict[str, Any] = join_kwargs or {
             "remove_tensor_name": True,
             "different_keys": "union",
@@ -392,6 +397,9 @@ class CollateFn:
 
         for callable in self.callables:
             systems, targets, extra = callable(systems, targets, extra)
+
+        for system in systems:
+            get_system_with_neighbor_lists(system, self.requested_neighbor_lists)
 
         # wrap systems in SystemWrapper to make them pickle-compatible
         systems = [SystemWrapper(system) for system in systems]

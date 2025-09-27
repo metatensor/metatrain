@@ -118,31 +118,6 @@ class Trainer(TrainerInterface):
         else:
             logging.info(f"Training on device {device} with dtype {dtype}")
 
-        # Calculate the neighbor lists in advance (in particular, this
-        # needs to happen before the additive models are trained, as they
-        # might need them):
-        logging.info("Calculating neighbor lists for the datasets")
-        requested_neighbor_lists = get_requested_neighbor_lists(model)
-        for dataset in train_datasets + val_datasets:
-            # If the dataset is a disk dataset, the NLs are already attached, we will
-            # just check the first system
-            if _is_disk_dataset(dataset):
-                system = dataset[0]["system"]
-                for options in requested_neighbor_lists:
-                    if options not in system.known_neighbor_lists():
-                        raise ValueError(
-                            "The requested neighbor lists are not attached to the "
-                            f"system. Neighbor list {options} is missing from the "
-                            "first system in the disk dataset. Make sure you save "
-                            "the neighbor lists in the systems when saving the dataset."
-                        )
-            else:
-                for sample in dataset:
-                    system = sample["system"]
-                    # The following line attaches the neighbors lists to the system,
-                    # and doesn't require to reassign the system to the dataset:
-                    get_system_with_neighbor_lists(system, requested_neighbor_lists)
-
         # Apply fine-tuning strategy if provided
         if is_finetune:
             model = apply_finetuning_strategy(model, self.hypers["finetune"])
@@ -204,12 +179,15 @@ class Trainer(TrainerInterface):
         rotational_augmenter = RotationalAugmenter(
             target_info_dict=train_targets, extra_data_info_dict=extra_data_info
         )
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
+            requested_neighbor_lists=requested_neighbor_lists,
             callables=[rotational_augmenter.apply_random_augmentations]
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
+            requested_neighbor_lists=requested_neighbor_lists,
             callables=[]  # no augmentation for validation
         )
 
