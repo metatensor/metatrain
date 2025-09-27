@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Literal, Union
 import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
+import copy
 
 from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
@@ -98,8 +99,8 @@ class Trainer(TrainerInterface):
         # The additive models of the SOAP-BPNN are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
-            additive_model.to(dtype=torch.float64, device="cpu")
-        model.scaler.to(dtype=torch.float64, device="cpu")
+            additive_model.to(dtype=torch.float64)
+        model.scaler.to(dtype=torch.float64)
 
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
@@ -113,9 +114,6 @@ class Trainer(TrainerInterface):
             model.scaler.train_model(
                 train_datasets, model.additive_models, treat_as_additive=True
             )
-
-        if is_distributed:
-            model = DistributedDataParallel(model, device_ids=[device])
 
         logging.info("Setting up data loaders")
 
@@ -144,8 +142,17 @@ class Trainer(TrainerInterface):
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
 
+        # Extract additive models and scaler and move them to CPU/float64 so they
+        # can be used in the collate function
+        model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
+        additive_models = copy.deepcopy(model.additive_models.to(dtype=torch.float64, device="cpu"))
+        model.additive_models.to(device)
+        model.additive_models[0].weights_to(device=device, dtype=torch.float64)
+        scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
+        model.scaler.to(device)
+
         # Create collate functions:
-        dataset_info = (model.module if is_distributed else model).dataset_info
+        dataset_info = model.dataset_info
         train_targets = dataset_info.targets
         extra_data_info = dataset_info.extra_data
         rotational_augmenter = RotationalAugmenter(
@@ -153,17 +160,17 @@ class Trainer(TrainerInterface):
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         collate_fn_train = CollateFn(
-            target_keys=list(train_targets.keys()),
+            target_info_dict=train_targets,
             requested_neighbor_lists=requested_neighbor_lists,
-            additive_models=(model.module if is_distributed else model).additive_models,
-            scaler=(model.module if is_distributed else model).scaler,
+            additive_models=additive_models,
+            scaler=scaler,
             callables=[rotational_augmenter.apply_random_augmentations]
         )
         collate_fn_val = CollateFn(
-            target_keys=list(train_targets.keys()),
+            target_info_dict=train_targets,
             requested_neighbor_lists=requested_neighbor_lists,
-            additive_models=(model.module if is_distributed else model).additive_models,
-            scaler=(model.module if is_distributed else model).scaler,
+            additive_models=additive_models,
+            scaler=scaler,
             callables=[]  # no augmentation for validation
         )
 
@@ -227,6 +234,9 @@ class Trainer(TrainerInterface):
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
+
+        if is_distributed:
+            model = DistributedDataParallel(model, device_ids=[device])
 
         # Extract all the possible outputs and their gradients:
         outputs_list = []
@@ -403,9 +413,7 @@ class Trainer(TrainerInterface):
             }
 
             if epoch == start_epoch:
-                scaler_scales = (
-                    model.module if is_distributed else model
-                ).scaler.get_scales_dict()
+                scaler_scales = scaler.get_scales_dict()
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
                     dataset_info=(
