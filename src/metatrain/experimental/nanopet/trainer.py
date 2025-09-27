@@ -168,11 +168,21 @@ class Trainer(TrainerInterface):
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
 
-        # Create a collate function:
-        targets_keys = list(
-            (model.module if is_distributed else model).dataset_info.targets.keys()
+        # Create collate functions:
+        dataset_info = (model.module if is_distributed else model).dataset_info
+        train_targets = dataset_info.targets
+        extra_data_info = dataset_info.extra_data
+        rotational_augmenter = RotationalAugmenter(
+            target_info_dict=train_targets, extra_data_info_dict=extra_data_info
         )
-        collate_fn = CollateFn(target_keys=targets_keys)
+        collate_fn_train = CollateFn(
+            target_keys=list(train_targets.keys()),
+            callables=[rotational_augmenter.apply_random_augmentations]
+        )
+        collate_fn_val = CollateFn(
+            target_keys=list(train_targets.keys()),
+            callables=[]  # no augmentation for validation
+        )
 
         # Create dataloader for the training datasets:
         if self.hypers["num_workers"] is None:
@@ -206,7 +216,7 @@ class Trainer(TrainerInterface):
                         # the sampler takes care of this (if present)
                         train_sampler is None
                     ),
-                    collate_fn=collate_fn,
+                    collate_fn=collate_fn_train,
                     num_workers=num_workers,
                 )
             )
@@ -229,17 +239,13 @@ class Trainer(TrainerInterface):
                     sampler=val_sampler,
                     shuffle=False,
                     drop_last=False,
-                    collate_fn=collate_fn,
+                    collate_fn=collate_fn_val,
                     num_workers=num_workers,
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
-        train_targets = (model.module if is_distributed else model).dataset_info.targets
-        extra_data_info = (
-            model.module if is_distributed else model
-        ).dataset_info.extra_data
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -291,10 +297,6 @@ class Trainer(TrainerInterface):
         old_lr = optimizer.param_groups[0]["lr"]
         logging.info(f"Initial learning rate: {old_lr}")
 
-        rotational_augmenter = RotationalAugmenter(
-            train_targets, extra_data_info_dict=extra_data_info
-        )
-
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
         # Train the model:
@@ -321,11 +323,6 @@ class Trainer(TrainerInterface):
 
                 system_wrappers, targets, extra_data = batch
                 systems = [w.system for w in system_wrappers]
-                systems, targets, extra_data = (
-                    rotational_augmenter.apply_random_augmentations(
-                        systems, targets, extra_data=extra_data
-                    )
-                )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
