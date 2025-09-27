@@ -3,15 +3,17 @@ import multiprocessing
 import os
 import warnings
 import zipfile
+import metatrain
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
+from io import BytesIO
 
 import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
-from metatensor.torch import TensorMap, load_buffer
-from metatomic.torch import System, load_system, NeighborListOptions
+from metatensor.torch import TensorBlock, TensorMap, load_buffer
+from metatomic.torch import System, load_system, NeighborListOptions, save, load_system
 from omegaconf import DictConfig
 from torch.utils.data import Subset
 
@@ -54,32 +56,28 @@ class SystemWrapper:
         self.system = system
 
     def __getstate__(self):
-        state = {
-            "positions": self.system.positions,
-            "types": self.system.types,
-            "cell": self.system.cell,
-            "pbc": self.system.pbc,
-            "extra_data": {
-                name: self.system.get_data(name) for name in self.system.known_data()
-            },
-            "neighbor_lists": {
-                nl_options: self.system.get_neighbor_list(nl_options)
-                for nl_options in self.system.known_neighbor_lists()
-            },
-        }
+        state = BytesIO()
+        save(state, self.system)
         return state
 
     def __setstate__(self, state):
-        self.system = System(
-            positions=state["positions"],
-            types=state["types"],
-            cell=state["cell"],
-            pbc=state["pbc"],
-        )
-        for name, data in state["extra_data"].items():
-            self.system.add_data(name, data)
-        for nl_options, nl in state["neighbor_lists"].items():
-            self.system.add_neighbor_list(nl_options, nl)
+        self.system = load_system(state)
+
+
+@torch.jit.script
+def _create_system(positions, types, cell, pbc, extra_data: Dict[str, TensorMap],
+                   neighbor_lists_options: List[NeighborListOptions], neighbor_lists: List[TensorBlock]) -> System:
+    system = System(
+        positions=positions,
+        types=types,
+        cell=cell,
+        pbc=pbc,
+    )
+    for name, data in extra_data.items():
+        system.add_data(name, data)
+    for nl_options, nl in zip(neighbor_lists_options, neighbor_lists):
+        system.add_neighbor_list(nl_options, nl)
+    return system
 
 
 class DatasetInfo:
@@ -355,15 +353,20 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
 class CollateFn:
     def __init__(
         self,
-        target_keys: List[str],
+        target_info_dict: Dict[str, TargetInfo],
         requested_neighbor_lists: Optional[List[NeighborListOptions]] = None,
+        additive_models: Optional[List[Any]] = None,
+        scaler: Optional[Any] = None,
         callables: Optional[List[Callable[[Dict[str, Any]], Dict[str, Any]]]] = None,
         join_kwargs: Optional[Dict[str, Any]] = None,
     ):
-        self.target_keys: Set[str] = set(target_keys)
+        self.target_info_dict: Dict[str, TargetInfo] = target_info_dict
+        self.target_keys: Set[str] = set(target_info_dict.keys())
         self.requested_neighbor_lists: List[NeighborListOptions] = (
             requested_neighbor_lists if requested_neighbor_lists is not None else []
         )
+        self.additive_models: List[Any] = additive_models if additive_models is not None else []
+        self.scaler = scaler
         self.callables: List[Callable] = callables if callables is not None else []
         self.join_kwargs: Dict[str, Any] = join_kwargs or {
             "remove_tensor_name": True,
@@ -400,6 +403,14 @@ class CollateFn:
 
         for system in systems:
             get_system_with_neighbor_lists(system, self.requested_neighbor_lists)
+
+        for additive_model in self.additive_models:
+            targets = metatrain.utils.additive.remove_additive(
+                systems, targets, additive_model, self.target_info_dict
+            )
+
+        if self.scaler is not None:
+            targets = metatrain.utils.scaler.remove_scale(targets, self.scaler)
 
         # wrap systems in SystemWrapper to make them pickle-compatible
         systems = [SystemWrapper(system) for system in systems]

@@ -127,7 +127,8 @@ class Trainer(TrainerInterface):
         # The additive models of PET are always in float64 (to avoid numerical errors in
         # the composition weights, which can be very large).
         for additive_model in model.additive_models:
-            additive_model.to(dtype=torch.float64)
+            additive_model.to(dtype=torch.float64, device="cpu")
+        model.scaler.to(dtype=torch.float64, device="cpu")
 
         logging.info("Calculating composition weights")
 
@@ -181,13 +182,17 @@ class Trainer(TrainerInterface):
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         collate_fn_train = CollateFn(
-            target_keys=list(train_targets.keys()),
+            target_info_dict=train_targets,
             requested_neighbor_lists=requested_neighbor_lists,
+            additive_models=(model.module if is_distributed else model).additive_models,
+            scaler=(model.module if is_distributed else model).scaler,
             callables=[rotational_augmenter.apply_random_augmentations]
         )
         collate_fn_val = CollateFn(
-            target_keys=list(train_targets.keys()),
+            target_info_dict=train_targets,
             requested_neighbor_lists=requested_neighbor_lists,
+            additive_models=(model.module if is_distributed else model).additive_models,
+            scaler=(model.module if is_distributed else model).scaler,
             callables=[]  # no augmentation for validation
         )
 
@@ -335,19 +340,7 @@ class Trainer(TrainerInterface):
                 system_wrappers, targets, extra_data = batch
                 systems = [w.system for w in system_wrappers]
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
-                )
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
-                )
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
+                    systems, targets, extra_data, dtype=dtype, device=device
                 )
                 predictions = evaluate_model(
                     model,
@@ -396,19 +389,7 @@ class Trainer(TrainerInterface):
                 system_wrappers, targets, extra_data = batch
                 systems = [w.system for w in system_wrappers]
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
-                )
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
-                )
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
+                    systems, targets, extra_data, dtype=dtype, device=device
                 )
                 predictions = evaluate_model(
                     model,

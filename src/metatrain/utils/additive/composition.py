@@ -91,8 +91,7 @@ class CompositionModel(torch.nn.Module):
         precision is enforced.
         """
         # Create the collate function
-        targets_keys = list(self.dataset_info.targets.keys())
-        collate_fn = CollateFn(target_keys=targets_keys)
+        collate_fn = CollateFn(target_info_dict=self.dataset_info.targets)
 
         dtype = datasets[0][0]["system"].positions.dtype
         if dtype != torch.float64:
