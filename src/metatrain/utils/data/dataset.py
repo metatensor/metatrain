@@ -4,7 +4,7 @@ import os
 import warnings
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
 
 import numpy as np
 import torch
@@ -355,9 +355,11 @@ class CollateFn:
     def __init__(
         self,
         target_keys: List[str],
+        callables: Optional[List[Callable[[Dict[str, Any]], Dict[str, Any]]]] = None,
         join_kwargs: Optional[Dict[str, Any]] = None,
     ):
         self.target_keys: Set[str] = set(target_keys)
+        self.callables: List[Callable] = callables or []
         self.join_kwargs: Dict[str, Any] = join_kwargs or {
             "remove_tensor_name": True,
             "different_keys": "union",
@@ -388,7 +390,12 @@ class CollateFn:
             else:
                 extra[key] = value
 
+        for callable in self.callables:
+            systems, targets, extra = callable(systems, targets, extra)
+
+        # wrap systems in SystemWrapper to make them pickle-compatible
         systems = [SystemWrapper(system) for system in systems]
+
         return systems, targets, extra
 
 
