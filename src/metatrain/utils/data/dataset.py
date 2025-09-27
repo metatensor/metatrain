@@ -3,20 +3,20 @@ import multiprocessing
 import os
 import warnings
 import zipfile
-import metatrain
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
 from io import BytesIO
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
 from metatensor.torch import TensorBlock, TensorMap, load_buffer
-from metatomic.torch import System, load_system, NeighborListOptions, save, load_system
+from metatomic.torch import NeighborListOptions, System, load_system, save
 from omegaconf import DictConfig
 from torch.utils.data import Subset
 
+import metatrain
 from metatrain.utils.data.readers.metatensor import (
     _check_tensor_map_metadata,
     _empty_tensor_map_like,
@@ -27,8 +27,8 @@ from metatrain.utils.data.target_info import (
     get_generic_target_info,
 )
 from metatrain.utils.external_naming import to_external_name
-from metatrain.utils.units import get_gradient_units
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.units import get_gradient_units
 
 
 def _set(values: List[int]) -> List[int]:
@@ -65,8 +65,15 @@ class SystemWrapper:
 
 
 @torch.jit.script
-def _create_system(positions, types, cell, pbc, extra_data: Dict[str, TensorMap],
-                   neighbor_lists_options: List[NeighborListOptions], neighbor_lists: List[TensorBlock]) -> System:
+def _create_system(
+    positions,
+    types,
+    cell,
+    pbc,
+    extra_data: Dict[str, TensorMap],
+    neighbor_lists_options: List[NeighborListOptions],
+    neighbor_lists: List[TensorBlock],
+) -> System:
     system = System(
         positions=positions,
         types=types,
@@ -357,7 +364,7 @@ class CollateFn:
         requested_neighbor_lists: Optional[List[NeighborListOptions]] = None,
         additive_models: Optional[List[Any]] = None,
         scaler: Optional[Any] = None,
-        callables: Optional[List[Callable[[Dict[str, Any]], Dict[str, Any]]]] = None,
+        callables: Optional[List[Callable]] = None,
         join_kwargs: Optional[Dict[str, Any]] = None,
     ):
         self.target_info_dict: Dict[str, TargetInfo] = target_info_dict
@@ -365,7 +372,9 @@ class CollateFn:
         self.requested_neighbor_lists: List[NeighborListOptions] = (
             requested_neighbor_lists if requested_neighbor_lists is not None else []
         )
-        self.additive_models: List[Any] = additive_models if additive_models is not None else []
+        self.additive_models: List[Any] = (
+            additive_models if additive_models is not None else []
+        )
         self.scaler = scaler
         self.callables: List[Callable] = callables if callables is not None else []
         self.join_kwargs: Dict[str, Any] = join_kwargs or {
@@ -405,12 +414,12 @@ class CollateFn:
             get_system_with_neighbor_lists(system, self.requested_neighbor_lists)
 
         for additive_model in self.additive_models:
-            targets = metatrain.utils.additive.remove_additive(
+            targets = metatrain.utils.additive.remove_additive(  # type: ignore
                 systems, targets, additive_model, self.target_info_dict
             )
 
         if self.scaler is not None:
-            targets = metatrain.utils.scaler.remove_scale(targets, self.scaler)
+            targets = metatrain.utils.scaler.remove_scale(targets, self.scaler)  # type: ignore
 
         # wrap systems in SystemWrapper to make them pickle-compatible
         systems = [SystemWrapper(system) for system in systems]
