@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Union
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import ModelOutput, System
+from metatomic.torch import ModelOutput, NeighborListOptions, System
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.data import (
@@ -80,6 +80,7 @@ class CompositionModel(torch.nn.Module):
     def _get_dataloader(
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        requested_neighbor_lists: List[NeighborListOptions],
         batch_size: int,
         is_distributed: bool,
     ) -> DataLoader:
@@ -91,7 +92,10 @@ class CompositionModel(torch.nn.Module):
         precision is enforced.
         """
         # Create the collate function
-        collate_fn = CollateFn(target_info_dict=self.dataset_info.targets)
+        collate_fn = CollateFn(
+            target_info_dict=self.dataset_info.targets,
+            requested_neighbor_lists=requested_neighbor_lists,
+        )
 
         dtype = datasets[0][0]["system"].positions.dtype
         if dtype != torch.float64:
@@ -166,8 +170,15 @@ class CompositionModel(torch.nn.Module):
             return
 
         # Create dataloader for the training datasets
+        requested_neighbor_lists = []
+        for additive_model in additive_models:
+            if hasattr(additive_model, "requested_neighbor_lists"):
+                requested_neighbor_lists += additive_model.requested_neighbor_lists()
         dataloader = self._get_dataloader(
-            datasets, batch_size, is_distributed=is_distributed
+            datasets,
+            requested_neighbor_lists,
+            batch_size,
+            is_distributed=is_distributed,
         )
 
         if fixed_weights is None:
