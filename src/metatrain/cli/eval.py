@@ -159,7 +159,7 @@ def _eval_targets(
 
     # Create a dataloader
     target_keys = list(model.capabilities().outputs.keys())
-    collate_fn = CollateFn(target_keys=target_keys)
+    collate_fn = CollateFn(target_info_dict={k: None for k in target_keys})
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, collate_fn=collate_fn, shuffle=False
     )

@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
+import copy
 import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
@@ -100,8 +101,8 @@ class Trainer(TrainerInterface):
         # The additive models of the SOAP-BPNN are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
-            additive_model.to(dtype=torch.float64, device="cpu")
-        model.scaler.to(dtype=torch.float64, device="cpu")
+            additive_model.to(dtype=torch.float64)
+        model.scaler.to(dtype=torch.float64)
 
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
@@ -117,9 +118,6 @@ class Trainer(TrainerInterface):
             model.scaler.train_model(
                 train_datasets, model.additive_models, treat_as_additive=True
             )
-
-        if is_distributed:
-            model = DistributedDataParallel(model, device_ids=[device])
 
         logging.info("Setting up data loaders")
 
@@ -148,16 +146,24 @@ class Trainer(TrainerInterface):
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
 
+        # Extract additive models and scaler and move them to CPU/float64 so they
+        # can be used in the collate function
+        model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
+        additive_models = copy.deepcopy(model.additive_models.to(dtype=torch.float64, device="cpu"))
+        model.additive_models.to(device)
+        model.additive_models[0].weights_to(device=device, dtype=torch.float64)
+        scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
+        model.scaler.to(device)
+
         # Create a collate function:
-        targets_keys = list(
-            (model.module if is_distributed else model).dataset_info.targets.keys()
-        )
+        dataset_info = model.dataset_info
+        train_targets = dataset_info.targets
         requested_neighbor_lists = get_requested_neighbor_lists(model)
-        collate_fn_train = CollateFn(
-            target_keys=list(train_targets.keys()),
-            additive_models=(model.module if is_distributed else model).additive_models,
-            scaler=(model.module if is_distributed else model).scaler,
+        collate_fn = CollateFn(
+            target_info_dict=train_targets,
             requested_neighbor_lists=requested_neighbor_lists,
+            additive_models=additive_models,
+            scaler=scaler,
         )
 
         # Create dataloader for the training datasets:
@@ -220,6 +226,9 @@ class Trainer(TrainerInterface):
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
+
+        if is_distributed:
+            model = DistributedDataParallel(model, device_ids=[device])
 
         # Extract all the possible outputs and their gradients:
         train_targets = (model.module if is_distributed else model).dataset_info.targets
@@ -396,9 +405,7 @@ class Trainer(TrainerInterface):
             finalized_val_info = {"loss": val_loss, **finalized_val_info}
 
             if epoch == start_epoch:
-                scaler_scales = (
-                    model.module if is_distributed else model
-                ).scaler.get_scales_dict()
+                scaler_scales = scaler.get_scales_dict()
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
                     dataset_info=(
