@@ -38,9 +38,9 @@ def test_without_shuffling():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf))
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
-    collate_fn = CollateFn(target_keys=["mtt::U0"])
+    collate_fn = CollateFn(target_info_dict)
     dataloader_qm9 = DataLoader(dataset, batch_size=10, collate_fn=collate_fn)
     # will yield 10 batches of 10
 
@@ -61,12 +61,12 @@ def test_without_shuffling():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf))
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
     targets = {"mtt::free_energy": targets["mtt::free_energy"][:10]}
     dataset = Dataset.from_dict(
         {"system": systems, "mtt::free_energy": targets["mtt::free_energy"]}
     )
-    collate_fn = CollateFn(target_keys=["mtt::free_energy"])
+    collate_fn = CollateFn(target_info_dict)
     dataloader_alchemical = DataLoader(dataset, batch_size=2, collate_fn=collate_fn)
     # will yield 5 batches of 2
 
@@ -104,9 +104,9 @@ def test_with_shuffling():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf))
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
-    collate_fn = CollateFn(target_keys=["mtt::U0"])
+    collate_fn = CollateFn(target_info_dict)
     dataloader_qm9 = DataLoader(
         dataset, batch_size=10, collate_fn=collate_fn, shuffle=True
     )
@@ -129,12 +129,12 @@ def test_with_shuffling():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf))
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
     targets = {"mtt::free_energy": targets["mtt::free_energy"][:10]}
     dataset = Dataset.from_dict(
         {"system": systems, "mtt::free_energy": targets["mtt::free_energy"]}
     )
-    collate_fn = CollateFn(target_keys=["mtt::free_energy"])
+    collate_fn = CollateFn(target_info_dict)
     dataloader_alchemical = DataLoader(
         dataset, batch_size=2, collate_fn=collate_fn, shuffle=True
     )

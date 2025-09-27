@@ -422,7 +422,7 @@ class CollateFn:
             targets = metatrain.utils.scaler.remove_scale(targets, self.scaler)  # type: ignore
 
         # wrap systems in SystemWrapper to make them pickle-compatible
-        systems = [SystemWrapper(system) for system in systems]
+        systems = tuple(SystemWrapper(system) for system in systems)
 
         return systems, targets, extra
 
@@ -722,7 +722,10 @@ def get_num_workers() -> int:
 
     # len(os.sched_getaffinity(0)) detects thread counts set by slurm,
     # multiprocessing.cpu_count() doesn't but is more portable
-    num_threads = min(len(os.sched_getaffinity(0)), multiprocessing.cpu_count())
+    if hasattr(os, "sched_getaffinity"):
+        num_threads = min(len(os.sched_getaffinity(0)), multiprocessing.cpu_count())
+    else:
+        num_threads = multiprocessing.cpu_count()
 
     reserve = 4  # main training process, NCCL, GPU driver, loggers, ...
     cap = 8  # above this can overwhelm the filesystem

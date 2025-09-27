@@ -56,14 +56,14 @@ def test_llpr(tmpdir):
             "virial": False,
         },
     }
-    targets, _ = read_targets(target_config)
+    targets, target_info_dict = read_targets(target_config)
     requested_neighbor_lists = get_requested_neighbor_lists(llpr_model)
     qm9_systems = [
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
         for system in qm9_systems
     ]
     dataset = Dataset.from_dict({"system": qm9_systems, **targets})
-    collate_fn = CollateFn(target_keys=list(targets.keys()))
+    collate_fn = CollateFn(target_info_dict=target_info_dict)
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=10,
