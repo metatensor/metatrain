@@ -105,9 +105,11 @@ training
 :param per_structure_targets: Targets to calculate per-structure losses
 :param log_mae: Log MAE alongside RMSE
 :param log_separate_blocks: Log per-block error
-:param grad_clip_norm: Maximum hradient norm value, by default inf (no clipping)
+:param grad_clip_norm: Maximum gradient norm value, by default inf (no clipping)
 :param loss: Loss configuration (see above)
 :param best_model_metric: Metric used to select best checkpoint (e.g., ``rmse_prod``)
+:param num_workers: Number of workers for data loading. If not provided, it is set
+  automatically.
 
 References
 ----------

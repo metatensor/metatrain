@@ -179,6 +179,8 @@ The parameters for training are
   the current directory and in the checkpoint directory. The default is ``rmse_prod``,
   i.e., the product of the RMSEs for each target. Other options are ``mae_prod`` and
   ``loss``.
+:param num_workers: Number of workers for data loading. If not provided, it is set
+  automatically.
 
 
 References
