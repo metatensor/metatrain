@@ -11,8 +11,8 @@ import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
-from metatensor.torch import TensorBlock, TensorMap, load_buffer
-from metatomic.torch import NeighborListOptions, System, load_system, save
+from metatensor.torch import TensorMap, load_buffer
+from metatomic.torch import NeighborListOptions, load_system, save
 from omegaconf import DictConfig
 from torch.utils.data import Subset
 
@@ -62,29 +62,6 @@ class SystemWrapper:
 
     def __setstate__(self, state):
         self.system = load_system(state)
-
-
-@torch.jit.script
-def _create_system(
-    positions,
-    types,
-    cell,
-    pbc,
-    extra_data: Dict[str, TensorMap],
-    neighbor_lists_options: List[NeighborListOptions],
-    neighbor_lists: List[TensorBlock],
-) -> System:
-    system = System(
-        positions=positions,
-        types=types,
-        cell=cell,
-        pbc=pbc,
-    )
-    for name, data in extra_data.items():
-        system.add_data(name, data)
-    for nl_options, nl in zip(neighbor_lists_options, neighbor_lists):
-        system.add_neighbor_list(nl_options, nl)
-    return system
 
 
 class DatasetInfo:
