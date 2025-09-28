@@ -764,7 +764,33 @@ class MemmapArray:
 
 
 class MemmapDataset(TorchDataset):
-    """Docs please."""
+    """A class representing a dataset stored as a set of memory-mapped arrays.
+
+    This dataset supports arbitrary scalar and cartesian vector/tensor targets, but
+    not spherical tensors. Virials of energy targets are not supported in this type of
+    dataset (stresses can be used instead to achieve the same goal).
+
+    The dataset is stored in a directory, where the dataset is stored in a set of
+    memory-mapped numpy arrays. These are:
+    - N.npy: total number of structures in the dataset. Shape: (1,).
+    - n.npy: cumulative number of atoms per structure. n[-1] therefore corresponds to
+        the total number of atoms in the dataset. Shape: (N+1,).
+    - x.bin: atomic positions of all atoms in the dataset, concatenated. Shape:
+        (n[-1], 3).
+    - a.bin: atomic types of all atoms in the dataset, concatenated. Shape: (n[-1],).
+    - c.bin: cell matrices of all structures in the dataset. Shape: (N, 3, 3).
+    - <key>.bin: target values for each structure or atom, depending on the
+        whether the target is defined per atom or per structure.
+        Shape: (N, ..., num_subtargets) if per-structures or
+        (n[-1], ..., num_subtargets) if per-atom, where the
+        ... depends on the type of target (scalar, vector, tensor, etc.). <key> can
+        then be used in the "key" section of targets in metatrain input files to read
+        the target(s).
+
+    :param path: Path to the directory containing the dataset.
+    :param target_options: Dictionary containing the target configurations, in the
+        format corresponding to metatrain yaml input files.
+    """
 
     def __init__(self, path: str | Path, target_options: Dict[str, Any]):
         path = Path(path)

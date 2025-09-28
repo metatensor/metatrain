@@ -22,6 +22,7 @@ sphinx_gallery_conf = {
         os.path.join(ROOT, "examples", "zbl"),
         os.path.join(ROOT, "examples", "programmatic", "use_architectures_outside"),
         os.path.join(ROOT, "examples", "programmatic", "disk_dataset"),
+        os.path.join(ROOT, "examples", "programmatic", "memmap_dataset"),
         os.path.join(ROOT, "examples", "basic_usage"),
     ],
     "gallery_dirs": [
@@ -30,6 +31,7 @@ sphinx_gallery_conf = {
         os.path.join(ROOT, "docs", "src", "examples", "zbl"),
         os.path.join(ROOT, "docs", "src", "examples", "programmatic", "use_architectures_outside"),
         os.path.join(ROOT, "docs", "src", "examples", "programmatic", "disk_dataset"),
+        os.path.join(ROOT, "docs", "src", "examples", "programmatic", "memmap_dataset"),
         os.path.join(ROOT, "docs", "src", "examples", "basic_usage"),
     ],
     "min_reported_time": 5,

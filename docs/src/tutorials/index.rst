@@ -14,3 +14,4 @@ This sections includes some more advanced tutorials on the usage of the
    ../examples/llpr/llpr
    ../examples/programmatic/use_architectures_outside/use_outside
    ../examples/programmatic/disk_dataset/disk_dataset
+   ../examples/programmatic/memmap_dataset/memmap_dataset

@@ -1,0 +1,38 @@
+seed: 42
+
+architecture:
+  name: pet
+  training:
+    num_epochs: 1
+    batch_size: 8
+
+training_set:
+  systems:
+    read_from: carbon_reduced_100_mmap/
+    length_unit: angstrom
+  targets:
+    energy:
+      key: e
+      unit: eV
+      forces:
+        key: f
+      stress:
+        key: s
+    non_conservative_forces:
+      key: f
+      quantity: force
+      unit: eV/A
+      per_atom: true
+      type:
+        cartesian:
+          rank: 1
+    non_conservative_stress:
+      key: s
+      quantity: pressure
+      unit: eV/A^3
+      type:
+        cartesian:
+          rank: 2
+
+test_set: 0.1
+validation_set: 0.1
