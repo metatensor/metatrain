@@ -769,6 +769,9 @@ class MemmapDataset(TorchDataset):
     def __init__(self, path: str | Path, target_options: Dict[str, Any]):
         path = Path(path)
         self.target_config = target_options
+        self.sample_class = namedtuple(
+            "Sample", ["system"] + list(self.target_config.keys())
+        )
 
         # Information about the structures
         self.N = np.load(path / "N.npy")
@@ -800,14 +803,14 @@ class MemmapDataset(TorchDataset):
                     # energy target: look into potential gradients
                     if single_target_options["forces"]:
                         self.target_arrays[f"{target_key}_forces"] = MemmapArray(
-                            path / f"{data_key}_forces.bin",
+                            path / f"{single_target_options['forces']['key']}.bin",
                             (self.n[-1], 3, 1),
                             "float32",
                             mode="r",
                         )
                     if single_target_options["stress"]:
                         self.target_arrays[f"{target_key}_stress"] = MemmapArray(
-                            path / f"{data_key}_stress.bin",
+                            path / f"{single_target_options['stress']['key']}.bin",
                             (self.N, 3, 3, 1),
                             "float32",
                             mode="r",
@@ -853,11 +856,6 @@ class MemmapDataset(TorchDataset):
             pbc=torch.logical_not(torch.all(c == 0.0, dim=1)),
         )
 
-        # Examples of targets:
-        # e = torch.tensor(self.e[i], dtype=torch.float64)
-        # f = torch.tensor(self.f[self.n[i] : self.n[i + 1]], dtype=torch.float64)
-        # s = torch.tensor(self.s[i], dtype=torch.float64)
-
         target_dict = {}
         for target_key, target_options in self.target_config.items():
             target_array = self.target_arrays[target_key]
@@ -875,16 +873,17 @@ class MemmapDataset(TorchDataset):
                     names=["system"],
                     values=torch.tensor([[i]], dtype=torch.int32),
                 )
-            if len(target_array.shape[1]) > 3:
+            if len(target_array.shape) > 3:
                 # Cartesian tensor with rank > 1
                 n_components = len(target_array.shape) - 2
                 components = [
                     Labels.range(f"xyz_{d + 1}", 3) for d in range(n_components)
                 ]
-            elif len(target_array.shape[1]) == 3:
+            elif len(target_array.shape) == 3:
                 # Cartesian vector
                 components = [Labels.range("xyz", 3)]
             else:
+                # Scalar
                 components = []
 
             target_block = TensorBlock(
@@ -934,7 +933,7 @@ class MemmapDataset(TorchDataset):
                     target_block.add_gradient(
                         "strain",
                         TensorBlock(
-                            values=(s * torch.abs(torch.det(c))).unsqueeze(0),
+                            values=(s * torch.abs(torch.det(c))),
                             samples=Labels(
                                 names=["sample"],
                                 values=torch.tensor([[0]], dtype=torch.int32),
@@ -951,9 +950,10 @@ class MemmapDataset(TorchDataset):
                 keys=Labels.single(),
                 blocks=[target_block],
             )
-            target_dict["energy"] = target_tensormap
+            target_dict[target_key] = target_tensormap
 
-        return {"system": system, **target_dict}
+        sample = self.sample_class(**{"system": system, **target_dict})
+        return sample
 
     def get_target_info(self) -> Dict[str, TargetInfo]:
         """
@@ -967,7 +967,7 @@ class MemmapDataset(TorchDataset):
                 and target["num_subtargets"] == 1
                 and target["type"] == "scalar"
             )
-            tensor_map = self[0][target_key]  # always > 0 samples, see above
+            tensor_map = self[0][target_key]
             if is_energy:
                 if len(tensor_map) != 1:
                     raise ValueError("Energy TensorMaps should have exactly one block.")
