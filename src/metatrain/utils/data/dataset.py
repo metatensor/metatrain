@@ -11,8 +11,8 @@ import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
-from metatensor.torch import TensorMap, load_buffer
-from metatomic.torch import NeighborListOptions, load_system, save
+from metatensor.torch import Labels, TensorBlock, TensorMap, load_buffer
+from metatomic.torch import NeighborListOptions, System, load_system, save
 from omegaconf import DictConfig
 from torch.utils.data import Subset
 
@@ -342,6 +342,7 @@ class CollateFn:
         additive_models: Optional[List[Any]] = None,
         scaler: Optional[Any] = None,
         callables: Optional[List[Callable]] = None,
+        dtype: Optional[torch.dtype] = None,
         join_kwargs: Optional[Dict[str, Any]] = None,
     ):
         self.target_info_dict: Dict[str, TargetInfo] = target_info_dict
@@ -354,6 +355,7 @@ class CollateFn:
         )
         self.scaler = scaler
         self.callables: List[Callable] = callables if callables is not None else []
+        self.dtype = dtype
         self.join_kwargs: Dict[str, Any] = join_kwargs or {
             "remove_tensor_name": True,
             "different_keys": "union",
@@ -398,10 +400,72 @@ class CollateFn:
         if self.scaler is not None:
             targets = metatrain.utils.scaler.remove_scale(targets, self.scaler)  # type: ignore
 
+        systems, targets, extra = metatrain.utils.transfer.batch_to(  # type: ignore
+            systems, targets, extra, dtype=self.dtype
+        )
+
+        systems, targets, extra = _pin_memory_batch(systems, targets, extra)
+
         # wrap systems in SystemWrapper to make them pickle-compatible
         systems = tuple(SystemWrapper(system) for system in systems)
 
         return systems, targets, extra
+
+
+def _pin_memory_batch(
+    systems: List[System], targets: Dict[str, TensorMap], extra: Dict[str, TensorMap]
+):
+    """Pin all memory in a batch to make transfer to GPU faster."""
+    new_systems = [_pin_memory_system(system) for system in systems]
+    new_targets = {k: _pin_memory_tensormap(v) for k, v in targets.items()}
+    new_extra = {k: _pin_memory_tensormap(v) for k, v in extra.items()}
+    return new_systems, new_targets, new_extra
+
+
+def _pin_memory_system(system: System) -> System:
+    new_system = System(
+        positions=system.positions.pin_memory(),
+        types=system.types.pin_memory(),
+        cell=system.cell.pin_memory(),
+        pbc=system.pbc.pin_memory(),
+    )
+    for nl_options in system.known_neighbor_lists():
+        nl = system.get_neighbor_list(nl_options)
+        new_system.add_neighbor_list(
+            nl_options,
+            _pin_memory_tensorblock(nl),
+        )
+    for key in system.known_data():
+        data = system.get_data(key)
+        new_system.add_data(key, _pin_memory_tensormap(data))
+    return new_system
+
+
+def _pin_memory_tensormap(tensor_map: TensorMap) -> TensorMap:
+    new_keys = _pin_memory_labels(tensor_map.keys)
+    new_blocks = [_pin_memory_tensorblock(block) for block in tensor_map.blocks()]
+    return TensorMap(keys=new_keys, blocks=new_blocks)
+
+
+def _pin_memory_tensorblock(tensor_block: TensorBlock) -> TensorBlock:
+    new_tensor_block = TensorBlock(
+        values=tensor_block.values.pin_memory(),
+        samples=_pin_memory_labels(tensor_block.samples),
+        components=[
+            _pin_memory_labels(component) for component in tensor_block.components
+        ],
+        properties=_pin_memory_labels(tensor_block.properties),
+    )
+    for gradient_name, gradient_block in tensor_block.gradients():
+        new_tensor_block.add_gradient(
+            gradient_name,
+            _pin_memory_tensorblock(gradient_block),
+        )
+    return new_tensor_block
+
+
+def _pin_memory_labels(labels: Labels) -> Labels:
+    return Labels(names=labels.names, values=labels.values.pin_memory())
 
 
 def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]):

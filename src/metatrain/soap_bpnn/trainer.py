@@ -161,6 +161,7 @@ class Trainer(TrainerInterface):
             requested_neighbor_lists=requested_neighbor_lists,
             additive_models=additive_models,
             scaler=scaler,
+            dtype=dtype,
         )
 
         # Create dataloader for the training datasets:
@@ -309,7 +310,7 @@ class Trainer(TrainerInterface):
                 system_wrappers, targets, extra_data = batch
                 systems = [w.system for w in system_wrappers]
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype, device=device
+                    systems, targets, extra_data, device=device
                 )
 
                 predictions = evaluate_model(
@@ -357,7 +358,7 @@ class Trainer(TrainerInterface):
                 system_wrappers, targets, extra_data = batch
                 systems = [w.system for w in system_wrappers]
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype, device=device
+                    systems, targets, extra_data, device=device
                 )
 
                 predictions = evaluate_model(

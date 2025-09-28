@@ -1,10 +1,12 @@
 seed: 42
+device: cpu
 
 architecture:
   name: pet
   training:
     batch_size: 1
     num_epochs: 1
+    num_workers: 0
 
 training_set:
   systems:

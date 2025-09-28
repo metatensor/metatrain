@@ -23,9 +23,12 @@ def batch_to(
     :param dtype: Desired floating point data type.
     """
 
-    systems = [system.to(dtype=dtype, device=device) for system in systems]
+    systems = [
+        system.to(dtype=dtype, device=device, non_blocking=True) for system in systems
+    ]
     targets = {
-        key: value.to(dtype=dtype, device=device) for key, value in targets.items()
+        key: value.to(dtype=dtype, device=device, non_blocking=True)
+        for key, value in targets.items()
     }
     if extra_data is not None:
         new_dtypes: List[Optional[int]] = []
@@ -35,7 +38,7 @@ def batch_to(
             else:
                 new_dtypes.append(dtype)
         extra_data = {
-            key: value.to(dtype=_dtype, device=device)
+            key: value.to(dtype=_dtype, device=device, non_blocking=True)
             for (key, value), _dtype in zip(extra_data.items(), new_dtypes)
         }
 
