@@ -194,7 +194,6 @@ class Trainer(TrainerInterface):
             additive_models=additive_models,
             scaler=scaler,
             callables=[rotational_augmenter.apply_random_augmentations],
-            dtype=dtype,
         )
         collate_fn_val = CollateFn(
             target_info_dict=train_targets,
@@ -202,7 +201,6 @@ class Trainer(TrainerInterface):
             additive_models=additive_models,
             scaler=scaler,
             callables=[],  # no augmentation for validation
-            dtype=dtype,
         )
 
         # Create dataloader for the training datasets:
@@ -349,7 +347,7 @@ class Trainer(TrainerInterface):
                 system_wrappers, targets, extra_data = batch
                 systems = [w.system for w in system_wrappers]
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
+                    systems, targets, extra_data, dtype=dtype, device=device
                 )
                 predictions = evaluate_model(
                     model,
@@ -398,7 +396,7 @@ class Trainer(TrainerInterface):
                 system_wrappers, targets, extra_data = batch
                 systems = [w.system for w in system_wrappers]
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
+                    systems, targets, extra_data, dtype=dtype, device=device
                 )
                 predictions = evaluate_model(
                     model,

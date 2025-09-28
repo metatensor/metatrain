@@ -342,7 +342,6 @@ class CollateFn:
         additive_models: Optional[List[Any]] = None,
         scaler: Optional[Any] = None,
         callables: Optional[List[Callable]] = None,
-        dtype: Optional[torch.dtype] = None,
         join_kwargs: Optional[Dict[str, Any]] = None,
     ):
         self.target_info_dict: Dict[str, TargetInfo] = target_info_dict
@@ -355,7 +354,6 @@ class CollateFn:
         )
         self.scaler = scaler
         self.callables: List[Callable] = callables if callables is not None else []
-        self.dtype = dtype
         self.join_kwargs: Dict[str, Any] = join_kwargs or {
             "remove_tensor_name": True,
             "different_keys": "union",
@@ -399,10 +397,6 @@ class CollateFn:
 
         if self.scaler is not None:
             targets = metatrain.utils.scaler.remove_scale(targets, self.scaler)  # type: ignore
-
-        systems, targets, extra = metatrain.utils.transfer.batch_to(  # type: ignore
-            systems, targets, extra, dtype=self.dtype
-        )
 
         # wrap systems in SystemWrapper to make them pickle-compatible
         systems = tuple(SystemWrapper(system) for system in systems)
