@@ -406,6 +406,120 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
             loss_fn=torch.nn.HuberLoss(reduction=reduction, delta=delta),
         )
 
+class MaskedDOSLoss(LossInterface):
+    """
+    Pointwise masked loss on :py:class:`TensorMap` entries.
+
+    Inherits flattening and torch-loss logic from BaseTensorMapLoss.
+    """
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        grad_weight: float,
+        int_weight: float,
+        extra_targets: int,
+        reduction: str,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+        )
+        self.grad_weight = grad_weight
+        self.int_weight = int_weight
+        self.extra_targets = extra_targets
+
+        interval = 0.05
+        self.grid  = (torch.tensor([1/4, -4/3, 3., -4. , 25/12])/interval).unsqueeze(dim = (0)).unsqueeze(dim = (0)).float()
+
+        
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ) -> torch.Tensor:
+        """
+        Gather and flatten target and prediction blocks, then compute loss.
+
+        :param predictions: Mapping from target names to TensorMaps.
+        :param targets: Mapping from target names to TensorMaps.
+        :param extra_data: Additional data for loss computation. Assumes that, for the
+            target ``name`` used in the constructor, there is a corresponding data field
+            ``name + "_mask"`` that contains the tensor to be used for masking. It
+            should have the same metadata as the target and prediction tensors.
+        :return: Scalar loss tensor.
+        """
+        mask_key = f"{self.target}_mask"
+        if extra_data is None or mask_key not in extra_data:
+            raise ValueError(
+                f"Expected extra_data to contain TensorMap under '{mask_key}'"
+            )
+        
+        tensor_map_pred = predictions[self.target]
+        tensor_map_targ = targets[self.target]
+        tensor_map_mask = extra_data[mask_key]
+
+        # There should only be one block
+        
+        predictions = tensor_map_pred.block().values
+        target = tensor_map_targ.block().values[:,self.extra_targets:]
+        mask = tensor_map_mask.block().values[:,self.extra_targets:].bool()
+
+        device = predictions.device
+
+        if self.extra_targets == 0:
+            pass
+        else:
+            assert len(predictions[0]) - len(target[0]) == self.extra_targets, f"Predictions must be larger than targets by '{self.extra_targets}', currently it is {len(predictions[0]) - len(target[0])}'"
+            predictions_unfolded = predictions.unfold(1, len(target[0]), 1)
+            target_expanded = target[:, None, :]
+            delta = target_expanded - predictions_unfolded
+            dynamic_delta = delta * mask.unsqueeze(dim=1)
+            losses = torch.trapezoid(dynamic_delta * dynamic_delta, dx = 0.05, dim=2)
+            front_tail = torch.cumulative_trapezoid(predictions**2, dx = 0.05, dim = 1)
+            additional_error = torch.hstack([torch.zeros(len(predictions), device = device).reshape(-1,1), front_tail[:,:self.extra_targets]])
+            total_losses = losses + additional_error
+            final_loss, shift = torch.min(total_losses, dim=1)
+            dos_loss = torch.mean(final_loss)
+            # Compute gradient loss
+            aligned_predictions = []
+            adjusted_dos_mask = []
+            for index, prediction in enumerate(predictions):
+                aligned_prediction = prediction[shift[index]:shift[index]+len(target[0])]
+                aligned_predictions.append(aligned_prediction)
+                dos_mask_i = torch.hstack( #Adjust the mask to account for the discrete shift
+                    [
+                    (torch.ones(shift[index])).bool().to(device),
+                    mask[index],
+                    (torch.zeros(int(self.extra_targets - shift[index]))).bool().to(device)
+                    ]
+                )                        
+                aligned_predictions.append(aligned_prediction)
+                adjusted_dos_mask.append(dos_mask_i)
+            aligned_predictions = torch.vstack(aligned_predictions)
+            adjusted_dos_mask = torch.vstack(adjusted_dos_mask)
+            if self.grad_weight > 0:
+                grad_predictions = torch.nn.functional.conv1d(predictions.unsqueeze(dim=1), self.grid.to(device)).squeeze(dim=1)
+                dim_loss = predictions.shape[1] - grad_predictions.shape[1] # Dimensions lost due to the gradient convolution
+                gradient_loss = torch.mean(torch.trapezoid(((grad_predictions * (~adjusted_dos_mask[:, dim_loss:]))**2), # non-zero gradients outside the window are penalized
+                                                                    dx = 0.05, dim = 1)) * self.grad_weight
+            else:
+                gradient_loss = 0.0
+            if self.int_weight > 0:
+                int_predictions = torch.cumulative_trapezoid(aligned_predictions**2, dx = 0.05, dim = 1)
+                int_target = torch.cumulative_trapezoid(target**2, dx = 0.05, dim = 1)
+                int_error = (int_predictions - int_target)**2
+                int_error = int_error * adjusted_dos_mask[:,1:].unsqueeze(dim=1) # only penalize the integral where the DOS is defined
+                int_MSE = torch.mean(torch.trapezoid(int_error, dx = 0.05, dim = 1)) * self.int_weight
+            else:
+                int_MSE = 0.0
+
+            return dos_loss + gradient_loss + int_MSE
+
 
 class MaskedDOSLoss(LossInterface):
     """
