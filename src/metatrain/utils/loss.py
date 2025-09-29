@@ -512,7 +512,7 @@ class MaskedDOSLoss(LossInterface):
                 int_predictions = torch.cumulative_trapezoid(aligned_predictions**2, dx = 0.05, dim = 1)
                 int_target = torch.cumulative_trapezoid(target**2, dx = 0.05, dim = 1)
                 int_error = (int_predictions - int_target)**2
-                int_error = int_error * adjusted_dos_mask[:,1:].unsqueeze(dim=1) # only penalize the integral where the DOS is defined
+                int_error = int_error * mask[:,1:].unsqueeze(dim=1) # only penalize the integral where the DOS is defined
                 int_MSE = torch.mean(torch.trapezoid(int_error, dx = 0.05, dim = 1)) * self.int_weight
             else:
                 int_MSE = 0.0
