@@ -29,6 +29,7 @@ architecture:
     learning_rate: 0.001
     log_interval: 5
     checkpoint_interval: 25
+    fit_composition_model: true
     scale_targets: true
     fixed_composition_weights: {}
     fixed_scaling_weights: {}

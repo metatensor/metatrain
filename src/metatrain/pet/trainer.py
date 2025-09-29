@@ -148,15 +148,15 @@ class Trainer(TrainerInterface):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
-        logging.info("Calculating composition weights")
-
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
-            is_distributed,
-            self.hypers["fixed_composition_weights"],
-        )
+        if self.hypers["fit_composition_model"]:
+            logging.info("Calculating composition weights")
+            model.additive_models[0].train_model(  # this is the composition model
+                train_datasets,
+                model.additive_models[1:],
+                self.hypers["batch_size"],
+                is_distributed,
+                self.hypers["fixed_composition_weights"],
+            )
 
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
