@@ -135,6 +135,7 @@ def convert_train_hypers_from_legacy_pet(
         "scheduler_patience": hypers["SCHEDULER_STEP_SIZE"],
         "log_interval": 1,
         "checkpoint_interval": hypers["CHECKPOINT_INTERVAL"],
+        "fit_composition_model": True,
         "scale_targets": False,
         "fixed_composition_weights": {},
         "per_structure_targets": [],
