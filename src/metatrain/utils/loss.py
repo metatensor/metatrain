@@ -490,7 +490,6 @@ class MaskedDOSLoss(LossInterface):
             adjusted_dos_mask = []
             for index, prediction in enumerate(predictions):
                 aligned_prediction = prediction[shift[index]:shift[index]+len(target[0])]
-                aligned_predictions.append(aligned_prediction)
                 dos_mask_i = torch.hstack( #Adjust the mask to account for the discrete shift
                     [
                     (torch.ones(shift[index])).bool().to(device),
