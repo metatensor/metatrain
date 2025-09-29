@@ -31,7 +31,8 @@ architecture:
     weight_decay: null
     log_interval: 1
     checkpoint_interval: 100
-    scale_targets: true
+    fit_composition_model: true
+    scale_targets: false
     fixed_composition_weights: {}
     fixed_scaling_weights: {}
     per_structure_targets: []
