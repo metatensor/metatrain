@@ -26,6 +26,9 @@
         "d_pet": {
           "type": "integer"
         },
+        "d_head": {
+          "type": "integer"
+        },
         "num_heads": {
           "type": "integer"
         },
@@ -93,6 +96,9 @@
           "type": "integer"
         },
         "num_epochs": {
+          "type": "integer"
+        },
+        "num_epochs_warmup": {
           "type": "integer"
         },
         "learning_rate": {

@@ -2,11 +2,17 @@ seed: 42
 
 architecture:
   name: experimental.flashmd
+  model:
+    d_pet: 256
+    d_head: 256
+    num_gnn_layers: 3
   training:
-    batch_size: 4
-    num_epochs: 100
+    batch_size: 2
+    num_epochs: 1000
+    num_epochs_warmup: 10
     log_interval: 1
     scale_targets: true
+    scheduler_patience: 200
     loss:
       positions:
         type: mse
