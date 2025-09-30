@@ -77,7 +77,7 @@ def test_scaler_train():
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
-            targets={"energy": get_energy_target_info({"unit": "eV"})},
+            targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
         ),
     )
 
@@ -183,7 +183,7 @@ def test_scaler_torchscript(tmpdir):
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
-            targets={"energy": get_energy_target_info({"unit": "eV"})},
+            targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
         ),
     )
 

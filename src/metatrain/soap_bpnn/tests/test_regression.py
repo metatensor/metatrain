@@ -27,7 +27,7 @@ def test_regression_init():
     torch.manual_seed(0)
 
     targets = {}
-    targets["mtt::U0"] = get_energy_target_info({"unit": "eV"})
+    targets["mtt::U0"] = get_energy_target_info("mtt::U0", {"unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets

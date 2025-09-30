@@ -268,6 +268,7 @@ class TargetInfo:
 
 
 def get_energy_target_info(
+    target_name: str,
     target: DictConfig,
     add_position_gradients: bool = False,
     add_strain_gradients: bool = False,
@@ -336,13 +337,13 @@ def get_energy_target_info(
     return target_info
 
 
-def get_generic_target_info(target: DictConfig) -> TargetInfo:
+def get_generic_target_info(target_name: str, target: DictConfig) -> TargetInfo:
     if target["type"] == "scalar":
-        return _get_scalar_target_info(target)
+        return _get_scalar_target_info(target_name, target)
     elif len(target["type"]) == 1 and next(iter(target["type"])).lower() == "cartesian":
-        return _get_cartesian_target_info(target)
+        return _get_cartesian_target_info(target_name, target)
     elif len(target["type"]) == 1 and next(iter(target["type"])) == "spherical":
-        return _get_spherical_target_info(target)
+        return _get_spherical_target_info(target_name, target)
     else:
         raise ValueError(
             f"Target type {target['type']} is not supported. "
@@ -350,7 +351,7 @@ def get_generic_target_info(target: DictConfig) -> TargetInfo:
         )
 
 
-def _get_scalar_target_info(target: DictConfig) -> TargetInfo:
+def _get_scalar_target_info(target_name: str, target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
     if target["per_atom"]:
         sample_names.append("atom")
@@ -363,7 +364,9 @@ def _get_scalar_target_info(target: DictConfig) -> TargetInfo:
             values=torch.empty((0, len(sample_names)), dtype=torch.int32),
         ),
         components=[],
-        properties=Labels.range("properties", target["num_subtargets"]),
+        properties=Labels.range(
+            target_name.replace("mtt::", ""), target["num_subtargets"]
+        ),
     )
     layout = TensorMap(
         keys=Labels.single(),
@@ -378,7 +381,7 @@ def _get_scalar_target_info(target: DictConfig) -> TargetInfo:
     return target_info
 
 
-def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
+def _get_cartesian_target_info(target_name: str, target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
     if target["per_atom"]:
         sample_names.append("atom")
@@ -408,7 +411,9 @@ def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
             values=torch.empty((0, len(sample_names)), dtype=torch.int32),
         ),
         components=components,
-        properties=Labels.range("properties", target["num_subtargets"]),
+        properties=Labels.range(
+            target_name.replace("mtt::", ""), target["num_subtargets"]
+        ),
     )
     layout = TensorMap(
         keys=Labels.single(),
@@ -423,7 +428,7 @@ def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
     return target_info
 
 
-def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
+def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
     if target["per_atom"]:
         sample_names.append("atom")
@@ -453,7 +458,9 @@ def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
                 values=torch.empty((0, len(sample_names)), dtype=torch.int32),
             ),
             components=components,
-            properties=Labels.range("properties", target["num_subtargets"]),
+            properties=Labels.range(
+                target_name.replace("mtt::", ""), target["num_subtargets"]
+            ),
         )
         keys.append([irrep["o3_lambda"], irrep["o3_sigma"]])
         blocks.append(block)

@@ -46,7 +46,7 @@ def test_composition_model_float32_error():
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
-            targets={"energy": get_energy_target_info({"unit": "eV"})},
+            targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
         ),
     )
     with pytest.raises(
@@ -123,7 +123,7 @@ def test_old_composition_model_train():
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
-            targets={"energy": get_energy_target_info({"unit": "eV"})},
+            targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
         ),
     )
 
@@ -249,7 +249,7 @@ def test_composition_model_train(fixed_weights):
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
-            targets={"energy": get_energy_target_info({"unit": "eV"})},
+            targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
         ),
     )
 
@@ -595,7 +595,7 @@ def test_old_composition_model_torchscript(tmpdir):
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
-            targets={"energy": get_energy_target_info({"unit": "eV"})},
+            targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
         ),
     )
     composition_model = torch.jit.script(composition_model)
@@ -626,7 +626,7 @@ def test_composition_model_torchscript(tmpdir):
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
-            targets={"energy": get_energy_target_info({"unit": "eV"})},
+            targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
         ),
     )
     composition_model = torch.jit.script(composition_model)
@@ -805,7 +805,7 @@ def test_old_composition_model_missing_types(caplog):
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1],
-            targets={"energy": get_energy_target_info({"unit": "eV"})},
+            targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
         ),
     )
     with pytest.raises(
@@ -819,7 +819,7 @@ def test_old_composition_model_missing_types(caplog):
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8, 100],
-            targets={"energy": get_energy_target_info({"unit": "eV"})},
+            targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
         ),
     )
     # need to capture the warning from the logger
@@ -894,7 +894,7 @@ def test_composition_model_missing_types(caplog):
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1],
-            targets={"energy": get_energy_target_info({"unit": "eV"})},
+            targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
         ),
     )
     with pytest.raises(
@@ -916,13 +916,14 @@ def test_old_composition_model_wrong_target():
                 atomic_types=[1],
                 targets={
                     "force": get_generic_target_info(
+                        "force",
                         {
                             "quantity": "force",
                             "unit": "",
                             "type": {"cartesian": {"rank": 1}},
                             "num_subtargets": 1,
                             "per_atom": True,
-                        }
+                        },
                     )
                 },
             ),
@@ -941,13 +942,14 @@ def test_composition_model_wrong_target():
                 atomic_types=[1],
                 targets={
                     "force": get_generic_target_info(
+                        "force",
                         {
                             "quantity": "force",
                             "unit": "",
                             "type": {"cartesian": {"rank": 1}},
                             "num_subtargets": 1,
                             "per_atom": True,
-                        }
+                        },
                     )
                 },
             ),
@@ -1110,13 +1112,14 @@ def test_old_composition_model_train_per_atom(where_is_center_type):
             atomic_types=[1, 8],
             targets={
                 "energy": get_generic_target_info(
+                    "energy",
                     {
                         "quantity": "energy",
                         "unit": "",
                         "type": "scalar",
                         "num_subtargets": 1,
                         "per_atom": True,
-                    }
+                    },
                 )
             },
         ),
@@ -1227,13 +1230,14 @@ def test_composition_model_train_per_atom(where_is_center_type):
             atomic_types=[1, 8],
             targets={
                 "energy": get_generic_target_info(
+                    "energy",
                     {
                         "quantity": "energy",
                         "unit": "",
                         "type": "scalar",
                         "num_subtargets": 1,
                         "per_atom": True,
-                    }
+                    },
                 )
             },
         ),
@@ -1335,13 +1339,14 @@ def test_old_composition_many_subtargets():
             atomic_types=[1, 8],
             targets={
                 "energy": get_generic_target_info(
+                    "energy",
                     {
                         "quantity": "energy",
                         "unit": "",
                         "type": "scalar",
                         "num_subtargets": 2,
                         "per_atom": False,
-                    }
+                    },
                 )
             },
         ),
@@ -1445,13 +1450,14 @@ def test_composition_many_subtargets():
             atomic_types=[1, 8],
             targets={
                 "energy": get_generic_target_info(
+                    "energy",
                     {
                         "quantity": "energy",
                         "unit": "",
                         "type": "scalar",
                         "num_subtargets": 2,
                         "per_atom": False,
-                    }
+                    },
                 )
             },
         ),
@@ -1572,6 +1578,7 @@ def test_old_composition_spherical():
             atomic_types=[1, 8],
             targets={
                 "energy": get_generic_target_info(
+                    "energy",
                     {
                         "quantity": "energy",
                         "unit": "",
@@ -1585,7 +1592,7 @@ def test_old_composition_spherical():
                         },
                         "num_subtargets": 1,
                         "per_atom": False,
-                    }
+                    },
                 )
             },
         ),
@@ -1714,6 +1721,7 @@ def test_composition_spherical():
             atomic_types=[1, 8],
             targets={
                 "energy": get_generic_target_info(
+                    "energy",
                     {
                         "quantity": "energy",
                         "unit": "",
@@ -1727,7 +1735,7 @@ def test_composition_spherical():
                         },
                         "num_subtargets": 1,
                         "per_atom": False,
-                    }
+                    },
                 )
             },
         ),

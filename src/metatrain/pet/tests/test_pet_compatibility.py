@@ -252,7 +252,9 @@ def get_identical_pet_models():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
     nativepet_model = NativePET(DEFAULT_NATIVEPET_HYPERS["model"], dataset_info)
