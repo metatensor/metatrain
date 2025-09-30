@@ -67,7 +67,6 @@ def checkpoint_did_not_change(monkeypatch, tmp_path, model_trainer):
         try:
             check_same_checkpoint_structure(checkpoint, reference)
         except KeyError as e:
-            print(e)
             raise ValueError(
                 "checkpoint structure changed. Please increase the checkpoint "
                 "version and implement checkpoint update"
