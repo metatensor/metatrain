@@ -8,6 +8,7 @@ import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import TrainerInterface
+from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
@@ -25,8 +26,10 @@ from metatrain.utils.loss import LossAggregator
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
+    get_system_with_neighbor_lists_transform,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import (
     batch_to,
 )
@@ -157,10 +160,12 @@ class Trainer(TrainerInterface):
         train_targets = dataset_info.targets
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         collate_fn = CollateFn(
-            target_info_dict=train_targets,
-            requested_neighbor_lists=requested_neighbor_lists,
-            additive_models=additive_models,
-            scaler=scaler,
+            target_keys=list(train_targets.keys()),
+            callables=[
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                get_remove_additive_transform(additive_models, train_targets),
+                get_remove_scale_transform(scaler),
+            ],
         )
 
         # Create dataloader for the training datasets:

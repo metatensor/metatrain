@@ -12,6 +12,7 @@ from metatrain.utils.data import (
     CombinedDataLoader,
     Dataset,
 )
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists_transform
 
 from ..data import DatasetInfo, TargetInfo
 from ..jsonschema import validate
@@ -93,8 +94,10 @@ class CompositionModel(torch.nn.Module):
         """
         # Create the collate function
         collate_fn = CollateFn(
-            target_info_dict=self.dataset_info.targets,
-            requested_neighbor_lists=requested_neighbor_lists,
+            target_keys=list(self.dataset_info.targets.keys()),
+            callables=[
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists)
+            ],
         )
 
         dtype = datasets[0][0]["system"].positions.dtype
