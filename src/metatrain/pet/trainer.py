@@ -9,6 +9,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import TrainerInterface
+from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
     CollateFn,
@@ -27,8 +28,10 @@ from metatrain.utils.loss import LossAggregator
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
+    get_system_with_neighbor_lists_transform,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
@@ -189,18 +192,21 @@ class Trainer(TrainerInterface):
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         collate_fn_train = CollateFn(
-            target_info_dict=train_targets,
-            requested_neighbor_lists=requested_neighbor_lists,
-            additive_models=additive_models,
-            scaler=scaler,
-            callables=[rotational_augmenter.apply_random_augmentations],
+            target_keys=list(train_targets.keys()),
+            callables=[
+                rotational_augmenter.apply_random_augmentations,
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                get_remove_additive_transform(additive_models, train_targets),
+                get_remove_scale_transform(scaler),
+            ],
         )
         collate_fn_val = CollateFn(
-            target_info_dict=train_targets,
-            requested_neighbor_lists=requested_neighbor_lists,
-            additive_models=additive_models,
-            scaler=scaler,
-            callables=[],  # no augmentation for validation
+            target_keys=list(train_targets.keys()),
+            callables=[  # no augmentation for validation
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                get_remove_additive_transform(additive_models, train_targets),
+                get_remove_scale_transform(scaler),
+            ],
         )
 
         # Create dataloader for the training datasets:

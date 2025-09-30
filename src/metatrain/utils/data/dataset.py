@@ -12,11 +12,10 @@ import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
 from metatensor.torch import TensorMap, load_buffer
-from metatomic.torch import NeighborListOptions, load_system, save
+from metatomic.torch import load_system, save
 from omegaconf import DictConfig
 from torch.utils.data import Subset
 
-import metatrain
 from metatrain.utils.data.readers.metatensor import (
     _check_tensor_map_metadata,
     _empty_tensor_map_like,
@@ -27,7 +26,6 @@ from metatrain.utils.data.target_info import (
     get_generic_target_info,
 )
 from metatrain.utils.external_naming import to_external_name
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.units import get_gradient_units
 
 
@@ -337,22 +335,11 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
 class CollateFn:
     def __init__(
         self,
-        target_info_dict: Dict[str, TargetInfo],
-        requested_neighbor_lists: Optional[List[NeighborListOptions]] = None,
-        additive_models: Optional[List[Any]] = None,
-        scaler: Optional[Any] = None,
+        target_keys: List[str],
         callables: Optional[List[Callable]] = None,
         join_kwargs: Optional[Dict[str, Any]] = None,
     ):
-        self.target_info_dict: Dict[str, TargetInfo] = target_info_dict
-        self.target_keys: Set[str] = set(target_info_dict.keys())
-        self.requested_neighbor_lists: List[NeighborListOptions] = (
-            requested_neighbor_lists if requested_neighbor_lists is not None else []
-        )
-        self.additive_models: List[Any] = (
-            additive_models if additive_models is not None else []
-        )
-        self.scaler = scaler
+        self.target_keys: Set[str] = set(target_keys)
         self.callables: List[Callable] = callables if callables is not None else []
         self.join_kwargs: Dict[str, Any] = join_kwargs or {
             "remove_tensor_name": True,
@@ -386,17 +373,6 @@ class CollateFn:
 
         for callable in self.callables:
             systems, targets, extra = callable(systems, targets, extra)
-
-        for system in systems:
-            get_system_with_neighbor_lists(system, self.requested_neighbor_lists)
-
-        for additive_model in self.additive_models:
-            targets = metatrain.utils.additive.remove_additive(  # type: ignore
-                systems, targets, additive_model, self.target_info_dict
-            )
-
-        if self.scaler is not None:
-            targets = metatrain.utils.scaler.remove_scale(targets, self.scaler)  # type: ignore
 
         # wrap systems in SystemWrapper to make them pickle-compatible
         systems = tuple(SystemWrapper(system) for system in systems)

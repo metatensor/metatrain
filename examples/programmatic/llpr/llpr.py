@@ -96,7 +96,7 @@ ethanol_system = get_system_with_neighbor_lists(
 from metatrain.utils.data import CollateFn  # noqa: E402
 
 
-collate_fn = CollateFn(target_info_dict=target_info_dict)
+collate_fn = CollateFn(target_keys=list(target_info_dict.keys()))
 
 dataloader = torch.utils.data.DataLoader(
     dataset,
