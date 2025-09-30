@@ -147,7 +147,6 @@ class MetricLogger:
         dataset_info: Union[ModelCapabilities, DatasetInfo],
         initial_metrics: Union[Dict[str, float], List[Dict[str, float]]],
         names: Union[str, List[str]] = "",
-        scales: Optional[Dict[str, float]] = None,
     ):
         """
         Simple interface to log training metrics logging instance.
@@ -163,8 +162,6 @@ class MetricLogger:
             and units
         :param initial_metrics: initial training metrics
         :param names: names of the metrics (e.g., "train", "validation")
-        :param scales: scales for the metrics. If not provided, all metrics will be
-            scaled by 1.0
         """
         self.log_obj = log_obj
 
@@ -191,17 +188,12 @@ class MetricLogger:
 
         self.names = names
 
-        if scales is None:
-            scales = {target_name: 1.0 for target_name in initial_metrics[0].keys()}
-        self.scales = scales
-
         # Since the quantities are supposed to decrease, we want to store the
         # number of digits at the start of the training, so that we can align
         # the output later:
         self.digits = {}
         for name, metrics_dict in zip(names, initial_metrics):
             for key, value in metrics_dict.items():
-                value *= scales[key]
                 target_name = key.split(maxsplit=1)[0]
 
                 # Check if key is part of the model outputs, only then we can get units
@@ -255,7 +247,6 @@ class MetricLogger:
         is_training = False
         for name, metrics_dict in zip(self.names, metrics):
             for key in _sort_metric_names(metrics_dict.keys()):
-                value = metrics_dict[key] * self.scales[key]
 
                 key_split = key.split(maxsplit=1)
                 target_name = key_split[0]
