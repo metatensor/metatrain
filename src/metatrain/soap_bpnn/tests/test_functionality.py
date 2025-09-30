@@ -29,7 +29,7 @@ def test_prediction_subset_elements():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
@@ -55,7 +55,7 @@ def test_prediction_subset_atoms():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
@@ -126,7 +126,7 @@ def test_output_last_layer_features():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
@@ -170,7 +170,7 @@ def test_output_last_layer_features():
         128,
     )
     assert features.properties.names == [
-        "properties",
+        "feature",
     ]
 
     last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block()
@@ -183,7 +183,7 @@ def test_output_last_layer_features():
         128,
     )
     assert last_layer_features.properties.names == [
-        "properties",
+        "feature",
     ]
 
     # last-layer features per system:
@@ -213,7 +213,7 @@ def test_output_last_layer_features():
         128,
     )
     assert features.properties.names == [
-        "properties",
+        "feature",
     ]
 
     assert outputs["mtt::aux::energy_last_layer_features"].block().samples.names == [
@@ -224,7 +224,7 @@ def test_output_last_layer_features():
         128,
     )
     assert outputs["mtt::aux::energy_last_layer_features"].block().properties.names == [
-        "properties",
+        "feature",
     ]
 
 
@@ -233,7 +233,7 @@ def test_output_per_atom():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
@@ -295,6 +295,7 @@ def test_vector_output(per_atom):
         atomic_types=[1, 6, 7, 8],
         targets={
             "forces": get_generic_target_info(
+                "forces",
                 {
                     "quantity": "forces",
                     "unit": "",
@@ -303,7 +304,7 @@ def test_vector_output(per_atom):
                     },
                     "num_subtargets": 100,
                     "per_atom": per_atom,
-                }
+                },
             )
         },
     )
@@ -333,6 +334,7 @@ def test_spherical_outputs(per_atom):
         atomic_types=[1, 6, 7, 8],
         targets={
             "spherical_target": get_generic_target_info(
+                "spherical_target",
                 {
                     "quantity": "",
                     "unit": "",
@@ -346,7 +348,7 @@ def test_spherical_outputs(per_atom):
                     },
                     "num_subtargets": 100,
                     "per_atom": per_atom,
-                }
+                },
             )
         },
     )
@@ -376,7 +378,9 @@ def test_soap_bpnn_single_atom():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
     hypers = copy.deepcopy(MODEL_HYPERS)

@@ -63,7 +63,7 @@ def test_more_sparse_points_than_envs():
 
     target_info_dict = {
         "energy": get_energy_target_info(
-            {"unit": "kcal/mol"}, add_position_gradients=True
+            "energy", {"unit": "kcal/mol"}, add_position_gradients=True
         )
     }
 
@@ -99,6 +99,7 @@ def test_vector_output(per_atom):
         atomic_types=[1, 6, 7, 8],
         targets={
             "forces": get_generic_target_info(
+                "forces",
                 {
                     "quantity": "forces",
                     "unit": "",
@@ -107,7 +108,7 @@ def test_vector_output(per_atom):
                     },
                     "num_subtargets": 100,
                     "per_atom": per_atom,
-                }
+                },
             )
         },
     )

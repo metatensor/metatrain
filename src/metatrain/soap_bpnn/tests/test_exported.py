@@ -23,7 +23,7 @@ def test_to(device, dtype):
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info).to(dtype=dtype)
     exported = model.export(metadata=ModelMetadata(name="test"))

@@ -379,7 +379,7 @@ class NanoPET(ModelInterface):
                         samples=sample_labels,
                         components=[],
                         properties=Labels(
-                            names=["properties"],
+                            names=["feature"],
                             values=torch.arange(
                                 node_features.shape[-1], device=node_features.device
                             ).reshape(-1, 1),
@@ -426,7 +426,7 @@ class NanoPET(ModelInterface):
                         samples=sample_labels,
                         components=[],
                         properties=Labels(
-                            names=["properties"],
+                            names=["feature"],
                             values=torch.arange(
                                 atomic_features_dict[base_name].shape[-1],
                                 device=atomic_features_dict[base_name].device,
