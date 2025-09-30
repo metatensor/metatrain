@@ -69,7 +69,7 @@ def test_prediction():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
@@ -120,7 +120,7 @@ def test_per_atom_predictions_functionality():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
@@ -172,7 +172,7 @@ def test_selected_atoms_functionality():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
@@ -236,6 +236,7 @@ def test_vector_output(per_atom):
         atomic_types=[1, 6, 7, 8],
         targets={
             "forces": get_generic_target_info(
+                "forces",
                 {
                     "quantity": "forces",
                     "unit": "",
@@ -244,7 +245,7 @@ def test_vector_output(per_atom):
                     },
                     "num_subtargets": 100,
                     "per_atom": per_atom,
-                }
+                },
             )
         },
     )
@@ -258,7 +259,7 @@ def test_output_features():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
 
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
@@ -302,13 +303,13 @@ def test_output_features():
         4,
         768,  # 768 = 3 (gnn layers) * 256 (128 for edge repr, 128 for node repr)
     )
-    assert last_layer_features.properties.names == ["properties"]
+    assert last_layer_features.properties.names == ["feature"]
     assert features.samples.names == ["system", "atom"]
     assert features.values.shape == (
         4,
         768,  # 768 = 3 (gnn layers) * 256 (128 for edge repr, 128 for node repr)
     )
-    assert features.properties.names == ["properties"]
+    assert features.properties.names == ["feature"]
 
     # last-layer features per system:
     ll_output_options = ModelOutput(
@@ -335,11 +336,11 @@ def test_output_features():
         768,  # 768 = 3 (gnn layers) * 256 (128 for edge repr, 128 for node repr)
     )
     assert outputs["mtt::aux::energy_last_layer_features"].block().properties.names == [
-        "properties",
+        "feature",
     ]
     assert outputs["features"].block().samples.names == ["system"]
     assert outputs["features"].block().values.shape == (
         1,
         768,  # 768 = 3 (gnn layers) * 256 (128 for edge repr, 128 for node repr)
     )
-    assert outputs["features"].block().properties.names == ["properties"]
+    assert outputs["features"].block().properties.names == ["feature"]
