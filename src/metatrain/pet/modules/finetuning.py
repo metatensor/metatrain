@@ -13,7 +13,7 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
     - lora: Inject LoRA layers into the model, or reapply training if already present.
     - heads: Freeze all parameters except for the heads and last layers.
     """
-    method = strategy["method"].lower()
+    method = strategy.get("method", "full").lower()
 
     for param in model.parameters():
         param.requires_grad = True
@@ -47,7 +47,13 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
                 param.requires_grad = False
 
     elif method == "heads":
-        strategy_cfg = strategy.get("config", {})
+        strategy_cfg = strategy.get(
+            "config",
+            {
+                "head_modules": ["node_heads", "edge_heads"],
+                "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+            },
+        )
 
         head_keywords = strategy_cfg.get("head_modules", [])
         last_layer_keywords = strategy_cfg.get("last_layer_modules", [])

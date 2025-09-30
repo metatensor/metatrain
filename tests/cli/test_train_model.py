@@ -607,7 +607,9 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
 def test_finetune_no_read_from(options_pet, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    options_pet["architecture"]["training"]["finetune"] = OmegaConf.create({})
+    options_pet["architecture"]["training"]["finetune"] = OmegaConf.create(
+        {"method": "full"}
+    )
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     match = (
