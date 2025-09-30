@@ -15,19 +15,13 @@ from metatrain.utils.data import (
 from ..data import DatasetInfo, TargetInfo
 from ..jsonschema import validate
 from ..transfer import batch_to
-from . import remove_additive
+from ..additive import remove_additive
 from ._base_scaler import BaseScaler
 
 
 class Scaler(torch.nn.Module):
     """
-    A simple model that calculates the per-species contributions to targets
-    based on the stoichiometry in a system.
-
-    :param hypers: A dictionary of model hyperparameters. This parameter is ignored and
-        is only present to be consistent with the general model API.
-    :param dataset_info: An object containing information about the dataset, including
-        target quantities and atomic types.
+    DELETED DOCS. WAS FOR COMPOSITION MODEL
     """
 
     # Needed for torchscript compatibility
@@ -187,14 +181,12 @@ class Scaler(torch.nn.Module):
             torch.distributed.barrier()
             # All-reduce the accumulated TensorMaps across all processes
             for target_name in self.new_outputs:
-                for N_block, Y_block, Y2_block in zip(
+                for N_block, Y2_block in zip(
                     self.model.N[target_name],
-                    self.model.Y[target_name],
                     self.model.Y2[target_name],
                     strict=True,
                 ):
                     torch.distributed.all_reduce(N_block.values)
-                    torch.distributed.all_reduce(Y_block.values)
                     torch.distributed.all_reduce(Y2_block.values)
 
         # Compute the scales on all ranks
@@ -239,7 +231,7 @@ class Scaler(torch.nn.Module):
         self,
         systems: List[System],
         outputs: Dict[str, TensorMap],
-        remove: bool,
+        remove: bool = False,
     ) -> Dict[str, TensorMap]:
         """Scales the outputs based on the stored standard deviations.
 
