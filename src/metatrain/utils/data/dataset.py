@@ -1,16 +1,18 @@
 import math
+import multiprocessing
 import os
 import warnings
 import zipfile
+from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
 from metatensor.torch import TensorMap, load_buffer
-from metatomic.torch import load_system
+from metatomic.torch import load_system, save
 from omegaconf import DictConfig
 from torch.utils.data import Subset
 
@@ -43,6 +45,21 @@ def _set(values: List[int]) -> List[int]:
             unique_values.append(at_type)
 
     return unique_values
+
+
+class SystemWrapper:
+    """A wrapper for ``metatomic.torch.System`` that makes it pickle-compatible."""
+
+    def __init__(self, system):
+        self.system = system
+
+    def __getstate__(self):
+        state = BytesIO()
+        save(state, self.system)
+        return state
+
+    def __setstate__(self, state):
+        self.system = load_system(state)
 
 
 class DatasetInfo:
@@ -319,9 +336,11 @@ class CollateFn:
     def __init__(
         self,
         target_keys: List[str],
+        callables: Optional[List[Callable]] = None,
         join_kwargs: Optional[Dict[str, Any]] = None,
     ):
         self.target_keys: Set[str] = set(target_keys)
+        self.callables: List[Callable] = callables if callables is not None else []
         self.join_kwargs: Dict[str, Any] = join_kwargs or {
             "remove_tensor_name": True,
             "different_keys": "union",
@@ -351,6 +370,12 @@ class CollateFn:
                 targets[key] = value
             else:
                 extra[key] = value
+
+        for callable in self.callables:
+            systems, targets, extra = callable(systems, targets, extra)
+
+        # wrap systems in SystemWrapper to make them pickle-compatible
+        systems = tuple(SystemWrapper(system) for system in systems)
 
         return systems, targets, extra
 
@@ -643,3 +668,22 @@ def _save_indices(
                     test,
                     fmt="%d",
                 )
+
+
+def get_num_workers() -> int:
+    """Gets a good number of workers for data loading."""
+
+    # len(os.sched_getaffinity(0)) detects thread counts set by slurm,
+    # multiprocessing.cpu_count() doesn't but is more portable
+    if hasattr(os, "sched_getaffinity"):
+        num_threads = min(len(os.sched_getaffinity(0)), multiprocessing.cpu_count())
+    else:
+        num_threads = multiprocessing.cpu_count()
+
+    reserve = 4  # main training process, NCCL, GPU driver, loggers, ...
+    cap = 8  # above this can overwhelm the filesystem
+
+    # can't go below 0, in that case the main training process will handle data loading
+    num_workers = max(0, min(num_threads - reserve, cap))
+
+    return num_workers

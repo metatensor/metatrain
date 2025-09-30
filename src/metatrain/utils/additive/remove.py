@@ -1,5 +1,5 @@
 import warnings
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import metatensor.torch as mts
 import torch
@@ -109,3 +109,22 @@ def remove_additive(
         )
 
     return targets
+
+
+def get_remove_additive_transform(
+    additive_models: List[torch.nn.Module],
+    target_info_dict: Dict[str, TargetInfo],
+):
+    def transform(
+        systems, targets, extra
+    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+        for additive_model in additive_models:
+            new_targets = remove_additive(
+                systems,
+                targets,
+                additive_model,
+                target_info_dict,
+            )
+        return systems, new_targets, extra
+
+    return transform

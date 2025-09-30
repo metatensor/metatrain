@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List, Tuple
 
 import ase.neighborlist
 import numpy as np
@@ -8,6 +8,26 @@ from metatensor.torch import Labels, TensorBlock
 from metatomic.torch import NeighborListOptions, System, register_autograd_neighbors
 
 from .data.system_to_ase import system_to_ase
+
+
+def get_system_with_neighbor_lists_transform(
+    requested_neighbor_lists: List[NeighborListOptions],
+):
+    def transform(
+        systems: List[System],
+        targets: Dict[str, TensorBlock],
+        extra: Dict[str, TensorBlock],
+    ) -> Tuple[List[System], Dict[str, TensorBlock], Dict[str, TensorBlock]]:
+        new_systems = []
+        for system in systems:
+            new_system = get_system_with_neighbor_lists(
+                system,
+                requested_neighbor_lists,
+            )
+            new_systems.append(new_system)
+        return new_systems, targets, extra
+
+    return transform
 
 
 def get_requested_neighbor_lists(

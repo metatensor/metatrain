@@ -63,7 +63,7 @@ target_config = {
         "virial": False,
     },
 }
-targets, _ = read_targets(target_config)
+targets, target_info_dict = read_targets(target_config)
 
 
 from metatrain.utils.io import load_model  # noqa: E402
@@ -96,7 +96,7 @@ ethanol_system = get_system_with_neighbor_lists(
 from metatrain.utils.data import CollateFn  # noqa: E402
 
 
-collate_fn = CollateFn(target_keys=list(targets.keys()))
+collate_fn = CollateFn(target_keys=list(target_info_dict.keys()))
 
 dataloader = torch.utils.data.DataLoader(
     dataset,

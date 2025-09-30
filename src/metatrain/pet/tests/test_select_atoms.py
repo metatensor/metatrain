@@ -26,7 +26,7 @@ def test_select_atoms(select_atoms):
 
     target_info_dict = {}
     target_info_dict["energy"] = get_energy_target_info(
-        {"quantity": "energy", "unit": "eV"}
+        "energy", {"quantity": "energy", "unit": "eV"}
     )
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict

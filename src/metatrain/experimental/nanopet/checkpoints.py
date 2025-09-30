@@ -18,3 +18,9 @@ def trainer_update_v1_v2(checkpoint):
             "sliding_factor": old_loss_hypers.get("sliding_factor", None),
         }
     checkpoint["train_hypers"]["loss"] = new_loss_hypers
+
+
+def trainer_update_v2_v3(checkpoint):
+    # num_workers=0 means that the main process will do the data loading, which is
+    # equivalent to not setting it (this was the behavior before v3)
+    checkpoint["train_hypers"]["num_workers"] = 0
