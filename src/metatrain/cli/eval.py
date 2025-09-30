@@ -170,7 +170,7 @@ def _eval_targets(
     cycled = itertools.cycle(dataloader)
     for _ in range(10):
         batch = next(cycled)
-        systems = [s.system.to(device=device, dtype=dtype) for s in batch[0]]
+        systems = [w.system.to(device=device, dtype=dtype) for w in batch[0]]
         evaluate_model(
             model,
             systems,
