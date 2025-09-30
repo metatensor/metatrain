@@ -63,7 +63,7 @@ def test_llpr(tmpdir):
         for system in qm9_systems
     ]
     dataset = Dataset.from_dict({"system": qm9_systems, **targets})
-    collate_fn = CollateFn(target_info_dict=target_info_dict)
+    collate_fn = CollateFn(target_keys=list(target_info_dict.keys()))
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=10,
