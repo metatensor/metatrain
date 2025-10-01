@@ -107,7 +107,6 @@ def model_update_v6_v7(checkpoint):
                 state_dict[f"scaler.{target_name}_scaler_buffer"] = mts.save_buffer(
                     mts.make_contiguous(scales_tensormap)
                 )
-    return checkpoint
 
 
 ###########################
@@ -145,3 +144,7 @@ def trainer_update_v4_v5(checkpoint):
         "In order to use this checkpoint, you need metatrain 2025.10 or earlier. "
         "You can install it with `pip install metatrain==2025.10`."
     )
+
+
+def trainer_update_v5_v6(checkpoint):
+    checkpoint["train_hypers"]["fixed_scaling_weights"] = {}

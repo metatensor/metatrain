@@ -67,7 +67,6 @@ def model_update_v1_v2(checkpoint):
                 state_dict[f"scaler.{target_name}_scaler_buffer"] = mts.save_buffer(
                     mts.make_contiguous(scales_tensormap)
                 )
-    return checkpoint
 
 
 # ===== Trainer checkpoint updates =====
@@ -86,3 +85,7 @@ def trainer_update_v1_v2(checkpoint):
             "sliding_factor": old_loss_hypers.get("sliding_factor", None),
         }
     checkpoint["train_hypers"]["loss"] = new_loss_hypers
+
+
+def trainer_update_v2_v3(checkpoint):
+    checkpoint["train_hypers"]["fixed_scaling_weights"] = {}
