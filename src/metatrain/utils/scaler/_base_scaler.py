@@ -225,7 +225,7 @@ class BaseScaler(torch.nn.Module):
                         ] += N
                         self.Y2[target_name][key].values[
                             self.type_to_index[atomic_type]
-                        ] += Y2_values.unsqueeze(0)
+                        ] += Y2_values
 
     def fit(
         self,
@@ -344,12 +344,18 @@ class BaseScaler(torch.nn.Module):
                 output_block_types = torch.cat([system.types for system in systems])
                 scaled_vals = output_block.values
 
+                # unsqueeze scales_block.values to make broadcasting work
+                # (components are missing in scales_block)
+                scales_block_values = scales_block.values
+                for _ in range(scaled_vals.dim() - 2):
+                    scales_block_values = scales_block_values.unsqueeze(1)
+
                 if self.sample_kinds[output_name] == "per_structure":
                     # Scale the values of the output block
                     if remove:  # remove the scaler
-                        scaled_vals = scaled_vals / scales_block.values[0]
+                        scaled_vals = scaled_vals / scales_block_values[0]
                     else:  # apply the scaler
-                        scaled_vals = scaled_vals * scales_block.values[0]
+                        scaled_vals = scaled_vals * scales_block_values[0]
 
                     prediction_block = TensorBlock(
                         values=scaled_vals,
@@ -368,11 +374,11 @@ class BaseScaler(torch.nn.Module):
 
                             if remove:  # remove the scaler
                                 scaled_gradient_vals = (
-                                    gradient.values / scales_block.values[0]
+                                    gradient.values / scales_block_values[0]
                                 )
                             else:
                                 scaled_gradient_vals = (
-                                    gradient.values * scales_block.values[0]
+                                    gradient.values * scales_block_values[0]
                                 )
 
                             prediction_block.add_gradient(
@@ -397,13 +403,19 @@ class BaseScaler(torch.nn.Module):
 
                     # Scale the values of the output block
                     if remove:  # remove the scaler
-                        scaled_vals /= scales_block.values[
-                            self.type_to_index[output_block_types]
-                        ]
+                        scaled_vals = (
+                            scaled_vals
+                            / scales_block_values[
+                                self.type_to_index[output_block_types]
+                            ]
+                        )
                     else:  # apply the scaler
-                        scaled_vals *= scales_block.values[
-                            self.type_to_index[output_block_types]
-                        ]
+                        scaled_vals = (
+                            scaled_vals
+                            * scales_block_values[
+                                self.type_to_index[output_block_types]
+                            ]
+                        )
 
                     prediction_block = TensorBlock(
                         values=scaled_vals,

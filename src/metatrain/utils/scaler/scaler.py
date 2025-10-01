@@ -293,12 +293,11 @@ class Scaler(torch.nn.Module):
                 TensorBlock(
                     values=torch.zeros(
                         len(samples),
-                        *[len(comp) for comp in block.components],
                         len(block.properties),
                         dtype=torch.float64,
                     ),
                     samples=samples,
-                    components=block.components,
+                    components=[],
                     properties=block.properties,
                 )
                 for block in layout.blocks()
