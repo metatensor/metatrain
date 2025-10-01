@@ -31,6 +31,7 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.physics import enforce_physical_constraints
 from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
@@ -366,6 +367,15 @@ class Trainer(TrainerInterface):
                     is_training=True,
                 )
 
+                # scale the targets back, enforce physical constraints, remove scale
+                predictions = (model.module if is_distributed else model).scaler(
+                    predictions
+                )
+                predictions = enforce_physical_constraints(systems, predictions)
+                predictions = remove_scale(
+                    predictions, (model.module if is_distributed else model).scaler
+                )
+
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
                     predictions, systems, per_structure_targets
@@ -424,6 +434,15 @@ class Trainer(TrainerInterface):
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
+                )
+
+                # scale the targets back, enforce physical constraints, remove scale
+                predictions = (model.module if is_distributed else model).scaler(
+                    predictions
+                )
+                predictions = enforce_physical_constraints(systems, predictions)
+                predictions = remove_scale(
+                    predictions, (model.module if is_distributed else model).scaler
                 )
 
                 # average by the number of atoms
