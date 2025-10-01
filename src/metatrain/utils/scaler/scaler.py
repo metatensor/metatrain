@@ -1,4 +1,4 @@
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union
 
 import metatensor.torch as mts
 import torch
@@ -131,16 +131,10 @@ class Scaler(torch.nn.Module):
         additive_models: List[torch.nn.Module],
         batch_size: int,
         is_distributed: bool,
+        fixed_weights: Optional[Dict[str, Union[float, Dict[int, float]]]] = None,
     ) -> None:
         """
-        Train the composition model on the provided training data in the ``datasets``.
-
-        Assumes the systems are stored in the ``system`` attribute of each sample, with
-        targets expected to be stored as well, with keys corresponding to the target
-        names defined in the dataset info.
-
-        Any additive contributions from the provided ``additive_models`` will be removed
-        from the targets before training.
+        ACTUAL DOCS
         """
 
         if not isinstance(datasets, list):
@@ -192,7 +186,7 @@ class Scaler(torch.nn.Module):
                     torch.distributed.all_reduce(Y2_block.values)
 
         # Compute the scales on all ranks
-        self.model.fit(targets_to_fit=self.new_outputs)
+        self.model.fit(fixed_weights=fixed_weights, targets_to_fit=self.new_outputs)
 
         # update the buffer scales now they are fitted
         for target_name in self.model.scales.keys():

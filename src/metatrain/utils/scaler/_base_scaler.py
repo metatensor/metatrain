@@ -4,7 +4,7 @@ The class ``Scaler`` wraps this to be compatible with metatrain-style objects.
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -229,6 +229,7 @@ class BaseScaler(torch.nn.Module):
 
     def fit(
         self,
+        fixed_weights: Optional[Dict[str, Union[float, Dict[int, float]]]] = None,
         targets_to_fit: Optional[List[str]] = None,
     ) -> None:
         """
@@ -238,8 +239,15 @@ class BaseScaler(torch.nn.Module):
         if targets_to_fit is None:
             targets_to_fit = self.target_names
 
+        if fixed_weights is None:
+            fixed_weights = {}
+
         # fit
-        for target_name in self.target_names:
+        for target_name in targets_to_fit:
+            if target_name in fixed_weights:
+                self._apply_fixed_weights(target_name, fixed_weights[target_name])
+                continue
+
             blocks = []
             for key in self.N[target_name].keys:
                 N_block = self.N[target_name][key]
@@ -431,6 +439,68 @@ class BaseScaler(torch.nn.Module):
             )
 
         return predictions
+
+    def _apply_fixed_weights(
+        self, target_name: str, weights: Union[float, Dict[int, float]]
+    ) -> None:
+        """
+        Apply fixed weights to the scales of a given target.
+
+        :param target_name: Name of the target to which fixed weights should be applied.
+        :param weights: Either a single float value to be applied to all atomic types,
+            or a dict mapping atomic type (int) to weight (float).
+        """
+        # Error out if multiple blocks or multiple properties are present. These are
+        # difficult to allow in the yaml files.
+        if len(self.scales[target_name]) > 1:
+            raise NotImplementedError(
+                "Multiple blocks are not supported for fixed weights in `Scaler`."
+            )
+        if len(self.scales[target_name].block().properties) > 1:
+            raise NotImplementedError(
+                "Multiple properties are not supported for fixed weights in `Scaler`."
+            )
+
+        Y2_block = self.Y2[target_name].block()
+        block = TensorBlock(
+            values=torch.empty_like(Y2_block.values),  # [1, 1] or [n_types, 1]
+            samples=Y2_block.samples,
+            components=Y2_block.components,
+            properties=Y2_block.properties,
+        )
+
+        if isinstance(weights, dict):
+            for atomic_type in self.atomic_types.tolist():
+                # Error out if `weights` is a dict but the target is per-structure
+                if self.sample_kinds[target_name] == "per_structure":
+                    raise ValueError(
+                        "Fixed weights as a dict are not supported for per-structure "
+                        "targets."
+                    )
+                # Error out if any atomic types are missing
+                if int(atomic_type) not in weights:
+                    raise ValueError(
+                        f"Atomic type {atomic_type} is missing from the fixed scaling "
+                        f"weights for target {target_name}."
+                    )
+                for atom_type, weight in weights.items():
+                    block.values[self.type_to_index[atom_type], 0] = weight
+        elif isinstance(weights, float):
+            if self.sample_kinds[target_name] == "per_atom":
+                logging.info(
+                    "Fixed weights provided as a single float for a per-atom "
+                    "target. The same weight will be applied to all atomic types."
+                )
+            block.values[:] = weights
+        else:
+            raise ValueError(
+                "weights must be either a float or a dict of int to float."
+            )
+
+        self.scales[target_name] = TensorMap(
+            self.Y2[target_name].keys.to(device=block.values.device),
+            [block],
+        )
 
     def _sync_device_dtype(self, device: torch.device, dtype: torch.dtype):
         # manually move the TensorMap dicts:

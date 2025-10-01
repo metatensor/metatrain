@@ -138,6 +138,7 @@ class Trainer(TrainerInterface):
                 model.additive_models,
                 self.hypers["batch_size"],
                 is_distributed,
+                self.hypers["fixed_scaling_weights"],
             )
 
         if is_distributed:
