@@ -23,6 +23,7 @@ from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
+from . import checkpoints
 from .modules.encoder import Encoder
 from .modules.nef import (
     edge_array_to_nef,
@@ -52,7 +53,7 @@ class NanoPET(ModelInterface):
     and the third to the features.
     """
 
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -666,9 +667,21 @@ class NanoPET(ModelInterface):
             }
         )
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for NanoPET")
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
+
+        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current "
+                f"model version is {cls.__checkpoint_version__}."
+            )
+        return checkpoint
 
     def get_checkpoint(self) -> Dict:
         checkpoint = {

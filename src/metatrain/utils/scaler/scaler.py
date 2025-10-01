@@ -266,10 +266,7 @@ class Scaler(torch.nn.Module):
 
         valid_sample_names = [
             ["system"],
-            [
-                "system",
-                "atom",
-            ],
+            ["system", "atom"],
         ]
 
         if layout.sample_names == valid_sample_names[0]:
