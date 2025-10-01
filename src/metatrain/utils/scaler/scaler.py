@@ -325,19 +325,3 @@ class Scaler(torch.nn.Module):
             self.model.scales[k] = mts.load_buffer(
                 self.__getattr__(k + "_scaler_buffer")
             )
-
-    def get_scales_dict(self) -> Dict[str, Dict[str, float]]:
-        """
-        Return a dictionary mapping each target (and atomic type, block, property) to
-        its scale.
-        """
-        scales_dict: Dict[str, Dict[str, float]] = {}
-        for target_name, atomic_scales in self.model.scales.items():
-            scales_dict[target_name] = {}
-            for atomic_type, tensor_map in atomic_scales.items():
-                for block_i, block in enumerate(tensor_map.blocks()):
-                    for prop_i, _ in enumerate(block.properties.values):
-                        key = f"type_{atomic_type}_block_{block_i}_prop_{prop_i}"
-                        scale_value = float(block.values.flatten()[prop_i].item())
-                        scales_dict[target_name][key] = scale_value
-        return scales_dict
