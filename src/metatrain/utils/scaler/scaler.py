@@ -291,7 +291,7 @@ class Scaler(torch.nn.Module):
             keys=layout.keys,
             blocks=[
                 TensorBlock(
-                    values=torch.zeros(
+                    values=torch.ones(  # important when scale_targets=False
                         len(samples),
                         len(block.properties),
                         dtype=torch.float64,
