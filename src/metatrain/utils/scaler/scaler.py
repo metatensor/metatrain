@@ -11,6 +11,7 @@ from metatrain.utils.data import (
     CombinedDataLoader,
     Dataset,
 )
+from metatrain.utils.per_atom import average_by_num_atoms
 
 from ..additive import remove_additive
 from ..data import DatasetInfo, TargetInfo
@@ -175,6 +176,7 @@ class Scaler(torch.nn.Module):
                         for target_name in targets
                     },
                 )
+            targets = average_by_num_atoms(targets, systems, [])
             self.model.accumulate(systems, targets, extra_data)
 
         if is_distributed:

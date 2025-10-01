@@ -3,6 +3,7 @@ Contains the ``BaseScaler`` class. This is intended for eventual porting to meta
 The class ``Scaler`` wraps this to be compatible with metatrain-style objects.
 """
 
+import logging
 from typing import Dict, List, Optional
 
 import torch
@@ -270,7 +271,7 @@ class BaseScaler(torch.nn.Module):
 
                     if N_type == 0:  # this can only happen for per-atom targets
                         assert self.sample_kinds[target_name] == "per_atom"
-                        print(
+                        logging.info(
                             f"Per-atom target {target_name} has not enough samples in "
                             f"block {key} for atomic type"
                             f"{self.atomic_types[type_index]} to compute statistics, "
@@ -279,7 +280,7 @@ class BaseScaler(torch.nn.Module):
                         continue
 
                     # Compute std
-                    scale_vals_type = torch.sqrt((Y2_values_type / N_type))
+                    scale_vals_type = torch.sqrt(Y2_values_type / N_type)
 
                     # If any scales are zero, set them to 1.0
                     if torch.any(scale_vals_type == 0):
@@ -346,9 +347,9 @@ class BaseScaler(torch.nn.Module):
                 if self.sample_kinds[output_name] == "per_structure":
                     # Scale the values of the output block
                     if remove:  # remove the scaler
-                        scaled_vals /= scales_block.values[0]
+                        scaled_vals = scaled_vals / scales_block.values[0]
                     else:  # apply the scaler
-                        scaled_vals *= scales_block.values[0]
+                        scaled_vals = scaled_vals * scales_block.values[0]
 
                     prediction_block = TensorBlock(
                         values=scaled_vals,

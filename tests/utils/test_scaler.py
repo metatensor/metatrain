@@ -1,12 +1,13 @@
+import copy
 from pathlib import Path
 
+import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
-from omegaconf import OmegaConf
 
 from metatrain.utils.data import Dataset, DatasetInfo
-from metatrain.utils.data.readers import read_systems, read_targets
+from metatrain.utils.data.readers import read_systems
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.scaler import Scaler, remove_scale
 
@@ -14,7 +15,8 @@ from metatrain.utils.scaler import Scaler, remove_scale
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
 
 
-def test_scaler_train():
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_scaler(batch_size):
     """Test the calculation of scaling weights."""
 
     # Here we use three synthetic structures:
@@ -79,69 +81,12 @@ def test_scaler_train():
             atomic_types=[1, 8],
             targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
         ),
-    )
+    ).to(torch.float64)
+    scaler2 = copy.deepcopy(scaler)
+    scaler3 = copy.deepcopy(scaler)
 
-    scaler.train_model(dataset, additive_models=[])
-    assert scaler.scales.shape == (1,)
-    assert scaler.output_name_to_output_index == {"energy": 0}
-    torch.testing.assert_close(
-        scaler.scales, torch.tensor([13.0 / 3**0.5], dtype=torch.float64)
-    )
-
-    scaler.train_model([dataset], additive_models=[])
-    assert scaler.scales.shape == (1,)
-    assert scaler.output_name_to_output_index == {"energy": 0}
-    torch.testing.assert_close(
-        scaler.scales, torch.tensor([13.0 / 3**0.5], dtype=torch.float64)
-    )
-
-    scaler.train_model([dataset, dataset, dataset], additive_models=[])
-    assert scaler.scales.shape == (1,)
-    assert scaler.output_name_to_output_index == {"energy": 0}
-    torch.testing.assert_close(
-        scaler.scales, torch.tensor([13.0 / 3**0.5], dtype=torch.float64)
-    )
-
-
-def test_scale():
-    """Test the scaling of the scale, both at training and prediction
-    time."""
-
-    dataset_path = RESOURCES_PATH / "qm9_reduced_100.xyz"
-    systems = read_systems(dataset_path)
-
-    conf = {
-        "mtt::U0": {
-            "quantity": "energy",
-            "read_from": dataset_path,
-            "file_format": ".xyz",
-            "reader": "ase",
-            "key": "U0",
-            "unit": "eV",
-            "type": "scalar",
-            "per_atom": False,
-            "num_subtargets": 1,
-            "forces": False,
-            "stress": False,
-            "virial": False,
-        }
-    }
-    targets, target_info = read_targets(OmegaConf.create(conf))
-    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
-
-    scaler = Scaler(
-        hypers={},
-        dataset_info=DatasetInfo(
-            length_unit="angstrom",
-            atomic_types=[1, 6, 7, 8],
-            targets=target_info,
-        ),
-    )
-
-    scaler.train_model(dataset, additive_models=[])
-    scale = scaler.scales[0].item()
-
-    fake_output_or_target = TensorMap(
+    # fake output to test how the scaler acts on it
+    fake_output = TensorMap(
         keys=Labels.single(),
         blocks=[
             TensorBlock(
@@ -151,30 +96,63 @@ def test_scale():
                     values=torch.tensor([[0], [1], [2]]),
                 ),
                 components=[],
-                properties=Labels.single(),
+                properties=Labels.range("energy", 1),
             )
         ],
     )
-    fake_output_or_target = {"mtt::U0": fake_output_or_target}
+    fake_output = {"energy": fake_output}
 
-    scaled_output = scaler(fake_output_or_target)
-    assert "mtt::U0" in scaled_output
-    torch.testing.assert_close(
-        scaled_output["mtt::U0"].block().values,
-        torch.tensor([[1.0], [2.0], [3.0]], dtype=torch.float64) * scale,
+    expected_scales = torch.tensor(
+        [[13.0 / 3**0.5], [13.0 / 3**0.5], [13.0 / 3**0.5]], dtype=torch.float64
     )
 
+    scaler.train_model(
+        dataset, additive_models=[], batch_size=batch_size, is_distributed=False
+    )
+    fake_output_after_scaling = scaler(systems, fake_output)
+    scales = (
+        fake_output_after_scaling["energy"].block().values
+        / fake_output["energy"].block().values
+    )
+    torch.testing.assert_close(scales, expected_scales)
+
+    scaler2.train_model(
+        [dataset], additive_models=[], batch_size=batch_size, is_distributed=False
+    )
+    fake_output_after_scaling = scaler(systems, fake_output)
+    scales = (
+        fake_output_after_scaling["energy"].block().values
+        / fake_output["energy"].block().values
+    )
+    torch.testing.assert_close(scales, expected_scales)
+
+    scaler3.train_model(
+        [dataset, dataset, dataset],
+        additive_models=[],
+        batch_size=batch_size,
+        is_distributed=False,
+    )
+    fake_output_after_scaling = scaler(systems, fake_output)
+    scales = (
+        fake_output_after_scaling["energy"].block().values
+        / fake_output["energy"].block().values
+    )
+    torch.testing.assert_close(scales, expected_scales)
+
     # Test the remove_scale function
-    scaled_output = remove_scale(systems, fake_output_or_target, scaler)
-    assert "mtt::U0" in fake_output_or_target
+    scaled_output = remove_scale(systems, fake_output, scaler)
+    assert "energy" in fake_output
     torch.testing.assert_close(
-        scaled_output["mtt::U0"].block().values,
-        torch.tensor([[1.0], [2.0], [3.0]], dtype=torch.float64) / scale,
+        scaled_output["energy"].block().values,
+        torch.tensor([[1.0], [2.0], [3.0]], dtype=torch.float64) / expected_scales,
     )
 
 
 def test_scaler_torchscript(tmpdir):
     """Test the torchscripting, saving and loading of a scaler model."""
+
+    dataset_path = RESOURCES_PATH / "qm9_reduced_100.xyz"
+    systems = read_systems(dataset_path)
 
     scaler = Scaler(
         hypers={},
@@ -195,17 +173,17 @@ def test_scaler_torchscript(tmpdir):
                     values=torch.tensor([[0], [1], [2]]),
                 ),
                 components=[],
-                properties=Labels.single(),
+                properties=Labels.range("energy", 1),
             )
         ],
     )
     fake_output = {"energy": fake_output}
 
     scaler = torch.jit.script(scaler)
-    scaler(fake_output)
+    scaler(systems, fake_output)
 
     with tmpdir.as_cwd():
         torch.jit.save(scaler, tmpdir / "scaler.pt")
         scaler = torch.jit.load(tmpdir / "scaler.pt")
 
-    scaler(fake_output)
+    scaler(systems, fake_output)
