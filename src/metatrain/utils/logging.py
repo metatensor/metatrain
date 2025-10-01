@@ -247,6 +247,7 @@ class MetricLogger:
         is_training = False
         for name, metrics_dict in zip(self.names, metrics):
             for key in _sort_metric_names(metrics_dict.keys()):
+                value = metrics_dict[key]
 
                 key_split = key.split(maxsplit=1)
                 target_name = key_split[0]

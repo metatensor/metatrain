@@ -29,8 +29,8 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from metatrain.utils.old_scaler import remove_scale
 from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
@@ -134,7 +134,10 @@ class Trainer(TrainerInterface):
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
             model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
+                train_datasets,
+                model.additive_models,
+                self.hypers["batch_size"],
+                is_distributed,
             )
 
         if is_distributed:
@@ -322,7 +325,7 @@ class Trainer(TrainerInterface):
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                    systems, targets, (model.module if is_distributed else model).scaler
                 )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
@@ -350,8 +353,12 @@ class Trainer(TrainerInterface):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                scaled_predictions = (model.module if is_distributed else model).scaler(predictions)
-                scaled_targets = (model.module if is_distributed else model).scaler(targets)
+                scaled_predictions = (model.module if is_distributed else model).scaler(
+                    systems, predictions
+                )
+                scaled_targets = (model.module if is_distributed else model).scaler(
+                    systems, targets
+                )
                 train_rmse_calculator.update(scaled_predictions, scaled_targets)
                 if self.hypers["log_mae"]:
                     train_mae_calculator.update(scaled_predictions, scaled_targets)
@@ -384,7 +391,7 @@ class Trainer(TrainerInterface):
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                    systems, targets, (model.module if is_distributed else model).scaler
                 )
                 systems = [system.to(dtype=dtype) for system in systems]
                 targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
@@ -412,8 +419,12 @@ class Trainer(TrainerInterface):
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
 
-                scaled_predictions = (model.module if is_distributed else model).scaler(predictions)
-                scaled_targets = (model.module if is_distributed else model).scaler(targets)
+                scaled_predictions = (model.module if is_distributed else model).scaler(
+                    systems, predictions
+                )
+                scaled_targets = (model.module if is_distributed else model).scaler(
+                    systems, targets
+                )
                 val_rmse_calculator.update(scaled_predictions, scaled_targets)
                 if self.hypers["log_mae"]:
                     val_mae_calculator.update(scaled_predictions, scaled_targets)
@@ -447,7 +458,6 @@ class Trainer(TrainerInterface):
                     ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
-                    scaler=(model.module if is_distributed else model).scaler,
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(

@@ -9,7 +9,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import TrainerInterface
-from metatrain.utils.additive import remove_additive, remove_scale
+from metatrain.utils.additive import remove_additive
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
     CollateFn,
@@ -31,6 +31,7 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
@@ -386,11 +387,19 @@ class Trainer(TrainerInterface):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                scaled_predictions = (model.module if is_distributed else model).scaler(predictions)
-                scaled_targets = (model.module if is_distributed else model).scaler(targets)
-                train_rmse_calculator.update(scaled_predictions, scaled_targets, extra_data)
+                scaled_predictions = (model.module if is_distributed else model).scaler(
+                    systems, predictions
+                )
+                scaled_targets = (model.module if is_distributed else model).scaler(
+                    systems, targets
+                )
+                train_rmse_calculator.update(
+                    scaled_predictions, scaled_targets, extra_data
+                )
                 if self.hypers["log_mae"]:
-                    train_mae_calculator.update(scaled_predictions, scaled_targets, extra_data)
+                    train_mae_calculator.update(
+                        scaled_predictions, scaled_targets, extra_data
+                    )
 
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -443,8 +452,12 @@ class Trainer(TrainerInterface):
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
 
-                scaled_predictions = (model.module if is_distributed else model).scaler(predictions)
-                scaled_targets = (model.module if is_distributed else model).scaler(targets)
+                scaled_predictions = (model.module if is_distributed else model).scaler(
+                    systems, predictions
+                )
+                scaled_targets = (model.module if is_distributed else model).scaler(
+                    systems, targets
+                )
                 val_rmse_calculator.update(scaled_predictions, scaled_targets)
                 if self.hypers["log_mae"]:
                     val_mae_calculator.update(scaled_predictions, scaled_targets)
@@ -481,7 +494,6 @@ class Trainer(TrainerInterface):
                     ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
-                    scaler=(model.module if is_distributed else model).scaler,
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(

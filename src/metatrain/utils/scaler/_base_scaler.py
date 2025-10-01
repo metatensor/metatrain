@@ -3,7 +3,6 @@ Contains the ``BaseScaler`` class. This is intended for eventual porting to meta
 The class ``Scaler`` wraps this to be compatible with metatrain-style objects.
 """
 
-import math
 from typing import Dict, List, Optional
 
 import torch
@@ -175,7 +174,6 @@ class BaseScaler(torch.nn.Module):
 
             for key, block in target.items():
                 if self.sample_kinds[target_name] == "per_structure":
-
                     Y_block = block.to(device=device, dtype=dtype)
                     Y = Y_block.values
 
@@ -184,10 +182,9 @@ class BaseScaler(torch.nn.Module):
                     Y2_values = torch.sum(Y**2, dim=list(range(0, Y.dim() - 1)))
 
                     self.N[target_name][key].values[0] += N
-                    self.Y2[target_name][key].values[0] += Y2_values.unsqueeze(0)
+                    self.Y2[target_name][key].values[0] += Y2_values
 
                 else:
-
                     assert self.sample_kinds[target_name] == "per_atom"
 
                     Y_block = block.to(device=device, dtype=dtype)
@@ -197,7 +194,8 @@ class BaseScaler(torch.nn.Module):
                     Y_block_types = torch.cat([system.types for system in systems])
 
                     for atomic_type in self.atomic_types:
-                        # Slice the block to only include samples of the current atomic type
+                        # Slice the block to only include samples of the current atomic
+                        # type
                         samples_type_mask = Y_block_types == atomic_type
                         Y = Y_block.values[samples_type_mask]
 
@@ -205,11 +203,11 @@ class BaseScaler(torch.nn.Module):
                         # account for the mask if available
                         if mask is None:
                             N = Y.numel() // Y.shape[-1]
-                        else:  #TODO: @Joe PLEASE CHECK THIS
-                            # Count N as the number of samples where the mask is True for at
-                            # least one property (in other words where the mask for a given
-                            # sample is not all False). This handles the case where samples
-                            # are padded.
+                        else:  # TODO: @Joe PLEASE CHECK THIS
+                            # Count N as the number of samples where the mask is True
+                            # for at least one property (in other words where the mask
+                            # for a given sample is not all False). This handles the
+                            # case where samples are padded.
                             pad_mask_values = mask.block(key).values[samples_type_mask]
                             samples_pad_mask = pad_mask_values.any(
                                 dim=list(range(1, Y.dim()))
@@ -274,8 +272,9 @@ class BaseScaler(torch.nn.Module):
                         assert self.sample_kinds[target_name] == "per_atom"
                         print(
                             f"Per-atom target {target_name} has not enough samples in "
-                            f"block {key} for atomic type {self.atomic_types[type_index]} "
-                            "to compute statistics, skipping."
+                            f"block {key} for atomic type"
+                            f"{self.atomic_types[type_index]} to compute statistics, "
+                            "skipping."
                         )
                         continue
 
@@ -332,7 +331,6 @@ class BaseScaler(torch.nn.Module):
 
             prediction_blocks: List[TensorBlock] = []
             for key, output_block in output_tmap.items():
-
                 # Find the scales block and check metadata
                 scales_block = self.scales[output_name].block(key)
                 assert scales_block.properties == output_block.properties, (
@@ -346,7 +344,6 @@ class BaseScaler(torch.nn.Module):
                 scaled_vals = output_block.values
 
                 if self.sample_kinds[output_name] == "per_structure":
-
                     # Scale the values of the output block
                     if remove:  # remove the scaler
                         scaled_vals /= scales_block.values[0]
@@ -364,12 +361,18 @@ class BaseScaler(torch.nn.Module):
                     if len(output_block.gradients_list()) > 0:
                         for parameter, gradient in output_block.gradients():
                             if len(gradient.gradients_list()) != 0:
-                                raise NotImplementedError("gradients of gradients are not supported")
+                                raise NotImplementedError(
+                                    "gradients of gradients are not supported"
+                                )
 
                             if remove:  # remove the scaler
-                                scaled_gradient_vals = gradient.values / scales_block.values[0]
+                                scaled_gradient_vals = (
+                                    gradient.values / scales_block.values[0]
+                                )
                             else:
-                                scaled_gradient_vals = gradient.values * scales_block.values[0]
+                                scaled_gradient_vals = (
+                                    gradient.values * scales_block.values[0]
+                                )
 
                             prediction_block.add_gradient(
                                 parameter=parameter,
@@ -382,20 +385,24 @@ class BaseScaler(torch.nn.Module):
                             )
 
                 else:
-
                     assert self.sample_kinds[output_name] == "per_atom"
 
                     # TODO: gradients of per-atom targets are not supported
                     if len(output_block.gradients_list()) > 0:
                         raise NotImplementedError(
-                            "scaling of gradients is not implemented for per-atom targets"
+                            "scaling of gradients is not implemented for per-atom "
+                            "targets"
                         )
 
                     # Scale the values of the output block
                     if remove:  # remove the scaler
-                        scaled_vals /= scales_block.values[self.type_to_index[output_block_types]]
+                        scaled_vals /= scales_block.values[
+                            self.type_to_index[output_block_types]
+                        ]
                     else:  # apply the scaler
-                        scaled_vals *= scales_block.values[self.type_to_index[output_block_types]]
+                        scaled_vals *= scales_block.values[
+                            self.type_to_index[output_block_types]
+                        ]
 
                     prediction_block = TensorBlock(
                         values=scaled_vals,

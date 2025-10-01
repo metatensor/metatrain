@@ -12,10 +12,10 @@ from metatrain.utils.data import (
     Dataset,
 )
 
+from ..additive import remove_additive
 from ..data import DatasetInfo, TargetInfo
 from ..jsonschema import validate
 from ..transfer import batch_to
-from ..additive import remove_additive
 from ._base_scaler import BaseScaler
 
 

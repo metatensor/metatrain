@@ -8,7 +8,7 @@ from omegaconf import OmegaConf
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
-from metatrain.utils.old_scaler import OldScaler, remove_scale
+from metatrain.utils.scaler import Scaler, remove_scale
 
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
@@ -72,7 +72,7 @@ def test_scaler_train():
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
-    scaler = OldScaler(
+    scaler = Scaler(
         hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -81,23 +81,21 @@ def test_scaler_train():
         ),
     )
 
-    scaler.train_model(dataset, additive_models=[], treat_as_additive=True)
+    scaler.train_model(dataset, additive_models=[])
     assert scaler.scales.shape == (1,)
     assert scaler.output_name_to_output_index == {"energy": 0}
     torch.testing.assert_close(
         scaler.scales, torch.tensor([13.0 / 3**0.5], dtype=torch.float64)
     )
 
-    scaler.train_model([dataset], additive_models=[], treat_as_additive=True)
+    scaler.train_model([dataset], additive_models=[])
     assert scaler.scales.shape == (1,)
     assert scaler.output_name_to_output_index == {"energy": 0}
     torch.testing.assert_close(
         scaler.scales, torch.tensor([13.0 / 3**0.5], dtype=torch.float64)
     )
 
-    scaler.train_model(
-        [dataset, dataset, dataset], additive_models=[], treat_as_additive=True
-    )
+    scaler.train_model([dataset, dataset, dataset], additive_models=[])
     assert scaler.scales.shape == (1,)
     assert scaler.output_name_to_output_index == {"energy": 0}
     torch.testing.assert_close(
@@ -131,7 +129,7 @@ def test_scale():
     targets, target_info = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
-    scaler = OldScaler(
+    scaler = Scaler(
         hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -140,7 +138,7 @@ def test_scale():
         ),
     )
 
-    scaler.train_model(dataset, additive_models=[], treat_as_additive=True)
+    scaler.train_model(dataset, additive_models=[])
     scale = scaler.scales[0].item()
 
     fake_output_or_target = TensorMap(
@@ -167,7 +165,7 @@ def test_scale():
     )
 
     # Test the remove_scale function
-    scaled_output = remove_scale(fake_output_or_target, scaler)
+    scaled_output = remove_scale(systems, fake_output_or_target, scaler)
     assert "mtt::U0" in fake_output_or_target
     torch.testing.assert_close(
         scaled_output["mtt::U0"].block().values,
@@ -178,7 +176,7 @@ def test_scale():
 def test_scaler_torchscript(tmpdir):
     """Test the torchscripting, saving and loading of a scaler model."""
 
-    scaler = OldScaler(
+    scaler = Scaler(
         hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
