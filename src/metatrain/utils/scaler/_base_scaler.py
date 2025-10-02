@@ -204,7 +204,7 @@ class BaseScaler(torch.nn.Module):
                         # account for the mask if available
                         if mask is None:
                             N = Y.numel() // Y.shape[-1]
-                        else:  # TODO: @Joe PLEASE CHECK THIS
+                        else:
                             # Count N as the number of samples where the mask is True
                             # for at least one property (in other words where the mask
                             # for a given sample is not all False). This handles the
@@ -213,7 +213,10 @@ class BaseScaler(torch.nn.Module):
                             samples_pad_mask = pad_mask_values.any(
                                 dim=list(range(1, Y.dim()))
                             )
-                            N = samples_pad_mask.sum()
+                            effective_num_samples = samples_pad_mask.sum().item()
+                            N = (Y.numel() // (Y.shape[-1] * Y.shape[0])) * (
+                                effective_num_samples
+                            )
                             Y = Y[samples_pad_mask]
 
                         # Compute the Y2 values and sum over samples and components
@@ -293,9 +296,6 @@ class BaseScaler(torch.nn.Module):
                     # If any scales are zero, set them to 1.0
                     if torch.any(scale_vals_type == 0):
                         scale_vals_type[scale_vals_type == 0] = 1.0
-
-                    # Add a jitter
-                    # scale_vals_type += 1e-8  # TODO: make customizable
 
                     scale_vals_type = scale_vals_type.contiguous()
                     block.values[type_index][:] = scale_vals_type

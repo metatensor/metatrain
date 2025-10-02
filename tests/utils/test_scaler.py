@@ -8,7 +8,10 @@ from metatomic.torch import System
 
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems
-from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.data.target_info import (
+    get_energy_target_info,
+    get_generic_target_info,
+)
 from metatrain.utils.scaler import Scaler, remove_scale
 
 
@@ -16,7 +19,7 @@ RESOURCES_PATH = Path(__file__).parents[1] / "resources"
 
 
 @pytest.mark.parametrize("batch_size", [1, 2])
-def test_scaler(batch_size):
+def test_scaler_scalar_single_property(batch_size):
     """Test the calculation of scaling weights."""
 
     # Here we use three synthetic structures:
@@ -145,6 +148,164 @@ def test_scaler(batch_size):
     torch.testing.assert_close(
         scaled_output["energy"].block().values,
         torch.tensor([[1.0], [2.0], [3.0]], dtype=torch.float64) / expected_scales,
+    )
+
+
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_scaler_scalar_multiple_properties(batch_size):
+    """Test the calculation of scaling weights."""
+
+    # Here we use three synthetic structures and two properties.
+    #
+    # The first property is the same as in the single-property test:
+    # - O atom, with an energy of 3.0
+    # - H2O molecule, with an energy of 4.0 * 3
+    # - H4O2 molecule, with an energy of 12.0 * 6
+    # The expected standard deviation is 13/sqrt(3).
+    # The second property is just twice the first one, so the expected standard
+    # deviation is 26/sqrt(3).
+
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [1.0, 0.0, 1.0],
+                    [0.0, 1.0, 1.0],
+                ],
+                dtype=torch.float64,
+            ),
+            types=torch.tensor([1, 1, 8, 1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+    energies = [3.0, 4.0 * 3, 12.0 * 6]
+    energies = [
+        TensorMap(
+            keys=Labels(names=["_"], values=torch.tensor([[0]])),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[e, 2 * e]], dtype=torch.float64),
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[],
+                    properties=Labels(
+                        names=["energy"], values=torch.tensor([[0], [1]])
+                    ),
+                )
+            ],
+        )
+        for i, e in enumerate(energies)
+    ]
+    dataset = Dataset.from_dict({"system": systems, "energy": energies})
+
+    scaler = Scaler(
+        hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 8],
+            targets={
+                "energy": get_generic_target_info(
+                    "energy",
+                    {
+                        "quantity": "energy",
+                        "unit": "eV",
+                        "num_subtargets": 2,
+                        "type": "scalar",
+                        "per_atom": False,
+                    },
+                )
+            },
+        ),
+    ).to(torch.float64)
+    scaler2 = copy.deepcopy(scaler)
+    scaler3 = copy.deepcopy(scaler)
+
+    # fake output to test how the scaler acts on it
+    fake_output = TensorMap(
+        keys=Labels.single(),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor(
+                    [[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]], dtype=torch.float64
+                ),
+                samples=Labels(
+                    names=["system"],
+                    values=torch.tensor([[0], [1], [2]]),
+                ),
+                components=[],
+                properties=Labels.range("energy", 2),
+            )
+        ],
+    )
+    fake_output = {"energy": fake_output}
+
+    expected_scales = torch.tensor(
+        [
+            [13.0 / 3**0.5, 26.0 / 3**0.5],
+            [13.0 / 3**0.5, 26.0 / 3**0.5],
+            [13.0 / 3**0.5, 26.0 / 3**0.5],
+        ],
+        dtype=torch.float64,
+    )
+
+    scaler.train_model(
+        dataset, additive_models=[], batch_size=batch_size, is_distributed=False
+    )
+    fake_output_after_scaling = scaler(systems, fake_output)
+    scales = (
+        fake_output_after_scaling["energy"].block().values
+        / fake_output["energy"].block().values
+    )
+    torch.testing.assert_close(scales, expected_scales)
+
+    scaler2.train_model(
+        [dataset], additive_models=[], batch_size=batch_size, is_distributed=False
+    )
+    fake_output_after_scaling = scaler(systems, fake_output)
+    scales = (
+        fake_output_after_scaling["energy"].block().values
+        / fake_output["energy"].block().values
+    )
+    torch.testing.assert_close(scales, expected_scales)
+
+    scaler3.train_model(
+        [dataset, dataset, dataset],
+        additive_models=[],
+        batch_size=batch_size,
+        is_distributed=False,
+    )
+    fake_output_after_scaling = scaler(systems, fake_output)
+    scales = (
+        fake_output_after_scaling["energy"].block().values
+        / fake_output["energy"].block().values
+    )
+    torch.testing.assert_close(scales, expected_scales)
+
+    # Test the remove_scale function
+    scaled_output = remove_scale(systems, fake_output, scaler)
+    assert "energy" in fake_output
+    torch.testing.assert_close(
+        scaled_output["energy"].block().values,
+        torch.tensor([[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]], dtype=torch.float64)
+        / expected_scales,
     )
 
 
