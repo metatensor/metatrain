@@ -19,7 +19,8 @@ RESOURCES_PATH = Path(__file__).parents[1] / "resources"
 
 
 @pytest.mark.parametrize("batch_size", [1, 2])
-def test_scaler_scalar_single_property(batch_size):
+@pytest.mark.parametrize("fixed_scaling_weights", [False, True])
+def test_scaler_scalar_single_property(batch_size, fixed_scaling_weights):
     """Test the calculation of scaling weights."""
 
     # Here we use three synthetic structures:
@@ -105,12 +106,19 @@ def test_scaler_scalar_single_property(batch_size):
     )
     fake_output = {"energy": fake_output}
 
-    expected_scales = torch.tensor(
-        [[13.0 / 3**0.5], [13.0 / 3**0.5], [13.0 / 3**0.5]], dtype=torch.float64
-    )
+    if fixed_scaling_weights:
+        expected_scales = torch.tensor([[0.1], [0.1], [0.1]], dtype=torch.float64)
+    else:
+        expected_scales = torch.tensor(
+            [[13.0 / 3**0.5], [13.0 / 3**0.5], [13.0 / 3**0.5]], dtype=torch.float64
+        )
 
     scaler.train_model(
-        dataset, additive_models=[], batch_size=batch_size, is_distributed=False
+        dataset,
+        additive_models=[],
+        batch_size=batch_size,
+        is_distributed=False,
+        fixed_weights=({"energy": 0.1} if fixed_scaling_weights else None),
     )
     fake_output_after_scaling = scaler(systems, fake_output)
     scales = (
@@ -120,7 +128,11 @@ def test_scaler_scalar_single_property(batch_size):
     torch.testing.assert_close(scales, expected_scales)
 
     scaler2.train_model(
-        [dataset], additive_models=[], batch_size=batch_size, is_distributed=False
+        [dataset],
+        additive_models=[],
+        batch_size=batch_size,
+        is_distributed=False,
+        fixed_weights=({"energy": 0.1} if fixed_scaling_weights else None),
     )
     fake_output_after_scaling = scaler(systems, fake_output)
     scales = (
@@ -134,6 +146,7 @@ def test_scaler_scalar_single_property(batch_size):
         additive_models=[],
         batch_size=batch_size,
         is_distributed=False,
+        fixed_weights=({"energy": 0.1} if fixed_scaling_weights else None),
     )
     fake_output_after_scaling = scaler(systems, fake_output)
     scales = (
@@ -308,7 +321,8 @@ def test_scaler_scalar_multiple_properties(batch_size):
 
 
 @pytest.mark.parametrize("batch_size", [1, 2])
-def test_scaler_cartesian_per_atom(batch_size):
+@pytest.mark.parametrize("fixed_scaling_weights", [False, True])
+def test_scaler_cartesian_per_atom(batch_size, fixed_scaling_weights):
     """Test the calculation of scaling weights."""
 
     # Here we use two synthetic structures.
@@ -411,18 +425,28 @@ def test_scaler_cartesian_per_atom(batch_size):
     )
     fake_output = {"forces": fake_output}
 
-    expected_scales = torch.tensor(
-        [
-            [(17.0 / 2) ** 0.5, (17.0 / 2) ** 0.5, (17.0 / 2) ** 0.5],  # O in system 0
-            [(13.0 / 2) ** 0.5, (13.0 / 2) ** 0.5, (13.0 / 2) ** 0.5],  # H in system 1
-            [(13.0 / 2) ** 0.5, (13.0 / 2) ** 0.5, (13.0 / 2) ** 0.5],  # H in system 1
-            [(17.0 / 2) ** 0.5, (17.0 / 2) ** 0.5, (17.0 / 2) ** 0.5],  # O in system 1
-        ],
-        dtype=torch.float64,
-    ).unsqueeze(-1)
+    if fixed_scaling_weights:
+        expected_scales = torch.tensor(
+            [[0.1, 0.1, 0.1], [0.2, 0.2, 0.2], [0.2, 0.2, 0.2], [0.1, 0.1, 0.1]],
+            dtype=torch.float64,
+        ).unsqueeze(-1)
+    else:
+        expected_scales = torch.tensor(
+            [
+                [(17.0 / 2) ** 0.5, (17.0 / 2) ** 0.5, (17.0 / 2) ** 0.5],  # O in sys 0
+                [(13.0 / 2) ** 0.5, (13.0 / 2) ** 0.5, (13.0 / 2) ** 0.5],  # H in sys 1
+                [(13.0 / 2) ** 0.5, (13.0 / 2) ** 0.5, (13.0 / 2) ** 0.5],  # H in sys 1
+                [(17.0 / 2) ** 0.5, (17.0 / 2) ** 0.5, (17.0 / 2) ** 0.5],  # O in sys 1
+            ],
+            dtype=torch.float64,
+        ).unsqueeze(-1)
 
     scaler.train_model(
-        dataset, additive_models=[], batch_size=batch_size, is_distributed=False
+        dataset,
+        additive_models=[],
+        batch_size=batch_size,
+        is_distributed=False,
+        fixed_weights={"forces": {1: 0.2, 8: 0.1}} if fixed_scaling_weights else None,
     )
     fake_output_after_scaling = scaler(systems, fake_output)
     scales = (
@@ -432,7 +456,11 @@ def test_scaler_cartesian_per_atom(batch_size):
     torch.testing.assert_close(scales, expected_scales)
 
     scaler2.train_model(
-        [dataset], additive_models=[], batch_size=batch_size, is_distributed=False
+        [dataset],
+        additive_models=[],
+        batch_size=batch_size,
+        is_distributed=False,
+        fixed_weights={"forces": {1: 0.2, 8: 0.1}} if fixed_scaling_weights else None,
     )
     fake_output_after_scaling = scaler(systems, fake_output)
     scales = (
@@ -446,6 +474,7 @@ def test_scaler_cartesian_per_atom(batch_size):
         additive_models=[],
         batch_size=batch_size,
         is_distributed=False,
+        fixed_weights={"forces": {1: 0.2, 8: 0.1}} if fixed_scaling_weights else None,
     )
     fake_output_after_scaling = scaler(systems, fake_output)
     scales = (
