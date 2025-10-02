@@ -104,7 +104,7 @@ method.
 
 .. code-block:: python
 
-    from metatensor.torch.atomistic import MetatensorAtomisticModel, ModelMetadata
+    from metatomic.torch import AtomisticModel, ModelMetadata
 
     class ModelInterface:
 
@@ -146,7 +146,7 @@ method.
 
             def export(
         self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    ) -> AtomisticModel:
             pass
 
 Note that the ``ModelInterface`` does not necessarily inherit from
@@ -165,8 +165,8 @@ the ``architecture`` key should contain references about the general architectur
 The ``export()`` method is required to transform a trained model into a standalone file
 to be used in combination with molecular dynamic engines to run simulations. We provide
 a helper function :py:func:`metatrain.utils.export.export` to export a torch
-model to an :py:class:`MetatensorAtomisticModel
-<metatensor.torch.atomistic.MetatensorAtomisticModel>`.
+model to an :py:class:`AtomisticModel
+<metatomic.torch.AtomisticModel>`.
 
 Trainer class (``trainer.py``)
 ------------------------------

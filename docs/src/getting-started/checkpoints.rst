@@ -67,7 +67,7 @@ The ``metadata.yaml`` file should have the following structure:
 
 You can also add additional keywords like additional references to the metadata file.
 The fields are the same for :class:`ModelMetadata
-<metatensor.torch.atomistic.ModelMetadata>` class from metatensor.
+<metatomic.torch.ModelMetadata>` class from metatensor.
 
 Exporting remote models
 -----------------------

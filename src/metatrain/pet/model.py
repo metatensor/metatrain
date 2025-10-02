@@ -5,8 +5,8 @@ from typing import Any, Dict, List, Literal, Optional
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
@@ -193,6 +193,7 @@ class PET(torch.nn.Module):
         self.single_label = Labels.single()
 
     def restart(self, dataset_info: DatasetInfo) -> "PET":
+        print ("Restarting PET model with new dataset info...")
         # merge old and new dataset info
         merged_info = self.dataset_info#.union(dataset_info) #CHANGE: This is because the target shape != model prediction shape
         new_atomic_types = [
@@ -203,6 +204,11 @@ class PET(torch.nn.Module):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
+        print (dataset_info.targets)
+        if dataset_info.targets['mtt::gapdos']:
+            del dataset_info.targets['mtt::gap']
+            new_targets['mtt::gapdos'] = dataset_info.targets['mtt::gapdos']
+            print ("Injected mtt::gapdos target to new targets")
         self.has_new_targets = len(new_targets) > 0
 
         if len(new_atomic_types) > 0:
@@ -213,10 +219,21 @@ class PET(torch.nn.Module):
 
         # register new outputs as new last layers
         for target_name, target in new_targets.items():
+            print ("Added new target", target_name)
             self.target_names.append(target_name)
             self._add_output(target_name, target)
-
+        merged_info = self.dataset_info.union(dataset_info)
         self.dataset_info = merged_info
+        print ("Initializing linear/MLP")
+        print (self.hypers)
+        if self.hypers['gap_layer'] == 'linear':
+            self.bandgap_layer = nn.Linear(4806, 1)
+        elif self.hypers['gap_layer'] == 'mlp':
+            self.bandgap_layer = nn.Sequential(
+                nn.Linear(4806, 1024, bias=True),
+                nn.SiLU(),
+                nn.Linear(1024, 1, bias=True)
+            )
 
         # restart the composition and scaler models
         # self.additive_models[0].restart(
@@ -713,7 +730,7 @@ class PET(torch.nn.Module):
 
     def export(
         self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    ) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {dtype} for PET")
@@ -749,7 +766,7 @@ class PET(torch.nn.Module):
 
         append_metadata_references(metadata, self.__default_metadata__)
 
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         # warn that, for Cartesian tensors, we assume that they are symmetric

@@ -1,7 +1,7 @@
 import metatensor.torch
 import pytest
 import torch
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 from metatrain.soap_bpnn import __model__
 from metatrain.utils.data import DatasetInfo, read_systems
@@ -106,7 +106,7 @@ def test_virial(is_training):
         for system in systems
     ]
     systems = [
-        metatensor.torch.atomistic.System(
+        metatomic.torch.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
@@ -137,7 +137,7 @@ def test_virial(is_training):
         for system in systems
     ]
     systems = [
-        metatensor.torch.atomistic.System(
+        metatomic.torch.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
@@ -190,7 +190,7 @@ def test_both(is_training):
         for system in systems
     ]
     systems = [
-        metatensor.torch.atomistic.System(
+        metatomic.torch.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
@@ -219,7 +219,7 @@ def test_both(is_training):
         for system in systems
     ]
     systems = [
-        metatensor.torch.atomistic.System(
+        metatomic.torch.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,

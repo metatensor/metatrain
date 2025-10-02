@@ -1,6 +1,6 @@
 import pytest
 import torch
-from metatensor.torch.atomistic import systems_to_torch
+from metatomic.torch import systems_to_torch
 
 from metatrain.experimental.nanopet import NanoPET
 from metatrain.soap_bpnn import SoapBpnn

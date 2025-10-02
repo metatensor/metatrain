@@ -2,7 +2,7 @@ Output naming
 =============
 
 The name and format of the outputs in ``metatrain`` are based on
-those of the `<metatensor.torch.atomistic
+those of the `<metatomic.torch
 https://docs.metatensor.org/latest/atomistic/outputs/index.html>`_
 package. An immediate example is given by the ``energy`` output.
 

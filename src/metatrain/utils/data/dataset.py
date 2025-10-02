@@ -11,8 +11,8 @@ from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
 from metatensor.torch import TensorMap, load_buffer
 from metatensor.torch import save_buffer as mts_save_buffer
-from metatensor.torch.atomistic import System, load_system
-from metatensor.torch.atomistic import save as mta_save
+from metatomic.torch import System, load_system
+from metatomic.torch import save as mta_save
 from omegaconf import DictConfig
 from torch.utils.data import Subset
 
@@ -360,7 +360,7 @@ class DiskDataset(torch.utils.data.Dataset):
     The dataset is stored in a zip file, where each sample is stored in a separate
     directory. The directory's name is the index of the sample (e.g. ``0/``), and the
     files in the directory are the system (``system.mta``) and the targets
-    (each named ``<target_name>.mts``). These are ``metatensor.torch.atomistic.System``
+    (each named ``<target_name>.mts``). These are ``metatomic.torch.System``
     and ``metatensor.torch.TensorMap`` objects, respectively.
 
     Such a dataset can be created conveniently using the :py:class:`DiskDatasetWriter`

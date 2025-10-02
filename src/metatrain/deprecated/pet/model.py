@@ -3,8 +3,8 @@ from typing import Any, Dict, List, Literal, Optional
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
@@ -274,7 +274,7 @@ class PET(torch.nn.Module):
 
     def export(
         self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    ) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"Unsupported dtype {self.dtype} for PET")
@@ -313,4 +313,4 @@ class PET(torch.nn.Module):
 
         append_metadata_references(metadata, self.__default_metadata__)
 
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(self.eval(), metadata, capabilities)

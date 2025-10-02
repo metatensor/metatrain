@@ -8,7 +8,7 @@ from typing import List
 
 import pytest
 import wandb
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from metatomic.torch import ModelCapabilities, ModelOutput
 
 from metatrain import PACKAGE_ROOT
 from metatrain.utils.logging import (
