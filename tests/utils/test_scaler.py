@@ -21,7 +21,7 @@ RESOURCES_PATH = Path(__file__).parents[1] / "resources"
 @pytest.mark.parametrize("batch_size", [1, 2])
 @pytest.mark.parametrize("fixed_scaling_weights", [False, True])
 def test_scaler_scalar_single_property(batch_size, fixed_scaling_weights):
-    """Test the calculation of scaling weights."""
+    """Test the calculation of scaling weights for a single scalar property."""
 
     # Here we use three synthetic structures:
     # - O atom, with an energy of 3.0
@@ -165,7 +165,7 @@ def test_scaler_scalar_single_property(batch_size, fixed_scaling_weights):
 
 @pytest.mark.parametrize("batch_size", [1, 2])
 def test_scaler_scalar_multiple_properties(batch_size):
-    """Test the calculation of scaling weights."""
+    """Test the calculation of scaling weights for multiple scalar properties."""
 
     # Here we use three synthetic structures and two properties.
     #
@@ -323,7 +323,7 @@ def test_scaler_scalar_multiple_properties(batch_size):
 @pytest.mark.parametrize("batch_size", [1, 2])
 @pytest.mark.parametrize("fixed_scaling_weights", [False, True])
 def test_scaler_cartesian_per_atom(batch_size, fixed_scaling_weights):
-    """Test the calculation of scaling weights."""
+    """Test the calculation of scaling weights for a cartesian per-atom property."""
 
     # Here we use two synthetic structures.
     # - O atom, with a force of [1.0, 1.0, 1.0]
@@ -488,6 +488,216 @@ def test_scaler_cartesian_per_atom(batch_size, fixed_scaling_weights):
     torch.testing.assert_close(
         removed_output["forces"].block().values,
         fake_output["forces"].block().values / expected_scales,
+    )
+
+
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_scaler_spherical(batch_size):
+    """Test the calculation of scaling weights for a multi-block spherical property."""
+
+    # Here we use two synthetic structures, each with a scalar and a rank-2 spherical
+    # tensor in the same target.
+    # - O atom, with a scalar of 3.0 and a rank-2 of [1.0, 2.0, 3.0, 4.0, 5.0]
+    # - H2O molecule, with a scalar of 9.0 and a rank-2 of 3*[6.0, 7.0, 8.0, 9.0, 10.0]
+    # The expected standard deviations are 3/sqrt(2) for the scalar and sqrt(77/2) for
+    # the rank-2 spherical tensor.
+
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+    spherical = [
+        [[3.0], [1.0, 2.0, 3.0, 4.0, 5.0]],
+        [[9.0], [18.0, 21.0, 24.0, 27.0, 30.0]],
+    ]
+    spherical = [
+        TensorMap(
+            keys=Labels(
+                names=["o3_lambda", "o3_sigma"], values=torch.tensor([[0, 1], [2, 1]])
+            ),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([sc], dtype=torch.float64).unsqueeze(-1),
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[Labels.range("o3_m", 1)],
+                    properties=Labels(names=["spherical"], values=torch.tensor([[0]])),
+                ),
+                TensorBlock(
+                    values=torch.tensor([sph], dtype=torch.float64).unsqueeze(-1),
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[Labels.range("o3_m", 5)],
+                    properties=Labels(names=["spherical"], values=torch.tensor([[1]])),
+                ),
+            ],
+        )
+        for i, (sc, sph) in enumerate(spherical)
+    ]
+    dataset = Dataset.from_dict({"system": systems, "spherical": spherical})
+
+    scaler = Scaler(
+        hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 8],
+            targets={
+                "spherical": get_generic_target_info(
+                    "spherical",
+                    {
+                        "quantity": "spherical",
+                        "unit": "",
+                        "type": {
+                            "spherical": {
+                                "irreps": [
+                                    {"o3_lambda": 0, "o3_sigma": 1},
+                                    {"o3_lambda": 2, "o3_sigma": 1},
+                                ]
+                            }
+                        },
+                        "per_atom": False,
+                        "num_subtargets": 1,
+                    },
+                )
+            },
+        ),
+    ).to(torch.float64)
+    scaler2 = copy.deepcopy(scaler)
+    scaler3 = copy.deepcopy(scaler)
+
+    # fake output to test how the scaler acts on it
+    fake_output = TensorMap(
+        keys=Labels(
+            names=["o3_lambda", "o3_sigma"],
+            values=torch.tensor([[0, 1], [2, 1]]),
+        ),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[1.0], [1.0]], dtype=torch.float64).unsqueeze(-1),
+                samples=Labels(
+                    names=["system"],
+                    values=torch.tensor([[0], [1]]),
+                ),
+                components=[Labels.range("o3_m", 1)],
+                properties=Labels.range("spherical", 1),
+            ),
+            TensorBlock(
+                values=torch.tensor(
+                    [
+                        [1.0, 1.0, 1.0, 1.0, 1.0],
+                        [1.0, 1.0, 1.0, 1.0, 1.0],
+                    ],
+                    dtype=torch.float64,
+                ).unsqueeze(-1),
+                samples=Labels(
+                    names=["system"],
+                    values=torch.tensor([[0], [1]]),
+                ),
+                components=[Labels.range("o3_m", 5)],
+                properties=Labels.range("spherical", 1),
+            ),
+        ],
+    )
+    fake_output = {"spherical": fake_output}
+
+    expected_scales_scalar = torch.tensor(
+        [[3.0], [3.0]], dtype=torch.float64
+    ).unsqueeze(-1)
+    expected_scales_spherical = torch.tensor(
+        [
+            [
+                (77.0 / 2) ** 0.5,
+                (77.0 / 2) ** 0.5,
+                (77.0 / 2) ** 0.5,
+                (77.0 / 2) ** 0.5,
+                (77.0 / 2) ** 0.5,
+            ],
+            [
+                (77.0 / 2) ** 0.5,
+                (77.0 / 2) ** 0.5,
+                (77.0 / 2) ** 0.5,
+                (77.0 / 2) ** 0.5,
+                (77.0 / 2) ** 0.5,
+            ],
+        ],
+        dtype=torch.float64,
+    ).unsqueeze(-1)
+
+    scaler.train_model(
+        dataset,
+        additive_models=[],
+        batch_size=batch_size,
+        is_distributed=False,
+    )
+    fake_output_after_scaling = scaler(systems, fake_output)
+    scales_scalar = (
+        fake_output_after_scaling["spherical"].block({"o3_lambda": 0}).values
+        / fake_output["spherical"].block({"o3_lambda": 0}).values
+    )
+    scales_spherical = (
+        fake_output_after_scaling["spherical"].block({"o3_lambda": 2}).values
+        / fake_output["spherical"].block({"o3_lambda": 2}).values
+    )
+    torch.testing.assert_close(scales_scalar, expected_scales_scalar)
+    torch.testing.assert_close(scales_spherical, expected_scales_spherical)
+
+    scaler2.train_model(
+        [dataset],
+        additive_models=[],
+        batch_size=batch_size,
+        is_distributed=False,
+    )
+    fake_output_after_scaling = scaler(systems, fake_output)
+    scales_scalar = (
+        fake_output_after_scaling["spherical"].block({"o3_lambda": 0}).values
+        / fake_output["spherical"].block({"o3_lambda": 0}).values
+    )
+    scales_spherical = (
+        fake_output_after_scaling["spherical"].block({"o3_lambda": 2}).values
+        / fake_output["spherical"].block({"o3_lambda": 2}).values
+    )
+    torch.testing.assert_close(scales_scalar, expected_scales_scalar)
+    torch.testing.assert_close(scales_spherical, expected_scales_spherical)
+
+    scaler3.train_model(
+        [dataset, dataset, dataset],
+        additive_models=[],
+        batch_size=batch_size,
+        is_distributed=False,
+    )
+    fake_output_after_scaling = scaler(systems, fake_output)
+    scales_scalar = (
+        fake_output_after_scaling["spherical"].block({"o3_lambda": 0}).values
+        / fake_output["spherical"].block({"o3_lambda": 0}).values
+    )
+    scales_spherical = (
+        fake_output_after_scaling["spherical"].block({"o3_lambda": 2}).values
+        / fake_output["spherical"].block({"o3_lambda": 2}).values
+    )
+    torch.testing.assert_close(scales_scalar, expected_scales_scalar)
+    torch.testing.assert_close(scales_spherical, expected_scales_spherical)
+
+    # Test the remove_scale function
+    removed_output = remove_scale(systems, fake_output, scaler)
+    torch.testing.assert_close(
+        removed_output["spherical"].block({"o3_lambda": 0}).values,
+        fake_output["spherical"].block({"o3_lambda": 0}).values
+        / expected_scales_scalar,
+    )
+    torch.testing.assert_close(
+        removed_output["spherical"].block({"o3_lambda": 2}).values,
+        fake_output["spherical"].block({"o3_lambda": 2}).values
+        / expected_scales_spherical,
     )
 
 
