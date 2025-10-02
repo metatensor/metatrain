@@ -213,10 +213,11 @@ class BaseScaler(torch.nn.Module):
                             samples_pad_mask = pad_mask_values.any(
                                 dim=list(range(1, Y.dim()))
                             )
-                            effective_num_samples = samples_pad_mask.sum().item()
-                            N = (Y.numel() // (Y.shape[-1] * Y.shape[0])) * (
-                                effective_num_samples
-                            )
+                            # effective_num_samples = samples_pad_mask.sum().item()
+                            # N = (Y.numel() // (Y.shape[-1] * Y.shape[0])) * (
+                            #     effective_num_samples
+                            # )
+                            N = samples_pad_mask.sum() * len(Y_block.components[0])
                             Y = Y[samples_pad_mask]
 
                         # Compute the Y2 values and sum over samples and components
