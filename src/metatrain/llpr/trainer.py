@@ -12,17 +12,18 @@ from metatrain.utils.data import (
     Dataset,
     _is_disk_dataset,
 )
-from metatrain.utils.io import model_from_checkpoint
+from metatrain.utils.io import check_file_extension, model_from_checkpoint
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
 
+from . import checkpoints
 from .model import LLPRUncertaintyModel
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = -1  # no checkpoints for this trainer
+    __checkpoint_version__ = 1
 
     def train(
         self,
@@ -142,8 +143,12 @@ class Trainer(TrainerInterface):
         model.calibrate(val_dataloader)
         model.generate_ensemble()
 
-    def save_checkpoint(self, model, checkpoint_dir: Union[str, Path]):
-        model.save_checkpoint(checkpoint_dir)
+    def save_checkpoint(self, model, path: Union[str, Path]):
+        checkpoint = model.get_checkpoint()
+        torch.save(
+            checkpoint,
+            check_file_extension(path, ".ckpt"),
+        )
 
     @classmethod
     def load_checkpoint(
@@ -154,6 +159,18 @@ class Trainer(TrainerInterface):
     ) -> "LLPRUncertaintyModel":
         raise ValueError("LLPR does not allow restarting training")
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for LLPR")
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["trainer_ckpt_version"] == v:
+                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["trainer_ckpt_version"] = v + 1
+
+        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using "
+                f"trainer version {checkpoint['trainer_ckpt_version']}, while the "
+                f"current trainer version is {cls.__checkpoint_version__}."
+            )
+        return checkpoint

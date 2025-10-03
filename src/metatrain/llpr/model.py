@@ -1,5 +1,4 @@
-from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
 import numpy as np
@@ -17,7 +16,7 @@ from torch.utils.data import DataLoader
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import is_auxiliary_output
-from metatrain.utils.io import check_file_extension, model_from_checkpoint
+from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 
 from . import checkpoints
@@ -615,12 +614,11 @@ class LLPRUncertaintyModel(ModelInterface):
             dtype=self.capabilities.dtype,
         )
 
-    def save_checkpoint(self, path: Union[str, Path]):
+    def get_checkpoint(self) -> Dict[str, Any]:
         wrapped_model_checkpoint = self.model.get_checkpoint()
         state_dict = {
             k: v for k, v in self.state_dict().items() if not k.startswith("model.")
         }
-
         checkpoint = {
             "model_data": {
                 "hypers": self.hypers,
@@ -631,7 +629,7 @@ class LLPRUncertaintyModel(ModelInterface):
             "wrapped_model_checkpoint": wrapped_model_checkpoint,
             "state_dict": state_dict,
         }
-        torch.save(checkpoint, check_file_extension(path, ".ckpt"))
+        return checkpoint
 
     @classmethod
     def load_checkpoint(
@@ -722,9 +720,6 @@ class LLPRUncertaintyModel(ModelInterface):
             )
 
         return checkpoint
-
-    def get_checkpoint(self) -> Dict[str, Any]:
-        raise NotImplementedError("LLPR does not support get_checkpoint")
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         raise ValueError("supported_outputs is not implemented for LLPR")
