@@ -16,6 +16,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import NeighborListOptions, systems_to_torch
 from omegaconf import OmegaConf
 
+import metatrain.soap_bpnn
 from metatrain import RANDOM_SEED
 from metatrain.cli.train import _process_restart_from, train_model
 from metatrain.utils.data.readers.ase import read
@@ -606,7 +607,9 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
 def test_finetune_no_read_from(options_pet, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    options_pet["architecture"]["training"]["finetune"] = OmegaConf.create({})
+    options_pet["architecture"]["training"]["finetune"] = OmegaConf.create(
+        {"method": "full"}
+    )
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     match = (
@@ -798,6 +801,24 @@ def test_architecture_error(options, monkeypatch, tmp_path):
     )
 
     with pytest.raises(ArchitectureError, match="originates from an architecture"):
+        train_model(options)
+
+
+def test_oom_error(options, monkeypatch, tmp_path):
+    """Test an error raise if there is problem wth the architecture."""
+
+    def oom_error(*args, **kwargs):
+        raise torch.cuda.OutOfMemoryError()
+
+    monkeypatch.setattr(metatrain.soap_bpnn.Trainer, "train", oom_error)
+
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    match = (
+        "The error above likely means that the model ran out of memory during training."
+    )
+    with pytest.raises(ArchitectureError, match=match):
         train_model(options)
 
 

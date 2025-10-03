@@ -394,7 +394,7 @@ def test_read_extra_data(monkeypatch, tmp_path):
             result_block = tensormap.block()
             assert result_block.values.dtype is torch.float64
             assert result_block.samples.names == ["system"]
-            assert result_block.properties == Labels("properties", torch.tensor([[0]]))
+            assert result_block.properties == Labels("energy", torch.tensor([[0]]))
 
         extra_data_info = info_dict[name]
         assert type(extra_data_info) is TargetInfo

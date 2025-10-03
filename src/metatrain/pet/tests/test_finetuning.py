@@ -20,7 +20,7 @@ from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 def test_lora_finetuning_functionality():
     target_info_dict = {}
     target_info_dict["energy"] = get_energy_target_info(
-        {"quantity": "energy", "unit": "eV"}
+        "energy", {"quantity": "energy", "unit": "eV"}
     )
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -50,7 +50,7 @@ def test_lora_finetuning_device(device):
 
     target_info_dict = {}
     target_info_dict["energy"] = get_energy_target_info(
-        {"quantity": "energy", "unit": "eV"}
+        "energy", {"quantity": "energy", "unit": "eV"}
     )
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -75,7 +75,7 @@ def test_lora_finetuning_device(device):
 def test_heads_finetuning_functionality():
     target_info_dict = {}
     target_info_dict["energy"] = get_energy_target_info(
-        {"quantity": "energy", "unit": "eV"}
+        "energy", {"quantity": "energy", "unit": "eV"}
     )
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -110,7 +110,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
 
     target_info_dict = {}
     target_info_dict["mtt::U0"] = get_energy_target_info(
-        {"quantity": "energy", "unit": "eV"}
+        "mtt::U0", {"quantity": "energy", "unit": "eV"}
     )
 
     dataset_info = DatasetInfo(

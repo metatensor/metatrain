@@ -69,3 +69,10 @@ def trainer_update_v3_v4(checkpoint):
             "sliding_factor": old_loss_hypers.get("sliding_factor", None),
         }
     checkpoint["train_hypers"]["loss"] = new_loss_hypers
+
+
+def trainer_update_v4_v5(checkpoint):
+    raise ValueError(
+        "In order to use this checkpoint, you need metatrain 2025.10 or earlier. "
+        "You can install it with `pip install metatrain==2025.10`."
+    )

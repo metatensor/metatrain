@@ -34,7 +34,7 @@ def test_long_range(periodicity, model_name, model_cls, tmpdir):
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
 
     hypers = get_default_hypers(model_name)
