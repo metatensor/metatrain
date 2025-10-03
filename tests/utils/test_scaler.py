@@ -1,11 +1,13 @@
 import copy
 from pathlib import Path
 
+import metatensor.torch as mts
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
+from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems
 from metatrain.utils.data.target_info import (
@@ -128,7 +130,7 @@ def test_scaler_scalar_single_property(batch_size, fixed_scaling_weights):
     torch.testing.assert_close(scales, expected_scales)
 
     scaler2.train_model(
-        [dataset],
+        [dataset, dataset],
         additive_models=[],
         batch_size=batch_size,
         is_distributed=False,
@@ -290,7 +292,10 @@ def test_scaler_scalar_multiple_properties(batch_size):
     torch.testing.assert_close(scales, expected_scales)
 
     scaler2.train_model(
-        [dataset], additive_models=[], batch_size=batch_size, is_distributed=False
+        [dataset, dataset],
+        additive_models=[],
+        batch_size=batch_size,
+        is_distributed=False,
     )
     fake_output_after_scaling = scaler(systems, fake_output)
     scales = (
@@ -456,7 +461,7 @@ def test_scaler_cartesian_per_atom(batch_size, fixed_scaling_weights):
     torch.testing.assert_close(scales, expected_scales)
 
     scaler2.train_model(
-        [dataset],
+        [dataset, dataset],
         additive_models=[],
         batch_size=batch_size,
         is_distributed=False,
@@ -531,13 +536,13 @@ def test_scaler_spherical(batch_size):
                 TensorBlock(
                     values=torch.tensor([sc], dtype=torch.float64).unsqueeze(-1),
                     samples=Labels(names=["system"], values=torch.tensor([[i]])),
-                    components=[Labels.range("o3_m", 1)],
+                    components=[Labels.range("o3_mu", 1)],
                     properties=Labels(names=["spherical"], values=torch.tensor([[0]])),
                 ),
                 TensorBlock(
                     values=torch.tensor([sph], dtype=torch.float64).unsqueeze(-1),
                     samples=Labels(names=["system"], values=torch.tensor([[i]])),
-                    components=[Labels.range("o3_m", 5)],
+                    components=[Labels.range("o3_mu", 5)],
                     properties=Labels(names=["spherical"], values=torch.tensor([[1]])),
                 ),
             ],
@@ -588,7 +593,7 @@ def test_scaler_spherical(batch_size):
                     names=["system"],
                     values=torch.tensor([[0], [1]]),
                 ),
-                components=[Labels.range("o3_m", 1)],
+                components=[Labels.range("o3_mu", 1)],
                 properties=Labels.range("spherical", 1),
             ),
             TensorBlock(
@@ -603,7 +608,7 @@ def test_scaler_spherical(batch_size):
                     names=["system"],
                     values=torch.tensor([[0], [1]]),
                 ),
-                components=[Labels.range("o3_m", 5)],
+                components=[Labels.range("o3_mu", 5)],
                 properties=Labels.range("spherical", 1),
             ),
         ],
@@ -652,7 +657,7 @@ def test_scaler_spherical(batch_size):
     torch.testing.assert_close(scales_spherical, expected_scales_spherical)
 
     scaler2.train_model(
-        [dataset],
+        [dataset, dataset],
         additive_models=[],
         batch_size=batch_size,
         is_distributed=False,
@@ -699,6 +704,132 @@ def test_scaler_spherical(batch_size):
         fake_output["spherical"].block({"o3_lambda": 2}).values
         / expected_scales_spherical,
     )
+
+
+def test_scaler_rotation_invariance():
+    """Test the calculation of scaling weights for a multi-block spherical property."""
+
+    # Here we use two synthetic structures, each with a scalar and a rank-2 spherical
+    # tensor in the same target.
+    # - O atom, with a scalar of 3.0 and a rank-2 of [1.0, 2.0, 3.0, 4.0, 5.0]
+    # - H2O molecule, with a scalar of 9.0 and a rank-2 of 3*[6.0, 7.0, 8.0, 9.0, 10.0]
+    #
+    # The test checks that computing the scales with the dataset and a rotated version
+    # gives the same result.
+
+    num_checks = 5
+
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+    spherical = [
+        [[3.0], [1.0, 2.0, 3.0, 4.0, 5.0]],
+        [[9.0], [18.0, 21.0, 24.0, 27.0, 30.0]],
+    ]
+    spherical = [
+        TensorMap(
+            keys=Labels(
+                names=["o3_lambda", "o3_sigma"], values=torch.tensor([[0, 1], [2, 1]])
+            ),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([sc], dtype=torch.float64).unsqueeze(-1),
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[Labels(["o3_mu"], torch.arange(1).reshape(-1, 1))],
+                    properties=Labels(names=["spherical"], values=torch.tensor([[0]])),
+                ),
+                TensorBlock(
+                    values=torch.tensor([sph], dtype=torch.float64).unsqueeze(-1),
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[Labels(["o3_mu"], torch.arange(-2, 3).reshape(-1, 1))],
+                    properties=Labels(names=["spherical"], values=torch.tensor([[1]])),
+                ),
+            ],
+        )
+        for i, (sc, sph) in enumerate(spherical)
+    ]
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 8],
+        targets={
+            "spherical": get_generic_target_info(
+                "spherical",
+                {
+                    "quantity": "spherical",
+                    "unit": "",
+                    "type": {
+                        "spherical": {
+                            "irreps": [
+                                {"o3_lambda": 0, "o3_sigma": 1},
+                                {"o3_lambda": 2, "o3_sigma": 1},
+                            ]
+                        }
+                    },
+                    "per_atom": False,
+                    "num_subtargets": 1,
+                },
+            )
+        },
+    )
+
+    # Create the dataset for the unrotated systems and train the scaler
+    dataset = Dataset.from_dict({"system": systems, "spherical": spherical})
+    scaler = Scaler(hypers={}, dataset_info=dataset_info).to(torch.float64)
+    scaler.train_model(
+        dataset,
+        additive_models=[],
+        batch_size=1,
+        is_distributed=False,
+    )
+
+    for _ in range(num_checks):
+        # Create the dataset for the rotated systems and train the scaler
+        rotational_augmenter = RotationalAugmenter(
+            dataset_info.targets, extra_data_info_dict={}
+        )
+        systems_rotated = []
+        spherical_rotated = []
+        for system_, spherical_ in zip(systems, spherical):
+            system_rotated_, spherical_rotated_, _ = (
+                rotational_augmenter.apply_random_augmentations(
+                    [system_],
+                    {
+                        "spherical": spherical_,
+                    },
+                    extra_data={},
+                )
+            )
+            systems_rotated.append(system_rotated_[0])
+            spherical_rotated.append(spherical_rotated_["spherical"])
+        dataset_rotated = Dataset.from_dict(
+            {"system": systems_rotated, "spherical": spherical_rotated}
+        )
+        scaler_rotated = Scaler(hypers={}, dataset_info=dataset_info).to(torch.float64)
+        scaler_rotated.train_model(
+            dataset_rotated,
+            additive_models=[],
+            batch_size=1,
+            is_distributed=False,
+        )
+
+        # Check that the scales are the same
+        mts.allclose_raise(
+            scaler.model.scales["spherical"], scaler_rotated.model.scales["spherical"]
+        )
 
 
 def test_scaler_torchscript(tmpdir):
