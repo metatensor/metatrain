@@ -1,7 +1,7 @@
-.. _architecture-pet:
+.. _architecture-llpr:
 
 LLPR
-===
+====
 
 The LLPR architecture is a "wrapper" architecture that enables cheap uncertainty
 quantification (UQ) via the last-layer prediction rigidity (LLPR) approach proposed
