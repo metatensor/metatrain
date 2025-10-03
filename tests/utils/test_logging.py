@@ -409,36 +409,6 @@ def test_metric_logger(caplog, monkeypatch, tmp_path):
     ]
 
 
-def test_metric_logger_with_scales(caplog, monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    caplog.set_level(logging.INFO)
-    logger = logging.getLogger(__name__)
-
-    assert type(logger) is CustomLogger
-
-    outputs = {"mtt::foo": ModelOutput(unit="eV")}
-    capabilities = ModelCapabilities(
-        length_unit="angstrom",
-        atomic_types=[1, 2, 3],
-        outputs=outputs,
-    )
-
-    names = "train"
-    train_metrics = {"mtt::foo RMSE": 1.0}
-
-    with setup_logging(logger, log_file="logfile.log", level=logging.INFO):
-        trainer_logger = MetricLogger(
-            log_obj=logger,
-            dataset_info=capabilities,
-            initial_metrics=train_metrics,
-            names=names,
-            scales={n: 5.0 for n in train_metrics.keys()},
-        )
-        trainer_logger.log(metrics=train_metrics, epoch=1)
-
-    assert "train mtt::foo RMSE: 5000.0 meV" in caplog.text
-
-
 def get_argv():
     argv = ["mypgroam", "option1", "-o", "optional", "--long", "extra options"]
     argv_str = 'mypgroam option1 -o optional --long "extra options"'

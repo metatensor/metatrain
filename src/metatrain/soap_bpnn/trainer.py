@@ -39,7 +39,7 @@ from .model import SoapBpnn
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
 
     def __init__(self, hypers):
         super().__init__(hypers)
@@ -138,7 +138,11 @@ class Trainer(TrainerInterface):
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
             model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
+                train_datasets,
+                model.additive_models,
+                self.hypers["batch_size"],
+                is_distributed,
+                self.hypers["fixed_scaling_weights"],
             )
 
         if is_distributed:
@@ -317,7 +321,7 @@ class Trainer(TrainerInterface):
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                    systems, targets, (model.module if is_distributed else model).scaler
                 )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
@@ -345,9 +349,20 @@ class Trainer(TrainerInterface):
                     # sum the loss over all processes
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
-                train_rmse_calculator.update(predictions, targets)
+
+                scaled_predictions = (model.module if is_distributed else model).scaler(
+                    systems, predictions
+                )
+                scaled_targets = (model.module if is_distributed else model).scaler(
+                    systems, targets
+                )
+                train_rmse_calculator.update(
+                    scaled_predictions, scaled_targets, extra_data
+                )
                 if self.hypers["log_mae"]:
-                    train_mae_calculator.update(predictions, targets)
+                    train_mae_calculator.update(
+                        scaled_predictions, scaled_targets, extra_data
+                    )
 
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -376,7 +391,7 @@ class Trainer(TrainerInterface):
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                    systems, targets, (model.module if is_distributed else model).scaler
                 )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
@@ -401,9 +416,15 @@ class Trainer(TrainerInterface):
                     # sum the loss over all processes
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
-                val_rmse_calculator.update(predictions, targets)
+                scaled_predictions = (model.module if is_distributed else model).scaler(
+                    systems, predictions
+                )
+                scaled_targets = (model.module if is_distributed else model).scaler(
+                    systems, targets
+                )
+                val_rmse_calculator.update(scaled_predictions, scaled_targets)
                 if self.hypers["log_mae"]:
-                    val_mae_calculator.update(predictions, targets)
+                    val_mae_calculator.update(scaled_predictions, scaled_targets)
 
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -424,9 +445,6 @@ class Trainer(TrainerInterface):
             finalized_val_info = {"loss": val_loss, **finalized_val_info}
 
             if epoch == start_epoch:
-                scaler_scales = (
-                    model.module if is_distributed else model
-                ).scaler.get_scales_dict()
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
                     dataset_info=(
@@ -434,14 +452,6 @@ class Trainer(TrainerInterface):
                     ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
-                    scales={
-                        key: (
-                            scaler_scales[key.split(" ")[0]]
-                            if ("MAE" in key or "RMSE" in key)
-                            else 1.0
-                        )
-                        for key in finalized_train_info.keys()
-                    },
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(
