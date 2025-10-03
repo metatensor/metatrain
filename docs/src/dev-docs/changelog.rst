@@ -24,6 +24,12 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Changed
+#######
+
+- The ``LLPR`` module is now a stable architecture, instead of a utility module. It can
+  be trained from the command line in the same way as other architectures.
+
 Version 2025.10 - 2025-09-09
 ----------------------------
 

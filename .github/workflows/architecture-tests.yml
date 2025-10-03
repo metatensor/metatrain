@@ -15,6 +15,7 @@ jobs:
         architecture-name:
           - gap
           - soap-bpnn
+          - llpr
           - pet
           - nanopet
           - deprecated-pet
