@@ -123,10 +123,7 @@ def import_architecture(name: str):
     """
     check_architecture_name(name)
     try:
-        if name == "llpr":
-            return importlib.import_module("metatrain.utils.llpr")
-        else:
-            return importlib.import_module(f"metatrain.{name}")
+        return importlib.import_module(f"metatrain.{name}")
     except ImportError as err:
         # consistent name with pyproject.toml's `optional-dependencies` section
         name_for_deps = name
@@ -171,7 +168,6 @@ def find_all_architectures() -> List[str]:
     architecture_names = []
     for option_file_path in options_files_path:
         architecture_names.append(get_architecture_name(option_file_path))
-    architecture_names.append("llpr")
 
     return architecture_names
 

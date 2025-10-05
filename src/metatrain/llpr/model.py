@@ -1,5 +1,4 @@
-from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
 import numpy as np
@@ -14,13 +13,24 @@ from metatomic.torch import (
 )
 from torch.utils.data import DataLoader
 
+from metatrain.utils.abc import ModelInterface
+from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import is_auxiliary_output
-from metatrain.utils.io import check_file_extension, model_from_checkpoint
+from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 
+from . import checkpoints
 
-class LLPRUncertaintyModel(torch.nn.Module):
-    __checkpoint_version__ = 1
+
+class LLPRUncertaintyModel(ModelInterface):
+    __checkpoint_version__ = 2
+
+    # all torch devices and dtypes are supported, if they are supported by the wrapped
+    # the check is performed in the trainer
+    __supported_devices__ = ["cuda", "cpu", "mps"]
+    __supported_dtypes__ = [torch.float32, torch.float64, torch.bfloat16, torch.float16]
+    # more to be added if needed
+
     __default_metadata__ = ModelMetadata(
         references={
             "architecture": [
@@ -35,30 +45,65 @@ class LLPRUncertaintyModel(torch.nn.Module):
     In order to be compatible with this class, a model needs to have the last-layer
     feature size available as an attribute (with the ``last_layer_feature_size`` name)
     and be capable of returning last-layer features (see auxiliary outputs in
-    metatrain), optionally per atom to calculate LPRs with the LLPR method.
+    metatrain), optionally per atom to calculate LPRs (per-atom uncertainties)
+    with the LLPR method.
 
     All uncertainties provided by this class are standard deviations (as opposed to
-    variances). Prediction rigidities (local and total) can be calculated as the inverse
-    of the square of the standard deviation.
+    variances). Prediction rigidities (local and total) can be calculated, according to
+    their definition, as the inverse of the square of the standard deviations returned
+    by this class.
 
     :param model: The model to wrap.
     :param ensemble_weight_sizes: The sizes of the ensemble weights, only used
         internally when reloading checkpoints.
     """
 
-    def __init__(
-        self, model, ensemble_weight_sizes: Optional[Dict[str, List[int]]] = None
-    ) -> None:
-        super().__init__()
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
+
+        self.hypers = hypers
+        self.dataset_info = dataset_info
+
+    def set_wrapped_model(self, model: ModelInterface):
+        # this function is called after initialization, as well as
+
+        hypers = self.hypers
+        dataset_info = self.dataset_info
+
+        # ensemble weight sizes need to be extracted from the hypers
 
         self.model = model
         self.ll_feat_size = self.model.last_layer_feature_size
 
         # we need the capabilities of the model to be able to infer the capabilities
         # of the LLPR model. Here, we do a trick: we call export on the model to to make
-        # it handle the conversion from dataset_info to capabilities
+        # it handle the conversion from dataset_info to capabilities, as well as to
+        # get its dtype
         old_capabilities = self.model.export().capabilities()
         dtype = getattr(torch, old_capabilities.dtype)
+
+        # checks between dataset_info and model outputs
+        if dataset_info.length_unit != old_capabilities.length_unit:
+            raise ValueError(
+                "The length unit in the dataset info is different from the "
+                "length unit of the wrapped model"
+            )
+        for atomic_type in dataset_info.atomic_types:
+            if atomic_type not in old_capabilities.atomic_types:
+                raise ValueError(
+                    f"Atomic type {atomic_type} not supported by the wrapped model"
+                )
+        for target_name, target in dataset_info.targets.items():
+            if target_name not in old_capabilities.outputs:
+                raise ValueError(
+                    f"Target {target_name} not supported by the wrapped model"
+                )
+            if target.unit != old_capabilities.outputs[target_name].unit:
+                raise ValueError(
+                    f"Target {target_name} has unit {target.unit}, but the "
+                    f"wrapped model has unit "
+                    f"{old_capabilities.outputs[target_name].unit}"
+                )
 
         # update capabilities: now we have additional outputs for the uncertainty
         additional_capabilities = {}
@@ -104,22 +149,32 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 torch.tensor([1.0], dtype=dtype),
             )
 
-        if ensemble_weight_sizes is None:
-            ensemble_weight_sizes = {}
+        ensemble_config = hypers["ensembles"]
+        if ensemble_config["means"].keys() != ensemble_config["num_members"].keys():
+            raise ValueError(
+                "The keys in 'ensemble.means' and 'ensemble.num_members' must be the "
+                "same"
+            )
+        ensemble_weight_sizes = ensemble_config["num_members"]
 
         # register buffers for ensemble weights and ensemble outputs
         ensemble_outputs = {}
-        for name in self.outputs_list:
+        for name in ensemble_weight_sizes:
+            if name not in self.outputs_list:
+                raise ValueError(
+                    f"Output '{name}' in ensembles section is not supported by "
+                    "the model"
+                )
             ensemble_weights_name = (
                 "mtt::aux::" + name.replace("mtt::", "") + "_ensemble_weights"
             )
             if ensemble_weights_name == "mtt::aux::energy_ensemble_weights":
                 ensemble_weights_name = "energy_ensemble_weights"
-            if ensemble_weights_name not in ensemble_weight_sizes:
-                continue
             self.register_buffer(
                 ensemble_weights_name,
-                torch.zeros(ensemble_weight_sizes[ensemble_weights_name], dtype=dtype),
+                torch.zeros(
+                    (self.ll_feat_size, ensemble_weight_sizes[name]), dtype=dtype
+                ),
             )
             ensemble_output_name = (
                 "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
@@ -140,10 +195,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
             dtype=self.capabilities.dtype,
         )
 
-        # flags
-        self.covariance_computed = False
-        self.inv_covariance_computed = False
-        self.is_calibrated = False
+    def restart(self, dataset_info: DatasetInfo) -> "ModelInterface":
+        raise ValueError("Restarting from a LLPR model is not supported.")
 
     def forward(
         self,
@@ -151,27 +204,21 @@ class LLPRUncertaintyModel(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        if all("_uncertainty" not in output for output in outputs):
+        if all(output.endswith("_uncertainty") for output in outputs) and all(
+            output.endswith("_ensemble") for output in outputs
+        ):
             # no uncertainties requested
             return self.model(systems, outputs, selected_atoms)
 
-        if not self.inv_covariance_computed:
-            raise ValueError(
-                "Trying to predict with LLPR, but inverse covariance has not "
-                "been computed yet."
-            )
-
         outputs_for_model: Dict[str, ModelOutput] = {}
         for name, output in outputs.items():
-            if name.endswith("_uncertainty"):
-                base_name = name.replace("_uncertainty", "").replace("mtt::aux::", "")
-                if base_name not in outputs and f"mtt::{base_name}" not in outputs:
-                    raise ValueError(
-                        f"Requested uncertainty '{name}' without corresponding "
-                        f"output `{base_name}` (or `mtt::{base_name}`)."
-                    )
+            if name.endswith("_uncertainty") or name.endswith("_ensemble"):
                 # request corresponding features
-                target_name = name.replace("mtt::aux::", "").replace("_uncertainty", "")
+                target_name = (
+                    name.replace("mtt::aux::", "")
+                    .replace("_uncertainty", "")
+                    .replace("_ensemble", "")
+                )
                 outputs_for_model[f"mtt::aux::{target_name}_last_layer_features"] = (
                     ModelOutput(
                         quantity="",
@@ -179,8 +226,20 @@ class LLPRUncertaintyModel(torch.nn.Module):
                         per_atom=output.per_atom,
                     )
                 )
+                # for the ensemble, we also need the original output
+                if name.endswith("_ensemble"):
+                    if (
+                        name.replace("_ensemble", "") not in outputs
+                        and name.replace("mtt::aux::", "").replace("_ensemble", "")
+                        not in outputs
+                    ):
+                        raise ValueError(
+                            f"Ensemble output {name} can only be requested if the "
+                            "corresponding raw output is also requested"
+                        )
+
         for name, output in outputs.items():
-            # remove uncertainties from the requested outputs for the
+            # remove uncertainties and ensembles from the requested outputs for the
             # wrapped model
             if name.startswith("mtt::aux") and name.endswith("_uncertainty"):
                 continue
@@ -365,8 +424,6 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 covariance = self._get_covariance(uncertainty_name)
                 covariance += ll_feats.T @ ll_feats
 
-        self.covariance_computed = True
-
     def compute_inverse_covariance(self, regularizer: Optional[float] = None):
         """A function to compute the inverse covariance matrix.
 
@@ -377,11 +434,6 @@ class LLPRUncertaintyModel(torch.nn.Module):
             inverse without regularization and increase the regularization
             parameter until the matrix is invertible.
         """
-        if not self.covariance_computed:
-            raise ValueError(
-                "Trying to compute inverse covariance, but covariance has not "
-                "been computed yet."
-            )
 
         for name in self.outputs_list:
             uncertainty_name = _get_uncertainty_name(name)
@@ -414,8 +466,6 @@ class LLPRUncertaintyModel(torch.nn.Module):
                         )
                         inv_covariance[:] = (inverse + inverse.T) / 2.0
                         break
-
-        self.inv_covariance_computed = True
 
     def calibrate(self, valid_loader: DataLoader):
         """
@@ -489,11 +539,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             multiplier = self._get_multiplier(uncertainty_name)
             multiplier[:] = torch.sqrt(torch.mean(residuals**2 / uncertainties**2))
 
-        self.is_calibrated = True
-
-    def generate_ensemble(
-        self, weight_tensors: Dict[str, torch.Tensor], n_members: int
-    ) -> None:
+    def generate_ensemble(self) -> None:
         """Generate an ensemble of weights for the model.
 
         The ensemble is generated by sampling from a multivariate normal
@@ -505,18 +551,15 @@ class LLPRUncertaintyModel(torch.nn.Module):
             values should be 1D PyTorch tensors.
         :param n_members: The number of members in the ensemble.
         """
-        # note: we could also allow n_members to be different for each output
-
-        # basic checks
-        if not self.is_calibrated:
-            raise ValueError(
-                "LLPR model needs to be calibrated before generating ensembles"
+        weight_tensors = {
+            name: torch.concatenate(
+                [
+                    self.model.state_dict()[tensor_name].flatten()
+                    for tensor_name in tensor_names
+                ]
             )
-        for key in weight_tensors:
-            if key not in self.capabilities.outputs.keys():
-                raise ValueError(f"Output '{key}' not supported by model")
-            if len(weight_tensors[key].shape) != 1:
-                raise ValueError("All weights must be 1D tensors")
+            for name, tensor_names in self.hypers["ensembles"]["means"].items()
+        }  # type: ignore
 
         # sampling; each member is sampled from a multivariate normal distribution
         # with mean given by the input weights and covariance given by the inverse
@@ -534,7 +577,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 .cpu()
                 .numpy()
                 * self._get_multiplier(uncertainty_name).item() ** 2,
-                size=n_members,
+                size=self.hypers["ensembles"]["num_members"][name],
                 method="svd",
             ).T
             ensemble_weights = torch.tensor(
@@ -571,24 +614,22 @@ class LLPRUncertaintyModel(torch.nn.Module):
             dtype=self.capabilities.dtype,
         )
 
-    def save_checkpoint(self, path: Union[str, Path]):
+    def get_checkpoint(self) -> Dict[str, Any]:
         wrapped_model_checkpoint = self.model.get_checkpoint()
         state_dict = {
             k: v for k, v in self.state_dict().items() if not k.startswith("model.")
         }
-
         checkpoint = {
+            "model_data": {
+                "hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
             "architecture_name": "llpr",
             "model_ckpt_version": self.__checkpoint_version__,
             "wrapped_model_checkpoint": wrapped_model_checkpoint,
-            "llpr_flags": {
-                "covariance_computed": self.covariance_computed,
-                "inv_covariance_computed": self.inv_covariance_computed,
-                "is_calibrated": self.is_calibrated,
-            },
             "state_dict": state_dict,
         }
-        torch.save(checkpoint, check_file_extension(path, ".ckpt"))
+        return checkpoint
 
     @classmethod
     def load_checkpoint(
@@ -606,25 +647,11 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 "in the TorchScript format for final usage."
             )
         elif context == "export":
-            # Find the size of the ensemble weights, if any:
-            ensemble_weight_sizes = {}
-            for name, tensor in checkpoint["state_dict"].items():
-                if name.endswith("_ensemble_weights"):
-                    ensemble_weight_sizes[name] = list(tensor.shape)
-
-            # Create the model
-            wrapped_model = cls(model, ensemble_weight_sizes)
+            llpr_model = cls(**checkpoint["model_data"])
+            llpr_model.set_wrapped_model(model)
             dtype = next(model.parameters()).dtype
-            llpr_flags = checkpoint["llpr_flags"]
-            wrapped_model.covariance_computed = llpr_flags["covariance_computed"]
-            wrapped_model.inv_covariance_computed = llpr_flags[
-                "inv_covariance_computed"
-            ]
-            wrapped_model.is_calibrated = llpr_flags["is_calibrated"]
-            wrapped_model.to(dtype).load_state_dict(
-                checkpoint["state_dict"], strict=False
-            )
-            return wrapped_model
+            llpr_model.to(dtype).load_state_dict(checkpoint["state_dict"], strict=False)
+            return llpr_model
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
@@ -677,6 +704,26 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 requested_buffer = buffer
         return requested_buffer
 
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
+
+        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current model "
+                f"version is {cls.__checkpoint_version__}."
+            )
+
+        return checkpoint
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        raise ValueError("supported_outputs is not implemented for LLPR")
+
 
 def _get_uncertainty_name(name: str):
     if name == "energy":
@@ -684,6 +731,3 @@ def _get_uncertainty_name(name: str):
     else:
         uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
     return uncertainty_name
-
-
-__model__ = LLPRUncertaintyModel
