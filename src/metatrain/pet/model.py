@@ -210,7 +210,6 @@ class PET(torch.nn.Module):
             new_targets['mtt::gapdos'] = dataset_info.targets['mtt::gapdos']
             print ("Injected mtt::gapdos target to new targets")
         if dataset_info.targets['mtt::gap_force']:
-            del dataset_info.targets['mtt::gap_force']
             new_targets['mtt::gap_force'] = dataset_info.targets['mtt::gap_force']
             print ("Injected mtt::gap_force target to new targets")
         self.has_new_targets = len(new_targets) > 0
