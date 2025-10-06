@@ -35,7 +35,7 @@ from metatrain.utils.transfer import (
     systems_and_targets_to_device,
     systems_and_targets_to_dtype,
 )
-
+from metatrain.utils.output_gradient import compute_gradient
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
@@ -347,7 +347,8 @@ class Trainer:
             self.best_metric = float("inf")
         logging.info("Starting training")
         epoch = start_epoch
-
+        train_print = True
+        val_print = True
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             if is_distributed:
                 for train_sampler in train_samplers:
@@ -385,7 +386,7 @@ class Trainer:
                 # )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 # CHANGE: Extract relevant quantities from the targets
-                target_dos_batch, gap_batch = targets['mtt::gapdos'], targets['mtt::gap']
+                target_dos_batch, gap_batch, gap_force_batch = targets['mtt::gapdos'], targets['mtt::gap'], targets['mtt::gap_force']
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -403,9 +404,19 @@ class Trainer:
                 # CHANGE: DOS Training loop
                 dos_predictions = predictions['mtt::gapdos'][0].values
                 bandgap_predictions = model.bandgap_layer(dos_predictions)
+                gap_force_predictions = compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True)
                 bandgap_target = gap_batch[0].values.reshape(-1,1).to(dtype)
                 bandgap_loss = torch.nn.functional.mse_loss(bandgap_predictions, bandgap_target)
-                total_loss = bandgap_loss
+                gap_force_target = gap_force_batch[0].values.to(dtype)
+                gap_force_loss = torch.nn.functional.mse_loss(gap_force_predictions, gap_force_target) # Use 1:1 for now
+                if train_print:
+                    print ("Train print:")
+                    print (gap_force_predictions.shape)
+                    print (gap_force_target.shape)
+                    print (gap_force_loss)
+                    train_print = False
+
+                total_loss = bandgap_loss + gap_force_loss
                 total_loss.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
@@ -454,7 +465,7 @@ class Trainer:
                         systems, targets, device
                 )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
-                target_dos_batch, gap_batch = targets['mtt::gapdos'], targets['mtt::gap'] 
+                target_dos_batch, gap_batch, gap_force_batch = targets['mtt::gapdos'], targets['mtt::gap'], targets['mtt::gap_force']
 
                 predictions = evaluate_model(
                     model,
@@ -471,9 +482,18 @@ class Trainer:
                 # targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 dos_predictions = predictions['mtt::gapdos'][0].values
                 gap_predictions = model.bandgap_layer(dos_predictions)
+                gap_force_predictions = compute_gradient(gap_predictions, [system.positions for system in systems]) # Force calc
                 bandgap_target = gap_batch[0].values.reshape(-1,1).to(dtype)
                 bandgap_loss = torch.nn.functional.mse_loss(gap_predictions, bandgap_target)
-                total_loss = bandgap_loss
+                gap_force_target = gap_force_batch[0].values.to(dtype)
+                gap_force_loss = torch.nn.functional.mse_loss(gap_force_predictions, gap_force_target) # Use 1:1 for now
+                if val_print:
+                    print ("Val print:")
+                    print (gap_force_predictions.shape)
+                    print (gap_force_target.shape)
+                    print (gap_force_loss)
+                    val_print = False
+                total_loss = bandgap_loss + gap_force_loss
                 val_loss_batch = (total_loss * len(bandgap_target)).detach()# CHANGE: We need to multiply the loss by the number of samples in the batch to get the correct loss value
                 if is_distributed:
                     # sum the loss over all processes
