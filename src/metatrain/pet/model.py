@@ -63,22 +63,25 @@ class PET(torch.nn.Module):
         )
 
         # CHANGE: Redefined the target size and remove the mask from the targets
-        for i in self.hypers["excess_targets"]:
-            # additional_output = int(self.hypers["excess_targets"][i])
-            # target_size = dataset_info.targets[i].layout[0].values.shape[1]
-            prediction_size = int(self.hypers["excess_targets"][i])
-            output_block = metatensor.torch.TensorBlock(
-                values= torch.empty(0, prediction_size).double(),
-                samples=metatensor.torch.Labels.empty('system'),
-                components=[],
-                # properties=metatensor.torch.Labels.single(),
-                properties=metatensor.torch.Labels.range("Energy", prediction_size)
+        try:
+            for i in self.hypers["excess_targets"]:
+                # additional_output = int(self.hypers["excess_targets"][i])
+                # target_size = dataset_info.targets[i].layout[0].values.shape[1]
+                prediction_size = int(self.hypers["excess_targets"][i])
+                output_block = metatensor.torch.TensorBlock(
+                    values= torch.empty(0, prediction_size).double(),
+                    samples=metatensor.torch.Labels.empty('system'),
+                    components=[],
+                    # properties=metatensor.torch.Labels.single(),
+                    properties=metatensor.torch.Labels.range("Energy", prediction_size)
+                    )
+                output_map = metatensor.torch.TensorMap(
+                    keys = metatensor.torch.Labels.single(),
+                    blocks = [output_block]
                 )
-            output_map = metatensor.torch.TensorMap(
-                keys = metatensor.torch.Labels.single(),
-                blocks = [output_block]
-            )
-            dataset_info.targets[i].layout = output_map
+                dataset_info.targets[i].layout = output_map
+        except:
+            print ("Did not manage to change the target size")
         try:
             del dataset_info.targets["mtt::mask"]
         except:
