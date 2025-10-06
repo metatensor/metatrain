@@ -993,7 +993,7 @@ class LossType(Enum):
     POINTWISE = ("pointwise", BaseTensorMapLoss)
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
     ENSEMBLE_NLL = ("ensemble_nll", TensorMapEnsembleNLLLoss)
-    DOS_MSE = ("dos_mse", DOSMSELoss)
+    MASKED_DOS = ("masked_dos", MaskedDOSLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]):
         self._key = key
