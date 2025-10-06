@@ -12,10 +12,6 @@ class AttentionBlock(nn.Module):
         self.input_linear = nn.Linear(total_dim, 3 * total_dim)
         self.output_linear = nn.Linear(total_dim, total_dim)
 
-        nn.init.xavier_uniform_(self.input_linear.weight)
-        nn.init.constant_(self.input_linear.bias, 0.0)
-        nn.init.constant_(self.output_linear.bias, 0.0)
-
         self.num_heads = num_heads
         self.epsilon = epsilon
 
