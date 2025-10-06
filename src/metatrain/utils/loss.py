@@ -734,6 +734,8 @@ class MaskedDOSLoss(LossInterface):
         extra_targets: int,
         reduction: str,
     ):
+        if name == "mtt::dos2":
+            name = "mtt::dos"
         super().__init__(
             name,
             gradient,
