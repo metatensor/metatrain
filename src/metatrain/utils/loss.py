@@ -718,18 +718,20 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         return self.compute_flattened(tsm_pred_orig, tsm_revised_targ, tsm_pred_var, tsm_cur_mask)
 
 
-class DOSMSELoss(BaseTensorMapLoss):
+class MaskedDOSLoss(LossInterface):
     """
-    Masked Huber loss on :py:class:`TensorMap` entries.
+    Pointwise masked loss on :py:class:`TensorMap` entries.
 
-    :param delta: threshold parameter for HuberLoss.
+    Inherits flattening and torch-loss logic from BaseTensorMapLoss.
     """
-
     def __init__(
         self,
         name: str,
         gradient: Optional[str],
         weight: float,
+        grad_weight: float,
+        int_weight: float,
+        extra_targets: int,
         reduction: str,
     ):
         super().__init__(
@@ -737,66 +739,15 @@ class DOSMSELoss(BaseTensorMapLoss):
             gradient,
             weight,
             reduction,
-            loss_fn=torch.nn.MSELoss(reduction=reduction),
         )
+        self.grad_weight = grad_weight
+        self.int_weight = int_weight
+        self.extra_targets = extra_targets
 
-    def compute_flattened(
-        self,
-        pred: TensorMap,
-        target: TensorMap,
-        mask: Optional[TensorMap] = None,
-    ) -> torch.Tensor:
-        """
-        Flatten prediction and target blocks (and optional mask), then
-        apply the torch loss.
+        interval = 0.05
+        self.grid  = (torch.tensor([1/4, -4/3, 3., -4. , 25/12])/interval).unsqueeze(dim = (0)).unsqueeze(dim = (0)).float()
 
-        :param pred: mean of ensemble predictions :py:class:`TensorMap`.
-        :param target: target :py:class:`TensorMap`.
-        :param pred_var: variance of ensemble predictions :py:class:`TensorMap`.
-        :return: scalar torch.Tensor of the computed loss.
-        """
-        list_pred_segments = []
-        list_target_segments = []
-
-        def extract_flattened_values_from_block(
-            tensor_block: mts.TensorBlock,
-        ) -> torch.Tensor:
-            """
-            Extract values or gradients from a block, flatten to 1D.
-            """
-            if self.gradient is not None:
-                values = tensor_block.gradient(self.gradient).values
-            else:
-                values = tensor_block.values
-            return values.reshape(-1)
-
-        # Loop over each key in the TensorMap
-        for single_key in target.keys:
-            block_pred = pred.block(single_key)
-            block_target = target.block(single_key)
-
-            flat_pred = extract_flattened_values_from_block(block_pred)
-            flat_target = extract_flattened_values_from_block(block_target)
-
-            if mask is not None:
-                block_mask = mask.block(single_key)
-                flat_mask = extract_flattened_values_from_block(block_mask).bool()
-
-                flat_pred = flat_pred[flat_mask]
-                flat_target = flat_target[flat_mask]
-
-            list_pred_segments.append(flat_pred)
-            list_target_segments.append(flat_target)
- 
-        # Concatenate all segments and apply the torch loss
-        all_pred_flattened = torch.cat(list_pred_segments)
-        all_targets_flattened = torch.cat(list_target_segments)
-
-        return self.torch_loss(
-            all_pred_flattened,
-            all_targets_flattened,
-        )
-
+        
     def compute(
         self,
         predictions: Dict[str, TensorMap],
@@ -806,8 +757,7 @@ class DOSMSELoss(BaseTensorMapLoss):
         """
         Gather and flatten target and prediction blocks, then compute loss.
 
-        :param predictions: Mapping from target names to TensorMaps, must contain
-            ensemble as a sample dimension.
+        :param predictions: Mapping from target names to TensorMaps.
         :param targets: Mapping from target names to TensorMaps.
         :param extra_data: Additional data for loss computation. Assumes that, for the
             target ``name`` used in the constructor, there is a corresponding data field
@@ -815,76 +765,65 @@ class DOSMSELoss(BaseTensorMapLoss):
             should have the same metadata as the target and prediction tensors.
         :return: Scalar loss tensor.
         """
-        tsm_pred_orig = predictions[self.target]
-        tsm_targ = targets[self.target]
+        mask_key = f"{self.target}_mask"
+        if extra_data is None or mask_key not in extra_data:
+            raise ValueError(
+                f"Expected extra_data to contain TensorMap under '{mask_key}'"
+            )
+        
+        tensor_map_pred = predictions[self.target]
+        tensor_map_targ = targets[self.target]
+        tensor_map_mask = extra_data[mask_key]
 
-        # Check gradients are present in the target TensorMap
-        if self.gradient is not None:
-            if self.gradient not in tsm_targ[0].gradients_list():
-                # Skip loss computation if block gradient is missing in the dataset
-                # Tensor gradients are not tracked
-                return torch.zeros(
-                    (), dtype=torch.float, device=tsm_targ[0].values.device
-                )
+        device = predictions.device
 
-        if self.target == "mtt::dos":
+        if self.extra_targets == 0:
+            pass
+        else:
+            assert len(predictions[0]) - len(target[0]) == self.extra_targets, f"Predictions must be larger than targets by '{self.extra_targets}', currently it is {len(predictions[0]) - len(target[0])}'"
+            predictions_unfolded = predictions.unfold(1, len(target[0]), 1)
+            target_expanded = target[:, None, :]
+            delta = target_expanded - predictions_unfolded
+            dynamic_delta = delta * mask.unsqueeze(dim=1)
+            losses = torch.trapezoid(dynamic_delta * dynamic_delta, dx = 0.05, dim=2)
+            front_tail = torch.cumulative_trapezoid(predictions**2, dx = 0.05, dim = 1)
+            additional_error = torch.hstack([torch.zeros(len(predictions), device = device).reshape(-1,1), front_tail[:,:self.extra_targets]])
+            total_losses = losses + additional_error
+            final_loss, shift = torch.min(total_losses, dim=1)
+            dos_loss = torch.mean(final_loss)
+            # Compute gradient loss
+            aligned_predictions = []
+            adjusted_dos_mask = []
+            for index, prediction in enumerate(predictions):
+                aligned_prediction = prediction[shift[index]:shift[index]+len(target[0])]
+                dos_mask_i = torch.hstack( #Adjust the mask to account for the discrete shift
+                    [
+                    (torch.ones(shift[index])).bool().to(device),
+                    mask[index],
+                    (torch.zeros(int(self.extra_targets - shift[index]))).bool().to(device)
+                    ]
+                )                        
+                aligned_predictions.append(aligned_prediction)
+                adjusted_dos_mask.append(dos_mask_i)
+            aligned_predictions = torch.vstack(aligned_predictions)
+            adjusted_dos_mask = torch.vstack(adjusted_dos_mask)
+            if self.grad_weight > 0:
+                grad_predictions = torch.nn.functional.conv1d(predictions.unsqueeze(dim=1), self.grid.to(device)).squeeze(dim=1)
+                dim_loss = predictions.shape[1] - grad_predictions.shape[1] # Dimensions lost due to the gradient convolution
+                gradient_loss = torch.mean(torch.trapezoid(((grad_predictions * (~adjusted_dos_mask[:, dim_loss:]))**2), # non-zero gradients outside the window are penalized
+                                                                    dx = 0.05, dim = 1)) * self.grad_weight
+            else:
+                gradient_loss = 0.0
+            if self.int_weight > 0:
+                int_predictions = torch.cumulative_trapezoid(aligned_predictions**2, dx = 0.05, dim = 1)
+                int_target = torch.cumulative_trapezoid(target**2, dx = 0.05, dim = 1)
+                int_error = (int_predictions - int_target)**2
+                int_error = int_error * mask[:,1:].unsqueeze(dim=1) # only penalize the integral where the DOS is defined
+                int_MSE = torch.mean(torch.trapezoid(int_error, dx = 0.05, dim = 1)) * self.int_weight
+            else:
+                int_MSE = 0.0
 
-                dtype = tsm_pred_orig.block().values.dtype
-                device = tsm_pred_orig.block().values.device
-
-                cur_pred = tsm_pred_orig.block().values.detach()
-                cur_targ = tsm_targ.block().values.detach()
-                cur_mask = extra_data["mtt::mask"].block().values.detach()
-                _, cur_shift = get_dynamic_shift_agnostic_mse(cur_pred, cur_targ, cur_mask, return_shift=True)
-
-                revised_dos_targets = torch.zeros(cur_pred.shape, dtype=dtype, device=device)
-                revised_masks = torch.zeros(cur_pred.shape, dtype=dtype, device=device)
-
-                # broadcasting tensors
-                rows = torch.arange(cur_pred.shape[0]).unsqueeze(1).to(device)
-                cols = cur_shift.unsqueeze(1) + torch.arange(cur_targ.shape[1]).to(device)
-
-                # revised DOS target via broadcasting
-                revised_dos_targets[rows, cols] = cur_targ
-
-                # get revised masks, padding the low E end with 1's
-                revised_masks[rows, cols] = cur_mask
-                low_e_cols = torch.arange(cur_pred.shape[1]).unsqueeze(0).expand(len(rows), -1).to(device=device)
-                low_e_mask = low_e_cols < cur_shift.unsqueeze(1)
-                revised_masks[low_e_mask] = 1
-                mask_count = revised_masks.sum(dim=0)
-
-                tsm_revised_targ = TensorMap(
-                        keys=Labels(
-                            names=["_"],
-                            values=torch.tensor([[0]], device=device),
-                            ),
-                        blocks=[
-                            TensorBlock(
-                                values=revised_dos_targets,
-                                samples=tsm_pred_orig.block().samples,
-                                components=tsm_pred_orig.block().components,
-                                properties=tsm_pred_orig.block().properties,
-                                )
-                            ],
-                        )
-
-                tsm_cur_mask = TensorMap(
-                        keys=Labels(
-                            names=["_"],
-                            values=torch.tensor([[0]], device=device),
-                            ),
-                        blocks=[
-                            TensorBlock(
-                                values=revised_masks,
-                                samples=tsm_pred_orig.block().samples,
-                                components=tsm_pred_orig.block().components,
-                                properties=tsm_pred_orig.block().properties,
-                                )
-                            ],
-                        )
-
-        return self.compute_flattened(tsm_pred_orig, tsm_revised_targ, tsm_cur_mask)
+            return dos_loss + gradient_loss + int_MSE
 
 # --- aggregator -----------------------------------------------------------------------
 
