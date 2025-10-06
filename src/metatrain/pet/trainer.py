@@ -19,7 +19,7 @@ from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
 from metatrain.utils.distributed.slurm import DistributedEnvironment
-from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.evaluate_model import evaluate_model, _prepare_system
 from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
