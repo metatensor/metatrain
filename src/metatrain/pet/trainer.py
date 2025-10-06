@@ -165,7 +165,7 @@ class Trainer:
             permanent_systems = []
             train_targets = {}
             permanent_targets = {}
-            keys = ["mtt::dos", "mtt::mask", "mtt::gapdos"] # WARNING: Keys are hardcoded for DOS so that the mask remains identifiable
+            keys = ["mtt::dos", "mtt::mask", "mtt::gapdos", "mtt::gap_force"] # WARNING: Keys are hardcoded for DOS so that the mask remains identifiable
             for key in keys:
                 train_targets[key] = []
                 permanent_targets[key] = []

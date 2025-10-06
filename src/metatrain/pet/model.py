@@ -209,6 +209,10 @@ class PET(torch.nn.Module):
             del dataset_info.targets['mtt::gap']
             new_targets['mtt::gapdos'] = dataset_info.targets['mtt::gapdos']
             print ("Injected mtt::gapdos target to new targets")
+        if dataset_info.targets['mtt::gap_force']:
+            del dataset_info.targets['mtt::gap_force']
+            new_targets['mtt::gap_force'] = dataset_info.targets['mtt::gap_force']
+            print ("Injected mtt::gap_force target to new targets")
         self.has_new_targets = len(new_targets) > 0
 
         if len(new_atomic_types) > 0:
@@ -228,12 +232,14 @@ class PET(torch.nn.Module):
         print (self.hypers)
         if self.hypers['gap_layer'] == 'linear':
             self.bandgap_layer = nn.Linear(4806, 1)
+            print ("Linear model initialized")
         elif self.hypers['gap_layer'] == 'mlp':
             self.bandgap_layer = nn.Sequential(
                 nn.Linear(4806, 1024, bias=True),
                 nn.SiLU(),
                 nn.Linear(1024, 1, bias=True)
             )
+            print ("MLP model initialized")
 
         # restart the composition and scaler models
         # self.additive_models[0].restart(
