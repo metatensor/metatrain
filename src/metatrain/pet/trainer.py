@@ -385,6 +385,16 @@ class Trainer:
                 #     targets, (model.module if is_distributed else model).scaler
                 # )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                new_systems = []
+                for system in systems:
+                    new_system, strain = _prepare_system(
+                        system,
+                        positions_grad=len(energy_targets_that_require_position_gradients) > 0,
+                        strain_grad=len(energy_targets_that_require_strain_gradients) > 0,
+                        check_consistency=check_consistency,
+                    )
+                    new_systems.append(new_system)
+                systems = new_systems
                 # CHANGE: Extract relevant quantities from the targets
                 target_dos_batch, gap_batch, gap_force_batch = targets['mtt::gapdos'], targets['mtt::gap'], targets['mtt::gap_force']
                 predictions = evaluate_model(
@@ -465,6 +475,17 @@ class Trainer:
                         systems, targets, device
                 )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                new_systems = []
+                for system in systems:
+                    new_system, strain = _prepare_system(
+                        system,
+                        positions_grad=len(energy_targets_that_require_position_gradients) > 0,
+                        strain_grad=len(energy_targets_that_require_strain_gradients) > 0,
+                        check_consistency=check_consistency,
+                    )
+                    new_systems.append(new_system)
+                systems = new_systems
+
                 target_dos_batch, gap_batch, gap_force_batch = targets['mtt::gapdos'], targets['mtt::gap'], targets['mtt::gap_force']
 
                 predictions = evaluate_model(
