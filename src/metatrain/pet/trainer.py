@@ -77,7 +77,7 @@ class Trainer(TrainerInterface):
 
         is_distributed = self.hypers["distributed"]
         is_finetune = "finetune" in self.hypers
-        is_llpr_ens_recalib = self.hypers["llpr_calib"]
+        is_llpr_ens_recalib = bool(self.hypers["llpr_calib"])
 
         if is_distributed:
             distr_env = DistributedEnvironment(self.hypers["distributed_port"])
@@ -142,21 +142,41 @@ class Trainer(TrainerInterface):
         # everything else fixed. 
         if is_llpr_ens_recalib:
 
-            head_keywords = ['node_heads', 'edge_heads']
-            last_layer_keywords = ['node_last_layers', 'edge_last_layers']
-
-            for name, param in model.model.named_parameters():  # llpr_model.model
-                if any(name.startswith(kw) for kw in head_keywords + last_layer_keywords):
-                    print(name)
+            if self.hypers["llpr_calib"] == "full":
+                for name, param in model.model.named_parameters():  # llpr_model.model
                     param.requires_grad = True
-                else:
-                    param.requires_grad = False
+                for key, layers in model.llpr_ensemble_layers.items():
+                    for name, param in layers.named_parameters():
+                        if name == "weight":  # only touch weight just in case (but only weight should be present)
+                            param.requires_grad = True
 
-            for key, layers in model.llpr_ensemble_layers.items():
-                for name, param in layers.named_parameters():
-                    if name == "weight":
-                        print(name, "trainable")
+            elif self.hypers["llpr_calib"] == "head_only":
+                head_keywords = ['node_heads', 'edge_heads']
+                last_layer_keywords = ['node_last_layers', 'edge_last_layers']
+
+                for name, param in model.model.named_parameters():  # llpr_model.model
+                    if any(name.startswith(kw) for kw in head_keywords + last_layer_keywords):
+                        print(name)
                         param.requires_grad = True
+                    else:
+                        param.requires_grad = False
+
+                for key, layers in model.llpr_ensemble_layers.items():
+                    for name, param in layers.named_parameters():
+                        if name == "weight":
+                            print(name, "trainable")
+                            param.requires_grad = True
+
+            elif self.hypers["llpr_calib"] == "ens_only":
+                for name, param in model.model.named_parameters():  # llpr_model.model
+                    param.requires_grad = False
+                for key, layers in model.llpr_ensemble_layers.items():
+                    for name, param in layers.named_parameters():
+                        if name == "weight":  # only touch weight just in case (but only weight should be present)
+                            param.requires_grad = True
+
+            else:
+                raise RuntimeError("Invalid key supplied for `llpr_calib`!")
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
