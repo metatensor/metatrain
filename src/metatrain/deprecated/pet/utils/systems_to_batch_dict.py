@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Tuple
 import pet_neighbors_convert  # noqa: F401
 import torch
 from metatensor.torch import Labels
-from metatensor.torch.atomistic import NeighborListOptions, System
+from metatomic.torch import NeighborListOptions, System
 
 
 def collate_graph_dicts(
@@ -340,7 +340,7 @@ def systems_to_batch_dict(
     Converts a standard input data format of `metatrain` to a
     PyTorch Geometric `Batch` object, compatible with `PET` model.
 
-    :param systems: The list of systems in `metatensor.torch.atomistic.System`
+    :param systems: The list of systems in `metatomic.torch.System`
     format, that needs to be converted.
     :param options: A `NeighborListOptions` objects specifying the parameters
     for a neighbor list, which will be used during the convertation.

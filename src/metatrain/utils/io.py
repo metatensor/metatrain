@@ -6,7 +6,7 @@ from urllib.parse import unquote, urlparse
 from urllib.request import urlretrieve
 
 import torch
-from metatensor.torch.atomistic import check_atomistic_model, load_atomistic_model
+from metatomic.torch import check_atomistic_model, load_atomistic_model
 
 from ..utils.architectures import find_all_architectures
 from .architectures import import_architecture
@@ -43,9 +43,9 @@ def check_file_extension(
 
 def is_exported_file(path: str) -> bool:
     """
-    Check if a saved model file has been exported to a ``MetatensorAtomisticModel``.
+    Check if a saved model file has been exported to a ``AtomisticModel``.
 
-    The functions uses :py:func:`metatensor.torch.atomistic.check_atomistic_model` to
+    The functions uses :py:func:`metatomic.torch.check_atomistic_model` to
     verify.
 
     :param path: model path
@@ -54,7 +54,7 @@ def is_exported_file(path: str) -> bool:
 
     .. seealso::
 
-        :py:func:`metatensor.torch.atomistic.is_atomistic_model` to verify if an already
+        :py:func:`metatomic.torch.is_atomistic_model` to verify if an already
         loaded model is exported.
     """
     try:

@@ -86,4 +86,4 @@ features
 
 See the
 `feature output <https://docs.metatensor.org/latest/atomistic/outputs/features.html>`_
-in ``metatensor.torch.atomistic``.
+in ``metatomic.torch``.

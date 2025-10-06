@@ -11,11 +11,13 @@ authors = [{name = "metatrain developers"}]
 # Strict version pinning to avoid regression test failing on new versions
 dependencies = [
     "ase",
-    "metatensor-learn==0.3.2",
-    "metatensor-operations==0.3.3",
-    "metatensor-torch==0.7.6",
+    "huggingface_hub",
+    "metatensor-learn >=0.3.2,<0.4",
+    "metatensor-operations >=0.3.3,<0.4",
+    "metatensor-torch >=0.7.6,<0.8",
+    "metatomic-torch >=0.1.2,<0.2",
     "jsonschema",
-    "omegaconf",
+    "omegaconf >= 2.3.0",
     "python-hostlist",
     "vesin",
 ]

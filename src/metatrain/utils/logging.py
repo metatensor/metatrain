@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelCapabilities
+from metatomic.torch import ModelCapabilities
 
 from .. import PACKAGE_ROOT, __version__
 from .data import DatasetInfo

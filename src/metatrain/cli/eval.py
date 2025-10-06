@@ -9,7 +9,7 @@ import metatensor.torch
 import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import MetatensorAtomisticModel
+from metatomic.torch import AtomisticModel
 from omegaconf import DictConfig, OmegaConf
 
 from ..utils.data import (
@@ -167,7 +167,7 @@ def _concatenate_tensormaps(
 
 
 def _eval_targets(
-    model: Union[MetatensorAtomisticModel, torch.jit._script.RecursiveScriptModule],
+    model: Union[AtomisticModel, torch.jit._script.RecursiveScriptModule],
     dataset: Union[Dataset, torch.utils.data.Subset],
     options: Dict[str, TargetInfo],
     return_predictions: bool,
@@ -322,7 +322,7 @@ def _eval_targets(
 
 
 def eval_model(
-    model: Union[MetatensorAtomisticModel, torch.jit._script.RecursiveScriptModule],
+    model: Union[AtomisticModel, torch.jit._script.RecursiveScriptModule],
     options: DictConfig,
     output: Union[Path, str] = "output.xyz",
     batch_size: int = 1,

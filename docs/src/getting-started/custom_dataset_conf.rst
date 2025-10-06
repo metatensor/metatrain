@@ -91,7 +91,7 @@ Allows defining multiple target sections, each with a unique name.
   and ``stress`` are enabled by default.
 - Other target sections can also be defined, as long as they are prefixed by ``mtt::``.
   For example, ``mtt::free_energy``. In general, all targets that are not standard
-  outputs of ``metatensor.torch.atomistic`` (see
+  outputs of ``metatomic.torch`` (see
   https://docs.metatensor.org/latest/atomistic/outputs.html) should be prefixed by
   ``mtt::``.
 

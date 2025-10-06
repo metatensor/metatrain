@@ -7,7 +7,7 @@ import ase.io
 import torch
 from ase.stress import voigt_6_to_full_3x3_stress
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import System, systems_to_torch
+from metatomic.torch import System, systems_to_torch
 from omegaconf import DictConfig
 
 from ..target_info import TargetInfo, get_energy_target_info, get_generic_target_info

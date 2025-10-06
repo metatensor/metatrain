@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 import pytest
-from metatensor.torch.atomistic import MetatensorAtomisticModel
+from metatomic.torch import AtomisticModel
 
 from metatrain.soap_bpnn.model import SoapBpnn
 from metatrain.utils.io import check_file_extension, is_exported_file, load_model
@@ -64,7 +64,7 @@ def test_load_model_checkpoint(path):
 )
 def test_load_model_exported(path):
     model = load_model(path)
-    assert type(model) is MetatensorAtomisticModel
+    assert type(model) is AtomisticModel
 
 
 @pytest.mark.parametrize("suffix", [".yml", ".yaml"])

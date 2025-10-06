@@ -1,6 +1,6 @@
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 from metatrain.utils.per_atom import average_by_num_atoms, divide_by_num_atoms
 

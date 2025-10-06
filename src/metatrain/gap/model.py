@@ -10,8 +10,8 @@ from metatensor import Labels, TensorBlock, TensorMap
 from metatensor.torch import Labels as TorchLabels
 from metatensor.torch import TensorBlock as TorchTensorBlock
 from metatensor.torch import TensorMap as TorchTensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
@@ -263,7 +263,7 @@ class GAP(torch.nn.Module):
 
     def export(
         self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    ) -> AtomisticModel:
         interaction_ranges = [self.hypers["soap"]["cutoff"]["radius"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
@@ -296,7 +296,7 @@ class GAP(torch.nn.Module):
 
         append_metadata_references(metadata, self.__default_metadata__)
 
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(self.eval(), metadata, capabilities)
 
 
 ########################################################################################

@@ -36,7 +36,7 @@ import ase.visualize.plot
 import matplotlib.pyplot as plt
 import numpy as np
 from ase.geometry.analysis import Analysis
-from metatensor.torch.atomistic.ase_calculator import MetatensorCalculator
+from metatomic.torch.ase_calculator import MetatensorCalculator
 
 
 # %%

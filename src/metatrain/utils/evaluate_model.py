@@ -3,8 +3,8 @@ from typing import Dict, List, Union
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelEvaluationOptions,
     ModelOutput,
     System,
@@ -18,7 +18,7 @@ from .output_gradient import compute_gradient
 def evaluate_model(
     model: Union[
         torch.nn.Module,
-        MetatensorAtomisticModel,
+        AtomisticModel,
         torch.jit._script.RecursiveScriptModule,
     ],
     systems: List[System],
@@ -226,7 +226,7 @@ def _get_outputs(
 def _get_model_outputs(
     model: Union[
         torch.nn.Module,
-        MetatensorAtomisticModel,
+        AtomisticModel,
         torch.jit._script.RecursiveScriptModule,
     ],
     systems: List[System],

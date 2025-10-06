@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import vesin
 from metatensor.torch import Labels, TensorBlock
-from metatensor.torch.atomistic import (
+from metatomic.torch import (
     NeighborListOptions,
     System,
 )
@@ -91,7 +91,7 @@ def _compute_single_neighbor_list(
     atoms: ase.Atoms, options: NeighborListOptions
 ) -> TensorBlock:
     # Computes a single neighbor list for an ASE atoms object
-    # (as in metatensor.torch.atomistic)
+    # (as in metatomic.torch)
 
     if np.all(atoms.pbc) or np.all(~atoms.pbc):
         nl_i, nl_j, nl_S, nl_D = vesin.ase_neighbor_list(

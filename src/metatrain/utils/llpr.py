@@ -5,7 +5,7 @@ import metatensor.torch
 import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
+from metatomic.torch import (
     ModelCapabilities,
     ModelEvaluationOptions,
     ModelOutput,

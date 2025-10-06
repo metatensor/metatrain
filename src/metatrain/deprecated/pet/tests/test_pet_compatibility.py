@@ -1,7 +1,7 @@
 import pytest
 import torch
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelEvaluationOptions,
     ModelMetadata,
@@ -130,7 +130,7 @@ def test_predictions_compatibility(cutoff):
         outputs=capabilities.outputs,
     )
 
-    model = MetatensorAtomisticModel(model.eval(), ModelMetadata(), capabilities)
+    model = AtomisticModel(model.eval(), ModelMetadata(), capabilities)
     mtm_pet_prediction = (
         model(
             [system],
