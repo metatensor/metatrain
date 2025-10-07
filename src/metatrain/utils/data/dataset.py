@@ -383,8 +383,12 @@ class CollateFn:
         system_buffers = [
             save_system_buffer(_make_system_contiguous(s)) for s in systems
         ]
-        target_buffers = [save_buffer(targets[name]) for name in target_names]
-        extra_buffers = [save_buffer(extra[name]) for name in extra_names]
+        target_buffers = [
+            save_buffer(make_contiguous(targets[name])) for name in target_names
+        ]
+        extra_buffers = [
+            save_buffer(make_contiguous(extra[name])) for name in extra_names
+        ]
 
         system_sizes = [len(b) for b in system_buffers]
         target_sizes = [len(b) for b in target_buffers]
