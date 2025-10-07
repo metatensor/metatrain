@@ -20,12 +20,12 @@ Training troubleshooting
 
 **Q:** My training fails with an out of memory error, what can I do? \
 
-**A:** Reduce batch size. 
+**A:** Reduce batch size.
 
 **Q:** My training is very slow, what can I do? \
 
-**A:** There are several reasons why training can be slow. If possible, 
-try to reduce the dataset size or increase the batch size. 
+**A:** There are several reasons why training can be slow. If possible,
+try to reduce the dataset size or increase the batch size.
 You can also try to run on a GPU, which significantly increases performance times.
 
 **Q:**  My training is not converging, what can I do? \
@@ -51,9 +51,9 @@ General training concepts
 **Q:** How can I use a custom model architecture? \
 
 **A:** You can add a new model architecture to metatrain, if you want to do so have a look at
-`adding-new-architecture`. For adding a custom loss function have a look at `adding-new-loss`.
+:ref:`adding-new-architecture`. For adding a custom loss function have a look at :ref:`adding-new-loss`.
 If you just want to change the hyperparameters of an existing model architecture when training
-have a look at `train_yaml_config`.
+have a look at :ref:`train_yaml_config`.
 
 **Q:** How can I visualize the results of my training? \
 
@@ -61,12 +61,16 @@ have a look at `train_yaml_config`.
 
 **Q:** How can I get uncertainties for my model? \
 
-**A:** 
+**A:** Have a look at the :ref:`LLPR tutorial <llprexample>`. It shows how to use models
+with the last-layer prediction rigidity (`LLPR <LLPR_>`_) and local prediction rigidity (`LPR <LPR_>`_).
+
+.. _LLPR: https://arxiv.org/html/2403.02251v1
+.. _LPR: https://pubs.acs.org/doi/10.1021/acs.jctc.3c00704
 
 **Q:** How can save and restart my training? \
 
 **A:** Metatrain offers a convenient and automatic way to restart models from checkpoints.
-Please have a look at `` for details.
+Please have a look at :ref:`checkpoints` for details.
 
 Citing us
 ---------
