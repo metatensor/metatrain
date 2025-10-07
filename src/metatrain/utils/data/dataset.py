@@ -418,7 +418,7 @@ def unpack_batch(batch):
         )
     }
 
-    systems = [load_system_buffer(s) for s in systems]
+    systems = tuple(load_system_buffer(s) for s in systems)
     targets = {key: load_buffer(t) for key, t in targets.items()}
     extra_data = {key: load_buffer(t) for key, t in extra_data.items()}
     return systems, targets, extra_data
