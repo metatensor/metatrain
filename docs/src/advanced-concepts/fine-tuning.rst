@@ -1,3 +1,5 @@
+.. _fine-tuning:
+
 Fine-tuning
 ===========
 
@@ -54,7 +56,7 @@ this will help stabilizing the training process. I.e. if the default learning ra
 Please note, that in the case of the basic fine-tuning, the composition model weights
 will be taken from the checkpoint and not adapted to the new dataset.
 
-The basic fine-tuning startgy is a good choice in the case when the level of theory
+The basic fine-tuning strategy is a good choice in the case when the level of theory
 which is used for the original training is the same, or at least similar to the one used for
 the new dataset. However, since this is not always the case, we also provide more advanced
 fine-tuning strategies described below.
