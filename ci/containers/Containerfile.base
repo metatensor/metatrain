@@ -9,3 +9,4 @@ RUN python3 -m pip install --break-system-packages tox
 
 ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu128
 ENV CUDA_HOME="/usr/local/cuda"
+ENV PYTEST_XDIST_AUTO_NUM_WORKERS=12
