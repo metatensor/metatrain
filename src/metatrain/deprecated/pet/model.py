@@ -158,7 +158,9 @@ class PET(ModelInterface):
             [torch.arange(count, device=predictions.device) for count in counts]
         )
         samples_values = torch.stack([structure_index, atom_index], dim=1)
-        samples = Labels(names=["system", "atom"], values=samples_values)
+        samples = Labels(
+            names=["system", "atom"], values=samples_values, assume_unique=True
+        )
         empty_labels = Labels(
             names=["_"], values=torch.tensor([[0]], device=predictions.device)
         )
@@ -185,6 +187,7 @@ class PET(ModelInterface):
                     values=torch.arange(
                         ll_features.shape[1], device=predictions.device
                     ).reshape(-1, 1),
+                    assume_unique=True,
                 ),
             )
             output_tmap = TensorMap(

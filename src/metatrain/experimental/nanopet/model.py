@@ -15,7 +15,7 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL, OldCompositionModel
+from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
@@ -23,6 +23,7 @@ from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
+from . import checkpoints
 from .modules.encoder import Encoder
 from .modules.nef import (
     edge_array_to_nef,
@@ -52,7 +53,7 @@ class NanoPET(ModelInterface):
     and the third to the features.
     """
 
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -144,7 +145,7 @@ class NanoPET(ModelInterface):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = OldCompositionModel(
+        composition_model = CompositionModel(
             hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
@@ -152,7 +153,7 @@ class NanoPET(ModelInterface):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if OldCompositionModel.is_valid_target(target_name, target_info)
+                    if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
@@ -215,7 +216,7 @@ class NanoPET(ModelInterface):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if OldCompositionModel.is_valid_target(target_name, target_info)
+                    if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
@@ -266,6 +267,7 @@ class NanoPET(ModelInterface):
         sample_labels = Labels(
             names=["system", "atom"],
             values=sample_values,
+            assume_unique=True,
         )
 
         (
@@ -383,6 +385,7 @@ class NanoPET(ModelInterface):
                             values=torch.arange(
                                 node_features.shape[-1], device=node_features.device
                             ).reshape(-1, 1),
+                            assume_unique=True,
                         ),
                     )
                 ],
@@ -431,6 +434,7 @@ class NanoPET(ModelInterface):
                                 atomic_features_dict[base_name].shape[-1],
                                 device=atomic_features_dict[base_name].device,
                             ).reshape(-1, 1),
+                            assume_unique=True,
                         ),
                     )
                 ],
@@ -540,8 +544,6 @@ class NanoPET(ModelInterface):
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
     ) -> "NanoPET":
-        model_data = checkpoint["model_data"]
-
         if context == "restart":
             model_state_dict = checkpoint["model_state_dict"]
         elif context == "finetune" or context == "export":
@@ -552,6 +554,7 @@ class NanoPET(ModelInterface):
             raise ValueError("Unknown context tag for checkpoint loading!")
 
         # Create the model
+        model_data = checkpoint["model_data"]
         model = cls(
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
@@ -665,9 +668,22 @@ class NanoPET(ModelInterface):
             }
         )
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for NanoPET")
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
+
+        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current model "
+                f"version is {cls.__checkpoint_version__}."
+            )
+
+        return checkpoint
 
     def get_checkpoint(self) -> Dict:
         checkpoint = {

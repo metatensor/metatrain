@@ -32,6 +32,7 @@ def sum_over_atoms(tensor_map: TensorMap):
                 values=torch.arange(
                     n_systems, device=device, dtype=torch.int32
                 ).reshape(-1, 1),
+                assume_unique=True,
             ),
             components=block.components,
             properties=block.properties,

@@ -19,7 +19,7 @@ torch.set_default_dtype(torch.float64)  # GAP only supports float64
 
 
 def test_regression_train():
-    """Regression test on the model when trained for 2 epoch on a small dataset"""
+    """Regression test on the model when trained on a small dataset"""
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)

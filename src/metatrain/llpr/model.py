@@ -364,6 +364,7 @@ class LLPRUncertaintyModel(ModelInterface):
                             values=torch.arange(
                                 ensemble_values.shape[1], device=ensemble_values.device
                             ).unsqueeze(1),
+                            assume_unique=True,
                         ),
                     )
                 ],
