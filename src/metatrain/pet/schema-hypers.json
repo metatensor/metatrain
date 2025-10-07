@@ -45,6 +45,13 @@
             "RMSNorm"
           ]
         },
+        "transformer_type": {
+          "type": "string",
+          "enum": [
+            "PreLN",
+            "PostLN"
+          ]
+        },
         "activation": {
           "type": "string",
           "enum": [

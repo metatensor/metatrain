@@ -12,6 +12,7 @@ architecture:
     num_gnn_layers: 2
     normalization: LayerNorm
     activation: SiLU
+    transformer_type: PostLN
     zbl: false
     long_range:
       enable: false
