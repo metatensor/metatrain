@@ -4,7 +4,15 @@ Finetuning example
 .. warning::
   Finetuning is currently only available for the PET architecture.
 
-This is a simple example for fine-tuning PET-MAD (or a general PET checkpoint).
+
+This is a simple example for fine-tuning PET-MAD (or a general PET model), that
+can be used as a template for general Fine-tuning with metatrain. 
+Finetuning a pretrained model allows you to obtain a model better suited for
+your specific system. You need to provide a dataset of structures that have
+been evaluated at a reference level of theory, usually DFT. Finetuning
+a universal model such as PET-MAD allows for reasonable model performance even if little training
+data is available.
+
 First you need a valid checkpoint for the PET architecture, you can obtain a PET-MAD 
 checkpoint from huggingface
 .. code-block:: bash
@@ -60,8 +68,11 @@ In this example, we specified generic but reasonable ``num_epochs`` and ``learni
 parameters. The ``learning_rate`` is chosen to be relatively low to stabilise
 training. 
 
-This configuration allows for training on your dataset ``dataset.xyz``, and
-will fine-tune on forces as well as stress. Further information on specifying
+
+We assumed that the pre-trained model is trained on the dataset ``dataset.xyz`` with 
+energies, forces and stresses, which are provided as ``energy`` targets (and its derivatives) 
+in the ``options.yaml`` file.
+Further information on specifying
 targets can be found in :ref:`Customize a Dataset Configuration
 <dataset_conf>`_.
 
