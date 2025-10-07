@@ -12,7 +12,7 @@ Transfer Learning (experimental)
   Features described in this section are experimental and not yet
   extensively tested. Please use them at your own risk and report any
   issues you encounter to the developers. The transfer learned models 
-  are not available yet in MD engines such as ASE or LAMMPS.
+  cannot be used in MD engines such as ASE or LAMMPS yet.
 
 
 This section describes the process of transfer learning, which is a
