@@ -1,8 +1,20 @@
-# ===== Model checkpoint updates =====
+###########################
+# MODEL ###################
+###########################
 
-# ...
 
-# ===== Trainer checkpoint updates =====
+def model_update_v1_v2(checkpoint):
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            if "additive_models.0.model.type_to_index" not in state_dict:
+                state_dict["additive_models.0.model.type_to_index"] = state_dict.pop(
+                    "additive_models.0.type_to_index"
+                )
+
+
+###########################
+# TRAINER #################
+###########################
 
 
 def trainer_update_v1_v2(checkpoint):
