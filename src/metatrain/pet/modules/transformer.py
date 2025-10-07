@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -108,28 +110,56 @@ class TransformerLayer(torch.nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.mlp = FeedForward(d_model, dim_feedforward, activation, dropout)
 
-    def forward(
+    def _forward_pre_ln_impl(
         self,
         tokens: torch.Tensor,
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        tokens = tokens + self.dropout(
+            self.attention(
+                self.norm_attention(tokens), cutoff_factors, use_manual_attention
+            )
+        )
+        tokens = tokens + self.mlp(self.norm_mlp(tokens))
+        output_node_embeddings, output_edge_embeddings = torch.split(
+            tokens, [1, tokens.shape[1] - 1], dim=1
+        )
+        return output_node_embeddings, output_edge_embeddings
+
+    def _forward_post_ln_impl(
+        self,
+        tokens: torch.Tensor,
+        cutoff_factors: torch.Tensor,
+        use_manual_attention: bool,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        tokens = self.norm_attention(
+            tokens
+            + self.dropout(self.attention(tokens, cutoff_factors, use_manual_attention))
+        )
+        tokens = self.norm_mlp(tokens + self.mlp(tokens))
+        output_node_embeddings, output_edge_embeddings = torch.split(
+            tokens, [1, tokens.shape[1] - 1], dim=1
+        )
+        return output_node_embeddings, output_edge_embeddings
+
+    def forward(
+        self,
+        node_embeddings: torch.Tensor,
+        edge_embeddings: torch.Tensor,
+        cutoff_factors: torch.Tensor,
+        use_manual_attention: bool,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        tokens = torch.cat([node_embeddings, edge_embeddings], dim=1)
         if self.transformer_type == "PostLN":
-            tokens = self.norm_attention(
-                tokens
-                + self.dropout(
-                    self.attention(tokens, cutoff_factors, use_manual_attention)
-                )
+            node_embeddings, edge_embeddings = self._forward_post_ln_impl(
+                tokens, cutoff_factors, use_manual_attention
             )
-            tokens = self.norm_mlp(tokens + self.mlp(tokens))
         if self.transformer_type == "PreLN":
-            tokens = tokens + self.dropout(
-                self.attention(
-                    self.norm_attention(tokens), cutoff_factors, use_manual_attention
-                )
+            node_embeddings, edge_embeddings = self._forward_pre_ln_impl(
+                tokens, cutoff_factors, use_manual_attention
             )
-            tokens = tokens + self.mlp(self.norm_mlp(tokens))
-        return tokens
+        return node_embeddings, edge_embeddings
 
 
 class Transformer(torch.nn.Module):
@@ -186,15 +216,18 @@ class Transformer(torch.nn.Module):
 
     def forward(
         self,
-        tokens: torch.Tensor,
+        node_embeddings: torch.Tensor,
+        edge_embeddings: torch.Tensor,
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         for layer in self.layers:
-            tokens = layer(tokens, cutoff_factors, use_manual_attention)
+            node_embeddings, edge_embeddings = layer(
+                node_embeddings, edge_embeddings, cutoff_factors, use_manual_attention
+            )
         if self.transformer_type == "PreLN":
-            tokens = self.final_norm(tokens)
-        return tokens
+            edge_embeddings = self.final_norm(edge_embeddings)
+        return node_embeddings, edge_embeddings
 
 
 class CartesianTransformer(torch.nn.Module):
@@ -256,26 +289,26 @@ class CartesianTransformer(torch.nn.Module):
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
     ):
-        node_elements_embedding = self.node_embedder(element_indices_nodes)
-        edge_embedding = [edge_vectors, edge_distances[:, :, None]]
-        edge_embedding = torch.cat(edge_embedding, dim=2)
-        edge_embedding = self.edge_embedder(edge_embedding)
+        node_embeddings = self.node_embedder(element_indices_nodes)
+        edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
+        edge_embeddings = torch.cat(edge_embeddings, dim=2)
+        edge_embeddings = self.edge_embedder(edge_embeddings)
 
         if not self.is_first:
-            neighbor_elements_embedding = self.neighbor_embedder(
+            neighbor_elements_embeddings = self.neighbor_embedder(
                 element_indices_neighbors
             )
-            tokens = torch.cat(
-                [edge_embedding, neighbor_elements_embedding, input_messages], dim=2
+            edge_tokens = torch.cat(
+                [edge_embeddings, neighbor_elements_embeddings, input_messages], dim=2
             )
         else:
-            neighbor_elements_embedding = torch.empty(
+            neighbor_elements_embeddings = torch.empty(
                 0, device=edge_vectors.device, dtype=edge_vectors.dtype
             )  # for torch script
-            tokens = torch.cat([edge_embedding, input_messages], dim=2)
+            edge_tokens = torch.cat([edge_embeddings, input_messages], dim=2)
 
-        tokens = self.compress(tokens)
-        tokens = torch.cat([node_elements_embedding[:, None, :], tokens], dim=1)
+        edge_tokens = self.compress(edge_tokens)
+        # tokens = torch.cat([node_elements_embedding[:, None, :], tokens], dim=1)
 
         padding_mask_with_central_token = torch.ones(
             padding_mask.shape[0], dtype=torch.bool, device=padding_mask.device
@@ -285,7 +318,9 @@ class CartesianTransformer(torch.nn.Module):
         )
 
         cutoff_subfactors = torch.ones(
-            padding_mask.shape[0], device=padding_mask.device
+            padding_mask.shape[0],
+            dtype=cutoff_factors.dtype,
+            device=padding_mask.device,
         )
         cutoff_factors = torch.cat([cutoff_subfactors[:, None], cutoff_factors], dim=1)
         cutoff_factors[~total_padding_mask] = 0.0
@@ -296,8 +331,9 @@ class CartesianTransformer(torch.nn.Module):
         initial_num_tokens = edge_vectors.shape[1]
         max_num_tokens = input_messages.shape[1]
 
-        output_messages = self.trans(
-            tokens[:, : (max_num_tokens + 1), :],
+        output_node_embeddings, output_edge_embeddings = self.trans(
+            node_embeddings[:, None, :],
+            edge_tokens[:, :max_num_tokens, :],
             cutoff_factors=cutoff_factors[
                 :, : (max_num_tokens + 1), : (max_num_tokens + 1)
             ],
@@ -305,15 +341,14 @@ class CartesianTransformer(torch.nn.Module):
         )
         if max_num_tokens < initial_num_tokens:
             padding = torch.zeros(
-                output_messages.shape[0],
+                output_edge_embeddings.shape[0],
                 initial_num_tokens - max_num_tokens,
-                output_messages.shape[2],
-                device=output_messages.device,
+                output_edge_embeddings.shape[2],
+                device=output_edge_embeddings.device,
             )
-            output_messages = torch.cat([output_messages, padding], dim=1)
+            output_edge_embeddings = torch.cat([output_edge_embeddings, padding], dim=1)
+        output_node_embeddings = output_node_embeddings.squeeze(1)
 
-        output_node_embeddings = output_messages[:, 0, :]
-        output_edge_embeddings = output_messages[:, 1:, :]
         return output_node_embeddings, output_edge_embeddings
 
 
