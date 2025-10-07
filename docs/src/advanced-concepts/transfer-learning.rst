@@ -42,8 +42,10 @@ of the ``ase.Atoms`` object. Then, the ``options.yaml`` file should look like th
 .. code-block:: yaml
 
   architecture:
-     training:
-       finetune:
+    name: pet
+    training:
+      finetune:
+        method: full 
         read_from: path/to/checkpoint.ckpt
 
   training_set:
