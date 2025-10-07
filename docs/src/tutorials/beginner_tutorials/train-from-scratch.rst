@@ -1,10 +1,8 @@
 Training a model from scratch
 #############################
 This tutorial explains how to train a model with ``metatrain`` from scratch and evaluate
-it. `This dataset`_ is used here as an example of the preferred dataset format. If you
+it. `This dataset <../../../../examples/ase/ethanol_reduced_100.xyz>`_ is used here as an example of the preferred dataset format. If you
 have your own dataset, you can simply replace the dataset file name with yours.
-
-.. _`This dataset`: https://raw.githubusercontent.com/metatensor/Workshop-spring-2025/refs/heads/main/training-custom-models/data/rmd17_ethanol_1000.xyz
 
 Train the model
 ---------------
@@ -36,7 +34,7 @@ the supported models, please check `Available Architectures`_ .
     # this needs specifying based on the specific dataset
     training_set:
       systems:
-        read_from: data/rmd17_ethanol_1000.xyz # TODO: file where the positions are stored
+        read_from: ../../../../examples/ase/ethanol_reduced_100.xyz
         length_unit: Angstrom
       targets:
         energy:
@@ -50,7 +48,7 @@ Copy-pasting this content into ``options.yaml``, and run
 
 .. code-block:: bash
 
-    mtt train option.yaml
+    mtt train options.yaml
 
 It will start training. ``metatrain`` will automatically read the atomic forces from the training set, if they are stored in it and named as "forces". The model can also be trained to learn other properties through transfer learning. For this, please refer to this `transfer learning tutorial`_.
 
@@ -60,7 +58,7 @@ Once the training is started, a folder named ``outputs`` will be created automat
 
 .. code-block:: bash
 
-    outputs/2025-10-07/11-09-03/
+    outputs/2025-10-07/17-08-25/
     ├── indices  # the results of dataset-spliting
     │   ├── test.txt
     │   ├── training.txt
@@ -76,38 +74,38 @@ The ``train.log`` provides information of the training procedure. For example, b
 
 .. code-block:: bash
 
-    [2025-10-07 11:09:06][INFO] - Setting up training set
-    [2025-10-07 11:09:07][INFO] - Forces found in section 'energy', we will use this gradient to train the model
-    [2025-10-07 11:09:08][WARNING] - No stress found in section 'energy'.
+    [2025-10-07 17:08:25][INFO] - Setting up training set
+    [2025-10-07 17:08:25][INFO] - Forces found in section 'energy', we will use this gradient to train the model
+    [2025-10-07 17:08:25][WARNING] - No stress found in section 'energy'.
 
 you can know the forces are identified by ``metatrain`` and are used during the training, and it fails to find stress. The following provides some statistical of the training, validation, and the test set
 
 .. code-block:: bash
 
-    [2025-10-07 11:09:09][INFO] - Training dataset:
-        Dataset containing 800 structures
+    [2025-10-07 17:08:25][INFO] - Training dataset:
+        Dataset containing 80 structures
         Mean and standard deviation of targets:
         - energy:
           - mean -9.708e+04 eV
-          - std  4.122 eV
-    [2025-10-07 11:09:09][INFO] - Validation dataset:
-        Dataset containing 100 structures
+          - std  3.97 eV
+    [2025-10-07 17:08:25][INFO] - Validation dataset:
+        Dataset containing 10 structures
         Mean and standard deviation of targets:
         - energy:
           - mean -9.708e+04 eV
-          - std  4.384 eV
-    [2025-10-07 11:09:09][INFO] - Test dataset:
-        Dataset containing 100 structures
+          - std  3.73 eV
+    [2025-10-07 17:08:25][INFO] - Test dataset:
+        Dataset containing 10 structures
         Mean and standard deviation of targets:
         - energy:
           - mean -9.708e+04 eV
-          - std  3.883 eV
+          - std  3.535 eV
 
 The training metrics are outputted every epoch, like
 
 .. code-block:: bash
 
-    [2025-10-07 11:09:29][INFO] - Epoch:    0 | learning rate: 0.000e+00 | training loss: 1.194e+04 | training energy RMSE (per atom): 578.82 meV | training energy MAE (per atom): 488.36 meV | training forces RMSE: 27307.6 meV/A | training forces MAE: 20179.2 meV/A | validation loss: 1.599e+03 | validation energy RMSE (per atom): 547.90 meV | validation energy MAE (per atom): 456.01 meV | validation forces RMSE: 28268.1 meV/A | validation forces MAE: 20921.5 meV/A
+    [2025-10-07 17:08:28][INFO] - Epoch:    0 | learning rate: 0.000e+00 | training loss: 6.305e+03 | training energy RMSE (per atom): 884.08 meV | training energy MAE (per atom): 773.44 meV | training forces RMSE: 28059.9 meV/A | training forces MAE: 20581.1 meV/A | validation loss: 7.725e+02 | validation energy RMSE (per atom): 877.08 meV | validation energy MAE (per atom): 772.04 meV | validation forces RMSE: 27779.2 meV/A | validation forces MAE: 20201.9 meV/A
 
 These metrics are also outputted into ``train.csv`` in a formatted way, which can be used for plotting graph like loss curve.
 
@@ -124,7 +122,7 @@ In order to evaluate the model on the test set, we can use the mtt eval sub-comm
 .. code-block:: yaml
 
     systems:
-      read_from: data/rmd17_ethanol_1000.xyz # file where the positions are stored
+      read_from: ../../../../examples/ase/ethanol_reduced_100.xyz # file where the positions are stored
       length_unit: Angstrom
     targets:
       energy:
@@ -141,8 +139,8 @@ After this, a file named ``output.xyz`` will be created, with the atom positions
 
 .. code-block:: bash
 
-    [2025-10-07 12:29:05][INFO] - energy RMSE (per atom): 465.14 meV | energy MAE (per atom): 371.64 meV | forces RMSE: 27270.5 meV/A | forces MAE: 20141.1 meV/A
-    [2025-10-07 12:29:05][INFO] - Evaluation time: 8.24 s [0.9152 ± 0.0151 ms per atom]
+    [2025-10-07 17:11:47][INFO] - energy RMSE (per atom): 436.50 meV | energy MAE (per atom): 341.32 meV | forces RMSE: 27823.1 meV/A | forces MAE: 20392.7 meV/A
+    [2025-10-07 17:11:47][INFO] - Evaluation time: 1.10 s [1.2185 ± 1.2768 ms per atom]
 
 Further analysis can be performed now that the model is trained. We provide a `Python script`_ that can be used to generate a parity plot of the target vs predicted energies, but otherwise leave this open-ended.
 
