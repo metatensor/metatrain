@@ -27,6 +27,9 @@ Unreleased
 Changed
 #######
 
+- ``NanoPET`` has been deprecated in favor of the stable ``PET`` architecture. The
+  ``deprecated.nanopet`` architecture is still available for loading old checkpoints,
+  but it will not receive any updates or bug fixes.
 - The ``NanoPET`` and ``GAP`` architectures now use the new composition model, and the
   old composition model has been removed.
 - The ``LLPR`` module is now a stable architecture, instead of a utility module. It can
