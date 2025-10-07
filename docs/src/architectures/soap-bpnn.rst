@@ -38,7 +38,7 @@ We explain below the model-specific hypers for SOAP-BPNN.
 
 ``soap``
 ########
-:param cutoff: This determines the cutoff routine of the atomic environment, and has 
+:param cutoff: This determines the cutoff routine of the atomic environment, and has
   two internal hypers: ``radius`` and ``width``. ``radius`` should be set to a value
   after which most of interatomic is expected to be negligible. Note that the values
   should be defined in the position units of your dataset. The radial cutoff of
@@ -74,7 +74,7 @@ briefly explained below.
 ``model``
 #########
 :param add_lambda_basis: This boolean parameter controls whether or not to add a
-spherical expansion term of the same angular order as the targets, when they are tensorial.
+  spherical expansion term of the same angular order as the targets, when they are tensorial.
 :param heads: The type of head ("linear" or "mlp") to use for each target (e.g.
   ``heads: {"energy": "linear", "mtt::dipole": "mlp"}``). All omitted targets will use a
   MLP (multi-layer perceptron) head. MLP heads consists of one hidden layer with as
@@ -100,11 +100,11 @@ spherical expansion term of the same angular order as the targets, when they are
 :param early_stopping_patience: this integer defines the number of epochs without
   improvement are allowed before early stopping is invoked by scheduler.
 :param scheduler_patience: this integer defines the number of epochs without
-  improvement until the `ReduceLROnPlateau` scheduler lowers the learning rate.
+  improvement until the ``ReduceLROnPlateau`` scheduler lowers the learning rate.
 :param scheduler_factor: this float defines the factor by which the learning rate
   is lowered when lowering is invoked by the scheduler.
 :param log_interval: this integer defines the epoch interval of metric logging.
-:param checkpoint_interval: this integer defines the epoch interval of checkpoint 
+:param checkpoint_interval: this integer defines the epoch interval of checkpoint
   saving.
 :param scale_targets: this boolean determines whether or not to scale the targets
   with the internal scalers before the targets are exposed to the models for learning.
