@@ -31,7 +31,7 @@ from metatrain.utils.neighbor_lists import (
 # uses float32 by default. We will convert the systems to float32.
 
 systems = read_systems("qm9_reduced_100.xyz")
-systems = [s.to(torch.float64) for s in systems]
+systems = [s.to(torch.float32) for s in systems]
 
 
 # %%
@@ -52,7 +52,7 @@ class PETWithTanh(torch.nn.Module):
                 targets={},
             ),
         )
-        self.linear = torch.nn.Linear(128, 1)
+        self.linear = torch.nn.Linear(512, 1)
         self.tanh = torch.nn.Tanh()
 
     def forward(self, systems):
