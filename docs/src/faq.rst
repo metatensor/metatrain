@@ -2,40 +2,55 @@
 Frequently Asked Questions
 ==========================
 
-This is the main document. Below are links to the sections:
+This page is a collection of FAQs. Below are links to the sections:
 
 Contents
 --------
 
-`How do I cite metatrain?`_
-- My training fails with an out of memory error, what can I do? \
-- In what format should I provide my data? \
-- How can I use a custom model architecture? \
-- How good should my errors are before I can use my model to run Molecular Dynamics simulations? \
-- My training is very slow, what can I do? \
-- My training is not converging, what can I do? \
-- How can I visualize the results of my training? \
 
+`Training troubleshooting`_\
 
-How do I cite metatrain?
-========================
+`General training concepts`_ \
 
-.. _How do I cite metatrain?:
+`Citing us`_ \
 
-**Q:** How do I cite ``metatrain``? \
+Training troubleshooting
+------------------------
+.. _Training troubleshooting:
+
+**Q:** My training fails with an out of memory error, what can I do? \
+
+**A:**
+
+**Q:** My training is very slow, what can I do? \
+
+**A:**
+
+**Q:**  My training is not converging, what can I do? \
+
+**A:**
+
+General training concepts
+-------------------------
+.. _General training concepts:
+
+**Q:** In what format should I provide my data? \
+
+**A:**
+
+**Q:** How good should my errors are before I can use my model to run Molecular Dynamics simulations? \
+
+**A:** How can I use a custom model architecture? \
+
+**Q:** How can I visualize the results of my training? \
+
+**A:**
+
+Citing us
+---------
+.. _Citing us:
+
+**Q:** How do I cite ``metatrain``?
 
 **A:** Please follow the instructions on :ref:`this page <citingmetatrain>`.
- 
-Section 2
-^^^^^^^^^
 
-.. _section2:
-
-This is the content of section 2.
-
-Section 3
-^^^^^^^^^
-
-.. _section3:
-
-This is the content of section 3.
