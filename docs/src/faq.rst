@@ -20,11 +20,11 @@ Training troubleshooting
 
 **Q:** My training fails with an out of memory error, what can I do? \
 
-**A:** 
+**A:** Reduce batch size. 
 
 **Q:** My training is very slow, what can I do? \
 
-**A:**
+**A:** move to GPU? reduce dataset size?
 
 **Q:**  My training is not converging, what can I do? \
 
@@ -49,6 +49,14 @@ General training concepts
 **Q:** How can I visualize the results of my training? \
 
 **A:**
+
+**Q:** How can I get uncertainties for my model? \
+
+**A:**
+
+**Q:** How can save and restart my training? \
+
+**A:** 
 
 Citing us
 ---------
