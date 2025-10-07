@@ -701,6 +701,9 @@ def _save_indices(
 def get_num_workers() -> int:
     """Gets a good number of workers for data loading."""
 
+    if multiprocessing.get_start_method(allow_none=False) != "fork":
+        return 0
+
     # len(os.sched_getaffinity(0)) detects thread counts set by slurm,
     # multiprocessing.cpu_count() doesn't but is more portable
     if hasattr(os, "sched_getaffinity"):
