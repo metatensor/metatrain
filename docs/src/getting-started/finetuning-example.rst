@@ -6,10 +6,10 @@ Finetuning example
 
 
 This is a simple example for fine-tuning PET-MAD (or a general PET model), that
-can be used as a template for general Fine-tuning with metatrain. 
-Finetuning a pretrained model allows you to obtain a model better suited for
+can be used as a template for general fine-tuning with metatrain. 
+Fine-tuning a pretrained model allows you to obtain a model better suited for
 your specific system. You need to provide a dataset of structures that have
-been evaluated at a reference level of theory, usually DFT. Finetuning
+been evaluated at a reference level of theory, usually DFT. Fine-tuning
 a universal model such as PET-MAD allows for reasonable model performance even if little training
 data is available.
 
@@ -18,11 +18,12 @@ checkpoint from huggingface
 .. code-block:: bash
   wget https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.1.0/models/pet-mad-v1.1.0.ckpt
 
-Next, we set up the ``options.yaml`` file. We can specify the finetuning method
-in the ``finetune`` block. Here, the basic ``full`` option is chosen, which finetunes all 
-weights of the model. All available finetuning methods are found in the advanced concepts 
+Next, we set up the ``options.yaml`` file. We can specify the fine-tuning method
+in the ``finetune`` block in the ``training`` options of the ``architecture``. 
+Here, the basic ``full`` option is chosen, which finetunes all weights of the model. 
+All available fine-tuning methods are found in the advanced concepts 
 :ref:`Fine-tuning <fine-tuning>`_. This section discusses implementation details,
-options and recommended use cases. Other finetuning options can be simply substituted in this script, 
+options and recommended use cases. Other fine-tuning options can be simply substituted in this script, 
 by changing the ``finetune`` block. 
    
 Furthermore, you need to specify the checkpoint, that you want to fine-tune in
@@ -38,7 +39,7 @@ A simple ``options.yaml`` file for this task could look like this:
       num_epochs: 1000
       learning_rate: 1e-5
       finetune:
-        method: "full"
+        method: full
         read_from: path/to/checkpoint.ckpt
   training_set:
     systems:
