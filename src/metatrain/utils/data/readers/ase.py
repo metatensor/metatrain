@@ -119,6 +119,7 @@ def _read_forces_ase(filename: str, key: str = "forces") -> List[TensorBlock]:
         samples = Labels(
             ["sample", "system", "atom"],
             torch.tensor([[0, i_system, a] for a in range(len(values))]),
+            assume_unique=True,
         )
 
         block = TensorBlock(
@@ -350,6 +351,7 @@ def read_generic(
             Labels(
                 ["system", "atom"],
                 torch.tensor([[i_system, a] for a in range(len(values))]),
+                assume_unique=True,
             )
             if per_atom
             else Labels(

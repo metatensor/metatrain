@@ -330,6 +330,7 @@ class CompositionModel(torch.nn.Module):
                 torch.vstack(
                     [key.values for key in target_info.layout.keys if _include_key(key)]
                 ),
+                assume_unique=True,
             ),
         )
 
@@ -346,6 +347,7 @@ class CompositionModel(torch.nn.Module):
                         values=torch.tensor(self.atomic_types, dtype=torch.int).reshape(
                             -1, 1
                         ),
+                        assume_unique=True,
                     ),
                     components=b.components,
                     properties=b.properties,
