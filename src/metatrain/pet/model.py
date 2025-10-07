@@ -67,6 +67,7 @@ class PET(ModelInterface):
                     self.hypers,
                     self.hypers["d_pet"],
                     self.hypers["num_heads"],
+                    self.hypers["d_node"],
                     self.hypers["d_feedforward"],
                     self.hypers["num_attention_layers"],
                     0.0,  # attention dropout rate
@@ -81,7 +82,7 @@ class PET(ModelInterface):
 
         self.node_embedders = torch.nn.ModuleList(
             [
-                torch.nn.Embedding(num_atomic_species + 1, self.hypers["d_pet"])
+                torch.nn.Embedding(num_atomic_species + 1, self.hypers["d_node"])
                 for _ in range(self.hypers["num_gnn_layers"])
             ]
         )
@@ -823,7 +824,7 @@ class PET(ModelInterface):
         self.node_heads[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.Sequential(
-                    torch.nn.Linear(self.hypers["d_pet"], self.hypers["d_head"]),
+                    torch.nn.Linear(self.hypers["d_node"], self.hypers["d_head"]),
                     torch.nn.SiLU(),
                     torch.nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
                     torch.nn.SiLU(),

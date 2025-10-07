@@ -94,6 +94,7 @@ class TransformerLayer(torch.nn.Module):
         self,
         d_model,
         n_heads,
+        dim_node_features,
         dim_feedforward=512,
         dropout=0.0,
         norm="LayerNorm",
@@ -109,30 +110,66 @@ class TransformerLayer(torch.nn.Module):
         self.norm_mlp = norm_class(d_model)
         self.dropout = nn.Dropout(dropout)
         self.mlp = FeedForward(d_model, dim_feedforward, activation, dropout)
+        self.expand_node_features = False
+        if dim_node_features != d_model:
+            self.expand_node_features = True
+            self.center_contraction = nn.Linear(dim_node_features, d_model)
+            self.center_expansion = nn.Linear(d_model, dim_node_features)
+            self.norm_center_features = norm_class(dim_node_features)
+            self.center_mlp = FeedForward(
+                dim_node_features, 2 * dim_node_features, activation, dropout
+            )
+        else:
+            self.center_contraction = torch.nn.Identity()
+            self.center_expansion = torch.nn.Identity()
+            self.norm_center_features = torch.nn.Identity()
+            self.center_mlp = torch.nn.Identity()
 
     def _forward_pre_ln_impl(
         self,
-        tokens: torch.Tensor,
+        node_embeddings: torch.Tensor,
+        edge_embeddings: torch.Tensor,
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        tokens = tokens + self.dropout(
-            self.attention(
-                self.norm_attention(tokens), cutoff_factors, use_manual_attention
-            )
+        if self.expand_node_features:
+            input_node_embeddings = self.center_contraction(node_embeddings)
+        else:
+            input_node_embeddings = node_embeddings
+        tokens = torch.cat([input_node_embeddings, edge_embeddings], dim=1)
+        new_tokens = self.attention(
+            self.norm_attention(tokens), cutoff_factors, use_manual_attention
         )
-        tokens = tokens + self.mlp(self.norm_mlp(tokens))
         output_node_embeddings, output_edge_embeddings = torch.split(
-            tokens, [1, tokens.shape[1] - 1], dim=1
+            new_tokens, [1, new_tokens.shape[1] - 1], dim=1
         )
+        if self.expand_node_features:
+            output_node_embeddings = node_embeddings + self.center_expansion(
+                output_node_embeddings
+            )
+            output_node_embeddings = output_node_embeddings + self.center_mlp(
+                self.norm_center_features(output_node_embeddings)
+            )
+
+        output_edge_embeddings = edge_embeddings + output_edge_embeddings
+        output_edge_embeddings = output_edge_embeddings + self.mlp(
+            self.norm_mlp(output_edge_embeddings)
+        )
+
         return output_node_embeddings, output_edge_embeddings
 
     def _forward_post_ln_impl(
         self,
-        tokens: torch.Tensor,
+        node_embeddings: torch.Tensor,
+        edge_embeddings: torch.Tensor,
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if self.expand_node_features:
+            input_node_embeddings = self.center_contraction(node_embeddings)
+        else:
+            input_node_embeddings = node_embeddings
+        tokens = torch.cat([input_node_embeddings, edge_embeddings], dim=1)
         tokens = self.norm_attention(
             tokens
             + self.dropout(self.attention(tokens, cutoff_factors, use_manual_attention))
@@ -141,6 +178,13 @@ class TransformerLayer(torch.nn.Module):
         output_node_embeddings, output_edge_embeddings = torch.split(
             tokens, [1, tokens.shape[1] - 1], dim=1
         )
+        if self.expand_node_features:
+            output_node_embeddings = node_embeddings + self.center_expansion(
+                output_node_embeddings
+            )
+            output_node_embeddings = output_node_embeddings + self.center_mlp(
+                self.norm_center_features(output_node_embeddings)
+            )
         return output_node_embeddings, output_edge_embeddings
 
     def forward(
@@ -150,14 +194,13 @@ class TransformerLayer(torch.nn.Module):
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        tokens = torch.cat([node_embeddings, edge_embeddings], dim=1)
         if self.transformer_type == "PostLN":
             node_embeddings, edge_embeddings = self._forward_post_ln_impl(
-                tokens, cutoff_factors, use_manual_attention
+                node_embeddings, edge_embeddings, cutoff_factors, use_manual_attention
             )
         if self.transformer_type == "PreLN":
             node_embeddings, edge_embeddings = self._forward_pre_ln_impl(
-                tokens, cutoff_factors, use_manual_attention
+                node_embeddings, edge_embeddings, cutoff_factors, use_manual_attention
             )
         return node_embeddings, edge_embeddings
 
@@ -168,6 +211,7 @@ class Transformer(torch.nn.Module):
         d_model,
         num_layers,
         n_heads,
+        dim_node_features,
         dim_feedforward=512,
         dropout=0.0,
         norm="LayerNorm",
@@ -204,6 +248,7 @@ class Transformer(torch.nn.Module):
                 TransformerLayer(
                     d_model=d_model,
                     n_heads=n_heads,
+                    dim_node_features=dim_node_features,
                     dim_feedforward=dim_feedforward,
                     dropout=dropout,
                     norm=norm,
@@ -236,6 +281,7 @@ class CartesianTransformer(torch.nn.Module):
         hypers,
         d_model: int,
         n_head: int,
+        dim_node_features: int,
         dim_feedforward: int,
         n_layers: int,
         dropout: float,
@@ -252,6 +298,7 @@ class CartesianTransformer(torch.nn.Module):
             d_model=d_model,
             num_layers=n_layers,
             n_heads=n_head,
+            dim_node_features=dim_node_features,
             dim_feedforward=dim_feedforward,
             dropout=dropout,
             norm=norm,
@@ -275,8 +322,6 @@ class CartesianTransformer(torch.nn.Module):
         self.neighbor_embedder = DummyModule()  # for torchscript
         if not is_first:
             self.neighbor_embedder = nn.Embedding(n_atomic_species + 1, d_model)
-
-        # self.node_embedder = nn.Embedding(n_atomic_species + 1, d_model)
 
     def forward(
         self,

@@ -48,6 +48,11 @@ def model_update_v6_v7(checkpoint):
     # Adding the option for choosing the activation function
     if "activation" not in checkpoint["model_data"]["model_hypers"]:
         checkpoint["model_data"]["model_hypers"]["activation"] = "SiLU"
+    # Setting the node features dimension to be the same as d_pet if not specified
+    if "d_node" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["d_node"] = checkpoint["model_data"][
+            "model_hypers"
+        ]["d_pet"]
     for key in ["model_state_dict", "best_model_state_dict"]:
         if (state_dict := checkpoint.get(key)) is not None:
             new_state_dict = {}
