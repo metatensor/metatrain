@@ -812,7 +812,7 @@ class MemmapDataset(TorchDataset):
         format corresponding to metatrain yaml input files.
     """
 
-    def __init__(self, path: str | Path, target_options: Dict[str, Any]):
+    def __init__(self, path: Union[str, Path], target_options: Dict[str, Any]):
         path = Path(path)
         self.target_config = target_options
         self.sample_class = namedtuple(
