@@ -6,6 +6,12 @@ import pytest
 import torch
 
 
+ALLOWED_NEW_KEYS_CONDITIONS = [
+    # torch added this key in LambdaLR
+    lambda prefix, key: "scheduler" in f"{prefix}.{key}" and key == "_is_initial"
+]
+
+
 def check_same_checkpoint_structure(checkpoint, reference, prefix=""):
     assert isinstance(checkpoint, dict)
     assert isinstance(reference, dict)
@@ -15,6 +21,8 @@ def check_same_checkpoint_structure(checkpoint, reference, prefix=""):
             raise KeyError(f"missing key from checkpoint: {prefix}.{key}")
 
     for key in checkpoint:
+        if any(cond(prefix, key) for cond in ALLOWED_NEW_KEYS_CONDITIONS):
+            continue
         if key not in reference:
             raise KeyError(f"new key in checkpoint: {prefix}.{key}")
 
