@@ -18,44 +18,56 @@ Training troubleshooting
 ------------------------
 .. _Training troubleshooting:
 
-**Q:** My training fails with an out of memory error, what can I do? \
+**Q: My training fails with an out of memory error, what can I do?** \
 
-**A:** Reduce batch size. 
+**A:** Reduce batch size.
 
-**Q:** My training is very slow, what can I do? \
+**Q: My training is very slow, what can I do?** \
 
-**A:** There are several reasons why training can be slow. If possible, 
-try to reduce the dataset size or increase the batch size. 
+**A:** There are several reasons why training can be slow. If possible,
+try to reduce the dataset size or increase the batch size.
 You can also try to run on a GPU, which significantly increases performance times.
 
-**Q:**  My training is not converging, what can I do? \
+**Q: My training is not converging, what can I do?** \
 
-**A:** Please make sure that you dataset is consitently computed and converged to a reasonable accuracy.
+**A:** First, please make sure that you dataset is computed consitently and converged to a reasonable accuracy.
+Looking at a distribution of your energies per atom can help. Furthermore, outliers, such as large forces
+complicate training, so looking at the distribution of the forces and removing structures with large forces
+(e.g. all structures with forces with an absolute force > 20 eV/Å) from the dataset can help to stabilize training.
 
 General training concepts
 -------------------------
 .. _General training concepts:
 
-**Q:** What cutoff radius should I use? \
+**Q: What cutoff radius should I use?** \
+
+**A:** The optimal cutoff radius depends on the type of system you are modeling.
+
+In general, the cutoff should be large enough to include all physically relevant interactions
+(e.g., chemical bonding and short-range correlations) but not so large that it adds unnecessary
+computational cost. For istance around **4–6 Å** is a good value for most systems, but it can be
+increased to **8-10 Å** for condensed phases where longer-range effects are important. You can
+then test convergence by gradually increasing the cutoff and monitoring whether your target quantities
+(energies, forces, or other observables) change significantly.
+
+Note that if you are using massage passing the effective cutoff extends beyond the nominal atomic cutoff.
+For example, a model with a 5 Å cutoff and two message-passing layers (PET default hypers) can capture
+correlations up to roughly 10 Å.
+
+**Q: In what format should I provide my data?** \
+
+**A:** 
+
+**Q: How good should my errors are before I can use my model to run Molecular Dynamics simulations?** \
 
 **A:**
 
-**Q:** In what format should I provide my data? \
-
-**A:**
-
-**Q:** How good should my errors are before I can use my model to run Molecular Dynamics simulations? \
-
-**A:**
-
-**Q:** How can I use a custom model architecture? \
+**Q: How can I use a custom model architecture?** \
 
 **A:** You can add a new model architecture to metatrain, if you want to do so have a look at
-`adding-new-architecture`. For adding a custom loss function have a look at `adding-new-loss`.
-If you just want to change the hyperparameters of an existing model architecture when training
-have a look at `train_yaml_config`.
+:ref:`adding-new-architecture`. For adding a custom loss function have a look at :ref:`adding-new-loss`.
 
-**Q:** How can I visualize the results of my training? \
+**Q: How can I visualize the results of my training?** \
 
 **A:** Every training run writes the train log into a csv file. You can use a simple python 
 script for e.g. parsing the losses. A small example is shown in 
@@ -65,20 +77,24 @@ For tracking your training runs live, there is also the possibility to connect t
 For seeing how to link the wandb logger, follow the section 
 :ref:`Advanced Base configuration <_advanced_base_conf>`.
 
-**Q:** How can I get uncertainties for my model? \
+**Q: How can I get uncertainties for my model?** \
 
-**A:** 
+**A:** Have a look at the :ref:`LLPR tutorial <llprexample>`. It shows how to use models
+with the last-layer prediction rigidity (`LLPR <LLPR_>`_) and local prediction rigidity (`LPR <LPR_>`_).
 
-**Q:** How can save and restart my training? \
+.. _LLPR: https://arxiv.org/html/2403.02251v1
+.. _LPR: https://pubs.acs.org/doi/10.1021/acs.jctc.3c00704
+
+**Q: How can save and restart my training?** \
 
 **A:** Metatrain offers a convenient and automatic way to restart models from checkpoints.
-Please have a look at `` for details.
+Please have a look at :ref:`checkpoints` for details.
 
 Citing us
 ---------
 .. _Citing us:
 
-**Q:** How do I cite ``metatrain``?
+**Q: How do I cite ``metatrain``?**
 
 **A:** Please follow the instructions on :ref:`this page <citingmetatrain>`.
 
