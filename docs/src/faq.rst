@@ -30,7 +30,10 @@ You can also try to run on a GPU, which significantly increases performance time
 
 **Q:**  My training is not converging, what can I do? \
 
-**A:** Please make sure that you dataset is consitently computed and converged to a reasonable accuracy.
+**A:** First, please make sure that you dataset is computed consitently and converged to a reasonable accuracy.
+Looking at a distribution of your energies per atom can help. Furthermore, outliers, such as large forces
+complicate training, so looking at the distribution of the forces and removing structures with large forces
+(e.g. all structures with forces with an absolute force > 20 eV/Å) from the dataset can help to stabilize training.
 
 General training concepts
 -------------------------
@@ -46,7 +49,7 @@ Note that if you are using massage passing the effective cutoff extends beyond t
 
 **Q:** In what format should I provide my data? \
 
-**A:**
+**A:** 
 
 **Q:** How good should my errors are before I can use my model to run Molecular Dynamics simulations? \
 
@@ -56,8 +59,6 @@ Note that if you are using massage passing the effective cutoff extends beyond t
 
 **A:** You can add a new model architecture to metatrain, if you want to do so have a look at
 :ref:`adding-new-architecture`. For adding a custom loss function have a look at :ref:`adding-new-loss`.
-If you just want to change the hyperparameters of an existing model architecture when training
-have a look at :ref:`train_yaml_config`.
 
 **Q:** How can I visualize the results of my training? \
 
