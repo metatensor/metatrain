@@ -4,8 +4,9 @@ Finetuning example
 Finetuning is currently only available for the PET architecture.
 This is a simple example for fine-tuning PET-MAD (or a general PET checkpoint).
 
-You can obtain a PET-MAD checkpoint from huggingface 
-``wget https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.1.0/models/pet-mad-v1.1.0.ckpt``.
+You can obtain a PET-MAD checkpoint from huggingface
+.. code-block:: bash
+  wget https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.1.0/models/pet-mad-v1.1.0.ckpt
 
 Next, we set up the ``options.yaml`` file. We can specify the finetuning method
 in the ``finetune`` block. Here, the basic ``full`` option is chosen, which finetunes all 
@@ -60,7 +61,7 @@ training.
 This configuration allows for training on your dataset ``dataset.xyz``, and
 will fine-tune on forces as well as stress. Further information on specifying
 targets can be found in :ref:`Customize a Dataset Configuration
-<dataset_conf>`.
+<dataset_conf>`_.
 
 
 After setting up your ``options.yaml`` file, finetuning can then simply be run by:
