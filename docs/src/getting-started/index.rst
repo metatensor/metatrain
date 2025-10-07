@@ -9,6 +9,7 @@ This sections describes how to install the package, and its most basic commands.
    quickstart
    custom_dataset_conf
    advanced_base_config
+   train_yaml_config
    override
    checkpoints
    finetuning-example
