@@ -9,14 +9,14 @@ Finetuning example
 
 
 This is a simple example for fine-tuning PET-MAD (or a general PET model), that
-can be used as a template for general fine-tuning with metatrain. 
+can be used as a template for general fine-tuning with metatrain.
 Fine-tuning a pretrained model allows you to obtain a model better suited for
 your specific system. You need to provide a dataset of structures that have
 been evaluated at a higher reference level of theory, usually DFT. Fine-tuning
 a universal model such as PET-MAD allows for reasonable model performance even if little training
 data is available.
 It requires using a pre-trained model checkpoint with the ``mtt train`` command and setting the
-new targets corresponding to the new level of theory in the ``options.yaml`` file. 
+new targets corresponding to the new level of theory in the ``options.yaml`` file.
 
 In order to obtain a pretrained model, you can use a PET-MAD checkpoint from huggingface
 
@@ -25,13 +25,13 @@ In order to obtain a pretrained model, you can use a PET-MAD checkpoint from hug
   wget https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.1.0/models/pet-mad-v1.1.0.ckpt
 
 Next, we set up the ``options.yaml`` file. We can specify the fine-tuning method
-in the ``finetune`` block in the ``training`` options of the ``architecture``. 
-Here, the basic ``full`` option is chosen, which finetunes all weights of the model. 
-All available fine-tuning methods are found in the advanced concepts 
+in the ``finetune`` block in the ``training`` options of the ``architecture``.
+Here, the basic ``full`` option is chosen, which finetunes all weights of the model.
+All available fine-tuning methods are found in the advanced concepts
 :ref:`Fine-tuning <fine-tuning>`. This section discusses implementation details,
-options and recommended use cases. Other fine-tuning options can be simply substituted in this script, 
-by changing the ``finetune`` block. 
-   
+options and recommended use cases. Other fine-tuning options can be simply substituted in this script,
+by changing the ``finetune`` block.
+
 Furthermore, you need to specify the checkpoint, that you want to fine-tune in
 the ``read_from`` option.
 
@@ -74,12 +74,12 @@ Training on a new level of theory is a common use case for transfer learning. Le
 
 In this example, we specified generic but reasonable ``num_epochs`` and ``learning_rate``
 parameters. The ``learning_rate`` is chosen to be relatively low to stabilise
-training. 
+training.
 
 
-We assumed that the pre-trained model is trained on the dataset ``dataset.xyz`` in which 
+We assumed that the pre-trained model is trained on the dataset ``dataset.xyz`` in which
 energies are written in the ``energy`` key of the ``info`` dictionary of the
-energies. Additionally, forces and stresses should be provided with corresponding keys 
+energies. Additionally, forces and stresses should be provided with corresponding keys
 which you can specifyin the ``options.yaml`` file under ``targets``.
 Further information on specifying targets can be found in :ref:`Customize a Dataset Configuration
 <dataset_conf>`.
@@ -89,5 +89,5 @@ After setting up your ``options.yaml`` file, finetuning can then simply be run
 via ``mtt train options.yaml``.
 
 
-Further fine-tuning examples can be found in the 
-`AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`
+Further fine-tuning examples can be found in the
+`AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`_

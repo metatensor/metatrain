@@ -11,7 +11,7 @@ Transfer Learning (experimental)
 
   Features described in this section are experimental and not yet
   extensively tested. Please use them at your own risk and report any
-  issues you encounter to the developers. The transfer learned models 
+  issues you encounter to the developers. The transfer learned models
   cannot be used in MD engines such as ASE or LAMMPS yet.
 
 
@@ -36,7 +36,7 @@ requires using a pre-trained model checkpoint with the ``mtt train`` command and
 new targets corresponding to the new level of theory in the ``options.yaml`` file. Let's
 assume that the training is done on the dataset computed with the hybrid DFT functional
 (e.g. PBE0) stored in the ``new_train_dataset.xyz`` file, where the corresponsing
-energies and forces are written in the ``energy`` and ``forces`` key of the ``info`` dictionary 
+energies and forces are written in the ``energy`` and ``forces`` key of the ``info`` dictionary
 of the ``ase.Atoms`` object. Then, the ``options.yaml`` file should look like this:
 
 .. code-block:: yaml
@@ -45,7 +45,7 @@ of the ``ase.Atoms`` object. Then, the ``options.yaml`` file should look like th
     name: pet
     training:
       finetune:
-        method: full 
+        method: full
         read_from: path/to/checkpoint.ckpt
 
   training_set:
@@ -54,7 +54,7 @@ of the ``ase.Atoms`` object. Then, the ``options.yaml`` file should look like th
       mtt::energy_pbe0: # name of the new target
         key: "energy" # key of the target in the atoms.info dictionary
         unit: "eV" # unit of the target value
-        forces: 
+        forces:
           key: forces
 
   test_set: 0.1

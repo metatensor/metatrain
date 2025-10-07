@@ -11,7 +11,7 @@ This section describes the process of fine-tuning a pre-trained model to
 adapt it to new tasks or datasets. Fine-tuning is a common technique used
 in machine learning, where a model is trained on a large dataset and then
 fine-tuned on a smaller dataset to improve its performance on specific tasks.
-So far the fine-tuning capabilities are only available for PET model. 
+So far the fine-tuning capabilities are only available for PET model.
 
 There is a complete example in :ref:`Fine-tune example <fine-tuning-example>`.
 
