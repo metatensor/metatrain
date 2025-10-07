@@ -11,7 +11,7 @@ You can obtain a PET-MAD checkpoint from huggingface
 Next, we set up the ``options.yaml`` file. We can specify the finetuning method
 in the ``finetune`` block. Here, the basic ``full`` option is chosen, which finetunes all 
 weights of the model. All available finetuning methods are found in the advanced concepts 
-:ref:`Fine-tuning <fine-tuning>`. This section discusses implementation details,
+`Fine-tuning <fine-tuning>`_. This section discusses implementation details,
 options and recommended use cases. Other finetuning options can be simply substituted in this script, 
 by changing the ``finetune`` block. 
    
@@ -60,13 +60,13 @@ training.
 
 This configuration allows for training on your dataset ``dataset.xyz``, and
 will fine-tune on forces as well as stress. Further information on specifying
-targets can be found in :ref:`Customize a Dataset Configuration
+targets can be found in `Customize a Dataset Configuration
 <dataset_conf>`_.
 
 
-After setting up your ``options.yaml`` file, finetuning can then simply be run by:
-   ``mtt train options.yaml``
+After setting up your ``options.yaml`` file, finetuning can then simply be run
+via ``mtt train options.yaml``.
 
 
-Further fine-tuning examples can be found in the atomistic cookbook :ref:`
-AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`
+Further fine-tuning examples can be found in 
+`AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`_
