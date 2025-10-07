@@ -20,4 +20,5 @@
    tutorials/index
    advanced-concepts/index
    dev-docs/index
+   faq
    cite
