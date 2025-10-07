@@ -17,6 +17,7 @@ from metatrain.utils.data import (
     read_extra_data,
     read_systems,
     read_targets,
+    unpack_batch,
 )
 
 
@@ -393,6 +394,7 @@ def test_dataset():
     )
 
     for batch in dataloader:
+        batch = unpack_batch(batch)
         assert batch[1]["energy"].block().values.shape == (10, 1)
 
 
@@ -610,6 +612,7 @@ def test_collate_fn():
 
     collate_fn = CollateFn(target_info_dict)
     batch = collate_fn([dataset[0], dataset[1], dataset[2]])
+    batch = unpack_batch(batch)
 
     assert len(batch) == 3
     assert isinstance(batch[0], tuple)
