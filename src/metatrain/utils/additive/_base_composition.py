@@ -367,6 +367,7 @@ class BaseCompositionModel(torch.nn.Module):
                 Labels(
                     self.weights[output_name].keys.names,
                     torch.vstack(prediction_key_vals),
+                    assume_unique=True,
                 ),
                 prediction_blocks,
             )
@@ -525,5 +526,6 @@ def _get_system_indices_and_labels(systems: List[System], device: torch.device):
     sample_labels = Labels(
         names=["system", "atom"],
         values=sample_values,
+        assume_unique=True,
     )
     return system_indices, sample_labels

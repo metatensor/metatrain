@@ -166,6 +166,7 @@ def _compute_single_neighbor_list(
                 "cell_shift_c",
             ],
             values=torch.from_numpy(samples),
+            assume_unique=True,
         ),
         components=[Labels.range("xyz", 3)],
         properties=Labels.range("distance", 1),
