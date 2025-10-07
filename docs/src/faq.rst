@@ -57,7 +57,13 @@ have a look at `train_yaml_config`.
 
 **Q:** How can I visualize the results of my training? \
 
-**A:**
+**A:** Every training run writes the train log into a csv file. You can use a simple python 
+script for e.g. parsing the losses. A small example is shown in 
+:ref:`visualize-training <visualize-training>`. For other examples, check out examples in the 
+`AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`. 
+For tracking your training runs live, there is also the possibility to connect to wandb. 
+For seeing how to link the wandb logger, follow the section 
+:ref:`Advanced Base configuration <_advanced_base_conf>`.
 
 **Q:** How can I get uncertainties for my model? \
 
