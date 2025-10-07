@@ -550,7 +550,7 @@ class Trainer:
             # Change: Remove information other than the loss
             finalized_train_info = {"loss": train_loss} # , **finalized_train_info}
             finalized_val_info = {
-                "loss": val_loss,  'force_loss': val_force_loss
+                "loss": val_loss
             }
                 # **finalized_val_info,
             # }
@@ -582,6 +582,7 @@ class Trainer:
                     epoch=epoch,
                     rank=rank,
                 )
+                print ("Validation Force Loss:  ", val_force_loss)
 
             lr_scheduler.step()
             new_lr = lr_scheduler.get_last_lr()[0]
