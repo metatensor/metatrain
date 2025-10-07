@@ -466,6 +466,7 @@ class Trainer:
                     pass
             train_loss /= train_count
             val_loss = 0.0
+            val_force_loss = 0.0
             val_count = 0.0 # CHANGE: Added to count the number of validation samples
             # val_predictions = []
             for batch in val_dataloader:
@@ -516,12 +517,15 @@ class Trainer:
                     val_print = False
                 total_loss = bandgap_loss + gap_force_loss
                 val_loss_batch = (total_loss * len(bandgap_target)).detach()# CHANGE: We need to multiply the loss by the number of samples in the batch to get the correct loss value
+                val_force_loss_batch = (gap_force_loss * len(bandgap_target)).detach()
                 if is_distributed:
                     # sum the loss over all processes
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
+                val_force_loss += val_force_loss_batch.item()
                 val_count += len(bandgap_target) # CHANGE: Update the validation count
             val_loss /= val_count
+            val_force_loss /= val_count
             # val_predictions = torch.vstack(val_predictions)
                 # CHANGE: Not using the default calculators
                 # val_rmse_calculator.update(predictions, targets)
@@ -546,7 +550,7 @@ class Trainer:
             # Change: Remove information other than the loss
             finalized_train_info = {"loss": train_loss} # , **finalized_train_info}
             finalized_val_info = {
-                "loss": val_loss, 
+                "loss": val_loss,  'force_loss': val_force_loss
             }
                 # **finalized_val_info,
             # }
