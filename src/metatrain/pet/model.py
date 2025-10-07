@@ -1,7 +1,7 @@
 import logging
 import warnings
 from math import prod
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import metatensor.torch as mts
 import torch
@@ -227,6 +227,47 @@ class PET(ModelInterface):
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
 
+    def _calculate_features(
+        self,
+        element_indices_nodes: torch.Tensor,
+        element_indices_neighbors: torch.Tensor,
+        edge_vectors: torch.Tensor,
+        neighbors_index: torch.Tensor,
+        reversed_neighbor_list: torch.Tensor,
+        padding_mask: torch.Tensor,
+        edge_distances: torch.Tensor,
+        cutoff_factors: torch.Tensor,
+        use_manual_attention: bool,
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        node_features_list: List[torch.Tensor] = []
+        edge_features_list: List[torch.Tensor] = []
+        input_edge_embeddings = self.edge_embedder(element_indices_neighbors)
+        for node_embedder, gnn_layer in zip(self.node_embedders, self.gnn_layers):
+            input_node_embeddings = node_embedder(element_indices_nodes)
+            output_node_embeddings, output_edge_embeddings = gnn_layer(
+                input_node_embeddings,
+                input_edge_embeddings,
+                element_indices_nodes,
+                element_indices_neighbors,
+                edge_vectors,
+                padding_mask,
+                edge_distances,
+                cutoff_factors,
+                use_manual_attention,
+            )
+            node_features_list.append(output_node_embeddings)
+            edge_features_list.append(output_edge_embeddings)
+
+            # The GNN contraction happens by reordering the messages,
+            # using a reversed neighbor list, so the new input message
+            # from atom `j` to atom `i` in on the GNN layer N+1 is a
+            # reversed message from atom `i` to atom `j` on the GNN layer N.
+            new_input_messages = output_edge_embeddings[
+                neighbors_index, reversed_neighbor_list
+            ]
+            input_edge_embeddings = 0.5 * (input_edge_embeddings + new_input_messages)
+        return node_features_list, edge_features_list
+
     def forward(
         self,
         systems: List[System],
@@ -303,34 +344,17 @@ class PET(ModelInterface):
         # representations for structures, while saving the intermediate node and edge
         # features from each layer to the corresponding lists.
 
-        node_features_list: List[torch.Tensor] = []
-        edge_features_list: List[torch.Tensor] = []
-
-        input_edge_embeddings = self.edge_embedder(element_indices_neighbors)
-        for node_embedder, gnn_layer in zip(self.node_embedders, self.gnn_layers):
-            input_node_embeddings = node_embedder(element_indices_nodes)
-            output_node_embeddings, output_edge_embeddings = gnn_layer(
-                input_node_embeddings,
-                input_edge_embeddings,
-                element_indices_nodes,
-                element_indices_neighbors,
-                edge_vectors,
-                padding_mask,
-                edge_distances,
-                cutoff_factors,
-                use_manual_attention,
-            )
-            node_features_list.append(output_node_embeddings)
-            edge_features_list.append(output_edge_embeddings)
-
-            # The GNN contraction happens by reordering the messages,
-            # using a reversed neighbor list, so the new input message
-            # from atom `j` to atom `i` in on the GNN layer N+1 is a
-            # reversed message from atom `i` to atom `j` on the GNN layer N.
-            new_input_messages = output_edge_embeddings[
-                neighbors_index, reversed_neighbor_list
-            ]
-            input_edge_embeddings = 0.5 * (input_edge_embeddings + new_input_messages)
+        node_features_list, edge_features_list = self._calculate_features(
+            element_indices_nodes,
+            element_indices_neighbors,
+            edge_vectors,
+            neighbors_index,
+            reversed_neighbor_list,
+            padding_mask,
+            edge_distances,
+            cutoff_factors,
+            use_manual_attention,
+        )
 
         # If the long-range module is actuvated, we add the long-range features
         # on top of the node features
