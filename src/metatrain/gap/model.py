@@ -209,6 +209,7 @@ class GAP(ModelInterface):
             samples=Labels(
                 ["system", "atom"],
                 torch.tensor([[0, 0]], dtype=torch.int, device=systems[0].device),
+                assume_unique=True,
             ),
             properties=soap_features[0].properties,
             components=[],
@@ -559,11 +560,15 @@ class _FPS:
             if self._selection_type == "feature":
                 samples = Labels.single()
                 properties = Labels(
-                    names=block.properties.names, values=block.properties.values[mask]
+                    names=block.properties.names,
+                    values=block.properties.values[mask],
+                    assume_unique=True,
                 )
             elif self._selection_type == "sample":
                 samples = Labels(
-                    names=block.samples.names, values=block.samples.values[mask]
+                    names=block.samples.names,
+                    values=block.samples.values[mask],
+                    assume_unique=True,
                 )
                 properties = Labels.single()
 

@@ -183,7 +183,9 @@ class ZBL(torch.nn.Module):
             block = TensorBlock(
                 values=e_zbl_nodes.reshape(-1, 1),
                 samples=Labels(
-                    ["system", "atom"], torch.tensor(sample_values, device=device)
+                    ["system", "atom"],
+                    torch.tensor(sample_values, device=device),
+                    assume_unique=True,
                 ),
                 components=[],
                 properties=Labels(
