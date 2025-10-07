@@ -42,7 +42,31 @@ test tox:
   image: $BASE_IMAGE
   timeout: 1h
   script:
+  script:
+    - set -euo pipefail
     - tox -r
+
+    # Upload coverage.xml to Codecov
+    - curl -Os https://uploader.codecov.io/latest/linux/codecov
+    - chmod +x codecov
+
+    # Map GitLab CI vars -> Codecov metadata for a GitHub repo
+    # CI_COMMIT_SHA, CI_COMMIT_REF_NAME = branch, CI_MERGE_REQUEST_IID = PR number (on MRs)
+    - |
+      ARGS=(
+        --token "${CODECOV_TOKEN}"
+        --file coverage.xml
+        --sha  "${CI_COMMIT_SHA}"
+        --branch "${CI_COMMIT_REF_NAME}"
+        --slug "metatensor/metatrain"
+        --fail-on-error
+        --verbose
+      )
+      # Add PR number if this is a merge request pipeline
+      if [[ -n "${CI_MERGE_REQUEST_IID:-}" ]]; then
+        ARGS+=(--pr "${CI_MERGE_REQUEST_IID}")
+      fi
+      ./codecov "${ARGS[@]}"
   variables:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
