@@ -30,7 +30,7 @@ Fitting to a new level of theory
 --------------------------------
 
 Training on a new level of theory is a common use case for transfer learning. It
-requires using a pre-trained model checkpoint with ``mtt train`` command and setting the
+requires using a pre-trained model checkpoint with the ``mtt train`` command and setting the
 new targets corresponding to the new level of theory in the ``options.yaml`` file. Let's
 assume that the training is done on the dataset computed with the hybrid DFT functional
 (e.g. PBE0) stored in the ``new_train_dataset.xyz`` file, where the corresponsing
@@ -48,15 +48,21 @@ energies are written in the ``energy`` key of the ``info`` dictionary of the
     systems: "new_train_dataset.xyz"
     targets:
       mtt::energy_pbe0: # name of the new target
-      key: "energy" # key of the target in the atoms.info dictionary
-      unit: "eV" # unit of the target value
+        key: "energy" # key of the target in the atoms.info dictionary
+        unit: "eV" # unit of the target value
 
+  test_set: 0.1
+  validation_set: 0.1
 
 The validation and test sets can be set in the same way. The training
 process will then create a new composition model and new heads for the
-target ``energy_pbe0``. The rest of the model weights will be
+target ``mtt::energy_pbe0``. The rest of the model weights will be
 initialized from the pre-trained model checkpoint.
 
+.. warning::
+  Common MD engines such as ASE or LAMMPS use the default ``energy`` target.
+  Thus, it is not possible yet to use transfer-learned models with a new energy
+  target for MD. We are currently working on making this available.
 
 Fitting to a new set of properties
 ----------------------------------

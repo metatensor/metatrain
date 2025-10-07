@@ -9,12 +9,13 @@ This is a simple example for fine-tuning PET-MAD (or a general PET model), that
 can be used as a template for general fine-tuning with metatrain. 
 Fine-tuning a pretrained model allows you to obtain a model better suited for
 your specific system. You need to provide a dataset of structures that have
-been evaluated at a reference level of theory, usually DFT. Fine-tuning
+been evaluated at a higher reference level of theory, usually DFT. Fine-tuning
 a universal model such as PET-MAD allows for reasonable model performance even if little training
 data is available.
+It requires using a pre-trained model checkpoint with the ``mtt train`` command and setting the
+new targets corresponding to the new level of theory in the ``options.yaml`` file. 
 
-First you need a valid checkpoint for the PET architecture, you can obtain a PET-MAD 
-checkpoint from huggingface
+In order to obtain a pretrained model, you can use a PET-MAD checkpoint from huggingface
 .. code-block:: bash
   wget https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.1.0/models/pet-mad-v1.1.0.ckpt
 
@@ -30,6 +31,8 @@ Furthermore, you need to specify the checkpoint, that you want to fine-tune in
 the ``read_from`` option.
 
 A simple ``options.yaml`` file for this task could look like this:
+
+Training on a new level of theory is a common use case for transfer learning. Let's
 
 .. code-block:: yaml
 
@@ -52,7 +55,6 @@ A simple ``options.yaml`` file for this task could look like this:
             read_from: dataset.xyz
             reader: ase
             key: energy
-            unit: null
             forces:
                 read_from: dataset.xyz
                 reader: ase
@@ -70,11 +72,11 @@ parameters. The ``learning_rate`` is chosen to be relatively low to stabilise
 training. 
 
 
-We assumed that the pre-trained model is trained on the dataset ``dataset.xyz`` with 
-energies, forces and stresses, which are provided as ``energy`` targets (and its derivatives) 
-in the ``options.yaml`` file.
-Further information on specifying
-targets can be found in :ref:`Customize a Dataset Configuration
+We assumed that the pre-trained model is trained on the dataset ``dataset.xyz`` in which 
+energies are written in the ``energy`` key of the ``info`` dictionary of the
+energies. Additionally, forces and stresses should be provided with corresponding keys 
+which you can specifyin the ``options.yaml`` file under ``targets``.
+Further information on specifying targets can be found in :ref:`Customize a Dataset Configuration
 <dataset_conf>`_.
 
 
