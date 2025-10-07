@@ -1004,7 +1004,7 @@ class MemmapDataset(TorchDataset):
                 add_position_gradients = tensor_map.block().has_gradient("positions")
                 add_strain_gradients = tensor_map.block().has_gradient("strain")
                 target_info = get_energy_target_info(
-                    target, add_position_gradients, add_strain_gradients
+                    target_key, target, add_position_gradients, add_strain_gradients
                 )
                 _check_tensor_map_metadata(tensor_map, target_info.layout)
                 target_info_dict[target_key] = target_info
