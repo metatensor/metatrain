@@ -337,13 +337,51 @@ class PET(ModelInterface):
             input_edge_embeddings = 0.5 * (input_edge_embeddings + new_input_messages)
         return node_features_list, edge_features_list
 
-    def calculate_features(
+    def _calculate_features(
         self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         if self.featurizer_type == "feedforward":
             return self._feedforward_featurization_impl(inputs, use_manual_attention)
         else:
             return self._residual_featurization_impl(inputs, use_manual_attention)
+
+    def _get_output_features(
+        self,
+        node_features_list: List[torch.Tensor],
+        edge_features_list: List[torch.Tensor],
+        cutoff_factors: torch.Tensor,
+        sample_labels: Labels,
+        selected_atoms: Optional[Labels] = None,
+    ) -> TensorMap:
+        node_features = torch.cat(node_features_list, dim=1)
+        edge_features = torch.cat(edge_features_list, dim=2)
+        edge_features = edge_features * cutoff_factors[:, :, None]
+        edge_features = edge_features.sum(dim=1)
+        features = torch.cat([node_features, edge_features], dim=1)
+
+        feature_tmap = TensorMap(
+            keys=self.single_label,
+            blocks=[
+                TensorBlock(
+                    values=features,
+                    samples=sample_labels,
+                    components=[],
+                    properties=Labels(
+                        names=["feature"],
+                        values=torch.arange(
+                            features.shape[-1], device=features.device
+                        ).reshape(-1, 1),
+                    ),
+                )
+            ],
+        )
+        if selected_atoms is not None:
+            feature_tmap = mts.slice(
+                feature_tmap,
+                axis="samples",
+                selection=selected_atoms,
+            )
+        return feature_tmap
 
     def forward(
         self,
@@ -430,12 +468,12 @@ class PET(ModelInterface):
             edge_distances=edge_distances,
             cutoff_factors=cutoff_factors,
         )
-        node_features_list, edge_features_list = self.calculate_features(
+        node_features_list, edge_features_list = self._calculate_features(
             featurizer_inputs,
             use_manual_attention=use_manual_attention,
         )
 
-        # If the long-range module is actuvated, we add the long-range features
+        # If the long-range module is activated, we add the long-range features
         # on top of the node features
 
         if self.long_range:
@@ -464,36 +502,14 @@ class PET(ModelInterface):
         # contribution.
 
         if "features" in outputs:
-            node_features = torch.cat(node_features_list, dim=1)
-            edge_features = torch.cat(edge_features_list, dim=2)
-            edge_features = edge_features * cutoff_factors[:, :, None]
-            edge_features = edge_features.sum(dim=1)
-            features = torch.cat([node_features, edge_features], dim=1)
-
-            feature_tmap = TensorMap(
-                keys=self.single_label,
-                blocks=[
-                    TensorBlock(
-                        values=features,
-                        samples=sample_labels,
-                        components=[],
-                        properties=Labels(
-                            names=["feature"],
-                            values=torch.arange(
-                                features.shape[-1], device=features.device
-                            ).reshape(-1, 1),
-                        ),
-                    )
-                ],
+            feature_tmap = self._get_output_features(
+                node_features_list,
+                edge_features_list,
+                cutoff_factors,
+                sample_labels,
+                selected_atoms,
             )
-            features_options = outputs["features"]
-            if selected_atoms is not None:
-                feature_tmap = mts.slice(
-                    feature_tmap,
-                    axis="samples",
-                    selection=selected_atoms,
-                )
-            if features_options.per_atom:
+            if outputs["features"].per_atom:
                 return_dict["features"] = feature_tmap
             else:
                 return_dict["features"] = sum_over_atoms(feature_tmap)
