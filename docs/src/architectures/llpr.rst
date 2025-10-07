@@ -33,13 +33,13 @@ The default hyperparameters for the PET model are:
 
 Under ``training``, the following hyperparameters are defined:
 
-:param model_checkpoint: This should provide the checkpoint to the model for which the
+- ``model_checkpoint``: This should provide the checkpoint to the model for which the
   user wants to perform UQ based on the LLPR approach. Note that the model architecture
   must comply with the requirement that the last-layer features are exposed under the
   convention defined by metatrain.
-:param batch_size: This defines the batch size used in the computation of last-layer
+- ``batch_size``: This defines the batch size used in the computation of last-layer
   features, covariance matrix, etc.
-:param regularizer: This is the regularizer value :math:`\varsigma` that is used in
+- ``regularizer``: This is the regularizer value :math:`\varsigma` that is used in
   applying Eq. 24 of Bigi et al :footcite:p:`bigi_mlst_2024`:
 
   .. math::
@@ -58,7 +58,7 @@ from the calibrated inverse covariance matrix from the LLPR formalism. To access
 feature within the architecture, one can interact with the following hyperparameters
 under ``model`` and under ``ensemble``:
 
-: param means: this accepts a dictionary of targets and the names of their corresponding
+- ``means``: this accepts a dictionary of targets and the names of their corresponding
   last-layer weights. For example, in the case of energy trained with the default
   ``energy`` key in a PET model, the following could be the set of weights to provide::
 
@@ -69,7 +69,7 @@ under ``model`` and under ``ensemble``:
           - edge_last_layers.energy.0.energy___0.weight
           - edge_last_layers.energy.1.energy___0.weight
 
-:param num_members: this is a dictionary of targets and the corresponding number of ensemble
+- ``num_members``: this is a dictionary of targets and the corresponding number of ensemble
   members to sample. Note that a sufficiently large number of members (more than 16) are required
   for robust uncertainty propagation. (e.g. ``num_members: {energy: 128}``)
 

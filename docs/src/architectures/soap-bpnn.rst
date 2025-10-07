@@ -38,25 +38,25 @@ We explain below the model-specific hypers for SOAP-BPNN.
 
 ``soap``
 ########
-:param cutoff: This determines the cutoff routine of the atomic environment, and has
+- ``cutoff``: This determines the cutoff routine of the atomic environment, and has
   two internal hypers: ``radius`` and ``width``. ``radius`` should be set to a value
   after which most of interatomic is expected to be negligible. Note that the values
   should be defined in the position units of your dataset. The radial cutoff of
   atomic environments is performed smoothly, over another distance defined under
   ``width``.
-:param max_angular: and :param max_radial: These parameters define the maximum angular and
+- ``max_angular`` and ``max_radial``: These parameters define the maximum angular and
   radial channels of the spherical harmonics in computing the SOAP descriptors.
 
 ``bpnn``
 ########
-:param num_hidden_layers: and :param num_neurons_per_layer: These hyperparameters control
+- ``num_hidden_layers``: and :param num_neurons_per_layer: These hyperparameters control
   the size and depth of the neural network. Increasing these generally lead to better
   accuracy from the increased descriptivity, but comes at the cost of increased
   training and evaluation time.
-:param layernorm: Whether to use layer normalization before the neural network. Setting
+- ``layernorm``: Whether to use layer normalization before the neural network. Setting
   this hyperparameter to ``false`` will lead to slower convergence of training, but
   might lead to better generalization outside of the training set distribution.
-:param loss: This section describes the loss function to be used. See the
+- ``loss``: This section describes the loss function to be used. See the
   :doc:`dedicated documentation page <../advanced-concepts/loss-functions>` for more
   details.
 
@@ -73,14 +73,14 @@ briefly explained below.
 
 ``model``
 #########
-:param add_lambda_basis: This boolean parameter controls whether or not to add a
+- ``add_lambda_basis``: This boolean parameter controls whether or not to add a
   spherical expansion term of the same angular order as the targets, when they are tensorial.
-:param heads: The type of head ("linear" or "mlp") to use for each target (e.g.
+- ``heads``: The type of head ("linear" or "mlp") to use for each target (e.g.
   ``heads: {"energy": "linear", "mtt::dipole": "mlp"}``). All omitted targets will use a
   MLP (multi-layer perceptron) head. MLP heads consists of one hidden layer with as
   many neurons as the SOAP-BPNN (i.e. ``num_neurons_per_layer`` below).
-:param zbl: Whether to use the ZBL short-range repulsion as the baseline for the model
-:param long_range: Parameters related to long-range interactions. ``enable``: whether
+- ``zbl``: Whether to use the ZBL short-range repulsion as the baseline for the model
+- ``long_range``: Parameters related to long-range interactions. ``enable``: whether
   to use long-range interactions; ``use_ewald``: whether to use an Ewald calculator
   (faster for smaller systems); ``smearing``: the width of the Gaussian function used
   to approximate the charge distribution in Fourier space; ``kspace_resolution``: the
@@ -90,40 +90,41 @@ briefly explained below.
 
 ``training``
 ############
-:param distributed: this boolean determines whether or not to distribute the learning.
-:param distributed_port: this integer defines the port to be used in the distributed
+- ``distributed``: this boolean determines whether or not to distribute the learning.
+- ``distributed_port``: this integer defines the port to be used in the distributed
   learning exercise.
-:param batch_size: this integer defines to which number of structures the workflow
+- ``batch_size``: this integer defines to which number of structures the workflow
   divides up the training set into batches during model training.
-:param num_epochs: this integer defines the number of epochs to perform in training.
-:param learning_rate: this float defines the initial learning rate of the scheduler.
-:param early_stopping_patience: this integer defines the number of epochs without
+- ``num_epochs``: this integer defines the number of epochs to perform in training.
+- ``learning_rate``: this float defines the initial learning rate of the scheduler.
+- ``early_stopping_patience``: this integer defines the number of epochs without
   improvement are allowed before early stopping is invoked by scheduler.
-:param scheduler_patience: this integer defines the number of epochs without
+- ``scheduler_patience``: this integer defines the number of epochs without
   improvement until the ``ReduceLROnPlateau`` scheduler lowers the learning rate.
-:param scheduler_factor: this float defines the factor by which the learning rate
+- ``scheduler_factor``: this float defines the factor by which the learning rate
   is lowered when lowering is invoked by the scheduler.
-:param log_interval: this integer defines the epoch interval of metric logging.
-:param checkpoint_interval: this integer defines the epoch interval of checkpoint
+- ``log_interval``: this integer defines the epoch interval of metric logging.
+- ``checkpoint_interval``: this integer defines the epoch interval of checkpoint
   saving.
-:param scale_targets: this boolean determines whether or not to scale the targets
+- ``scale_targets``: this boolean determines whether or not to scale the targets
   with the internal scalers before the targets are exposed to the models for learning.
-:param fixed_composition_weights: this nested dictionary allows one to set fixed
+- ``fixed_composition_weights``: this nested dictionary allows one to set fixed
   composition values in the composition model being used as a baseline for the model.
   These are per target name and per (integer) atom type. For example,
   ``fixed_composition_weights: {"energy": {1: -396.0, 6: -500.0}, "mtt::U0": {1: 0.0,
   6: 0.0}}`` sets the isolated atom energies for H (``1``) and O (``6``) to different
   values for the two distinct targets.
-:param per_structure_targets: this list of strings defines the global targets for
+- ``per_structure_targets``: this list of strings defines the global targets for
   which the target value should _not_ be normalized w.r.t. number of atoms.
-:param log_mae: this boolean controls the additional logging of MAEs along with RMSEs
-:param log_separate_blocks: ?
-:param best_model_metric: specifies the validation set metric to use to select the best
+- ``log_mae``: this boolean controls the additional logging of MAEs along with RMSEs
+- ``log_separate_blocks``: this boolean logs the metrics for the separate blocks of
+  the target tensor map.
+- ``best_model_metric``: specifies the validation set metric to use to select the best
   model, i.e. the model that will be saved as ``model.ckpt`` and ``model.pt`` both in
   the current directory and in the checkpoint directory. The default is ``rmse_prod``,
   i.e., the product of the RMSEs for each target. Other options are ``mae_prod`` and
   ``loss``.
-:param loss: this string parameter defines the type of loss to be used. It only takes
+- ``loss``: this string parameter defines the type of loss to be used. It only takes
   one of the losses implemented within metatrain as valid parameters.
 
 
