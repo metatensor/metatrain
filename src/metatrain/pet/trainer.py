@@ -1,7 +1,6 @@
 import copy
 import logging
 import math
-import multiprocessing
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
@@ -18,6 +17,7 @@ from metatrain.utils.data import (
     Dataset,
     get_num_workers,
     unpack_batch,
+    validate_num_workers,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
@@ -220,15 +220,7 @@ class Trainer(TrainerInterface):
             )
         else:
             num_workers = self.hypers["num_workers"]
-            if (
-                multiprocessing.get_start_method(allow_none=False) != "fork"
-                and num_workers > 0
-            ):
-                raise ValueError(
-                    "You are using a start method for multiprocessing that is not "
-                    "'fork' (this is likely because you are on macOS or Windows). "
-                    "In this case, num_workers must be set to 0."
-                )
+            validate_num_workers(num_workers)
 
         train_dataloaders = []
         for train_dataset, train_sampler in zip(train_datasets, train_samplers):

@@ -720,6 +720,17 @@ def get_num_workers() -> int:
     return num_workers
 
 
+def validate_num_workers(num_workers: int):
+    """Gets a good number of workers for data loading."""
+
+    if multiprocessing.get_start_method(allow_none=False) != "fork" and num_workers > 0:
+        raise ValueError(
+            "You are using a start method for multiprocessing that is not "
+            "'fork' (this is likely because you are on macOS or Windows). "
+            "In this case, num_workers must be set to 0."
+        )
+
+
 def _make_system_contiguous(system):
     # Return a copy of a ``System`` object with contiguous arrays.
     new_system = System(
