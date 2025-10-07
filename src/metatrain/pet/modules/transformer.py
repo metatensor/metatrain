@@ -61,19 +61,8 @@ class TransformerLayer(torch.nn.Module):
     ):
         super(TransformerLayer, self).__init__()
         self.attention = AttentionBlock(d_model, n_heads)
-
-        if transformer_type not in AVAILABLE_TRANSFORMER_TYPES:
-            raise ValueError(
-                f"Unknown transformer flag: {transformer_type}. "
-                f"Please choose from: {AVAILABLE_TRANSFORMER_TYPES}"
-            )
         self.transformer_type = transformer_type
         self.d_model = d_model
-        if norm not in AVAILABLE_NORMALIZATIONS:
-            raise ValueError(
-                f"Unknown normalization flag: {norm}. "
-                f"Please choose from: {AVAILABLE_NORMALIZATIONS}"
-            )
         norm_class = getattr(nn, norm)
         self.norm_attention = norm_class(d_model)
         self.norm_mlp = norm_class(d_model)
@@ -126,11 +115,24 @@ class Transformer(torch.nn.Module):
         transformer_type="PostLN",
     ):
         super(Transformer, self).__init__()
-        self.transformer_type = transformer_type
+        if norm not in AVAILABLE_NORMALIZATIONS:
+            raise ValueError(
+                f"Unknown normalization flag: {norm}. "
+                f"Please choose from: {AVAILABLE_NORMALIZATIONS}"
+            )
+
+        if transformer_type not in AVAILABLE_TRANSFORMER_TYPES:
+            raise ValueError(
+                f"Unknown transformer flag: {transformer_type}. "
+                f"Please choose from: {AVAILABLE_TRANSFORMER_TYPES}"
+            )
+        norm_class = getattr(nn, norm)
 
         self.final_norm = DummyModule()  # for torchscript
         if transformer_type == "PreLN":
-            self.final_norm = nn.LayerNorm(d_model)
+            self.final_norm = norm_class(d_model)
+        self.transformer_type = transformer_type
+
         self.layers = nn.ModuleList(
             [
                 TransformerLayer(
