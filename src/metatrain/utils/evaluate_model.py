@@ -2,6 +2,7 @@ import warnings
 from typing import Dict, List, Union
 
 import torch
+import metatensor.torch as mts
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import (
     AtomisticModel,
@@ -9,6 +10,7 @@ from metatomic.torch import (
     ModelOutput,
     System,
     is_atomistic_model,
+    register_autograd_neighbors,
 )
 
 from .data import TargetInfo
@@ -294,8 +296,9 @@ def _prepare_system(  # pragma: no cover
             )
             strain = None
 
-    for nl_options in system.known_neighbor_lists():
-        nl = system.get_neighbor_list(nl_options)
-        new_system.add_neighbor_list(nl_options, nl)
+    for options in system.known_neighbor_lists():
+        neighbors = mts.detach_block(system.get_neighbor_list(options))
+        register_autograd_neighbors(system, neighbors)
+        new_system.add_neighbor_list(options, neighbors)
 
     return new_system, strain
