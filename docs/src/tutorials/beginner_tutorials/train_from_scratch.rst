@@ -137,7 +137,7 @@ and run
 
 After this, a file named ``output.xyz`` will be created, with the atom positions and the predicted forces recorded in it. Also, you should see these statistical on your screen
 
-.. code-block:: bask
+.. code-block:: bash
 
     [2025-10-07 12:29:05][INFO] - energy RMSE (per atom): 465.14 meV | energy MAE (per atom): 371.64 meV | forces RMSE: 27270.5 meV/A | forces MAE: 20141.1 meV/A
     [2025-10-07 12:29:05][INFO] - Evaluation time: 8.24 s [0.9152 ± 0.0151 ms per atom]
