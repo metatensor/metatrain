@@ -1,9 +1,9 @@
-.. _fine-tune-example:
+.. _fine-tuning-example:
 Finetuning example
 -----------------------------
 
 All available finetuning methods are found in the advanced concepts 
-:ref:`Fine-tuning <fine-tune>`. Let's say we want to
+:ref:`Fine-tuning <fine-tuning>`. Let's say we want to
 finetune only the heads of PET-MAD (or a general PET checkpoint). 
 A possible ``options.yaml`` could look like this:
 
