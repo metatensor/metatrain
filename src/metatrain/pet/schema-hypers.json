@@ -76,8 +76,8 @@
         "num_epochs": {
           "type": "integer"
         },
-        "num_epochs_warmup": {
-          "type": "integer"
+        "warmup_fraction": {
+          "type": "number"
         },
         "learning_rate": {
           "type": "number"
@@ -87,12 +87,6 @@
             "number",
             "null"
           ]
-        },
-        "scheduler_patience": {
-          "type": "integer"
-        },
-        "scheduler_factor": {
-          "type": "number"
         },
         "log_interval": {
           "type": "integer"
@@ -195,7 +189,10 @@
               ]
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "required": [
+            "method"
+          ]
         },
         "grad_clip_norm": {
           "type": "number"

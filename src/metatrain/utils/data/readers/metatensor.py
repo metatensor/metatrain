@@ -27,7 +27,7 @@ def _wrapped_metatensor_read(filename) -> TensorMap:
         raise ValueError(f"Failed to read '{filename}' with torch: {e}") from e
 
 
-def read_energy(target: DictConfig) -> Tuple[TensorMap, TargetInfo]:
+def read_energy(target_name: str, target: DictConfig) -> Tuple[TensorMap, TargetInfo]:
     tensor_map = _wrapped_metatensor_read(target["read_from"])
 
     if len(tensor_map) != 1:
@@ -36,7 +36,7 @@ def read_energy(target: DictConfig) -> Tuple[TensorMap, TargetInfo]:
     add_position_gradients = target["forces"]
     add_strain_gradients = target["stress"] or target["virial"]
     target_info = get_energy_target_info(
-        target, add_position_gradients, add_strain_gradients
+        target_name, target, add_position_gradients, add_strain_gradients
     )
 
     # now check all the expected metadata (from target_info.layout) matches
@@ -58,14 +58,16 @@ def read_energy(target: DictConfig) -> Tuple[TensorMap, TargetInfo]:
     return tensor_maps, target_info
 
 
-def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
+def read_generic(
+    target_name: str, target: DictConfig
+) -> Tuple[List[TensorMap], TargetInfo]:
     tensor_map = _wrapped_metatensor_read(target["read_from"])
 
     for block in tensor_map.blocks():
         if len(block.gradients_list()) > 0:
             raise ValueError("Only energy targets can have gradient blocks.")
 
-    target_info = get_generic_target_info(target)
+    target_info = get_generic_target_info(target_name, target)
     _check_tensor_map_metadata(tensor_map, target_info.layout)
 
     # make sure that the properties of the target_info.layout also match the

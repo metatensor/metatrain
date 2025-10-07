@@ -181,7 +181,7 @@ class PET(ModelInterface):
                 samples=samples,
                 components=[],
                 properties=Labels(
-                    names=["properties"],
+                    names=["feature"],
                     values=torch.arange(
                         ll_features.shape[1], device=predictions.device
                     ).reshape(-1, 1),
