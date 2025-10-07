@@ -10,6 +10,7 @@ from metatrain.utils.data import (
     Dataset,
     read_systems,
     read_targets,
+    unpack_batch,
 )
 
 
@@ -76,6 +77,7 @@ def test_without_shuffling():
 
     assert len(combined_dataloader) == 15
     for i_batch, batch in enumerate(combined_dataloader):
+        batch = unpack_batch(batch)
         if i_batch < 10:
             assert batch[1]["mtt::U0"].block().values.shape == (10, 1)
         else:
@@ -154,6 +156,7 @@ def test_with_shuffling():
     alchemical_samples = []
 
     for batch in combined_dataloader:
+        batch = unpack_batch(batch)
         if "mtt::U0" in batch[1]:
             qm9_batch_count += 1
             assert batch[1]["mtt::U0"].block().values.shape == (10, 1)

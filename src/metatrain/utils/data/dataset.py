@@ -7,12 +7,19 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
-import metatensor.torch
 import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
-from metatensor.torch import Labels, TensorBlock, TensorMap, load_buffer, save_buffer
+from metatensor.torch import (
+    Labels,
+    TensorBlock,
+    TensorMap,
+    load_buffer,
+    make_contiguous,
+    make_contiguous_block,
+    save_buffer,
+)
 from metatomic.torch import System, load_system, load_system_buffer, save
 from metatomic.torch import save_buffer as save_system_buffer
 from omegaconf import DictConfig
@@ -376,9 +383,15 @@ class CollateFn:
         target_names = list(targets.keys())
         extra_names = list(extra.keys())
 
-        system_buffers = [save_system_buffer(s) for s in systems]
-        target_buffers = [save_buffer(targets[name]) for name in target_names]
-        extra_buffers = [save_buffer(extra[name]) for name in extra_names]
+        system_buffers = [
+            save_system_buffer(_make_system_contiguous(s)) for s in systems
+        ]
+        target_buffers = [
+            save_buffer(make_contiguous(targets[name])) for name in target_names
+        ]
+        extra_buffers = [
+            save_buffer(make_contiguous(extra[name])) for name in extra_names
+        ]
 
         system_sizes = [len(b) for b in system_buffers]
         target_sizes = [len(b) for b in target_buffers]
@@ -723,15 +736,24 @@ def get_num_workers() -> int:
     return num_workers
 
 
-def memmap_collate_fn(batch):
-    non_system_keys = [key for key in batch[0].keys() if key != "system"]
-    systems = [sample["system"] for sample in batch]
-    targets = {k: [] for k in non_system_keys}
-    for sample in batch:
-        for key in non_system_keys:
-            targets[key].append(sample[key])
-    targets = {k: metatensor.torch.join(v, "samples") for k, v in targets.items()}
-    return systems, targets, {}
+def _make_system_contiguous(system):
+    # Return a copy of a ``System`` object with contiguous arrays.
+    new_system = System(
+        positions=system.positions.contiguous(),
+        types=system.types.contiguous(),
+        cell=system.cell.contiguous(),
+        pbc=system.pbc.contiguous(),
+    )
+    for nl_options in system.known_neighbor_lists():
+        nl = system.get_neighbor_list(nl_options)
+        new_system.add_neighbor_list(
+            nl_options,
+            make_contiguous_block(nl),
+        )
+    for key in system.known_data():
+        data = system.get_data(key)
+        new_system.add_data(key, make_contiguous(data))
+    return new_system
 
 
 class MemmapArray:
