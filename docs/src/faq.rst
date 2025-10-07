@@ -48,7 +48,7 @@ General training concepts
 
 **Q:** How can I use a custom model architecture? \
 
-**A:**
+**A:** Metatrain offers the possibity `train_yaml_config`.
 
 **Q:** How can I visualize the results of my training? \
 
@@ -56,11 +56,12 @@ General training concepts
 
 **Q:** How can I get uncertainties for my model? \
 
-**A:**
+**A:** 
 
 **Q:** How can save and restart my training? \
 
-**A:** 
+**A:** Metatrain offers a convenient and automatic way to restart models from checkpoints.
+Please have a look at `` for details.
 
 Citing us
 ---------
