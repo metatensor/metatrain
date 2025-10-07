@@ -35,6 +35,13 @@
         "num_gnn_layers": {
           "type": "integer"
         },
+        "normalization": {
+          "type": "string",
+          "enum": [
+            "LayerNorm",
+            "RMSNorm"
+          ]
+        },
         "zbl": {
           "type": "boolean"
         },

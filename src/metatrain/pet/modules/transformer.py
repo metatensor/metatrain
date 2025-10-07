@@ -51,6 +51,7 @@ class TransformerLayer(torch.nn.Module):
         n_heads,
         dim_feedforward=512,
         dropout=0.0,
+        norm="LayerNorm",
         activation=F.silu,
         transformer_type="PostLN",
     ):
@@ -61,8 +62,9 @@ class TransformerLayer(torch.nn.Module):
             raise ValueError("unknown transformer type")
         self.transformer_type = transformer_type
         self.d_model = d_model
-        self.norm_attention = nn.LayerNorm(d_model)
-        self.norm_mlp = nn.LayerNorm(d_model)
+        norm_class = getattr(nn, norm)
+        self.norm_attention = norm_class(d_model)
+        self.norm_mlp = norm_class(d_model)
         self.dropout = nn.Dropout(dropout)
 
         self.activation = activation
@@ -107,6 +109,7 @@ class Transformer(torch.nn.Module):
         n_heads,
         dim_feedforward=512,
         dropout=0.0,
+        norm="LayerNorm",
         activation=F.silu,
         transformer_type="PostLN",
     ):
@@ -123,6 +126,7 @@ class Transformer(torch.nn.Module):
                     n_heads=n_heads,
                     dim_feedforward=dim_feedforward,
                     dropout=dropout,
+                    norm=norm,
                     activation=activation,
                     transformer_type=transformer_type,
                 )
@@ -152,6 +156,7 @@ class CartesianTransformer(torch.nn.Module):
         dim_feedforward: int,
         n_layers: int,
         dropout: float,
+        norm: str,
         n_atomic_species: int,
         is_first,
     ):
@@ -165,6 +170,7 @@ class CartesianTransformer(torch.nn.Module):
             n_heads=n_head,
             dim_feedforward=dim_feedforward,
             dropout=dropout,
+            norm=norm,
             activation=torch.nn.SiLU(),
             transformer_type="PostLN",
         )

@@ -9,6 +9,7 @@ architecture:
     num_heads: 8
     num_attention_layers: 2
     num_gnn_layers: 2
+    normalization: LayerNorm
     zbl: false
     long_range:
       enable: false

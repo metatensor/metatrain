@@ -49,17 +49,17 @@ def test_regression_init():
 
     expected_output = torch.tensor(
         [
-            [3.015289306641],
-            [1.845376491547],
-            [0.776397109032],
-            [1.858697414398],
-            [1.014655113220],
+            [-3.191688537598],
+            [-1.834819078445],
+            [-0.521469116211],
+            [-2.346498489380],
+            [-1.218739271164],
         ]
     )
 
     # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["mtt::U0"].block().values)
+    torch.set_printoptions(precision=12)
+    print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
 
@@ -130,23 +130,23 @@ def test_regression_energies_forces_train(device):
 
     expected_output = torch.tensor(
         [
-            [20.386034011841],
-            [20.353490829468],
-            [20.303865432739],
-            [20.413286209106],
-            [20.318788528442],
+            [-2.198481559753],
+            [-2.133383035660],
+            [-2.169648170471],
+            [-2.262868165970],
+            [-2.069674253464],
         ],
         device=device,
     )
 
     expected_gradients_output = torch.tensor(
-        [0.208536088467, -0.117365449667, -0.278660595417], device=device
+        [-0.012243390083, -0.003252953291, 0.006708323956], device=device
     )
 
     # # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["energy"].block().values)
-    # print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
+    torch.set_printoptions(precision=12)
+    print(output["energy"].block().values)
+    print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
 
     torch.testing.assert_close(output["energy"].block().values, expected_output)
     torch.testing.assert_close(

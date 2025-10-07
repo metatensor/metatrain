@@ -41,6 +41,11 @@ def model_update_v5_v6(checkpoint):
         checkpoint["best_model_state_dict"] = checkpoint["model_state_dict"]
 
 
+def model_update_v6_v7(checkpoint):
+    if "normalization" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["normalization"] = "LayerNorm"
+
+
 ###########################
 # TRAINER #################
 ###########################

@@ -41,7 +41,7 @@ class PET(ModelInterface):
 
     """
 
-    __checkpoint_version__ = 6
+    __checkpoint_version__ = 7
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -73,6 +73,7 @@ class PET(ModelInterface):
                 self.hypers["d_feedforward"],
                 self.hypers["num_attention_layers"],
                 0.0,  # attention dropout rate
+                self.hypers["normalization"],
                 len(self.atomic_types),
                 layer_index == 0,  # is first layer
             )
