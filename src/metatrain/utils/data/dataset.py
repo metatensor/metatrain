@@ -12,11 +12,9 @@ import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
-from metatensor.torch import TensorMap, load_buffer, save_buffer
-from metatomic.torch import load_system, load_system_buffer, save
+from metatensor.torch import Labels, TensorBlock, TensorMap, load_buffer, save_buffer
+from metatomic.torch import System, load_system, load_system_buffer, save
 from metatomic.torch import save_buffer as save_system_buffer
-from metatensor.torch import Labels, TensorBlock, TensorMap, load_buffer
-from metatomic.torch import System, load_system
 from omegaconf import DictConfig
 from torch.utils.data import Dataset as TorchDataset
 from torch.utils.data import Subset
@@ -1005,7 +1003,7 @@ class MemmapDataset(TorchDataset):
                 _check_tensor_map_metadata(tensor_map, target_info.layout)
                 target_info_dict[target_key] = target_info
             else:
-                target_info = get_generic_target_info(target)
+                target_info = get_generic_target_info(target_key, target)
                 _check_tensor_map_metadata(tensor_map, target_info.layout)
                 # make sure that the properties of the target_info.layout also match the
                 # actual properties of the tensor maps
