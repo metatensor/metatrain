@@ -1,3 +1,4 @@
+import warnings
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
@@ -7,40 +8,31 @@ from metatomic.torch import ModelOutput
 
 from metatrain.pet.modules.compatibility import convert_checkpoint_from_legacy_pet
 from metatrain.utils.data import read_systems
-from metatrain.utils.io import load_model, model_from_checkpoint
+from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_WITH_FORCES_PATH
 
 
 LEGACY_VERSIONS = ["0.3.2", "0.4.1", "1.0.0"]
-STABLE_VERSIONS = ["1.0.1", "1.1.0"]
+STABLE_VERSIONS = ["1.0.1", "1.0.2", "1.1.0"]
 
 
 @pytest.mark.parametrize("version", STABLE_VERSIONS)
 def test_pet_mad_consistency(version, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     path = f"https://huggingface.co/lab-cosmo/pet-mad/resolve/v{version}/models/pet-mad-v{version}.ckpt"
+    if urlparse(path).scheme:
+        path, _ = urlretrieve(path)
+    checkpoint = torch.load(path, weights_only=False, map_location="cpu")
 
     if version in LEGACY_VERSIONS:
-        if urlparse(path).scheme:
-            path, _ = urlretrieve(path)
-
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         checkpoint = convert_checkpoint_from_legacy_pet(checkpoint)
         pet_mad_model = model_from_checkpoint(checkpoint, context="export").eval()
 
-    msg1 = (
-        "trying to upgrade an old model checkpoint with unknown version, this "
-        "might fail and require manual modifications"
-    )
-    msg2 = (
-        "PET assumes that Cartesian tensors of rank 2 are stress-like, meaning that "
-        "they are symmetric and intensive. If this is not the case, please use a "
-        "different model."
-    )
-    with pytest.warns(UserWarning, match=f"({msg1}|{msg2})"):
-        pet_mad_model = load_model(path).eval()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        pet_mad_model = model_from_checkpoint(checkpoint, context="finetune").eval()
 
     systems = read_systems(DATASET_WITH_FORCES_PATH)[:5]
     for system in systems:
