@@ -11,7 +11,9 @@ Transfer Learning (experimental)
 
   Features described in this section are experimental and not yet
   extensively tested. Please use them at your own risk and report any
-  issues you encounter to the developers.
+  issues you encounter to the developers. The transfer learned models 
+  are not available yet in MD engines such as ASE or LAMMPS.
+
 
 This section describes the process of transfer learning, which is a
 common technique used in machine learning, where a model is pre-trained on
@@ -34,8 +36,8 @@ requires using a pre-trained model checkpoint with the ``mtt train`` command and
 new targets corresponding to the new level of theory in the ``options.yaml`` file. Let's
 assume that the training is done on the dataset computed with the hybrid DFT functional
 (e.g. PBE0) stored in the ``new_train_dataset.xyz`` file, where the corresponsing
-energies are written in the ``energy`` key of the ``info`` dictionary of the
-``ase.Atoms`` object. Then, the ``options.yaml`` file should look like this:
+energies and forces are written in the ``energy`` and ``forces`` key of the ``info`` dictionary 
+of the ``ase.Atoms`` object. Then, the ``options.yaml`` file should look like this:
 
 .. code-block:: yaml
 
@@ -50,6 +52,8 @@ energies are written in the ``energy`` key of the ``info`` dictionary of the
       mtt::energy_pbe0: # name of the new target
         key: "energy" # key of the target in the atoms.info dictionary
         unit: "eV" # unit of the target value
+        forces: 
+          key: forces
 
   test_set: 0.1
   validation_set: 0.1
@@ -58,11 +62,6 @@ The validation and test sets can be set in the same way. The training
 process will then create a new composition model and new heads for the
 target ``mtt::energy_pbe0``. The rest of the model weights will be
 initialized from the pre-trained model checkpoint.
-
-.. warning::
-  Common MD engines such as ASE or LAMMPS use the default ``energy`` target.
-  Thus, it is not possible yet to use transfer-learned models with a new energy
-  target for MD. We are currently working on making this available.
 
 Fitting to a new set of properties
 ----------------------------------
