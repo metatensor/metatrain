@@ -1,3 +1,5 @@
+.. _fine-tuning:
+
 Fine-tuning
 ===========
 
@@ -10,6 +12,8 @@ adapt it to new tasks or datasets. Fine-tuning is a common technique used
 in machine learning, where a model is trained on a large dataset and then
 fine-tuned on a smaller dataset to improve its performance on specific tasks.
 So far the fine-tuning capabilities are only available for PET model.
+
+There is a complete example in :ref:`Fine-tune example <fine-tuning-example>`.
 
 
 .. note::
@@ -54,7 +58,7 @@ this will help stabilizing the training process. I.e. if the default learning ra
 Please note, that in the case of the basic fine-tuning, the composition model weights
 will be taken from the checkpoint and not adapted to the new dataset.
 
-The basic fine-tuning startgy is a good choice in the case when the level of theory
+The basic fine-tuning strategy is a good choice in the case when the level of theory
 which is used for the original training is the same, or at least similar to the one used for
 the new dataset. However, since this is not always the case, we also provide more advanced
 fine-tuning strategies described below.
