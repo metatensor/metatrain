@@ -418,6 +418,8 @@ class Trainer:
                 bandgap_target = gap_batch[0].values.reshape(-1,1).to(dtype)
                 bandgap_loss = torch.nn.functional.mse_loss(bandgap_predictions, bandgap_target)
                 gap_force_target = gap_force_batch[0].values.to(dtype)
+                print (gap_force_target.shape)
+                print (gap_force_predictions.shape)
                 gap_force_loss = torch.nn.functional.mse_loss(gap_force_predictions, gap_force_target) # Use 1:1 for now
                 if train_print:
                     print ("Train print:")
