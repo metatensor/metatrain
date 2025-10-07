@@ -389,9 +389,9 @@ class Trainer:
                 for system in systems:
                     new_system, strain = _prepare_system(
                         system,
-                        positions_grad=len(energy_targets_that_require_position_gradients) > 0,
-                        strain_grad=len(energy_targets_that_require_strain_gradients) > 0,
-                        check_consistency=check_consistency,
+                        positions_grad= True,
+                        strain_grad= False,
+                        check_consistency=False,
                     )
                     new_systems.append(new_system)
                 systems = new_systems
@@ -479,9 +479,9 @@ class Trainer:
                 for system in systems:
                     new_system, strain = _prepare_system(
                         system,
-                        positions_grad=len(energy_targets_that_require_position_gradients) > 0,
-                        strain_grad=len(energy_targets_that_require_strain_gradients) > 0,
-                        check_consistency=check_consistency,
+                        positions_grad= True,
+                        strain_grad= False,
+                        check_consistency=False,
                     )
                     new_systems.append(new_system)
                 systems = new_systems
