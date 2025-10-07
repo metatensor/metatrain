@@ -276,10 +276,11 @@ class CartesianTransformer(torch.nn.Module):
         if not is_first:
             self.neighbor_embedder = nn.Embedding(n_atomic_species + 1, d_model)
 
-        self.node_embedder = nn.Embedding(n_atomic_species + 1, d_model)
+        # self.node_embedder = nn.Embedding(n_atomic_species + 1, d_model)
 
     def forward(
         self,
+        input_node_embeddings: torch.Tensor,
         input_messages: torch.Tensor,
         element_indices_nodes: torch.Tensor,
         element_indices_neighbors: torch.Tensor,
@@ -289,7 +290,7 @@ class CartesianTransformer(torch.nn.Module):
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
     ):
-        node_embeddings = self.node_embedder(element_indices_nodes)
+        node_embeddings = input_node_embeddings
         edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
         edge_embeddings = torch.cat(edge_embeddings, dim=2)
         edge_embeddings = self.edge_embedder(edge_embeddings)

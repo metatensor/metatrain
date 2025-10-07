@@ -58,29 +58,36 @@ class PET(ModelInterface):
             full_list=True,
             strict=True,
         )
-
         self.cutoff = float(self.hypers["cutoff"])
         self.cutoff_width = float(self.hypers["cutoff_width"])
-        self.embedding = torch.nn.Embedding(
-            len(self.atomic_types) + 1, self.hypers["d_pet"]
+        num_atomic_species = len(self.atomic_types)
+        self.gnn_layers = torch.nn.ModuleList(
+            [
+                CartesianTransformer(
+                    self.hypers,
+                    self.hypers["d_pet"],
+                    self.hypers["num_heads"],
+                    self.hypers["d_feedforward"],
+                    self.hypers["num_attention_layers"],
+                    0.0,  # attention dropout rate
+                    self.hypers["normalization"],
+                    self.hypers["activation"],
+                    num_atomic_species,
+                    layer_index == 0,  # is first layer
+                )
+                for layer_index in range(self.hypers["num_gnn_layers"])
+            ]
         )
-        gnn_layers = []
-        for layer_index in range(self.hypers["num_gnn_layers"]):
-            transformer_layer = CartesianTransformer(
-                self.hypers,
-                self.hypers["d_pet"],
-                self.hypers["num_heads"],
-                self.hypers["d_feedforward"],
-                self.hypers["num_attention_layers"],
-                0.0,  # attention dropout rate
-                self.hypers["normalization"],
-                self.hypers["activation"],
-                len(self.atomic_types),
-                layer_index == 0,  # is first layer
-            )
-            gnn_layers.append(transformer_layer)
 
-        self.gnn_layers = torch.nn.ModuleList(gnn_layers)
+        self.node_embedders = torch.nn.ModuleList(
+            [
+                torch.nn.Embedding(num_atomic_species + 1, self.hypers["d_pet"])
+                for _ in range(self.hypers["num_gnn_layers"])
+            ]
+        )
+        self.edge_embedder = torch.nn.Embedding(
+            num_atomic_species + 1, self.hypers["d_pet"]
+        )
 
         self.node_heads = torch.nn.ModuleDict()
         self.edge_heads = torch.nn.ModuleDict()
@@ -299,10 +306,12 @@ class PET(ModelInterface):
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
 
-        input_messages = self.embedding(element_indices_neighbors)
-        for gnn_layer in self.gnn_layers:
+        input_edge_embeddings = self.edge_embedder(element_indices_neighbors)
+        for node_embedder, gnn_layer in zip(self.node_embedders, self.gnn_layers):
+            input_node_embeddings = node_embedder(element_indices_nodes)
             output_node_embeddings, output_edge_embeddings = gnn_layer(
-                input_messages,
+                input_node_embeddings,
+                input_edge_embeddings,
                 element_indices_nodes,
                 element_indices_neighbors,
                 edge_vectors,
@@ -321,7 +330,7 @@ class PET(ModelInterface):
             new_input_messages = output_edge_embeddings[
                 neighbors_index, reversed_neighbor_list
             ]
-            input_messages = 0.5 * (input_messages + new_input_messages)
+            input_edge_embeddings = 0.5 * (input_edge_embeddings + new_input_messages)
 
         # If the long-range module is actuvated, we add the long-range features
         # on top of the node features
