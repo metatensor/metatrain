@@ -31,7 +31,7 @@ from metatrain.utils.neighbor_lists import (
 # uses float32 by default. We will convert the systems to float32.
 
 systems = read_systems("qm9_reduced_100.xyz")
-systems = [s.to(torch.float32) for s in systems]
+systems = [s.to(torch.float64) for s in systems]
 
 
 # %%

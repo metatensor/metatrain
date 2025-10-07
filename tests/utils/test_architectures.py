@@ -68,15 +68,8 @@ def test_check_architecture_no_name_suggest():
 
 
 def test_check_architecture_name_deprecated():
-    with pytest.raises(
-        ValueError, match="deprecated architecture with the same name"
-    ):
+    with pytest.raises(ValueError, match="deprecated architecture with the same name"):
         check_architecture_name("nanopet")
-
-
-def test_check_architecture_name_deprecated():
-    # Create once a deprecated architecture exist
-    pass
 
 
 @pytest.mark.parametrize("path_type", [Path, str])
