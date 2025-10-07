@@ -11,8 +11,14 @@ import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
-from metatensor.torch import TensorMap, load_buffer, save_buffer
-from metatomic.torch import load_system, load_system_buffer, save
+from metatensor.torch import (
+    TensorMap,
+    load_buffer,
+    make_contiguous,
+    make_contiguous_block,
+    save_buffer,
+)
+from metatomic.torch import System, load_system, load_system_buffer, save
 from metatomic.torch import save_buffer as save_system_buffer
 from omegaconf import DictConfig
 from torch.utils.data import Subset
@@ -374,7 +380,9 @@ class CollateFn:
         target_names = list(targets.keys())
         extra_names = list(extra.keys())
 
-        system_buffers = [save_system_buffer(s) for s in systems]
+        system_buffers = [
+            save_system_buffer(_make_system_contiguous(s)) for s in systems
+        ]
         target_buffers = [save_buffer(targets[name]) for name in target_names]
         extra_buffers = [save_buffer(extra[name]) for name in extra_names]
 
@@ -719,3 +727,23 @@ def get_num_workers() -> int:
     num_workers = max(0, min(num_threads - reserve, cap))
 
     return num_workers
+
+
+def _make_system_contiguous(system):
+    # Return a copy of a ``System`` object with contiguous arrays.
+    new_system = System(
+        positions=system.positions.contiguous(),
+        types=system.types.contiguous(),
+        cell=system.cell.contiguous(),
+        pbc=system.pbc.contiguous(),
+    )
+    for nl_options in system.known_neighbor_lists():
+        nl = system.get_neighbor_list(nl_options)
+        new_system.add_neighbor_list(
+            nl_options,
+            make_contiguous_block(nl),
+        )
+    for key in system.known_data():
+        data = system.get_data(key)
+        new_system.add_data(key, make_contiguous(data))
+    return new_system
