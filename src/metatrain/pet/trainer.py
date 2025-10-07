@@ -415,6 +415,7 @@ class Trainer:
                 dos_predictions = predictions['mtt::gapdos'][0].values
                 bandgap_predictions = model.bandgap_layer(dos_predictions)
                 gap_force_predictions = compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True)
+                print (gap_force_predictions)
                 bandgap_target = gap_batch[0].values.reshape(-1,1).to(dtype)
                 bandgap_loss = torch.nn.functional.mse_loss(bandgap_predictions, bandgap_target)
                 gap_force_target = gap_force_batch[0].values.to(dtype)
