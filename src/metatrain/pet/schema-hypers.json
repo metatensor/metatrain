@@ -52,6 +52,13 @@
             "PostLN"
           ]
         },
+        "featurizer_type": {
+          "type": "string",
+          "enum": [
+            "residual",
+            "feedforward"
+          ]
+        },
         "activation": {
           "type": "string",
           "enum": [

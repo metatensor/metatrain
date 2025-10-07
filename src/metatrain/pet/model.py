@@ -32,6 +32,9 @@ from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func
 
 
+AVAILABLE_FEATURIZERS = ["feedforward", "residual"]
+
+
 class PET(ModelInterface):
     """
     Metatrain-native implementation of the PET architecture.
@@ -79,11 +82,41 @@ class PET(ModelInterface):
                 for layer_index in range(self.hypers["num_gnn_layers"])
             ]
         )
+        if self.hypers["featurizer_type"] not in AVAILABLE_FEATURIZERS:
+            raise ValueError(
+                f"Unknown featurizer type: {self.hypers['featurizer_type']}. "
+                f"Available options are: {AVAILABLE_FEATURIZERS}"
+            )
+        self.featurizer_type = self.hypers["featurizer_type"]
+        if self.featurizer_type == "feedforward":
+            self.num_readout_layers = 1
+            self.combination_norms = torch.nn.ModuleList(
+                [
+                    torch.nn.LayerNorm(2 * self.hypers["d_pet"])
+                    for _ in range(self.hypers["num_gnn_layers"])
+                ]
+            )
+            self.combination_mlps = torch.nn.ModuleList(
+                [
+                    torch.nn.Sequential(
+                        torch.nn.Linear(
+                            2 * self.hypers["d_pet"], 2 * self.hypers["d_pet"]
+                        ),
+                        torch.nn.SiLU(),
+                        torch.nn.Linear(2 * self.hypers["d_pet"], self.hypers["d_pet"]),
+                    )
+                    for _ in range(self.hypers["num_gnn_layers"])
+                ]
+            )
+        else:
+            self.num_readout_layers = self.hypers["num_gnn_layers"]
+            self.combination_norms = torch.nn.ModuleList()
+            self.combination_mlps = torch.nn.ModuleList()
 
         self.node_embedders = torch.nn.ModuleList(
             [
                 torch.nn.Embedding(num_atomic_species + 1, self.hypers["d_node"])
-                for _ in range(self.hypers["num_gnn_layers"])
+                for _ in range(self.num_readout_layers)
             ]
         )
         self.edge_embedder = torch.nn.Embedding(
@@ -95,7 +128,7 @@ class PET(ModelInterface):
         self.node_last_layers = torch.nn.ModuleDict()
         self.edge_last_layers = torch.nn.ModuleDict()
         self.last_layer_feature_size = (
-            self.hypers["num_gnn_layers"] * self.hypers["d_head"] * 2
+            self.num_readout_layers * self.hypers["d_head"] * 2
         )
 
         self.outputs = {
@@ -228,32 +261,67 @@ class PET(ModelInterface):
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
 
-    def _calculate_features(
-        self,
-        element_indices_nodes: torch.Tensor,
-        element_indices_neighbors: torch.Tensor,
-        edge_vectors: torch.Tensor,
-        neighbors_index: torch.Tensor,
-        reversed_neighbor_list: torch.Tensor,
-        padding_mask: torch.Tensor,
-        edge_distances: torch.Tensor,
-        cutoff_factors: torch.Tensor,
-        use_manual_attention: bool,
+    def _feedforward_featurization_impl(
+        self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
-        input_edge_embeddings = self.edge_embedder(element_indices_neighbors)
-        for node_embedder, gnn_layer in zip(self.node_embedders, self.gnn_layers):
-            input_node_embeddings = node_embedder(element_indices_nodes)
+
+        input_node_embeddings = self.node_embedders[0](inputs["element_indices_nodes"])
+        input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
+        for combination_norm, combination_mlp, gnn_layer in zip(
+            self.combination_norms, self.combination_mlps, self.gnn_layers
+        ):
             output_node_embeddings, output_edge_embeddings = gnn_layer(
                 input_node_embeddings,
                 input_edge_embeddings,
-                element_indices_nodes,
-                element_indices_neighbors,
-                edge_vectors,
-                padding_mask,
-                edge_distances,
-                cutoff_factors,
+                inputs["element_indices_neighbors"],
+                inputs["edge_vectors"],
+                inputs["padding_mask"],
+                inputs["edge_distances"],
+                inputs["cutoff_factors"],
+                use_manual_attention,
+            )
+
+            # The GNN contraction happens by reordering the messages,
+            # using a reversed neighbor list, so the new input message
+            # from atom `j` to atom `i` in on the GNN layer N+1 is a
+            # reversed message from atom `i` to atom `j` on the GNN layer N.
+            input_node_embeddings = output_node_embeddings
+            new_input_edge_embeddings = output_edge_embeddings[
+                inputs["neighbors_index"], inputs["reversed_neighbor_list"]
+            ]
+            # input_messages = 0.5 * (output_edge_embeddings + new_input_messages)
+            concatenated = torch.cat(
+                [output_edge_embeddings, new_input_edge_embeddings], dim=-1
+            )
+            input_edge_embeddings = (
+                input_edge_embeddings
+                + output_edge_embeddings
+                + combination_mlp(combination_norm(concatenated))
+            )
+
+        node_features_list.append(input_node_embeddings)
+        edge_features_list.append(input_edge_embeddings)
+        return node_features_list, edge_features_list
+
+    def _residual_featurization_impl(
+        self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        node_features_list: List[torch.Tensor] = []
+        edge_features_list: List[torch.Tensor] = []
+        input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
+        for node_embedder, gnn_layer in zip(self.node_embedders, self.gnn_layers):
+            input_node_embeddings = node_embedder(inputs["element_indices_nodes"])
+            output_node_embeddings, output_edge_embeddings = gnn_layer(
+                input_node_embeddings,
+                input_edge_embeddings,
+                inputs["element_indices_nodes"],
+                inputs["element_indices_neighbors"],
+                inputs["edge_vectors"],
+                inputs["padding_mask"],
+                inputs["edge_distances"],
+                inputs["cutoff_factors"],
                 use_manual_attention,
             )
             node_features_list.append(output_node_embeddings)
@@ -264,10 +332,18 @@ class PET(ModelInterface):
             # from atom `j` to atom `i` in on the GNN layer N+1 is a
             # reversed message from atom `i` to atom `j` on the GNN layer N.
             new_input_messages = output_edge_embeddings[
-                neighbors_index, reversed_neighbor_list
+                inputs["neighbors_index"], inputs["reversed_neighbor_list"]
             ]
             input_edge_embeddings = 0.5 * (input_edge_embeddings + new_input_messages)
         return node_features_list, edge_features_list
+
+    def calculate_features(
+        self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        if self.featurizer_type == "feedforward":
+            return self._feedforward_featurization_impl(inputs, use_manual_attention)
+        else:
+            return self._residual_featurization_impl(inputs, use_manual_attention)
 
     def forward(
         self,
@@ -342,19 +418,21 @@ class PET(ModelInterface):
         cutoff_factors[~padding_mask] = 0.0
 
         # Stage 1. We iterate over the GNN layers and calculate the node and edge
-        # representations for structures, while saving the intermediate node and edge
-        # features from each layer to the corresponding lists.
+        # representations for structures, following the selected featurization strategy.
 
-        node_features_list, edge_features_list = self._calculate_features(
-            element_indices_nodes,
-            element_indices_neighbors,
-            edge_vectors,
-            neighbors_index,
-            reversed_neighbor_list,
-            padding_mask,
-            edge_distances,
-            cutoff_factors,
-            use_manual_attention,
+        featurizer_inputs: Dict[str, torch.Tensor] = dict(
+            element_indices_nodes=element_indices_nodes,
+            element_indices_neighbors=element_indices_neighbors,
+            edge_vectors=edge_vectors,
+            neighbors_index=neighbors_index,
+            reversed_neighbor_list=reversed_neighbor_list,
+            padding_mask=padding_mask,
+            edge_distances=edge_distances,
+            cutoff_factors=cutoff_factors,
+        )
+        node_features_list, edge_features_list = self.calculate_features(
+            featurizer_inputs,
+            use_manual_attention=use_manual_attention,
         )
 
         # If the long-range module is actuvated, we add the long-range features
@@ -829,7 +907,7 @@ class PET(ModelInterface):
                     torch.nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
                     torch.nn.SiLU(),
                 )
-                for _ in range(self.hypers["num_gnn_layers"])
+                for _ in range(self.num_readout_layers)
             ]
         )
 
@@ -841,7 +919,7 @@ class PET(ModelInterface):
                     torch.nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
                     torch.nn.SiLU(),
                 )
-                for _ in range(self.hypers["num_gnn_layers"])
+                for _ in range(self.num_readout_layers)
             ]
         )
 
@@ -857,7 +935,7 @@ class PET(ModelInterface):
                         for key, shape in self.output_shapes[target_name].items()
                     }
                 )
-                for _ in range(self.hypers["num_gnn_layers"])
+                for _ in range(self.num_readout_layers)
             ]
         )
 
@@ -873,7 +951,7 @@ class PET(ModelInterface):
                         for key, shape in self.output_shapes[target_name].items()
                     }
                 )
-                for _ in range(self.hypers["num_gnn_layers"])
+                for _ in range(self.num_readout_layers)
             ]
         )
 

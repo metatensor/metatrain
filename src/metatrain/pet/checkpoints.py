@@ -56,6 +56,8 @@ def model_update_v6_v7(checkpoint):
     # Setting the default transformer type to PostLN if not specified
     if "transformer_type" not in checkpoint["model_data"]["model_hypers"]:
         checkpoint["model_data"]["model_hypers"]["transformer_type"] = "PostLN"
+    if "featurizer_type" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["featurizer_type"] = "residual"
     for key in ["model_state_dict", "best_model_state_dict"]:
         if (state_dict := checkpoint.get(key)) is not None:
             new_state_dict = {}

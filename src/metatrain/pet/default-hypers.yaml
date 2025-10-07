@@ -13,6 +13,7 @@ architecture:
     normalization: LayerNorm
     activation: SiLU
     transformer_type: PostLN
+    featurizer_type: residual
     zbl: false
     long_range:
       enable: false
