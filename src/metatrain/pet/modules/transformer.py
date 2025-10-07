@@ -5,6 +5,10 @@ from torch import nn
 from .utilities import DummyModule
 
 
+AVAILABLE_NORMALIZATIONS = ["LayerNorm", "RMSNorm"]
+AVAILABLE_TRANSFORMER_TYPES = ["PostLN", "PreLN"]
+
+
 class AttentionBlock(nn.Module):
     def __init__(self, total_dim, num_heads, epsilon=1e-15):
         super(AttentionBlock, self).__init__()
@@ -58,10 +62,18 @@ class TransformerLayer(torch.nn.Module):
         super(TransformerLayer, self).__init__()
         self.attention = AttentionBlock(d_model, n_heads)
 
-        if transformer_type not in ["PostLN", "PreLN"]:
-            raise ValueError("unknown transformer type")
+        if transformer_type not in AVAILABLE_TRANSFORMER_TYPES:
+            raise ValueError(
+                f"Unknown transformer flag: {transformer_type}. "
+                f"Please choose from: {AVAILABLE_TRANSFORMER_TYPES}"
+            )
         self.transformer_type = transformer_type
         self.d_model = d_model
+        if norm not in AVAILABLE_NORMALIZATIONS:
+            raise ValueError(
+                f"Unknown normalization flag: {norm}. "
+                f"Please choose from: {AVAILABLE_NORMALIZATIONS}"
+            )
         norm_class = getattr(nn, norm)
         self.norm_attention = norm_class(d_model)
         self.norm_mlp = norm_class(d_model)
