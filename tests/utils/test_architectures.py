@@ -27,7 +27,7 @@ def test_find_all_architectures():
     assert "gap" in all_arches
     assert "pet" in all_arches
     assert "soap_bpnn" in all_arches
-    assert "experimental.nanopet" in all_arches
+    assert "deprecated.nanopet" in all_arches
     assert "llpr" in all_arches
 
 
@@ -67,16 +67,9 @@ def test_check_architecture_no_name_suggest():
         check_architecture_name(name)
 
 
-def test_check_architecture_name_experimental():
-    with pytest.raises(
-        ValueError, match="experimental architecture with the same name"
-    ):
-        check_architecture_name("nanopet")
-
-
 def test_check_architecture_name_deprecated():
-    # Create once a deprecated architecture exist
-    pass
+    with pytest.raises(ValueError, match="deprecated architecture with the same name"):
+        check_architecture_name("nanopet")
 
 
 @pytest.mark.parametrize("path_type", [Path, str])

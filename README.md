@@ -38,7 +38,7 @@ model:
 |--------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
 | GAP                      | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
 | PET                      | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
-| NanoPET *(experimental)* | Re-implementation of the original PET with slightly improved training and evaluation speed                                           |
+| NanoPET *(deprecated)* | Re-implementation of the original PET with slightly improved training and evaluation speed                                           |
 | SOAP BPNN                | A Behler-Parrinello neural network with SOAP features                                                                                |
 
 <!-- marker-documentation -->
@@ -71,7 +71,7 @@ conda install -c conda-forge metatrain
 ```
 
 > ⚠️ The conda installation does not install model-specific dependencies and will only
-> work for architectures without optional dependencies such as NanoPET or PET.
+> work for architectures without optional dependencies such as PET.
 
 After installation, you can use mtt from the command line to train your models!
 

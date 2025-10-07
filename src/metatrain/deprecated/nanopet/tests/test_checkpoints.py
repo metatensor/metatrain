@@ -4,7 +4,7 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from metatrain.experimental.nanopet import NanoPET, Trainer
+from metatrain.deprecated.nanopet import NanoPET, Trainer
 from metatrain.utils.data import DatasetInfo, get_atomic_types, get_dataset
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.omegaconf import CONF_LOSS
