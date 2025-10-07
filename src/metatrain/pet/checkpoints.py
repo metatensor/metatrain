@@ -44,6 +44,18 @@ def model_update_v5_v6(checkpoint):
 def model_update_v6_v7(checkpoint):
     if "normalization" not in checkpoint["model_data"]["model_hypers"]:
         checkpoint["model_data"]["model_hypers"]["normalization"] = "LayerNorm"
+    if "activation" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["activation"] = "SiLU"
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if ".mlp.0" in k:
+                    k = k.replace(".mlp.0", ".mlp.w_in")
+                if ".mlp.3" in k:
+                    k = k.replace(".mlp.3", ".mlp.w_out")
+                new_state_dict[k] = v
+            checkpoint[key] = new_state_dict
 
 
 ###########################

@@ -130,17 +130,17 @@ def test_regression_energies_forces_train(device):
 
     expected_output = torch.tensor(
         [
-            [-2.198481559753],
-            [-2.133383035660],
-            [-2.169648170471],
-            [-2.262868165970],
-            [-2.069674253464],
+            [7.167398452759],
+            [7.240622520447],
+            [7.199922561646],
+            [7.117626190186],
+            [7.347997665405],
         ],
         device=device,
     )
 
     expected_gradients_output = torch.tensor(
-        [-0.012243390083, -0.003252953291, 0.006708323956], device=device
+        [0.088856935501, -0.057809233665, -0.125860929489], device=device
     )
 
     # # if you need to change the hardcoded values:

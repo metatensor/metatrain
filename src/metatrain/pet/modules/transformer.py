@@ -7,6 +7,45 @@ from .utilities import DummyModule
 
 AVAILABLE_NORMALIZATIONS = ["LayerNorm", "RMSNorm"]
 AVAILABLE_TRANSFORMER_TYPES = ["PostLN", "PreLN"]
+AVAILABLE_ACTIVATIONS = ["SiLU", "SwiGLU"]
+
+
+class FeedForward(nn.Module):
+    def __init__(self, d_model, dim_feedforward, activation, dropout=0.0):
+        super().__init__()
+
+        # Check if activation is "swiglu" string
+        if activation.lower() == "swiglu":
+            # SwiGLU mode: single projection produces both "value" and "gate"
+            self.w_in = nn.Linear(d_model, 2 * dim_feedforward)
+            self.w_out = nn.Linear(dim_feedforward, d_model)
+            self.activation = None
+            self.is_swiglu = True
+        else:
+            # Standard mode: regular activation function
+            self.w_in = nn.Linear(d_model, dim_feedforward)
+            self.w_out = nn.Linear(dim_feedforward, d_model)
+            self.activation = getattr(F, activation.lower())
+            self.is_swiglu = False
+
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        if self.is_swiglu:
+            # SwiGLU activation: split into value and gate
+            v, g = self.w_in(x).chunk(2, dim=-1)
+            x = v * torch.sigmoid(g)
+            x = self.dropout(x)
+            x = self.w_out(x)
+            x = self.dropout(x)
+        else:
+            # Standard activation
+            x = self.w_in(x)
+            x = self.activation(x)
+            x = self.dropout(x)
+            x = self.w_out(x)
+            x = self.dropout(x)
+        return x
 
 
 class AttentionBlock(nn.Module):
@@ -56,7 +95,7 @@ class TransformerLayer(torch.nn.Module):
         dim_feedforward=512,
         dropout=0.0,
         norm="LayerNorm",
-        activation=F.silu,
+        activation="SiLU",
         transformer_type="PostLN",
     ):
         super(TransformerLayer, self).__init__()
@@ -67,16 +106,7 @@ class TransformerLayer(torch.nn.Module):
         self.norm_attention = norm_class(d_model)
         self.norm_mlp = norm_class(d_model)
         self.dropout = nn.Dropout(dropout)
-
-        self.activation = activation
-
-        self.mlp = nn.Sequential(
-            nn.Linear(d_model, dim_feedforward),
-            self.activation,
-            nn.Dropout(dropout),
-            nn.Linear(dim_feedforward, d_model),
-            nn.Dropout(dropout),
-        )
+        self.mlp = FeedForward(d_model, dim_feedforward, activation, dropout)
 
     def forward(
         self,
@@ -111,7 +141,7 @@ class Transformer(torch.nn.Module):
         dim_feedforward=512,
         dropout=0.0,
         norm="LayerNorm",
-        activation=F.silu,
+        activation="SiLU",
         transformer_type="PostLN",
     ):
         super(Transformer, self).__init__()
@@ -120,18 +150,24 @@ class Transformer(torch.nn.Module):
                 f"Unknown normalization flag: {norm}. "
                 f"Please choose from: {AVAILABLE_NORMALIZATIONS}"
             )
+        norm_class = getattr(nn, norm)
 
         if transformer_type not in AVAILABLE_TRANSFORMER_TYPES:
             raise ValueError(
                 f"Unknown transformer flag: {transformer_type}. "
                 f"Please choose from: {AVAILABLE_TRANSFORMER_TYPES}"
             )
-        norm_class = getattr(nn, norm)
+        self.transformer_type = transformer_type
+
+        if activation not in AVAILABLE_ACTIVATIONS:
+            raise ValueError(
+                f"Unknown activation flag: {activation}. "
+                f"Please choose from: {AVAILABLE_ACTIVATIONS}"
+            )
 
         self.final_norm = DummyModule()  # for torchscript
         if transformer_type == "PreLN":
             self.final_norm = norm_class(d_model)
-        self.transformer_type = transformer_type
 
         self.layers = nn.ModuleList(
             [
@@ -171,6 +207,7 @@ class CartesianTransformer(torch.nn.Module):
         n_layers: int,
         dropout: float,
         norm: str,
+        activation: str,
         n_atomic_species: int,
         is_first,
     ):
@@ -185,7 +222,7 @@ class CartesianTransformer(torch.nn.Module):
             dim_feedforward=dim_feedforward,
             dropout=dropout,
             norm=norm,
-            activation=torch.nn.SiLU(),
+            activation=activation,
             transformer_type="PostLN",
         )
 

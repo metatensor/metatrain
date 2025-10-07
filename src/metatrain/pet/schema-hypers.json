@@ -42,6 +42,13 @@
             "RMSNorm"
           ]
         },
+        "activation": {
+          "type": "string",
+          "enum": [
+            "SiLU",
+            "SwiGLU"
+          ]
+        },
         "zbl": {
           "type": "boolean"
         },

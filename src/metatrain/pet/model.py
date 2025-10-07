@@ -74,6 +74,7 @@ class PET(ModelInterface):
                 self.hypers["num_attention_layers"],
                 0.0,  # attention dropout rate
                 self.hypers["normalization"],
+                self.hypers["activation"],
                 len(self.atomic_types),
                 layer_index == 0,  # is first layer
             )
