@@ -14,8 +14,8 @@ dependencies = [
     "huggingface_hub",
     "metatensor-learn >=0.3.2,<0.4",
     "metatensor-operations >=0.3.4,<0.4",
-    "metatensor-torch >=0.7.6,<0.8",
-    "metatomic-torch >=0.1.2,<0.2",
+    "metatensor-torch >=0.8.1,<0.9",
+    "metatomic-torch >=0.1.5,<0.2",
     "jsonschema",
     "omegaconf >= 2.3.0",
     "python-hostlist",
@@ -64,14 +64,6 @@ build-backend = "setuptools.build_meta"
 soap-bpnn = [
     "torch-spex>=0.1,<0.2",
     "wigners",
-]
-deprecated-pet = [
-    "pet-neighbors-convert",
-    "torch_geometric",
-    "matscipy",
-    "scikit-learn",
-    "pathos",
-    "scipy",
 ]
 pet = []
 nanopet = []
