@@ -674,7 +674,7 @@ class NanoPET(ModelInterface):
 
     def get_checkpoint(self) -> Dict:
         checkpoint = {
-            "architecture_name": "experimental.nanopet",
+            "architecture_name": "deprecated.nanopet",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {
