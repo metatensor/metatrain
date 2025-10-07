@@ -20,7 +20,7 @@ Training troubleshooting
 
 **Q:** My training fails with an out of memory error, what can I do? \
 
-**A:**
+**A:** 
 
 **Q:** My training is very slow, what can I do? \
 
@@ -40,7 +40,11 @@ General training concepts
 
 **Q:** How good should my errors are before I can use my model to run Molecular Dynamics simulations? \
 
-**A:** How can I use a custom model architecture? \
+**A:**
+
+**Q:** How can I use a custom model architecture? \
+
+**A:**
 
 **Q:** How can I visualize the results of my training? \
 
