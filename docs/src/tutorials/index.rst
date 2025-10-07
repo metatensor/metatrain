@@ -12,4 +12,3 @@ and advanced tutorials for more complex applications and workflows.
 
    beginner_tutorials/index
    advanced_tutorials/index
-

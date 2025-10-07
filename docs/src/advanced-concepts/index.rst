@@ -12,4 +12,3 @@ such as output naming, auxiliary outputs, and wrapper models.
    loss-functions
    auxiliary-outputs
    multi-gpu
-   auto-restarting
