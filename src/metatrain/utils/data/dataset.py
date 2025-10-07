@@ -3,7 +3,6 @@ import multiprocessing
 import os
 import warnings
 import zipfile
-from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
@@ -20,7 +19,7 @@ from metatensor.torch import (
     make_contiguous_block,
     save_buffer,
 )
-from metatomic.torch import System, load_system, load_system_buffer, save
+from metatomic.torch import System, load_system, load_system_buffer
 from metatomic.torch import save_buffer as save_system_buffer
 from omegaconf import DictConfig
 from torch.utils.data import Dataset as TorchDataset
@@ -55,21 +54,6 @@ def _set(values: List[int]) -> List[int]:
             unique_values.append(at_type)
 
     return unique_values
-
-
-class SystemWrapper:
-    """A wrapper for ``metatomic.torch.System`` that makes it pickle-compatible."""
-
-    def __init__(self, system):
-        self.system = system
-
-    def __getstate__(self):
-        state = BytesIO()
-        save(state, self.system)
-        return state
-
-    def __setstate__(self, state):
-        self.system = load_system(state)
 
 
 class DatasetInfo:
