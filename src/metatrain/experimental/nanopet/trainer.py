@@ -128,6 +128,8 @@ class Trainer(TrainerInterface):
         model.additive_models[0].train_model(  # this is the composition model
             train_datasets,
             model.additive_models[1:],
+            self.hypers["batch_size"],
+            is_distributed,
             self.hypers["fixed_composition_weights"],
         )
 
@@ -558,9 +560,11 @@ class Trainer(TrainerInterface):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        if checkpoint["trainer_ckpt_version"] == 1:
-            checkpoints.trainer_update_v1_v2(checkpoint)
-            checkpoint["trainer_ckpt_version"] = 2
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["trainer_ckpt_version"] == v:
+                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["trainer_ckpt_version"] = v + 1
 
         if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
