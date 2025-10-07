@@ -1,17 +1,19 @@
 .. _fine-tuning-example:
 Finetuning example
 -----------------------------
-Finetuning is currently only available for the PET architecture.
-This is a simple example for fine-tuning PET-MAD (or a general PET checkpoint).
+.. warning::
+  Finetuning is currently only available for the PET architecture.
 
-You can obtain a PET-MAD checkpoint from huggingface
+This is a simple example for fine-tuning PET-MAD (or a general PET checkpoint).
+First you need a valid checkpoint for the PET architecture, you can obtain a PET-MAD 
+checkpoint from huggingface
 .. code-block:: bash
   wget https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.1.0/models/pet-mad-v1.1.0.ckpt
 
 Next, we set up the ``options.yaml`` file. We can specify the finetuning method
 in the ``finetune`` block. Here, the basic ``full`` option is chosen, which finetunes all 
 weights of the model. All available finetuning methods are found in the advanced concepts 
-`Fine-tuning <fine-tuning>`_. This section discusses implementation details,
+:ref:`Fine-tuning <fine-tuning>`_. This section discusses implementation details,
 options and recommended use cases. Other finetuning options can be simply substituted in this script, 
 by changing the ``finetune`` block. 
    
@@ -60,7 +62,7 @@ training.
 
 This configuration allows for training on your dataset ``dataset.xyz``, and
 will fine-tune on forces as well as stress. Further information on specifying
-targets can be found in `Customize a Dataset Configuration
+targets can be found in :ref:`Customize a Dataset Configuration
 <dataset_conf>`_.
 
 
@@ -68,5 +70,5 @@ After setting up your ``options.yaml`` file, finetuning can then simply be run
 via ``mtt train options.yaml``.
 
 
-Further fine-tuning examples can be found in 
-`AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`_
+Further fine-tuning examples can be found in the 
+:ref:`AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`_
