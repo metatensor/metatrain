@@ -1,5 +1,5 @@
 architecture:
-  name: experimental.nanopet
+  name: deprecated.nanopet
   model:
     cutoff: 5.0
     cutoff_width: 0.5
