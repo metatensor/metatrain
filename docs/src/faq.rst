@@ -1,16 +1,19 @@
+==========================
 Frequently Asked Questions
 ==========================
 
 This is the main document. Below are links to the sections:
 
-- ref:`section1`
-- `Section 2 <#section2>`_
-- `Section 3 <#section3>`_
+Contents
+--------
+
+`How do I cite metatrain?`_
+
 
 How do I cite metatrain?
-^^^^^^^^^^^^^^^^^^^^^^^^
+========================
 
-.. _section1:
+.. _How do I cite metatrain?:
 
 **Q:** How do I cite ``metatrain``? \
 
