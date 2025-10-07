@@ -3,7 +3,7 @@ import copy
 import torch
 from metatomic.torch import System
 
-from metatrain.experimental.nanopet import NanoPET
+from metatrain.deprecated.nanopet import NanoPET
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists

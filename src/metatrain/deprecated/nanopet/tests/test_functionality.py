@@ -5,7 +5,7 @@ from jsonschema.exceptions import ValidationError
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
-from metatrain.experimental.nanopet.model import NanoPET
+from metatrain.deprecated.nanopet.model import NanoPET
 from metatrain.utils.architectures import check_architecture_options
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
@@ -336,7 +336,7 @@ def test_fixed_composition_weights():
     }
     hypers = OmegaConf.create(hypers)
     check_architecture_options(
-        name="experimental.nanopet", options=OmegaConf.to_container(hypers)
+        name="deprecated.nanopet", options=OmegaConf.to_container(hypers)
     )
 
 
@@ -347,7 +347,7 @@ def test_fixed_composition_weights_error():
     hypers = OmegaConf.create(hypers)
     with pytest.raises(ValidationError, match=r"'H' does not match '\^\[0-9\]\+\$'"):
         check_architecture_options(
-            name="experimental.nanopet", options=OmegaConf.to_container(hypers)
+            name="deprecated.nanopet", options=OmegaConf.to_container(hypers)
         )
 
 
