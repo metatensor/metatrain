@@ -73,7 +73,11 @@ def _concatenate_tensormaps(
                 new_samples_values[:, where_system] += system_counter
                 new_block = TensorBlock(
                     values=block.values,
-                    samples=Labels(block.samples.names, values=new_samples_values),
+                    samples=Labels(
+                        block.samples.names,
+                        values=new_samples_values,
+                        assume_unique=True,
+                    ),
                     components=block.components,
                     properties=block.properties,
                 )

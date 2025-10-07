@@ -96,6 +96,7 @@ def concatenate_structures(
     sample_labels = Labels(
         names=["system", "atom"],
         values=sample_values,
+        assume_unique=True,
     )
 
     return (

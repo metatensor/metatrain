@@ -368,6 +368,7 @@ class PET(ModelInterface):
                             values=torch.arange(
                                 features.shape[-1], device=features.device
                             ).reshape(-1, 1),
+                            assume_unique=True,
                         ),
                     )
                 ],
@@ -464,6 +465,7 @@ class PET(ModelInterface):
                                 last_layer_features_values.shape[-1],
                                 device=last_layer_features_values.device,
                             ).reshape(-1, 1),
+                            assume_unique=True,
                         ),
                     )
                 ],

@@ -153,6 +153,7 @@ class OldCompositionModel(torch.nn.Module):
                                 values=torch.tensor(
                                     self.atomic_types, dtype=torch.int, device=device
                                 ).reshape(-1, 1),
+                                assume_unique=True,
                             ),
                             components=[
                                 c.to(device)
@@ -323,6 +324,7 @@ class OldCompositionModel(torch.nn.Module):
                                 values=torch.tensor(
                                     self.atomic_types, dtype=torch.int, device=device
                                 ).reshape(-1, 1),
+                                assume_unique=True,
                             ),
                             components=[
                                 c.to(device) for c in metadata_block.components
@@ -428,7 +430,7 @@ class OldCompositionModel(torch.nn.Module):
             )
             sample_values_list.append(samples_values_single_system)
         sample_values = torch.concatenate(sample_values_list)
-        sample_labels = Labels(["system", "atom"], sample_values)
+        sample_labels = Labels(["system", "atom"], sample_values, assume_unique=True)
 
         # concatenate all types for all structures
         concatenated_types = torch.concatenate([system.types for system in systems])
@@ -491,6 +493,7 @@ class OldCompositionModel(torch.nn.Module):
                         values=torch.tensor(self.atomic_types, dtype=torch.int).reshape(
                             -1, 1
                         ),
+                        assume_unique=True,
                     ),
                     components=b.components,
                     properties=b.properties,
@@ -514,6 +517,7 @@ class OldCompositionModel(torch.nn.Module):
                         values=torch.tensor(self.atomic_types, dtype=torch.int).reshape(
                             -1, 1
                         ),
+                        assume_unique=True,
                     ),
                     components=b.components,
                     properties=b.properties,

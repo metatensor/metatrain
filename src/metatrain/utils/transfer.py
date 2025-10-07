@@ -23,9 +23,16 @@ def batch_to(
     :param dtype: Desired floating point data type.
     """
 
-    systems = [system.to(dtype=dtype, device=device) for system in systems]
+    # non-blocking transfers can cause bugs in other cases
+    non_blocking = (device.type == "cuda") if (device is not None) else False
+
+    systems = [
+        system.to(dtype=dtype, device=device, non_blocking=non_blocking)
+        for system in systems
+    ]
     targets = {
-        key: value.to(dtype=dtype, device=device) for key, value in targets.items()
+        key: value.to(dtype=dtype, device=device, non_blocking=non_blocking)
+        for key, value in targets.items()
     }
     if extra_data is not None:
         new_dtypes: List[Optional[int]] = []
@@ -35,7 +42,7 @@ def batch_to(
             else:
                 new_dtypes.append(dtype)
         extra_data = {
-            key: value.to(dtype=_dtype, device=device)
+            key: value.to(dtype=_dtype, device=device, non_blocking=non_blocking)
             for (key, value), _dtype in zip(extra_data.items(), new_dtypes)
         }
 

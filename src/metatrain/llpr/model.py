@@ -411,8 +411,14 @@ class LLPRUncertaintyModel(ModelInterface):
                         values=ensemble_values.reshape(ensemble_values.shape[0], -1),
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
-                        properties=ens_prop,
-                    ),
+                        properties=Labels(
+                            names=[property_name],
+                            values=torch.arange(
+                                ensemble_values.shape[1], device=ensemble_values.device
+                            ).unsqueeze(1),
+                            assume_unique=True,
+                        ),
+                    )
                 ],
             )
             return_dict[name] = ensemble

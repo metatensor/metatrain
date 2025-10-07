@@ -902,6 +902,7 @@ def _remove_center_type_from_properties(tensor_map: TensorMap) -> TensorMap:
                     values=torch.arange(
                         block.values.shape[-1], device=block.values.device
                     ).reshape(-1, 1),
+                    assume_unique=True,
                 ),
             )
         )
