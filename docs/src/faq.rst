@@ -24,11 +24,13 @@ Training troubleshooting
 
 **Q:** My training is very slow, what can I do? \
 
-**A:** move to GPU? reduce dataset size?
+**A:** There are several reasons why training can be slow. If possible, 
+try to reduce the dataset size or increase the batch size. 
+You can also try to run on a GPU, which significantly increases performance times.
 
 **Q:**  My training is not converging, what can I do? \
 
-**A:**
+**A:** Please make sure that you dataset is consitently computed and converged to a reasonable accuracy.
 
 General training concepts
 -------------------------
@@ -48,7 +50,10 @@ General training concepts
 
 **Q:** How can I use a custom model architecture? \
 
-**A:** Metatrain offers the possibity `train_yaml_config`.
+**A:** You can add a new model architecture to metatrain, if you want to do so have a look at
+`adding-new-architecture`. For adding a custom loss function have a look at `adding-new-loss`.
+If you just want to change the hyperparameters of an existing model architecture when training
+have a look at `train_yaml_config`.
 
 **Q:** How can I visualize the results of my training? \
 
