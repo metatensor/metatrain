@@ -34,6 +34,10 @@ General training concepts
 -------------------------
 .. _General training concepts:
 
+**Q:** What cutoff radius should I use? \
+
+**A:**
+
 **Q:** In what format should I provide my data? \
 
 **A:**
