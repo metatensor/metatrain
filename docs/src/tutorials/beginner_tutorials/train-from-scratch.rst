@@ -10,7 +10,7 @@ Train the model
 ---------------
 
 Configure the ``options.yaml`` and run the training
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Below is an example ``options.yaml`` for training a PET model. In order to train other
 models, simply replace the architecture name with other models' architecture name. For
 the supported models, please check `Available Architectures`_ .
