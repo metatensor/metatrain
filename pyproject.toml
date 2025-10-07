@@ -65,14 +65,6 @@ soap-bpnn = [
     "torch-spex>=0.1,<0.2",
     "wigners",
 ]
-deprecated-pet = [
-    "pet-neighbors-convert",
-    "torch_geometric",
-    "matscipy",
-    "scikit-learn",
-    "pathos",
-    "scipy",
-]
 pet = []
 nanopet = []
 gap = [
