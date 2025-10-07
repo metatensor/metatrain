@@ -70,7 +70,6 @@ class PET(ModelInterface):
                     self.hypers["d_node"],
                     self.hypers["d_feedforward"],
                     self.hypers["num_attention_layers"],
-                    0.0,  # attention dropout rate
                     self.hypers["normalization"],
                     self.hypers["activation"],
                     self.hypers["transformer_type"],

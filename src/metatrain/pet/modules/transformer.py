@@ -13,7 +13,7 @@ AVAILABLE_ACTIVATIONS = ["SiLU", "SwiGLU"]
 
 
 class FeedForward(nn.Module):
-    def __init__(self, d_model, dim_feedforward, activation, dropout=0.0):
+    def __init__(self, d_model, dim_feedforward, activation):
         super().__init__()
 
         # Check if activation is "swiglu" string
@@ -30,23 +30,17 @@ class FeedForward(nn.Module):
             self.activation = getattr(F, activation.lower())
             self.is_swiglu = False
 
-        self.dropout = nn.Dropout(dropout)
-
     def forward(self, x):
         if self.is_swiglu:
             # SwiGLU activation: split into value and gate
             v, g = self.w_in(x).chunk(2, dim=-1)
             x = v * torch.sigmoid(g)
-            x = self.dropout(x)
             x = self.w_out(x)
-            x = self.dropout(x)
         else:
             # Standard activation
             x = self.w_in(x)
             x = self.activation(x)
-            x = self.dropout(x)
             x = self.w_out(x)
-            x = self.dropout(x)
         return x
 
 
@@ -96,7 +90,6 @@ class TransformerLayer(torch.nn.Module):
         n_heads,
         dim_node_features,
         dim_feedforward=512,
-        dropout=0.0,
         norm="LayerNorm",
         activation="SiLU",
         transformer_type="PostLN",
@@ -108,8 +101,7 @@ class TransformerLayer(torch.nn.Module):
         norm_class = getattr(nn, norm)
         self.norm_attention = norm_class(d_model)
         self.norm_mlp = norm_class(d_model)
-        self.dropout = nn.Dropout(dropout)
-        self.mlp = FeedForward(d_model, dim_feedforward, activation, dropout)
+        self.mlp = FeedForward(d_model, dim_feedforward, activation)
         self.expanded_node_features = False
         if dim_node_features != d_model:
             self.expanded_node_features = True
@@ -117,7 +109,7 @@ class TransformerLayer(torch.nn.Module):
             self.center_expansion = nn.Linear(d_model, dim_node_features)
             self.norm_center_features = norm_class(dim_node_features)
             self.center_mlp = FeedForward(
-                dim_node_features, 2 * dim_node_features, activation, dropout
+                dim_node_features, 2 * dim_node_features, activation
             )
         else:
             self.center_contraction = torch.nn.Identity()
@@ -171,8 +163,7 @@ class TransformerLayer(torch.nn.Module):
             input_node_embeddings = node_embeddings
         tokens = torch.cat([input_node_embeddings, edge_embeddings], dim=1)
         tokens = self.norm_attention(
-            tokens
-            + self.dropout(self.attention(tokens, cutoff_factors, use_manual_attention))
+            tokens + self.attention(tokens, cutoff_factors, use_manual_attention)
         )
         tokens = self.norm_mlp(tokens + self.mlp(tokens))
         output_node_embeddings, output_edge_embeddings = torch.split(
@@ -213,7 +204,6 @@ class Transformer(torch.nn.Module):
         n_heads,
         dim_node_features,
         dim_feedforward=512,
-        dropout=0.0,
         norm="LayerNorm",
         activation="SiLU",
         transformer_type="PostLN",
@@ -250,7 +240,6 @@ class Transformer(torch.nn.Module):
                     n_heads=n_heads,
                     dim_node_features=dim_node_features,
                     dim_feedforward=dim_feedforward,
-                    dropout=dropout,
                     norm=norm,
                     activation=activation,
                     transformer_type=transformer_type,
@@ -284,7 +273,6 @@ class CartesianTransformer(torch.nn.Module):
         dim_node_features: int,
         dim_feedforward: int,
         n_layers: int,
-        dropout: float,
         norm: str,
         activation: str,
         transformer_type: str,
@@ -301,7 +289,6 @@ class CartesianTransformer(torch.nn.Module):
             n_heads=n_head,
             dim_node_features=dim_node_features,
             dim_feedforward=dim_feedforward,
-            dropout=dropout,
             norm=norm,
             activation=activation,
             transformer_type=transformer_type,
