@@ -19,6 +19,7 @@ from metatrain.utils.data import (
     TargetInfo,
     get_dataset,
     read_systems,
+    unpack_batch,
 )
 from metatrain.utils.data.writers import (
     DiskDatasetWriter,
@@ -169,8 +170,8 @@ def _eval_targets(
     # Warm-up
     cycled = itertools.cycle(dataloader)
     for _ in range(10):
-        batch = next(cycled)
-        systems = [w.system.to(device=device, dtype=dtype) for w in batch[0]]
+        batch = unpack_batch(next(cycled))
+        systems = [system.to(device=device, dtype=dtype) for system in batch[0]]
         evaluate_model(
             model,
             systems,
@@ -184,8 +185,7 @@ def _eval_targets(
 
     # Main evaluation loop
     for batch in tqdm.tqdm(dataloader, ncols=100):
-        system_wrappers, batch_targets, _ = batch
-        systems = [w.system for w in system_wrappers]
+        systems, batch_targets, _ = unpack_batch(batch)
         systems = [system.to(dtype=dtype, device=device) for system in systems]
         batch_targets = {
             k: v.to(device=device, dtype=dtype) for k, v in batch_targets.items()

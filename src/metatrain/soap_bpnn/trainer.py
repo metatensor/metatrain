@@ -14,6 +14,7 @@ from metatrain.utils.data import (
     CombinedDataLoader,
     Dataset,
     get_num_workers,
+    unpack_batch,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
@@ -311,8 +312,7 @@ class Trainer(TrainerInterface):
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
-                system_wrappers, targets, extra_data = batch
-                systems = [w.system for w in system_wrappers]
+                systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device
                 )
@@ -359,8 +359,7 @@ class Trainer(TrainerInterface):
 
             val_loss = 0.0
             for batch in val_dataloader:
-                system_wrappers, targets, extra_data = batch
-                systems = [w.system for w in system_wrappers]
+                systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device
                 )

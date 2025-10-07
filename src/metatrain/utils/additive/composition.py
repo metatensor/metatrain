@@ -14,7 +14,7 @@ from metatrain.utils.data import (
 )
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists_transform
 
-from ..data import DatasetInfo, TargetInfo
+from ..data import DatasetInfo, TargetInfo, unpack_batch
 from ..jsonschema import validate
 from ..transfer import batch_to
 from ._base_composition import BaseCompositionModel, _include_key
@@ -191,8 +191,7 @@ class CompositionModel(torch.nn.Module):
 
         # accumulate
         for batch in dataloader:
-            system_wrappers, targets, _ = batch
-            systems = [w.system for w in system_wrappers]
+            systems, targets, _ = unpack_batch(batch)
             systems, targets, _ = batch_to(systems, targets, device=device)
             # only accumulate the targets that do not use fixed weights
             targets = {

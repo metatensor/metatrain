@@ -5,14 +5,15 @@ import warnings
 import zipfile
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Union
 
 import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
-from metatensor.torch import TensorMap, load_buffer
-from metatomic.torch import load_system, save
+from metatensor.torch import TensorMap, load_buffer, save_buffer
+from metatomic.torch import load_system, load_system_buffer, save
+from metatomic.torch import save_buffer as save_system_buffer
 from omegaconf import DictConfig
 from torch.utils.data import Subset
 
@@ -349,11 +350,7 @@ class CollateFn:
     def __call__(
         self,
         batch: List[Dict[str, Any]],
-    ) -> Tuple[
-        Any,  # systems
-        Dict[str, TensorMap],  # targets
-        Dict[str, TensorMap],  # extra data
-    ]:
+    ):
         # group & join
         collated = group_and_join(batch, join_kwargs=self.join_kwargs)
         data = collated._asdict()
@@ -374,10 +371,45 @@ class CollateFn:
         for callable in self.callables:
             systems, targets, extra = callable(systems, targets, extra)
 
-        # wrap systems in SystemWrapper to make them pickle-compatible
-        systems = tuple(SystemWrapper(system) for system in systems)
+        target_names = list(targets.keys())
+        extra_names = list(extra.keys())
 
-        return systems, targets, extra
+        system_buffers = [save_system_buffer(s) for s in systems]
+        target_buffers = [save_buffer(targets[name]) for name in target_names]
+        extra_buffers = [save_buffer(extra[name]) for name in extra_names]
+
+        system_sizes = [len(b) for b in system_buffers]
+        target_sizes = [len(b) for b in target_buffers]
+        extra_sizes = [len(b) for b in extra_buffers]
+
+        blob = torch.concatenate(system_buffers + target_buffers + extra_buffers)
+
+        return blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes
+
+
+def unpack_batch(batch):
+    blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes = batch
+
+    all_buffers = torch.split(blob, system_sizes + target_sizes + extra_sizes)
+    systems = all_buffers[: len(system_sizes)]
+    targets = {
+        name: buf
+        for name, buf in zip(
+            target_names,
+            all_buffers[len(system_sizes) : len(system_sizes) + len(target_names)],
+        )
+    }
+    extra_data = {
+        name: buf
+        for name, buf in zip(
+            extra_names, all_buffers[len(system_sizes) + len(target_names) :]
+        )
+    }
+
+    systems = [load_system_buffer(s) for s in systems]
+    targets = {key: load_buffer(t) for key, t in targets.items()}
+    extra_data = {key: load_buffer(t) for key, t in extra_data.items()}
+    return systems, targets, extra_data
 
 
 def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]):
