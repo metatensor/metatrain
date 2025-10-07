@@ -9,7 +9,7 @@ have your own dataset, you can simply replace the dataset file name with yours.
 Train the model
 ---------------
 
-Configure the `options.yaml` and run the training
+Configure the ``options.yaml`` and run the training
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Below is an example ``options.yaml`` for training a PET model. In order to train other
 models, simply replace the architecture name with other models' architecture name. For
@@ -22,32 +22,32 @@ the supported models, please check `Available Architectures`_ .
     architecture:
       name: pet  # the architecture name for PET, or the name for other architectures,
       if you want to train other models
-    
+
       model:
         cutoff: 4.5  # the cutoff
-    
+
       training:
         num_epochs: 10  # this is for a reasonable time of a tutorial, for a good model, consider increasing the number
         batch_size: 10  # the size of the training data feed to the model per batch, determining the GPU memory usage during the training
         log_interval: 1
-    
+
     # this needs specifying based on the specific dataset
     training_set:
-      systems: 
+      systems:
         read_from: data/rmd17_ethanol_1000.xyz # TODO: file where the positions are stored
         length_unit: Angstrom
       targets:
         energy:
           key: energy # name of the target value
           unit: eV # unit of the target value
-    
+
     test_set: 0.1 # 10 % of the training_set are randomly split and taken for test set
     validation_set: 0.1 # 10 % of the training_set are randomly split and for validation set
 
 Copy-pasting this content into ``options.yaml``, and run
 
 .. code-block:: bash
-    
+
     mtt train option.yaml
 
 It will start training. ``metatrain`` will automatically read the atomic forces from the training set, if they are stored in it and named as "forces". The model can also be trained to learn other properties through transfer learning. For this, please refer to this `transfer learning tutorial`_.
@@ -85,19 +85,19 @@ you can know the forces are identified by ``metatrain`` and are used during the 
     [2025-10-07 11:09:09][INFO] - Training dataset:
         Dataset containing 800 structures
         Mean and standard deviation of targets:
-        - energy: 
+        - energy:
           - mean -9.708e+04 eV
           - std  4.122 eV
     [2025-10-07 11:09:09][INFO] - Validation dataset:
         Dataset containing 100 structures
         Mean and standard deviation of targets:
-        - energy: 
+        - energy:
           - mean -9.708e+04 eV
           - std  4.384 eV
     [2025-10-07 11:09:09][INFO] - Test dataset:
         Dataset containing 100 structures
         Mean and standard deviation of targets:
-        - energy: 
+        - energy:
           - mean -9.708e+04 eV
           - std  3.883 eV
 
