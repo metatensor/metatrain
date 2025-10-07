@@ -30,6 +30,8 @@ the supported models, please check `Available Architectures`_ .
         num_epochs: 10  # this is for a reasonable time of a tutorial, for a good model, consider increasing the number
         batch_size: 10  # the size of the training data feed to the model per batch, determining the GPU memory usage during the training
         log_interval: 1
+        checkpoint_interval: 10  # it saves checkpoints of the model every 10 epochs
+
 
     # this needs specifying based on the specific dataset
     training_set:
