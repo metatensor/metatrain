@@ -368,21 +368,21 @@ class LLPRUncertaintyModel(ModelInterface):
                 + return_dict[original_name].block().values
             )
 
-            # prepare the properties Labels object
+            # prepare the properties Labels object for ensemble output
             old_prop = outputs[original_name].block().properties
+            old_prop_val = np.array(old_prop.values)
             n_ens = ensemble_values.shape[1]
-            new_values = np.column_stack(
-                [
-                    np.arange(n_ens),
-                    np.broadcast_to(
-                        np.array(old_prop.values),
-                        (n_ens, np.array(old_prop.values).size),
-                    ),
-                ]
+
+            arr_rep = np.broadcast_to(old_prop_val, (n_ens,) + old_prop_val.shape)
+            ens_idx = np.arange(n_ens).reshape((n_ens,) + (1,) * old_prop_val.ndim)
+            new_prop_val = np.concatenate(
+                [np.broadcast_to(ens_idx, arr_rep.shape[:-1] + (1,)), arr_rep],
+                axis=-1,
             )
+
             ens_prop = Labels(
                 names=["ensemble_member"] + old_prop.names,
-                values=new_values,
+                values=new_prop_val,
             )
 
             ensemble = TensorMap(
@@ -599,11 +599,6 @@ class LLPRUncertaintyModel(ModelInterface):
 
         for name, weights in weight_tensors.items():
 
-            if n_members[name] < 0:
-                raise AssertionError(f"Invalid n_ens value for {name}.")
-            elif n_members[name] > 0 and n_members[name] < 8:
-                raise Warning(f"`n_members` for {name} too small! Proceed with caution.")
-
             uncertainty_name = _get_uncertainty_name(name)
             cur_multiplier = self._get_multiplier(uncertainty_name).item() ** 2
             cur_inv_covariance = self._get_inv_covariance(
@@ -630,7 +625,7 @@ class LLPRUncertaintyModel(ModelInterface):
             ensemble_weights = ensemble_weights.reshape(
                     ensemble_weights.shape[0],
                     -1,
-            )  # shape: ll_feat, n_ens, n_subtarget
+            )  # shape: ll_feat, n_ens * n_subtarget
 
             self.llpr_ensemble_layers[name] = torch.nn.Linear(
                 self.ll_feat_size,
