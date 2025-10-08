@@ -8,30 +8,35 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$ROOT_DIR"
 
 HASH_FILE=".data_version.txt"
-# Things
 WATCH_PATHS="src/"
-FORCE_REGENERATE=false
-if [[ "${FORCE_REGENERATE:-0}" == "1" ]]; then
-  echo "FORCE_REGENERATE=1 detected. Forcing regeneration of all models."
-  FORCE_REGENERATE=true
-elif [ -n "$(git status --porcelain -- $WATCH_PATHS)" ]; then
-  echo "Uncommitted git changes detected in critical files. Regenerating."
-  FORCE_REGENERATE=true
-else
-  if [ -f "$HASH_FILE" ]; then
-    SAVED_HASH=$(cat "$HASH_FILE")
-    CURRENT_HASH=$(git rev-parse HEAD)
-    if [ "$SAVED_HASH" != "$CURRENT_HASH" ]; then
-      echo "Git commit has changed. Forcing regeneration of all models."
-      FORCE_REGENERATE=true
+FORCE_REGENERATE=true
+
+if [[ "${USE_CACHE:-0}" == "1" ]]; then
+    echo "USE_CACHE=1 detected. Attempting to use cached data."
+    CACHE_IS_VALID=true
+    if [ -n "$(git status --porcelain -- $WATCH_PATHS)" ]; then
+        echo "Cache is invalid due to uncommitted changes. Must regenerate."
+        CACHE_IS_VALID=false
+    elif [ ! -f "$HASH_FILE" ]; then
+        echo "Cache is invalid: version file not found. Must regenerate."
+        CACHE_IS_VALID=false
+    else
+        SAVED_HASH=$(cat "$HASH_FILE")
+        CURRENT_HASH=$(git rev-parse HEAD)
+        if [ "$SAVED_HASH" != "$CURRENT_HASH" ]; then
+            echo "Cache is invalid: code version has changed. Must regenerate."
+            CACHE_IS_VALID=false
+        fi
     fi
-  else
-    echo "Hash file not found. Forcing regeneration of all models."
-    FORCE_REGENERATE=true
-  fi
+
+    # If all checks passed, we can rely on the cache.
+    if [ "$CACHE_IS_VALID" = true ]; then
+        echo "Cache is valid. Will skip regeneration for existing files."
+        FORCE_REGENERATE=false
+    fi
 fi
 
-# Regenerate if --force is used OR if the file doesn't exist
+# Regenerate if regeneration is forced (default) OR if a file is missing.
 if [ "$FORCE_REGENERATE" = true ] || [ ! -f "model-32-bit.pt" ]; then
     mtt train options.yaml -o model-32-bit.pt -r base_precision=32
 fi
