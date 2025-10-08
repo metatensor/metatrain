@@ -8,11 +8,11 @@ the current date and time is created. There you will find intermediate and final
 the restart options_restart.yaml file as well as the log file train.log and train.csv,
 where various training metrics are saved.
 
-Per default, the training metrics will contain the `training loss` and `validation loss`,
+Per default, the training metrics will contain the ``training loss`` and ``validation loss``,
 RMSE and MAE for requested targets and derivatives (commonly energies and forces)
 
 
 
 
 
-Assuming your training metrics is in 
+Assuming your training metrics is in

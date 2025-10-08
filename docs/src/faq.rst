@@ -60,7 +60,7 @@ correlations up to roughly 10 Å.
 
 **Q: How small should my errors be before I can use my model to run Molecular Dynamics simulations?** \
 
-**A:** Good question. This depends on your system, the temperature you want to run your MD and the 
+**A:** Good question. This depends on your system, the temperature you want to run your MD and the
 dataset you trained on. As rule of thumb, 5% error of the forces on the dataset can be considered good.
 But please check the MD along the way if unphysical phenomena (e.g. explosion/implosion of the trajectory)
 occur and continue traning and rewise your dataset if necessary.
@@ -72,12 +72,12 @@ occur and continue traning and rewise your dataset if necessary.
 
 **Q: How can I visualize the results of my training?** \
 
-**A:** Every training run writes the train log into a csv file. You can use a simple python 
-script for e.g. parsing the losses. A small example is shown in 
-:ref:`visualize-training <visualize-training>`. For other examples, check out examples in the 
-`AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`. 
-For tracking your training runs live, there is also the possibility to connect to wandb. 
-For seeing how to link the wandb logger, follow the section 
+**A:** Every training run writes the train log into a csv file. You can use a simple python
+script for e.g. parsing the losses. A small example is shown in
+:ref:`visualize-training <visualize-training>`. For other examples, check out examples in the
+`AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`_.
+For tracking your training runs live, there is also the possibility to connect to wandb.
+For seeing how to link the wandb logger, follow the section
 :ref:`Advanced Base configuration <_advanced_base_conf>`.
 
 **Q: How can I get uncertainties for my model?** \
