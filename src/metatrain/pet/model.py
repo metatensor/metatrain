@@ -568,7 +568,7 @@ class PET(ModelInterface):
         input_node_embeddings = self.node_embedders[0](inputs["element_indices_nodes"])
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
         for combination_norm, combination_mlp, gnn_layer in zip(
-            self.combination_norms, self.combination_mlps, self.gnn_layers
+            self.combination_norms, self.combination_mlps, self.gnn_layers, strict=False
         ):
             output_node_embeddings, output_edge_embeddings = gnn_layer(
                 input_node_embeddings,
@@ -613,7 +613,9 @@ class PET(ModelInterface):
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
-        for node_embedder, gnn_layer in zip(self.node_embedders, self.gnn_layers):
+        for node_embedder, gnn_layer in zip(
+            self.node_embedders, self.gnn_layers, strict=False
+        ):
             input_node_embeddings = node_embedder(inputs["element_indices_nodes"])
             output_node_embeddings, output_edge_embeddings = gnn_layer(
                 input_node_embeddings,
@@ -701,63 +703,34 @@ class PET(ModelInterface):
         edge_features = (edge_features * cutoff_factors[:, :, None]).sum(dim=1)
         features = torch.cat([node_features, edge_features], dim=1)
 
-            feature_tmap = TensorMap(
-                keys=self.single_label,
-                blocks=[
-                    TensorBlock(
-                        values=features,
-                        samples=sample_labels,
-                        components=[],
-                        properties=Labels(
-                            names=["feature"],
-                            values=torch.arange(
-                                features.shape[-1], device=features.device
-                            ).reshape(-1, 1),
-                            assume_unique=True,
-                        ),
-                    )
-                ],
+        feature_tmap = TensorMap(
+            keys=self.single_label,
+            blocks=[
+                TensorBlock(
+                    values=features,
+                    samples=sample_labels,
+                    components=[],
+                    properties=Labels(
+                        names=["feature"],
+                        values=torch.arange(
+                            features.shape[-1], device=features.device
+                        ).reshape(-1, 1),
+                    ),
+                    assume_unique=True,
+                )
+            ],
+        )
+        if selected_atoms is not None:
+            feature_tmap = mts.slice(
+                feature_tmap,
+                axis="samples",
+                selection=selected_atoms,
             )
-            features_options = outputs["features"]
-            if selected_atoms is not None:
-                feature_tmap = mts.slice(
-                    feature_tmap,
-                    axis="samples",
-                    selection=selected_atoms,
-                )
-            if features_options.per_atom:
-                return_dict["features"] = feature_tmap
-            else:
-                return_dict["features"] = sum_over_atoms(feature_tmap)
-
-        # Stage 3. We compute last layer features for each requested output,
-        # for both node and edge features from each GNN layer. To do this, apply the
-        # corresponding heads to both node and edge features, and save the results
-        # to the corresponsing dicts. Finally, we stack all the last layer features
-        # to get the final last-layer-features tensor.
-
-        node_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
-        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
-
-        # Calculating node last layer features
-        for output_name, node_heads in self.node_heads.items():
-            if output_name not in node_last_layer_features_dict:
-                node_last_layer_features_dict[output_name] = []
-            for i, node_head in enumerate(node_heads):
-                node_last_layer_features_dict[output_name].append(
-                    node_head(node_features_list[i])
-                )
-
-        # Calculating edge last layer features
-        for output_name, edge_heads in self.edge_heads.items():
-            if output_name not in edge_last_layer_features_dict:
-                edge_last_layer_features_dict[output_name] = []
-            for i, edge_head in enumerate(edge_heads):
-                edge_last_layer_features_dict[output_name].append(
-                    edge_head(edge_features_list[i])
-                )
-
-        return node_last_layer_features_dict, edge_last_layer_features_dict
+        if requested_outputs["features"].per_atom:
+            features_dict["features"] = feature_tmap
+        else:
+            features_dict["features"] = sum_over_atoms(feature_tmap)
+        return features_dict
 
     def _get_output_last_layer_features(
         self,
