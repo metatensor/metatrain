@@ -101,6 +101,9 @@ source = [
     ".tox/*/lib/python*/site-packages/metatrain"
 ]
 
+[tool.coverage.run]
+patch = ["subprocess"]
+
 [tool.ruff]
 exclude = ["docs/src/examples/**", "src/metatrain/_version.py"]
 line-length = 88
