@@ -76,7 +76,7 @@ s_mm.flush()
 #
 # For example, you can use the following options file:
 #
-#  .. literalinclude:: options.yaml
+# .. literalinclude:: options.yaml
 #    :language: yaml
 #
 

@@ -813,7 +813,7 @@ class MemmapDataset(TorchDataset):
         format corresponding to metatrain yaml input files.
     """
 
-    def __init__(self, path: Union[str, Path], target_options: Dict[str, Any]):
+    def __init__(self, path: Union[str, Path], target_options: Dict[str, Any]) -> None:
         path = Path(path)
         self.target_config = target_options
         self.sample_class = namedtuple(
@@ -888,10 +888,10 @@ class MemmapDataset(TorchDataset):
                     f"Unsupported target configuration: {single_target_options}"
                 )
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.ns
 
-    def __getitem__(self, i):
+    def __getitem__(self, i: int):
         a = torch.tensor(self.a[self.na[i] : self.na[i + 1]], dtype=torch.int32)
         x = torch.tensor(self.x[self.na[i] : self.na[i + 1]], dtype=torch.float64)
         c = torch.tensor(self.c[i], dtype=torch.float64)
