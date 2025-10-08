@@ -26,7 +26,6 @@ jobs:
         run: uv python install
 
       - run: |
-          uv pip install tox
           uv tool install tox --with tox-uv
       - name: build documentation
         run: tox -e docs
