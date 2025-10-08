@@ -1,6 +1,4 @@
-# %%
-# Multi-GPU submission script
-# %%
+#!/bin/bash
 #SBATCH --nodes 1
 #SBATCH --ntasks 2  # must equal to the number of GPUs
 #SBATCH --ntasks-per-node 2

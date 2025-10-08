@@ -26,7 +26,6 @@ use all the GPUs that you have asked for.
 
 .. literalinclude:: ./submit.sh
    :language: bash
-   :linenos:
 
 Performance
 -----------
