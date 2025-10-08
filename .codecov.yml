@@ -1,8 +1,20 @@
 coverage:
   status:
     project:
-      default:
+      default: false
+      coverage:
         target: 88%
+        paths:
+          - "src/metatrain/utils/.*"
+          - "src/metatrain/cli/.*"
+      coverage_architectures:
+        paths:
+          - "src/metatrain/deprecated/.*"
+          - "src/metatrain/experimental/.*"
+          - "src/metatrain/gap/.*"
+          - "src/metatrain/pet/.*"
+          - "src/metatrain/soap_bpnn/.*"
+          - "src/metatrain/llpr/.*"
     patch:
       default:
         informational: true
@@ -11,13 +23,6 @@ coverage:
     - "tests/.*"
     - "examples/.*"
     - "src/metatrain/utils/testing/.*"
-    # we don't check coverage for the architectures
-    - "src/metatrain/deprecated/.*"
-    - "src/metatrain/experimental/.*"
-    - "src/metatrain/gap/.*"
-    - "src/metatrain/pet/.*"
-    - "src/metatrain/soap_bpnn/.*"
-    - "src/metatrain/llpr/.*"
     # we don't currently run distributed tests on CI
     - "src/metatrain/utils/distributed/.*"
 
