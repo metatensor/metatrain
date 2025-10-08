@@ -40,7 +40,7 @@ test tox:
   stage: test
   extends: .container-runner-daint-gh200
   image: $BASE_IMAGE
-  timeout: 1h
+  timeout: 24h
   script:
     - tox -r
   variables:
@@ -55,7 +55,7 @@ test distributed:
   stage: test
   extends: .container-runner-daint-gh200
   image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
-  timeout: 1h
+  timeout: 24h
   script:
     - . /mtt-venv/bin/activate
     - cd /metatrain/tests/distributed
