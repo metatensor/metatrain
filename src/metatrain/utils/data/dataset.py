@@ -1,16 +1,24 @@
 import math
+import multiprocessing
 import os
 import warnings
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Union
 
 import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
-from metatensor.torch import TensorMap, load_buffer
-from metatomic.torch import load_system
+from metatensor.torch import (
+    TensorMap,
+    load_buffer,
+    make_contiguous,
+    make_contiguous_block,
+    save_buffer,
+)
+from metatomic.torch import System, load_system, load_system_buffer
+from metatomic.torch import save_buffer as save_system_buffer
 from omegaconf import DictConfig
 from torch.utils.data import Subset
 
@@ -319,9 +327,11 @@ class CollateFn:
     def __init__(
         self,
         target_keys: List[str],
+        callables: Optional[List[Callable]] = None,
         join_kwargs: Optional[Dict[str, Any]] = None,
     ):
         self.target_keys: Set[str] = set(target_keys)
+        self.callables: List[Callable] = callables if callables is not None else []
         self.join_kwargs: Dict[str, Any] = join_kwargs or {
             "remove_tensor_name": True,
             "different_keys": "union",
@@ -330,11 +340,7 @@ class CollateFn:
     def __call__(
         self,
         batch: List[Dict[str, Any]],
-    ) -> Tuple[
-        Any,  # systems
-        Dict[str, TensorMap],  # targets
-        Dict[str, TensorMap],  # extra data
-    ]:
+    ):
         # group & join
         collated = group_and_join(batch, join_kwargs=self.join_kwargs)
         data = collated._asdict()
@@ -352,7 +358,57 @@ class CollateFn:
             else:
                 extra[key] = value
 
-        return systems, targets, extra
+        for callable in self.callables:
+            systems, targets, extra = callable(systems, targets, extra)
+
+        target_names = list(targets.keys())
+        extra_names = list(extra.keys())
+
+        system_buffers = [
+            save_system_buffer(_make_system_contiguous(s)) for s in systems
+        ]
+        target_buffers = [
+            save_buffer(make_contiguous(targets[name])) for name in target_names
+        ]
+        extra_buffers = [
+            save_buffer(make_contiguous(extra[name])) for name in extra_names
+        ]
+
+        system_sizes = [len(b) for b in system_buffers]
+        target_sizes = [len(b) for b in target_buffers]
+        extra_sizes = [len(b) for b in extra_buffers]
+
+        blob = torch.concatenate(system_buffers + target_buffers + extra_buffers)
+
+        return blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes
+
+
+def unpack_batch(batch):
+    blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes = batch
+
+    all_buffers = torch.split(blob, system_sizes + target_sizes + extra_sizes)
+    systems = all_buffers[: len(system_sizes)]
+    targets = {
+        name: buf
+        for name, buf in zip(
+            target_names,
+            all_buffers[len(system_sizes) : len(system_sizes) + len(target_names)],
+            strict=True,
+        )
+    }
+    extra_data = {
+        name: buf
+        for name, buf in zip(
+            extra_names,
+            all_buffers[len(system_sizes) + len(target_names) :],
+            strict=True,
+        )
+    }
+
+    systems = tuple(load_system_buffer(s) for s in systems)
+    targets = {key: load_buffer(t) for key, t in targets.items()}
+    extra_data = {key: load_buffer(t) for key, t in extra_data.items()}
+    return systems, targets, extra_data
 
 
 def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]):
@@ -623,7 +679,7 @@ def _save_indices(
     else:
         os.mkdir(os.path.join(checkpoint_dir, "indices/"))
         for i, (train, val, test) in enumerate(
-            zip(train_indices, val_indices, test_indices)
+            zip(train_indices, val_indices, test_indices, strict=True)
         ):
             if train is not None:
                 np.savetxt(
@@ -643,3 +699,56 @@ def _save_indices(
                     test,
                     fmt="%d",
                 )
+
+
+def get_num_workers() -> int:
+    """Gets a good number of workers for data loading."""
+
+    if multiprocessing.get_start_method(allow_none=False) != "fork":
+        return 0
+
+    # len(os.sched_getaffinity(0)) detects thread counts set by slurm,
+    # multiprocessing.cpu_count() doesn't but is more portable
+    if hasattr(os, "sched_getaffinity"):
+        num_threads = min(len(os.sched_getaffinity(0)), multiprocessing.cpu_count())
+    else:
+        num_threads = multiprocessing.cpu_count()
+
+    reserve = 4  # main training process, NCCL, GPU driver, loggers, ...
+    cap = 8  # above this can overwhelm the filesystem
+
+    # can't go below 0, in that case the main training process will handle data loading
+    num_workers = max(0, min(num_threads - reserve, cap))
+
+    return num_workers
+
+
+def validate_num_workers(num_workers: int):
+    """Gets a good number of workers for data loading."""
+
+    if multiprocessing.get_start_method(allow_none=False) != "fork" and num_workers > 0:
+        raise ValueError(
+            "You are using a start method for multiprocessing that is not "
+            "'fork' (this is likely because you are on macOS or Windows). "
+            "In this case, num_workers must be set to 0."
+        )
+
+
+def _make_system_contiguous(system):
+    # Return a copy of a ``System`` object with contiguous arrays.
+    new_system = System(
+        positions=system.positions.contiguous(),
+        types=system.types.contiguous(),
+        cell=system.cell.contiguous(),
+        pbc=system.pbc.contiguous(),
+    )
+    for nl_options in system.known_neighbor_lists():
+        nl = system.get_neighbor_list(nl_options)
+        new_system.add_neighbor_list(
+            nl_options,
+            make_contiguous_block(nl),
+        )
+    for key in system.known_data():
+        data = system.get_data(key)
+        new_system.add_data(key, make_contiguous(data))
+    return new_system

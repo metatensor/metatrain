@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Union
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import ModelOutput, System
+from metatomic.torch import ModelOutput, NeighborListOptions, System
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.data import (
@@ -12,8 +12,9 @@ from metatrain.utils.data import (
     CombinedDataLoader,
     Dataset,
 )
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists_transform
 
-from ..data import DatasetInfo, TargetInfo
+from ..data import DatasetInfo, TargetInfo, unpack_batch
 from ..jsonschema import validate
 from ..transfer import batch_to
 from ._base_composition import BaseCompositionModel, _include_key
@@ -80,6 +81,7 @@ class CompositionModel(torch.nn.Module):
     def _get_dataloader(
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        requested_neighbor_lists: List[NeighborListOptions],
         batch_size: int,
         is_distributed: bool,
     ) -> DataLoader:
@@ -91,8 +93,15 @@ class CompositionModel(torch.nn.Module):
         precision is enforced.
         """
         # Create the collate function
-        targets_keys = list(self.dataset_info.targets.keys())
-        collate_fn = CollateFn(target_keys=targets_keys)
+        collate_fn = CollateFn(
+            target_keys=list(self.dataset_info.targets.keys()),
+            callables=[
+                # these neighbor lists might be required by the other additive models
+                # that need to be removed from the targets before fitting the
+                # composition weights
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists)
+            ],
+        )
 
         dtype = datasets[0][0]["system"].positions.dtype
         if dtype != torch.float64:
@@ -119,7 +128,7 @@ class CompositionModel(torch.nn.Module):
             samplers = [None] * len(datasets)
 
         dataloaders = []
-        for dataset, sampler in zip(datasets, samplers):
+        for dataset, sampler in zip(datasets, samplers, strict=True):
             if len(dataset) < batch_size:
                 raise ValueError(
                     f"A training dataset has fewer samples "
@@ -166,9 +175,17 @@ class CompositionModel(torch.nn.Module):
         if len(self.target_infos) == 0:  # no (new) targets to fit
             return
 
-        # Create dataloader for the training datasets
+        # Create dataloader for the training datasets. Note that these might need
+        # neighbor lists if any of the `additive_models` require them.
+        requested_neighbor_lists = []
+        for additive_model in additive_models:
+            if hasattr(additive_model, "requested_neighbor_lists"):
+                requested_neighbor_lists += additive_model.requested_neighbor_lists()
         dataloader = self._get_dataloader(
-            datasets, batch_size, is_distributed=is_distributed
+            datasets,
+            requested_neighbor_lists,
+            batch_size,
+            is_distributed=is_distributed,
         )
 
         if fixed_weights is None:
@@ -178,7 +195,7 @@ class CompositionModel(torch.nn.Module):
 
         # accumulate
         for batch in dataloader:
-            systems, targets, _ = batch
+            systems, targets, _ = unpack_batch(batch)
             systems, targets, _ = batch_to(systems, targets, device=device)
             # only accumulate the targets that do not use fixed weights
             targets = {

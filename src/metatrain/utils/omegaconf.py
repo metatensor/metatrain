@@ -552,8 +552,7 @@ def check_units(
         )
 
     for actual_options_element, desired_options_element in zip(
-        actual_options,
-        desired_options,
+        actual_options, desired_options, strict=True
     ):
         actual_length_unit = actual_options_element["systems"]["length_unit"]
         desired_length_unit = desired_options_element["systems"]["length_unit"]
