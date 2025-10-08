@@ -8,9 +8,14 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$ROOT_DIR"
 
 HASH_FILE=".data_version.txt"
+# Things
+WATCH_PATHS="src/"
 FORCE_REGENERATE=false
 if [[ "${FORCE_REGENERATE:-0}" == "1" ]]; then
   echo "FORCE_REGENERATE=1 detected. Forcing regeneration of all models."
+  FORCE_REGENERATE=true
+elif [ -n "$(git status --porcelain -- $WATCH_PATHS)" ]; then
+  echo "Uncommitted git changes detected in critical files. Regenerating."
   FORCE_REGENERATE=true
 else
   if [ -f "$HASH_FILE" ]; then
