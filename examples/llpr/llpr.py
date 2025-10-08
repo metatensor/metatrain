@@ -1,5 +1,4 @@
-""".. _llprexample:
-
+"""
 Computing LLPR uncertainties
 ============================
 
