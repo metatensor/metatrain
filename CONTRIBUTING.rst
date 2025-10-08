@@ -89,6 +89,14 @@ testing it. Also, you may want to setup your editor to automatically apply the `
 are plugins to do this with `all major editors
 <https://black.readthedocs.io/en/stable/editor_integration.html>`_.
 
+The main test suite relies on pre-generated model files that are cached for performance.
+If you need to force a regeneration of these files, you can set the ``FORCE_REGENERATE``
+environment variable to ``1`` before running the tests:
+
+.. code-block:: bash
+
+    FORCE_REGENERATE=1 tox -e tests
+
 If you want to test a specific archicture you can also do it. For example
 
 .. code-block:: bash
