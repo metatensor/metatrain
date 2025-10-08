@@ -66,7 +66,7 @@ class LLPRUncertaintyModel(ModelInterface):
         self.hypers = hypers
         self.dataset_info = dataset_info
 
-    def set_wrapped_model(self, model: ModelInterface):
+    def set_wrapped_model(self, model: ModelInterface) -> None:
         # this function is called after initialization, as well as
 
         hypers = self.hypers
@@ -477,7 +477,7 @@ class LLPRUncertaintyModel(ModelInterface):
                 covariance = self._get_covariance(uncertainty_name)
                 covariance += ll_feats.T @ ll_feats
 
-    def compute_inverse_covariance(self, regularizer: Optional[float] = None):
+    def compute_inverse_covariance(self, regularizer: Optional[float] = None) -> None:
         """A function to compute the inverse covariance matrix.
 
         The inverse covariance is stored as a buffer in the model.
@@ -501,7 +501,7 @@ class LLPRUncertaintyModel(ModelInterface):
             else:
                 # Try with an increasingly high regularization parameter until
                 # the matrix is invertible
-                def is_psd(x):
+                def is_psd(x: torch.Tensor) -> torch.Tensor:
                     return torch.all(torch.linalg.eigvalsh(x) >= 0.0)
 
                 for log10_sigma_squared in torch.linspace(-20.0, 16.0, 33):
@@ -520,7 +520,7 @@ class LLPRUncertaintyModel(ModelInterface):
                         inv_covariance[:] = (inverse + inverse.T) / 2.0
                         break
 
-    def calibrate(self, valid_loader: DataLoader):
+    def calibrate(self, valid_loader: DataLoader) -> None:
         """
         Calibrate the LLPR model.
 
@@ -746,7 +746,7 @@ class LLPRUncertaintyModel(ModelInterface):
 
         return AtomisticModel(self.eval(), metadata, self.capabilities)
 
-    def _get_covariance(self, name: str):
+    def _get_covariance(self, name: str) -> torch.Tensor:
         name = "covariance_" + name
         requested_buffer = torch.tensor(0)
         for n, buffer in self.named_buffers():
@@ -754,7 +754,7 @@ class LLPRUncertaintyModel(ModelInterface):
                 requested_buffer = buffer
         return requested_buffer
 
-    def _get_inv_covariance(self, name: str):
+    def _get_inv_covariance(self, name: str) -> torch.Tensor:
         name = "inv_covariance_" + name
         requested_buffer = torch.tensor(0)
         for n, buffer in self.named_buffers():
@@ -764,7 +764,7 @@ class LLPRUncertaintyModel(ModelInterface):
             raise ValueError(f"Inverse covariance for {name} not found.")
         return requested_buffer
 
-    def _get_multiplier(self, name: str):
+    def _get_multiplier(self, name: str) -> torch.Tensor:
         name = "multiplier_" + name
         requested_buffer = torch.tensor(0)
         for n, buffer in self.named_buffers():
@@ -793,7 +793,7 @@ class LLPRUncertaintyModel(ModelInterface):
         raise ValueError("supported_outputs is not implemented for LLPR")
 
 
-def _get_uncertainty_name(name: str):
+def _get_uncertainty_name(name: str) -> str:
     if name == "energy":
         uncertainty_name = "energy_uncertainty"
     else:

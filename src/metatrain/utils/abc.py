@@ -20,6 +20,12 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
 
     All architectures in metatrain must be implemented as sub-class of this class,
     and implement the corresponding methods.
+
+    :param hypers: A dictionary with the model's hyper-parameters.
+    :param dataset_info: Information containing details about the dataset, such as
+        target quantities and atomic types.
+    :param metadata: Metadata about the model, e.g. author, description, and
+        references.
     """
 
     def __init__(
@@ -61,6 +67,15 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
         Execute the model for the given ``systems``, computing the requested
         ``outputs``.
 
+        :param systems: List of systems to evaluate the model on.
+        :param outputs: Dictionary of outputs that the model should compute.
+        :param selected_atoms: Optional ``Labels`` specifying a subset of atoms to
+            compute the outputs for. If ``None``, the outputs are computed for all
+            atoms in each system.
+
+        :return: A dictionary mapping each requested output name to the corresponding
+            ``TensorMap`` containing the computed values.
+
         .. seealso::
 
             :py:class:`metatomic.torch.ModelInterface` for more explanation about the
@@ -74,6 +89,8 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
 
         This will likely be the same outputs that are set as this model capabilities in
         :py:func:`ModelInterface.export`.
+
+        :return: A dictionary of the supported outputs by this model.
         """
 
     @abstractmethod
@@ -86,8 +103,11 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
         dataset. It enables transfer learning (changing the targets), and fine-tuning
         (same targets, different datasets)
 
-        This function should return the updated model, or a new instance of the model
-        able to handle the new dataset.
+        :param dataset_info: Information about the new dataset, including the targets
+            that will be used for training.
+
+        :return: The updated model, or a new instance of the model, that is able to
+            handle the new dataset.
         """
 
     @classmethod
@@ -107,6 +127,8 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
             ``"export"`` when loading a model for final export. When multiple
             checkpoints are stored together, this can be used to pick one of them
             depending on the context.
+
+        :return: An instance of the model.
         """
 
     @abstractmethod
@@ -122,6 +144,8 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
 
         :param metadata: additional metadata to add in the model as specified by the
             user.
+
+        :return: An instance of :py:class:`metatomic.torch.MetatensorAtomisticModel`
         """
 
     @classmethod
@@ -130,8 +154,12 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
         """
         Upgrade the checkpoint to the current version of the model.
 
+        :param checkpoint: Checkpoint's state dictionary.
+
         :raises RuntimeError: if the checkpoint cannot be upgraded to the current
             version of the model.
+
+        :return: The upgraded checkpoint.
         """
 
     @abstractmethod
@@ -139,6 +167,8 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
         """
         Get the checkpoint of the model. This should contain all the information
         needed by `load_checkpoint` to recreate the same model instance.
+
+        :return: The model's checkpoint.
         """
 
 
@@ -149,9 +179,11 @@ class TrainerInterface(metaclass=ABCMeta):
     All architectures in metatrain must implement such a trainer, which is responsible
     for training the model. The trainer must be a be sub-class of this class, and
     implement the corresponding methods.
+
+    :param hypers: A dictionary with the trainer's hyper-parameters.
     """
 
-    def __init__(self, hypers):
+    def __init__(self, hypers: Dict[str, Any]):
         required_attributes = [
             "__checkpoint_version__",
         ]
@@ -167,7 +199,7 @@ class TrainerInterface(metaclass=ABCMeta):
         self.hypers = hypers
         """The trainer hypers passed at intialization"""
 
-    def __setattr__(self, name, value):
+    def __setattr__(self, name: str, value: Any) -> None:
         if not hasattr(self, "__intialized") or not self.__dict__["__intialized"]:
             raise ValueError(
                 "you must call `super().__init__(hypers)` before setting new fields"
@@ -183,7 +215,7 @@ class TrainerInterface(metaclass=ABCMeta):
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
-    ):
+    ) -> None:
         """
         Train the ``model`` using the ``train_datasets``. How to train the model is left
         to this class, using the hyper-parameter given in ``__init__``.
@@ -199,9 +231,12 @@ class TrainerInterface(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def save_checkpoint(self, model, path: Union[str, Path]):
+    def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         """
         Save a checkoint of both the ``model`` and trainer state to the given ``path``
+
+        :param model: The model to save in the checkpoint.
+        :param path: The path where to save the checkpoint.
         """
 
     @classmethod
@@ -210,8 +245,12 @@ class TrainerInterface(metaclass=ABCMeta):
         """
         Upgrade the checkpoint to the current version of the trainer.
 
+        :param checkpoint: Checkpoint's state dictionary.
+
         :raises RuntimeError: if the checkpoint cannot be upgraded to the current
             version of the trainer.
+
+        :return: The upgraded checkpoint.
         """
 
     @classmethod
@@ -232,4 +271,6 @@ class TrainerInterface(metaclass=ABCMeta):
             when loading a model for further fine-tuning or transfer learning. When
             multiple checkpoints are stored together, this can be used to pick one of
             them depending on the context.
+
+        :return: The loaded trainer instance.
         """

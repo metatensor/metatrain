@@ -1,5 +1,5 @@
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import metatensor.torch as mts
 import numpy as np
@@ -12,13 +12,21 @@ from . import torch_jit_script_unless_coverage
 from .data import TargetInfo
 
 
-def get_random_rotation():
-    """Random 3D rotation that is Haar uniformly distributed over SO(3)."""
+def get_random_rotation() -> Rotation:
+    """
+    Random 3D rotation that is Haar uniformly distributed over SO(3).
+
+    :return: a random 3D rotation
+    """
     return Rotation.random()
 
 
-def get_random_inversion():
-    """Randomly choose an inversion factor -1 or 1."""
+def get_random_inversion() -> int:
+    """
+    Randomly choose an inversion factor -1 or 1.
+
+    :return: either -1 or 1
+    """
     return random.choice([1, -1])
 
 
@@ -30,6 +38,9 @@ class RotationalAugmenter:
     :param target_info_dict: A dictionary mapping target names to their corresponding
         :class:`TargetInfo` objects. This is used to determine the type of targets and
         how to apply the augmentations.
+    :param extra_data_info_dict: An optional dictionary mapping extra data names to
+        their corresponding :py:class:`TargetInfo` objects. This is used to determine
+        the type of extra data and how to apply the augmentations.
     """
 
     def __init__(
@@ -101,11 +112,15 @@ class RotationalAugmenter:
         extra_data: Optional[Dict[str, TensorMap]] = None,
     ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
         """
-        Apply a random augmentation to a number of ``System`` objects and its targets.
+        Apply a random augmentation to a number of :py:class:`System` objects and its
+        targets.
 
-        :param systems: A list of :class:`System` objects to be augmented.
+        :param systems: A list of :py:class:`System` objects to be augmented.
         :param targets: A dictionary mapping target names to their corresponding
-            :class:`TensorMap` objects. These are the targets to be augmented.
+            :py:class:`TensorMap` objects. These are the targets to be augmented.
+        :param extra_data: An optional dictionary mapping extra data names to their
+            corresponding :py:class:`TensorMap` objects. This extra data will also be
+            augmented if provided.
 
         :return: A tuple containing the augmented systems and targets.
         """
@@ -420,7 +435,7 @@ def _apply_random_augmentations(
     return new_systems, new_targets, new_extra_data
 
 
-def _complex_to_real_spherical_harmonics_transform(ell: int):
+def _complex_to_real_spherical_harmonics_transform(ell: int) -> np.ndarray:
     # Generates the transformation matrix from complex spherical harmonics
     # to real spherical harmonics for a given l.
     # Returns a transformation matrix of shape ((2l+1), (2l+1)).
@@ -449,7 +464,9 @@ def _complex_to_real_spherical_harmonics_transform(ell: int):
     return U
 
 
-def _scipy_quaternion_to_quaternionic(q_scipy):
+def _scipy_quaternion_to_quaternionic(
+    q_scipy: Union[np.ndarray, List[float]],
+) -> np.ndarray:
     # This function convert a quaternion obtained from the scipy library to the format
     # used by the quaternionic library.
     # Note: 'xyzw' is the format used by scipy.spatial.transform.Rotation

@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap, equal_metadata
@@ -66,15 +66,15 @@ class TargetInfo:
         """The labels of the properties of the target."""
         return [block.properties for block in self.layout.blocks()]
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "TargetInfo(quantity={!r}, unit={!r}, layout={!r})".format(
             self.quantity, self.unit, self.layout
         )
 
-    def __eq__(self, other):
+    @torch.jit.unused
+    def __eq__(self, other: Any) -> bool:
         if not isinstance(other, TargetInfo):
             return False
-
         return (
             self.quantity == other.quantity
             and self.unit == other.unit
@@ -84,7 +84,11 @@ class TargetInfo:
         )
 
     def _check_layout(self, layout: TensorMap) -> None:
-        """Check that the layout is a valid layout."""
+        """
+        Check that the layout is a valid layout.
+
+        :param layout: The layout TensorMap to check.
+        """
 
         # examine basic properties of all blocks
         for block in layout.blocks():
@@ -239,7 +243,14 @@ class TargetInfo:
     def to(
         self, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None
     ) -> "TargetInfo":
-        """Return a copy with all tensors moved to the device and dtype."""
+        """
+        Return a copy with all tensors moved to the device and dtype.
+
+        :param device: The device to move the tensors to.
+        :param dtype: The dtype to move the tensors to.
+        :return: A copy of the TargetInfo with all tensors moved to the device and
+            dtype.
+        """
         new_layout = self.layout.to(device=device, dtype=dtype)
         return TargetInfo(
             quantity=self.quantity,
@@ -248,8 +259,12 @@ class TargetInfo:
         )
 
     @torch.jit.unused
-    def __setstate__(self, state):
-        """Set the state of the target info."""
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        """
+        Set the state of the target info.
+
+        :param state: The state to set.
+        """
 
         self.quantity = state["quantity"]
         self.layout = state["layout"]
@@ -273,6 +288,16 @@ def get_energy_target_info(
     add_position_gradients: bool = False,
     add_strain_gradients: bool = False,
 ) -> TargetInfo:
+    """Get an empty TargetInfo with the layout of an energy target.
+
+    :param target_name: Not used, but kept for consistency with
+        :py:func:`get_generic_target_info`.
+    :param target: The configuration of the target.
+    :param add_position_gradients: Whether to add position gradients to the layout.
+    :param add_strain_gradients: Whether to add strain gradients to the layout.
+
+    :return: A `TargetInfo` with the layout of an energy target.
+    """
     block = TensorBlock(
         # float64: otherwise metatensor can't serialize
         values=torch.empty(0, 1, dtype=torch.float64),
@@ -338,6 +363,14 @@ def get_energy_target_info(
 
 
 def get_generic_target_info(target_name: str, target: DictConfig) -> TargetInfo:
+    """Get an empty TargetInfo with the appropriate layout.
+
+    :param target_name: The name of the target.
+    :param target: The configuration of the target. Based on the ``type`` field,
+        this function will create a layout for the appropriate type of target.
+
+    :return: A `TargetInfo` with the layout of the target.
+    """
     if target["type"] == "scalar":
         return _get_scalar_target_info(target_name, target)
     elif len(target["type"]) == 1 and next(iter(target["type"])).lower() == "cartesian":
@@ -479,6 +512,13 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
 
 
 def is_auxiliary_output(name: str) -> bool:
+    """
+    Check if a target name corresponds to an auxiliary output.
+
+    :param name: The name of the target to check.
+
+    :return: `True` if the target is an auxiliary output, `False` otherwise.
+    """
     is_auxiliary = (
         name == "features" or name == "energy_ensemble" or name.startswith("mtt::aux::")
     )
@@ -489,7 +529,19 @@ def _is_equal_up_to_gradients(
     layout1: TensorMap,
     layout2: TensorMap,
 ) -> bool:
-    # checks if the two layouts are equal up to gradients
+    """
+    Check if the two layouts are equal up to gradients.
+
+    This includes checking the values, this is why we can't use
+    ``metatensor.torch.equal_metadata``. It ignores the values
+    of the gradients so we can't use ``metatensor.torch.equal`` either.
+
+    :param layout1: The first layout to compare.
+    :param layout2: The second layout to compare.
+
+    :return: `True` if the two layouts are equal up to gradients,
+        `False` otherwise.
+    """
     if len(layout1) != len(layout2):
         return False
     for key in layout1.keys:

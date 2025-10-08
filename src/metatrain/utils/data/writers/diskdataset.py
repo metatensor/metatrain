@@ -12,6 +12,15 @@ from .writers import Writer, _split_tensormaps
 
 
 class DiskDatasetWriter(Writer):
+    """
+    Write systems and predictions to a zip file, each system in a separate folder inside
+    the zip.
+
+    :param path: Path to the output zip file.
+    :param capabilities: Model capabilities.
+    :param append: If True, open the zip file in append mode.
+    """
+
     def __init__(
         self,
         path: Union[str, Path],
@@ -25,10 +34,13 @@ class DiskDatasetWriter(Writer):
         self.zip_file = zipfile.ZipFile(path, mode)
         self.index = 0
 
-    def write(self, systems: List[System], predictions: Dict[str, TensorMap]):
+    def write(self, systems: List[System], predictions: Dict[str, TensorMap]) -> None:
         """
         Write a single (system, predictions) into the zip under
         a new folder "<index>/".
+
+        :param systems: List of systems to write.
+        :param predictions: Dictionary of TensorMaps with predictions for the systems.
         """
 
         if len(systems) == 1:
@@ -54,5 +66,8 @@ class DiskDatasetWriter(Writer):
 
             self.index += 1
 
-    def finish(self):
+    def finish(self) -> None:
+        """
+        Close the zip file.
+        """
         self.zip_file.close()

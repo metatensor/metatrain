@@ -7,7 +7,7 @@ import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 
-from metatrain.utils.abc import TrainerInterface
+from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
@@ -73,7 +73,7 @@ class Trainer(TrainerInterface):
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
-    ):
+    ) -> None:
         # Load the wrapped model from checkpoint and set it as the wrapped model of the
         # LLPR model:
         if self.hypers["model_checkpoint"] is None:
@@ -413,7 +413,7 @@ class Trainer(TrainerInterface):
         self.scheduler_state_dict = lr_scheduler.state_dict()
 
 
-    def save_checkpoint(self, model, path: Union[str, Path]):
+    def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
         torch.save(
             checkpoint,

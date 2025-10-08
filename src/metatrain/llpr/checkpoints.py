@@ -1,5 +1,9 @@
-def model_update_v1_v2(checkpoint):
-    # Here we need to add model_data to the old checkpoint:
+def model_update_v1_v2(checkpoint: dict) -> None:
+    """
+    Update a v1 checkpoint to v2.
+
+    :param checkpoint: The checkpoint to update.
+    """
     ensemble_sizes = {}
     for key in checkpoint["state_dict"].keys():
         if key.endswith("_ensemble_weights"):
@@ -17,4 +21,3 @@ def model_update_v1_v2(checkpoint):
     checkpoint["model_data"]["dataset_info"] = checkpoint["wrapped_model_checkpoint"][
         "model_data"
     ]["dataset_info"]
-    return checkpoint

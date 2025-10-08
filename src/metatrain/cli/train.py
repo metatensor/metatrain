@@ -51,7 +51,10 @@ from .formatter import CustomHelpFormatter
 
 
 def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
-    """Add `train_model` paramaters to an argparse (sub)-parser."""
+    """Add `train_model` paramaters to an argparse (sub)-parser.
+
+    :param subparser: The argparse (sub)-parser to add the parameters to.
+    """
 
     if train_model.__doc__ is not None:
         description = train_model.__doc__.split(r":param")[0]
@@ -114,7 +117,10 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 
 def _prepare_train_model_args(args: argparse.Namespace) -> None:
-    """Prepare arguments for train_model."""
+    """Prepare arguments for train_model.
+
+    :param args: The argparse.Namespace containing the arguments.
+    """
     args.options = OmegaConf.load(args.options)
     # merge/override file options with command line options
     override_options = args.__dict__.pop("override_options")
@@ -154,6 +160,7 @@ def train_model(
 
     :param options: DictConfig containing the training options
     :param output: Path to save the final model
+    :param extensions: Path to save the model extensions, if any
     :param checkpoint_dir: Path to save checkpoints and other intermediate output files
         like the fully expanded training options for a later restart.
     :param restart_from: File to continue training from.

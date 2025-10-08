@@ -9,7 +9,14 @@ def get_random_rotation() -> Rotation:
     return Rotation.random()
 
 
-def rotate_system(system: System, rotation: Rotation):
+def rotate_system(system: System, rotation: Rotation) -> System:
+    """
+    Rotate a System object using a given rotation.
+
+    :param system: The System object to be rotated.
+    :param rotation: A scipy.spatial.transform.Rotation object representing the rotation
+    :return: A new System object with rotated positions and cell.
+    """
     rotated_positions = (
         system.positions.detach().cpu().numpy() @ np.array(rotation.as_matrix()).T
     )
@@ -24,7 +31,18 @@ def rotate_system(system: System, rotation: Rotation):
     )
 
 
-def rotate_spherical_tensor(spherical_tensor: np.ndarray, rotation: Rotation):
+def rotate_spherical_tensor(
+    spherical_tensor: np.ndarray, rotation: Rotation
+) -> np.ndarray:
+    """
+    Rotate a spherical tensor using a given rotation.
+
+    :param spherical_tensor: A numpy array of shape (n_samples, 2*l+1, n_properties)
+        representing the spherical tensor to be rotated.
+    :param rotation: A scipy.spatial.transform.Rotation object representing the rotation
+    :return: A numpy array of the same shape as spherical_tensor, representing the
+        rotated spherical tensor.
+    """
     # the spherical tensor is a tensor of shape (n_samples, 2*l+1, n_properties)
     L = (spherical_tensor.shape[1] - 1) // 2
     rotated_spherical_tensor = (
@@ -33,7 +51,15 @@ def rotate_spherical_tensor(spherical_tensor: np.ndarray, rotation: Rotation):
     return rotated_spherical_tensor
 
 
-def calculate_wigner_D(rotation, L):
+def calculate_wigner_D(rotation: Rotation, L: int) -> np.ndarray:
+    """
+    Calculate the Wigner D matrix for a given rotation and angular momentum L.
+
+    :param rotation: A scipy.spatial.transform.Rotation object representing the rotation
+    :param L: The angular momentum quantum number (non-negative integer)
+    :return: A numpy array of shape (2*L+1, 2*L+1) representing the Wigner D matrix in
+        the real spherical harmonics basis.
+    """
     # We initialize the Wigner calculator from the quaternionic library...
     wigner = spherical.Wigner(L)
     # ...and we also initialize the transformation matrix from complex to real
@@ -71,10 +97,14 @@ def calculate_wigner_D(rotation, L):
     return wigner_D_matrix.real
 
 
-def complex_to_real_spherical_harmonics_transform(ell: int):
-    # Generates the transformation matrix from complex spherical harmonics
-    # to real spherical harmonics for a given l.
-    # Returns a transformation matrix of shape ((2l+1), (2l+1)).
+def complex_to_real_spherical_harmonics_transform(ell: int) -> np.ndarray:
+    """
+    Generates the transformation matrix from complex spherical harmonics to real
+    spherical harmonics for a given l.
+
+    :param ell: The angular momentum quantum number (non-negative integer).
+    :return: Returns a transformation matrix of shape ((2l+1), (2l+1)).
+    """
 
     if ell < 0 or not isinstance(ell, int):
         raise ValueError("l must be a non-negative integer.")
@@ -100,21 +130,31 @@ def complex_to_real_spherical_harmonics_transform(ell: int):
     return U
 
 
-def scipy_quaternion_to_quaternionic(q_scipy):
-    # This function convert a quaternion obtained from the scipy library to the format
-    # used by the quaternionic library.
-    # Note: 'xyzw' is the format used by scipy.spatial.transform.Rotation
-    # while 'wxyz' is the format used by quaternionic.
+def scipy_quaternion_to_quaternionic(q_scipy: np.ndarray) -> np.ndarray:
+    """
+    This function convert a quaternion obtained from the scipy library to the format
+    used by the quaternionic library.
+
+    :param q_scipy: A numpy array of shape (4,) representing the quaternion in
+        'xyzw' format (scipy).
+    :return: A numpy array of shape (4,) representing the quaternion in 'wxyz'
+        format (quaternionic).
+    """
     qx, qy, qz, qw = q_scipy
     q_quaternion = np.array([qw, qx, qy, qz])
     return q_quaternion
 
 
-def rotation_matrix_conversion_order(rotation_matrix):
-    # This function is used to convert a rotation matrix from the format (y, z, x)
-    # to (x, y, z).
-    # Note: 'xyz' is the format used by scipy.spatial.transform.Rotation
-    # while 'yzx' is the format used by the spherical harmonics.
+def rotation_matrix_conversion_order(rotation_matrix: np.ndarray) -> np.ndarray:
+    """
+    This function is used to convert a rotation matrix from the format (y, z, x)
+    to (x, y, z).
+
+    :param rotation_matrix: A numpy array of shape (3, 3) representing the rotation
+        matrix in 'yzx' format (spherical harmonics convention).
+    :return: A numpy array of shape (3, 3) representing the rotation matrix in
+        'xyz' format (Cartesian convention, used by scipy).
+    """
     converted_matrix = rotation_matrix[[2, 0, 1], :]
     converted_matrix = converted_matrix[:, [2, 0, 1]]
     return converted_matrix

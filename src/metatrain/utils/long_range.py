@@ -1,7 +1,9 @@
-from typing import List
+from typing import Dict, List
 
 import torch
 from metatomic.torch import System
+
+from metatrain.utils.neighbor_lists import NeighborListOptions
 
 
 class LongRangeFeaturizer(torch.nn.Module):
@@ -15,7 +17,9 @@ class LongRangeFeaturizer(torch.nn.Module):
         the neighbor list information for the short-range model.
     """
 
-    def __init__(self, hypers, feature_dim, neighbor_list_options):
+    def __init__(
+        self, hypers: Dict, feature_dim: int, neighbor_list_options: NeighborListOptions
+    ):
         super(LongRangeFeaturizer, self).__init__()
 
         try:
@@ -35,6 +39,9 @@ class LongRangeFeaturizer(torch.nn.Module):
             full_neighbor_list=neighbor_list_options.full_list,
             lr_wavelength=float(hypers["kspace_resolution"]),
         )
+        """Calculator to compute the long-range electrostatic potential using the Ewald
+        summation method."""
+
         self.p3m_calculator = P3MCalculator(
             potential=CoulombPotential(
                 smearing=float(hypers["smearing"]),
@@ -44,7 +51,13 @@ class LongRangeFeaturizer(torch.nn.Module):
             full_neighbor_list=neighbor_list_options.full_list,
             mesh_spacing=float(hypers["kspace_resolution"]),
         )
+        """Calculator to compute the long-range electrostatic potential using the P3M
+        method."""
+
         self.use_ewald = hypers["use_ewald"]
+        """If ``True``, use the Ewald summation method instead of the P3M method for
+        periodic systems during training."""
+
         self.direct_calculator = Calculator(
             potential=CoulombPotential(
                 smearing=None,
@@ -52,9 +65,13 @@ class LongRangeFeaturizer(torch.nn.Module):
             ),
             full_neighbor_list=False,  # see docs of torch.combinations
         )
+        """Calculator for the electrostatic potential in non-periodic systems."""
 
         self.neighbor_list_options = neighbor_list_options
+        """Neighbor list information for the short-range model."""
+
         self.charges_map = torch.nn.Linear(feature_dim, feature_dim)
+        """Map the short-range features to atomic charges."""
 
     def forward(
         self,
@@ -71,6 +88,7 @@ class LongRangeFeaturizer(torch.nn.Module):
         :param neighbor_distances: A tensor of neighbor distances for the systems,
             which must be consistent with the neighbor list options used to create the
             class.
+        :return: A tensor of long-range features for the systems.
         """
         charges = self.charges_map(features)
 
@@ -142,7 +160,7 @@ class LongRangeFeaturizer(torch.nn.Module):
 
 class DummyLongRangeFeaturizer(torch.nn.Module):
     # a dummy class for torchscript
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.use_ewald = True
 

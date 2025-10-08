@@ -1,11 +1,19 @@
 import difflib
+from typing import Any, Dict, Optional
 
 import jsonschema
 from jsonschema.exceptions import ValidationError
+from jsonschema.protocols import Validator
 
 
-def validate(instance, schema, cls=None, *args, **kwargs) -> None:
-    """Validate an instance under the given schema.
+def validate(
+    instance: Dict,
+    schema: Any,
+    cls: Optional[Validator] = None,
+    *args: Any,
+    **kwargs: Any,
+) -> None:
+    r"""Validate an instance under the given schema.
 
     Function similar to :py:class:`jsonschema.validate` but displaying only the human
     readable error message without showing the reference schema and path if the instance
@@ -14,6 +22,9 @@ def validate(instance, schema, cls=None, *args, **kwargs) -> None:
 
     :param instance: Instance to validate
     :param schema: Schema to validate with
+    :param cls: Validator class to use.
+    :param \*args: Additional positional arguments to pass to the validator
+    :param \*\*kwargs: Additional keyword arguments to pass to the validator
     :raises jsonschema.exceptions.ValidationError: If the instance is invalid
     :raises jsonschema.exceptions.SchemaError: If the schema itself is invalid
     """

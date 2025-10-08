@@ -50,9 +50,9 @@ def to_internal_name(external_name: str) -> str:
 
     This function is the inverse of :func:`to_external_names`.
 
-    :param external_names: A list of names to convert.
+    :param external_name: Name to convert.
 
-    :return: The list of names for internal use.
+    :return: The name for internal use.
     """
 
     if external_name == "forces":

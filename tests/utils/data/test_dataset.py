@@ -615,7 +615,7 @@ def test_collate_fn():
     batch = unpack_batch(batch)
 
     assert len(batch) == 3
-    assert isinstance(batch[0], tuple)
+    assert isinstance(batch[0], list)
     assert len(batch[0]) == 3
     assert isinstance(batch[1], dict)
     assert isinstance(batch[2], dict)

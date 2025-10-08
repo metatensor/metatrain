@@ -98,6 +98,7 @@ class ZBL(torch.nn.Module):
         """Restart the model with a new dataset info.
 
         :param dataset_info: New dataset information to be used.
+        :return: The restarted model.
         """
 
         for target_name, target_info in dataset_info.targets.items():
@@ -110,7 +111,7 @@ class ZBL(torch.nn.Module):
 
         return self({}, self.dataset_info.union(dataset_info))
 
-    def supported_outputs(self):
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
     def forward(
@@ -126,7 +127,7 @@ class ZBL(torch.nn.Module):
         :param outputs: Dictionary containing the model outputs.
         :param selected_atoms: Optional selection of atoms for which to compute the
             predictions.
-        :returns: A dictionary with the computed predictions for each system.
+        :return: A dictionary with the computed predictions for each system.
 
         :raises ValueError: If the `outputs` contain unsupported keys.
         """
@@ -209,12 +210,19 @@ class ZBL(torch.nn.Module):
 
         return targets_out
 
-    def get_pairwise_zbl(self, zi, zj, rij):
+    def get_pairwise_zbl(
+        self, zi: torch.Tensor, zj: torch.Tensor, rij: torch.Tensor
+    ) -> torch.Tensor:
         """
         Ziegler-Biersack-Littmark (ZBL) potential.
 
         Inputs are the atomic numbers (zi, zj) of the two atoms of interest
         and their distance rij.
+
+        :param zi: Atomic number of atom i.
+        :param zj: Atomic number of atom j.
+        :param rij: Distance between atom i and atom j.
+        :return: The ZBL potential energy between atom i and atom j.
         """
         # set cutoff from covalent radii of the elements
         rc = (
@@ -270,9 +278,11 @@ class ZBL(torch.nn.Module):
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
-        """Finds if a ``TargetInfo`` object is compatible with the ZBL model.
+        """Finds if a :py:class:`TargetInfo` object is compatible with the ZBL model.
 
-        :param target_info: The ``TargetInfo`` object to be checked.
+        :param target_name: The name of the target to be checked.
+        :param target_info: The :py:class:`TargetInfo` object to be checked.
+        :return: True if the target is compatible with the ZBL model, False otherwise.
         """
         if target_info.quantity != "energy":
             logging.debug(
@@ -301,35 +311,41 @@ class ZBL(torch.nn.Module):
         return True
 
 
-def _phi(r, c, da):
+def _phi(r: torch.Tensor, c: torch.Tensor, da: torch.Tensor) -> torch.Tensor:
     phi = torch.sum(c.unsqueeze(-1) * torch.exp(-r * da), dim=0)
     return phi
 
 
-def _dphi(r, c, da):
+def _dphi(r: torch.Tensor, c: torch.Tensor, da: torch.Tensor) -> torch.Tensor:
     dphi = torch.sum(-c.unsqueeze(-1) * da * torch.exp(-r * da), dim=0)
     return dphi
 
 
-def _d2phi(r, c, da):
+def _d2phi(r: torch.Tensor, c: torch.Tensor, da: torch.Tensor) -> torch.Tensor:
     d2phi = torch.sum(c.unsqueeze(-1) * (da**2) * torch.exp(-r * da), dim=0)
     return d2phi
 
 
-def _e_zbl(factor, r, c, da):
+def _e_zbl(
+    factor: torch.Tensor, r: torch.Tensor, c: torch.Tensor, da: torch.Tensor
+) -> torch.Tensor:
     phi = _phi(r, c, da)
     ret = factor / r * phi
     return ret
 
 
-def _dedr(factor, r, c, da):
+def _dedr(
+    factor: torch.Tensor, r: torch.Tensor, c: torch.Tensor, da: torch.Tensor
+) -> torch.Tensor:
     phi = _phi(r, c, da)
     dphi = _dphi(r, c, da)
     ret = factor / r * (-phi / r + dphi)
     return ret
 
 
-def _d2edr2(factor, r, c, da):
+def _d2edr2(
+    factor: torch.Tensor, r: torch.Tensor, c: torch.Tensor, da: torch.Tensor
+) -> torch.Tensor:
     phi = _phi(r, c, da)
     dphi = _dphi(r, c, da)
     d2phi = _d2phi(r, c, da)

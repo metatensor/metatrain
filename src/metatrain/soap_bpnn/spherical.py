@@ -1,7 +1,7 @@
 """Modules to allow SOAP-BPNN to fit arbitrary spherical tensor targets."""
 
 import copy
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import metatensor.torch as mts
 import numpy as np
@@ -18,9 +18,12 @@ class VectorBasis(torch.nn.Module):
     This module creates a basis of 3 vectors for each atomic environment.
 
     In practice, this is done by contracting a l=1 spherical expansion.
+
+    :param atomic_types: list of atomic types in the dataset.
+    :param soap_hypers: dictionary with the SOAP hyper-parameters.
     """
 
-    def __init__(self, atomic_types, soap_hypers) -> None:
+    def __init__(self, atomic_types: List[int], soap_hypers: Dict[str, Any]) -> None:
         super().__init__()
         self.atomic_types = atomic_types
         # Define a new hyper-parameter for the basis part of the expansion
@@ -70,14 +73,32 @@ class VectorBasis(torch.nn.Module):
 
     def forward(
         self,
-        interatomic_vectors,
-        centers,
-        neighbors,
-        species,
-        structures,
-        atom_index_in_structure,
+        interatomic_vectors: torch.Tensor,
+        centers: torch.Tensor,
+        neighbors: torch.Tensor,
+        species: torch.Tensor,
+        structures: torch.Tensor,
+        atom_index_in_structure: torch.Tensor,
         selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
+        """
+        Compute a basis of 3 vectors for each atomic environment.
+
+        :param interatomic_vectors: (num_edges, 3) tensor with the vectors from
+            each center to each neighbor.
+        :param centers: (num_edges,) tensor with the indices of the center atoms.
+        :param neighbors: (num_edges,) tensor with the indices of the neighbor
+            atoms.
+        :param species: (num_atoms,) tensor with the atomic species of each atom.
+        :param structures: (num_atoms,) tensor with the index of the structure each
+            atom belongs to.
+        :param atom_index_in_structure: (num_atoms,) tensor with the index of each atom
+            in its structure.
+        :param selected_atoms: optional Labels object to select a subset of the atoms
+            to compute the basis for.
+        :return: a tensor of shape (num_atoms, 3, 3) with the basis of 3 vectors for
+            each atomic environment
+        """
         device = interatomic_vectors.device
 
         if self.neighbor_species_labels.device != device:
@@ -123,12 +144,27 @@ class TensorBasis(torch.nn.Module):
     Creates a basis of spherical tensors for each atomic environment. Internally, it
     uses one (for proper tensors) or two (for pseudotensors) VectorBasis objects to
     build a basis of 3 vectors.
+
+    :param atomic_types: list of atomic types in the dataset.
+    :param soap_hypers: dictionary with the SOAP hyper-parameters.
+    :param o3_lambda: the integer order of the spherical tensor to be built.
+    :param o3_sigma: 1 for proper tensors, -1 for pseudotensors.
+    :param add_lambda_basis: if True and o3_lambda>1, adds a contracted
+        lambda-basis to the spherical tensor basis. This is done by contracting a
+        spherical expansion with the same o3_lambda as the target tensor.
+        This usually improves the performance of the model.
     """
 
     cgs: Dict[str, torch.Tensor]  # torchscript needs this
+    """ dictionary with the Clebsch-Gordan coefficients"""
 
     def __init__(
-        self, atomic_types, soap_hypers, o3_lambda, o3_sigma, add_lambda_basis
+        self,
+        atomic_types: List[int],
+        soap_hypers: Dict[str, Any],
+        o3_lambda: int,
+        o3_sigma: int,
+        add_lambda_basis: bool,
     ) -> None:
         super().__init__()
 
@@ -213,14 +249,37 @@ class TensorBasis(torch.nn.Module):
 
     def forward(
         self,
-        interatomic_vectors,
-        centers,
-        neighbors,
-        species,
-        structures,
-        atom_index_in_structure,
+        interatomic_vectors: torch.Tensor,
+        centers: torch.Tensor,
+        neighbors: torch.Tensor,
+        species: torch.Tensor,
+        structures: torch.Tensor,
+        atom_index_in_structure: torch.Tensor,
         selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
+        """
+        Compute the basis of spherical tensors for each atomic environment.
+
+        :param interatomic_vectors: (num_edges, 3) tensor with the vectors from
+            each center to each neighbor.
+        :param centers: (num_edges,) tensor with the indices of the center atoms.
+        :param neighbors: (num_edges,) tensor with the indices of the neighbor
+            atoms.
+        :param species: (num_atoms,) tensor with the atomic species of each atom.
+        :param structures: (num_atoms,) tensor with the index of the structure each
+            atom belongs to.
+        :param atom_index_in_structure: (num_atoms,) tensor with the index of each atom
+            in its structure.
+        :param selected_atoms: optional Labels object to select a subset of the atoms
+            to compute the basis for.
+        :return: a tensor of shape (num_atoms, 2*o3_lambda+1, 2*o3_lambda+1) with the
+            basis of spherical tensors for each atomic environment.
+        If add_lambda_basis is True, the shape is
+        (num_atoms, 2*o3_lambda+1, 2*o3_lambda+1 + 2*o3_lambda+1)
+        and the last 2*o3_lambda+1 components correspond to the contracted
+        lambda basis.
+        """
+
         # transfer cg dict to device and dtype if needed
         device = interatomic_vectors.device
         dtype = interatomic_vectors.dtype
@@ -404,11 +463,25 @@ class TensorBasis(torch.nn.Module):
         return basis  # [n_atoms, 2*o3_lambda+1, 2*o3_lambda+1]
 
 
-def cg_combine(A, B, C):
+def cg_combine(A: torch.Tensor, B: torch.Tensor, C: torch.Tensor) -> torch.Tensor:
+    """
+    Combine two spherical tensors A and B using the Clebsch-Gordan coefficients C.
+
+    :param A: Tensor of shape (n, 2*l1+1)
+    :param B: Tensor of shape (n, 2*l2+1)
+    :param C: Tensor of shape (2*l1+1, 2*l2+1, 2*L+1)
+    :return: Tensor of shape (n, 2*L+1)
+    """
     return torch.einsum("im, in, mnp-> ip", A, B, C)
 
 
-def get_cg_coefficients(l_max):
+def get_cg_coefficients(l_max: int) -> "ClebschGordanReal":
+    """
+    Get the Clebsch-Gordan coefficients for all combinations of l1, l2, L up to l_max.
+
+    :param l_max: Maximum value of l1, l2, L.
+    :return: A ClebschGordanReal object containing the coefficients.
+    """
     cg_object = ClebschGordanReal()
     for l1 in range(l_max + 1):
         for l2 in range(l_max + 1):
@@ -418,10 +491,10 @@ def get_cg_coefficients(l_max):
 
 
 class ClebschGordanReal:
-    def __init__(self):
-        self._cgs = {}
+    def __init__(self) -> None:
+        self._cgs: Dict[Tuple[int, int, int], torch.Tensor] = {}
 
-    def _add(self, l1, l2, L):
+    def _add(self, l1: int, l2: int, L: int) -> None:
         if self._cgs is None:
             raise ValueError("Trying to add CGs when not initialized... exiting")
 
@@ -470,7 +543,7 @@ class ClebschGordanReal:
 
         self._cgs[(l1, l2, L)] = torch.tensor(rcg)
 
-    def get(self, key):
+    def get(self, key: Tuple[int, int, int]) -> torch.Tensor:
         if key in self._cgs:
             return self._cgs[key]
         else:
@@ -478,12 +551,15 @@ class ClebschGordanReal:
             return self._cgs[key]
 
 
-def _real2complex(L):
+def _real2complex(L: int) -> np.ndarray:
     """
     Computes a matrix that can be used to convert from real to complex-valued
     spherical harmonics(coefficients) of order L.
 
     It's meant to be applied to the left, ``real2complex @ [-L..L]``.
+
+    :param L: the order of the spherical harmonics.
+    :return: a (2L+1, 2L+1) matrix that converts real to complex spherical harmonics.
     """
     result = np.zeros((2 * L + 1, 2 * L + 1), dtype=np.complex128)
 
@@ -504,7 +580,7 @@ def _real2complex(L):
     return result
 
 
-def _complex_clebsch_gordan_matrix(l1, l2, L):
+def _complex_clebsch_gordan_matrix(l1: int, l2: int, L: int) -> np.ndarray:
     if np.abs(l1 - l2) > L or np.abs(l1 + l2) < L:
         return np.zeros((2 * l1 + 1, 2 * l2 + 1, 2 * L + 1), dtype=np.double)
     else:
@@ -516,28 +592,27 @@ class FakeVectorBasis(torch.nn.Module):
 
     def forward(
         self,
-        interatomic_vectors,
-        centers,
-        neighbors,
-        species,
-        structures,
-        atom_index_in_structure,
+        interatomic_vectors: torch.Tensor,
+        centers: torch.Tensor,
+        neighbors: torch.Tensor,
+        species: torch.Tensor,
+        structures: torch.Tensor,
+        atom_index_in_structure: torch.Tensor,
         selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
         return torch.tensor(0)
 
 
 class FakeSphericalExpansion(torch.nn.Module):
-    # fake class to make torchscript work
-
+    # Dummy class to make torchscript work
     def forward(
         self,
-        interatomic_vectors,
-        centers,
-        neighbors,
-        species,
-        structures,
-        atom_index_in_structure,
+        interatomic_vectors: torch.Tensor,
+        centers: torch.Tensor,
+        neighbors: torch.Tensor,
+        species: torch.Tensor,
+        structures: torch.Tensor,
+        atom_index_in_structure: torch.Tensor,
     ) -> TensorMap:
         return TensorMap(
             keys=Labels(names=["dummy"], values=torch.tensor([[]])), blocks=[]
