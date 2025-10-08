@@ -104,7 +104,7 @@ class RotationalAugmenter:
     ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
         """
         Applies augmentations to a number of ``System`` objects and their targets.
-        
+
         If the rotations and inversions are not provided, random ones will be generated
         separately for each system.
 

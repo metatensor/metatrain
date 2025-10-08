@@ -1,17 +1,15 @@
 import sys
 
+import metatensor.torch as mts
 import numpy as np
 import pytest
 import torch
-
-import metatensor.torch as mts
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from scipy.spatial.transform import Rotation
 
 from metatrain.utils.augmentation import RotationalAugmenter
-from metatrain.utils.data import DiskDataset, DatasetInfo, TargetInfo
+from metatrain.utils.data import DatasetInfo, DiskDataset, TargetInfo
 from metatrain.utils.data.target_info import get_generic_target_info
-
-from scipy.spatial.transform import Rotation
 
 from . import RESOURCES_PATH
 
@@ -78,11 +76,6 @@ def test_rotation_per_structure_spherical(batch_size):
     X = [
         sample["system"].to(torch.float64)
         for i, sample in enumerate(dataset_unrotated)
-        if i < batch_size
-    ]
-    RX = [
-        sample["system"].to(torch.float64)
-        for i, sample in enumerate(dataset_rotated)
         if i < batch_size
     ]
     fX = mts.join(
@@ -165,11 +158,6 @@ def test_rotation_per_atom_spherical(batch_size):
     X = [
         sample["system"].to(torch.float64)
         for i, sample in enumerate(dataset_unrotated)
-        if i < batch_size
-    ]
-    RX = [
-        sample["system"].to(torch.float64)
-        for i, sample in enumerate(dataset_rotated)
         if i < batch_size
     ]
     fX = mts.join(
