@@ -1,4 +1,4 @@
-FROM docker://nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+FROM docker://nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04
 
 # FFTW library required by spinfast: https://github.com/moble/spinsfast?tab=readme-ov-file#pip
 RUN apt update && \
@@ -7,5 +7,5 @@ RUN apt update && \
 
 RUN python3 -m pip install --break-system-packages tox
 
-ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu128
+ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu129
 ENV CUDA_HOME="/usr/local/cuda"

@@ -42,7 +42,7 @@ test tox:
   image: $BASE_IMAGE
   timeout: 24h
   script:
-    - tox -r --workdir /tmp/tox/
+    - tox -r --workdir /tmp/tox/ --list-dependencies
   variables:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
