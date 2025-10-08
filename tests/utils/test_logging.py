@@ -5,10 +5,8 @@ import re
 import sys
 from pathlib import Path
 from typing import List
-from collections import namedtuple
 
 import pytest
-import wandb
 from metatomic.torch import ModelCapabilities, ModelOutput
 
 from metatrain import PACKAGE_ROOT
@@ -21,14 +19,11 @@ from metatrain.utils.logging import (
     human_readable,
     setup_logging,
 )
+from metatrain.utils.testing._utils import WANDB_AVAILABLE
 
-DepStatus = namedtuple("DepStatus", ["present", "message"])
-try:
+
+if WANDB_AVAILABLE.present:
     import wandb
-
-    WANDB_AVAILABLE = DepStatus(True, "present")
-except ImportError:
-    WANDB_AVAILABLE = DepStatus(False, "wandb not installed")
 
 
 def assert_log_entry(logtext: str, loglevel: str, message: str) -> None:
