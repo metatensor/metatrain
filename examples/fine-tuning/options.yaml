@@ -1,0 +1,33 @@
+architecture:
+  name: pet
+  training:
+    num_epochs: 25
+    batch_size: 4
+    warmup_fraction: 0
+    learning_rate: 1e-3
+    finetune:
+      method: full
+      read_from: pet-mad-v1.1.0.ckpt
+training_set:
+  systems:
+      read_from: carbon_reduced_100.xyz
+      reader: ase
+      length_unit: angstrom
+  targets:
+      energy:
+          quantity: energy
+          read_from: carbon_reduced_100.xyz
+          reader: ase
+          key: energy
+          unit: eV
+          forces:
+              read_from: carbon_reduced_100.xyz
+              reader: ase
+              key: force
+          stress:
+              read_from: carbon_reduced_100.xyz
+              reader: ase
+              key: virial
+
+test_set: 0.1
+validation_set: 0.1
