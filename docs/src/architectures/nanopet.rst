@@ -1,15 +1,13 @@
 .. _architecture-nanopet:
 
-NanoPET (experimental)
+NanoPET (deprecated)
 ======================
 
 .. warning::
 
-  This is an **experimental model**. You should not use it for anything important.
-
-This is a more user-friendly re-implementation of the original
-PET :footcite:p:`pozdnyakov_smooth_2023` (which lives in https://github.com/spozdn/pet),
-with slightly improved training and evaluation speed.
+  This is an **deprecated model**. You should not use it for anything important, and
+  support for it will be removed in future versions of metatrain. Please use the
+  :ref:`PET model <architecture-pet>` instead.
 
 Installation
 ------------
@@ -29,7 +27,7 @@ Default Hyperparameters
 
 The default hyperparameters for the nanoPET model are:
 
-.. literalinclude:: ../../../src/metatrain/experimental/nanopet/default-hypers.yaml
+.. literalinclude:: ../../../src/metatrain/deprecated/nanopet/default-hypers.yaml
    :language: yaml
 
 
@@ -71,7 +69,7 @@ hyperparameters to tune are (in decreasing order of importance):
 All Hyperparameters
 -------------------
 
-:param name: ``experimental.nanopet``
+:param name: ``deprecated.nanopet``
 
 model
 #####

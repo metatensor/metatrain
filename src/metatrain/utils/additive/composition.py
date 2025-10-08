@@ -96,6 +96,9 @@ class CompositionModel(torch.nn.Module):
         collate_fn = CollateFn(
             target_keys=list(self.dataset_info.targets.keys()),
             callables=[
+                # these neighbor lists might be required by the other additive models
+                # that need to be removed from the targets before fitting the
+                # composition weights
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists)
             ],
         )
@@ -172,7 +175,8 @@ class CompositionModel(torch.nn.Module):
         if len(self.target_infos) == 0:  # no (new) targets to fit
             return
 
-        # Create dataloader for the training datasets
+        # Create dataloader for the training datasets. Note that these might need
+        # neighbor lists if any of the `additive_models` require them.
         requested_neighbor_lists = []
         for additive_model in additive_models:
             if hasattr(additive_model, "requested_neighbor_lists"):

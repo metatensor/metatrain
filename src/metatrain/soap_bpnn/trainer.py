@@ -15,6 +15,7 @@ from metatrain.utils.data import (
     Dataset,
     get_num_workers,
     unpack_batch,
+    validate_num_workers,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
@@ -178,6 +179,7 @@ class Trainer(TrainerInterface):
             )
         else:
             num_workers = self.hypers["num_workers"]
+            validate_num_workers(num_workers)
 
         train_dataloaders = []
         for train_dataset, train_sampler in zip(train_datasets, train_samplers):

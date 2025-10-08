@@ -704,6 +704,9 @@ def _save_indices(
 def get_num_workers() -> int:
     """Gets a good number of workers for data loading."""
 
+    if multiprocessing.get_start_method(allow_none=False) != "fork":
+        return 0
+
     # len(os.sched_getaffinity(0)) detects thread counts set by slurm,
     # multiprocessing.cpu_count() doesn't but is more portable
     if hasattr(os, "sched_getaffinity"):
@@ -718,6 +721,17 @@ def get_num_workers() -> int:
     num_workers = max(0, min(num_threads - reserve, cap))
 
     return num_workers
+
+
+def validate_num_workers(num_workers: int):
+    """Gets a good number of workers for data loading."""
+
+    if multiprocessing.get_start_method(allow_none=False) != "fork" and num_workers > 0:
+        raise ValueError(
+            "You are using a start method for multiprocessing that is not "
+            "'fork' (this is likely because you are on macOS or Windows). "
+            "In this case, num_workers must be set to 0."
+        )
 
 
 def _make_system_contiguous(system):

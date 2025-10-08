@@ -24,6 +24,7 @@ from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.testing._utils import WANDB_AVAILABLE
 
 from . import (
     DATASET_PATH_CARBON,
@@ -1130,6 +1131,7 @@ def test_train_memmap_dataset(monkeypatch, tmp_path, options_pet):
         train_model(options_pet)
 
 
+@pytest.mark.skipif(not WANDB_AVAILABLE.present, reason=WANDB_AVAILABLE.message)
 def test_train_wandb_logger(monkeypatch, tmp_path):
     """Test that training via the training cli runs with an attached wandb logger."""
     monkeypatch.chdir(tmp_path)

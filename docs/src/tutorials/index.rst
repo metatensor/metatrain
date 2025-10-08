@@ -3,15 +3,12 @@
 Tutorials
 =========
 
-This sections includes some more advanced tutorials on the usage of the
-``metatrain`` package.
+This sections includes all tutorials on the usage of the
+``metatrain`` package. There are beginner tutorials to help you get started
+and advanced tutorials for more complex applications and workflows.
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
 
-   ../examples/ase/run_ase
-   ../examples/zbl/dimers
-   ../examples/llpr/llpr
-   ../examples/programmatic/use_architectures_outside/use_outside
-   ../examples/programmatic/disk_dataset/disk_dataset
-   ../examples/programmatic/memmap_dataset/memmap_dataset
+   beginner_tutorials/index
+   advanced_tutorials/index
