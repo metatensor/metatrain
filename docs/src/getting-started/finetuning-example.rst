@@ -18,6 +18,7 @@ data is available.
 It requires using a pre-trained model checkpoint with the ``mtt train`` command and setting the
 new targets corresponding to the new level of theory in the ``options.yaml`` file.
 
+
 In order to obtain a pretrained model, you can use a PET-MAD checkpoint from huggingface
 
 .. code-block:: bash
@@ -53,13 +54,14 @@ Training on a new level of theory is a common use case for transfer learning. Le
     systems:
         read_from: dataset.xyz
         reader: ase
-        length_unit: null
+        length_unit: angstrom
     targets:
         energy:
             quantity: energy
             read_from: dataset.xyz
             reader: ase
             key: energy
+            unit: eV
             forces:
                 read_from: dataset.xyz
                 reader: ase
@@ -76,13 +78,28 @@ In this example, we specified generic but reasonable ``num_epochs`` and ``learni
 parameters. The ``learning_rate`` is chosen to be relatively low to stabilise
 training.
 
+.. warning::
+
+  Note that in ``targets`` we use the PET-MAD ``energy`` head. This means, that there won't be a new head
+  for the new reference energies provided in your dataset. This can lead to bad performance, if the reference
+  energies differ from the ones used in pretraining (different levels of theory, or different electronic structure 
+  software used). In future it is recommended to create a new ``energy`` target for the new level of theory. 
+  Find more about this in :ref:`Transfer-Learning <transfer-learning>`
+
+
 
 We assumed that the pre-trained model is trained on the dataset ``dataset.xyz`` in which
 energies are written in the ``energy`` key of the ``info`` dictionary of the
 energies. Additionally, forces and stresses should be provided with corresponding keys
-which you can specifyin the ``options.yaml`` file under ``targets``.
+which you can specify in the ``options.yaml`` file under ``targets``.
 Further information on specifying targets can be found in :ref:`Customize a Dataset Configuration
 <dataset_conf>`.
+
+.. note::
+
+  It is important that the ``length_unit`` is set to ``angstrom`` and the ``energy`` ``unit`` is ``eV`` in order
+  to match the units PET-MAD was trained on. If your dataset has different energy units, it is
+  necessary to convert it to ``eV`` before fine-tuning.
 
 
 After setting up your ``options.yaml`` file, finetuning can then simply be run
