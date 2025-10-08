@@ -49,11 +49,14 @@ of the ``ase.Atoms`` object. Then, the ``options.yaml`` file should look like th
         read_from: path/to/checkpoint.ckpt
 
   training_set:
-    systems: "new_train_dataset.xyz"
+    systems:
+      read_from: dataset.xyz
+      reader: ase
+      length_unit: angstrom
     targets:
       mtt::energy_pbe0: # name of the new target
-        key: "energy" # key of the target in the atoms.info dictionary
-        unit: "eV" # unit of the target value
+        key: energy # key of the target in the atoms.info dictionary
+        unit: eV # unit of the target value
         forces:
           key: forces
 
