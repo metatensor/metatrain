@@ -6,8 +6,10 @@ How to prepare data for training
 
     This tutorial is only relevant for users who need to prepare their data from scratch
     from several files or for big datasets. If you already have your data in a common
-    file format (like XYZ or ASE database), you can skip this tutorial and directly
+    file format (like XYZ or `ASE database`_), you can skip this tutorial and directly
     start training.
+
+.. _ASE database: https://ase-lib.org/ase/db/db.html
 
 ``metatrain`` can read data from various sources, including common file formats like
 XYZ, ASE databases, and also from metrain's
@@ -38,10 +40,13 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 # -------------------------------------------
 #
 # First, we will show how to create a XYZ file with fields of the target properties. As
-# an example, we will use 100 structures from a file read by ASE. Since files from
+# an example, we will use 100 structures from a file read by ASE_. Since files from
 # reference calculations may be located at different directories we first create a
 # list of all path that we want to read from. Here, for simplicity, we assume that all
 # files are located in the same directory.
+# 
+# .. _ASE: https://ase-lib.org/
+
 
 filelist = 100 * ["qm9_reduced_100.xyz"]
 
