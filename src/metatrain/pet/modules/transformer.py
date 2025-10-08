@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Any, Dict, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -45,7 +45,15 @@ class FeedForward(nn.Module):
 
 
 class AttentionBlock(nn.Module):
-    def __init__(self, total_dim, num_heads, epsilon=1e-15):
+    """
+    Multi-head attention block.
+
+    :param total_dim: The total dimension of the input and output tensors.
+    :param num_heads: The number of attention heads.
+    :param epsilon: A small value to avoid division by zero.
+    """
+
+    def __init__(self, total_dim: int, num_heads: int, epsilon: float = 1e-15) -> None:
         super(AttentionBlock, self).__init__()
 
         self.input_linear = nn.Linear(total_dim, 3 * total_dim)
@@ -58,7 +66,21 @@ class AttentionBlock(nn.Module):
             raise ValueError("total dimension is not divisible by the number of heads")
         self.head_dim = total_dim // num_heads
 
-    def forward(self, x, cutoff_factors: torch.Tensor, use_manual_attention: bool):
+    def forward(
+        self, x: torch.Tensor, cutoff_factors: torch.Tensor, use_manual_attention: bool
+    ) -> torch.Tensor:
+        """
+        Forward pass for the attention block.
+
+        :param x: The input tensor, of shape (batch_size, seq_length, total_dim)
+        :param cutoff_factors: The cutoff factors for the edges, of shape
+            (batch_size, seq_length, seq_length)
+        :param use_manual_attention: Whether to use the manual attention implementation
+            (which supports double backward, needed for training with conservative
+            forces), or the built-in PyTorch attention (which does not support double
+            backward).
+        :return: The output tensor, of shape (batch_size, seq_length, total_dim)
+        """
         initial_shape = x.shape
         x = self.input_linear(x)
         x = x.reshape(
@@ -84,16 +106,27 @@ class AttentionBlock(nn.Module):
 
 
 class TransformerLayer(torch.nn.Module):
+    """
+    Single layer of a Transformer.
+
+    :param d_model: The dimension of the model.
+    :param n_heads: The number of attention heads.
+    :param dim_feedforward: The dimension of the feedforward network.
+    :param dropout: The dropout rate.
+    :param activation: The activation function.
+    :param transformer_type: The type of transformer, either "PostLN" or "PreLN".
+    """
+
     def __init__(
         self,
-        d_model,
-        n_heads,
-        dim_node_features,
-        dim_feedforward=512,
-        norm="LayerNorm",
-        activation="SiLU",
-        transformer_type="PostLN",
-    ):
+        d_model: int,
+        n_heads: int,
+        dim_node_features: int,
+        dim_feedforward: int = 512,
+        norm: str = "LayerNorm",
+        activation: str = "SiLU",
+        transformer_type: str = "PostLN",
+    ) -> None:
         super(TransformerLayer, self).__init__()
         self.attention = AttentionBlock(d_model, n_heads)
         self.transformer_type = transformer_type
@@ -185,6 +218,20 @@ class TransformerLayer(torch.nn.Module):
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass for a single Transformer layer.
+
+        :param tokens: The input tokens to the transformer layer, of shape
+            (batch_size, seq_length, d_model)
+        :param cutoff_factors: The cutoff factors for the edges, of shape
+            (batch_size, seq_length, seq_length)
+        :param use_manual_attention: Whether to use the manual attention implementation
+            (which supports double backward, needed for training with conservative
+            forces), or the built-in PyTorch attention (which does not support double
+            backward).
+        :return: The output tokens of the transformer layer, of shape
+            (batch_size, seq_length, d_model)
+        """
         if self.transformer_type == "PostLN":
             node_embeddings, edge_embeddings = self._forward_post_ln_impl(
                 node_embeddings, edge_embeddings, cutoff_factors, use_manual_attention
@@ -197,17 +244,29 @@ class TransformerLayer(torch.nn.Module):
 
 
 class Transformer(torch.nn.Module):
+    """
+    Transformer implementation.
+
+    :param d_model: The dimension of the model.
+    :param num_layers: The number of transformer layers.
+    :param n_heads: The number of attention heads.
+    :param dim_feedforward: The dimension of the feedforward network.
+    :param dropout: The dropout rate.
+    :param activation: The activation function.
+    :param transformer_type: The type of transformer, either "PostLN" or "PreLN".
+    """
+
     def __init__(
         self,
-        d_model,
-        num_layers,
-        n_heads,
-        dim_node_features,
-        dim_feedforward=512,
-        norm="LayerNorm",
-        activation="SiLU",
-        transformer_type="PostLN",
-    ):
+        d_model: int,
+        num_layers: int,
+        n_heads: int,
+        dim_node_features: int,
+        dim_feedforward: int = 512,
+        norm: str = "LayerNorm",
+        activation: str = "SiLU",
+        transformer_type: str = "PostLN",
+    ) -> None:
         super(Transformer, self).__init__()
         if norm not in AVAILABLE_NORMALIZATIONS:
             raise ValueError(
@@ -250,6 +309,19 @@ class Transformer(torch.nn.Module):
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass for the Transformer.
+        :param tokens: The input tokens to the transformer, of shape
+            (batch_size, seq_length, d_model)
+        :param cutoff_factors: The cutoff factors for the edges, of shape
+            (batch_size, seq_length, seq_length)
+        :param use_manual_attention: Whether to use the manual attention implementation
+            (which supports double backward, needed for training with conservative
+            forces), or the built-in PyTorch attention (which does not support double
+            backward).
+        :return: The output tokens of the transformer, of shape
+            (batch_size, seq_length, d_model)
+        """
         for layer in self.layers:
             node_embeddings, edge_embeddings = layer(
                 node_embeddings, edge_embeddings, cutoff_factors, use_manual_attention
@@ -258,9 +330,22 @@ class Transformer(torch.nn.Module):
 
 
 class CartesianTransformer(torch.nn.Module):
+    """
+    Cartesian Transformer implementation for handling 3D coordinates.
+
+    :param hypers: A dictionary of hyperparameters.
+    :param d_model: The dimension of the model.
+    :param n_head: The number of attention heads.
+    :param dim_feedforward: The dimension of the feedforward network.
+    :param n_layers: The number of transformer layers.
+    :param dropout: The dropout rate.
+    :param n_atomic_species: The number of atomic species.
+    :param is_first: Whether this is the first transformer in the model.
+    """
+
     def __init__(
         self,
-        hypers,
+        hypers: Dict[str, Any],
         d_model: int,
         n_head: int,
         dim_node_features: int,
@@ -270,8 +355,8 @@ class CartesianTransformer(torch.nn.Module):
         activation: str,
         transformer_type: str,
         n_atomic_species: int,
-        is_first,
-    ):
+        is_first: bool,
+    ) -> None:
         super(CartesianTransformer, self).__init__()
         self.is_first = is_first
         self.cutoff = float(hypers["cutoff"])
@@ -314,7 +399,30 @@ class CartesianTransformer(torch.nn.Module):
         edge_distances: torch.Tensor,
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
-    ):
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass for the CartesianTransformer.
+
+        :param input_messages: The input messages to the transformer, of shape
+            (n_nodes, max_num_neighbors, d_model)
+        :param element_indices_nodes: The atomic species of the central atoms, of shape
+            (n_nodes,)
+        :param element_indices_neighbors: The atomic species of the neighboring atoms,
+            of shape (n_nodes, max_num_neighbors)
+        :param edge_vectors: The cartesian edge vectors between the central atoms and
+            their neighbors, of shape (n_nodes, max_num_neighbors, 3)
+        :param padding_mask: A padding mask indicating which neighbors are real, and
+            which are padded, of shape (n_nodes, max_num_neighbors)
+        :param edge_distances: The distances between the central atoms and their
+            neighbors, of shape (n_nodes, max_num_neighbors)
+        :param cutoff_factors: The cutoff factors for the edges, of shape
+            (n_nodes, max_num_neighbors)
+        :param use_manual_attention: Whether to use the manual attention implementation
+            (which supports double backward, needed for training with conservative
+            forces), or the built-in PyTorch attention (which does not support double
+            backward).
+        :return: A tuple with the output node embeddings of shape (n_nodes, d_pet)
+        """
         node_embeddings = input_node_embeddings
         edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
         edge_embeddings = torch.cat(edge_embeddings, dim=2)
@@ -377,8 +485,20 @@ class CartesianTransformer(torch.nn.Module):
         return output_node_embeddings, output_edge_embeddings
 
 
-def manual_attention(q, k, v, attn_mask):
-    # needed for double backward (training with conservative forces)
+def manual_attention(
+    q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, attn_mask: torch.Tensor
+) -> torch.Tensor:
+    """
+    Implements the attention operation manually, using basic PyTorch operations.
+    We need it because the built-in PyTorch attention does not support double backward,
+    which is needed when training with conservative forces.
+
+    :param q: The queries
+    :param k: The keys
+    :param v: The values
+    :param attn_mask: The attention mask
+    :return: The result of the attention operation
+    """
     attention_weights = (
         torch.matmul(q, k.transpose(-2, -1)) / (k.size(-1) ** 0.5)
     ) + attn_mask

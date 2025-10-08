@@ -2,13 +2,13 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
-from metatrain.utils.abc import TrainerInterface
+from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
@@ -41,12 +41,22 @@ from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
 
-def get_scheduler(optimizer, train_hypers, steps_per_epoch):
+def get_scheduler(
+    optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
+) -> LambdaLR:
+    """
+    Get a CosineAnnealing learning-rate scheduler with warmup
+
+    :param optimizer: The optimizer for which to create the scheduler.
+    :param train_hypers: The training hyperparameters.
+    :param steps_per_epoch: The number of steps per epoch.
+    :return: The learning rate scheduler.
+    """
     total_steps = train_hypers["num_epochs"] * steps_per_epoch
     warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
     min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
 
-    def lr_lambda(current_step: int):
+    def lr_lambda(current_step: int) -> float:
         if current_step < warmup_steps:
             # Linear warmup
             return float(current_step) / float(max(1, warmup_steps))
@@ -65,16 +75,16 @@ def get_scheduler(optimizer, train_hypers, steps_per_epoch):
 class Trainer(TrainerInterface):
     __checkpoint_version__ = 6
 
-    def __init__(self, hypers):
+    def __init__(self, hypers: Dict[str, Any]) -> None:
         super().__init__(hypers)
 
-        self.optimizer_state_dict = None
-        self.scheduler_state_dict = None
-        self.epoch = None
-        self.best_epoch = None
-        self.best_metric = None
-        self.best_model_state_dict = None
-        self.best_optimizer_state_dict = None
+        self.optimizer_state_dict: Optional[Dict[str, Any]] = None
+        self.scheduler_state_dict: Optional[Dict[str, Any]] = None
+        self.epoch: Optional[int] = None
+        self.best_epoch: Optional[int] = None
+        self.best_metric: Optional[float] = None
+        self.best_model_state_dict: Optional[Dict[str, Any]] = None
+        self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
 
     def train(
         self,
@@ -84,7 +94,7 @@ class Trainer(TrainerInterface):
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
-    ):
+    ) -> None:
         assert dtype in PET.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
@@ -511,7 +521,7 @@ class Trainer(TrainerInterface):
         if is_distributed:
             torch.distributed.destroy_process_group()
 
-    def save_checkpoint(self, model, path: Union[str, Path]):
+    def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
         if self.best_model_state_dict is not None:
             self.best_model_state_dict["finetune_config"] = model.finetune_config

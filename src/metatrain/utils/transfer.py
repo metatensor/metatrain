@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from metatensor.torch import TensorMap
@@ -14,13 +14,18 @@ def batch_to(
     extra_data: Optional[Dict[str, TensorMap]] = None,
     dtype: Optional[torch.dtype] = None,
     device: Optional[torch.device] = None,
-):
+) -> Tuple[List[System], Dict[str, TensorMap], Optional[Dict[str, TensorMap]]]:
     """
     Changes the systems and targets to the specified floating point data type.
 
     :param systems: List of systems.
     :param targets: Dictionary of targets.
+    :param extra_data: Optional dictionary of extra data.
     :param dtype: Desired floating point data type.
+    :param device: Device to move the data to.
+
+    :return: The systems, targets, and extra data with moved to the specified device
+        and with the desired data type.
     """
 
     # non-blocking transfers can cause bugs in other cases

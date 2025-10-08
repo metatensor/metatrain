@@ -42,6 +42,9 @@ class PET(ModelInterface):
     Originally proposed in work (https://arxiv.org/abs/2305.19302v3),
     and published in the `pet` package (https://github.com/spozdn/pet).
 
+    :param hypers: Hyperparameters for the PET model. See the documentation for details.
+    :param dataset_info: Information about the dataset, including atomic types and
+        targets.
     """
 
     __checkpoint_version__ = 7
