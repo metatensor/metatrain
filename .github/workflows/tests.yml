@@ -44,6 +44,8 @@ jobs:
         tox -e tests
         coverage xml --data-file tests/.coverage
       env:
+        # CI should always generate test files
+        FORCE_REGENERATE: true
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
         HUGGINGFACE_TOKEN_METATRAIN: ${{ secrets.HUGGINGFACE_TOKEN }}
