@@ -313,6 +313,16 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     train_model(options)
 
 
+def test_train_with_zbl(monkeypatch, tmp_path, options):
+    """Test that training works with a ZBL baseline."""
+    monkeypatch.chdir(tmp_path)
+
+    systems_qm9 = ase.io.read(DATASET_PATH_QM9, ":")
+    ase.io.write("qm9_reduced_100.xyz", systems_qm9[:50])
+    options["architecture"]["model"]["zbl"] = True
+    train_model(options)
+
+
 def test_empty_training_set(monkeypatch, tmp_path, options):
     """Test that an error is raised if no training set is provided."""
     monkeypatch.chdir(tmp_path)
