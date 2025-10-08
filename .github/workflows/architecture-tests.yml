@@ -18,6 +18,12 @@ jobs:
           - llpr
           - pet
           - nanopet
+        codecov-flag:
+          - coverage_gap
+          - coverage_soap_bpnn
+          - coverage_llpr
+          - coverage_pet
+          - coverage_nanopet
 
     runs-on: ubuntu-22.04
 
@@ -28,10 +34,21 @@ jobs:
       uses: actions/setup-python@v6
       with:
         python-version: "3.13"
-    - run: pip install tox
+    - run: pip install tox coverage[toml]
 
-    - name: run architecture tests
-      run: tox -e ${{ matrix.architecture-name }}-tests
+    - name: run architecture tests and generate coverage
+      run: |
+        coverage erase
+        coverage run --source src/metatrain \
+          $(which tox) -e ${{ matrix.architecture-name }}-tests
       env:
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+
+    - name: upload to codecov.io
+      uses: codecov/codecov-action@v5
+      with:
+        fail_ci_if_error: false
+        files: .coverage
+        flags: ${{ matrix.codecov-flag }}
+        token: ${{ secrets.CODECOV_TOKEN }}

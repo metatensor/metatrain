@@ -41,7 +41,7 @@ jobs:
 
     - name: run Python tests and collect coverage
       run: |
-        tox -e tests,gap-tests,soap-bpnn-tests,pet-tests,nanopet-tests,llpr
+        tox -e tests
         coverage xml --data-file tests/.coverage
       env:
         # Use the CPU only version of torch when building/running the code
