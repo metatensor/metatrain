@@ -9,5 +9,7 @@ This sections includes the beginner tutorials on the usage of the
 .. toctree::
    :maxdepth: 1
 
+   ../../examples/programmatic/data_preparation/data_preparation
    ../../advanced-concepts/fine-tuning
    ../../examples/ase/run_ase
+   train-from-scratch

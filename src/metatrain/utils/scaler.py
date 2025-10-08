@@ -1,10 +1,10 @@
-from typing import Dict, List, Union
+from typing import Dict, List, Tuple, Union
 
 import metatensor.torch as mts
 import numpy as np
 import torch
 from metatensor.torch import TensorMap
-from metatomic.torch import ModelOutput
+from metatomic.torch import ModelOutput, System
 
 from .additive import remove_additive
 from .data import Dataset, DatasetInfo, TargetInfo, get_all_targets
@@ -249,3 +249,13 @@ def remove_scale(
         scaled_targets[target_key] = mts.multiply(targets[target_key], 1.0 / scale)
 
     return scaled_targets
+
+
+def get_remove_scale_transform(scaler: Scaler):
+    def transform(
+        systems, targets, extra
+    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+        new_targets = remove_scale(targets, scaler)
+        return systems, new_targets, extra
+
+    return transform
