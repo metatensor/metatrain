@@ -174,7 +174,6 @@ extensions/
 # sphinx gallery
 docs/src/examples
 *execution_times*
-qm9_reduced_100.zip
 
 # JavaScript
 node_modules/
