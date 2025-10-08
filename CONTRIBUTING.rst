@@ -116,6 +116,10 @@ following command (or open the :file:`docs/build/html/index.html` file manually)
 
 .. code-block:: bash
 
+    # more interactive, any OS
+    python -m http.server -d docs/build/html/ 8090
+    # .. and go to http://localhost:8090 in a browser
+
     # on linux, depending on what package you have installed:
     xdg-open docs/build/html/index.html
     firefox docs/build/html/index.html
