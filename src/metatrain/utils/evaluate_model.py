@@ -170,6 +170,7 @@ def _position_gradients_to_block(gradients_list):
             ],
             dim=1,
         ),
+        assume_unique=True,
     )
 
     components = [
@@ -195,7 +196,9 @@ def _strain_gradients_to_block(gradients_list):
     # unsqueeze for the property dimension
 
     samples = Labels(
-        names=["sample"], values=torch.arange(len(gradients_list)).unsqueeze(-1)
+        names=["sample"],
+        values=torch.arange(len(gradients_list)).unsqueeze(-1),
+        assume_unique=True,
     )
 
     components = [
@@ -265,8 +268,11 @@ def _prepare_system(
     system: System, positions_grad: bool, strain_grad: bool, check_consistency: bool
 ):
     """
-    Prepares a system for gradient calculation.
+    Prepares a system for gradient calculation, if necessary.
     """
+    if (not positions_grad) and (not strain_grad):
+        return system, None
+
     if strain_grad:
         strain = torch.eye(
             3,

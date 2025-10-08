@@ -23,6 +23,7 @@ from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.testing._utils import WANDB_AVAILABLE
 
 from . import (
     DATASET_PATH_CARBON,
@@ -309,6 +310,16 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
         {"key": "U0", "unit": "eV"}
     )
 
+    train_model(options)
+
+
+def test_train_with_zbl(monkeypatch, tmp_path, options):
+    """Test that training works with a ZBL baseline."""
+    monkeypatch.chdir(tmp_path)
+
+    systems_qm9 = ase.io.read(DATASET_PATH_QM9, ":")
+    ase.io.write("qm9_reduced_100.xyz", systems_qm9[:50])
+    options["architecture"]["model"]["zbl"] = True
     train_model(options)
 
 
@@ -1032,7 +1043,7 @@ def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     for subset_name, xyz_idxs in zip(
-        ["training", "test"], [range(0, 80), range(80, 100)]
+        ["training", "test"], [range(0, 80), range(80, 100)], strict=True
     ):
         disk_dataset_writer = DiskDatasetWriter(f"qm9_reduced_100_{subset_name}.zip")
         for subset_i, xyz_i in enumerate(xyz_idxs):
@@ -1074,6 +1085,7 @@ def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
     train_model(options)
 
 
+@pytest.mark.skipif(not WANDB_AVAILABLE.present, reason=WANDB_AVAILABLE.message)
 def test_train_wandb_logger(monkeypatch, tmp_path):
     """Test that training via the training cli runs with an attached wandb logger."""
     monkeypatch.chdir(tmp_path)

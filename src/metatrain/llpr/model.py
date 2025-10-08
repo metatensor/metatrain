@@ -14,7 +14,7 @@ from metatomic.torch import (
 from torch.utils.data import DataLoader
 
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data import DatasetInfo, unpack_batch
 from metatrain.utils.data.target_info import is_auxiliary_output
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
@@ -364,6 +364,7 @@ class LLPRUncertaintyModel(ModelInterface):
                             values=torch.arange(
                                 ensemble_values.shape[1], device=ensemble_values.device
                             ).unsqueeze(1),
+                            assume_unique=True,
                         ),
                     )
                 ],
@@ -390,7 +391,7 @@ class LLPRUncertaintyModel(ModelInterface):
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
         for batch in train_loader:
-            systems, targets, extra_data = batch
+            systems, targets, extra_data = unpack_batch(batch)
             n_atoms = torch.tensor(
                 [len(system.positions) for system in systems], device=device
             )
@@ -490,7 +491,7 @@ class LLPRUncertaintyModel(ModelInterface):
         all_targets = {}  # type: ignore
         all_uncertainties = {}  # type: ignore
         for batch in valid_loader:
-            systems, targets, extra_data = batch
+            systems, targets, extra_data = unpack_batch(batch)
             systems = [system.to(device=device, dtype=dtype) for system in systems]
             targets = {
                 name: target.to(device=device, dtype=dtype)

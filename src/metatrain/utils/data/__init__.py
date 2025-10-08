@@ -8,7 +8,10 @@ from .dataset import (  # noqa: F401
     check_datasets,
     get_all_targets,
     get_atomic_types,
+    get_num_workers,
     get_stats,
+    unpack_batch,
+    validate_num_workers,
 )
 from .get_dataset import get_dataset  # noqa: F401
 from .readers import read_extra_data, read_systems, read_targets  # noqa: F401

@@ -6,7 +6,6 @@ import pytest
 import torch
 from metatomic.torch import ModelOutput
 
-from metatrain.pet.modules.compatibility import convert_checkpoint_from_legacy_pet
 from metatrain.utils.data import read_systems
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
@@ -14,7 +13,6 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from . import DATASET_WITH_FORCES_PATH
 
 
-LEGACY_VERSIONS = ["0.3.2", "0.4.1", "1.0.0"]
 STABLE_VERSIONS = ["1.0.1", "1.0.2", "1.1.0"]
 
 
@@ -25,10 +23,6 @@ def test_pet_mad_consistency(version, monkeypatch, tmp_path):
     if urlparse(path).scheme:
         path, _ = urlretrieve(path)
     checkpoint = torch.load(path, weights_only=False, map_location="cpu")
-
-    if version in LEGACY_VERSIONS:
-        checkpoint = convert_checkpoint_from_legacy_pet(checkpoint)
-        pet_mad_model = model_from_checkpoint(checkpoint, context="export").eval()
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)

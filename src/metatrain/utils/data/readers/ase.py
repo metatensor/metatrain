@@ -119,6 +119,7 @@ def _read_forces_ase(filename: str, key: str = "forces") -> List[TensorBlock]:
         samples = Labels(
             ["sample", "system", "atom"],
             torch.tensor([[0, i_system, a] for a in range(len(values))]),
+            assume_unique=True,
         )
 
         block = TensorBlock(
@@ -239,7 +240,9 @@ def read_energy(
                 f"Forces found in section {target_key!r}, "
                 "we will use this gradient to train the model"
             )
-            for block, position_gradient in zip(blocks, position_gradients):
+            for block, position_gradient in zip(
+                blocks, position_gradients, strict=True
+            ):
                 block.add_gradient(parameter="positions", gradient=position_gradient)
             add_position_gradients = True
 
@@ -262,7 +265,7 @@ def read_energy(
                 f"Stress found in section {target_key!r}, "
                 "we will use this gradient to train the model"
             )
-            for block, strain_gradient in zip(blocks, strain_gradients):
+            for block, strain_gradient in zip(blocks, strain_gradients, strict=True):
                 block.add_gradient(parameter="strain", gradient=strain_gradient)
             add_strain_gradients = True
 
@@ -280,7 +283,7 @@ def read_energy(
                 f"Virial found in section {target_key!r}, "
                 "we will use this gradient to train the model"
             )
-            for block, strain_gradient in zip(blocks, strain_gradients):
+            for block, strain_gradient in zip(blocks, strain_gradients, strict=True):
                 block.add_gradient(parameter="strain", gradient=strain_gradient)
             add_strain_gradients = True
     tensor_map_list = [
@@ -350,6 +353,7 @@ def read_generic(
             Labels(
                 ["system", "atom"],
                 torch.tensor([[i_system, a] for a in range(len(values))]),
+                assume_unique=True,
             )
             if per_atom
             else Labels(

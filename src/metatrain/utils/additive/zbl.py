@@ -142,13 +142,13 @@ class ZBL(torch.nn.Module):
         zi = torch.concatenate(
             [
                 system.types[nl.samples.column("first_atom")]
-                for nl, system in zip(neighbor_lists, systems)
+                for nl, system in zip(neighbor_lists, systems, strict=True)
             ]
         )
         zj = torch.concatenate(
             [
                 system.types[nl.samples.column("second_atom")]
-                for nl, system in zip(neighbor_lists, systems)
+                for nl, system in zip(neighbor_lists, systems, strict=True)
             ]
         )
 
@@ -163,7 +163,7 @@ class ZBL(torch.nn.Module):
         # Sum over edges to get node energies
         indices_for_sum_list = []
         sum = 0
-        for system, nl in zip(systems, neighbor_lists):
+        for system, nl in zip(systems, neighbor_lists, strict=True):
             indices_for_sum_list.append(nl.samples.column("first_atom") + sum)
             sum += system.positions.shape[0]
 
@@ -183,7 +183,9 @@ class ZBL(torch.nn.Module):
             block = TensorBlock(
                 values=e_zbl_nodes.reshape(-1, 1),
                 samples=Labels(
-                    ["system", "atom"], torch.tensor(sample_values, device=device)
+                    ["system", "atom"],
+                    torch.tensor(sample_values, device=device),
+                    assume_unique=True,
                 ),
                 components=[],
                 properties=Labels(

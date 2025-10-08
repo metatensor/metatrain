@@ -34,6 +34,7 @@ architecture:
     scale_targets: false
     fixed_composition_weights: {}
     per_structure_targets: []
+    num_workers: null
     log_mae: true
     log_separate_blocks: false
     best_model_metric: rmse_prod

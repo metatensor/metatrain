@@ -701,43 +701,41 @@ class PET(ModelInterface):
         edge_features = (edge_features * cutoff_factors[:, :, None]).sum(dim=1)
         features = torch.cat([node_features, edge_features], dim=1)
 
-        feature_tmap = TensorMap(
-            keys=self.single_label,
-            blocks=[
-                TensorBlock(
-                    values=features,
-                    samples=sample_labels,
-                    components=[],
-                    properties=Labels(
-                        names=["feature"],
-                        values=torch.arange(
-                            features.shape[-1], device=features.device
-                        ).reshape(-1, 1),
-                    ),
-                )
-            ],
-        )
-        if selected_atoms is not None:
-            feature_tmap = mts.slice(
-                feature_tmap,
-                axis="samples",
-                selection=selected_atoms,
+            feature_tmap = TensorMap(
+                keys=self.single_label,
+                blocks=[
+                    TensorBlock(
+                        values=features,
+                        samples=sample_labels,
+                        components=[],
+                        properties=Labels(
+                            names=["feature"],
+                            values=torch.arange(
+                                features.shape[-1], device=features.device
+                            ).reshape(-1, 1),
+                            assume_unique=True,
+                        ),
+                    )
+                ],
             )
-        if requested_outputs["features"].per_atom:
-            features_dict["features"] = feature_tmap
-        else:
-            features_dict["features"] = sum_over_atoms(feature_tmap)
-        return features_dict
+            features_options = outputs["features"]
+            if selected_atoms is not None:
+                feature_tmap = mts.slice(
+                    feature_tmap,
+                    axis="samples",
+                    selection=selected_atoms,
+                )
+            if features_options.per_atom:
+                return_dict["features"] = feature_tmap
+            else:
+                return_dict["features"] = sum_over_atoms(feature_tmap)
 
-    def _calculate_last_layer_features(
-        self,
-        node_features_list: List[torch.Tensor],
-        edge_features_list: List[torch.Tensor],
-    ) -> Tuple[Dict[str, List[torch.Tensor]], Dict[str, List[torch.Tensor]]]:
-        """
-        Apply output-specific heads to node and edge features from each GNN layer.
-        Returns dictionaries mapping output names to lists of head-transformed features.
-        """
+        # Stage 3. We compute last layer features for each requested output,
+        # for both node and edge features from each GNN layer. To do this, apply the
+        # corresponding heads to both node and edge features, and save the results
+        # to the corresponsing dicts. Finally, we stack all the last layer features
+        # to get the final last-layer-features tensor.
+
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
         edge_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
 
@@ -819,6 +817,7 @@ class PET(ModelInterface):
                                 last_layer_features_values.shape[-1],
                                 device=last_layer_features_values.device,
                             ).reshape(-1, 1),
+                            assume_unique=True,
                         ),
                     )
                 ],
@@ -982,6 +981,7 @@ class PET(ModelInterface):
                         self.output_shapes[output_name].values(),
                         self.component_labels[output_name],
                         self.property_labels[output_name],
+                        strict=True,
                     )
                 ]
                 atomic_predictions_tmap_dict[output_name] = TensorMap(
@@ -1106,7 +1106,7 @@ class PET(ModelInterface):
         self.output_shapes[target_name] = {}
         for key, block in target_info.layout.items():
             dict_key = target_name
-            for n, k in zip(key.names, key.values):
+            for n, k in zip(key.names, key.values, strict=True):
                 dict_key += f"_{n}_{int(k)}"
             self.output_shapes[target_name][dict_key] = [
                 len(comp.values) for comp in block.components

@@ -17,7 +17,7 @@ from metatomic.torch import (
 from skmatter._selection import _FPS as _FPS_skmatter
 
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL, OldCompositionModel
+from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.metadata import merge_metadata
 
@@ -139,7 +139,7 @@ class GAP(ModelInterface):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = OldCompositionModel(
+        composition_model = CompositionModel(
             hypers={},
             dataset_info=dataset_info,
         )
@@ -209,6 +209,7 @@ class GAP(ModelInterface):
             samples=Labels(
                 ["system", "atom"],
                 torch.tensor([[0, 0]], dtype=torch.int, device=systems[0].device),
+                assume_unique=True,
             ),
             properties=soap_features[0].properties,
             components=[],
@@ -559,11 +560,15 @@ class _FPS:
             if self._selection_type == "feature":
                 samples = Labels.single()
                 properties = Labels(
-                    names=block.properties.names, values=block.properties.values[mask]
+                    names=block.properties.names,
+                    values=block.properties.values[mask],
+                    assume_unique=True,
                 )
             elif self._selection_type == "sample":
                 samples = Labels(
-                    names=block.samples.names, values=block.samples.values[mask]
+                    names=block.samples.names,
+                    values=block.samples.values[mask],
+                    assume_unique=True,
                 )
                 properties = Labels.single()
 
