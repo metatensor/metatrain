@@ -8,7 +8,7 @@ architecture:
 
 training_set:
   systems:
-    read_from: carbon_reduced_100_mmap/
+    read_from: carbon_reduced_100_memmap/
     length_unit: angstrom
   targets:
     energy:

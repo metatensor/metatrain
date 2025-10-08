@@ -28,7 +28,7 @@ import numpy as np
 
 structures = ase.io.read("carbon_reduced_100.xyz", index=":")
 
-root = Path("carbon_reduced_100_mmap/")
+root = Path("carbon_reduced_100_memmap/")
 root.mkdir()
 
 ns_path = root / "ns.npy"
@@ -72,7 +72,7 @@ s_mm.flush()
 # The dataset is saved to disk. You can now provide it to ``metatrain`` as a
 # dataset to train from, simply by specifying the newly created
 # directory as the path from which to read the systems
-# (e.g. ``read_from: carbon_reduced_100_mmap/``).
+# (e.g. ``read_from: carbon_reduced_100_memmap/``).
 #
 # For example, you can use the following options file:
 #  .. literalinclude:: options.yaml
