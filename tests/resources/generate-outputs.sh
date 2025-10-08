@@ -7,9 +7,24 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 cd "$ROOT_DIR"
 
-[ -f "model-32-bit.pt" ] || mtt train options.yaml -o model-32-bit.pt -r base_precision=32
-[ -f "model-64-bit.pt" ] || mtt train options.yaml -o model-64-bit.pt -r base_precision=64
-[ -f "model-pet.pt" ]    || mtt train options-pet.yaml -o model-pet.pt
+FORCE_REGENERATE=false
+if [[ "${FORCE_REGENERATE:-0}" == "1" ]]; then
+  echo "FORCE_REGENERATE=1 detected. Regenerating all models."
+  FORCE_REGENERATE=true
+fi
+
+# Regenerate if --force is used OR if the file doesn't exist
+if [ "$FORCE_REGENERATE" = true ] || [ ! -f "model-32-bit.pt" ]; then
+    mtt train options.yaml -o model-32-bit.pt -r base_precision=32
+fi
+
+if [ "$FORCE_REGENERATE" = true ] || [ ! -f "model-64-bit.pt" ]; then
+    mtt train options.yaml -o model-64-bit.pt -r base_precision=64
+fi
+
+if [ "$FORCE_REGENERATE" = true ] || [ ! -f "model-pet.pt" ]; then
+    mtt train options-pet.yaml -o model-pet.pt
+fi
 
 set +x  # disable command echoing for sensitive private token check
 TOKEN_PRESENT=false
