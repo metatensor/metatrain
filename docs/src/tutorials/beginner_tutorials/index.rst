@@ -13,3 +13,4 @@ This sections includes the beginner tutorials on the usage of the
    ../../advanced-concepts/fine-tuning
    ../../examples/train_from_scratch/train_from_scratch
    ../../examples/ase/run_ase
+   ../../examples/train_from_scratch/train_from_scratch
