@@ -20,6 +20,6 @@ If you found metatrain useful for your work, you can cite the corresponding arti
     Ceriotti, Michele and Fraux, Guillaume},
     year = {2025},
     month = aug,
-    publisher = {arxiv},
+    publisher = {arXiv},
     doi = {10.48550/arXiv.2508.15704},
     }
