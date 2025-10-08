@@ -23,7 +23,6 @@ jobs:
       run: uv python install
 
     - run: |
-        uv pip install tox
         uv tool install tox --with tox-uv
 
     - name: Lint the code
