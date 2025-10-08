@@ -79,7 +79,22 @@ extensions = [
     "sphinxcontrib.bibtex",
     "sphinx_toggleprompt",
     "sphinx_gallery.gen_gallery",
+    "sphinx_needs",
 ]
+
+needs_types = [
+    dict(
+        directive="concept",
+        title="Concept",
+        prefix="C_",
+        color="#BFD8D2",
+        style="node",
+    ),
+]
+
+# This is the new line to add.
+# It allows any string of uppercase letters, numbers, and underscores of any length.
+needs_id_regex = r'^[A-Z0-9_]+'
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.

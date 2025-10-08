@@ -3,6 +3,16 @@
 SOAP-BPNN
 =========
 
+.. concept:: SOAP-BPNN
+   :id: SOAP_BPNN
+   :tags: architecture, neural_network
+
+**Related Concepts (Backlinks):**
+
+.. needtable::
+   :filter: "SOAP_BPNN" in links
+   :columns: id, title, type, tags
+
 This is a Behler-Parrinello neural network :footcite:p:`behler_generalized_2007` with
 using features based on the Smooth overlab of atomic positions (SOAP)
 :footcite:p:`bartok_representing_2013`. The SOAP features are calculated wit `torch-spex
