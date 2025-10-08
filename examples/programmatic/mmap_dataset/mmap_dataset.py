@@ -31,8 +31,8 @@ structures = ase.io.read("carbon_reduced_100.xyz", index=":")
 root = Path("carbon_reduced_100_mmap/")
 root.mkdir()
 
-N_path = root / "N.npy"
-n_path = root / "n.npy"
+ns_path = root / "ns.npy"
+na_path = root / "na.npy"
 a_path = root / "a.bin"
 x_path = root / "x.bin"
 c_path = root / "c.bin"
@@ -40,24 +40,24 @@ e_path = root / "e.bin"
 f_path = root / "f.bin"
 s_path = root / "s.bin"
 
-N = len(structures)
-n = np.cumsum(np.array([0] + [len(s) for s in structures], dtype=np.int64))
-np.save(N_path, N)
-np.save(n_path, n)
+ns = len(structures)
+na = np.cumsum(np.array([0] + [len(s) for s in structures], dtype=np.int64))
+np.save(ns_path, ns)
+np.save(na_path, na)
 
-a_mm = np.memmap(a_path, dtype="int32", mode="w+", shape=(n[-1],))
-x_mm = np.memmap(x_path, dtype="float32", mode="w+", shape=(n[-1], 3))
-c_mm = np.memmap(c_path, dtype="float32", mode="w+", shape=(N, 3, 3))
-e_mm = np.memmap(e_path, dtype="float32", mode="w+", shape=(N, 1))
-f_mm = np.memmap(f_path, dtype="float32", mode="w+", shape=(n[-1], 3))
-s_mm = np.memmap(s_path, dtype="float32", mode="w+", shape=(N, 3, 3))
+a_mm = np.memmap(a_path, dtype="int32", mode="w+", shape=(na[-1],))
+x_mm = np.memmap(x_path, dtype="float32", mode="w+", shape=(na[-1], 3))
+c_mm = np.memmap(c_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
+e_mm = np.memmap(e_path, dtype="float32", mode="w+", shape=(ns, 1))
+f_mm = np.memmap(f_path, dtype="float32", mode="w+", shape=(na[-1], 3))
+s_mm = np.memmap(s_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
 
 for i, s in enumerate(structures):
-    a_mm[n[i] : n[i + 1]] = s.numbers
-    x_mm[n[i] : n[i + 1]] = s.get_positions()
+    a_mm[na[i] : na[i + 1]] = s.numbers
+    x_mm[na[i] : na[i + 1]] = s.get_positions()
     c_mm[i] = s.get_cell()[:]
     e_mm[i] = s.get_potential_energy()
-    f_mm[n[i] : n[i + 1]] = s.arrays["force"]
+    f_mm[na[i] : na[i + 1]] = s.arrays["force"]
     s_mm[i] = -s.info["virial"] / s.get_volume()
 
 a_mm.flush()

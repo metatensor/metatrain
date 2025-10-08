@@ -790,17 +790,17 @@ class MemmapDataset(TorchDataset):
 
     The dataset is stored in a directory, where the dataset is stored in a set of
     memory-mapped numpy arrays. These are:
-    - N.npy: total number of structures in the dataset. Shape: (1,).
-    - n.npy: cumulative number of atoms per structure. n[-1] therefore corresponds to
-        the total number of atoms in the dataset. Shape: (N+1,).
+    - ns.npy: total number of structures in the dataset. Shape: (1,).
+    - na.npy: cumulative number of atoms per structure. na[-1] therefore corresponds to
+        the total number of atoms in the dataset. Shape: (ns+1,).
     - x.bin: atomic positions of all atoms in the dataset, concatenated. Shape:
-        (n[-1], 3).
-    - a.bin: atomic types of all atoms in the dataset, concatenated. Shape: (n[-1],).
-    - c.bin: cell matrices of all structures in the dataset. Shape: (N, 3, 3).
+        (na[-1], 3).
+    - a.bin: atomic types of all atoms in the dataset, concatenated. Shape: (na[-1],).
+    - c.bin: cell matrices of all structures in the dataset. Shape: (ns, 3, 3).
     - <key>.bin: target values for each structure or atom, depending on the
         whether the target is defined per atom or per structure.
-        Shape: (N, ..., num_subtargets) if per-structures or
-        (n[-1], ..., num_subtargets) if per-atom, where the
+        Shape: (ns, ..., num_subtargets) if per-structures or
+        (na[-1], ..., num_subtargets) if per-atom, where the
         ... depends on the type of target (scalar, vector, tensor, etc.). <key> can
         then be used in the "key" section of targets in metatrain input files to read
         the target(s).
@@ -818,18 +818,19 @@ class MemmapDataset(TorchDataset):
         )
 
         # Information about the structures
-        print(np.load(path / "N.npy"))
-        self.N = int(np.load(path / "N.npy"))
-        self.n = int(np.load(path / "n.npy")[-1])
-        self.x = MemmapArray(path / "x.bin", (self.n, 3), "float32", mode="r")
-        self.a = MemmapArray(path / "a.bin", (self.n,), "int32", mode="r")
-        self.c = MemmapArray(path / "c.bin", (self.N, 3, 3), "float32", mode="r")
+        self.ns = np.load(path / "ns.npy")
+        self.na = np.load(path / "na.npy")
+        self.x = MemmapArray(path / "x.bin", (self.na[-1], 3), "float32", mode="r")
+        self.a = MemmapArray(path / "a.bin", (self.na[-1],), "int32", mode="r")
+        self.c = MemmapArray(path / "c.bin", (self.ns, 3, 3), "float32", mode="r")
 
         # Register arrays pointing to the targets
         self.target_arrays = {}
         for target_key, single_target_options in target_options.items():
             data_key = single_target_options["key"]
-            number_of_samples = self.n if single_target_options["per_atom"] else self.N
+            number_of_samples = (
+                self.na[-1] if single_target_options["per_atom"] else self.ns
+            )
             number_of_properties = single_target_options["num_subtargets"]
             if single_target_options["type"] == "scalar":
                 self.target_arrays[target_key] = MemmapArray(
@@ -847,14 +848,14 @@ class MemmapDataset(TorchDataset):
                     if single_target_options["forces"]:
                         self.target_arrays[f"{target_key}_forces"] = MemmapArray(
                             path / f"{single_target_options['forces']['key']}.bin",
-                            (self.n, 3, 1),
+                            (self.na[-1], 3, 1),
                             "float32",
                             mode="r",
                         )
                     if single_target_options["stress"]:
                         self.target_arrays[f"{target_key}_stress"] = MemmapArray(
                             path / f"{single_target_options['stress']['key']}.bin",
-                            (self.N, 3, 3, 1),
+                            (self.ns, 3, 3, 1),
                             "float32",
                             mode="r",
                         )
@@ -885,11 +886,11 @@ class MemmapDataset(TorchDataset):
                 )
 
     def __len__(self):
-        return self.N
+        return self.ns
 
     def __getitem__(self, i):
-        a = torch.tensor(self.a[self.n[i] : self.n[i + 1]], dtype=torch.int32)
-        x = torch.tensor(self.x[self.n[i] : self.n[i + 1]], dtype=torch.float64)
+        a = torch.tensor(self.a[self.na[i] : self.na[i + 1]], dtype=torch.int32)
+        x = torch.tensor(self.x[self.na[i] : self.na[i + 1]], dtype=torch.float64)
         c = torch.tensor(self.c[i], dtype=torch.float64)
 
         system = System(
@@ -902,12 +903,12 @@ class MemmapDataset(TorchDataset):
         target_dict = {}
         for target_key, target_options in self.target_config.items():
             target_array = self.target_arrays[target_key]
-            is_per_atom = target_array.shape[0] == self.n
+            is_per_atom = target_array.shape[0] == (self.na[-1])
             if is_per_atom:
                 samples = Labels(
                     names=["system", "atom"],
                     values=torch.tensor(
-                        [[i, j] for j in range(self.n[i], self.n[i + 1])],
+                        [[i, j] for j in range(self.na[i], self.na[i + 1])],
                         dtype=torch.int32,
                     ),
                 )
@@ -933,7 +934,7 @@ class MemmapDataset(TorchDataset):
                 values=torch.tensor(
                     target_array[None, i]
                     if not is_per_atom
-                    else target_array[self.n[i] : self.n[i + 1]],
+                    else target_array[self.na[i] : self.na[i + 1]],
                     dtype=torch.float64,
                 ),
                 samples=samples,
@@ -950,7 +951,7 @@ class MemmapDataset(TorchDataset):
                 if target_options["forces"]:
                     f = torch.tensor(
                         self.target_arrays[f"{target_key}_forces"][
-                            self.n[i] : self.n[i + 1]
+                            self.na[i] : self.na[i + 1]
                         ],
                         dtype=torch.float64,
                     )
