@@ -141,6 +141,8 @@ filterwarnings = [
     # We don't yet have a linux-aarch64 wheel on PyPI, so libgomp is not copied to
     # sphericart_torch.libs' by cibuildwheels
     "ignore:No libgomp shared library found in 'sphericart_torch.libs'.",
+    # Multi-threaded tests clash with multi-process data-loading
+    "ignore:use of fork() may lead to deadlocks in the child",
 ]
 
 [tool.yamlfix]
