@@ -21,8 +21,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-# %% Load the target and predicted data
-# -----------------------------------
+# %%
+# Load the target and predicted data
+# ----------------------------------
 # We load the reference (target) data and the model predictions using ASE's read
 # function. The ":" means we load all frames from the xyz file. Modify the paths if your
 # files are located elsewhere.
