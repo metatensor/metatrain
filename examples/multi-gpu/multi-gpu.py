@@ -18,11 +18,14 @@ for the training. Let's take `this tutorial
    :language: yaml
    :linenos:
 
-``Slurm`` script
-----------------
+Slurm script
+------------
 
-Below is the ``slurm`` script for submitting the job. ``metatrain`` will automatically
+Below is the Slurm script for submitting the job. Different scheduler will require similar options. ``metatrain`` will automatically
 use all the GPUs that you have asked for.
+You should make a single GPU visible for each process 
+(setting `--gpus-per-node` equal to the number of GPUs,
+or setting `--gpus-per-task=1`, depending on your cluster configuration).
 
 .. code-block:: bash
 
