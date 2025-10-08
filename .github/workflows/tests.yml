@@ -50,7 +50,7 @@ jobs:
       run: uv python install
 
     - run: |
-        uv pip install tox coverage[toml]
+        uv pip install coverage[toml]
         uv tool install tox --with tox-uv
 
     - name: run Python tests and collect coverage
