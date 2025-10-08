@@ -421,7 +421,7 @@ class LossAggregator(LossInterface):
                     )
                 },
             )
-            self.losses[target_name] = base_loss 
+            self.losses[target_name] = base_loss
             self.metadata[target_name] = {
                 "type": target_config["type"],
                 "weight": base_loss.weight,
