@@ -3,6 +3,15 @@ set -eux
 
 echo "Generating data for testing..."
 
+# Define all model parameters in an associative array (like a dictionary)
+# Key: The output filename
+# Value: A semicolon-separated string of "config_file;extra_arg1;extra_arg2;..."
+declare -A models=(
+    ["model-32-bit.pt"]="options.yaml;-r;base_precision=32"
+    ["model-64-bit.pt"]="options.yaml;-r;base_precision=64"
+    ["model-pet.pt"]="options-pet.yaml"
+)
+
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 cd "$ROOT_DIR"
@@ -32,22 +41,27 @@ else
 fi
 
 # Regenerate if --force is used OR if the file doesn't exist
-if [ "$FORCE_REGENERATE" = true ] || [ ! -f "model-32-bit.pt" ]; then
-    mtt train options.yaml -o model-32-bit.pt -r base_precision=32
-fi
+for model_file in "${!models[@]}"; do
+    # Regenerate if --force is used OR if the file doesn't exist
+    if [ "$FORCE_REGENERATE" = true ] || [ ! -f "$model_file" ]; then
+        echo "Generating '$model_file'..."
 
-if [ "$FORCE_REGENERATE" = true ] || [ ! -f "model-64-bit.pt" ]; then
-    mtt train options.yaml -o model-64-bit.pt -r base_precision=64
-fi
+        # Read the parameter string for the current model
+        params_str=${models["$model_file"]}
 
-if [ "$FORCE_REGENERATE" = true ] || [ ! -f "model-pet.pt" ]; then
-    mtt train options-pet.yaml -o model-pet.pt
-fi
+        # Safely split the string into a temporary array using ';' as the delimiter
+        IFS=';' read -r -a params_array <<< "$params_str"
 
-if [ "$FORCE_REGENERATE" = true ]; then
-  echo "Saving current git commit hash to version the data."
-  git rev-parse HEAD > "$HASH_FILE"
-fi
+        # The first element is the config file
+        config_file=${params_array[0]}
+
+        # The rest of the elements are extra arguments for the command
+        extra_args=("${params_array[@]:1}")
+
+        # Execute the command, safely passing the arguments
+        mtt train "$config_file" -o "$model_file" "${extra_args[@]}"
+    fi
+done
 
 set +x  # disable command echoing for sensitive private token check
 TOKEN_PRESENT=false
