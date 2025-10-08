@@ -1044,7 +1044,7 @@ def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     for subset_name, xyz_idxs in zip(
-        ["training", "test"], [range(0, 80), range(80, 100)]
+        ["training", "test"], [range(0, 80), range(80, 100)], strict=True
     ):
         disk_dataset_writer = DiskDatasetWriter(f"qm9_reduced_100_{subset_name}.zip")
         for subset_i, xyz_i in enumerate(xyz_idxs):

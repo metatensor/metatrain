@@ -396,12 +396,15 @@ def unpack_batch(batch):
         for name, buf in zip(
             target_names,
             all_buffers[len(system_sizes) : len(system_sizes) + len(target_names)],
+            strict=True,
         )
     }
     extra_data = {
         name: buf
         for name, buf in zip(
-            extra_names, all_buffers[len(system_sizes) + len(target_names) :]
+            extra_names,
+            all_buffers[len(system_sizes) + len(target_names) :],
+            strict=True,
         )
     }
 
@@ -679,7 +682,7 @@ def _save_indices(
     else:
         os.mkdir(os.path.join(checkpoint_dir, "indices/"))
         for i, (train, val, test) in enumerate(
-            zip(train_indices, val_indices, test_indices)
+            zip(train_indices, val_indices, test_indices, strict=True)
         ):
             if train is not None:
                 np.savetxt(

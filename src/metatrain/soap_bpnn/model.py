@@ -737,7 +737,7 @@ class SoapBpnn(ModelInterface):
         if target.is_scalar:
             for key, block in target.layout.items():
                 dict_key = target_name
-                for n, k in zip(key.names, key.values):
+                for n, k in zip(key.names, key.values, strict=True):
                     dict_key += f"_{n}_{int(k)}"
                 self.num_properties[target_name][dict_key] = len(
                     block.properties.values
@@ -752,7 +752,7 @@ class SoapBpnn(ModelInterface):
         elif target.is_spherical:
             for key, block in target.layout.items():
                 dict_key = target_name
-                for n, k in zip(key.names, key.values):
+                for n, k in zip(key.names, key.values, strict=True):
                     dict_key += f"_{n}_{int(k)}"
                 self.num_properties[target_name][dict_key] = len(
                     block.properties.values
@@ -808,7 +808,7 @@ class SoapBpnn(ModelInterface):
         self.last_layers[target_name] = torch.nn.ModuleDict({})
         for key, block in target.layout.items():
             dict_key = target_name
-            for n, k in zip(key.names, key.values):
+            for n, k in zip(key.names, key.values, strict=True):
                 dict_key += f"_{n}_{int(k)}"
             # the spherical tensor basis is made of 2*l+1 tensors, same as the number
             # of components. The lambda basis adds a further 2*l+1 tensors, but only

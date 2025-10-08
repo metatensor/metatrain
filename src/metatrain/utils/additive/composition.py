@@ -128,7 +128,7 @@ class CompositionModel(torch.nn.Module):
             samplers = [None] * len(datasets)
 
         dataloaders = []
-        for dataset, sampler in zip(datasets, samplers):
+        for dataset, sampler in zip(datasets, samplers, strict=True):
             if len(dataset) < batch_size:
                 raise ValueError(
                     f"A training dataset has fewer samples "
