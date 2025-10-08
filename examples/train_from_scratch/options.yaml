@@ -11,7 +11,7 @@ architecture:
 # this needs specifying based on the specific dataset
 training_set:
   systems:
-    read_from: ../../../../examples/ase/ethanol_reduced_100.xyz
+    read_from: ./ethanol_reduced_100.xyz
     length_unit: Angstrom
   targets:
     energy:
