@@ -891,7 +891,7 @@ class MemmapDataset(TorchDataset):
     def __len__(self) -> int:
         return self.ns
 
-    def __getitem__(self, i: int):
+    def __getitem__(self, i: int) -> Any:
         a = torch.tensor(self.a[self.na[i] : self.na[i + 1]], dtype=torch.int32)
         x = torch.tensor(self.x[self.na[i] : self.na[i + 1]], dtype=torch.float64)
         c = torch.tensor(self.c[i], dtype=torch.float64)
