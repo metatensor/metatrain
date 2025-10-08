@@ -66,7 +66,12 @@ def model_update_v5_v6(checkpoint: dict) -> None:
         checkpoint["best_model_state_dict"] = checkpoint["model_state_dict"]
 
 
-def model_update_v6_v7(checkpoint):
+def model_update_v6_v7(checkpoint: dict) -> None:
+    """
+    Update a v6 checkpoint to v7.
+
+    :param checkpoint: The checkpoint to update.
+    """
     if "node_embedding.weight" in checkpoint["model_state_dict"]:
         ##############################################
         # **Updating the large-scale PET checkpoints**

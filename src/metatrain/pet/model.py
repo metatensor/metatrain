@@ -568,6 +568,14 @@ class PET(ModelInterface):
         """
         Calculate node and edge features using the selected featurization strategy.
         Returns lists of feature tensors from GNN layers.
+
+        :param inputs: Dictionary containing input tensors required for feature
+            computation
+        :param use_manual_attention: Whether to use manual attention computation
+            (required for double backward when edge vectors require gradients)
+        :return: Tuple of two lists:
+            - List of node feature tensors from each GNN layer
+            - List of edge feature tensors from each GNN layer
         """
         if self.featurizer_type == "feedforward":
             return self._feedforward_featurization_impl(inputs, use_manual_attention)
@@ -581,6 +589,14 @@ class PET(ModelInterface):
         Feedforward featurization: iterates features through all GNN layers,
         returning only the final layer outputs. Uses combination MLPs to mix
         forward and reversed edge messages at each layer.
+
+        :param inputs: Dictionary containing input tensors required for feature
+            computation
+        :param use_manual_attention: Whether to use manual attention computation
+            (required for double backward when edge vectors require gradients)
+        :return: Tuple of two lists:
+            - List of node feature tensors from the final GNN layer
+            - List of edge feature tensors from the final GNN layer
         """
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
@@ -629,6 +645,14 @@ class PET(ModelInterface):
         """
         Residual featurization: saves intermediate features from each GNN layer
         for use in readout. Averages forward and reversed edge messages between layers.
+
+        :param inputs: Dictionary containing input tensors required for feature
+            computation
+        :param use_manual_attention: Whether to use manual attention computation
+            (required for double backward when edge vectors require gradients)
+        :return: Tuple of two lists:
+            - List of node feature tensors from the final GNN layer
+            - List of edge feature tensors from the final GNN layer
         """
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
@@ -670,6 +694,13 @@ class PET(ModelInterface):
         """
         Calculate long-range electrostatic features using Ewald summation.
         Forces use_ewald=True during training for stability.
+
+        :param systems: List of `metatomic.torch.System` objects to process.
+        :param node_features_list: List of node feature tensors from each GNN layer.
+        :param edge_distances: Tensor of edge distances [n_atoms, max_num_neighbors].
+        :param padding_mask: Boolean mask indicating real vs padded neighbors
+            [n_atoms, max_num_neighbors].
+        :return: Tensor of long-range features [n_atoms, d_pet].
         """
         if self.training:
             # Currently, the long-range implementation show instabilities
@@ -698,6 +729,16 @@ class PET(ModelInterface):
         """
         Concatenate node and edge features from all layers into intermediate
         feature representations. Edge features are summed with cutoff weighting.
+
+        :param node_features_list: List of node feature tensors from each GNN layer.
+        :param edge_features_list: List of edge feature tensors from each GNN layer.
+        :param cutoff_factors: Tensor of cutoff factors for edge distances
+            [n_atoms, max_num_neighbors].
+        :param selected_atoms: Optional Labels specifying a subset of atoms to include.
+        :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
+        :param requested_outputs: Dictionary of requested outputs.
+        :return: Dictionary mapping "features" to a TensorMap of intermediate
+            representations, either per-atom or summed over atoms.
         """
         features_dict: Dict[str, TensorMap] = {}
         node_features = torch.cat(node_features_list, dim=1)
@@ -742,6 +783,12 @@ class PET(ModelInterface):
         """
         Apply output-specific heads to node and edge features from each GNN layer.
         Returns dictionaries mapping output names to lists of head-transformed features.
+
+        :param node_features_list: List of node feature tensors from each GNN layer.
+        :param edge_features_list: List of edge feature tensors from each GNN layer.
+        :return: Tuple of two dictionaries:
+            - Dictionary mapping output names to lists of node last layer features
+            - Dictionary mapping output names to lists of edge last layer features
         """
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
         edge_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
@@ -777,8 +824,19 @@ class PET(ModelInterface):
     ) -> Dict[str, TensorMap]:
         """
         Combine node and edge last layer features for requested last layer
-        features output.
-        Returns TensorMaps for last layer features if explicitly requested.
+        features output. Edge features are summed with cutoff weighting.
+
+        :param node_last_layer_features_dict: Dictionary mapping output names to
+            lists of node last layer features.
+        :param edge_last_layer_features_dict: Dictionary mapping output names to
+            lists of edge last layer features.
+        :param cutoff_factors: Tensor of cutoff factors for edge distances
+            [n_atoms, max_num_neighbors].
+        :param selected_atoms: Optional Labels specifying a subset of atoms to include.
+        :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
+        :param requested_outputs: Dictionary of requested outputs.
+        :return: Dictionary mapping requested last layer features output names
+            to TensorMaps of last layer features, either per-atom or summed over atoms.
         """
         last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
         last_layer_features_outputs: Dict[str, TensorMap] = {}
@@ -851,11 +909,28 @@ class PET(ModelInterface):
         padding_mask: torch.Tensor,
         cutoff_factors: torch.Tensor,
         outputs: Dict[str, ModelOutput],
-    ):
+    ) -> Tuple[
+        Dict[str, List[List[torch.Tensor]]], Dict[str, List[List[torch.Tensor]]]
+    ]:
         """
         Apply final linear layers to last layer features to produce
         per-atom predictions. Handles multiple blocks per output and sums
         edge contributions with cutoff weighting.
+
+        :param node_last_layer_features_dict: Dictionary mapping output names to
+            lists of node last layer features.
+        :param edge_last_layer_features_dict: Dictionary mapping output names to
+            lists of edge last layer features.
+        :param padding_mask: Boolean mask indicating real vs padded neighbors
+            [n_atoms, max_num_neighbors].
+        :param cutoff_factors: Tensor of cutoff factors for edge distances
+            [n_atoms, max_num_neighbors].
+        :param outputs: Dictionary of requested outputs.
+        :return: Tuple of two dictionaries:
+            - Dictionary mapping output names to lists of lists of node atomic
+              prediction tensors (one list per GNN layer, one tensor per block)
+            - Dictionary mapping output names to lists of lists of edge atomic
+              prediction tensors (one list per GNN layer, one tensor per block)
         """
         node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]] = {}
         edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]] = {}
@@ -932,6 +1007,22 @@ class PET(ModelInterface):
         Combine node and edge atomic predictions into final TensorMaps.
         Handles rank-2 Cartesian tensors by symmetrizing them.
         Returns per-atom or per-structure predictions based on output configuration.
+
+        :param systems: List of `metatomic.torch.System` objects to process.
+        :param node_atomic_predictions_dict: Dictionary mapping output names to
+            lists of lists of node atomic prediction tensors (one list per GNN layer,
+            one tensor per block).
+        :param edge_atomic_predictions_dict: Dictionary mapping output names to
+            lists of lists of edge atomic prediction tensors (one list per GNN layer,
+            one tensor per block).
+        :param edge_vectors: Tensor of edge vectors [n_atoms, max_num_neighbors, 3].
+        :param system_indices: Tensor mapping each atom to its system index
+            [n_atoms].
+        :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
+        :param outputs: Dictionary of requested outputs.
+        :param selected_atoms: Optional Labels specifying a subset of atoms to include.
+        :return: Dictionary mapping requested output names to TensorMaps of
+            predictions, either per-atom or summed over atoms.
         """
         atomic_predictions_tmap_dict: Dict[str, TensorMap] = {}
         for output_name in self.target_names:
@@ -1092,6 +1183,9 @@ class PET(ModelInterface):
         """
         Register a new output target by creating corresponding heads and last layers.
         Sets up node/edge heads and linear layers for all readout layers.
+
+        :param target_name: Name of the target to add.
+        :param target_info: TargetInfo object containing details about the target.
         """
         # warn that, for Cartesian tensors, we assume that they are symmetric
         if target_info.is_cartesian:
@@ -1254,6 +1348,12 @@ def symmetrize_cartesian_tensor(
     """
     Symmetrize rank-2 Cartesian tensors (e.g., stress).
     Assumes the tensor is stress-like (symmetric and intensive).
+
+    :param tensor: Tensor of shape [n_atoms, 9 * num_properties].
+    :param systems: List of `metatomic.torch.System` objects to process.
+    :param system_indices: Tensor mapping each atom to its system index [n_atoms].
+    :param num_properties: Number of properties in the tensor (e.g., 6 for stress).
+    :return: Symmetrized tensor of shape [n_atoms, 3, 3, num_properties].
     """
     # Reshape to 3x3 matrix per atom
     tensor_as_three_by_three = tensor.reshape(-1, 3, 3, num_properties)
@@ -1272,7 +1372,12 @@ def symmetrize_cartesian_tensor(
 
 
 def get_last_layer_features_name(target_name: str) -> str:
-    """Get the auxiliary output name for last layer features of a target."""
+    """
+    Get the auxiliary output name for last layer features of a target.
+
+    :param target_name: Name of the target.
+    :return: Name of the corresponding last layer features output.
+    """
     base_name = target_name.replace("mtt::", "")
     return f"mtt::aux::{base_name}_last_layer_features"
 
@@ -1280,7 +1385,13 @@ def get_last_layer_features_name(target_name: str) -> str:
 def should_compute_last_layer_features(
     output_name: str, requested_outputs: Dict[str, ModelOutput]
 ) -> bool:
-    """Check if last layer features should be computed for an output."""
+    """
+    Check if last layer features should be computed for an output.
+
+    :param output_name: Name of the output to check.
+    :param requested_outputs: Dictionary of requested outputs.
+    :return: True if last layer features should be computed, False otherwise.
+    """
     if output_name in requested_outputs:
         return True
     ll_features_name = get_last_layer_features_name(

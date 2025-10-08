@@ -13,7 +13,7 @@ AVAILABLE_ACTIVATIONS = ["SiLU", "SwiGLU"]
 
 
 class FeedForward(nn.Module):
-    def __init__(self, d_model, dim_feedforward, activation):
+    def __init__(self, d_model: int, dim_feedforward: int, activation: str) -> None:
         super().__init__()
 
         # Check if activation is "swiglu" string
@@ -30,7 +30,7 @@ class FeedForward(nn.Module):
             self.activation = getattr(F, activation.lower())
             self.is_swiglu = False
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.is_swiglu:
             # SwiGLU activation: split into value and gate
             v, g = self.w_in(x).chunk(2, dim=-1)
@@ -111,9 +111,10 @@ class TransformerLayer(torch.nn.Module):
 
     :param d_model: The dimension of the model.
     :param n_heads: The number of attention heads.
+    :param dim_node_features: The dimension of the node features.
     :param dim_feedforward: The dimension of the feedforward network.
-    :param dropout: The dropout rate.
-    :param activation: The activation function.
+    :param norm: The normalization type, either "LayerNorm" or "RMSNorm".
+    :param activation: The activation function, either "SiLU" or "SwiGLU".
     :param transformer_type: The type of transformer, either "PostLN" or "PreLN".
     """
 
@@ -221,7 +222,9 @@ class TransformerLayer(torch.nn.Module):
         """
         Forward pass for a single Transformer layer.
 
-        :param tokens: The input tokens to the transformer layer, of shape
+        :param node_embeddings: The input node embeddings, of shape
+            (batch_size, d_model)
+        :param edge_embeddings: The input edge embeddings, of shape
             (batch_size, seq_length, d_model)
         :param cutoff_factors: The cutoff factors for the edges, of shape
             (batch_size, seq_length, seq_length)
@@ -229,8 +232,9 @@ class TransformerLayer(torch.nn.Module):
             (which supports double backward, needed for training with conservative
             forces), or the built-in PyTorch attention (which does not support double
             backward).
-        :return: The output tokens of the transformer layer, of shape
-            (batch_size, seq_length, d_model)
+        :return: A tuple containing:
+            - The output node embeddings, of shape (batch_size, d_model)
+            - The output edge embeddings, of shape (batch_size, seq_length, d_model)
         """
         if self.transformer_type == "PostLN":
             node_embeddings, edge_embeddings = self._forward_post_ln_impl(
@@ -250,9 +254,10 @@ class Transformer(torch.nn.Module):
     :param d_model: The dimension of the model.
     :param num_layers: The number of transformer layers.
     :param n_heads: The number of attention heads.
+    :param dim_node_features: The dimension of the node features.
     :param dim_feedforward: The dimension of the feedforward network.
-    :param dropout: The dropout rate.
-    :param activation: The activation function.
+    :param norm: The normalization type, either "LayerNorm" or "RMSNorm".
+    :param activation: The activation function, either "SiLU" or "SwiGLU".
     :param transformer_type: The type of transformer, either "PostLN" or "PreLN".
     """
 
@@ -311,7 +316,10 @@ class Transformer(torch.nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass for the Transformer.
-        :param tokens: The input tokens to the transformer, of shape
+
+        :param node_embeddings: The input node embeddings, of shape
+            (batch_size, d_model)
+        :param edge_embeddings: The input edge embeddings, of shape
             (batch_size, seq_length, d_model)
         :param cutoff_factors: The cutoff factors for the edges, of shape
             (batch_size, seq_length, seq_length)
@@ -319,8 +327,9 @@ class Transformer(torch.nn.Module):
             (which supports double backward, needed for training with conservative
             forces), or the built-in PyTorch attention (which does not support double
             backward).
-        :return: The output tokens of the transformer, of shape
-            (batch_size, seq_length, d_model)
+        :return: A tuple containing:
+            - The output node embeddings, of shape (batch_size, d_model)
+            - The output edge embeddings, of shape (batch_size, seq_length, d_model)
         """
         for layer in self.layers:
             node_embeddings, edge_embeddings = layer(
@@ -336,9 +345,12 @@ class CartesianTransformer(torch.nn.Module):
     :param hypers: A dictionary of hyperparameters.
     :param d_model: The dimension of the model.
     :param n_head: The number of attention heads.
+    :param dim_node_features: The dimension of the node features.
     :param dim_feedforward: The dimension of the feedforward network.
     :param n_layers: The number of transformer layers.
-    :param dropout: The dropout rate.
+    :param norm: The normalization type, either "LayerNorm" or "RMSNorm".
+    :param activation: The activation function, either "SiLU" or "SwiGLU".
+    :param transformer_type: The type of transformer, either "PostLN" or "PreLN".
     :param n_atomic_species: The number of atomic species.
     :param is_first: Whether this is the first transformer in the model.
     """
@@ -403,10 +415,10 @@ class CartesianTransformer(torch.nn.Module):
         """
         Forward pass for the CartesianTransformer.
 
+        :param input_node_embeddings: The input node embeddings, of shape
+            (n_nodes, d_model)
         :param input_messages: The input messages to the transformer, of shape
             (n_nodes, max_num_neighbors, d_model)
-        :param element_indices_nodes: The atomic species of the central atoms, of shape
-            (n_nodes,)
         :param element_indices_neighbors: The atomic species of the neighboring atoms,
             of shape (n_nodes, max_num_neighbors)
         :param edge_vectors: The cartesian edge vectors between the central atoms and
@@ -421,7 +433,9 @@ class CartesianTransformer(torch.nn.Module):
             (which supports double backward, needed for training with conservative
             forces), or the built-in PyTorch attention (which does not support double
             backward).
-        :return: A tuple with the output node embeddings of shape (n_nodes, d_pet)
+        :return: A tuple containing:
+            - The output node embeddings, of shape (n_nodes, d_model)
+            - The output edge embeddings, of shape (n_nodes, max_num_neighbors, d_model)
         """
         node_embeddings = input_node_embeddings
         edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
