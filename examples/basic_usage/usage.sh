@@ -84,7 +84,7 @@ mtt train --help
 # system and possible target values for evaluation. The system section of this
 # ``eval.yaml`` is exactly the same as for a dataset in the ``options.yaml`` file.
 #
-# .. literalinclude:: ../../../examples/basic_usage/eval.yaml
+# .. literalinclude:: ../../../../examples/basic_usage/eval.yaml
 #    :language: yaml
 #
 # Note that the ``targets`` section is optional. If the ``targets`` section is present,
