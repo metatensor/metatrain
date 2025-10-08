@@ -18,12 +18,6 @@ jobs:
           - llpr
           - pet
           - nanopet
-        codecov-flag:
-          - coverage_gap
-          - coverage_soap_bpnn
-          - coverage_llpr
-          - coverage_pet
-          - coverage_nanopet
 
     runs-on: ubuntu-22.04
 
@@ -50,5 +44,5 @@ jobs:
       with:
         fail_ci_if_error: false
         files: .coverage
-        flags: ${{ matrix.codecov-flag }}
+        flags: coverage_${{ matrix.architecture-name }}
         token: ${{ secrets.CODECOV_TOKEN }}
