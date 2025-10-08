@@ -82,173 +82,6 @@ class LossInterface(ABC):
         return cls(**cfg)
 
 
-# --- scheduler interface and implementations ------------------------------------------
-
-
-class WeightScheduler(ABC):
-    """
-    Abstract interface for scheduling a weight for a :py:class:`LossInterface`.
-    """
-
-    initialized: bool = False
-
-    @abstractmethod
-    def initialize(
-        self, loss_fn: LossInterface, targets: Dict[str, TensorMap]
-    ) -> float:
-        """
-        Compute and return the initial weight.
-
-        :param loss_fn: the base loss to initialize.
-        :param targets: mapping of target names to :py:class:`TensorMap`.
-        :return: initial weight as a float.
-        """
-
-    @abstractmethod
-    def update(
-        self,
-        loss_fn: LossInterface,
-        predictions: Dict[str, TensorMap],
-        targets: Dict[str, TensorMap],
-    ) -> float:
-        """
-        Update and return the new weight after a batch.
-
-        :param loss_fn: the base loss.
-        :param predictions: mapping of target names to :py:class:`TensorMap`.
-        :param targets: mapping of target names to :py:class:`TensorMap`.
-        :return: updated weight as a float.
-        """
-
-
-class EMAScheduler(WeightScheduler):
-    """
-    Exponential moving average scheduler for loss weights.
-    """
-
-    EPSILON = 1e-6
-
-    def __init__(self, sliding_factor: Optional[float]) -> None:
-        """
-        :param sliding_factor: factor in [0,1] for EMA (0 disables scheduling).
-        """
-        self.sliding_factor = float(sliding_factor or 0.0)
-        self.current_weight = 1.0
-        self.initialized = False
-
-    def initialize(
-        self, loss_fn: LossInterface, targets: Dict[str, TensorMap]
-    ) -> float:
-        # If scheduling disabled, keep weight = 1.0
-        if self.sliding_factor <= 0.0:
-            self.current_weight = 1.0
-        else:
-            # Compute a baseline loss against a constant mean or zero-gradient map
-            target_name = loss_fn.target
-            gradient_name = getattr(loss_fn, "gradient", None)
-            tensor_map_for_target = targets[target_name]
-
-            if gradient_name is None:
-                # Create a baseline TensorMap with all values = mean over samples
-                mean_tensor_map = mts.mean_over_samples(
-                    tensor_map_for_target, tensor_map_for_target.sample_names
-                )
-                baseline_tensor_map = TensorMap(
-                    keys=tensor_map_for_target.keys,
-                    blocks=[
-                        mts.TensorBlock(
-                            samples=block.samples,
-                            components=block.components,
-                            properties=block.properties,
-                            values=torch.ones_like(block.values) * mean_block.values,
-                        )
-                        for block, mean_block in zip(
-                            tensor_map_for_target, mean_tensor_map, strict=True
-                        )
-                    ],
-                )
-            else:
-                # Zero baseline for gradient-based losses
-                baseline_tensor_map = mts.zeros_like(tensor_map_for_target)
-
-            initial_loss_value = loss_fn.compute(
-                {target_name: tensor_map_for_target}, {target_name: baseline_tensor_map}
-            )
-            self.current_weight = float(initial_loss_value.clamp_min(self.EPSILON))
-
-        self.initialized = True
-        return self.current_weight
-
-    def update(
-        self,
-        loss_fn: LossInterface,
-        predictions: Dict[str, TensorMap],
-        targets: Dict[str, TensorMap],
-    ) -> float:
-        # If scheduling disabled, return fixed weight
-        if self.sliding_factor <= 0.0:
-            return self.current_weight
-
-        # Compute the instantaneous error
-        instantaneous_error = loss_fn.compute(predictions, targets).detach().item()
-        # EMA update
-        new_weight = (
-            self.sliding_factor * self.current_weight
-            + (1.0 - self.sliding_factor) * instantaneous_error
-        )
-        self.current_weight = max(new_weight, self.EPSILON)
-        return self.current_weight
-
-
-class ScheduledLoss(LossInterface):
-    """
-    Wrap a base :py:class:`LossInterface` with a :py:class:`WeightScheduler`.
-    After each compute, the scheduler updates the loss weight.
-    """
-
-    def __init__(self, base_loss: LossInterface, weight_scheduler: WeightScheduler):
-        """
-        :param base_loss: underlying LossInterface to wrap.
-        :param weight_scheduler: scheduler that controls the multiplier.
-        """
-        super().__init__(
-            base_loss.target,
-            base_loss.gradient,
-            base_loss.weight,
-            base_loss.reduction,
-        )
-        self.base_loss = base_loss
-        self.scheduler = weight_scheduler
-        self.loss_kwargs = getattr(base_loss, "loss_kwargs", {})
-
-    def compute(
-        self,
-        predictions: Dict[str, TensorMap],
-        targets: Dict[str, TensorMap],
-        extra_data: Optional[Any] = None,
-    ) -> torch.Tensor:
-        # Initialize scheduler on first call
-        if not self.scheduler.initialized:
-            self.normalization_factor = self.scheduler.initialize(
-                self.base_loss, targets
-            )
-
-        # compute the raw loss using the base loss function
-        raw_loss_value = self.base_loss.compute(predictions, targets, extra_data)
-
-        # scale by the fixed weight and divide by the sliding weight
-        weighted_loss_value = raw_loss_value * (
-            self.base_loss.weight / self.normalization_factor
-        )
-
-        # update the sliding weight
-        self.normalization_factor = self.scheduler.update(
-            self.base_loss, predictions, targets
-        )
-
-        return weighted_loss_value
-
-
 # --- specific losses ------------------------------------------------------------------
 
 
@@ -553,7 +386,7 @@ class LossAggregator(LossInterface):
         :param config: per-target configuration dict.
         """
         super().__init__(name="", gradient=None, weight=0.0, reduction="mean")
-        self.scheduled_losses: Dict[str, ScheduledLoss] = {}
+        self.losses: Dict[str, LossInterface] = {}
         self.metadata: Dict[str, Dict[str, Any]] = {}
 
         for target_name, target_info in targets.items():
@@ -588,9 +421,7 @@ class LossAggregator(LossInterface):
                     )
                 },
             )
-            ema_scheduler = EMAScheduler(target_config["sliding_factor"])
-            scheduled_main_loss = ScheduledLoss(base_loss, ema_scheduler)
-            self.scheduled_losses[target_name] = scheduled_main_loss
+            self.losses[target_name] = base_loss
             self.metadata[target_name] = {
                 "type": target_config["type"],
                 "weight": base_loss.weight,
@@ -642,9 +473,7 @@ class LossAggregator(LossInterface):
                         )
                     },
                 )
-                ema_scheduler_for_grad = EMAScheduler(target_config["sliding_factor"])
-                scheduled_grad_loss = ScheduledLoss(grad_loss, ema_scheduler_for_grad)
-                self.scheduled_losses[gradient_key] = scheduled_grad_loss
+                self.losses[gradient_key] = grad_loss
                 self.metadata[target_name]["gradients"][gradient_name] = {
                     "type": gradient_specific_config["type"],
                     "weight": grad_loss.weight,
@@ -680,10 +509,10 @@ class LossAggregator(LossInterface):
         )
 
         # Sum each scheduled term that has a matching prediction
-        for scheduled_term in self.scheduled_losses.values():
-            if scheduled_term.target not in predictions:
+        for term in self.losses.values():
+            if term.target not in predictions:
                 continue
-            total_loss = total_loss + scheduled_term.compute(
+            total_loss = total_loss + term.weight * term.compute(
                 predictions, targets, extra_data
             )
 
