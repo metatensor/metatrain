@@ -1,24 +1,46 @@
-from typing import List, Optional
+"""
+Module with functions to manipulate NEF (Node Edge Feature) arrays.
+
+The NEF representation is what the internals of PET use.
+In the NEF representation, the first dimension is the center node
+(i.e. the "i" node in an "i -> j" edge), and the second dimension
+is the edges for that node. Not all center nodes have the same number
+of edges, so padding is used to ensure that all nodes have the same
+number of edges.
+
+Most of the functions have the purpose of converting between
+edge arrays with shape (n_edges, ...) and NEF arrays with shape
+(n_nodes, n_edges_per_node, ...).
+"""
+
+from typing import List, Optional, Tuple
 
 import torch
 
 
-# NEF stands for Node Edge Feature, representing the three dimensions of
-# the internal representations of a PET model. This module contains
-# functions to manipulate these representations.
+def get_nef_indices(
+    centers: torch.Tensor, n_nodes: int, n_edges_per_node: int
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Computes tensors of indices useful to convert between edge
+    and NEF layouts; the usage and function of `nef_indices` and
+    `nef_to_edges_neighbor` is clear in the ``edge_array_to_nef``
+    and ``nef_array_to_edges`` functions below.
 
+    :param centers: A 1D tensor of shape (n_edges,) containing the
+        indices of the center nodes for each edge, with the center nodes
+        being the "i" node in an "i -> j" edge.
+    :param n_nodes: The number of nodes in the graph.
+    :param n_edges_per_node: The maximum number of edges per node.
 
-def get_nef_indices(centers, n_nodes: int, n_edges_per_node: int):
-    # computes tensors of indices useful to convert between edge
-    # and NEF layouts; the usage and function of nef_indices and
-    # nef_to_edges_neighbor is clear in the edge_array_to_nef and
-    # nef_array_to_edges functions below.
-    # In particular:
-    # nef_array = edge_array[nef_indices]
-    # edge_array = nef_array[centers, nef_to_edges_neighbor]
-    # The third output, nef_mask, is a mask that can be used to
-    # filter out the padding values in the NEF array, as different
-    # nodes will have, in general, different number of edges.
+    :return: A tuple with three tensors (nef_indices, nef_to_edges_neighbor, nef_mask).
+        In particular:
+        nef_array = edge_array[nef_indices]
+        edge_array = nef_array[centers, nef_to_edges_neighbor]
+        The third output, nef_mask, is a mask that can be used to
+        filter out the padding values in the NEF array, as different
+        nodes will have, in general, different number of edges.
+    """
 
     bincount = torch.bincount(centers, minlength=n_nodes)
 
@@ -39,10 +61,23 @@ def get_nef_indices(centers, n_nodes: int, n_edges_per_node: int):
     return nef_indices, nef_to_edges_neighbor, nef_mask
 
 
-def get_corresponding_edges(array):
-    # computes the corresponding edge (i.e., the edge that goes in the
-    # opposite direction) for each edge in the array; this is useful
-    # in the message-passing operation
+def get_corresponding_edges(array: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the corresponding edge (i.e., the edge that goes in the
+    opposite direction) for each edge in the array; this is useful
+    in the message-passing operation.
+
+    :param array: A 2D tensor of shape (n_edges, 5). For each i -> j
+        edge, the first column contains the index of the center node i,
+        the second column contains the index of the neighbor node j,
+        and the last three columns contain the cell shifts along x, y, and z
+        directions, respectively.
+
+    :return: A 1D tensor of shape (n_edges,) containing, for each edge,
+        the index of the corresponding edge (i.e., the edge that goes
+        in the opposite direction). If the input array is empty, an
+        empty tensor is returned.
+    """
 
     if array.numel() == 0:
         return torch.empty((0,), dtype=array.dtype, device=array.device)
@@ -112,12 +147,30 @@ def get_corresponding_edges(array):
 
 
 def edge_array_to_nef(
-    edge_array,
-    nef_indices,
+    edge_array: torch.Tensor,
+    nef_indices: torch.Tensor,
     mask: Optional[torch.Tensor] = None,
     fill_value: float = 0.0,
-):
-    # converts an edge array to a NEF array
+) -> torch.Tensor:
+    """Converts an edge array to a NEF array.
+
+    :param edge_array: A tensor where the first dimension is the index of
+        the edge, i.e. with shape (n_edges, ...).
+    :param nef_indices: The indices to convert from edge to NEF layout,
+        as returned by the ``get_nef_indices`` function.
+    :param mask: An optional boolean mask of shape (n_nodes, n_edges_per_node),
+        as returned by the ``get_nef_indices`` function. If provided,
+        the output NEF array will have the values in the positions
+        where the mask is False set to ``fill_value``.
+    :param fill_value: The value to use to fill the positions in the
+        NEF array where the mask is False. Only used if ``mask`` is
+        provided.
+
+    :return: A tensor with the same information as ``edge_array``,
+        but in NEF layout, i.e. with shape (n_nodes, n_edges_per_node, ...).
+        If ``mask`` is provided, the values in the positions where
+        the mask is False are set to ``fill_value``.
+    """
     if mask is None:
         return edge_array[nef_indices]
     else:
@@ -128,11 +181,20 @@ def edge_array_to_nef(
         )
 
 
-def nef_array_to_edges(nef_array, centers, nef_to_edges_neighbor):
-    # converts a NEF array to an edge array. Most often, this converts
-    # a NEF array (three-dimensional, where the dimensions are the nodes,
-    # the edges, and the features) to an edge array (two-dimensional,
-    # where the dimensions are the edges and the features).
+def nef_array_to_edges(
+    nef_array: torch.Tensor, centers: torch.Tensor, nef_to_edges_neighbor: torch.Tensor
+) -> torch.Tensor:
+    """Converts a NEF array to an edge array.
+
+    :param nef_array: A tensor where the first two dimensions are the
+        indices of the NEF layout, i.e. with shape (n_nodes, n_edges_per_node, ...).
+    :param centers: The indices of the center nodes for each edge.
+    :param nef_to_edges_neighbor: The indices of the edges for each
+        neighbor in the NEF layout, as returned by the ``get_nef_indices`` function.
+
+    :return: A tensor with the same information as ``nef_array``,
+        but in edge layout, i.e. with shape (n_edges, ...).
+    """
     return nef_array[centers, nef_to_edges_neighbor]
 
 
@@ -146,6 +208,16 @@ def compute_reversed_neighbor_list(
     center atom `i` and its neighbor `j` in the original
     neighborlist, the position of atom `i` in the list
     of neighbors of atom `j` is returned.
+
+    :param nef_indices: The indices to convert from edge to NEF layout,
+        as returned by the ``get_nef_indices`` function.
+    :param corresponding_edges: The indices of the corresponding edges,
+        as returned by the ``get_corresponding_edges`` function.
+    :param nef_mask: A boolean mask of shape (n_nodes, n_edges_per_node),
+        as returned by the ``get_nef_indices`` function.
+    :return: A tensor of the same shape as ``nef_indices``,
+        where each entry contains the position of the center
+        atom in the neighborlist of the corresponding neighbor atom.
     """
     num_atoms, max_num_neighbors = nef_indices.shape
 

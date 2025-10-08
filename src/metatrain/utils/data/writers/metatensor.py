@@ -12,6 +12,12 @@ from .writers import Writer
 class MetatensorWriter(Writer):
     """
     Write systems and predictions to Metatensor files (.mts).
+
+    :param filename: Base filename for the output files. Each target will be saved in a
+        separate file with the target name appended.
+    :param capabilities: Model capabilities.
+    :param append: Whether to append to existing files, unused here but kept for
+        compatibility with the base class.
     """
 
     def __init__(
@@ -19,20 +25,23 @@ class MetatensorWriter(Writer):
         filename: Union[str, Path],
         capabilities: Optional[ModelCapabilities] = None,
         append: Optional[bool] = False,  # unused, but matches base signature
-    ):
+    ) -> None:
         super().__init__(filename, capabilities, append)
         self._systems: List[System] = []
         self._preds: List[Dict[str, TensorMap]] = []
 
-    def write(self, systems: List[System], predictions: Dict[str, TensorMap]):
+    def write(self, systems: List[System], predictions: Dict[str, TensorMap]) -> None:
         """
         Accumulate systems and predictions to write them all at once in ``finish``.
+
+        :param systems: List of systems to write.
+        :param predictions: Dictionary of TensorMaps with predictions for the systems.
         """
         # just accumulate
         self._systems.extend(systems)
         self._preds.append(predictions)
 
-    def finish(self):
+    def finish(self) -> None:
         """
         Write all accumulated systems and predictions to Metatensor files.
         """
@@ -73,7 +82,11 @@ def _concatenate_tensormaps(
                 new_samples_values[:, where_system] += system_counter
                 new_block = TensorBlock(
                     values=block.values,
-                    samples=Labels(block.samples.names, values=new_samples_values),
+                    samples=Labels(
+                        block.samples.names,
+                        values=new_samples_values,
+                        assume_unique=True,
+                    ),
                     components=block.components,
                     properties=block.properties,
                 )

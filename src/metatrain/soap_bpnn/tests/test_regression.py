@@ -97,6 +97,8 @@ def test_regression_train(device):
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
+    hypers["training"]["num_workers"] = 0  # for reproducibility
+
     loss_conf = OmegaConf.create({"mtt::U0": CONF_LOSS.copy()})
     OmegaConf.resolve(loss_conf)
     hypers["training"]["loss"] = loss_conf
@@ -197,6 +199,7 @@ def test_regression_train_spherical(device):
     requested_neighbor_lists = get_requested_neighbor_lists(model)
 
     hypers["training"]["num_epochs"] = 1
+    hypers["training"]["num_workers"] = 0  # for reproducibility
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model,

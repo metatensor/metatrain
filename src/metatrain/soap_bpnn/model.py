@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import metatensor.torch as mts
 import torch
@@ -32,7 +32,7 @@ from .spherical import TensorBasis
 
 
 class Identity(torch.nn.Module):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
     def forward(self, x: TensorMap) -> TensorMap:
@@ -129,7 +129,17 @@ class MLPHeadMap(ModuleMap):
 
 def concatenate_structures(
     systems: List[System], neighbor_list_options: NeighborListOptions
-):
+) -> Tuple[
+    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+]:
+    """
+    Concatenate a list of systems into a single batch.
+
+    :param systems: List of systems to concatenate.
+    :param neighbor_list_options: Options for the neighbor list.
+    :return: A tuple containing the concatenated positions, centers, neighbors,
+        species, cells, and cell shifts.
+    """
     positions = []
     centers = []
     neighbors = []
@@ -738,7 +748,7 @@ class SoapBpnn(ModelInterface):
         if target.is_scalar:
             for key, block in target.layout.items():
                 dict_key = target_name
-                for n, k in zip(key.names, key.values):
+                for n, k in zip(key.names, key.values, strict=True):
                     dict_key += f"_{n}_{int(k)}"
                 self.num_properties[target_name][dict_key] = len(
                     block.properties.values
@@ -753,7 +763,7 @@ class SoapBpnn(ModelInterface):
         elif target.is_spherical:
             for key, block in target.layout.items():
                 dict_key = target_name
-                for n, k in zip(key.names, key.values):
+                for n, k in zip(key.names, key.values, strict=True):
                     dict_key += f"_{n}_{int(k)}"
                 self.num_properties[target_name][dict_key] = len(
                     block.properties.values
@@ -809,7 +819,7 @@ class SoapBpnn(ModelInterface):
         self.last_layers[target_name] = torch.nn.ModuleDict({})
         for key, block in target.layout.items():
             dict_key = target_name
-            for n, k in zip(key.names, key.values):
+            for n, k in zip(key.names, key.values, strict=True):
                 dict_key += f"_{n}_{int(k)}"
             # the spherical tensor basis is made of 2*l+1 tensors, same as the number
             # of components. The lambda basis adds a further 2*l+1 tensors, but only
@@ -903,6 +913,7 @@ def _remove_center_type_from_properties(tensor_map: TensorMap) -> TensorMap:
                     values=torch.arange(
                         block.values.shape[-1], device=block.values.device
                     ).reshape(-1, 1),
+                    assume_unique=True,
                 ),
             )
         )

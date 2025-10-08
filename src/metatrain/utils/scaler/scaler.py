@@ -14,7 +14,7 @@ from metatrain.utils.data import (
 from metatrain.utils.per_atom import average_by_num_atoms
 
 from ..additive import remove_additive
-from ..data import DatasetInfo, TargetInfo
+from ..data import DatasetInfo, TargetInfo, unpack_batch
 from ..jsonschema import validate
 from ..transfer import batch_to
 from ._base_scaler import BaseScaler
@@ -22,7 +22,10 @@ from ._base_scaler import BaseScaler
 
 class Scaler(torch.nn.Module):
     """
-    DELETED DOCS. WAS FOR COMPOSITION MODEL
+    Placeholder docs.
+
+    :param hypers: Hyperparameters for the scaler. Should be an empty dictionary.
+    :param dataset_info: Information about the dataset used to initialize the scaler.
     """
 
     # Needed for torchscript compatibility
@@ -74,6 +77,11 @@ class Scaler(torch.nn.Module):
         shuffle or drop the last non-full batch. Distributed sampling can be used or
         not, based on the `is_distributed` argument, and training with double precision
         is enforced.
+
+        :param datasets: List of datasets to create the dataloader from.
+        :param batch_size: Batch size to use for the dataloader.
+        :param is_distributed: Whether to use distributed sampling or not.
+        :return: The created DataLoader.
         """
         # Create the collate function
         targets_keys = list(self.dataset_info.targets.keys())
@@ -104,7 +112,7 @@ class Scaler(torch.nn.Module):
             samplers = [None] * len(datasets)
 
         dataloaders = []
-        for dataset, sampler in zip(datasets, samplers):
+        for dataset, sampler in zip(datasets, samplers, strict=False):
             if len(dataset) < batch_size:
                 raise ValueError(
                     f"A training dataset has fewer samples "
@@ -134,7 +142,18 @@ class Scaler(torch.nn.Module):
         fixed_weights: Optional[Dict[str, Union[float, Dict[int, float]]]] = None,
     ) -> None:
         """
-        ACTUAL DOCS
+        Placeholder docs.
+
+        :param datasets: List of datasets to use for training the scaler.
+        :param additive_models: List of additive models to remove from the targets
+            before accumulating the quantities needed for fitting the scales.
+        :param batch_size: Batch size to use for the dataloader.
+        :param is_distributed: Whether to use distributed sampling or not.
+        :param fixed_weights: Optional dict of fixed weights to apply to the scales
+            of each target. The keys of the dict are the target names, and the values
+            are either a single float value to be applied to all atomic types, or a
+            dict mapping atomic type (int) to weight (float). If not provided, all
+            scales will be computed based on the accumulated quantities.
         """
 
         if not isinstance(datasets, list):
@@ -152,7 +171,7 @@ class Scaler(torch.nn.Module):
 
         # accumulate
         for batch in dataloader:
-            systems, targets, extra_data = batch
+            systems, targets, extra_data = unpack_batch(batch)
             systems, targets, extra_data = batch_to(
                 systems, targets, extra_data, device=device
             )
@@ -204,6 +223,7 @@ class Scaler(torch.nn.Module):
         Restart the model with a new dataset info.
 
         :param dataset_info: New dataset information to be used.
+        :return: The restarted Scaler.
         """
 
         # merge old and new dataset info
@@ -231,7 +251,10 @@ class Scaler(torch.nn.Module):
     ) -> Dict[str, TensorMap]:
         """Scales the outputs based on the stored standard deviations.
 
+        :param systems: List of systems for which the outputs were computed.
         :param outputs: Dictionary containing the output TensorMaps.
+        :param remove: If True, removes the scaling (i.e., divides by the scales). If
+            False, applies the scaling (i.e., multiplies by the scales).
         :returns: A dictionary with the scaled outputs.
 
         :raises ValueError: If no scales have been computed or if `outputs` keys
@@ -299,7 +322,7 @@ class Scaler(torch.nn.Module):
             mts.save_buffer(mts.make_contiguous(fake_scales)),
         )
 
-    def scales_to(self, device: torch.device, dtype: torch.dtype):
+    def scales_to(self, device: torch.device, dtype: torch.dtype) -> None:
         if len(self.model.scales) != 0:
             if self.model.scales[list(self.model.scales.keys())[0]].device != device:
                 self.model.scales = {
@@ -312,7 +335,7 @@ class Scaler(torch.nn.Module):
 
         self.model._sync_device_dtype(device, dtype)
 
-    def sync_tensor_maps(self):
+    def sync_tensor_maps(self) -> None:
         # Reload the scales of the (old) targets, which are not stored in the model
         # state_dict, from the buffers
         for k in self.dataset_info.targets:

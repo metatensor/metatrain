@@ -17,6 +17,7 @@ from metatrain.utils.data import (
     read_extra_data,
     read_systems,
     read_targets,
+    unpack_batch,
 )
 
 
@@ -385,14 +386,15 @@ def test_dataset():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf))
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
-    collate_fn = CollateFn(target_keys=["energy"])
+    collate_fn = CollateFn(target_info_dict)
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=10, collate_fn=collate_fn
     )
 
     for batch in dataloader:
+        batch = unpack_batch(batch)
         assert batch[1]["energy"].block().values.shape == (10, 1)
 
 
@@ -584,7 +586,7 @@ def test_collate_fn():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf_targets))
+    targets, target_info_dict = read_targets(OmegaConf.create(conf_targets))
 
     conf_extra_data = {
         "U0": {
@@ -608,11 +610,12 @@ def test_collate_fn():
         }
     )
 
-    collate_fn = CollateFn(target_keys=["mtt::U0"])
+    collate_fn = CollateFn(target_info_dict)
     batch = collate_fn([dataset[0], dataset[1], dataset[2]])
+    batch = unpack_batch(batch)
 
     assert len(batch) == 3
-    assert isinstance(batch[0], tuple)
+    assert isinstance(batch[0], list)
     assert len(batch[0]) == 3
     assert isinstance(batch[1], dict)
     assert isinstance(batch[2], dict)

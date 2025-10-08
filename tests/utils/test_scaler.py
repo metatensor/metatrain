@@ -803,7 +803,7 @@ def test_scaler_rotation_invariance():
         )
         systems_rotated = []
         spherical_rotated = []
-        for system_, spherical_ in zip(systems, spherical):
+        for system_, spherical_ in zip(systems, spherical, strict=False):
             system_rotated_, spherical_rotated_, _ = (
                 rotational_augmenter.apply_random_augmentations(
                     [system_],

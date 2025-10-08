@@ -26,7 +26,7 @@ def test_read_systems(reader, monkeypatch, tmp_path):
 
     assert isinstance(results, list)
     assert len(results) == len(systems)
-    for system, result in zip(systems, results):
+    for system, result in zip(systems, results, strict=True):
         assert isinstance(result, torch.ScriptObject)
 
         torch.testing.assert_close(

@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import List
 
 import pytest
-import wandb
 from metatomic.torch import ModelCapabilities, ModelOutput
 
 from metatrain import PACKAGE_ROOT
@@ -20,6 +19,11 @@ from metatrain.utils.logging import (
     human_readable,
     setup_logging,
 )
+from metatrain.utils.testing._utils import WANDB_AVAILABLE
+
+
+if WANDB_AVAILABLE.present:
+    import wandb
 
 
 def assert_log_entry(logtext: str, loglevel: str, message: str) -> None:
@@ -178,6 +182,7 @@ def test_custom_logger_logs_to_csv_handler(monkeypatch, tmp_path):
     handler.close()
 
 
+@pytest.mark.skipif(not WANDB_AVAILABLE.present, reason=WANDB_AVAILABLE.message)
 def test_wandb_handler_emit_data(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
@@ -193,6 +198,7 @@ def test_wandb_handler_emit_data(monkeypatch, tmp_path):
     handler.close()
 
 
+@pytest.mark.skipif(not WANDB_AVAILABLE.present, reason=WANDB_AVAILABLE.message)
 def test_wandb_handler_handler_emit_does_nothing(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
@@ -232,6 +238,7 @@ class MockWandbRun:
 
 
 @pytest.mark.parametrize("prefix", ["training", "test", "validation"])
+@pytest.mark.skipif(not WANDB_AVAILABLE.present, reason=WANDB_AVAILABLE.message)
 def test_custom_logger_logs_to_wandb(monkeypatch, tmp_path, prefix):
     monkeypatch.chdir(tmp_path)
 
@@ -271,6 +278,8 @@ def test_custom_logger_logs_to_wandb(monkeypatch, tmp_path, prefix):
 
 @pytest.mark.parametrize("handler_cls", [WandbHandler, CSVFileHandler])
 def test_handler_different_lengths(handler_cls, monkeypatch, tmp_path):
+    if handler_cls is WandbHandler and not WANDB_AVAILABLE.present:
+        pytest.skip(WANDB_AVAILABLE.message)
     monkeypatch.chdir(tmp_path)
 
     if handler_cls is CSVFileHandler:

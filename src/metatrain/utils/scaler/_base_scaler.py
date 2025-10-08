@@ -21,6 +21,12 @@ class BaseScaler(torch.nn.Module):
     based on the training data, and the :py:method:`fit` method is used to fit the model
     based on the accumulated quantities. These should both be called before the
     :py:method:`forward` method is called to compute the scales at inference time.
+
+    :param atomic_types: List of atomic types to use in the composition model.
+    :param layouts: Dict of zero-sample layout :py:class:`TensorMap` corresponding
+        to each target. The keys of the dict are the target names, and the values
+        are :py:class:`TensorMap` objects with the zero-sample layout for each
+        target.
     """
 
     # Needed for torchscript compatibility
@@ -32,16 +38,7 @@ class BaseScaler(torch.nn.Module):
     Y: Dict[str, TensorMap]
     Y2: Dict[str, TensorMap]
 
-    def __init__(self, atomic_types, layouts: Dict[str, TensorMap]) -> None:
-        """
-        Initializes the composition model with the given atomic types and layouts.
-
-        :param atomic_types: List of atomic types to use in the composition model.
-        :param layouts: Dict of zero-sample layout :py:class:`TensorMap` corresponding
-            to each target. The keys of the dict are the target names, and the values
-            are :py:class:`TensorMap` objects with the zero-sample layout for each
-            target.
-        """
+    def __init__(self, atomic_types: List[int], layouts: Dict[str, TensorMap]) -> None:
         super().__init__()
 
         self.atomic_types = torch.as_tensor(atomic_types, dtype=torch.int32)
@@ -158,6 +155,12 @@ class BaseScaler(torch.nn.Module):
         Takes a batch of targets, and for each target accumulates the
         necessary quantities, i.e. the sum over the squared
         samples (Y2), and the number of samples overall (N).
+
+        :param systems: List of systems corresponding to the targets.
+        :param targets: Dict of names to targets to accumulate. The names (keys)
+            should be a subset of the target names used during fitting.
+        :param extra_data: Optional dict of extra data, e.g., masks for the targets
+            (e.g., for padded samples).
         """
 
         if extra_data is None:
@@ -239,6 +242,14 @@ class BaseScaler(torch.nn.Module):
         """
         Based on the pre-accumulated quantities from the training data, computes the
         scales for each target.
+
+        :param fixed_weights: Optional dict of fixed weights to apply to the scales
+            of each target. The keys of the dict are the target names, and the values
+            are either a single float value to be applied to all atomic types, or a
+            dict mapping atomic type (int) to weight (float). If not provided, all
+            scales will be computed based on the accumulated quantities.
+        :param targets_to_fit: Optional list of target names to fit. If not provided,
+            all targets will be fitted.
         """
         if targets_to_fit is None:
             targets_to_fit = self.target_names
@@ -317,8 +328,12 @@ class BaseScaler(torch.nn.Module):
         """
         Scales the targets based on the stored standard deviations.
 
+        :param systems: List of systems corresponding to the for which the outputs
+            were computed.
         :param outputs: Dict of names outputs to scale. The names (keys) should be a
             subset of the target names used during fitting.
+        :param remove: If True, removes the scaling (i.e., divides by the scales). If
+            False, applies the scaling (i.e., multiplies by the scales).
         :returns: A dictionary with the scaled outputs for each system.
 
         :raises ValueError: If no scales have been computed or if `outputs` keys
@@ -503,7 +518,7 @@ class BaseScaler(torch.nn.Module):
             [block],
         )
 
-    def _sync_device_dtype(self, device: torch.device, dtype: torch.dtype):
+    def _sync_device_dtype(self, device: torch.device, dtype: torch.dtype) -> None:
         # manually move the TensorMap dicts:
 
         self.atomic_types = self.atomic_types.to(device=device)

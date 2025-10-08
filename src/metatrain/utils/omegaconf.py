@@ -17,10 +17,16 @@ def _get_architecture_model(conf: BaseContainer) -> Any:
 
 
 def default_device(_root_: BaseContainer) -> str:
-    """Custom OmegaConf resolver to find the default device of an architecture.
+    """
+    Custom OmegaConf resolver to find the default device of an architecture.
 
     Device is found using the :py:func:metatrain.utils.devices.pick_devices`
-    function."""
+    function.
+
+    :param _root_: The root configuration.
+    :return: The default device as a string. If multiple devices are found, returns
+        "multi-cuda".
+    """
 
     Model = _get_architecture_model(_root_)
     desired_device = pick_devices(Model.__supported_devices__)
@@ -32,10 +38,15 @@ def default_device(_root_: BaseContainer) -> str:
 
 
 def default_precision(_root_: BaseContainer) -> int:
-    """Custom OmegaConf resolver to find the default precision of an architecture.
+    """
+    Custom OmegaConf resolver to find the default precision of an architecture.
 
     File format is obtained based on the architecture name and its first entry in the
-    ``supported_dtypes`` list."""
+    ``supported_dtypes`` list.
+
+    :param _root_: The root configuration.
+    :return: The default precision in bits (16, 32, or 64).
+    """
 
     Model = _get_architecture_model(_root_)
 
@@ -57,7 +68,11 @@ def default_precision(_root_: BaseContainer) -> int:
 
 
 def default_huber_loss_delta() -> float:
-    """Return the default delta for the huber loss."""
+    """
+    Return the default delta for the huber loss.
+
+    :return: The default delta for the huber loss.
+    """
     return 1.0
 
 
@@ -271,7 +286,7 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
         object.
     :raises ValueError: If both ``virial`` and ``stress`` sections are enabled in the
         "energy" target, as this is not permissible for training.
-    :returns: List of datasets configurations. If ``conf`` was a :class:`str` or a
+    :return: List of datasets configurations. If ``conf`` was a :class:`str` or a
         :class:`omegaconf.DictConfig` the list contains only a single element.
     """
     # Expand str -> DictConfig
@@ -381,7 +396,7 @@ def expand_loss_config(conf: DictConfig) -> DictConfig:
     """Expand the loss configuration to a list of configurations.
 
     :param conf: The loss configuration to expand.
-    :returns: A list of expanded loss configurations.
+    :return: A list of expanded loss configurations.
     """
 
     training_confs = conf["training_set"]
@@ -480,11 +495,15 @@ def expand_loss_config(conf: DictConfig) -> DictConfig:
     return conf
 
 
-def _migrate_gradient_key(loss_dict: dict, old_key: str, grad_key: str):
+def _migrate_gradient_key(loss_dict: dict, old_key: str, grad_key: str) -> None:
     """
     If `old_key` exists in `loss_dict`, move it under
     loss_dict['energy']['gradients'][grad_key], creating the necessary nested dicts
     along the way.
+
+    :param loss_dict: The loss dictionary to be updated.
+    :param old_key: The old key to be moved.
+    :param grad_key: The new key under which the old key's value will be stored
     """
     if old_key in loss_dict:
         if "energy" not in loss_dict:
@@ -503,7 +522,11 @@ def _process_energy(
     """
     Ensure `loss_dict["energy"]` exists, reset its gradients, and add 'positions' /
     'strain' entries if requested by opts.
-    Returns (added_forces, added_strain) bools.
+
+    :param loss_dict: The loss dictionary to be updated.
+    :param opts: The options dictionary containing gradient settings.
+    :param template: The template dictionary to use for initializing new entries.
+    :return: A tuple of two booleans indicating whether forces and strain gradients
     """
     if "energy" not in loss_dict:
         loss_dict["energy"] = template.copy()
@@ -552,8 +575,7 @@ def check_units(
         )
 
     for actual_options_element, desired_options_element in zip(
-        actual_options,
-        desired_options,
+        actual_options, desired_options, strict=True
     ):
         actual_length_unit = actual_options_element["systems"]["length_unit"]
         desired_length_unit = desired_options_element["systems"]["length_unit"]

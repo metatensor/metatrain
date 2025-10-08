@@ -14,23 +14,30 @@ class RMSEAccumulator:
     """
 
     def __init__(self, separate_blocks: bool = False) -> None:
-        """Initialize the accumulator."""
         self.information: Dict[str, Tuple[float, int]] = {}
+        """A dictionary mapping each target key to a tuple containing the sum of
+        squared errors and the number of elements for which the error has been
+        computed."""
+
         self.separate_blocks = separate_blocks
+        """Whether the RMSE should be computed separately for each block in the
+        target and prediction ``TensorMap`` objects."""
 
     def update(
         self,
         predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
         extra_data: Optional[Dict[str, TensorMap]] = None,
-    ):
+    ) -> None:
         """Updates the accumulator with new predictions and targets.
 
         :param predictions: A dictionary of predictions, where the keys correspond
             to the keys in the targets dictionary, and the values are the predictions.
-
         :param targets: A dictionary of targets, where the keys correspond to the keys
             in the predictions dictionary, and the values are the targets.
+        :param extra_data: A dictionary of extra data, where the keys correspond to
+            mask keys (i.e. "{target_key}_mask"), and the values are the masks to apply
+            when computing the RMSE.
         """
 
         for key, target in targets.items():
@@ -50,7 +57,9 @@ class RMSEAccumulator:
                 key_to_write = copy.deepcopy(key)
                 if self.separate_blocks:
                     key_to_write += " ("
-                    for name, value in zip(block_key.names, block_key.values):
+                    for name, value in zip(
+                        block_key.names, block_key.values, strict=True
+                    ):
                         key_to_write += f"{name}={int(value)},"
                     key_to_write = key_to_write[:-1]
                     key_to_write += ")"
@@ -137,6 +146,8 @@ class RMSEAccumulator:
             of the distributed system.
         :param device: the local device to use for the computation. Only needed if
             ``is_distributed`` is :obj:`python:True`.
+
+        :return: The RMSE for each key.
         """
 
         if is_distributed:
@@ -166,24 +177,34 @@ class MAEAccumulator:
         block in the target and prediction ``TensorMap`` objects.
     """
 
+    information: Dict[str, Tuple[float, int]]
+    separate_blocks: bool
+
     def __init__(self, separate_blocks: bool = False) -> None:
-        """Initialize the accumulator."""
-        self.information: Dict[str, Tuple[float, int]] = {}
+        self.information = {}
+        """A dictionary mapping each target key to a tuple containing the sum of
+        absolute errors and the number of elements for which the error has been
+        computed."""
+
         self.separate_blocks = separate_blocks
+        """Whether the MAE should be computed separately for each block in the
+        target and prediction ``TensorMap`` objects."""
 
     def update(
         self,
         predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
         extra_data: Optional[Dict[str, TensorMap]] = None,
-    ):
+    ) -> None:
         """Updates the accumulator with new predictions and targets.
 
         :param predictions: A dictionary of predictions, where the keys correspond
             to the keys in the targets dictionary, and the values are the predictions.
-
         :param targets: A dictionary of targets, where the keys correspond to the keys
             in the predictions dictionary, and the values are the targets.
+        :param extra_data: A dictionary of extra data, where the keys correspond to
+            mask keys (i.e. "{target_key}_mask"), and the values are the masks to apply
+            when computing the MAE.
         """
 
         for key, target in targets.items():
@@ -203,7 +224,9 @@ class MAEAccumulator:
                 key_to_write = copy.deepcopy(key)
                 if self.separate_blocks:
                     key_to_write += " ("
-                    for name, value in zip(block_key.names, block_key.values):
+                    for name, value in zip(
+                        block_key.names, block_key.values, strict=True
+                    ):
                         key_to_write += f"{name}={int(value)},"
                     key_to_write = key_to_write[:-1]
                     key_to_write += ")"
@@ -289,6 +312,8 @@ class MAEAccumulator:
             of the distributed system.
         :param device: the local device to use for the computation. Only needed if
             ``is_distributed`` is :obj:`python:True`.
+
+        :return: The MAE for each key.
         """
 
         if is_distributed:
@@ -322,6 +347,8 @@ def get_selected_metric(metric_dict: Dict[str, float], selected_metric: str) -> 
         - "loss": return the loss value
         - "rmse_prod": return the product of all RMSEs
         - "mae_prod": return the product of all MAEs
+
+    :return: The value of the selected metric.
     """
     if selected_metric == "loss":
         metric = metric_dict["loss"]

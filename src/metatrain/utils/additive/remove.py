@@ -1,5 +1,5 @@
 import warnings
-from typing import Dict, List
+from typing import Callable, Dict, List, Tuple
 
 import metatensor.torch as mts
 import torch
@@ -17,14 +17,15 @@ def remove_additive(
     targets: Dict[str, TensorMap],
     additive_model: torch.nn.Module,
     target_info_dict: Dict[str, TargetInfo],
-):
+) -> Dict[str, TensorMap]:
     """Remove an additive contribution from the training targets.
 
     :param systems: List of systems.
     :param targets: Dictionary containing the targets corresponding to the systems.
     :param additive_model: The model used to calculate the additive
         contribution to be removed.
-    :param targets_dict: Dictionary containing information about the targets.
+    :param target_info_dict: Dictionary containing information about the targets.
+    :return: The updated targets, with the additive contribution removed.
     """
     warnings.filterwarnings(
         "ignore",
@@ -109,3 +110,42 @@ def remove_additive(
         )
 
     return targets
+
+
+def get_remove_additive_transform(
+    additive_models: List[torch.nn.Module],
+    target_info_dict: Dict[str, TargetInfo],
+) -> Callable:
+    """
+    Get a function that removes the additive contributions from the targets.
+
+    :param additive_models: A list of additive models to use to remove the
+        contributions.
+    :param target_info_dict: A dictionary containing information about the targets.
+    :return: A function that takes in systems, targets and extra data, and returns
+        the systems, updated targets and extra data.
+    """
+
+    def transform(
+        systems: List[System],
+        targets: Dict[str, TensorMap],
+        extra: Dict[str, TensorMap],
+    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+        """
+        Transform function that removes the additive contributions from the targets.
+
+        :param systems: List of systems.
+        :param targets: Dictionary containing the targets corresponding to the systems.
+        :param extra: Dictionary containing any extra data.
+        :return: The systems, updated targets and extra data.
+        """
+        for additive_model in additive_models:
+            new_targets = remove_additive(
+                systems,
+                targets,
+                additive_model,
+                target_info_dict,
+            )
+        return systems, new_targets, extra
+
+    return transform

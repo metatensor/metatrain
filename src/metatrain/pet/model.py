@@ -39,6 +39,9 @@ class PET(ModelInterface):
     Originally proposed in work (https://arxiv.org/abs/2305.19302v3),
     and published in the `pet` package (https://github.com/spozdn/pet).
 
+    :param hypers: Hyperparameters for the PET model. See the documentation for details.
+    :param dataset_info: Information about the dataset, including atomic types and
+        targets.
     """
 
     __checkpoint_version__ = 7
@@ -368,6 +371,7 @@ class PET(ModelInterface):
                             values=torch.arange(
                                 features.shape[-1], device=features.device
                             ).reshape(-1, 1),
+                            assume_unique=True,
                         ),
                     )
                 ],
@@ -417,7 +421,13 @@ class PET(ModelInterface):
         # per-node contribution.
 
         last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
-        for output_name in self.target_names:
+        for output_name in node_last_layer_features_dict.keys():
+            if (
+                output_name not in outputs
+                and f"mtt::aux::{output_name.replace('mtt::aux::', '')}_last_layer_features"  # noqa: E501
+                not in outputs
+            ):
+                continue
             if output_name not in last_layer_features_dict:
                 last_layer_features_dict[output_name] = []
             for i in range(len(node_last_layer_features_dict[output_name])):
@@ -440,14 +450,6 @@ class PET(ModelInterface):
                 "_last_layer_features", ""
             )
             # the corresponding output could be base_name or mtt::base_name
-            if (
-                f"mtt::{base_name}" not in last_layer_features_dict
-                and base_name not in last_layer_features_dict
-            ):
-                raise ValueError(
-                    f"Features {output_name} can only be requested "
-                    f"if the corresponding output {base_name} is also requested."
-                )
             if f"mtt::{base_name}" in last_layer_features_dict:
                 base_name = f"mtt::{base_name}"
             last_layer_features_values = torch.cat(
@@ -466,6 +468,7 @@ class PET(ModelInterface):
                                 last_layer_features_values.shape[-1],
                                 device=last_layer_features_values.device,
                             ).reshape(-1, 1),
+                            assume_unique=True,
                         ),
                     )
                 ],
@@ -615,6 +618,7 @@ class PET(ModelInterface):
                         self.output_shapes[output_name].values(),
                         self.component_labels[output_name],
                         self.property_labels[output_name],
+                        strict=True,
                     )
                 ]
                 atomic_predictions_tmap_dict[output_name] = TensorMap(
@@ -776,7 +780,7 @@ class PET(ModelInterface):
         self.output_shapes[target_name] = {}
         for key, block in target_info.layout.items():
             dict_key = target_name
-            for n, k in zip(key.names, key.values):
+            for n, k in zip(key.names, key.values, strict=True):
                 dict_key += f"_{n}_{int(k)}"
             self.output_shapes[target_name][dict_key] = [
                 len(comp.values) for comp in block.components
