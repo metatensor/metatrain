@@ -124,6 +124,8 @@ briefly explained below.
   the current directory and in the checkpoint directory. The default is ``rmse_prod``,
   i.e., the product of the RMSEs for each target. Other options are ``mae_prod`` and
   ``loss``.
+- ``num_workers``: Number of workers for data loading. If not provided, it is set
+  automatically.
 - ``loss``: this string parameter defines the type of loss to be used. It only takes
   one of the losses implemented within metatrain as valid parameters.
 

@@ -76,3 +76,9 @@ def trainer_update_v4_v5(checkpoint):
         "In order to use this checkpoint, you need metatrain 2025.10 or earlier. "
         "You can install it with `pip install metatrain==2025.10`."
     )
+
+
+def trainer_update_v5_v6(checkpoint):
+    # num_workers=0 means that the main process will do the data loading, which is
+    # equivalent to not setting it (this was the behavior before v6)
+    checkpoint["train_hypers"]["num_workers"] = 0
