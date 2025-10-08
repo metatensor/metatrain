@@ -819,18 +819,16 @@ class MemmapDataset(TorchDataset):
 
         # Information about the structures
         self.N = int(np.load(path / "N.npy"))
-        self.n = int(np.load(path / "n.npy"))
-        self.x = MemmapArray(path / "x.bin", (self.n[-1], 3), "float32", mode="r")
-        self.a = MemmapArray(path / "a.bin", (self.n[-1],), "int32", mode="r")
+        self.n = int(np.load(path / "n.npy")[-1])
+        self.x = MemmapArray(path / "x.bin", (self.n, 3), "float32", mode="r")
+        self.a = MemmapArray(path / "a.bin", (self.n,), "int32", mode="r")
         self.c = MemmapArray(path / "c.bin", (self.N, 3, 3), "float32", mode="r")
 
         # Register arrays pointing to the targets
         self.target_arrays = {}
         for target_key, single_target_options in target_options.items():
             data_key = single_target_options["key"]
-            number_of_samples = (
-                self.n[-1] if single_target_options["per_atom"] else self.N
-            )
+            number_of_samples = self.n if single_target_options["per_atom"] else self.N
             number_of_properties = single_target_options["num_subtargets"]
             if single_target_options["type"] == "scalar":
                 self.target_arrays[target_key] = MemmapArray(
@@ -848,7 +846,7 @@ class MemmapDataset(TorchDataset):
                     if single_target_options["forces"]:
                         self.target_arrays[f"{target_key}_forces"] = MemmapArray(
                             path / f"{single_target_options['forces']['key']}.bin",
-                            (self.n[-1], 3, 1),
+                            (self.n, 3, 1),
                             "float32",
                             mode="r",
                         )
@@ -903,7 +901,7 @@ class MemmapDataset(TorchDataset):
         target_dict = {}
         for target_key, target_options in self.target_config.items():
             target_array = self.target_arrays[target_key]
-            is_per_atom = target_array.shape[0] == (self.n[-1])
+            is_per_atom = target_array.shape[0] == self.n
             if is_per_atom:
                 samples = Labels(
                     names=["system", "atom"],
