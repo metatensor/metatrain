@@ -94,24 +94,53 @@ class RotationalAugmenter:
                     _complex_to_real_spherical_harmonics_transform(ell)
                 )
 
-    def apply_random_augmentations(
+    def apply_augmentations(
         self,
         systems: List[System],
         targets: Dict[str, TensorMap],
         extra_data: Optional[Dict[str, TensorMap]] = None,
+        rotations: Optional[List[Rotation]] = None,
+        inversions: Optional[List[int]] = None,
     ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
         """
-        Apply a random augmentation to a number of ``System`` objects and its targets.
+        Applies augmentations to a number of ``System`` objects and their targets.
+        
+        If the rotations and inversions are not provided, random ones will be generated
+        separately for each system.
 
         :param systems: A list of :class:`System` objects to be augmented.
         :param targets: A dictionary mapping target names to their corresponding
             :class:`TensorMap` objects. These are the targets to be augmented.
+        :param extra_data: An optional dictionary mapping extra data names to their
+            corresponding :class:`TensorMap` objects. This extra data will also be
+            augmented if provided.
+        :param rotations: An optional list of :class:`scipy.spatial.transform.Rotation
+            `Rotation` objects representing the rotations to be applied to each system.
+            If not provided, random rotations will be generated.
+        :param inversions: An optional list of integers (1 or -1) representing the
+            inversion factors to be applied to each system. If not provided, random
+            inversions will be generated.
 
         :return: A tuple containing the augmented systems and targets.
         """
+        # Randomly generate rotations and inversions if not provided
+        if rotations is None:
+            rotations = [get_random_rotation() for _ in range(len(systems))]
+        else:
+            if len(rotations) != len(systems):
+                raise ValueError(
+                    "The number of rotations must match the number of systems."
+                )
+        if inversions is None:
+            inversions = [get_random_inversion() for _ in range(len(systems))]
+        else:
+            if len(inversions) != len(systems):
+                raise ValueError(
+                    "The number of inversions must match the number of systems."
+                )
+            if any(i not in [1, -1] for i in inversions):
+                raise ValueError("Inversions must be either 1 or -1.")
 
-        rotations = [get_random_rotation() for _ in range(len(systems))]
-        inversions = [get_random_inversion() for _ in range(len(systems))]
         transformations = [
             torch.from_numpy(r.as_matrix() * i)
             for r, i in zip(rotations, inversions, strict=True)
@@ -170,7 +199,7 @@ class RotationalAugmenter:
                                     )
                                 wigner_D_matrices[ell] = wigner_D_matrices_l
 
-        return _apply_random_augmentations(
+        return _apply_augmentations(
             systems, targets, transformations, wigner_D_matrices, extra_data=extra_data
         )
 
@@ -222,7 +251,7 @@ def _apply_wigner_D_matrices(
 
 
 @torch_jit_script_unless_coverage  # script for speed
-def _apply_random_augmentations(
+def _apply_augmentations(
     systems: List[System],
     targets: Dict[str, TensorMap],
     transformations: List[torch.Tensor],

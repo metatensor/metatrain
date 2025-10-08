@@ -1,11 +1,19 @@
 import sys
 
+import numpy as np
 import pytest
 import torch
+
+import metatensor.torch as mts
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatrain.utils.augmentation import RotationalAugmenter
-from metatrain.utils.data import TargetInfo
+from metatrain.utils.data import DiskDataset, DatasetInfo, TargetInfo
+from metatrain.utils.data.target_info import get_generic_target_info
+
+from scipy.spatial.transform import Rotation
+
+from . import RESOURCES_PATH
 
 
 @pytest.fixture
@@ -46,6 +54,183 @@ def layout_spherical():
             ),
         ],
     )
+
+
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_rotation_per_structure_spherical(batch_size):
+    """Tests that the rotational augmenter rotates a dipole moment consistent with
+    targets computed from DFT"""
+
+    target_name = "mtt::dipole_moment"
+
+    # Hard-coded rotation matrix
+    R = np.array(
+        [
+            [0.22922512, -0.15149287, 0.96151222],
+            [0.66175278, -0.70015582, -0.26807664],
+            [0.71382008, 0.69773328, -0.06024247],
+        ]
+    )
+
+    # Load the target data
+    dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
+    dataset_rotated = DiskDataset(RESOURCES_PATH / "spherical_targets_rotated.zip")
+    X = [
+        sample["system"].to(torch.float64)
+        for i, sample in enumerate(dataset_unrotated)
+        if i < batch_size
+    ]
+    RX = [
+        sample["system"].to(torch.float64)
+        for i, sample in enumerate(dataset_rotated)
+        if i < batch_size
+    ]
+    fX = mts.join(
+        [
+            sample[target_name]
+            for i, sample in enumerate(dataset_unrotated)
+            if i < batch_size
+        ],
+        "samples",
+        remove_tensor_name=True,
+    )
+    fRX = mts.join(
+        [
+            sample[target_name]
+            for i, sample in enumerate(dataset_rotated)
+            if i < batch_size
+        ],
+        "samples",
+        remove_tensor_name=True,
+    )
+
+    # Init the RotationalAugmenter
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 8],
+        targets={
+            target_name: get_generic_target_info(
+                target_name,
+                {
+                    "quantity": "spherical",
+                    "unit": "",
+                    "type": {
+                        "spherical": {
+                            "irreps": [
+                                {"o3_lambda": 1, "o3_sigma": 1},  # dipole
+                            ]
+                        }
+                    },
+                    "per_atom": False,
+                    "num_subtargets": 1,
+                },
+            )
+        },
+    )
+    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+
+    # Apply the augmentation to the target
+    _, RfX, _ = rotational_augmenter.apply_augmentations(
+        X,
+        {target_name: fX},
+        extra_data={},
+        rotations=[Rotation.from_matrix(R.T)] * batch_size,
+        inversions=[1] * batch_size,
+    )
+    RfX = RfX[target_name]
+
+    # Check that the rotated target matches the reference
+    mts.allclose_raise(RfX, fRX, atol=1e-5)
+
+
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_rotation_per_atom_spherical(batch_size):
+    """Tests that the rotational augmenter rotates a dipole moment consistent with
+    targets computed from DFT"""
+
+    target_name = "mtt::electron_density_basis_projs"
+
+    # Hard-coded rotation matrix used to generate the system for which DFT was run
+    R = np.array(
+        [
+            [0.22922512, -0.15149287, 0.96151222],
+            [0.66175278, -0.70015582, -0.26807664],
+            [0.71382008, 0.69773328, -0.06024247],
+        ]
+    )
+
+    # Load the target data
+    dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
+    dataset_rotated = DiskDataset(RESOURCES_PATH / "spherical_targets_rotated.zip")
+    X = [
+        sample["system"].to(torch.float64)
+        for i, sample in enumerate(dataset_unrotated)
+        if i < batch_size
+    ]
+    RX = [
+        sample["system"].to(torch.float64)
+        for i, sample in enumerate(dataset_rotated)
+        if i < batch_size
+    ]
+    fX = mts.join(
+        [
+            sample[target_name]
+            for i, sample in enumerate(dataset_unrotated)
+            if i < batch_size
+        ],
+        "samples",
+        remove_tensor_name=True,
+    )
+    fRX = mts.join(
+        [
+            sample[target_name]
+            for i, sample in enumerate(dataset_rotated)
+            if i < batch_size
+        ],
+        "samples",
+        remove_tensor_name=True,
+    )
+
+    # Init the RotationalAugmenter
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 8],
+        targets={
+            target_name: get_generic_target_info(
+                target_name,
+                {
+                    "quantity": "spherical",
+                    "unit": "",
+                    "type": {
+                        "spherical": {
+                            "irreps": [
+                                {"o3_lambda": 0, "o3_sigma": 1},
+                                {"o3_lambda": 1, "o3_sigma": 1},
+                                {"o3_lambda": 2, "o3_sigma": 1},
+                                {"o3_lambda": 3, "o3_sigma": 1},
+                            ]
+                        }
+                    },
+                    "per_atom": False,
+                    "num_subtargets": 1,
+                },
+            )
+        },
+    )
+    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+
+    # Apply the augmentation to the target
+    _, RfX, _ = rotational_augmenter.apply_augmentations(
+        X,
+        {target_name: fX},
+        extra_data={},
+        rotations=[Rotation.from_matrix(R.T)] * batch_size,
+        inversions=[1] * batch_size,
+    )
+    RfX = RfX[target_name]
+
+    # Check that the rotated target matches the reference
+    mts.allclose_raise(RfX, fRX, atol=1e-5)
 
 
 def test_missing_library(monkeypatch, layout_spherical):
