@@ -163,7 +163,7 @@ class EMAScheduler(WeightScheduler):
                             values=torch.ones_like(block.values) * mean_block.values,
                         )
                         for block, mean_block in zip(
-                            tensor_map_for_target, mean_tensor_map
+                            tensor_map_for_target, mean_tensor_map, strict=True
                         )
                     ],
                 )

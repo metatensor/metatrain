@@ -71,7 +71,7 @@ def test_read_energy_ase(tmpdir):
         ase.io.write(filename, systems)
         results = _read_energy_ase(filename=filename, key="true_energy")
 
-    for result, atoms in zip(results, systems):
+    for result, atoms in zip(results, systems, strict=True):
         expected = torch.tensor([[atoms.info["true_energy"]]], dtype=torch.float64)
         torch.testing.assert_close(result.values, expected)
 
@@ -109,7 +109,7 @@ def test_read_forces_ase(monkeypatch, tmp_path):
 
     results = _read_forces_ase(filename=filename, key="forces")
 
-    for result, atoms in zip(results, systems):
+    for result, atoms in zip(results, systems, strict=True):
         expected = -torch.tensor(atoms.arrays["forces"], dtype=torch.float64)
         expected = expected.reshape(-1, 3, 1)
         torch.testing.assert_close(result.values, expected)
@@ -125,7 +125,7 @@ def test_read_stress_ase(monkeypatch, tmp_path):
 
     results = _read_stress_ase(filename=filename, key="stress-3x3")
 
-    for result, atoms in zip(results, systems):
+    for result, atoms in zip(results, systems, strict=True):
         expected = atoms.cell.volume * torch.tensor(
             atoms.info["stress-3x3"], dtype=torch.float64
         )
@@ -158,7 +158,7 @@ def test_read_virial_ase(monkeypatch, tmp_path):
 
     results = _read_virial_ase(filename=filename, key="stress-3x3")
 
-    for result, atoms in zip(results, systems):
+    for result, atoms in zip(results, systems, strict=True):
         expected = -torch.tensor(atoms.info["stress-3x3"], dtype=torch.float64)
         expected = expected.reshape(-1, 3, 3, 1)
         torch.testing.assert_close(result.values, expected)
