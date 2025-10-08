@@ -82,8 +82,8 @@ training.
 
   Note that in ``targets`` we use the PET-MAD ``energy`` head. This means, that there won't be a new head
   for the new reference energies provided in your dataset. This can lead to bad performance, if the reference
-  energies differ from the ones used in pretraining (different levels of theory, or different electronic structure 
-  software used). In future it is recommended to create a new ``energy`` target for the new level of theory. 
+  energies differ from the ones used in pretraining (different levels of theory, or different electronic structure
+  software used). In future it is recommended to create a new ``energy`` target for the new level of theory.
   Find more about this in :ref:`Transfer-Learning <transfer-learning>`
 
 
