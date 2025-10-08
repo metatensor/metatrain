@@ -1074,6 +1074,8 @@ class MemmapDataset(TorchDataset):
     def get_target_info(self) -> Dict[str, TargetInfo]:
         """
         Get information about the targets in the dataset.
+
+        :return: A dictionary mapping target names to :py:class:`TargetInfo` objects.
         """
         target_info_dict = {}
         for target_key, target in self.target_config.items():

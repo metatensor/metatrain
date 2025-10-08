@@ -77,7 +77,6 @@ s_mm.flush()
 # For example, you can use the following options file:
 #
 # .. literalinclude:: options.yaml
-#    :language: yaml
 #
 
 subprocess.run(["mtt", "train", "options.yaml"])
