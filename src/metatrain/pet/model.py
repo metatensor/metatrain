@@ -334,6 +334,11 @@ class PET(ModelInterface):
 
         # Stage 1. We iterate over the GNN layers and calculate the node and edge
         # representations for structures, following the selected featurization strategy.
+        # If the "feedforward" featurization is selected, we iterate the features
+        # through the GNN layers `num_gnn_layers` times, and use only the features
+        # from the last layer for the readout. If the "residual" featurization
+        # we save the preliminary features from each GNN layer, and use all of them
+        # during the readout.
 
         featurizer_inputs: Dict[str, torch.Tensor] = dict(
             element_indices_nodes=element_indices_nodes,
@@ -354,18 +359,8 @@ class PET(ModelInterface):
         # on top of the node features
 
         if self.long_range:
-            if self.training:
-                # Currently, the long-range implementation show instabilities
-                # during training if P3MCalculator is used instead of the
-                # EwaldCalculator. We will use the EwaldCalculator for training.
-                self.long_range_featurizer.use_ewald = True
-            flattened_lengths = edge_distances[padding_mask]
-            short_range_features = (
-                torch.stack(node_features_list).sum(dim=0)
-                * (1 / len(node_features_list)) ** 0.5
-            )
-            long_range_features = self.long_range_featurizer(
-                systems, short_range_features, flattened_lengths
+            long_range_features = self._calculate_long_range_features(
+                systems, node_features_list, edge_distances, padding_mask
             )
             for i in range(len(self.gnn_layers)):
                 node_features_list[i] = (
@@ -581,6 +576,28 @@ class PET(ModelInterface):
             return self._feedforward_featurization_impl(inputs, use_manual_attention)
         else:
             return self._residual_featurization_impl(inputs, use_manual_attention)
+
+    def _calculate_long_range_features(
+        self,
+        systems: List[System],
+        node_features_list: List[torch.Tensor],
+        edge_distances: torch.Tensor,
+        padding_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.training:
+            # Currently, the long-range implementation show instabilities
+            # during training if P3MCalculator is used instead of the
+            # EwaldCalculator. We will use the EwaldCalculator for training.
+            self.long_range_featurizer.use_ewald = True
+        flattened_lengths = edge_distances[padding_mask]
+        short_range_features = (
+            torch.stack(node_features_list).sum(dim=0)
+            * (1 / len(node_features_list)) ** 0.5
+        )
+        long_range_features = self.long_range_featurizer(
+            systems, short_range_features, flattened_lengths
+        )
+        return long_range_features
 
     def _get_output_features(
         self,
