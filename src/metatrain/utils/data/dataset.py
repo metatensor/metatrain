@@ -829,7 +829,7 @@ def _make_system_contiguous(system: System) -> System:
 class MemmapArray:
     """Small helper to reopen np.memmap lazily in each worker."""
 
-    def __init__(self, path, shape, dtype, mode="r"):
+    def __init__(self, path, shape, dtype, mode="r") -> None:
         self.path = str(path)
         self.shape = tuple(shape)
         self.dtype = np.dtype(dtype)
@@ -842,11 +842,11 @@ class MemmapArray:
                 self.path, dtype=self.dtype, mode=self.mode, shape=self.shape
             )
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> np.ndarray:
         self._ensure_open()
         return self._mm[idx]
 
-    def close(self):
+    def close(self) -> None:
         if self._mm is not None:
             # np.memmap closes when deleted; explicit close via _mmap isn't public.
             self._mm._mmap.close()
@@ -862,6 +862,7 @@ class MemmapDataset(TorchDataset):
 
     The dataset is stored in a directory, where the dataset is stored in a set of
     memory-mapped numpy arrays. These are:
+
     - ns.npy: total number of structures in the dataset. Shape: (1,).
     - na.npy: cumulative number of atoms per structure. na[-1] therefore corresponds to
         the total number of atoms in the dataset. Shape: (ns+1,).
