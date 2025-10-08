@@ -43,7 +43,7 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 # reference calculations may be located at different directories we first create a
 # list of all path that we want to read from. Here, for simplicity, we assume that all
 # files are located in the same directory.
-# 
+#
 # .. _ASE: https://ase-lib.org/
 
 filelist = 100 * ["qm9_reduced_100.xyz"]
