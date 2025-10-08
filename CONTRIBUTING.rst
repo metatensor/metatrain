@@ -110,6 +110,8 @@ machine as described above. Then, build the documentation with
 .. code-block:: bash
 
     tox -e docs
+    # Optional: Prepend TRAIN=0 to skip training models when generating documentation 
+    TRAIN=0 tox -e docs
 
 You can then visualize the local documentation with your favorite browser using the
 following command (or open the :file:`docs/build/html/index.html` file manually).
