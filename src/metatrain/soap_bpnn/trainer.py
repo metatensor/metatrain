@@ -182,7 +182,9 @@ class Trainer(TrainerInterface):
             validate_num_workers(num_workers)
 
         train_dataloaders = []
-        for train_dataset, train_sampler in zip(train_datasets, train_samplers):
+        for train_dataset, train_sampler in zip(
+            train_datasets, train_samplers, strict=True
+        ):
             if len(train_dataset) < self.hypers["batch_size"]:
                 raise ValueError(
                     f"A training dataset has fewer samples "
@@ -211,7 +213,7 @@ class Trainer(TrainerInterface):
 
         # Create dataloader for the validation datasets:
         val_dataloaders = []
-        for val_dataset, val_sampler in zip(val_datasets, val_samplers):
+        for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
             if len(val_dataset) < self.hypers["batch_size"]:
                 raise ValueError(
                     f"A validation dataset has fewer samples "

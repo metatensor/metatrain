@@ -34,6 +34,7 @@ Changed
   old composition model has been removed.
 - The ``LLPR`` module is now a stable architecture, instead of a utility module. It can
   be trained from the command line in the same way as other architectures.
+- We now require Python >= 3.10
 
 Version 2025.10 - 2025-09-09
 ----------------------------

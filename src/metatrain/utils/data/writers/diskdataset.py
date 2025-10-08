@@ -39,7 +39,7 @@ class DiskDatasetWriter(Writer):
                 systems, predictions, istart_system=self.index
             )
 
-        for system, preds in zip(systems, split_predictions):
+        for system, preds in zip(systems, split_predictions, strict=True):
             # system
             with self.zip_file.open(f"{self.index}/system.mta", "w") as f:
                 mta.save(f, system.to("cpu").to(torch.float64))

@@ -99,7 +99,7 @@ class WandbHandler(logging.Handler):
         _validate_length(keys, values, units)
 
         data = {}
-        for key, value, unit in zip(keys, values, units):
+        for key, value, unit in zip(keys, values, units, strict=True):
             # Cleanup to prevent from grouping metrics by text before the last "/".
             clean_key = self._clean_key(key)
             clean_unit = self._clean_unit(unit)
@@ -199,7 +199,7 @@ class MetricLogger:
         # number of digits at the start of the training, so that we can align
         # the output later:
         self.digits = {}
-        for name, metrics_dict in zip(names, initial_metrics):
+        for name, metrics_dict in zip(names, initial_metrics, strict=True):
             for key, value in metrics_dict.items():
                 value *= scales[key]
                 target_name = key.split(maxsplit=1)[0]
@@ -253,7 +253,7 @@ class MetricLogger:
             metrics = [metrics]
 
         is_training = False
-        for name, metrics_dict in zip(self.names, metrics):
+        for name, metrics_dict in zip(self.names, metrics, strict=True):
             for key in _sort_metric_names(metrics_dict.keys()):
                 value = metrics_dict[key] * self.scales[key]
 
@@ -292,7 +292,7 @@ class MetricLogger:
         # double space when joining metric below
         formatted_metrics = [
             f"{key}: {value}{f' {unit}' if unit else ''}"
-            for key, value, unit in zip(keys, values, units)
+            for key, value, unit in zip(keys, values, units, strict=True)
         ]
 
         logging.info(" | ".join(formatted_metrics))

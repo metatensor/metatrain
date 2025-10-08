@@ -206,7 +206,7 @@ class TargetInfo:
         """Set the attribute storing the shapes of the blocks in layout."""
         for key, block in self.layout.items():
             dict_key = self.quantity
-            for n, k in zip(key.names, key.values):
+            for n, k in zip(key.names, key.values, strict=True):
                 dict_key += f"_{n}_{int(k)}"
             self.blocks_shape[dict_key] = [
                 len(comp.values) for comp in block.components

@@ -113,7 +113,8 @@ class RotationalAugmenter:
         rotations = [get_random_rotation() for _ in range(len(systems))]
         inversions = [get_random_inversion() for _ in range(len(systems))]
         transformations = [
-            torch.from_numpy(r.as_matrix() * i) for r, i in zip(rotations, inversions)
+            torch.from_numpy(r.as_matrix() * i)
+            for r, i in zip(rotations, inversions, strict=True)
         ]
 
         wigner_D_matrices = {}
@@ -133,7 +134,9 @@ class RotationalAugmenter:
                 if extra_data is not None
                 else [self.target_info_dict]
             )
-            for tensormap_dict, info_dict in zip(tensormap_dicts, info_dicts):
+            for tensormap_dict, info_dict in zip(
+                tensormap_dicts, info_dicts, strict=True
+            ):
                 for name in tensormap_dict.keys():
                     if name.endswith("_mask"):
                         # skip loss masks
@@ -191,7 +194,7 @@ def _apply_wigner_D_matrices(
         new_values = []
         ell = (len(block.components[0]) - 1) // 2
         for v, transformation, wigner_D_matrix in zip(
-            split_values, transformations, wigner_D_matrices[ell]
+            split_values, transformations, wigner_D_matrices[ell], strict=True
         ):
             is_inverted = torch.det(transformation) < 0
             new_v = v.clone()
@@ -229,7 +232,7 @@ def _apply_random_augmentations(
     # Apply the transformations to the systems
 
     new_systems: List[System] = []
-    for system, transformation in zip(systems, transformations):
+    for system, transformation in zip(systems, transformations, strict=True):
         new_system = System(
             positions=system.positions @ transformation.T,
             types=system.types,
@@ -261,7 +264,7 @@ def _apply_random_augmentations(
             new_extra_data[key] = extra_data.pop(key)
 
     for tensormap_dict, new_dict in zip(
-        [targets, extra_data], [new_targets, new_extra_data]
+        [targets, extra_data], [new_targets, new_extra_data], strict=True
     ):
         if tensormap_dict is None:
             continue
@@ -362,7 +365,9 @@ def _apply_random_augmentations(
                     else:
                         split_vectors = torch.split(vectors, [1 for _ in systems])
                     new_vectors = []
-                    for v, transformation in zip(split_vectors, transformations):
+                    for v, transformation in zip(
+                        split_vectors, transformations, strict=True
+                    ):
                         # fold property dimension in, apply transformation,
                         # unfold property dimension
                         new_v = v.transpose(1, 2)
@@ -392,7 +397,9 @@ def _apply_random_augmentations(
                     else:
                         split_tensors = torch.split(tensor, [1 for _ in systems])
                     new_tensors = []
-                    for tensor, transformation in zip(split_tensors, transformations):
+                    for tensor, transformation in zip(
+                        split_tensors, transformations, strict=True
+                    ):
                         new_tensor = torch.einsum(
                             "Aa,iabp,bB->iABp", transformation, tensor, transformation.T
                         )

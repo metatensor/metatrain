@@ -47,7 +47,9 @@ class ASEWriter(Writer):
         predictions_by_structure = self._preds
 
         frames = []
-        for system, system_predictions in zip(systems, predictions_by_structure):
+        for system, system_predictions in zip(
+            systems, predictions_by_structure, strict=True
+        ):
             info = {}
             arrays = {}
             for target_name, target_map in system_predictions.items():

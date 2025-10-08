@@ -43,7 +43,7 @@ def batch_to(
                 new_dtypes.append(dtype)
         extra_data = {
             key: value.to(dtype=_dtype, device=device, non_blocking=non_blocking)
-            for (key, value), _dtype in zip(extra_data.items(), new_dtypes)
+            for (key, value), _dtype in zip(extra_data.items(), new_dtypes, strict=True)
         }
 
     return systems, targets, extra_data
