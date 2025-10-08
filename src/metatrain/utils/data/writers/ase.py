@@ -13,7 +13,13 @@ from .writers import Writer, _split_tensormaps
 
 
 class ASEWriter(Writer):
-    """Write systems and predictions to an ASE-compatible XYZ file."""
+    """
+    Write systems and predictions to an ASE-compatible XYZ file.
+
+    :param filename: Path to the output XYZ file.
+    :param capabilities: Model capabilities (unused, but matches base signature).
+    :param append: If True, append to the existing file, otherwise overwrite.
+    """
 
     def __init__(
         self,
@@ -29,14 +35,17 @@ class ASEWriter(Writer):
         self._systems: List[System] = []
         self._preds: List[Dict[str, TensorMap]] = []
 
-    def write(self, systems: List[System], predictions: Dict[str, TensorMap]):
+    def write(self, systems: List[System], predictions: Dict[str, TensorMap]) -> None:
         """
         Accumulate systems and predictions to write them all at once in ``finish``.
+
+        :param systems: List of systems to write.
+        :param predictions: Dictionary of TensorMaps with predictions for the systems.
         """
         self._systems.extend([system.to("cpu").to(torch.float64) for system in systems])
         self._preds.extend(_split_tensormaps(systems, predictions))
 
-    def finish(self):
+    def finish(self) -> None:
         """
         Write all accumulated systems and predictions to the XYZ file.
         """
@@ -77,6 +86,7 @@ class ASEWriter(Writer):
                 for gradient_name, gradient_block in block.gradients():
                     # we assume that gradients are always an array, never a scalar
                     internal_name = f"{target_name}_{gradient_name}_gradients"
+                    assert self.capabilities is not None
                     external_name = to_external_name(
                         internal_name, self.capabilities.outputs
                     )

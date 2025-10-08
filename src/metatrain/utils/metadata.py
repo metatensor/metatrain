@@ -1,13 +1,25 @@
-import collections.abc
 import json
-from typing import Optional
+from collections.abc import Mapping, MutableMapping
+from typing import Any, Optional, TypeVar
 
 from metatomic.torch import ModelMetadata
 
 
-def update(d, u):
+_MutableMappingType = TypeVar("_MutableMappingType", bound=MutableMapping)
+
+
+def update(d: _MutableMappingType, u: Mapping[Any, Any]) -> _MutableMappingType:
+    """Recursively update a mapping (e.g. a dictionary).
+
+    :param d: The mapping to be updated. It will be modified in place, so this
+        has to be a mutable mapping, like a dictionary.
+    :param u: The mapping with the updates.
+
+    :return: The updated mapping. The update is done in place, so the
+        returned mapping is the same object as the input mapping ``d``.
+    """
     for k, v in u.items():
-        if isinstance(v, collections.abc.Mapping):
+        if isinstance(v, Mapping):
             d[k] = update(d.get(k, {}), v)
         elif isinstance(v, list):
             if k in d:
@@ -28,6 +40,8 @@ def merge_metadata(
 
     :param self: The metadata object to be updated.
     :param other: The metadata object to merged to self. If None, return self.
+
+    :return: A new ModelMetadata object with the merged information.
     """
 
     if other is None:

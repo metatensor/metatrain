@@ -5,7 +5,7 @@ import csv
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -25,7 +25,7 @@ except ImportError:
     Run = None
 
 
-def _validate_length(keys: List[str], values: List[str], units: List[str]):
+def _validate_length(keys: List[str], values: List[str], units: List[str]) -> None:
     if not (len(keys) == len(values) == len(units)):
         raise ValueError(
             f"keys, values and units must have the same length: "
@@ -34,17 +34,26 @@ def _validate_length(keys: List[str], values: List[str], units: List[str]):
 
 
 class CSVFileHandler(logging.FileHandler):
-    """A custom FileHandler for logging data in CSV format."""
+    r"""
+    A custom FileHandler for logging data in CSV format.
 
-    def __init__(self, *args, **kwargs):
+    :param \*args: Arguments passed to :py:class:`logging.FileHandler`.
+    :param \*\*kwargs: Keyword arguments passed to :py:class:`logging.FileHandler`.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._header_written = False
 
-    def emit(self, record: logging.LogRecord):
-        """Override the default behavior preventing any output to the default log."""
+    def emit(self, record: logging.LogRecord) -> None:
+        """
+        Override the default behavior preventing any output to the default log.
+
+        :param record: Log record (ignored).
+        """
         pass
 
-    def emit_data(self, keys: List[str], values: List[str], units: List[str]):
+    def emit_data(self, keys: List[str], values: List[str], units: List[str]) -> None:
         """Write structured data to the CSV file.
 
         ``keys`` and ``values`` are written only the first time this methods is called.
@@ -85,11 +94,15 @@ class WandbHandler(logging.Handler):
     def _clean_unit(self, unit: str) -> str:
         return unit.replace("/", " per ") if unit else unit
 
-    def emit(self, record: logging.LogRecord):
-        """Override default behavior to ignore standard log records."""
+    def emit(self, record: logging.LogRecord) -> None:
+        """
+        Override default behavior to ignore standard log records.
+
+        :param record: Log record (ignored).
+        """
         pass
 
-    def emit_data(self, keys: List[str], values: List[str], units: List[str]):
+    def emit_data(self, keys: List[str], values: List[str], units: List[str]) -> None:
         """Log structured data to Weights & Biases.
 
         :param keys: Column header names
@@ -110,7 +123,7 @@ class WandbHandler(logging.Handler):
         epoch = int(data.pop("Epoch"))
         self.run.log(data, step=epoch, commit=True)
 
-    def close(self):
+    def close(self) -> None:
         super().close()
         self.run.finish()
 
@@ -118,7 +131,7 @@ class WandbHandler(logging.Handler):
 class CustomLogger(logging.Logger):
     """Custom logger to log structured data."""
 
-    def data(self, keys: List[str], values: List[str], units: List[str]):
+    def data(self, keys: List[str], values: List[str], units: List[str]) -> None:
         """Logs data entries to handlers that support an ``emit_data`` method.
 
         :param keys: Column header names
@@ -141,6 +154,24 @@ ROOT_LOGGER = logging.getLogger(name="metatrain")
 
 
 class MetricLogger:
+    """
+    Simple interface to log training metrics logging instance.
+
+    Initialize the metric logger. The logger is initialized with the initial metrics
+    and names relative to the metrics (e.g., "train", "validation").
+
+    In this way, and by assuming that these metrics never increase, the logger can
+    align the output to make it easier to read.
+
+    :param log_obj: A logging instance
+    :param dataset_info: Information about the dataset in the form of either a
+        :py:class:`DatasetInfo` or a :py:class:`ModelCapabilities` object.
+    :param initial_metrics: initial training metrics
+    :param names: names of the metrics (e.g., "train", "validation")
+    :param scales: scales for the metrics. If not provided, all metrics will be
+        scaled by 1.0
+    """
+
     def __init__(
         self,
         log_obj: Union[logging.Logger, CustomLogger],
@@ -149,23 +180,6 @@ class MetricLogger:
         names: Union[str, List[str]] = "",
         scales: Optional[Dict[str, float]] = None,
     ):
-        """
-        Simple interface to log training metrics logging instance.
-
-        Initialize the metric logger. The logger is initialized with the initial metrics
-        and names relative to the metrics (e.g., "train", "validation").
-
-        In this way, and by assuming that these metrics never increase, the logger can
-        align the output to make it easier to read.
-
-        :param log_obj: A logging instance
-        :param model_outputs: outputs of the model. Used to infer physical quantities
-            and units
-        :param initial_metrics: initial training metrics
-        :param names: names of the metrics (e.g., "train", "validation")
-        :param scales: scales for the metrics. If not provided, all metrics will be
-            scaled by 1.0
-        """
         self.log_obj = log_obj
 
         # Length units will be used to infer units of forces/virials
@@ -218,7 +232,7 @@ class MetricLogger:
         epoch: Optional[int] = None,
         rank: Optional[int] = None,
         learning_rate: Optional[float] = None,
-    ):
+    ) -> None:
         """
         Log the metrics.
 
@@ -231,6 +245,7 @@ class MetricLogger:
             metric in the ``metrics`` dictionary.
         :param rank: The rank of the process, if the training is distributed. In that
             case, the logger will only print the metrics for the process with rank 0.
+        :param learning_rate: The current learning rate (optional).
         """
         if rank and rank != 0:
             return
@@ -325,6 +340,8 @@ def _get_digits(value: float) -> Tuple[int, int]:
     5 "significant" digits are guaranteed to be printed.
 
     :param value: The value for which the number of digits is calculated.
+    :return: A tuple with the total number of characters and the number of digits
+        after the decimal point.
     """
 
     # Get order of magnitude of the value:
@@ -352,7 +369,7 @@ def setup_logging(
     log_obj: logging.Logger,
     log_file: Optional[Union[str, Path]] = None,
     level: int = logging.WARNING,
-):
+) -> Generator[None, None, None]:
     """Create a logging environment for a given ``log_obj``.
 
     Extracted and adjusted from
@@ -429,6 +446,7 @@ def get_cli_input(argv: Optional[List[str]] = None) -> str:
 
     :param argv: List of strings to parse. If :py:obj:`None` taken from
         :py:obj:`sys.argv`.
+    :return: A string representing the command line input.
     """
     if argv is None:
         argv = sys.argv
@@ -439,7 +457,7 @@ def get_cli_input(argv: Optional[List[str]] = None) -> str:
     return f"{program_name} {' '.join(arguments)}"
 
 
-def _sort_metric_names(name_list):
+def _sort_metric_names(name_list: Any) -> List[str]:
     name_list = list(name_list)
     sorted_name_list = []
     if "loss" in name_list:
