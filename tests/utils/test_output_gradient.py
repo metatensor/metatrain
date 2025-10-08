@@ -78,7 +78,7 @@ def test_forces(is_training):
         -position_gradient for position_gradient in jitted_position_gradients
     ]
 
-    for f, jf in zip(forces, jitted_forces):
+    for f, jf in zip(forces, jitted_forces, strict=True):
         torch.testing.assert_close(f, jf)
 
 
@@ -113,7 +113,7 @@ def test_virial(is_training):
             types=system.types,
             pbc=system.pbc,
         )
-        for system, strain in zip(systems, strains)
+        for system, strain in zip(systems, strains, strict=True)
     ]
 
     requested_neighbor_lists = get_requested_neighbor_lists(model)
@@ -144,7 +144,7 @@ def test_virial(is_training):
             types=system.types,
             pbc=system.pbc,
         )
-        for system, strain in zip(systems, strains)
+        for system, strain in zip(systems, strains, strict=True)
     ]
 
     systems = [
@@ -159,7 +159,7 @@ def test_virial(is_training):
     )
     jitted_virial = [-cell_gradient for cell_gradient in jitted_strain_gradients]
 
-    for v, jv in zip(virial, jitted_virial):
+    for v, jv in zip(virial, jitted_virial, strict=True):
         torch.testing.assert_close(v, jv)
 
 
@@ -198,7 +198,7 @@ def test_both(is_training):
             types=system.types,
             pbc=system.pbc,
         )
-        for system, strain in zip(systems, strains)
+        for system, strain in zip(systems, strains, strict=True)
     ]
 
     requested_neighbor_lists = get_requested_neighbor_lists(model)
@@ -227,7 +227,7 @@ def test_both(is_training):
             types=system.types,
             pbc=system.pbc,
         )
-        for system, strain in zip(systems, strains)
+        for system, strain in zip(systems, strains, strict=True)
     ]
 
     jitted_model = torch.jit.script(model)
@@ -243,5 +243,5 @@ def test_both(is_training):
     )
     jitted_f_and_v = [-jitted_gradient for jitted_gradient in jitted_gradients]
 
-    for fv, jfv in zip(f_and_v, jitted_f_and_v):
+    for fv, jfv in zip(f_and_v, jitted_f_and_v, strict=True):
         torch.testing.assert_close(fv, jfv)
