@@ -554,6 +554,23 @@ class PET(ModelInterface):
 
         return return_dict
 
+    @torch.compile(
+        mode="max-autotune",
+        dynamic=True,
+        fullgraph=True,
+    )
+    def _calculate_features(
+        self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        """
+        Calculate node and edge features using the selected featurization strategy.
+        Returns lists of feature tensors from GNN layers.
+        """
+        if self.featurizer_type == "feedforward":
+            return self._feedforward_featurization_impl(inputs, use_manual_attention)
+        else:
+            return self._residual_featurization_impl(inputs, use_manual_attention)
+
     def _feedforward_featurization_impl(
         self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
@@ -568,7 +585,7 @@ class PET(ModelInterface):
         input_node_embeddings = self.node_embedders[0](inputs["element_indices_nodes"])
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
         for combination_norm, combination_mlp, gnn_layer in zip(
-            self.combination_norms, self.combination_mlps, self.gnn_layers, strict=False
+            self.combination_norms, self.combination_mlps, self.gnn_layers, strict=True
         ):
             output_node_embeddings, output_edge_embeddings = gnn_layer(
                 input_node_embeddings,
@@ -614,13 +631,12 @@ class PET(ModelInterface):
         edge_features_list: List[torch.Tensor] = []
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
         for node_embedder, gnn_layer in zip(
-            self.node_embedders, self.gnn_layers, strict=False
+            self.node_embedders, self.gnn_layers, strict=True
         ):
             input_node_embeddings = node_embedder(inputs["element_indices_nodes"])
             output_node_embeddings, output_edge_embeddings = gnn_layer(
                 input_node_embeddings,
                 input_edge_embeddings,
-                inputs["element_indices_nodes"],
                 inputs["element_indices_neighbors"],
                 inputs["edge_vectors"],
                 inputs["padding_mask"],
@@ -640,23 +656,6 @@ class PET(ModelInterface):
             ]
             input_edge_embeddings = 0.5 * (input_edge_embeddings + new_input_messages)
         return node_features_list, edge_features_list
-
-    @torch.compile(
-        mode="max-autotune",
-        dynamic=True,
-        fullgraph=True,
-    )
-    def _calculate_features(
-        self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
-    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
-        """
-        Calculate node and edge features using the selected featurization strategy.
-        Returns lists of feature tensors from GNN layers.
-        """
-        if self.featurizer_type == "feedforward":
-            return self._feedforward_featurization_impl(inputs, use_manual_attention)
-        else:
-            return self._residual_featurization_impl(inputs, use_manual_attention)
 
     def _calculate_long_range_features(
         self,

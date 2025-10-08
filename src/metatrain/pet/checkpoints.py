@@ -42,39 +42,74 @@ def model_update_v5_v6(checkpoint):
 
 
 def model_update_v6_v7(checkpoint):
-    # Adding the option for choosing the normalization type
-    if "normalization" not in checkpoint["model_data"]["model_hypers"]:
-        checkpoint["model_data"]["model_hypers"]["normalization"] = "LayerNorm"
-    # Adding the option for choosing the activation function
-    if "activation" not in checkpoint["model_data"]["model_hypers"]:
-        checkpoint["model_data"]["model_hypers"]["activation"] = "SiLU"
-    # Setting the node features dimension to be the same as d_pet if not specified
-    if "d_node" not in checkpoint["model_data"]["model_hypers"]:
-        checkpoint["model_data"]["model_hypers"]["d_node"] = checkpoint["model_data"][
-            "model_hypers"
-        ]["d_pet"]
-    # Setting the default transformer type to PostLN if not specified
-    if "transformer_type" not in checkpoint["model_data"]["model_hypers"]:
-        checkpoint["model_data"]["model_hypers"]["transformer_type"] = "PostLN"
-    if "featurizer_type" not in checkpoint["model_data"]["model_hypers"]:
-        checkpoint["model_data"]["model_hypers"]["featurizer_type"] = "residual"
-    for key in ["model_state_dict", "best_model_state_dict"]:
-        if (state_dict := checkpoint.get(key)) is not None:
-            new_state_dict = {}
-            for k, v in state_dict.items():
-                # Replacing the nn.Sequential MLP with a custom FeedForward module
-                if ".mlp.0" in k:
-                    k = k.replace(".mlp.0", ".mlp.w_in")
-                if ".mlp.3" in k:
-                    k = k.replace(".mlp.3", ".mlp.w_out")
-                # Moving the node embedder to a top-level PET model attribute
-                if "embedding." in k:
-                    k = k.replace("embedding.", "edge_embedder.")
-                if ".node_embedder." in k:
-                    key_content = k.split(".")
-                    k = ".".join(["node_embedders", key_content[1], key_content[-1]])
-                new_state_dict[k] = v
-            checkpoint[key] = new_state_dict
+    if "node_embedding.weight" in checkpoint["model_state_dict"]:
+        ##############################################
+        # **Updating the large-scale PET checkpoints**
+        ##############################################
+
+        checkpoint["model_data"]["model_hypers"]["normalization"] = "RMSNorm"
+        checkpoint["model_data"]["model_hypers"]["activation"] = "SwiGLU"
+        checkpoint["model_data"]["model_hypers"]["d_node"] = (
+            4 * checkpoint["model_data"]["model_hypers"]["d_pet"]
+        )
+        checkpoint["model_data"]["model_hypers"]["transformer_type"] = "PreLN"
+        checkpoint["model_data"]["model_hypers"]["featurizer_type"] = "feedforward"
+        checkpoint["model_data"]["model_hypers"]["d_feedforward"] = (
+            2 * checkpoint["model_data"]["model_hypers"]["d_pet"]
+        )
+        for key in ["model_state_dict", "best_model_state_dict"]:
+            if (state_dict := checkpoint.get(key)) is not None:
+                new_state_dict = {}
+                for k, v in state_dict.items():
+                    if "embedding." in k and "node" not in k:
+                        k = k.replace("embedding.", "edge_embedder.")
+                    if "node_embedding." in k:
+                        k = k.replace("node_embedding.", "node_embedders.0.")
+                    if "combination_rmsnorms" in k:
+                        k = k.replace("combination_rmsnorms", "combination_norms")
+                    new_state_dict[k] = v
+                checkpoint[key] = new_state_dict
+
+    else:
+        ###############################################
+        # **Updating the standard old PET checkpoints**
+        ###############################################
+
+        # Adding the option for choosing the normalization type
+        if "normalization" not in checkpoint["model_data"]["model_hypers"]:
+            checkpoint["model_data"]["model_hypers"]["normalization"] = "LayerNorm"
+        # Adding the option for choosing the activation function
+        if "activation" not in checkpoint["model_data"]["model_hypers"]:
+            checkpoint["model_data"]["model_hypers"]["activation"] = "SiLU"
+        # Setting the node features dimension to be the same as d_pet if not specified
+        if "d_node" not in checkpoint["model_data"]["model_hypers"]:
+            checkpoint["model_data"]["model_hypers"]["d_node"] = checkpoint[
+                "model_data"
+            ]["model_hypers"]["d_pet"]
+        # Setting the default transformer type to PostLN if not specified
+        if "transformer_type" not in checkpoint["model_data"]["model_hypers"]:
+            checkpoint["model_data"]["model_hypers"]["transformer_type"] = "PostLN"
+        if "featurizer_type" not in checkpoint["model_data"]["model_hypers"]:
+            checkpoint["model_data"]["model_hypers"]["featurizer_type"] = "residual"
+        for key in ["model_state_dict", "best_model_state_dict"]:
+            if (state_dict := checkpoint.get(key)) is not None:
+                new_state_dict = {}
+                for k, v in state_dict.items():
+                    # Replacing the nn.Sequential MLP with a custom FeedForward module
+                    if ".mlp.0" in k:
+                        k = k.replace(".mlp.0", ".mlp.w_in")
+                    if ".mlp.3" in k:
+                        k = k.replace(".mlp.3", ".mlp.w_out")
+                    # Moving the node embedder to a top-level PET model attribute
+                    if "embedding." in k:
+                        k = k.replace("embedding.", "edge_embedder.")
+                    if ".node_embedder." in k:
+                        key_content = k.split(".")
+                        k = ".".join(
+                            ["node_embedders", key_content[1], key_content[-1]]
+                        )
+                    new_state_dict[k] = v
+                checkpoint[key] = new_state_dict
 
 
 ###########################

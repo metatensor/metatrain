@@ -21,7 +21,7 @@ class FeedForward(nn.Module):
             # SwiGLU mode: single projection produces both "value" and "gate"
             self.w_in = nn.Linear(d_model, 2 * dim_feedforward)
             self.w_out = nn.Linear(dim_feedforward, d_model)
-            self.activation = None
+            self.activation = torch.nn.Identity()
             self.is_swiglu = True
         else:
             # Standard mode: regular activation function
@@ -214,7 +214,6 @@ class Transformer(torch.nn.Module):
                 f"Unknown normalization flag: {norm}. "
                 f"Please choose from: {AVAILABLE_NORMALIZATIONS}"
             )
-        norm_class = getattr(nn, norm)
 
         if transformer_type not in AVAILABLE_TRANSFORMER_TYPES:
             raise ValueError(
@@ -228,10 +227,6 @@ class Transformer(torch.nn.Module):
                 f"Unknown activation flag: {activation}. "
                 f"Please choose from: {AVAILABLE_ACTIVATIONS}"
             )
-
-        self.final_norm = DummyModule()  # for torchscript
-        if transformer_type == "PreLN":
-            self.final_norm = norm_class(d_model)
 
         self.layers = nn.ModuleList(
             [
@@ -259,8 +254,6 @@ class Transformer(torch.nn.Module):
             node_embeddings, edge_embeddings = layer(
                 node_embeddings, edge_embeddings, cutoff_factors, use_manual_attention
             )
-        if self.transformer_type == "PreLN":
-            edge_embeddings = self.final_norm(edge_embeddings)
         return node_embeddings, edge_embeddings
 
 
@@ -315,7 +308,6 @@ class CartesianTransformer(torch.nn.Module):
         self,
         input_node_embeddings: torch.Tensor,
         input_messages: torch.Tensor,
-        element_indices_nodes: torch.Tensor,
         element_indices_neighbors: torch.Tensor,
         edge_vectors: torch.Tensor,
         padding_mask: torch.Tensor,
@@ -382,7 +374,6 @@ class CartesianTransformer(torch.nn.Module):
             )
             output_edge_embeddings = torch.cat([output_edge_embeddings, padding], dim=1)
         output_node_embeddings = output_node_embeddings.squeeze(1)
-
         return output_node_embeddings, output_edge_embeddings
 
 
