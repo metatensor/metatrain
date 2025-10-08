@@ -393,12 +393,15 @@ def unpack_batch(batch):
         for name, buf in zip(
             target_names,
             all_buffers[len(system_sizes) : len(system_sizes) + len(target_names)],
+            strict=True,
         )
     }
     extra_data = {
         name: buf
         for name, buf in zip(
-            extra_names, all_buffers[len(system_sizes) + len(target_names) :]
+            extra_names,
+            all_buffers[len(system_sizes) + len(target_names) :],
+            strict=True,
         )
     }
 
@@ -535,18 +538,21 @@ class DiskDataset(torch.utils.data.Dataset):
     """
 
     def __init__(self, path: Union[str, Path], fields: Optional[List[str]] = None):
-        self.zip_file = zipfile.ZipFile(path, "r")
+        self.zip_file_path = path
         self._field_names = ["system"]
         # check that we have at least one sample:
-        if "0/system.mta" not in self.zip_file.namelist():
-            raise ValueError(
-                "Could not find `0/system.mta` in the zip file. "
-                "The dataset format might be wrong, or the dataset might be empty. "
-                "Empty disk datasets are not supported."
-            )
-        for file_name in self.zip_file.namelist():
-            if file_name.startswith("0/") and file_name.endswith(".mts"):
-                self._field_names.append(file_name[2:-4])
+        with zipfile.ZipFile(path, "r") as zip_file:
+            namelist = zip_file.namelist()
+            if "0/system.mta" not in namelist:
+                raise ValueError(
+                    "Could not find `0/system.mta` in the zip file. "
+                    "The dataset format might be wrong, or the dataset might be empty. "
+                    "Empty disk datasets are not supported."
+                )
+            for file_name in namelist:
+                if file_name.startswith("0/") and file_name.endswith(".mts"):
+                    self._field_names.append(file_name[2:-4])
+            self._len = len([f for f in namelist if f.endswith(".mta")])
 
         # Determine which fields are going to be read
         if fields is None:
@@ -564,32 +570,29 @@ class DiskDataset(torch.utils.data.Dataset):
             self._fields_to_read = fields
 
         self._sample_class = namedtuple("Sample", self._fields_to_read)
-        self._len = len([f for f in self.zip_file.namelist() if f.endswith(".mta")])
 
     def __len__(self):
         return self._len
 
     def __getitem__(self, index):
         system_and_targets = []
-        for field_name in self._fields_to_read:
-            if field_name == "system":
-                with self.zip_file.open(f"{index}/system.mta", "r") as file:
-                    system = load_system(file)
-                    system_and_targets.append(system)
-            else:
-                with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
-                    numpy_buffer = np.load(file)
-                    tensor_buffer = torch.from_numpy(numpy_buffer)
-                    tensor_map = load_buffer(tensor_buffer)
-                    system_and_targets.append(tensor_map)
+        with zipfile.ZipFile(self.zip_file_path, "r") as zip_file:
+            for field_name in self._fields_to_read:
+                if field_name == "system":
+                    with zip_file.open(f"{index}/system.mta", "r") as file:
+                        system = load_system(file)
+                        system_and_targets.append(system)
+                else:
+                    with zip_file.open(f"{index}/{field_name}.mts", "r") as file:
+                        numpy_buffer = np.load(file)
+                        tensor_buffer = torch.from_numpy(numpy_buffer)
+                        tensor_map = load_buffer(tensor_buffer)
+                        system_and_targets.append(tensor_map)
         return self._sample_class(*system_and_targets)
 
     def __iter__(self):
         for i in range(len(self)):
             yield self[i]
-
-    def __del__(self):
-        self.zip_file.close()
 
     def get_target_info(self, target_config: DictConfig) -> Dict[str, TargetInfo]:
         """
@@ -676,7 +679,7 @@ def _save_indices(
     else:
         os.mkdir(os.path.join(checkpoint_dir, "indices/"))
         for i, (train, val, test) in enumerate(
-            zip(train_indices, val_indices, test_indices)
+            zip(train_indices, val_indices, test_indices, strict=True)
         ):
             if train is not None:
                 np.savetxt(
