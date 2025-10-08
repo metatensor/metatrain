@@ -11,7 +11,6 @@ How to prepare data for training
 
 .. _ASE database: https://ase-lib.org/ase/db/db.html
 
-``metatrain`` can read data from various sources, including common file formats like
 XYZ, ASE databases, and also from metrain's
 :class:`metatrain.utils.data.dataset.DiskDataset <DiskDataset>` file.
 
@@ -46,7 +45,6 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 # files are located in the same directory.
 # 
 # .. _ASE: https://ase-lib.org/
-
 
 filelist = 100 * ["qm9_reduced_100.xyz"]
 
