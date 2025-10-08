@@ -4,7 +4,7 @@ import os
 import warnings
 import zipfile
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch
@@ -39,6 +39,9 @@ def _set(values: List[int]) -> List[int]:
     """This function just does `list(set(values))`.
 
     But set is not torchscript compatible, so we do it manually.
+
+    :param values: List of integer atomic types.
+    :return: List of unique integer atomic types.
     """
     unique_values: List[int] = []
     for at_type in values:
@@ -89,7 +92,7 @@ class DatasetInfo:
         return sorted(self._atomic_types)
 
     @atomic_types.setter
-    def atomic_types(self, value: List[int]):
+    def atomic_types(self, value: List[int]) -> None:
         self._atomic_types = _set(value)
 
     @property
@@ -109,7 +112,14 @@ class DatasetInfo:
     def to(
         self, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None
     ) -> "DatasetInfo":
-        """Return a copy with all tensors moved to the device and dtype."""
+        """
+        Return a copy with all tensors moved to the device and dtype.
+
+        :param device: The device to move the tensors to.
+        :param dtype: The dtype to move the tensors to.
+        :return: A copy of the DatasetInfo with all tensors moved to the device and
+            dtype.
+        """
         new = self.copy()
         for key, target_info in new.targets.items():
             new.targets[key] = target_info.to(device=device, dtype=dtype)
@@ -117,12 +127,19 @@ class DatasetInfo:
             new.extra_data[key] = extra_data.to(device=device, dtype=dtype)
         return new
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "DatasetInfo(length_unit={!r}, atomic_types={!r}, targets={!r})".format(
             self.length_unit, self.atomic_types, self.targets
         )
 
-    def __eq__(self, other):
+    @torch.jit.unused
+    def __eq__(self, other: Any) -> bool:
+        """
+        Equality operator.
+
+        :param other: Another object to compare with.
+        :return: True if the two objects are equal, False otherwise.
+        """
         if not isinstance(other, DatasetInfo):
             return False
         return (
@@ -133,7 +150,9 @@ class DatasetInfo:
         )
 
     def copy(self) -> "DatasetInfo":
-        """Return a shallow copy of the DatasetInfo."""
+        """
+        :return: A shallow copy of the DatasetInfo.
+        """
         return DatasetInfo(
             length_unit=self.length_unit,
             atomic_types=self.atomic_types.copy(),
@@ -145,6 +164,7 @@ class DatasetInfo:
     def update(self, other: "DatasetInfo") -> None:
         """Update this instance with the union of itself and ``other``.
 
+        :param other: Another :py:class:`DatasetInfo` instance to update this one with.
         :raises ValueError: If the ``length_units`` are different.
         """
         if self.length_unit != other.length_unit:
@@ -180,16 +200,24 @@ class DatasetInfo:
         self.extra_data.update(other.extra_data)
 
     def union(self, other: "DatasetInfo") -> "DatasetInfo":
-        """Return the union of this instance with ``other``."""
+        """
+        Return the union of this instance with ``other``.
+
+        :param other: Another :py:class:`DatasetInfo` instance to combine with this one.
+        :return: A new :py:class:`DatasetInfo` instance containing the union of this
+            instance and ``other``.
+        """
         new = self.copy()
         new.update(other)
         return new
 
     @torch.jit.unused
-    def __setstate__(self, state):
+    def __setstate__(self, state: Dict[str, Any]) -> None:
         """
         Custom ``__setstate__`` to allow loading old checkpoints where ``extra_data`` is
         missing.
+
+        :param state: The state to set.
         """
         self.length_unit = state["length_unit"]
         self._atomic_types = state["_atomic_types"]
@@ -198,7 +226,13 @@ class DatasetInfo:
 
 
 def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str:
-    """Returns the statistics of a dataset or subset as a string."""
+    """
+    Returns the statistics of a dataset or subset as a string.
+
+    :param dataset: The dataset or subset to analyze.
+    :param dataset_info: The DatasetInfo associated with the dataset.
+    :return: A string containing the computed statistics for the dataset.
+    """
 
     dataset_len = len(dataset)
     stats = f"Dataset containing {dataset_len} structures"
@@ -284,7 +318,7 @@ def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
     """List of all atomic types present in a dataset or list of datasets.
 
     :param datasets: the dataset, or list of datasets
-    :returns: sorted list of all atomic types present in the datasets
+    :return: sorted list of all atomic types present in the datasets
     """
 
     if not isinstance(datasets, list):
@@ -303,7 +337,7 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     """Sorted list of all unique targets present in a dataset or list of datasets.
 
     :param datasets: the dataset(s).
-    :returns: Sorted list of all targets present in the dataset(s).
+    :return: Sorted list of all targets present in the dataset(s).
     """
 
     if not isinstance(datasets, list):
@@ -340,7 +374,17 @@ class CollateFn:
     def __call__(
         self,
         batch: List[Dict[str, Any]],
-    ):
+    ) -> Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]:
+        """
+        :param batch: A batch
+        :return: A tuple containing:
+            - a single tensor containing all systems, targets and extra data
+            - a list with the sizes of each system buffer
+            - a list with the names of each target
+            - a list with the sizes of each target buffer
+            - a list with the names of each extra data
+            - a list with the sizes of each extra data buffer
+        """
         # group & join
         collated = group_and_join(batch, join_kwargs=self.join_kwargs)
         data = collated._asdict()
@@ -383,7 +427,15 @@ class CollateFn:
         return blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes
 
 
-def unpack_batch(batch):
+def unpack_batch(
+    batch: Any,
+) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+    """
+    Unpacks a batch into its constituent parts.
+
+    :param batch: The batch to unpack.
+    :return: A tuple with the unpacked batch
+    """
     blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes = batch
 
     all_buffers = torch.split(blob, system_sizes + target_sizes + extra_sizes)
@@ -405,13 +457,13 @@ def unpack_batch(batch):
         )
     }
 
-    systems = tuple(load_system_buffer(s) for s in systems)
+    systems = list(load_system_buffer(s) for s in systems)
     targets = {key: load_buffer(t) for key, t in targets.items()}
     extra_data = {key: load_buffer(t) for key, t in extra_data.items()}
     return systems, targets, extra_data
 
 
-def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]):
+def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]) -> None:
     """Check that the training and validation sets are compatible with one another
 
     Although these checks will not fit all use cases, most models would be expected
@@ -521,7 +573,8 @@ def _train_test_random_split(
 
 
 class DiskDataset(torch.utils.data.Dataset):
-    """A class representing a dataset stored on disk.
+    """
+    A class representing a dataset stored on disk.
 
     The dataset is stored in a zip file, where each sample is stored in a separate
     directory. The directory's name is the index of the sample (e.g. ``0/``), and the
@@ -538,18 +591,21 @@ class DiskDataset(torch.utils.data.Dataset):
     """
 
     def __init__(self, path: Union[str, Path], fields: Optional[List[str]] = None):
-        self.zip_file = zipfile.ZipFile(path, "r")
+        self.zip_file_path = path
         self._field_names = ["system"]
         # check that we have at least one sample:
-        if "0/system.mta" not in self.zip_file.namelist():
-            raise ValueError(
-                "Could not find `0/system.mta` in the zip file. "
-                "The dataset format might be wrong, or the dataset might be empty. "
-                "Empty disk datasets are not supported."
-            )
-        for file_name in self.zip_file.namelist():
-            if file_name.startswith("0/") and file_name.endswith(".mts"):
-                self._field_names.append(file_name[2:-4])
+        with zipfile.ZipFile(path, "r") as zip_file:
+            namelist = zip_file.namelist()
+            if "0/system.mta" not in namelist:
+                raise ValueError(
+                    "Could not find `0/system.mta` in the zip file. "
+                    "The dataset format might be wrong, or the dataset might be empty. "
+                    "Empty disk datasets are not supported."
+                )
+            for file_name in namelist:
+                if file_name.startswith("0/") and file_name.endswith(".mts"):
+                    self._field_names.append(file_name[2:-4])
+            self._len = len([f for f in namelist if f.endswith(".mta")])
 
         # Determine which fields are going to be read
         if fields is None:
@@ -567,32 +623,29 @@ class DiskDataset(torch.utils.data.Dataset):
             self._fields_to_read = fields
 
         self._sample_class = namedtuple("Sample", self._fields_to_read)
-        self._len = len([f for f in self.zip_file.namelist() if f.endswith(".mta")])
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self._len
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> Any:
         system_and_targets = []
-        for field_name in self._fields_to_read:
-            if field_name == "system":
-                with self.zip_file.open(f"{index}/system.mta", "r") as file:
-                    system = load_system(file)
-                    system_and_targets.append(system)
-            else:
-                with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
-                    numpy_buffer = np.load(file)
-                    tensor_buffer = torch.from_numpy(numpy_buffer)
-                    tensor_map = load_buffer(tensor_buffer)
-                    system_and_targets.append(tensor_map)
+        with zipfile.ZipFile(self.zip_file_path, "r") as zip_file:
+            for field_name in self._fields_to_read:
+                if field_name == "system":
+                    with zip_file.open(f"{index}/system.mta", "r") as file:
+                        system = load_system(file)
+                        system_and_targets.append(system)
+                else:
+                    with zip_file.open(f"{index}/{field_name}.mts", "r") as file:
+                        numpy_buffer = np.load(file)
+                        tensor_buffer = torch.from_numpy(numpy_buffer)
+                        tensor_map = load_buffer(tensor_buffer)
+                        system_and_targets.append(tensor_map)
         return self._sample_class(*system_and_targets)
 
-    def __iter__(self):
+    def __iter__(self) -> Any:
         for i in range(len(self)):
             yield self[i]
-
-    def __del__(self):
-        self.zip_file.close()
 
     def get_target_info(self, target_config: DictConfig) -> Dict[str, TargetInfo]:
         """
@@ -600,6 +653,7 @@ class DiskDataset(torch.utils.data.Dataset):
 
         :param target_config: The user-provided (through the yaml file) target
             configuration.
+        :return: A dictionary mapping target names to :py:class:`TargetInfo` objects.
         """
         target_info_dict = {}
         for target_key, target in target_config.items():
@@ -702,7 +756,11 @@ def _save_indices(
 
 
 def get_num_workers() -> int:
-    """Gets a good number of workers for data loading."""
+    """
+    Gets a good number of workers for data loading.
+
+    :return: A good number of workers for data loading.
+    """
 
     if multiprocessing.get_start_method(allow_none=False) != "fork":
         return 0
@@ -723,8 +781,14 @@ def get_num_workers() -> int:
     return num_workers
 
 
-def validate_num_workers(num_workers: int):
-    """Gets a good number of workers for data loading."""
+def validate_num_workers(num_workers: int) -> None:
+    """
+    Gets a good number of workers for data loading.
+
+    :param num_workers: The number of workers to validate.
+    :raises ValueError: If the number of workers is greater than 0 and the
+        multiprocessing start method is not "fork".
+    """
 
     if multiprocessing.get_start_method(allow_none=False) != "fork" and num_workers > 0:
         raise ValueError(
@@ -734,8 +798,13 @@ def validate_num_workers(num_workers: int):
         )
 
 
-def _make_system_contiguous(system):
-    # Return a copy of a ``System`` object with contiguous arrays.
+def _make_system_contiguous(system: System) -> System:
+    """
+    Return a copy of a ``System`` object with contiguous arrays.
+
+    :param system: The system to make contiguous.
+    :return: A copy of the system with contiguous arrays.
+    """
     new_system = System(
         positions=system.positions.contiguous(),
         types=system.types.contiguous(),

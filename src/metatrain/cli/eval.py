@@ -44,7 +44,10 @@ logger = logging.getLogger(__name__)
 
 
 def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
-    """Add the `eval_model` paramaters to an argparse (sub)-parser"""
+    """Add the `eval_model` paramaters to an argparse (sub)-parser
+
+    :param subparser: The argparse (sub)-parser to add the parameters to.
+    """
 
     if eval_model.__doc__ is not None:
         description = eval_model.__doc__.split(r":param")[0]
@@ -108,7 +111,10 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 
 def _prepare_eval_model_args(args: argparse.Namespace) -> None:
-    """Prepare arguments for eval_model."""
+    """Prepare arguments for eval_model.
+
+    :param args: The argparse.Namespace containing the arguments.
+    """
     args.options = OmegaConf.load(args.options)
     # models for evaluation are already exported. Don't have to pass the `name` argument
     args.model = load_model(
@@ -128,6 +134,13 @@ def _eval_targets(
     """
     Evaluate `model` on `dataset`, accumulate RMSE/MAE, and (if `writer` is provided)
     stream or buffer out per-sample writes.
+
+    :param model: The model to evaluate.
+    :param dataset: The dataset to evaluate the model on.
+    :param options: Dictionary containing the target information.
+    :param batch_size: Batch size for evaluation.
+    :param check_consistency: Whether to run consistency checks during model evaluation.
+    :param writer: Optional writer to write out per-sample predictions.
     """
     if len(dataset) == 0:
         logging.info("This dataset is empty. No evaluation will be performed.")
@@ -264,6 +277,7 @@ def eval_model(
     :param model: Saved model to be evaluated.
     :param options: DictConfig to define a test dataset taken for the evaluation.
     :param output: Path to save the predicted values.
+    :param batch_size: Batch size for evaluation.
     :param check_consistency: Whether to run consistency checks during model evaluation.
     :param append: If ``True``, open the output file in append mode.
     """
@@ -329,7 +343,7 @@ def eval_model(
                 writer=writer,
             )
         except Exception as e:
-            raise ArchitectureError(f"Evaluation failed: {e}") from e
+            raise ArchitectureError(e)
 
         # no post-call write_predictions necessary anymore-writer did it all
 

@@ -11,5 +11,5 @@ This sections includes the beginner tutorials on the usage of the
 
    ../../examples/programmatic/data_preparation/data_preparation
    ../../advanced-concepts/fine-tuning
+   ../../examples/train_from_scratch/train_from_scratch
    ../../examples/ase/run_ase
-   train-from-scratch
