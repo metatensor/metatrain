@@ -7,10 +7,23 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 cd "$ROOT_DIR"
 
+HASH_FILE=".data_version.txt"
 FORCE_REGENERATE=false
 if [[ "${FORCE_REGENERATE:-0}" == "1" ]]; then
-  echo "FORCE_REGENERATE=1 detected. Regenerating all models."
+  echo "FORCE_REGENERATE=1 detected. Forcing regeneration of all models."
   FORCE_REGENERATE=true
+else
+  if [ -f "$HASH_FILE" ]; then
+    SAVED_HASH=$(cat "$HASH_FILE")
+    CURRENT_HASH=$(git rev-parse HEAD)
+    if [ "$SAVED_HASH" != "$CURRENT_HASH" ]; then
+      echo "Git commit has changed. Forcing regeneration of all models."
+      FORCE_REGENERATE=true
+    fi
+  else
+    echo "Hash file not found. Forcing regeneration of all models."
+    FORCE_REGENERATE=true
+  fi
 fi
 
 # Regenerate if --force is used OR if the file doesn't exist
@@ -24,6 +37,11 @@ fi
 
 if [ "$FORCE_REGENERATE" = true ] || [ ! -f "model-pet.pt" ]; then
     mtt train options-pet.yaml -o model-pet.pt
+fi
+
+if [ "$FORCE_REGENERATE" = true ]; then
+  echo "Saving current git commit hash to version the data."
+  git rev-parse HEAD > "$HASH_FILE"
 fi
 
 set +x  # disable command echoing for sensitive private token check
