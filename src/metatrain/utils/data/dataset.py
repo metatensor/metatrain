@@ -542,15 +542,17 @@ class DiskDataset(torch.utils.data.Dataset):
         self._field_names = ["system"]
         # check that we have at least one sample:
         with zipfile.ZipFile(path, "r") as zip_file:
-            if "0/system.mta" not in zip_file.namelist():
+            namelist = zip_file.namelist()
+            if "0/system.mta" not in namelist:
                 raise ValueError(
                     "Could not find `0/system.mta` in the zip file. "
                     "The dataset format might be wrong, or the dataset might be empty. "
                     "Empty disk datasets are not supported."
                 )
-            for file_name in zip_file.namelist():
+            for file_name in namelist:
                 if file_name.startswith("0/") and file_name.endswith(".mts"):
                     self._field_names.append(file_name[2:-4])
+            self._len = len([f for f in namelist if f.endswith(".mta")])
 
         # Determine which fields are going to be read
         if fields is None:
@@ -568,7 +570,6 @@ class DiskDataset(torch.utils.data.Dataset):
             self._fields_to_read = fields
 
         self._sample_class = namedtuple("Sample", self._fields_to_read)
-        self._len = len([f for f in self.zip_file.namelist() if f.endswith(".mta")])
 
     def __len__(self):
         return self._len

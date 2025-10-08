@@ -97,6 +97,7 @@ def test_regression_train():
     model = NanoPET(MODEL_HYPERS, dataset_info)
 
     hypers["training"]["num_epochs"] = 1
+    hypers["training"]["num_workers"] = 0  # for reproducibility (data augmentation)
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model,
