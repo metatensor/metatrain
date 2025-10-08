@@ -21,7 +21,7 @@ def get_dataset(
         This configuration dictionary must contain keys for both the
         systems and targets in the dataset.
 
-    :returns: A tuple containing a ``Dataset`` object and a
+    :return: A tuple containing a ``Dataset`` object and a
         ``Dict[str, TargetInfo]`` containing additional information (units,
         physical quantities, ...) on the targets in the dataset
     """
