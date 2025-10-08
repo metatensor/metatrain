@@ -5,6 +5,9 @@ architecture:
       means: {}
       num_members: {}
   training:
+    mode: #...
     model_checkpoint: null
     batch_size: 16
     regularizer: null
+    ens_calib_loss:
+        # ...
