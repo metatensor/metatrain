@@ -639,6 +639,11 @@ class PET(ModelInterface):
             input_edge_embeddings = 0.5 * (input_edge_embeddings + new_input_messages)
         return node_features_list, edge_features_list
 
+    @torch.compile(
+        mode="max-autotune",
+        dynamic=True,
+        fullgraph=True,
+    )
     def _calculate_features(
         self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
