@@ -715,8 +715,8 @@ class PET(ModelInterface):
                         values=torch.arange(
                             features.shape[-1], device=features.device
                         ).reshape(-1, 1),
+                        assume_unique=True,
                     ),
-                    assume_unique=True,
                 )
             ],
         )
@@ -731,6 +731,38 @@ class PET(ModelInterface):
         else:
             features_dict["features"] = sum_over_atoms(feature_tmap)
         return features_dict
+
+    def _calculate_last_layer_features(
+        self,
+        node_features_list: List[torch.Tensor],
+        edge_features_list: List[torch.Tensor],
+    ) -> Tuple[Dict[str, List[torch.Tensor]], Dict[str, List[torch.Tensor]]]:
+        """
+        Apply output-specific heads to node and edge features from each GNN layer.
+        Returns dictionaries mapping output names to lists of head-transformed features.
+        """
+        node_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
+        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
+
+        # Calculating node last layer features
+        for output_name, node_heads in self.node_heads.items():
+            if output_name not in node_last_layer_features_dict:
+                node_last_layer_features_dict[output_name] = []
+            for i, node_head in enumerate(node_heads):
+                node_last_layer_features_dict[output_name].append(
+                    node_head(node_features_list[i])
+                )
+
+        # Calculating edge last layer features
+        for output_name, edge_heads in self.edge_heads.items():
+            if output_name not in edge_last_layer_features_dict:
+                edge_last_layer_features_dict[output_name] = []
+            for i, edge_head in enumerate(edge_heads):
+                edge_last_layer_features_dict[output_name].append(
+                    edge_head(edge_features_list[i])
+                )
+
+        return node_last_layer_features_dict, edge_last_layer_features_dict
 
     def _get_output_last_layer_features(
         self,
