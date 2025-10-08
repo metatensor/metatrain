@@ -346,7 +346,7 @@ class NanoPET(ModelInterface):
                 )
             )
             for contraction, transformer in zip(
-                self.gnn_contractions, self.gnn_transformers
+                self.gnn_contractions, self.gnn_transformers, strict=True
             ):
                 new_features = nef_array_to_edges(
                     features, centers, nef_to_edges_neighbor
@@ -493,6 +493,7 @@ class NanoPET(ModelInterface):
                         target_info.blocks_shape.values(),
                         target_info.component_labels,
                         target_info.property_labels,
+                        strict=True,
                     )
                 ]
                 atomic_properties_tmap_dict[output_name] = TensorMap(

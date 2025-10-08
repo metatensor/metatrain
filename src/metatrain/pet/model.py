@@ -615,6 +615,7 @@ class PET(ModelInterface):
                         self.output_shapes[output_name].values(),
                         self.component_labels[output_name],
                         self.property_labels[output_name],
+                        strict=True,
                     )
                 ]
                 atomic_predictions_tmap_dict[output_name] = TensorMap(
@@ -775,7 +776,7 @@ class PET(ModelInterface):
         self.output_shapes[target_name] = {}
         for key, block in target_info.layout.items():
             dict_key = target_name
-            for n, k in zip(key.names, key.values):
+            for n, k in zip(key.names, key.values, strict=True):
                 dict_key += f"_{n}_{int(k)}"
             self.output_shapes[target_name][dict_key] = [
                 len(comp.values) for comp in block.components
