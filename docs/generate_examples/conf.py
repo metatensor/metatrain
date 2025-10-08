@@ -24,7 +24,7 @@ sphinx_gallery_conf = {
         os.path.join(ROOT, "examples", "programmatic", "data_preparation"),
         os.path.join(ROOT, "examples", "basic_usage"),
         os.path.join(ROOT, "examples", "train_from_scratch"),
-        os.path.join(ROOT, "examples", "basic_usage", "validation"),
+        os.path.join(ROOT, "examples", "validation"),
     ],
     "gallery_dirs": [
         os.path.join(ROOT, "docs", "src", "examples", "ase"),
@@ -34,7 +34,7 @@ sphinx_gallery_conf = {
         os.path.join(ROOT, "docs", "src", "examples", "programmatic", "data_preparation"),
         os.path.join(ROOT, "docs", "src", "examples", "basic_usage"),
         os.path.join(ROOT, "docs", "src", "examples", "train_from_scratch"),
-        os.path.join(ROOT, "docs", "src", "examples", "basic_usage", "validation"),
+        os.path.join(ROOT, "docs", "src", "examples", "validation"),
     ],
     "min_reported_time": 5,
     "matplotlib_animations": True,

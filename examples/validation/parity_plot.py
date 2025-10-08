@@ -11,11 +11,6 @@ these results.
 
 # %%
 # Import necessary libraries
-# --------------------------
-# ase.io : for reading atomic structures and their properties from xyz files
-# matplotlib.pyplot : for creating plots and visualizations
-# numpy : for numerical operations and array handling
-
 import ase.io
 import matplotlib.pyplot as plt
 import numpy as np
@@ -23,22 +18,14 @@ import numpy as np
 
 # %%
 # Load the target and predicted data
-# ----------------------------------
-# We load the reference (target) data and the model predictions using ASE's read
-# function. The ":" means we load all frames from the xyz file. Modify the paths if your
-# files are located elsewhere.
-
-targets = ase.io.read("../qm9_reduced_100.xyz", ":")  # reference data (ground truth)
+targets = ase.io.read(
+    "../basic_usage/qm9_reduced_100.xyz", ":"
+)  # reference data (ground truth)
 predictions = ase.io.read("output.xyz", ":")  # predicted data from the model
 
 
 # %%
 # Extract the energies from the loaded frames
-# -------------------------------------------
-# For the targets, the energy is stored in the 'info' dictionary under the key 'U0'.
-# For the predictions, ASE stores the total energy accessible via get_total_energy().
-# We convert both lists to numpy arrays for easier numerical operations and plotting.
-
 e_targets = np.array([frame.info["U0"] for frame in targets])  # target energies
 e_predictions = np.array(
     [frame.get_total_energy() for frame in predictions]
