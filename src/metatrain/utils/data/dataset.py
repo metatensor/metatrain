@@ -818,6 +818,7 @@ class MemmapDataset(TorchDataset):
         )
 
         # Information about the structures
+        print(np.load(path / "N.npy"))
         self.N = int(np.load(path / "N.npy"))
         self.n = int(np.load(path / "n.npy")[-1])
         self.x = MemmapArray(path / "x.bin", (self.n, 3), "float32", mode="r")
