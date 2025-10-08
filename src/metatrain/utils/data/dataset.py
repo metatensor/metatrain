@@ -827,24 +827,37 @@ def _make_system_contiguous(system: System) -> System:
 
 
 class MemmapArray:
-    """Small helper to reopen np.memmap lazily in each worker."""
+    """
+    Small helper to reopen a ``np.memmap`` lazily in each worker.
 
-    def __init__(self, path, shape, dtype, mode="r") -> None:
+    :param path: Path to the binary file containing the memory-mapped array.
+    :param shape: Shape of the array.
+    :param dtype: Data type of the array.
+    :param mode: Mode to open the array. See ``numpy.memmap`` for details.
+    """
+
+    def __init__(
+        self,
+        path: Union[str, Path],
+        shape: Tuple[int, ...],
+        dtype: Union[str, np.dtype],
+        mode: str = "r",
+    ) -> None:
         self.path = str(path)
         self.shape = tuple(shape)
         self.dtype = np.dtype(dtype)
         self.mode = mode
         self._mm = None
 
-    def _ensure_open(self):
+    def _ensure_open(self) -> None:
         if self._mm is None:
             self._mm = np.memmap(
                 self.path, dtype=self.dtype, mode=self.mode, shape=self.shape
             )
 
-    def __getitem__(self, idx: int) -> np.ndarray:
+    def __getitem__(self, idx: Any) -> np.ndarray:
         self._ensure_open()
-        return self._mm[idx]
+        return self._mm[idx]  # type: ignore
 
     def close(self) -> None:
         if self._mm is not None:
