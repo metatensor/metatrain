@@ -10,6 +10,7 @@ load ``MemmapDataset`` objects saved in this way to execute on-the-fly data load
 Compared to ``DiskDataset``, the ``MemmapDataset`` stores the data in a format that
 is more efficient to read from disk on parallel filesystems. However, it does not
 support spherical targets or storing neighbor lists.
+
 """
 
 # %%
@@ -75,6 +76,7 @@ s_mm.flush()
 # (e.g. ``read_from: carbon_reduced_100_memmap/``).
 #
 # For example, you can use the following options file:
+#
 #  .. literalinclude:: options.yaml
 #   :language: yaml
 
