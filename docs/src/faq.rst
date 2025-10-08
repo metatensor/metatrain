@@ -20,7 +20,7 @@ Training troubleshooting
 
 **Q: My training fails with an out of memory error, what can I do?**
 
-**A:** Reduce batch size.
+**A:** This stems from loading too many structures into memory at the same time. Try to reduce batch size or to reduce the cutoff radius.
 
 **Q: My training is very slow, what can I do?**
 
