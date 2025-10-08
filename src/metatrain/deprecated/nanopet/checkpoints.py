@@ -22,12 +22,19 @@ def model_update_v1_v2(checkpoint: Dict[str, Any]) -> None:
                 )
 
 
-def model_update_v2_v3(checkpoint):
+def model_update_v2_v3(checkpoint: dict) -> None:
     """
     Update model checkpoint from version 2 to version 3.
 
     :param checkpoint: The checkpoint to be updated.
     """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            if "additive_models.0.model.type_to_index" not in state_dict:
+                state_dict["additive_models.0.model.type_to_index"] = state_dict.pop(
+                    "additive_models.0.type_to_index"
+                )
+
     # this update consists in changes in the scaler
     for key in ["model_state_dict", "best_model_state_dict"]:
         if (state_dict := checkpoint.get(key)) is not None:
@@ -47,7 +54,7 @@ def model_update_v2_v3(checkpoint):
                 [0.0], dtype=old_scales_tensor.dtype
             )
             state_dict["scaler.model.type_to_index"] = state_dict[
-                "additive_models.0.type_to_index"
+                "additive_models.0.model.type_to_index"
             ]
             for target_name, target_info in checkpoint["model_data"][
                 "dataset_info"
@@ -117,3 +124,12 @@ def trainer_update_v2_v3(checkpoint):
     # num_workers=0 means that the main process will do the data loading, which is
     # equivalent to not setting it (this was the behavior before v3)
     checkpoint["train_hypers"]["num_workers"] = 0
+
+
+def trainer_update_v3_v4(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 3 to version 4.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"]["fixed_scaling_weights"] = {}

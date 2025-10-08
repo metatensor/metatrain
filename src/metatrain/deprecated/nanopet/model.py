@@ -53,7 +53,7 @@ class NanoPET(ModelInterface):
     and the third to the features.
     """
 
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(

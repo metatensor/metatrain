@@ -41,7 +41,7 @@ from .model import SoapBpnn
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 5
 
     def __init__(self, hypers: Dict[str, Any]):
         super().__init__(hypers)

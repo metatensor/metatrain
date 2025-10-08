@@ -73,7 +73,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 6
+    __checkpoint_version__ = 7
 
     def __init__(self, hypers: Dict[str, Any]) -> None:
         super().__init__(hypers)
