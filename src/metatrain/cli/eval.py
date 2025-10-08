@@ -34,7 +34,7 @@ from metatrain.utils.logging import MetricLogger
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
-    get_system_with_neighbor_lists,
+    get_system_with_neighbor_lists_transform,
 )
 from metatrain.utils.omegaconf import expand_dataset_config
 from metatrain.utils.per_atom import average_by_num_atoms
@@ -133,11 +133,6 @@ def _eval_targets(
         logging.info("This dataset is empty. No evaluation will be performed.")
         return None
 
-    # Attach neighbor-lists
-    for sample in dataset:
-        system = sample["system"]
-        get_system_with_neighbor_lists(system, get_requested_neighbor_lists(model))
-
     # Infer device/dtype
     model_tensor = next(itertools.chain(model.parameters(), model.buffers()))
     dtype = model_tensor.dtype
@@ -160,7 +155,11 @@ def _eval_targets(
 
     # Create a dataloader
     target_keys = list(model.capabilities().outputs.keys())
-    collate_fn = CollateFn(target_keys)
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    collate_fn = CollateFn(
+        target_keys,
+        callables=[get_system_with_neighbor_lists_transform(requested_neighbor_lists)],
+    )
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, collate_fn=collate_fn, shuffle=False
     )
