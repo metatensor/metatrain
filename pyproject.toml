@@ -142,7 +142,7 @@ filterwarnings = [
     # sphericart_torch.libs' by cibuildwheels
     "ignore:No libgomp shared library found in 'sphericart_torch.libs'.",
     # Multi-threaded tests clash with multi-process data-loading
-    "ignore:use of fork() may lead to deadlocks in the child",
+    "ignore:This process \\(pid=\\d+\\) is multi-threaded, use of fork\\(\\) may lead to deadlocks in the child.:DeprecationWarning",
 ]
 
 [tool.yamlfix]
