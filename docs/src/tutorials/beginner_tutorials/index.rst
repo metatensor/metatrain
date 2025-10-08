@@ -12,4 +12,4 @@ This sections includes the beginner tutorials on the usage of the
    ../../examples/programmatic/data_preparation/data_preparation
    ../../advanced-concepts/fine-tuning
    ../../examples/ase/run_ase
-   ../../examples/train-from-scratch/train-from-scratch
+   ../../examples/train_from_scratch/train_from_scratch
