@@ -56,11 +56,14 @@ correlations up to roughly 10 Å.
 
 **Q: In what format should I provide my data?** \
 
-**A:** 
+**A:** Please have a look at the getting started section for now, we will link the exact section soon.
 
-**Q: How good should my errors are before I can use my model to run Molecular Dynamics simulations?** \
+**Q: How small should my errors be before I can use my model to run Molecular Dynamics simulations?** \
 
-**A:**
+**A:** Good question. This depends on your system, the temperature you want to run your MD and the 
+dataset you trained on. As rule of thumb, 5% error of the forces on the dataset can be considered good.
+But please check the MD along the way if unphysical phenomena (e.g. explosion/implosion of the trajectory)
+occur and continue traning and rewise your dataset if necessary.
 
 **Q: How can I use a custom model architecture?** \
 
