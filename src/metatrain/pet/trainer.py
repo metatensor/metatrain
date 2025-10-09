@@ -196,8 +196,10 @@ class Trainer(TrainerInterface):
         )
         model.additive_models.to(device)
         model.additive_models[0].weights_to(device=device, dtype=torch.float64)
+        model.scaler.scales_to(device="cpu", dtype=torch.float64)
         scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
         model.scaler.to(device)
+        model.scaler.scales_to(device=device, dtype=torch.float64)
 
         # Create collate functions:
         dataset_info = model.dataset_info
