@@ -35,6 +35,8 @@ Changed
 - The ``LLPR`` module is now a stable architecture, instead of a utility module. It can
   be trained from the command line in the same way as other architectures.
 - We now require Python >= 3.10
+- The ``Scaler`` model in metatrain now calculates per-block and per-property scales.
+  For atomic targets, it calculates per-element scales.
 
 Version 2025.10 - 2025-09-09
 ----------------------------
