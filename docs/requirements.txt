@@ -4,5 +4,6 @@ myst-parser
 sphinx >= 7
 sphinxcontrib-bibtex
 sphinx-gallery
+sphinx-sitemap
 sphinx-toggleprompt
 tomli
