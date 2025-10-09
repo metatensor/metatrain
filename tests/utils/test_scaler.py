@@ -1,4 +1,5 @@
 import copy
+import math
 from pathlib import Path
 
 import metatensor.torch as mts
@@ -11,6 +12,7 @@ from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems
 from metatrain.utils.data.target_info import (
+    TargetInfo,
     get_energy_target_info,
     get_generic_target_info,
 )
@@ -703,6 +705,501 @@ def test_scaler_spherical(batch_size):
         removed_output["spherical"].block({"o3_lambda": 2}).values,
         fake_output["spherical"].block({"o3_lambda": 2}).values
         / expected_scales_spherical,
+    )
+
+
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_scaler_spherical_per_atom(batch_size):
+    """Test the calculation of scaling weights for a multi-block per-atom spherical
+    target."""
+
+    # Here we use two synthetic structures, each with a scalar and a rank-1 spherical
+    # tensor in the same target, as a per-atom quantity. Scales are computed per atomic
+    # type.
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+
+    # Build a scalar (o3_lambda=0, o3_sigma=1), single-property, block. Here there is
+    # one entry for each atom.
+    L_0 = [
+        torch.tensor([1.0, 7.0]).reshape(1, 1, 2),
+        torch.tensor(
+            [
+                [2.0, 9.0],
+                [3.0, 13.0],
+                [4.0, -6.0],
+            ]
+        ).reshape(3, 1, 2),
+    ]
+
+    # Now build a rank-1 (o3_lambda=1, o3_sigma=1), 3-property, block. Here there are 4
+    # samples (for each atom), 3 components, and 3 properties.
+    L_1 = [
+        torch.tensor(  # system 0
+            [
+                [  # atom 0 (O)
+                    [1.0, 2.0],  # m = -1
+                    [3.0, 4.0],  # m = 0
+                    [5.0, 6.0],  # m = 1
+                ],
+            ]
+        ).reshape(1, 3, 2),
+        torch.tensor(  # system 1
+            [
+                [  # atom 0 (H)
+                    [10.0, 20.0],  # m = -1
+                    [30.0, 40.0],  # m = 0
+                    [50.0, 60.0],  # m = 1
+                ],
+                [  # atom 1 (H)
+                    [100.0, 200.0],  # m = -1
+                    [300.0, 400.0],  # m = 0
+                    [500.0, 600.0],  # m = 1
+                ],
+                [  # atom 2 (O)
+                    [-1.0, -2.0],  # m = -1
+                    [-3.0, -4.0],  # m = 0
+                    [-5.0, -6.0],  # m = 1
+                ],
+            ]
+        ).reshape(3, 3, 2),
+    ]
+    keys = Labels(
+        names=["o3_lambda", "o3_sigma"], values=torch.tensor([[0, 1], [1, 1]])
+    )
+    sample_labels = [
+        Labels(["system", "atom"], torch.tensor([[0, 0]])),
+        Labels(["system", "atom"], torch.tensor([[1, 0], [1, 1], [1, 2]])),
+    ]
+    property_labels = Labels(names=["property"], values=torch.tensor([[0], [1]]))
+
+    # Build the targets
+    spherical = [
+        TensorMap(
+            keys=keys,
+            blocks=[
+                TensorBlock(
+                    values=L_0_A,
+                    samples=sample_labels_A,
+                    components=[Labels.range("o3_mu", 1)],
+                    properties=property_labels,
+                ),
+                TensorBlock(
+                    values=L_1_A,
+                    samples=sample_labels_A,
+                    components=[Labels.range("o3_mu", 3)],
+                    properties=property_labels,
+                ),
+            ],
+        ).to(torch.float64)
+        for sample_labels_A, L_0_A, L_1_A in zip(sample_labels, L_0, L_1, strict=False)
+    ]
+    dataset = Dataset.from_dict({"system": systems, "spherical": spherical})
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 8],
+        targets={
+            "spherical": TargetInfo(
+                quantity="spherical",
+                layout=mts.slice(
+                    spherical[0],
+                    "samples",
+                    Labels(["system"], torch.tensor([[-1]])),
+                ),
+                unit="",
+            )
+        },
+    )
+
+    scaler = Scaler(
+        hypers={},
+        dataset_info=dataset_info,
+    ).to(torch.float64)
+
+    scaler.train_model(
+        dataset,
+        additive_models=[],
+        batch_size=batch_size,
+        is_distributed=False,
+    )
+
+    expected_scales = TensorMap(
+        keys,
+        [
+            TensorBlock(  # L = 0
+                values=torch.tensor(
+                    [
+                        [  # hydrogen
+                            math.sqrt((2.0**2 + 3.0**2) / 2),  # property 0
+                            math.sqrt((9.0**2 + 13.0**2) / 2),  # property 1
+                        ],
+                        [  # oxygen
+                            math.sqrt((1.0**2 + 4.0**2) / 2),  # property 0
+                            math.sqrt((7.0**2 + (-6.0) ** 2) / 2),  # property 1
+                        ],
+                    ]
+                ).reshape(2, 2),
+                samples=Labels(["atomic_type"], torch.tensor([[0], [1]])),
+                components=[],
+                properties=Labels(names=["property"], values=torch.tensor([[0], [1]])),
+            ),
+            TensorBlock(  # L = 1
+                values=torch.tensor(
+                    [
+                        [  # hydrogen
+                            math.sqrt(
+                                (
+                                    10.0**2
+                                    + 30.0**2
+                                    + 50.0**2
+                                    + (100.0) ** 2
+                                    + (300.0) ** 2
+                                    + (500.0) ** 2
+                                )
+                                / 6
+                            ),  # property 0
+                            math.sqrt(
+                                (
+                                    20.0**2
+                                    + 40.0**2
+                                    + 60.0**2
+                                    + (200.0) ** 2
+                                    + (400.0) ** 2
+                                    + (600.0) ** 2
+                                )
+                                / 6
+                            ),  # property 1
+                        ],
+                        [  # oxygen
+                            math.sqrt(
+                                (
+                                    1.0**2
+                                    + 3.0**2
+                                    + 5.0**2
+                                    + (-1.0) ** 2
+                                    + (-3.0) ** 2
+                                    + (-5.0) ** 2
+                                )
+                                / 6
+                            ),  # property 0
+                            math.sqrt(
+                                (
+                                    2.0**2
+                                    + 4.0**2
+                                    + 6.0**2
+                                    + (-2.0) ** 2
+                                    + (-4.0) ** 2
+                                    + (-6.0) ** 2
+                                )
+                                / 6
+                            ),  # property 1
+                        ],
+                    ]
+                ),
+                samples=Labels(["atomic_type"], torch.tensor([[0], [1]])),
+                components=[],
+                properties=Labels(names=["property"], values=torch.tensor([[0], [1]])),
+            ),
+        ],
+    ).to(torch.float64)
+
+    mts.allclose_raise(
+        scaler.model.scales["spherical"], expected_scales, rtol=1e-5, atol=1e-5
+    )
+
+
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_scaler_spherical_per_atom_masked(batch_size):
+    """Test the calculation of scaling weights for a multi-block per-atom
+    spherical target, where some entries are masked."""
+
+    # Here we use two synthetic structures, each with a scalar and a rank-1 spherical
+    # tensor in the same target, as a per-atom quantity. Scales are computed per atomic
+    # type.
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+
+    # Build a scalar (o3_lambda=0, o3_sigma=1), single-property, block. Here there is
+    # one entry for each atom.
+    L_0 = [
+        torch.tensor([1.0, 7.0]).reshape(1, 1, 2),
+        torch.tensor(
+            [
+                [2.0, 9.0],
+                [3.0, 13.0],
+                [4.0, -6.0],
+            ]
+        ).reshape(3, 1, 2),
+    ]
+
+    # Also build the L = 0 mask. Here we say that oxygen has 0 masked properties for the
+    # first system and 1 masked property for the second system. For hydrogen (in the
+    # second system only) there is 1 masked property (which will have a default scale of
+    # 1.0).
+    L_0_mask = [
+        torch.tensor([1.0, 1.0]).reshape(1, 1, 2),  # oxygen - 0 masked
+        torch.tensor(
+            [
+                [1.0, 0.0],  # hydrogen - 1 masked
+                [1.0, 0.0],  # hydrogen - 1 masked
+                [1.0, 0.0],  # oxygen - 1 masked
+            ]
+        ).reshape(3, 1, 2),
+    ]
+
+    # Now build a rank-1 (o3_lambda=1, o3_sigma=1), 3-property, block. Here there are 4
+    # samples (for each atom), 3 components, and 3 properties.
+    L_1 = [
+        torch.tensor(  # system 0
+            [
+                [  # atom 0 (O)
+                    [1.0, 2.0],  # m = -1
+                    [3.0, 4.0],  # m = 0
+                    [5.0, 6.0],  # m = 1
+                ],
+            ]
+        ).reshape(1, 3, 2),
+        torch.tensor(  # system 1
+            [
+                [  # atom 0 (H)
+                    [10.0, 20.0],  # m = -1
+                    [30.0, 40.0],  # m = 0
+                    [50.0, 60.0],  # m = 1
+                ],
+                [  # atom 1 (H)
+                    [100.0, 200.0],  # m = -1
+                    [300.0, 400.0],  # m = 0
+                    [500.0, 600.0],  # m = 1
+                ],
+                [  # atom 2 (O)
+                    [-1.0, -2.0],  # m = -1
+                    [-3.0, -4.0],  # m = 0
+                    [-5.0, -6.0],  # m = 1
+                ],
+            ]
+        ).reshape(3, 3, 2),
+    ]
+
+    # And the L = 1 mask. Here we say that there is no masking on oxygen in either
+    # sample or property. For hydrogen, one property is masked.
+    L_1_mask = [
+        torch.tensor(  # system 0
+            [
+                [  # atom 0 (O)
+                    [1.0, 1.0],  # m = -1
+                    [1.0, 1.0],  # m = 0
+                    [1.0, 1.0],  # m = 1
+                ],
+            ]
+        ).reshape(1, 3, 2),
+        torch.tensor(  # system 1
+            [
+                [  # atom 0 (H)
+                    [1.0, 0.0],  # m = -1
+                    [1.0, 0.0],  # m = 0
+                    [1.0, 0.0],  # m = 1
+                ],
+                [  # atom 1 (H)
+                    [1.0, 0.0],  # m = -1
+                    [1.0, 0.0],  # m = 0
+                    [1.0, 0.0],  # m = 1
+                ],
+                [  # atom 2 (O)
+                    [1.0, 1.0],  # m = -1
+                    [1.0, 1.0],  # m = 0
+                    [1.0, 1.0],  # m = 1
+                ],
+            ]
+        ).reshape(3, 3, 2),
+    ]
+
+    keys = Labels(
+        names=["o3_lambda", "o3_sigma"], values=torch.tensor([[0, 1], [1, 1]])
+    )
+    sample_labels = [
+        Labels(["system", "atom"], torch.tensor([[0, 0]])),
+        Labels(["system", "atom"], torch.tensor([[1, 0], [1, 1], [1, 2]])),
+    ]
+    property_labels = Labels(names=["property"], values=torch.tensor([[0], [1]]))
+
+    # Build the targets
+    spherical = [
+        TensorMap(
+            keys=keys,
+            blocks=[
+                TensorBlock(
+                    values=L_0_A,
+                    samples=sample_labels_A,
+                    components=[Labels.range("o3_mu", 1)],
+                    properties=property_labels,
+                ),
+                TensorBlock(
+                    values=L_1_A,
+                    samples=sample_labels_A,
+                    components=[Labels.range("o3_mu", 3)],
+                    properties=property_labels,
+                ),
+            ],
+        ).to(torch.float64)
+        for sample_labels_A, L_0_A, L_1_A in zip(sample_labels, L_0, L_1, strict=False)
+    ]
+    spherical_mask = [
+        TensorMap(
+            keys=keys,
+            blocks=[
+                TensorBlock(
+                    values=L_0_A,
+                    samples=sample_labels_A,
+                    components=[Labels.range("o3_mu", 1)],
+                    properties=property_labels,
+                ),
+                TensorBlock(
+                    values=L_1_A,
+                    samples=sample_labels_A,
+                    components=[Labels.range("o3_mu", 3)],
+                    properties=property_labels,
+                ),
+            ],
+        ).to(torch.float64)
+        for sample_labels_A, L_0_A, L_1_A in zip(
+            sample_labels, L_0_mask, L_1_mask, strict=False
+        )
+    ]
+    dataset = Dataset.from_dict(
+        {"system": systems, "spherical": spherical, "spherical_mask": spherical_mask}
+    )
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 8],
+        targets={
+            "spherical": TargetInfo(
+                quantity="spherical",
+                layout=mts.slice(
+                    spherical[0],
+                    "samples",
+                    Labels(["system"], torch.tensor([[-1]])),
+                ),
+                unit="",
+            ),
+        },
+    )
+
+    scaler = Scaler(
+        hypers={},
+        dataset_info=dataset_info,
+    ).to(torch.float64)
+
+    scaler.train_model(
+        dataset,
+        additive_models=[],
+        batch_size=batch_size,
+        is_distributed=False,
+    )
+
+    expected_scales = TensorMap(
+        keys,
+        [
+            TensorBlock(  # L = 0
+                values=torch.tensor(
+                    [
+                        [  # hydrogen
+                            math.sqrt((2.0**2 + 3.0**2) / 2),  # property 0 - not masked
+                            1.0,  # property 1 - masked in all samples
+                        ],
+                        [  # oxygen
+                            math.sqrt((1.0**2 + 4.0**2) / 2),  # property 0 - not masked
+                            math.sqrt(
+                                (7.0**2) / 1
+                            ),  # property 1 - masked in one sample
+                        ],
+                    ]
+                ).reshape(2, 2),
+                samples=Labels(["atomic_type"], torch.tensor([[0], [1]])),
+                components=[],
+                properties=Labels(names=["property"], values=torch.tensor([[0], [1]])),
+            ),
+            TensorBlock(  # L = 1
+                values=torch.tensor(
+                    [
+                        [  # hydrogen
+                            math.sqrt(
+                                (
+                                    10.0**2
+                                    + 30.0**2
+                                    + 50.0**2
+                                    + (100.0) ** 2
+                                    + (300.0) ** 2
+                                    + (500.0) ** 2
+                                )
+                                / 6
+                            ),  # property 0
+                            1.0,  # property 1
+                        ],
+                        [  # oxygen
+                            math.sqrt(
+                                (
+                                    1.0**2
+                                    + 3.0**2
+                                    + 5.0**2
+                                    + (-1.0) ** 2
+                                    + (-3.0) ** 2
+                                    + (-5.0) ** 2
+                                )
+                                / 6
+                            ),  # property 0
+                            math.sqrt(
+                                (
+                                    2.0**2
+                                    + 4.0**2
+                                    + 6.0**2
+                                    + (-2.0) ** 2
+                                    + (-4.0) ** 2
+                                    + (-6.0) ** 2
+                                )
+                                / 6
+                            ),  # property 1
+                        ],
+                    ]
+                ),
+                samples=Labels(["atomic_type"], torch.tensor([[0], [1]])),
+                components=[],
+                properties=Labels(names=["property"], values=torch.tensor([[0], [1]])),
+            ),
+        ],
+    ).to(torch.float64)
+
+    mts.allclose_raise(
+        scaler.model.scales["spherical"], expected_scales, rtol=1e-5, atol=1e-5
     )
 
 

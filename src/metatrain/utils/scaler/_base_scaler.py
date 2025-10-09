@@ -35,7 +35,6 @@ class BaseScaler(torch.nn.Module):
     sample_kinds: Dict[str, str]
     type_to_index: torch.Tensor
     N: Dict[str, TensorMap]
-    Y: Dict[str, TensorMap]
     Y2: Dict[str, TensorMap]
 
     def __init__(self, atomic_types: List[int], layouts: Dict[str, TensorMap]) -> None:
@@ -102,14 +101,14 @@ class BaseScaler(torch.nn.Module):
                 TensorBlock(
                     values=torch.zeros(
                         len(samples),
-                        1,
+                        len(block.properties),
                         dtype=torch.float64,
                     ),
                     samples=samples,
                     components=[],
-                    properties=Labels.single(),
+                    properties=block.properties,
                 )
-                for _ in layout
+                for block in layout
             ],
         )
         self.Y2[target_name] = TensorMap(
@@ -178,6 +177,11 @@ class BaseScaler(torch.nn.Module):
 
             for key, block in target.items():
                 if self.sample_kinds[target_name] == "per_structure":
+                    if mask is not None:
+                        raise NotImplementedError(
+                            "masks for per-structure targets are not yet supported"
+                        )
+
                     Y_block = block.to(device=device, dtype=dtype)
                     Y = Y_block.values
 
@@ -208,20 +212,16 @@ class BaseScaler(torch.nn.Module):
                         if mask is None:
                             N = Y.numel() // Y.shape[-1]
                         else:
-                            # Count N as the number of samples where the mask is True
-                            # for at least one property (in other words where the mask
-                            # for a given sample is not all False). This handles the
-                            # case where samples are padded.
-                            pad_mask_values = mask.block(key).values[samples_type_mask]
-                            samples_pad_mask = pad_mask_values.any(
-                                dim=list(range(1, Y.dim()))
-                            )
-                            # effective_num_samples = samples_pad_mask.sum().item()
-                            # N = (Y.numel() // (Y.shape[-1] * Y.shape[0])) * (
-                            #     effective_num_samples
-                            # )
-                            N = samples_pad_mask.sum() * len(Y_block.components[0])
-                            Y = Y[samples_pad_mask]
+                            # For each property, count N as the number of samples *
+                            # components where the mask is True.
+                            mask_values = mask.block(key).values[samples_type_mask]
+                            assert Y.shape == mask_values.shape
+                            N = torch.sum(mask_values, dim=list(range(0, Y.dim() - 1)))
+
+                            # To ensure that Y^2 isn't accumulated on masked entries,
+                            # mutliply Y by the mask (either 1 for real data or 0 for
+                            # padded data).
+                            Y = Y * mask_values.to(Y.dtype)
 
                         # Compute the Y2 values and sum over samples and components
                         Y2_values = torch.sum(Y**2, dim=list(range(0, Y.dim() - 1)))
@@ -271,7 +271,7 @@ class BaseScaler(torch.nn.Module):
                 N_values = N_block.values
                 Y2_values = Y2_block.values
 
-                if self.sample_kinds[target_name] == "per_structure":  # TODO
+                if self.sample_kinds[target_name] == "per_structure":
                     assert len(Y2_block.samples) == 1
 
                 # Set a sensible default in case we don't compute a scale below
@@ -289,21 +289,24 @@ class BaseScaler(torch.nn.Module):
                     N_values_type = N_values[type_index].unsqueeze(0)
                     Y2_values_type = Y2_values[type_index].unsqueeze(0)
 
-                    # Compute the standard deviation
-                    N_type = N_values_type.item()  # (do not use Bessel's correction)
+                    # Compute std
+                    scale_vals_type = torch.sqrt(
+                        Y2_values_type / N_values_type
+                    )  # (do not use Bessel's correction)
 
-                    if N_type == 0:  # this can only happen for per-atom targets
+                    # Provide a warning for scales that cannot be computed. These will
+                    # be NaN as N_values_type for this property will be zero.
+                    if torch.isnan(
+                        scale_vals_type
+                    ).any():  # this can only happen for per-atom targets
                         assert self.sample_kinds[target_name] == "per_atom"
                         logging.info(
                             f"Per-atom target {target_name} has not enough samples in "
                             f"block {key} for atomic type"
-                            f"{self.atomic_types[type_index]} to compute statistics, "
-                            "skipping."
+                            f"{self.atomic_types[type_index]} to compute statistics. "
+                            "The scales of one or more property cannot be computed."
                         )
-                        continue
-
-                    # Compute std
-                    scale_vals_type = torch.sqrt(Y2_values_type / N_type)
+                        scale_vals_type[torch.isnan(scale_vals_type)] = 1.0
 
                     # If any scales are zero, set them to 1.0
                     if torch.any(scale_vals_type == 0):
