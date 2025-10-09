@@ -19,46 +19,52 @@ import numpy as np
 # %%
 # Load the target and predicted data
 targets = ase.io.read(
-    "../basic_usage/qm9_reduced_100.xyz", ":"
+    "../train_from_scratch/ethanol_reduced_100.xyz", ":"
 )  # reference data (ground truth)
 predictions = ase.io.read("output.xyz", ":")  # predicted data from the model
 
 
 # %%
 # Extract the energies from the loaded frames
-e_targets = np.array([frame.info["U0"] for frame in targets])  # target energies
+e_targets = np.array([frame.get_total_energy() for frame in targets])  # target energies
 e_predictions = np.array(
     [frame.get_total_energy() for frame in predictions]
 )  # predicted energies
+f_targets = np.array(
+    [frame.get_forces().flatten() for frame in targets]
+).flatten()  # target forces
+f_predictions = np.array(
+    [frame.get_forces().flatten() for frame in predictions]
+).flatten()  # predicted forces
 
 
 # %%
-# Create a parity plot to compare predicted vs. target energies
-# -------------------------------------------------------------
-# A parity plot shows how close predicted values are to the reference values.
-# If the model is perfect, all points should lie on the diagonal y=x line.
+# Create parity plots to compare predicted vs. target energies and forces
+# -----------------------------------------------------------------------
 
-# Create a figure and axes for the plot
-fig, ax = plt.subplots()
+fig, axs = plt.subplots(1, 2, figsize=(12, 5))
 
-# Scatter plot of target vs. predicted energies
-# Each point represents a structure in the dataset
-ax.scatter(e_targets, e_predictions)
+# Parity plot for energies
+axs[0].scatter(e_targets, e_predictions)
+axs[0].axline((np.min(e_targets), np.min(e_targets)), slope=1, ls="--", color="red")
+axs[0].set_xlabel("Target energy / eV")
+axs[0].set_ylabel("Predicted energy / eV")
+min_e = np.min(np.array([e_targets, e_predictions])) - 2
+max_e = np.max(np.array([e_targets, e_predictions])) + 2
+axs[0].set_xlim([min_e, max_e])
+axs[0].set_ylim([min_e, max_e])
+axs[0].set_title("Energy Parity Plot")
 
-# Plot a reference diagonal line (y=x) in red dashed style
-# This helps to visually see deviations from perfect predictions
-ax.axline((np.min(e_targets), np.min(e_targets)), slope=1, ls="--", color="red")
+# Parity plot for forces
+axs[1].scatter(f_targets, f_predictions, alpha=0.5)
+axs[1].axline((np.min(f_targets), np.min(f_targets)), slope=1, ls="--", color="red")
+axs[1].set_xlabel("Target force / eV/Å")
+axs[1].set_ylabel("Predicted force / eV/Å")
+min_f = np.min(np.array([f_targets, f_predictions])) - 2
+max_f = np.max(np.array([f_targets, f_predictions])) + 2
+axs[1].set_xlim([min_f, max_f])
+axs[1].set_ylim([min_f, max_f])
+axs[1].set_title("Force Parity Plot")
 
-# Label the axes
-ax.set_xlabel("Target energy / eV")
-ax.set_ylabel("Predicted energy / eV")
-
-# Set axis limits to slightly extend beyond the min and max of the data for better
-# visibility
-min_val = np.min(np.array([e_targets, e_predictions])) - 2
-max_val = np.max(np.array([e_targets, e_predictions])) + 2
-ax.set_xlim([min_val, max_val])
-ax.set_ylim([min_val, max_val])
-
-# Show the plot
+plt.tight_layout()
 plt.show()
