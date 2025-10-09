@@ -444,7 +444,7 @@ class PET(ModelInterface):
             long_range_features = self._calculate_long_range_features(
                 systems, node_features_list, edge_distances, padding_mask
             )
-            for i in range(len(self.gnn_layers)):
+            for i in range(self.num_readout_layers):
                 node_features_list[i] = (
                     node_features_list[i] + long_range_features
                 ) * 0.5**0.5
