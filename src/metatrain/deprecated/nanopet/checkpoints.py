@@ -1,9 +1,17 @@
+from typing import Any, Dict
+
+
 ###########################
 # MODEL ###################
 ###########################
 
 
-def model_update_v1_v2(checkpoint):
+def model_update_v1_v2(checkpoint: Dict[str, Any]) -> None:
+    """
+    Update model checkpoint from version 1 to version 2.
+
+    :param checkpoint: The checkpoint to be updated.
+    """
     for key in ["model_state_dict", "best_model_state_dict"]:
         if (state_dict := checkpoint.get(key)) is not None:
             if "additive_models.0.model.type_to_index" not in state_dict:
@@ -17,7 +25,12 @@ def model_update_v1_v2(checkpoint):
 ###########################
 
 
-def trainer_update_v1_v2(checkpoint):
+def trainer_update_v1_v2(checkpoint: Dict[str, Any]) -> None:
+    """
+    Update trainer checkpoint from version 1 to version 2.
+
+    :param checkpoint: The checkpoint to be updated.
+    """
     old_loss_hypers = checkpoint["train_hypers"]["loss"].copy()
     dataset_info = checkpoint["model_data"]["dataset_info"]
     new_loss_hypers = {}

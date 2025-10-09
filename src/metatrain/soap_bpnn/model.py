@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import metatensor.torch as mts
 import torch
@@ -32,7 +32,7 @@ from .spherical import TensorBasis
 
 
 class Identity(torch.nn.Module):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
     def forward(self, x: TensorMap) -> TensorMap:
@@ -129,7 +129,17 @@ class MLPHeadMap(ModuleMap):
 
 def concatenate_structures(
     systems: List[System], neighbor_list_options: NeighborListOptions
-):
+) -> Tuple[
+    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+]:
+    """
+    Concatenate a list of systems into a single batch.
+
+    :param systems: List of systems to concatenate.
+    :param neighbor_list_options: Options for the neighbor list.
+    :return: A tuple containing the concatenated positions, centers, neighbors,
+        species, cells, and cell shifts.
+    """
     positions = []
     centers = []
     neighbors = []

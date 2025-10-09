@@ -702,7 +702,14 @@ class NanoPET(ModelInterface):
 
 
 def manual_prod(shape: List[int]) -> int:
-    # prod from standard library not supported in torchscript
+    """
+    Compute the product of a list of integers, since prod from standard library not
+    supported in torchscript
+
+    :param shape: list of integers
+    :return: product of the integers
+    """
+
     result = 1
     for dim in shape:
         result *= dim
