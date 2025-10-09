@@ -46,7 +46,7 @@ General training concepts
 In general, the cutoff should be large enough to include all physically relevant interactions
 (e.g., chemical bonding and short-range correlations) but not so large that it adds unnecessary
 computational cost. For istance around **4–6 Å** is a good value for most systems, but it can be
-increased to **8-10 Å** for condensed phases where longer-range effects are important. You can
+increased to **8-10 Å** for condensed phases you expect that correlation at larger distances are important. You can
 then test convergence by gradually increasing the cutoff and monitoring whether your target quantities
 (energies, forces, or other observables) change significantly.
 
