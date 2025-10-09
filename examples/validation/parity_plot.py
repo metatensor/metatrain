@@ -26,9 +26,11 @@ predictions = ase.io.read("output.xyz", ":")  # predicted data from the model
 
 # %%
 # Extract the energies from the loaded frames
-e_targets = np.array([frame.get_total_energy() for frame in targets])  # target energies
+e_targets = np.array(
+    [frame.get_total_energy() / len(frame) for frame in targets]
+)  # target energies
 e_predictions = np.array(
-    [frame.get_total_energy() for frame in predictions]
+    [frame.get_total_energy() / len(frame) for frame in predictions]
 )  # predicted energies
 f_targets = np.array(
     [frame.get_forces().flatten() for frame in targets]
@@ -47,8 +49,8 @@ fig, axs = plt.subplots(1, 2, figsize=(12, 5))
 # Parity plot for energies
 axs[0].scatter(e_targets, e_predictions)
 axs[0].axline((np.min(e_targets), np.min(e_targets)), slope=1, ls="--", color="red")
-axs[0].set_xlabel("Target energy / eV")
-axs[0].set_ylabel("Predicted energy / eV")
+axs[0].set_xlabel("Target energy / kcal")
+axs[0].set_ylabel("Predicted energy / kcal")
 min_e = np.min(np.array([e_targets, e_predictions])) - 2
 max_e = np.max(np.array([e_targets, e_predictions])) + 2
 axs[0].set_xlim([min_e, max_e])
@@ -58,8 +60,8 @@ axs[0].set_title("Energy Parity Plot")
 # Parity plot for forces
 axs[1].scatter(f_targets, f_predictions, alpha=0.5)
 axs[1].axline((np.min(f_targets), np.min(f_targets)), slope=1, ls="--", color="red")
-axs[1].set_xlabel("Target force / eV/Å")
-axs[1].set_ylabel("Predicted force / eV/Å")
+axs[1].set_xlabel("Target force / kcal/Å")
+axs[1].set_ylabel("Predicted force / kcal/Å")
 min_f = np.min(np.array([f_targets, f_predictions])) - 2
 max_f = np.max(np.array([f_targets, f_predictions])) + 2
 axs[1].set_xlim([min_f, max_f])
@@ -68,3 +70,6 @@ axs[1].set_title("Force Parity Plot")
 
 plt.tight_layout()
 plt.show()
+
+# The results are a bit poor here because the model was not trained well enough and was
+# created only for demonstration purposes.
