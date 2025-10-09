@@ -42,8 +42,9 @@ test tox:
   image: $BASE_IMAGE
   timeout: 24h
   script:
-    - tox -r -e cuda --workdir /tmp/tox/ --list-dependencies
-    - tox -r --workdir /tmp/tox/ --list-dependencies
+    - rm -rf /tmp/tox/
+    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    - tox --workdir /tmp/tox/ --list-dependencies
   variables:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
