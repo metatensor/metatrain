@@ -2,7 +2,13 @@
 Frequently Asked Questions
 ==========================
 
-This page is a collection of FAQs. Below are links to the sections:
+This page is a collection of FAQs.
+If you have further questions and suggestions, please do not hesitate to add them to
+our `Github discussion page about metatrain`_.
+
+.. _Github discussion page about metatrain: https://github.com/metatensor/metatrain/discussions
+
+Below are links to the sections:
 
 Contents
 --------
@@ -56,7 +62,7 @@ correlations up to roughly 10 Å.
 
 **Q: In what format should I provide my data?**
 
-**A:** Please have a look at the getting started section for now, we will link the exact section soon.
+**A:** You can find everything on how to prepare your data in :ref:`_sphx_glr_examples_programmatic_data_preparation_data_preparation.py`.
 
 **Q: How small should my errors be before I can use my model to run Molecular Dynamics simulations?**
 
