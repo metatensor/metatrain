@@ -92,7 +92,7 @@ Citing us
 ---------
 .. _Citing us:
 
-**Q: How do I cite ``metatrain``?**
+**Q: How do I cite metatrain?**
 
 **A:** Please follow the instructions on :ref:`this page <citingmetatrain>`.
 
