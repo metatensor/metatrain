@@ -1160,7 +1160,7 @@ class PET(ModelInterface):
         # be registered correctly with Pytorch. This function moves them:
         self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
-        interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
+        interaction_ranges = [self.num_gnn_layers * self.cutoff]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)
