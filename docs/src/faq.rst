@@ -62,7 +62,8 @@ correlations up to roughly 10 Å.
 
 **Q: In what format should I provide my data?**
 
-**A:** You can find everything on how to prepare your data in :ref:`_sphx_glr_examples_programmatic_data_preparation_data_preparation.py`.
+**A:** You can find everything on how to prepare your data in
+:ref:`sphx_glr_examples_programmatic_data_preparation_data_preparation.py`.
 
 **Q: How small should my errors be before I can use my model to run Molecular Dynamics simulations?**
 
