@@ -459,9 +459,13 @@ class Trainer(TrainerInterface):
                 scaled_targets = (model.module if is_distributed else model).scaler(
                     systems, targets
                 )
-                val_rmse_calculator.update(scaled_predictions, scaled_targets)
+                val_rmse_calculator.update(
+                    scaled_predictions, scaled_targets, extra_data
+                )
                 if self.hypers["log_mae"]:
-                    val_mae_calculator.update(scaled_predictions, scaled_targets)
+                    val_mae_calculator.update(
+                        scaled_predictions, scaled_targets, extra_data
+                    )
 
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
