@@ -52,7 +52,7 @@ def check_architecture_name(name: str) -> None:
             word=name, possibilities=find_all_architectures()
         )
         if closest_match:
-            msg += f" Do you mean '{closest_match[0]}'?"
+            msg += f" Did you mean '{closest_match[0]}'?"
 
     raise ValueError(msg)
 

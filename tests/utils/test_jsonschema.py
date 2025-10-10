@@ -1,7 +1,6 @@
 import json
 
 import pytest
-from jsonschema.exceptions import ValidationError
 
 from metatrain.utils.architectures import get_architecture_path
 from metatrain.utils.jsonschema import validate
@@ -28,9 +27,9 @@ def test_validate_single_suggestion():
     }
     match = (
         r"Unrecognized options \('batch_sizes', 'nasdasd' were unexpected\). "
-        r"Do you mean 'batch_size'?"
+        r"Did you mean 'batch_size'?"
     )
-    with pytest.raises(ValidationError, match=match):
+    with pytest.raises(ValueError, match=match):
         validate(instance=instance, schema=schema())
 
 
@@ -41,7 +40,7 @@ def test_validate_multi_suggestion():
     }
     match = (
         r"Unrecognized options \('batch_sizes', 'num_epoch' were unexpected\). "
-        r"Do you mean"
+        r"Did you mean"
     )
-    with pytest.raises(ValidationError, match=match):
+    with pytest.raises(ValueError, match=match):
         validate(instance=instance, schema=schema())

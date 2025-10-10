@@ -25,15 +25,16 @@ def validate(
     :param cls: Validator class to use.
     :param \*args: Additional positional arguments to pass to the validator
     :param \*\*kwargs: Additional keyword arguments to pass to the validator
-    :raises jsonschema.exceptions.ValidationError: If the instance is invalid
+    :raises ValueError: If the instance is invalid
     :raises jsonschema.exceptions.SchemaError: If the schema itself is invalid
     """
     try:
         jsonschema.validate(instance, schema, cls=cls, *args, **kwargs)  # noqa: B026
     except ValidationError as error:
+        message = error.message
         if error.validator == "additionalProperties":
             # Change error message to be clearer for users
-            error.message = error.message.replace(
+            message = message.replace(
                 "Additional properties are not allowed", "Unrecognized options"
             )
 
@@ -50,6 +51,9 @@ def validate(
                     closest_matches.append(f"'{closest_match[0]}'")
 
             if closest_matches:
-                error.message += f". Do you mean {', '.join(closest_matches)}?"
+                message += f". Did you mean {', '.join(closest_matches)}?"
 
-        raise ValidationError(message=error.message)
+        message = f"Invalid option for {error.json_path[2:]}: {message}"
+        message += f"\nExpected {error.schema}"
+
+        raise ValueError(message) from error
