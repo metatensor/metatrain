@@ -5,8 +5,8 @@ Multi-GPU training
 
 ``metatrain`` supports training a model with several GPUs, which can accelerate the
 training, especially when the training dataset is large / there are many training
-epochs. This feature is enabled by the :py:mod:`torch.distributed` module, and thus can do
-multiprocess parallelism across several nodes.
+epochs. This feature is enabled by the :py:mod:`torch.distributed` module, and thus can
+do multiprocess parallelism across several nodes.
 
 In multi-GPU training, every batch of samples is split into smaller mini-batches and the
 computation is run for each of the smaller mini-batches in parallel on different GPUs.
