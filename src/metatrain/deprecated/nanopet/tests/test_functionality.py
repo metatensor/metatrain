@@ -1,7 +1,6 @@
 import metatensor.torch as mts
 import pytest
 import torch
-from jsonschema.exceptions import ValidationError
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
@@ -341,11 +340,11 @@ def test_fixed_composition_weights():
 
 
 def test_fixed_composition_weights_error():
-    """Test that only inputd of type Dict[str, Dict[int, float]] are allowed."""
+    """Test that only input of type Dict[str, Dict[int, float]] are allowed."""
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["fixed_composition_weights"] = {"energy": {"H": 300.0}}
     hypers = OmegaConf.create(hypers)
-    with pytest.raises(ValidationError, match=r"'H' does not match '\^\[0-9\]\+\$'"):
+    with pytest.raises(ValueError, match=r"'H' does not match '\^\[0-9\]\+\$'"):
         check_architecture_options(
             name="deprecated.nanopet", options=OmegaConf.to_container(hypers)
         )
