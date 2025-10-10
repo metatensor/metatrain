@@ -754,6 +754,10 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
+    # make sure that num_workers=0 for reproducibility on CI
+    options = copy.deepcopy(options)
+    options["architecture"]["training"]["num_workers"] = 0
+
     if seed is not None:
         options["seed"] = seed
 
