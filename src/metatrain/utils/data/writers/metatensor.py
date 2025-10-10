@@ -78,7 +78,7 @@ def _concatenate_tensormaps(
                 new_key = key
                 where_system = block.samples.names.index("system")
                 n_systems = torch.max(block.samples.column("system")) + 1
-                new_samples_values = block.samples.values.clone()
+                new_samples_values = block.samples.values
                 new_samples_values[:, where_system] += system_counter
                 new_block = TensorBlock(
                     values=block.values,

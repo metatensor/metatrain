@@ -12,5 +12,6 @@ This sections includes the advanced tutorials on the usage of the
    ../../advanced-concepts/transfer-learning
    ../../examples/llpr/llpr
    ../../examples/zbl/dimers
+   ../../examples/programmatic/memmap_dataset/memmap_dataset
    ../../advanced-concepts/fitting-generic-targets
    ../../examples/multi-gpu/multi-gpu
