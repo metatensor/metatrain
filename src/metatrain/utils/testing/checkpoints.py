@@ -1,12 +1,28 @@
 import glob
 import gzip
 import os
+from typing import Any, Callable, Dict, List, Optional
 
 import pytest
 import torch
 
 
-def check_same_checkpoint_structure(checkpoint, reference, prefix=""):
+ALLOWED_NEW_KEYS_CONDITIONS = [
+    # torch added this key in LambdaLR
+    lambda prefix, key: "scheduler" in f"{prefix}.{key}" and key == "_is_initial"
+]
+
+
+def check_same_checkpoint_structure(
+    checkpoint: Dict[str, Any], reference: Dict[str, Any], prefix: str = ""
+) -> None:
+    """
+    Check that the structure of two checkpoints is the same.
+
+    :param checkpoint: The checkpoint to be checked.
+    :param reference: The reference checkpoint.
+    :param prefix: The prefix to be added to the keys in the error messages.
+    """
     assert isinstance(checkpoint, dict)
     assert isinstance(reference, dict)
 
@@ -15,6 +31,8 @@ def check_same_checkpoint_structure(checkpoint, reference, prefix=""):
             raise KeyError(f"missing key from checkpoint: {prefix}.{key}")
 
     for key in checkpoint:
+        if any(cond(prefix, key) for cond in ALLOWED_NEW_KEYS_CONDITIONS):
+            continue
         if key not in reference:
             raise KeyError(f"new key in checkpoint: {prefix}.{key}")
 
@@ -25,7 +43,16 @@ def check_same_checkpoint_structure(checkpoint, reference, prefix=""):
             )
 
 
-def checkpoint_did_not_change(monkeypatch, tmp_path, model_trainer):
+def checkpoint_did_not_change(
+    monkeypatch: Any, tmp_path: str, model_trainer: Any
+) -> None:
+    """
+    Test that the checkpoint did not change.
+
+    :param monkeypatch: The pytest monkeypatch fixture.
+    :param tmp_path: The pytest tmp_path fixture.
+    :param model_trainer: A tuple of (model, trainer) to be tested.
+    """
     model, trainer = model_trainer
 
     cwd = os.getcwd()
@@ -65,12 +92,22 @@ def checkpoint_did_not_change(monkeypatch, tmp_path, model_trainer):
             ) from e
 
 
-def make_checkpoint_load_tests(DEFAULT_HYPERS):
+def make_checkpoint_load_tests(
+    DEFAULT_HYPERS: Dict[str, Any],
+    *,
+    incompatible_trainer_checkpoints: Optional[List[str]] = None,
+) -> Callable:
+    if incompatible_trainer_checkpoints is None:
+        incompatible_trainer_checkpoints = []
+
     @pytest.mark.parametrize("context", ["restart", "finetune", "export"])
-    def test_loading_old_checkpoints(model_trainer, context):
+    def test_loading_old_checkpoints(model_trainer: Any, context: str) -> None:
         model, trainer = model_trainer
 
         for path in glob.glob("checkpoints/*.ckpt.gz"):
+            if path in incompatible_trainer_checkpoints and context == "restart":
+                continue
+
             with gzip.open(path, "rb") as fd:
                 checkpoint = torch.load(fd, weights_only=False)
 
@@ -79,9 +116,8 @@ def make_checkpoint_load_tests(DEFAULT_HYPERS):
 
             model.load_checkpoint(checkpoint, context)
 
-            if context != "export":
+            if context == "restart":
                 if checkpoint["trainer_ckpt_version"] != trainer.__checkpoint_version__:
-                    print(context)
                     checkpoint = trainer.__class__.upgrade_checkpoint(checkpoint)
 
                 trainer.load_checkpoint(checkpoint, DEFAULT_HYPERS, context)

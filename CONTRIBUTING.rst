@@ -68,7 +68,7 @@ supported tox environments please use
 
 Running the tests
 -----------------
-The testsuite is implemented using Python's `unittest`_ framework and should be set-up
+The testsuite is implemented using `pytest`_ framework and should be set-up
 and run in an isolated virtual environment with `tox`_. All tests can be run with
 
 .. code-block:: bash
@@ -81,7 +81,6 @@ If you wish to test only specific functionalities, for example:
 
   tox -e lint          # code style
   tox -e tests         # unit tests of the main library
-  tox -e examples      # test the examples
 
 
 You can also use ``tox -e format`` to use tox to do actual formatting instead of just
@@ -99,7 +98,7 @@ If you want to test a specific archicture you can also do it. For example
 Will run the unit and regression tests for the :ref:`SOAP-BPNN <architecture-soap-bpnn>`
 model. Note that architecture tests are not run by default if you just type ``tox``.
 
-.. _unittest: https://docs.python.org/3/library/unittest.html
+.. _pytest: https://pytest.org
 .. _tox: https://tox.readthedocs.io/en/latest
 
 Contributing to the documentation
@@ -116,6 +115,10 @@ You can then visualize the local documentation with your favorite browser using 
 following command (or open the :file:`docs/build/html/index.html` file manually).
 
 .. code-block:: bash
+
+    # more interactive, any OS
+    python -m http.server -d docs/build/html/ 8090
+    # .. and go to http://localhost:8090 in a browser
 
     # on linux, depending on what package you have installed:
     xdg-open docs/build/html/index.html

@@ -1,5 +1,5 @@
 import copy
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch.distributed
 from metatensor.torch import TensorMap
@@ -14,22 +14,42 @@ class RMSEAccumulator:
     """
 
     def __init__(self, separate_blocks: bool = False) -> None:
-        """Initialize the accumulator."""
         self.information: Dict[str, Tuple[float, int]] = {}
-        self.separate_blocks = separate_blocks
+        """A dictionary mapping each target key to a tuple containing the sum of
+        squared errors and the number of elements for which the error has been
+        computed."""
 
-    def update(self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]):
+        self.separate_blocks = separate_blocks
+        """Whether the RMSE should be computed separately for each block in the
+        target and prediction ``TensorMap`` objects."""
+
+    def update(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ) -> None:
         """Updates the accumulator with new predictions and targets.
 
         :param predictions: A dictionary of predictions, where the keys correspond
             to the keys in the targets dictionary, and the values are the predictions.
-
         :param targets: A dictionary of targets, where the keys correspond to the keys
             in the predictions dictionary, and the values are the targets.
+        :param extra_data: A dictionary of extra data, where the keys correspond to
+            mask keys (i.e. "{target_key}_mask"), and the values are the masks to apply
+            when computing the RMSE.
         """
 
         for key, target in targets.items():
             prediction = predictions[key]
+
+            # Get the mask from extra data if present
+            mask = None
+            if extra_data is not None:
+                mask_key = f"{key}_mask"
+                if mask_key in extra_data:
+                    mask = extra_data[mask_key]
+
             for block_key in target.keys:
                 target_block = target.block(block_key)
                 prediction_block = prediction.block(block_key)
@@ -37,7 +57,9 @@ class RMSEAccumulator:
                 key_to_write = copy.deepcopy(key)
                 if self.separate_blocks:
                     key_to_write += " ("
-                    for name, value in zip(block_key.names, block_key.values):
+                    for name, value in zip(
+                        block_key.names, block_key.values, strict=True
+                    ):
                         key_to_write += f"{name}={int(value)},"
                     key_to_write = key_to_write[:-1]
                     key_to_write += ")"
@@ -45,11 +67,28 @@ class RMSEAccumulator:
                 if key_to_write not in self.information:  # create key if not present
                     self.information[key_to_write] = (0.0, 0)
 
+                if mask is None:
+                    rmse_value = (
+                        ((prediction_block.values - target_block.values) ** 2)
+                        .sum()
+                        .item()
+                    )
+                else:
+                    mask_block = mask.block(block_key)
+                    rmse_value = (
+                        (
+                            (
+                                prediction_block.values[mask_block.values]
+                                - target_block.values[mask_block.values]
+                            )
+                            ** 2
+                        )
+                        .sum()
+                        .item()
+                    )
+
                 self.information[key_to_write] = (
-                    self.information[key_to_write][0]
-                    + ((prediction_block.values - target_block.values) ** 2)
-                    .sum()
-                    .item(),
+                    self.information[key_to_write][0] + rmse_value,
                     self.information[key_to_write][1] + prediction_block.values.numel(),
                 )
 
@@ -62,11 +101,29 @@ class RMSEAccumulator:
                             f"{key_to_write}_{gradient_name}_gradients"
                         ] = (0.0, 0)
                     prediction_gradient = prediction_block.gradient(gradient_name)
+
+                    if mask is None:
+                        gradient_rmse_value = (
+                            ((prediction_gradient.values - target_gradient.values) ** 2)
+                            .sum()
+                            .item()
+                        )
+                    else:
+                        mask_gradient = mask_block.gradient(gradient_name)
+                        gradient_rmse_value = (
+                            (
+                                (
+                                    prediction_gradient.values[mask_gradient.values]
+                                    - target_gradient.values[mask_gradient.values]
+                                )
+                                ** 2
+                            )
+                            .sum()
+                            .item()
+                        )
                     self.information[f"{key_to_write}_{gradient_name}_gradients"] = (
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][0]
-                        + ((prediction_gradient.values - target_gradient.values) ** 2)
-                        .sum()
-                        .item(),
+                        + gradient_rmse_value,
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][1]
                         + prediction_gradient.values.numel(),
                     )
@@ -89,6 +146,8 @@ class RMSEAccumulator:
             of the distributed system.
         :param device: the local device to use for the computation. Only needed if
             ``is_distributed`` is :obj:`python:True`.
+
+        :return: The RMSE for each key.
         """
 
         if is_distributed:
@@ -118,23 +177,46 @@ class MAEAccumulator:
         block in the target and prediction ``TensorMap`` objects.
     """
 
-    def __init__(self, separate_blocks: bool = False) -> None:
-        """Initialize the accumulator."""
-        self.information: Dict[str, Tuple[float, int]] = {}
-        self.separate_blocks = separate_blocks
+    information: Dict[str, Tuple[float, int]]
+    separate_blocks: bool
 
-    def update(self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]):
+    def __init__(self, separate_blocks: bool = False) -> None:
+        self.information = {}
+        """A dictionary mapping each target key to a tuple containing the sum of
+        absolute errors and the number of elements for which the error has been
+        computed."""
+
+        self.separate_blocks = separate_blocks
+        """Whether the MAE should be computed separately for each block in the
+        target and prediction ``TensorMap`` objects."""
+
+    def update(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ) -> None:
         """Updates the accumulator with new predictions and targets.
 
         :param predictions: A dictionary of predictions, where the keys correspond
             to the keys in the targets dictionary, and the values are the predictions.
-
         :param targets: A dictionary of targets, where the keys correspond to the keys
             in the predictions dictionary, and the values are the targets.
+        :param extra_data: A dictionary of extra data, where the keys correspond to
+            mask keys (i.e. "{target_key}_mask"), and the values are the masks to apply
+            when computing the MAE.
         """
 
         for key, target in targets.items():
             prediction = predictions[key]
+
+            # Get the mask from extra data if present
+            mask = None
+            if extra_data is not None:
+                mask_key = f"{key}_mask"
+                if mask_key in extra_data:
+                    mask = extra_data[mask_key]
+
             for block_key in target.keys:
                 target_block = target.block(block_key)
                 prediction_block = prediction.block(block_key)
@@ -142,7 +224,9 @@ class MAEAccumulator:
                 key_to_write = copy.deepcopy(key)
                 if self.separate_blocks:
                     key_to_write += " ("
-                    for name, value in zip(block_key.names, block_key.values):
+                    for name, value in zip(
+                        block_key.names, block_key.values, strict=True
+                    ):
                         key_to_write += f"{name}={int(value)},"
                     key_to_write = key_to_write[:-1]
                     key_to_write += ")"
@@ -150,12 +234,27 @@ class MAEAccumulator:
                 if key_to_write not in self.information:  # create key if not present
                     self.information[key_to_write] = (0.0, 0)
 
+                if mask is None:
+                    mae_value = (
+                        (prediction_block.values - target_block.values)
+                        .abs()
+                        .sum()
+                        .item()
+                    )
+                else:
+                    mask_block = mask.block(block_key)
+                    mae_value = (
+                        (
+                            prediction_block.values[mask_block.values]
+                            - target_block.values[mask_block.values]
+                        )
+                        .abs()
+                        .sum()
+                        .item()
+                    )
+
                 self.information[key_to_write] = (
-                    self.information[key_to_write][0]
-                    + (prediction_block.values - target_block.values)
-                    .abs()
-                    .sum()
-                    .item(),
+                    self.information[key_to_write][0] + mae_value,
                     self.information[key_to_write][1] + prediction_block.values.numel(),
                 )
 
@@ -168,12 +267,29 @@ class MAEAccumulator:
                             f"{key_to_write}_{gradient_name}_gradients"
                         ] = (0.0, 0)
                     prediction_gradient = prediction_block.gradient(gradient_name)
+
+                    if mask is None:
+                        gradient_mae_value = (
+                            (prediction_gradient.values - target_gradient.values)
+                            .abs()
+                            .sum()
+                            .item()
+                        )
+                    else:
+                        mask_gradient = mask_block.gradient(gradient_name)
+                        gradient_mae_value = (
+                            (
+                                prediction_gradient.values[mask_gradient.values]
+                                - target_gradient.values[mask_gradient.values]
+                            )
+                            .abs()
+                            .sum()
+                            .item()
+                        )
+
                     self.information[f"{key_to_write}_{gradient_name}_gradients"] = (
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][0]
-                        + (prediction_gradient.values - target_gradient.values)
-                        .abs()
-                        .sum()
-                        .item(),
+                        + gradient_mae_value,
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][1]
                         + prediction_gradient.values.numel(),
                     )
@@ -196,6 +312,8 @@ class MAEAccumulator:
             of the distributed system.
         :param device: the local device to use for the computation. Only needed if
             ``is_distributed`` is :obj:`python:True`.
+
+        :return: The MAE for each key.
         """
 
         if is_distributed:
@@ -229,6 +347,8 @@ def get_selected_metric(metric_dict: Dict[str, float], selected_metric: str) -> 
         - "loss": return the loss value
         - "rmse_prod": return the product of all RMSEs
         - "mae_prod": return the product of all MAEs
+
+    :return: The value of the selected metric.
     """
     if selected_metric == "loss":
         metric = metric_dict["loss"]

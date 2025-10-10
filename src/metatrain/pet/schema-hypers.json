@@ -76,8 +76,8 @@
         "num_epochs": {
           "type": "integer"
         },
-        "num_epochs_warmup": {
-          "type": "integer"
+        "warmup_fraction": {
+          "type": "number"
         },
         "learning_rate": {
           "type": "number"
@@ -87,12 +87,6 @@
             "number",
             "null"
           ]
-        },
-        "scheduler_patience": {
-          "type": "integer"
-        },
-        "scheduler_factor": {
-          "type": "number"
         },
         "log_interval": {
           "type": "integer"
@@ -118,11 +112,39 @@
           },
           "additionalProperties": false
         },
+        "fixed_scaling_weights": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[0-9]+$"
+                  },
+                  "additionalProperties": {
+                    "type": "number"
+                  }
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
         "per_structure_targets": {
           "type": "array",
           "items": {
             "type": "string"
           }
+        },
+        "num_workers": {
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "log_mae": {
           "type": "boolean"
@@ -195,7 +217,10 @@
               ]
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "required": [
+            "method"
+          ]
         },
         "grad_clip_norm": {
           "type": "number"

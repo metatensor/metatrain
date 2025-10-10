@@ -1,19 +1,21 @@
 import copy
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
-from metatrain.utils.abc import TrainerInterface
-from metatrain.utils.additive import remove_additive
+from metatrain.utils.abc import ModelInterface, TrainerInterface
+from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
-    _is_disk_dataset,
+    get_num_workers,
+    unpack_batch,
+    validate_num_workers,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
@@ -26,10 +28,10 @@ from metatrain.utils.loss import LossAggregator
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
-    get_system_with_neighbor_lists,
+    get_system_with_neighbor_lists_transform,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
-from metatrain.utils.scaler import remove_scale
+from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import (
     batch_to,
 )
@@ -39,18 +41,18 @@ from .model import SoapBpnn
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 5
 
-    def __init__(self, hypers):
+    def __init__(self, hypers: Dict[str, Any]):
         super().__init__(hypers)
 
-        self.optimizer_state_dict = None
-        self.scheduler_state_dict = None
-        self.epoch = None
-        self.best_epoch = None
-        self.best_metric = None
-        self.best_model_state_dict = None
-        self.best_optimizer_state_dict = None
+        self.optimizer_state_dict: Optional[Dict[str, Any]] = None
+        self.scheduler_state_dict: Optional[Dict[str, Any]] = None
+        self.epoch: Optional[int] = None
+        self.best_epoch: Optional[int] = None
+        self.best_metric: Optional[float] = None
+        self.best_model_state_dict: Optional[Dict[str, Any]] = None
+        self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
 
     def train(
         self,
@@ -60,7 +62,7 @@ class Trainer(TrainerInterface):
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
-    ):
+    ) -> None:
         assert dtype in SoapBpnn.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
@@ -94,37 +96,13 @@ class Trainer(TrainerInterface):
         else:
             logging.info(f"Training on device {device} with dtype {dtype}")
 
-        # Calculate the neighbor lists in advance (in particular, this
-        # needs to happen before the additive models are trained, as they
-        # might need them):
-        logging.info("Calculating neighbor lists for the datasets")
-        requested_neighbor_lists = get_requested_neighbor_lists(model)
-        for dataset in train_datasets + val_datasets:
-            # If the dataset is a disk dataset, the NLs are already attached, we will
-            # just check the first system
-            if _is_disk_dataset(dataset):
-                system = dataset[0]["system"]
-                for options in requested_neighbor_lists:
-                    if options not in system.known_neighbor_lists():
-                        raise ValueError(
-                            "The requested neighbor lists are not attached to the "
-                            f"system. Neighbor list {options} is missing from the "
-                            "first system in the disk dataset. Make sure you save "
-                            "the neighbor lists in the systems when saving the dataset."
-                        )
-            else:
-                for sample in dataset:
-                    system = sample["system"]
-                    # The following line attaches the neighbors lists to the system,
-                    # and doesn't require to reassign the system to the dataset:
-                    get_system_with_neighbor_lists(system, requested_neighbor_lists)
-
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
         # The additive models of the SOAP-BPNN are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
+        model.scaler.to(dtype=torch.float64)
 
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
@@ -138,11 +116,12 @@ class Trainer(TrainerInterface):
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
             model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
+                train_datasets,
+                model.additive_models,
+                self.hypers["batch_size"],
+                is_distributed,
+                self.hypers["fixed_scaling_weights"],
             )
-
-        if is_distributed:
-            model = DistributedDataParallel(model, device_ids=[device])
 
         logging.info("Setting up data loaders")
 
@@ -171,15 +150,47 @@ class Trainer(TrainerInterface):
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
 
-        # Create a collate function:
-        targets_keys = list(
-            (model.module if is_distributed else model).dataset_info.targets.keys()
+        # Extract additive models and scaler and move them to CPU/float64 so they
+        # can be used in the collate function
+        model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
+        additive_models = copy.deepcopy(
+            model.additive_models.to(dtype=torch.float64, device="cpu")
         )
-        collate_fn = CollateFn(target_keys=targets_keys)
+        model.additive_models.to(device)
+        model.additive_models[0].weights_to(device=device, dtype=torch.float64)
+        model.scaler.scales_to(device="cpu", dtype=torch.float64)
+        scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
+        model.scaler.to(device)
+        model.scaler.scales_to(device=device, dtype=torch.float64)
+
+        # Create a collate function:
+        dataset_info = model.dataset_info
+        train_targets = dataset_info.targets
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
+        collate_fn = CollateFn(
+            target_keys=list(train_targets.keys()),
+            callables=[
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                get_remove_additive_transform(additive_models, train_targets),
+                get_remove_scale_transform(scaler),
+            ],
+        )
 
         # Create dataloader for the training datasets:
+        if self.hypers["num_workers"] is None:
+            num_workers = get_num_workers()
+            logging.info(
+                "Number of workers for data-loading not provided and chosen "
+                f"automatically. Using {num_workers} workers."
+            )
+        else:
+            num_workers = self.hypers["num_workers"]
+            validate_num_workers(num_workers)
+
         train_dataloaders = []
-        for train_dataset, train_sampler in zip(train_datasets, train_samplers):
+        for train_dataset, train_sampler in zip(
+            train_datasets, train_samplers, strict=True
+        ):
             if len(train_dataset) < self.hypers["batch_size"]:
                 raise ValueError(
                     f"A training dataset has fewer samples "
@@ -201,13 +212,14 @@ class Trainer(TrainerInterface):
                         train_sampler is None
                     ),
                     collate_fn=collate_fn,
+                    num_workers=num_workers,
                 )
             )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
         # Create dataloader for the validation datasets:
         val_dataloaders = []
-        for val_dataset, val_sampler in zip(val_datasets, val_samplers):
+        for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
             if len(val_dataset) < self.hypers["batch_size"]:
                 raise ValueError(
                     f"A validation dataset has fewer samples "
@@ -223,9 +235,13 @@ class Trainer(TrainerInterface):
                     shuffle=False,
                     drop_last=False,
                     collate_fn=collate_fn,
+                    num_workers=num_workers,
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
+
+        if is_distributed:
+            model = DistributedDataParallel(model, device_ids=[device])
 
         # Extract all the possible outputs and their gradients:
         train_targets = (model.module if is_distributed else model).dataset_info.targets
@@ -306,21 +322,9 @@ class Trainer(TrainerInterface):
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
-                systems, targets, extra_data = batch
+                systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
-                )
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
-                )
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
+                    systems, targets, extra_data, dtype=dtype, device=device
                 )
 
                 predictions = evaluate_model(
@@ -345,9 +349,20 @@ class Trainer(TrainerInterface):
                     # sum the loss over all processes
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
-                train_rmse_calculator.update(predictions, targets)
+
+                scaled_predictions = (model.module if is_distributed else model).scaler(
+                    systems, predictions
+                )
+                scaled_targets = (model.module if is_distributed else model).scaler(
+                    systems, targets
+                )
+                train_rmse_calculator.update(
+                    scaled_predictions, scaled_targets, extra_data
+                )
                 if self.hypers["log_mae"]:
-                    train_mae_calculator.update(predictions, targets)
+                    train_mae_calculator.update(
+                        scaled_predictions, scaled_targets, extra_data
+                    )
 
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -365,21 +380,9 @@ class Trainer(TrainerInterface):
 
             val_loss = 0.0
             for batch in val_dataloader:
-                systems, targets, extra_data = batch
+                systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
-                )
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
-                )
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
+                    systems, targets, extra_data, dtype=dtype, device=device
                 )
 
                 predictions = evaluate_model(
@@ -401,9 +404,19 @@ class Trainer(TrainerInterface):
                     # sum the loss over all processes
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
-                val_rmse_calculator.update(predictions, targets)
+                scaled_predictions = (model.module if is_distributed else model).scaler(
+                    systems, predictions
+                )
+                scaled_targets = (model.module if is_distributed else model).scaler(
+                    systems, targets
+                )
+                val_rmse_calculator.update(
+                    scaled_predictions, scaled_targets, extra_data
+                )
                 if self.hypers["log_mae"]:
-                    val_mae_calculator.update(predictions, targets)
+                    val_mae_calculator.update(
+                        scaled_predictions, scaled_targets, extra_data
+                    )
 
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -424,9 +437,6 @@ class Trainer(TrainerInterface):
             finalized_val_info = {"loss": val_loss, **finalized_val_info}
 
             if epoch == start_epoch:
-                scaler_scales = (
-                    model.module if is_distributed else model
-                ).scaler.get_scales_dict()
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
                     dataset_info=(
@@ -434,14 +444,6 @@ class Trainer(TrainerInterface):
                     ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
-                    scales={
-                        key: (
-                            scaler_scales[key.split(" ")[0]]
-                            if ("MAE" in key or "RMSE" in key)
-                            else 1.0
-                        )
-                        for key in finalized_train_info.keys()
-                    },
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(
@@ -503,7 +505,7 @@ class Trainer(TrainerInterface):
         if is_distributed:
             torch.distributed.destroy_process_group()
 
-    def save_checkpoint(self, model, path: Union[str, Path]):
+    def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
         checkpoint.update(
             {

@@ -1,7 +1,7 @@
 import logging
 import warnings
 from pathlib import PurePath
-from typing import IO, List, Tuple, Union
+from typing import IO, Any, List, Tuple, Union
 
 import ase.io
 import torch
@@ -13,22 +13,25 @@ from omegaconf import DictConfig
 from ..target_info import TargetInfo, get_energy_target_info, get_generic_target_info
 
 
-def read(filename: Union[str, PurePath, IO], *args, **kwargs) -> List[ase.Atoms]:
-    """Wrapper around the :func:`ase.io.read` function.
+def read(
+    filename: Union[str, PurePath, IO], *args: Any, **kwargs: Any
+) -> List[ase.Atoms]:
+    r"""
+    Wrapper around the :func:`ase.io.read` function.
 
     The wrapper provides a more informative error message in case of failure.
     Additionally, it will make the keys ``"energy"``, ``"forces"`` and ``"stress"``
     available from the calculator and the info/arrays dictionary.
 
-    .. warning::
+    .. warning ::
 
         Lists of atoms read with this function can NOT be written back to a file with
         :func:`ase.io.write` because of the duplicated keys.
 
     :param filename: Name of the file to read from or a file descriptor.
-    :param args: additional positional arguments for :func:`ase.io.read`
-    :param kwargs: additional keyword arguments for :func:`ase.io.read`
-    :returns: A list of atoms
+    :param \*args: additional positional arguments for :func:`ase.io.read`
+    :param \*\*kwargs: additional keyword arguments for :func:`ase.io.read`
+    :return: A list of :py:class:`ase.Atoms` objects
     """
     try:
         frames = ase.io.read(filename, *args, **kwargs)
@@ -53,7 +56,7 @@ def read_systems(filename: str) -> List[System]:
     """Store system informations using ase.
 
     :param filename: name of the file to read
-    :returns: A list of systems
+    :return: The systems read from the file
     """
     ase_atoms = read(filename, ":")
     systems = systems_to_torch(ase_atoms, dtype=torch.float64)
@@ -89,7 +92,7 @@ def _read_energy_ase(filename: str, key: str) -> List[TensorBlock]:
 
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file.
-    :returns: TensorMap containing the energies
+    :return: TensorMap containing the energies
     """
     frames = read(filename, ":")
 
@@ -123,7 +126,7 @@ def _read_forces_ase(filename: str, key: str = "forces") -> List[TensorBlock]:
 
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file.
-    :returns: TensorMap containing the forces
+    :return: TensorMap containing the forces
     """
     frames = read(filename, ":")
 
@@ -145,6 +148,7 @@ def _read_forces_ase(filename: str, key: str = "forces") -> List[TensorBlock]:
         samples = Labels(
             ["sample", "system", "atom"],
             torch.tensor([[0, i_system, a] for a in range(len(values))]),
+            assume_unique=True,
         )
 
         block = TensorBlock(
@@ -165,7 +169,7 @@ def _read_virial_ase(filename: str, key: str = "virial") -> List[TensorBlock]:
 
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file
-    :returns: TensorMap containing the virial
+    :return: TensorMap containing the virial
     """
     return _read_virial_stress_ase(filename=filename, key=key, is_virial=True)
 
@@ -176,7 +180,7 @@ def _read_stress_ase(filename: str, key: str = "stress") -> List[TensorBlock]:
 
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file
-    :returns: TensorMap containing the stress
+    :return: TensorMap containing the stress
     """
     return _read_virial_stress_ase(filename=filename, key=key, is_virial=False)
 
@@ -240,7 +244,21 @@ def _read_virial_stress_ase(
     return blocks
 
 
-def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
+def read_energy(
+    target_name: str, target: DictConfig
+) -> Tuple[List[TensorMap], TargetInfo]:
+    """Read energy target from an ASE-readable file.
+
+    :param target_name: Name of the target to read.
+    :param target: Configuration settings for the target.
+
+    :return: The function returns two outputs:
+
+        1. A list of `TensorMap` objects, each of them being the target for a single
+            system.
+        2. A `TargetInfo` object containing metadata about the target.
+
+    """
     target_key = target["key"]
 
     blocks = _read_energy_ase(
@@ -263,7 +281,9 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
                 f"Forces found in section {target_key!r}, "
                 "we will use this gradient to train the model"
             )
-            for block, position_gradient in zip(blocks, position_gradients):
+            for block, position_gradient in zip(
+                blocks, position_gradients, strict=True
+            ):
                 block.add_gradient(parameter="positions", gradient=position_gradient)
             add_position_gradients = True
 
@@ -286,7 +306,7 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
                 f"Stress found in section {target_key!r}, "
                 "we will use this gradient to train the model"
             )
-            for block, strain_gradient in zip(blocks, strain_gradients):
+            for block, strain_gradient in zip(blocks, strain_gradients, strict=True):
                 block.add_gradient(parameter="strain", gradient=strain_gradient)
             add_strain_gradients = True
 
@@ -304,7 +324,7 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
                 f"Virial found in section {target_key!r}, "
                 "we will use this gradient to train the model"
             )
-            for block, strain_gradient in zip(blocks, strain_gradients):
+            for block, strain_gradient in zip(blocks, strain_gradients, strict=True):
                 block.add_gradient(parameter="strain", gradient=strain_gradient)
             add_strain_gradients = True
     tensor_map_list = [
@@ -315,12 +335,25 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
         for block in blocks
     ]
     target_info = get_energy_target_info(
-        target, add_position_gradients, add_strain_gradients
+        target_name, target, add_position_gradients, add_strain_gradients
     )
     return tensor_map_list, target_info
 
 
-def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
+def read_generic(
+    target_name: str, target: DictConfig
+) -> Tuple[List[TensorMap], TargetInfo]:
+    """Read a generic target from an ASE-readable file.
+
+    :param target_name: Name of the target to read.
+    :param target: Configuration settings for the target.
+    :return: The function returns two outputs:
+
+        1. A list of `TensorMap` objects, each of them being the target for a single
+            system.
+        2. A `TargetInfo` object containing metadata about the target.
+
+    """
     filename = target["read_from"]
     frames = read(filename, ":")
 
@@ -338,7 +371,7 @@ def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
                 "representation. Please use the metatensor reader."
             )
 
-    target_info = get_generic_target_info(target)
+    target_info = get_generic_target_info(target_name, target)
     components = target_info.layout.block().components
     properties = target_info.layout.block().properties
     shape_after_samples = target_info.layout.block().shape[1:]
@@ -372,6 +405,7 @@ def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
             Labels(
                 ["system", "atom"],
                 torch.tensor([[i_system, a] for a in range(len(values))]),
+                assume_unique=True,
             )
             if per_atom
             else Labels(

@@ -96,9 +96,8 @@ training
 :param distributed_port: Port for DDP communication
 :param batch_size: Training batch size
 :param num_epochs: Number of epochs
+:param warmup_fraction: Fraction of training steps used for learning rate warmup
 :param learning_rate: Learning rate
-:param scheduler_patience: LR scheduler patience
-:param scheduler_factor: LR reduction factor
 :param log_interval: Interval to log metrics
 :param checkpoint_interval: Interval to save checkpoints
 :param scale_targets: Normalize targets to unit std during training
@@ -106,9 +105,11 @@ training
 :param per_structure_targets: Targets to calculate per-structure losses
 :param log_mae: Log MAE alongside RMSE
 :param log_separate_blocks: Log per-block error
-:param grad_clip_norm: Maximum hradient norm value, by default inf (no clipping)
+:param grad_clip_norm: Maximum gradient norm value, by default inf (no clipping)
 :param loss: Loss configuration (see above)
 :param best_model_metric: Metric used to select best checkpoint (e.g., ``rmse_prod``)
+:param num_workers: Number of workers for data loading. If not provided, it is set
+  automatically.
 
 References
 ----------

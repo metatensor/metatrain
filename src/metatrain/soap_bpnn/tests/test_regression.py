@@ -27,7 +27,7 @@ def test_regression_init():
     torch.manual_seed(0)
 
     targets = {}
-    targets["mtt::U0"] = get_energy_target_info({"unit": "eV"})
+    targets["mtt::U0"] = get_energy_target_info("mtt::U0", {"unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
@@ -97,6 +97,8 @@ def test_regression_train(device):
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
+    hypers["training"]["num_workers"] = 0  # for reproducibility
+
     loss_conf = OmegaConf.create({"mtt::U0": CONF_LOSS.copy()})
     OmegaConf.resolve(loss_conf)
     hypers["training"]["loss"] = loss_conf
@@ -131,11 +133,11 @@ def test_regression_train(device):
 
     expected_output = torch.tensor(
         [
-            [1.313830614090],
-            [4.282801628113],
-            [5.629218101501],
-            [4.297008991241],
-            [2.226550817490],
+            [0.622305750847],
+            [0.858175694942],
+            [3.724010944366],
+            [9.071114540100],
+            [0.702100574970],
         ],
         device=device,
     )
@@ -197,6 +199,7 @@ def test_regression_train_spherical(device):
     requested_neighbor_lists = get_requested_neighbor_lists(model)
 
     hypers["training"]["num_epochs"] = 1
+    hypers["training"]["num_workers"] = 0  # for reproducibility
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model,
@@ -226,13 +229,13 @@ def test_regression_train_spherical(device):
     expected_output = torch.tensor(
         [
             [
-                -0.057801067829,
-                -0.022922841832,
-                -0.013157465495,
-                0.003876133356,
-                0.008559819311,
-                0.039749406278,
-                0.013140974566,
+                -0.010564204305,
+                0.010472446680,
+                0.012171763927,
+                0.008977154270,
+                0.039057713002,
+                -0.004608964548,
+                0.034425482154,
             ],
             [
                 0.000000000000,
@@ -244,13 +247,13 @@ def test_regression_train_spherical(device):
                 0.000000000000,
             ],
             [
-                0.020274644718,
-                0.005657686852,
-                0.001842519501,
-                -0.014781145379,
-                0.003011089284,
-                -0.011008090340,
-                -0.012492593378,
+                0.008495856076,
+                0.004889715463,
+                -0.004680297337,
+                -0.031943049282,
+                -0.021641466767,
+                -0.013299531303,
+                -0.015966180712,
             ],
         ],
         device=device,

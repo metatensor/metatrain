@@ -9,11 +9,16 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
     """
     Apply the specified finetuning strategy to the model.
     This function modifies the model in place based on the provided strategy.
-    The strategy can be one of the following:
-    - lora: Inject LoRA layers into the model, or reapply training if already present.
-    - heads: Freeze all parameters except for the heads and last layers.
+
+    :param model: The model to be finetuned.
+    :param strategy: A dictionary specifying the finetuning strategy.
+        The strategy can be one of the following:
+        - lora: Inject LoRA layers into the model, or reapply training if already
+            present.
+        - heads: Freeze all parameters except for the heads and last layers.
+    :return: The modified model with the finetuning strategy applied.
     """
-    method = strategy["method"].lower()
+    method = strategy.get("method", "full").lower()
 
     for param in model.parameters():
         param.requires_grad = True
@@ -47,7 +52,13 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
                 param.requires_grad = False
 
     elif method == "heads":
-        strategy_cfg = strategy.get("config", {})
+        strategy_cfg = strategy.get(
+            "config",
+            {
+                "head_modules": ["node_heads", "edge_heads"],
+                "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+            },
+        )
 
         head_keywords = strategy_cfg.get("head_modules", [])
         last_layer_keywords = strategy_cfg.get("last_layer_modules", [])
@@ -89,6 +100,17 @@ def inject_lora_layers(
     Inject LoRA layers into the model.
     This function replaces the specified linear layers in the model with
     LoRALinear layers.
+
+    :param model: The model to modify.
+    :param target_modules: A tuple of strings specifying the names of the attributes of
+        the modules to be replaced with LoRA layers.
+    :param rank: The rank of the LoRA matrices.
+    :param alpha: The scaling factor for the LoRA matrices.
+    :param device: The device to which the LoRA layers should be moved. If None, the
+        LoRA layers will be on the same device as the original model.
+    :param dtype: The data type to which the LoRA layers should be converted. If
+        None, the LoRA layers will have the same dtype as the original model.
+    :return: The modified model with LoRA layers injected.
     """
     for _, module in model.named_modules():
         for attr in target_modules:
@@ -108,6 +130,10 @@ class LoRALinear(nn.Module):
     LoRA is a technique for low-rank adaptation of large language models.
     It allows for efficient fine-tuning of large models by injecting low-rank
     matrices into the model's weights.
+
+    :param linear_layer: The original linear layer to be wrapped.
+    :param rank: The rank of the LoRA matrices.
+    :param alpha: The scaling factor for the LoRA matrices.
     """
 
     def __init__(self, linear_layer: nn.Module, rank: int = 4, alpha: float = 1.0):
