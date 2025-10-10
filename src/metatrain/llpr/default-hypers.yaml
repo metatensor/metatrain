@@ -5,9 +5,17 @@ architecture:
       means: {}
       num_members: {}
   training:
-    mode: #...
+    mode: llpr_only
     model_checkpoint: null
     batch_size: 16
     regularizer: null
-    ens_calib_loss:
-        # ...
+    ens_calib_loss: null
+    num_epochs: 1000
+    learning_rate: 1e-4
+    weight_decay: null
+    log_interval: 1
+    checkpoint_interval: 100
+    per_structure_targets: []
+    log_mae: true
+    log_separate_blocks: false
+    best_model_metric: loss    

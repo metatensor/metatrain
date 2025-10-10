@@ -71,6 +71,44 @@
             "null"
           ]
         },
+        "learning_rate": {
+          "type": "number"
+        },
+        "weight_decay": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "num_epochs": {
+          "type": "integer"
+        },
+        "log_interval": {
+          "type": "integer"
+        },
+        "checkpoint_interval": {
+          "type": "integer"
+        },
+        "per_structure_targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "log_mae": {
+          "type": "boolean"
+        },
+        "log_separate_blocks": {
+          "type": "boolean"
+        },
+        "best_model_metric": {
+          "type": "string",
+          "enum": [
+            "rmse_prod",
+            "mae_prod",
+            "loss"
+          ]
+        },                                
         "ens_calib_loss": {
           "type": [
             "object",
