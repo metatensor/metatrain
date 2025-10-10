@@ -2,7 +2,6 @@ import importlib
 from pathlib import Path
 
 import pytest
-from jsonschema.exceptions import ValidationError
 
 from metatrain import PACKAGE_ROOT
 from metatrain.utils.architectures import (
@@ -54,7 +53,7 @@ def test_check_architecture_name_suggest():
     name = "soap-bpnn"
     match = (
         rf"Architecture {name!r} is not a valid architecture. "
-        r"Do you mean 'soap_bpnn'?"
+        r"Did you mean 'soap_bpnn'?"
     )
     with pytest.raises(ValueError, match=match):
         check_architecture_name(name)
@@ -117,7 +116,7 @@ def test_check_architecture_options_error_raise():
     options["training"]["num_epochxxx"] = 10
 
     match = r"Unrecognized options \('num_epochxxx' was unexpected\)"
-    with pytest.raises(ValidationError, match=match):
+    with pytest.raises(ValueError, match=match):
         check_architecture_options(name=name, options=options)
 
 
