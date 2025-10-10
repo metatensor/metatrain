@@ -73,12 +73,15 @@
         },
         "ens_calib_loss": {
           "type": [
-            "string",
-            "null"
+            "object",
+            "string"
           ],
-          "enum": [
-            "nll"
-          ]
+          "patternProperties": {
+            "^.+$": {
+              "$ref": "#/definitions/lossTerm"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -91,5 +94,47 @@
       },
       "uniqueItems": true
     }
-  }
+  },
+"definitions": {
+      "lossTerm": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "number",
+          "minimum": 0.0
+        },
+        "reduction": {
+          "type": "string",
+          "enum": [
+            "none",
+            "mean",
+            "sum"
+          ]
+        },
+        "sliding_factor": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0.0
+        },
+        "gradients": {
+          "type": [
+            "object",
+            "string"
+          ],
+          "patternProperties": {
+            "^.+$": {
+              "$ref": "#/definitions/lossTerm"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": true
+    }
+  }  
 }

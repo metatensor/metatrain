@@ -155,6 +155,7 @@ class Trainer(TrainerInterface):
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
+        # TODO: account for restart of calibration, if restart ..., else below
         if not self.hypers["mode"] == "restart_ens_calib":
             logging.info("Starting LLPR preparation and calibration")            
             model.compute_covariance(train_dataloader)
@@ -164,9 +165,18 @@ class Trainer(TrainerInterface):
             logging.info("LLPR calibration complete")
         
         if self.hypers["mode"] == "llpr_only":
+            logging.info("LLPR-only mode was invoked, skipping to model export")
             return
 
         logging.info("Starting training for LLPR ensemble calibration")
+
+        train_targets = model.dataset_info.targets
+        extra_data_info = model.dataset_info.extra_data
+        outputs_list = []
+        for target_name, target_info in train_targets.items():
+            outputs_list.append(target_name)
+            for gradient_name in target_info.gradients:
+                outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
         loss_hypers = self.hypers["ens_calib_loss"]
         loss_fn = LossAggregator(
