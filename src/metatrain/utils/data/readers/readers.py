@@ -197,9 +197,20 @@ _standard_outputs_list = {
 }
 
 
+# targets with allowed variants
+_variants_base_list = {
+    "energy",
+    "non_conservative_forces",
+    "non_conservative_stress",
+}
+
 def _validate_target(key: str, entry: DictConfig) -> None:
-    # TODO CM: split key before / is / exists
-    if key not in _standard_outputs_list and not key.startswith("mtt::"):
+    is_variant = any(key.startswith(f"{base}/") for base in _variants_base_list)
+    if (
+        key not in _standard_outputs_list
+        and not is_variant
+        and not key.startswith("mtt::")
+    ):
         if key.lower() in {"force", "forces", "virial", "stress"}:
             warnings.warn(
                 f"{key!r} should not be its own top-level target, "
@@ -225,8 +236,9 @@ def _validate_target(key: str, entry: DictConfig) -> None:
 
 
 def _decide_target_reader(key: str, entry: DictConfig) -> str:
-    is_energy = (
-        entry.get("quantity") == "energy" # TODO CM: if energy/xx jsut use energy
+    is_energy = ( # TODO CM: if energy/xx jsut use energy
+        entry.get("quantity") == "energy"
+        or entry.get("quantity").startswith("energy/")
         and not entry.get("per_atom", False)
         and entry.get("num_subtargets", 1) == 1
         and entry.get("type") == "scalar"
