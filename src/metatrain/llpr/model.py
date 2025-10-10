@@ -146,10 +146,23 @@ class LLPRUncertaintyModel(ModelInterface):
                     dtype=dtype,
                 ),
             )
-            self.register_buffer(
-                f"multiplier_{uncertainty_name}",
-                torch.tensor([1.0], dtype=dtype),
-            )
+            if name in self.dataset_info.targets.keys():
+                n_targ = self.dataset_info.targets[name].layout.block().values.shape[1]
+                if n_targ == 1:
+                    self.register_buffer(
+                        f"multiplier_{uncertainty_name}",
+                        torch.tensor([1.0], dtype=dtype),
+                    )
+                else:
+                    self.register_buffer(
+                        f"multiplier_{uncertainty_name}",
+                        torch.ones(n_targ, dtype=dtype),
+                    )
+            else:                
+                self.register_buffer(
+                    f"multiplier_{uncertainty_name}",
+                    torch.tensor([1.0], dtype=dtype),
+                )
 
         ensemble_config = hypers["ensembles"]
         if ensemble_config["means"].keys() != ensemble_config["num_members"].keys():
@@ -275,7 +288,7 @@ class LLPRUncertaintyModel(ModelInterface):
             ).unsqueeze(1)  # size: num_struc/atom, 1
 
             # create labels for properties
-            cur_prop = outputs[original_name].block().properties
+            cur_prop = return_dict[original_name].block().properties
             num_prop = len(cur_prop.values)
 
             uncertainty = TensorMap(
@@ -294,7 +307,6 @@ class LLPRUncertaintyModel(ModelInterface):
                     )
                 ],
             )
-
             tsm_multiplier = TensorMap(
                 keys=Labels(
                     names=["_"],
@@ -306,7 +318,7 @@ class LLPRUncertaintyModel(ModelInterface):
                     TensorBlock(
                         values=self._get_multiplier(
                             uncertainty_name
-                        ).expand(one_over_pr_values[0], -1),
+                        ).expand(one_over_pr_values.shape[0], num_prop),
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
                         properties=cur_prop,
@@ -328,17 +340,18 @@ class LLPRUncertaintyModel(ModelInterface):
 
             base_name = name.replace("aux::", "").replace("_ensemble", "")
             ll_features_name = name.replace("_ensemble", "_last_layer_features")
-            # ensemble generation check
-            if not self.ensemble_weights_computed[base_name]:
-                raise RuntimeError(f"Ensemble weights have not been computed for {name}.")
             if ll_features_name == "energy_last_layer_features":
                 # special case for energy_ensemble
                 ll_features_name = "mtt::aux::energy_last_layer_features"
             ll_features = return_dict[ll_features_name]
 
-            self.llpr_ensemble_layers[base_name].to(ll_features.block().values.device)
-            ensemble_values = self.llpr_ensemble_layers[base_name](ll_features.block().values)
-            # shape: samples, (ens * sub_targets)
+            ensemble_values = torch.tensor([0.0])
+            for name, module in self.llpr_ensemble_layers.items():
+                if name == base_name:
+                    module.to(ll_features.block().values.device)
+                    ensemble_values = module(ll_features.block().values)
+                    # shape: samples, (ens * sub_targets)
+                    break
 
             original_name = (
                 name.replace("_ensemble", "").replace("aux::", "")
@@ -346,14 +359,14 @@ class LLPRUncertaintyModel(ModelInterface):
                 else name.replace("_ensemble", "").replace("mtt::aux::", "")
             )
 
-            cur_prop = outputs[original_name].block().properties
+            cur_prop = return_dict[original_name].block().properties
             num_prop = len(cur_prop.values)
 
             ensemble_values = ensemble_values.reshape(
                 ensemble_values.shape[0],
                 -1,  # num_ensemble
                 num_prop,
-            )
+                ) # shape: samples, ens, sub_targets
 
             # since we know the exact mean of the ensemble from the model's prediction,
             # it should be mathematically correct to use it to re-center the ensemble.
@@ -369,19 +382,20 @@ class LLPRUncertaintyModel(ModelInterface):
             )
 
             # prepare the properties Labels object for ensemble output
-            old_prop = outputs[original_name].block().properties
-            old_prop_val = np.array(old_prop.values)
-            n_ens = ensemble_values.shape[1]
-
-            arr_rep = np.broadcast_to(old_prop_val, (n_ens,) + old_prop_val.shape)
-            ens_idx = np.arange(n_ens).reshape((n_ens,) + (1,) * old_prop_val.ndim)
-            new_prop_val = np.concatenate(
-                [np.broadcast_to(ens_idx, arr_rep.shape[:-1] + (1,)), arr_rep],
-                axis=-1,
-            )
+            old_prop_val = return_dict[original_name].block().properties.values
+            num_ens = ensemble_values.shape[1]
+            num_samples = old_prop_val.shape[0]
+            exp_prop_val = old_prop_val.repeat(num_ens, 1)
+            ens_idxs = torch.arange(
+                num_ens,
+                device=old_prop_val.device,
+                dtype=old_prop_val.dtype,
+            )    
+            ens_idxs = ens_idxs.repeat_interleave(num_samples).unsqueeze(1)
+            new_prop_val = torch.cat([ens_idxs, exp_prop_val], dim=-1)
 
             ens_prop = Labels(
-                names=["ensemble_member"] + old_prop.names,
+                names=["ensemble_member"] + return_dict[original_name].block().properties.names,
                 values=new_prop_val,
             )
 
@@ -568,8 +582,9 @@ class LLPRUncertaintyModel(ModelInterface):
             residuals = all_predictions[name] - all_targets[name]
             uncertainty_name = _get_uncertainty_name(name)
             uncertainties = all_uncertainties[uncertainty_name]
+            ratios = residuals**2 / uncertainties**2
             multiplier = self._get_multiplier(uncertainty_name)
-            multiplier[:] = torch.sqrt(torch.mean(residuals**2 / uncertainties**2))
+            multiplier[:] = torch.sqrt(torch.mean(ratios, dim=0))
 
     def generate_ensemble(self) -> None:
         """Generate an ensemble of weights for the model.
@@ -583,7 +598,7 @@ class LLPRUncertaintyModel(ModelInterface):
         # (necessary if there are multiple, as in the case of PET)
         # TODO: automate the weight tensor extraction process
         weight_tensors = {}  # type: ignore
-        for name, tensor_names in self.hypers["ensembles"]["means"]:
+        for name, tensor_names in self.hypers["ensembles"]["means"].items():
             weight_tensors[name] = torch.concatenate(
                 [
                     self.model.state_dict()[tn]
@@ -600,7 +615,10 @@ class LLPRUncertaintyModel(ModelInterface):
         for name, weights in weight_tensors.items():
 
             uncertainty_name = _get_uncertainty_name(name)
-            cur_multiplier = self._get_multiplier(uncertainty_name).item() ** 2
+            cur_multiplier = self._get_multiplier(uncertainty_name)
+#            if weights.shape[0] == 1:
+#                cur_multiplier = cur_multiplier.unsqueeze(0)
+
             cur_inv_covariance = self._get_inv_covariance(
                 uncertainty_name
             ).clone().detach().cpu().numpy()
@@ -612,7 +630,7 @@ class LLPRUncertaintyModel(ModelInterface):
                 cur_ensemble_weights = rng.multivariate_normal(
                     weights[ii].clone().detach().cpu().numpy(),
                     cur_inv_covariance
-                    * cur_multiplier[ii] ** 2,
+                    * cur_multiplier[ii].item() ** 2,
                     size=n_members[name],
                     method="svd",
                 ).T
@@ -629,12 +647,12 @@ class LLPRUncertaintyModel(ModelInterface):
 
             self.llpr_ensemble_layers[name] = torch.nn.Linear(
                 self.ll_feat_size,
-                n_members[name],
+                ensemble_weights.shape[1],
                 bias=False,
             )
             # assign the generated weights
             with torch.no_grad():
-                self.llpr_ensemble_layers[name].weight.copy(ensemble_weights.T)
+                self.llpr_ensemble_layers[name].weight.copy_(ensemble_weights.T)
             self.ensemble_weights_computed[name] = True
 
         # add the ensembles to the capabilities

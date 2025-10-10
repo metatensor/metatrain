@@ -856,8 +856,7 @@ class LossType(Enum):
     MASKED_HUBER = ("masked_huber", TensorMapMaskedHuberLoss)
     POINTWISE = ("pointwise", BaseTensorMapLoss)
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
-    ENSEMBLE_NLL = ("ensemble_nll" TensorMapEnsembleNLLLoss)
-    MASKED_ENSEMBLE_NLL = ("masked_ensemble_nll" TensorMapMaskedEnsembleNLLLoss)
+    ENSEMBLE_NLL = ("ensemble_nll", TensorMapEnsembleNLLLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]):
         self._key = key
