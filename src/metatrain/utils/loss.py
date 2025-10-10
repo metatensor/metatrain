@@ -15,6 +15,11 @@ class LossInterface(ABC):
     Abstract base for all loss functions.
 
     Subclasses must implement the ``compute`` method.
+
+    :param name: key in the predictions/targets dict to select the TensorMap.
+    :param gradient: optional name of a gradient field to extract.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for torch losses ("mean", "sum", etc.).
     """
 
     weight: float
@@ -30,12 +35,6 @@ class LossInterface(ABC):
         weight: float,
         reduction: str,
     ) -> None:
-        """
-        :param name: key in the predictions/targets dict to select the TensorMap.
-        :param gradient: optional name of a gradient field to extract.
-        :param weight: multiplicative weight (used by ScheduledLoss).
-        :param reduction: reduction mode for torch losses ("mean", "sum", etc.).
-        """
         self.target = name
         self.gradient = gradient
         self.weight = weight
@@ -51,12 +50,14 @@ class LossInterface(ABC):
         extra_data: Optional[Any] = None,
     ) -> torch.Tensor:
         """
-        Compute the loss.
+        Compute the loss value.
 
-        :param predictions: mapping from target names to :py:class:`TensorMap`.
-        :param targets: mapping from target names to :py:class:`TensorMap`.
-        :param extra_data: optional additional data (e.g., masks).
-        :return: scalar torch.Tensor representing the loss.
+        :param predictions: mapping from target names to the predictions
+            for those targets.
+        :param targets: mapping from target names to the reference targets.
+        :param extra_data: Any extra data needed for the loss computation.
+
+        :return: Value of the loss.
         """
         ...
 
@@ -68,6 +69,13 @@ class LossInterface(ABC):
     ) -> torch.Tensor:
         """
         Alias to compute() for direct invocation.
+
+        :param predictions: mapping from target names to the predictions
+            for those targets.
+        :param targets: mapping from target names to the reference targets.
+        :param extra_data: Any extra data needed for the loss computation.
+
+        :return: Value of the loss.
         """
         return self.compute(predictions, targets, extra_data)
 
@@ -91,6 +99,12 @@ class BaseTensorMapLoss(LossInterface):
 
     Provides a compute_flattened() helper that extracts values or gradients,
     flattens them, applies an optional mask, and computes the torch loss.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: dummy here; real weighting in ScheduledLoss.
+    :param reduction: reduction mode for torch loss.
+    :param loss_fn: pre-instantiated torch.nn loss (e.g. MSELoss).
     """
 
     def __init__(
@@ -102,13 +116,6 @@ class BaseTensorMapLoss(LossInterface):
         *,
         loss_fn: _Loss,
     ):
-        """
-        :param name: key in the predictions/targets dict.
-        :param gradient: optional gradient field name.
-        :param weight: dummy here; real weighting in ScheduledLoss.
-        :param reduction: reduction mode for torch loss.
-        :param loss_fn: pre-instantiated torch.nn loss (e.g. MSELoss).
-        """
         super().__init__(name, gradient, weight, reduction)
         self.torch_loss = loss_fn
 
@@ -135,6 +142,9 @@ class BaseTensorMapLoss(LossInterface):
         ) -> torch.Tensor:
             """
             Extract values or gradients from a block, flatten to 1D.
+
+            :param tensor_block: input :py:class:`TensorBlock`.
+            :return: flattened torch.Tensor.
             """
             if self.gradient is not None:
                 values = tensor_block.gradient(self.gradient).values
@@ -240,6 +250,11 @@ class MaskedTensorMapLoss(BaseTensorMapLoss):
 class TensorMapMSELoss(BaseTensorMapLoss):
     """
     Unmasked mean-squared error on :py:class:`TensorMap` entries.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for torch loss.
     """
 
     def __init__(
@@ -261,6 +276,11 @@ class TensorMapMSELoss(BaseTensorMapLoss):
 class TensorMapMAELoss(BaseTensorMapLoss):
     """
     Unmasked mean-absolute error on :py:class:`TensorMap` entries.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for torch loss.
     """
 
     def __init__(
@@ -283,6 +303,10 @@ class TensorMapHuberLoss(BaseTensorMapLoss):
     """
     Unmasked Huber loss on :py:class:`TensorMap` entries.
 
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for torch loss.
     :param delta: threshold parameter for HuberLoss.
     """
 
@@ -306,6 +330,11 @@ class TensorMapHuberLoss(BaseTensorMapLoss):
 class TensorMapMaskedMSELoss(MaskedTensorMapLoss):
     """
     Masked mean-squared error on :py:class:`TensorMap` entries.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for torch loss.
     """
 
     def __init__(
@@ -327,6 +356,11 @@ class TensorMapMaskedMSELoss(MaskedTensorMapLoss):
 class TensorMapMaskedMAELoss(MaskedTensorMapLoss):
     """
     Masked mean-absolute error on :py:class:`TensorMap` entries.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for torch loss.
     """
 
     def __init__(
@@ -349,6 +383,10 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
     """
     Masked Huber loss on :py:class:`TensorMap` entries.
 
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for torch loss.
     :param delta: threshold parameter for HuberLoss.
     """
 
@@ -376,15 +414,14 @@ class LossAggregator(LossInterface):
     """
     Aggregate multiple :py:class:`LossInterface` terms with scheduled weights and
     metadata.
+
+    :param targets: mapping from target names to :py:class:`TargetInfo`.
+    :param config: per-target configuration dict.
     """
 
     def __init__(
         self, targets: Dict[str, TargetInfo], config: Dict[str, Dict[str, Any]]
     ):
-        """
-        :param targets: mapping from target names to :py:class:`TargetInfo`.
-        :param config: per-target configuration dict.
-        """
         super().__init__(name="", gradient=None, weight=0.0, reduction="mean")
         self.losses: Dict[str, LossInterface] = {}
         self.metadata: Dict[str, Dict[str, Any]] = {}
@@ -500,6 +537,11 @@ class LossAggregator(LossInterface):
     ) -> torch.Tensor:
         """
         Sum over all scheduled losses present in the predictions.
+
+        :param predictions: mapping from target names to :py:class:`TensorMap`.
+        :param targets: mapping from target names to :py:class:`TensorMap`.
+        :param extra_data: Any extra data needed for the loss computation.
+        :return: scalar torch.Tensor with the total loss.
         """
         # Initialize a zero tensor matching the dtype and device of the first block
         first_tensor_map = next(iter(predictions.values()))
@@ -522,6 +564,9 @@ class LossAggregator(LossInterface):
 class LossType(Enum):
     """
     Enumeration of available loss types and their implementing classes.
+
+    :param key: string key for the loss type.
+    :param cls: class implementing the loss type.
     """
 
     MSE = ("mse", TensorMapMSELoss)
@@ -533,7 +578,7 @@ class LossType(Enum):
     POINTWISE = ("pointwise", BaseTensorMapLoss)
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
 
-    def __init__(self, key: str, cls: Type[LossInterface]):
+    def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key
         self._cls = cls
 
@@ -552,7 +597,9 @@ class LossType(Enum):
         """
         Look up a LossType by its string key.
 
+        :param key: key that identifies the loss type.
         :raises ValueError: if the key is not valid.
+        :return: the matching LossType enum member.
         """
         for loss_type in cls:
             if loss_type.key == key:
@@ -570,15 +617,15 @@ def create_loss(
     reduction: str,
     **extra_kwargs: Any,
 ) -> LossInterface:
-    """
+    r"""
     Factory to instantiate a concrete :py:class:`LossInterface` given its string key.
 
     :param loss_type: string key matching one of the members of :py:class:`LossType`.
     :param name: target name for the loss.
     :param gradient: gradient name, if present.
-    :param weight: weight for the loss contribution.
+    :param weight: weight of the loss contribution in the final aggregation.
     :param reduction: reduction mode for the torch loss.
-    :param extra_kwargs: additional hyperparameters specific to the loss type.
+    :param \*\*extra_kwargs: additional hyperparameters specific to the loss type.
     :return: instance of the selected loss.
     """
     loss_type_entry = LossType.from_key(loss_type)

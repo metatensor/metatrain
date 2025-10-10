@@ -4,7 +4,7 @@ metatomic. The class ``CompositionModel`` wraps this to be compatible with
 metatrain-style objects.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Union
 
 import metatensor.torch as mts
 import torch
@@ -27,9 +27,47 @@ class BaseCompositionModel(torch.nn.Module):
     based on the training data, and the :py:method:`fit` method is used to
     fit the model based on the accumulated quantities. These should both be called
     before the :py:method:`forward` method is called to compute the predictions.
+
+    .. attribute :: atomic_types
+
+        List of atomic types used in the model.
+
+    .. attribute :: target_names
+
+        List of target names in the model.
+
+    .. attribute :: weights
+
+        Dict of :py:class:`TensorMap` containing the fitted weights for each target.
+
+    .. attribute :: sample_kinds
+
+        Dict of sample kinds for each target. The sample kind can be either
+        "per_structure" or "per_atom".
+
+    .. attribute :: type_to_index
+
+        Tensor mapping atomic types to their index in ``atomic_types``.
+
+    .. attribute :: XTX
+
+        Dict of :py:class:`TensorMap` containing the accumulated X^T * X for each
+        target.
+
+    .. attribute :: XTY
+
+        Dict of :py:class:`TensorMap` containing the accumulated X^T * Y for each
+        target.
+
+    :param atomic_types: List of atomic types to use in the composition model.
+    :param layouts: Dict of zero-sample layout :py:class:`TensorMap` corresponding
+        to each target. The keys of the dict are the target names, and the values
+        are :py:class:`TensorMap` objects with the zero-sample layout for each
+        target.
     """
 
     # Needed for torchscript compatibility
+    atomic_types: torch.Tensor
     target_names: List[str]
     weights: Dict[str, TensorMap]
     sample_kinds: Dict[str, str]
@@ -37,16 +75,11 @@ class BaseCompositionModel(torch.nn.Module):
     XTX: Dict[str, TensorMap]
     XTY: Dict[str, TensorMap]
 
-    def __init__(self, atomic_types, layouts: Dict[str, TensorMap]) -> None:
-        """
-        Initializes the composition model with the given atomic types and layouts.
-
-        :param atomic_types: List of atomic types to use in the composition model.
-        :param layouts: Dict of zero-sample layout :py:class:`TensorMap` corresponding
-            to each target. The keys of the dict are the target names, and the values
-            are :py:class:`TensorMap` objects with the zero-sample layout for each
-            target.
-        """
+    def __init__(
+        self,
+        atomic_types: Union[List[int], torch.Tensor],
+        layouts: Dict[str, TensorMap],
+    ) -> None:
         super().__init__()
 
         self.atomic_types = torch.as_tensor(atomic_types, dtype=torch.int32)
@@ -185,6 +218,10 @@ class BaseCompositionModel(torch.nn.Module):
         """
         Takes a batch of systems and targets, and for each target accumulates the
         necessary quantities (XTX and XTY).
+
+        :param systems: List of systems in the batch.
+        :param targets: Dict of target names to :py:class:`TensorMap` containing
+            the target values for each system in the batch.
         """
 
         device = systems[0].positions.device
@@ -239,6 +276,13 @@ class BaseCompositionModel(torch.nn.Module):
         """
         Based on the pre-accumulated quantities from the training data, fits the
         compositions for each target.
+
+        :param fixed_weights: Optional dict of target names to dict of atomic types
+            to fixed weights. If provided, the weights for the specified atomic types
+            will be fixed to the provided values, and the weights for the other atomic
+            types will be fitted normally.
+        :param targets_to_fit: List of target names to fit. If `None`,
+            all targets in the model will be fitted.
         """
         if targets_to_fit is None:
             targets_to_fit = self.target_names
@@ -303,11 +347,11 @@ class BaseCompositionModel(torch.nn.Module):
         Compute the targets for each system based on the composition weights.
 
         :param systems: List of systems to calculate the energy.
-        :param output_names: List of output names to compute. These should be a subset
+        :param outputs: Dict of output names to compute. These should be a subset
             of the target names used during fitting.
         :param selected_atoms: Optional selection of atoms for which to compute the
             predictions.
-        :returns: A dictionary with the computed predictions for each system.
+        :return: A dictionary with the computed predictions for each system.
 
         :raises ValueError: If no weights have been computed or if `outputs` keys
             contain unsupported keys.
@@ -385,9 +429,11 @@ class BaseCompositionModel(torch.nn.Module):
         Computes the one-hot encoding of the atomic types for the atoms in the
         provided systems.
 
-        Returns a tensor of shape ``(n_systems, n_atomic_types)``, where each row
-        corresponds to a system and each column corresponds to an atomic type. The
-        value is the number of atoms of that type in the system.
+        :param systems: List of systems to compute the one-hot encoding for.
+
+        :return: Tensor of shape ``(n_systems, n_atomic_types)``, where each row
+            corresponds to a system and each column corresponds to an atomic type. The
+            value is the number of atoms of that type in the system.
         """
         dtype = systems[0].positions.dtype
 
@@ -406,10 +452,13 @@ class BaseCompositionModel(torch.nn.Module):
         Computes the one-hot encoding of the atomic types for the atoms in the provided
         systems, but only for the specified center types.
 
-        Returns a tensor of shape ``(n_atoms, n_atomic_types)``, where each row
-        corresponds to an atom in the systems and each column corresponds to an atomic
-        type. The value is 1 if the atom's type matches the atomic type, and 0
-        otherwise.
+        :param systems: List of systems to compute the one-hot encoding for.
+        :param center_types: Tensor of atomic types to include in the one-hot encoding.
+
+        :return: A tensor of shape ``(n_atoms, n_atomic_types)``, where each row
+            corresponds to an atom in the systems and each column corresponds to an
+            atomic type. The value is 1 if the atom's type matches the atomic type,
+            and 0 otherwise.
         """
         dtype = systems[0].positions.dtype
         all_types = torch.concatenate([system.types for system in systems])
@@ -419,7 +468,7 @@ class BaseCompositionModel(torch.nn.Module):
         )
         return one_hot_encoding.to(dtype)
 
-    def _sync_device_dtype(self, device: torch.device, dtype: torch.dtype):
+    def _sync_device_dtype(self, device: torch.device, dtype: torch.dtype) -> None:
         # manually move the TensorMap dicts:
 
         self.atomic_types = self.atomic_types.to(device=device)
@@ -447,6 +496,10 @@ def _include_key(key: LabelsEntry) -> bool:
         - If the key has a single name "_" (indicating a scalar), it is included.
         - If the key has names ["o3_lambda", "o3_sigma"] it is included if values are 0
           and 1 respectively (indicating an invariant block of a spherical target).
+
+    :param key: The key to check.
+
+    :return: Whether the key should be included in the composition model.
     """
     valid_key_names = [
         ["_"],  # scalar
@@ -480,6 +533,11 @@ def _solve_linear_system(
     :py:func:`metatensor.torch.solve` is not used due to numerical stability issues
     when the matrix is ill-conditioned. Instead, a regularization term is added to the
     diagonal of XTX to improve stability.
+
+    :param XTX_vals: Values of the XTX matrix.
+    :param XTY_vals: Values of the XTY matrix.
+
+    :return: The weights W, of shape (n_atomic_types, n_components, n_properties).
     """
     trace_magnitude = float(torch.diag(XTX_vals).abs().mean())
     regularizer = 1e-14 * trace_magnitude
@@ -496,7 +554,9 @@ def _solve_linear_system(
     ).reshape(shape)
 
 
-def _get_system_indices_and_labels(systems: List[System], device: torch.device):
+def _get_system_indices_and_labels(
+    systems: List[System], device: torch.device
+) -> Tuple[torch.Tensor, Labels]:
     system_indices = torch.concatenate(
         [
             torch.full(
