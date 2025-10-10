@@ -420,8 +420,7 @@ def train_model(
         atomic_types = sorted(options["architecture"]["atomic_types"])
 
     logging.info(f"Model defined for atomic types: {atomic_types}")
-    #TODO CM: somewhere we need to pass the default target option, here?
-    # needs to be before creating the model or perhaps in the model? 
+
     dataset_info = DatasetInfo(
         length_unit=options["training_set"][0]["systems"]["length_unit"],
         atomic_types=atomic_types,
