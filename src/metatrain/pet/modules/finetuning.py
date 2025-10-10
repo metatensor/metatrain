@@ -1,4 +1,3 @@
-import logging
 from typing import Any, Dict, Optional, Tuple
 
 import torch
@@ -74,14 +73,6 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
             f"Unknown finetuning strategy: {method}. Available methods "
             "are: 'full', 'lora', 'heads'."
         )
-    num_params = sum(p.numel() for p in model.parameters())
-    num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-    logging.info(f"Applied finetuning strategy: {method}")
-    logging.info(
-        f"Number of trainable parameters: {num_trainable_params} "
-        f"[{num_trainable_params / num_params:.2%} %]"
-    )
 
     model.finetune_config = strategy
 
