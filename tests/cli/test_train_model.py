@@ -12,7 +12,6 @@ import ase.io
 import numpy as np
 import pytest
 import torch
-from jsonschema.exceptions import ValidationError
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import NeighborListOptions, systems_to_torch
 from omegaconf import OmegaConf
@@ -233,9 +232,9 @@ def test_train_unknown_arch_options(monkeypatch, tmp_path):
 
     match = (
         r"Unrecognized options \('num_epoch' was unexpected\). "
-        r"Do you mean 'num_epochs'?"
+        r"Did you mean 'num_epochs'?"
     )
-    with pytest.raises(ValidationError, match=match):
+    with pytest.raises(ValueError, match=match):
         train_model(options)
 
 
@@ -354,7 +353,7 @@ def test_wrong_test_split_size(split, monkeypatch, tmp_path, options):
     if split < 0:
         match = rf"{split} is less than the minimum of 0"
 
-    with pytest.raises(ValidationError, match=match):
+    with pytest.raises(ValueError, match=match):
         train_model(options)
 
 
@@ -373,7 +372,7 @@ def test_wrong_validation_split_size(split, monkeypatch, tmp_path, options):
     if split <= 0:
         match = rf"{split} is less than or equal to the minimum of 0"
 
-    with pytest.raises(ValidationError, match=match):
+    with pytest.raises(ValueError, match=match):
         train_model(options)
 
 
@@ -789,7 +788,7 @@ def test_base_validation(options, monkeypatch, tmp_path):
     options["base_precision"] = 67
 
     match = r"67 is not one of \[16, 32, 64\]"
-    with pytest.raises(ValidationError, match=match):
+    with pytest.raises(ValueError, match=match):
         train_model(options)
 
 
