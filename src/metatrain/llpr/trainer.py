@@ -30,6 +30,26 @@ from . import checkpoints
 from .model import LLPRUncertaintyModel
 from .modules.recalib import apply_recalibration_strategy
 
+def get_scheduler(optimizer, train_hypers, steps_per_epoch):
+    total_steps = train_hypers["num_epochs"] * steps_per_epoch
+    warmup_steps = 0 # TODO: no warmup for llp training
+    min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
+
+    def lr_lambda(current_step: int):
+        if current_step < warmup_steps:
+            # Linear warmup
+            return float(current_step) / float(max(1, warmup_steps))
+        else:
+            # Cosine decay
+            progress = (current_step - warmup_steps) / float(
+                max(1, total_steps - warmup_steps)
+            )
+            cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
+
+    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+    return scheduler
+
 class Trainer(TrainerInterface):
     __checkpoint_version__ = 5
 
