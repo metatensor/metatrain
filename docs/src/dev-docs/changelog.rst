@@ -27,9 +27,6 @@ Unreleased
 Changed
 #######
 
-- ``RotaionalAugmenter`` method ``apply_random_augmentations`` has been renamed to
-  ``apply_augmentations``, and now can be parametrized by ``rotations`` and
-  ``inversions``.
 - ``NanoPET`` has been deprecated in favor of the stable ``PET`` architecture. The
   ``deprecated.nanopet`` architecture is still available for loading old checkpoints,
   but it will not receive any updates or bug fixes.
