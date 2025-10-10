@@ -176,7 +176,6 @@ class FlashMD(ModelInterface):
         )
 
     def set_masses(self, masses: Dict[int, float]):
-        self.scaler.set_masses(masses)
         for atomic_number, mass in masses.items():
             self.masses[atomic_number] = mass
 
