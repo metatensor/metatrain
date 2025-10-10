@@ -347,8 +347,9 @@ class BaseCompositionModel(torch.nn.Module):
         Compute the targets for each system based on the composition weights.
 
         :param systems: List of systems to calculate the energy.
-        :param outputs: Dict of output names to compute. These should be a subset
-            of the target names used during fitting.
+        :param outputs: Dict of named outputs to compute. These names (in the keys)
+            should be a subset of the target names used during fitting, and the values
+            are the corresponding :py:class:`ModelOutput` objects.
         :param selected_atoms: Optional selection of atoms for which to compute the
             predictions.
         :return: A dictionary with the computed predictions for each system.
