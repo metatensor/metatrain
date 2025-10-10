@@ -45,6 +45,17 @@
     "training": {
       "type": "object",
       "properties": {
+        "mode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "llpr_only",
+            "llpr_ens_calib",
+            "restart_ens_calib"
+          ]
+        },
         "batch_size": {
           "type": "integer"
         },
@@ -58,6 +69,15 @@
           "type": [
             "number",
             "null"
+          ]
+        },
+        "ens_calib_loss": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "nll"
           ]
         }
       },

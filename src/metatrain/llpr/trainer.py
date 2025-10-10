@@ -155,7 +155,7 @@ class Trainer(TrainerInterface):
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
-        if not self.hypers["mode"] == "restart-ens-calib":
+        if not self.hypers["mode"] == "restart_ens_calib":
             logging.info("Starting LLPR preparation and calibration")            
             model.compute_covariance(train_dataloader)
             model.compute_inverse_covariance(self.hypers["regularizer"])
