@@ -8,6 +8,15 @@ training, especially when the training dataset is large / there are many trainin
 epochs. This feature is enabled by the ``torch.distributed`` module, and thus can do
 multiprocess parallelism across several nodes.
 
+In multi-GPU training, every batch of samples is split into smaller mini-batches and the
+computation is run for each of the smaller mini-batches in parallel on different GPUs.
+The different gradients obtained on each device are then summed. This approach allows
+the user to reduce the time it takes to train models.
+
+To know if the model supports multi-GPU training, please check `Available Architectures
+<../../docs/src/architectures/index.rst>`_ and see if the default hyperparameters have
+the ``distributed`` option.
+
 Input file
 ----------
 To do this, you only need to switch on the ``distributed`` option in the ``.yaml`` file
