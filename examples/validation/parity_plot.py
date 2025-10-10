@@ -1,5 +1,5 @@
 """
-Data validation with parity plots for energies and forces
+Model validation with parity plots for energies and forces
 =========================================================
 
 This tutorial shows how to visualise your model output using parity plots. In the
@@ -71,5 +71,13 @@ axs[1].set_title("Force Parity Plot")
 plt.tight_layout()
 plt.show()
 
-# The results are a bit poor here because the model was not trained well enough and was
-# created only for demonstration purposes.
+print(
+    "RMSE energy (per atom):",
+    np.sqrt(np.mean((e_targets - e_predictions) ** 2)),
+    "kcal",
+)
+print("RMSE forces:", np.sqrt(np.mean((f_targets - f_predictions) ** 2)), "kcal/Å   ")
+# %%
+# The results are a bit poor here because the model was not trained well enough and
+# was created only for demonstration purposes. In the case of a well-trained model, the
+# points should be closer to the diagonal line.
