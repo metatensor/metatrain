@@ -536,6 +536,73 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
         )
 
 
+class BasisContractionLoss(LossInterface):
+    """
+    Loss for basis contraction tasks, comparing two :py:class:`TensorMap`s
+    representing density matrices.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+    ):
+        """
+        :param name: key in the predictions/targets dict.
+        :param gradient: must be None (not implemented).
+        :param weight: dummy here; real weighting in ScheduledLoss.
+        :param reduction: whatever torch accepts.
+        """
+        if gradient is not None:
+            raise ValueError("BasisContractionLoss does not support gradients")
+        super().__init__(name, gradient, weight, reduction)
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        """
+        Compute the Frobenius norm between predicted and target density matrices.
+
+        :param predictions: mapping of names to :py:class:`TensorMap`.
+        :param targets: ignored.
+        :param extra_data: actual targets.
+        :return: scalar torch.Tensor loss.
+        """
+        tensor_map_pred = predictions[self.target]
+        name_in_extra_data = self.target.replace("desired", "total")
+        tensor_map_targ = extra_data[name_in_extra_data]
+        batch_size = tensor_map_pred[0].shape[0]
+        contracted_size = int(tensor_map_pred[0].properties.values[:, 1].max() + 1)
+        total_basis_size = int(tensor_map_targ[0].properties.values[:, 1].max() + 1)
+
+        concat = torch.concatenate(
+            [
+                block.values.reshape(*block.shape[:2], -1, contracted_size)
+                for block in tensor_map_pred
+            ],
+            dim=1,
+        ).reshape(batch_size, -1, contracted_size)
+
+        reconstructed = torch.bmm(concat, concat.transpose(1, 2))
+        target = torch.concatenate(
+            [
+                block.values.reshape(*block.shape[:2], -1, contracted_size)
+                for block in tensor_map_targ
+            ],
+            dim=1,
+        ).reshape(batch_size, -1, total_basis_size)
+        assert reconstructed.shape == target.shape
+
+        return torch.functional.F.mse_loss(
+            reconstructed, target, reduction=self.reduction
+        )
+
+
 # --- aggregator -----------------------------------------------------------------------
 
 
@@ -686,6 +753,7 @@ class LossType(Enum):
     MASKED_HUBER = ("masked_huber", TensorMapMaskedHuberLoss)
     POINTWISE = ("pointwise", BaseTensorMapLoss)
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
+    BASIS_CONTRACTION = ("basis_contraction", BasisContractionLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]):
         self._key = key

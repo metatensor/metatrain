@@ -141,19 +141,20 @@ class PET(ModelInterface):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel(
-            hypers={},
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        additive_models = [composition_model]
+        # composition_model = CompositionModel(
+        #     hypers={},
+        #     dataset_info=DatasetInfo(
+        #         length_unit=dataset_info.length_unit,
+        #         atomic_types=self.atomic_types,
+        #         targets={
+        #             target_name: target_info
+        #             for target_name, target_info in dataset_info.targets.items()
+        #             if CompositionModel.is_valid_target(target_name, target_info)
+        #         },
+        #     ),
+        # )
+        # additive_models = [composition_model]
+        additive_models = []
 
         # Adds the ZBL repulsion model if requested
         if self.hypers["zbl"]:

@@ -145,13 +145,13 @@ class Trainer(TrainerInterface):
 
         logging.info("Calculating composition weights")
 
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
-            is_distributed,
-            self.hypers["fixed_composition_weights"],
-        )
+        # model.additive_models[0].train_model(  # this is the composition model
+        #     train_datasets,
+        #     model.additive_models[1:],
+        #     self.hypers["batch_size"],
+        #     is_distributed,
+        #     self.hypers["fixed_composition_weights"],
+        # )
 
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
@@ -207,11 +207,13 @@ class Trainer(TrainerInterface):
                     sampler=train_sampler,
                     shuffle=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     collate_fn=collate_fn,
                 )
