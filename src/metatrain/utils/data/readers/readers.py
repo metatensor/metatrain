@@ -198,6 +198,7 @@ _standard_outputs_list = {
 
 
 def _validate_target(key: str, entry: DictConfig) -> None:
+    # TODO CM: split key before / is / exists
     if key not in _standard_outputs_list and not key.startswith("mtt::"):
         if key.lower() in {"force", "forces", "virial", "stress"}:
             warnings.warn(
@@ -225,7 +226,7 @@ def _validate_target(key: str, entry: DictConfig) -> None:
 
 def _decide_target_reader(key: str, entry: DictConfig) -> str:
     is_energy = (
-        entry.get("quantity") == "energy"
+        entry.get("quantity") == "energy" # TODO CM: if energy/xx jsut use energy
         and not entry.get("per_atom", False)
         and entry.get("num_subtargets", 1) == 1
         and entry.get("type") == "scalar"
