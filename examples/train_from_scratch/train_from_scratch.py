@@ -1,4 +1,6 @@
 """
+.. _train-from-scratch:
+
 Training a model from scratch
 #############################
 This tutorial explains how to train a model with ``metatrain`` from scratch and evaluate
