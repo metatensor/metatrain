@@ -1,4 +1,5 @@
 import logging
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
@@ -275,11 +276,6 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = batch
-                systems, targets, extra_data = (
-                    rotational_augmenter.apply_random_augmentations(
-                        systems, targets, extra_data=extra_data
-                    )
-                )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
@@ -295,12 +291,12 @@ class Trainer(TrainerInterface):
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=True,
                 )
-
+                
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
                 train_loss_batch.backward()
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), self.hypers["grad_clip_norm"]
-                )
+                # torch.nn.utils.clip_grad_norm_(
+                #     model.parameters(), self.hypers["grad_clip_norm"]
+                # )
                 optimizer.step()
                 lr_scheduler.step()
 
