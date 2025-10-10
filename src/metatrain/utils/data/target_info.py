@@ -433,7 +433,6 @@ def _get_cartesian_target_info(target_name: str, target: DictConfig) -> TargetIn
                 )
             )
 
-    name = "positions" if target["unit"] == "A" else "momenta"
     block = TensorBlock(
         # float64: otherwise metatensor can't serialize
         values=torch.empty(

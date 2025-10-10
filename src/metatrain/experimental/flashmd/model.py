@@ -25,11 +25,10 @@ from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
-from metatomic.torch import System
 
 from . import checkpoints
-from .modules.scaler import Scaler
 from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
 
@@ -622,6 +621,7 @@ class FlashMD(ModelInterface):
                         self.output_shapes[output_name].values(),
                         self.component_labels[output_name],
                         self.property_labels[output_name],
+                        strict=False,
                     )
                 ]
                 atomic_predictions_tmap_dict[output_name] = TensorMap(
@@ -812,7 +812,7 @@ class FlashMD(ModelInterface):
         self.output_shapes[target_name] = {}
         for key, block in target_info.layout.items():
             dict_key = target_name
-            for n, k in zip(key.names, key.values):
+            for n, k in zip(key.names, key.values, strict=False):
                 dict_key += f"_{n}_{int(k)}"
             self.output_shapes[target_name][dict_key] = [
                 len(comp.values) for comp in block.components

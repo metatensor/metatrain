@@ -5,9 +5,9 @@ import torch
 from metatensor.torch import TensorMap
 from metatomic.torch import System
 
+from metatrain.experimental.flashmd.modules.utils import verify_masses
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.loss import LossAggregator
-from metatrain.experimental.flashmd.modules.utils import verify_masses
 
 
 class FlashMDLoss(LossAggregator):
@@ -16,7 +16,10 @@ class FlashMDLoss(LossAggregator):
     """
 
     def __init__(
-        self, targets: Dict[str, TargetInfo], config: Dict[str, Dict[str, Any]], masses: torch.Tensor
+        self,
+        targets: Dict[str, TargetInfo],
+        config: Dict[str, Dict[str, Any]],
+        masses: torch.Tensor,
     ):
         """
         :param targets: mapping from target names to :py:class:`TargetInfo`.

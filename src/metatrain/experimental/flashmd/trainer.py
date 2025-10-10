@@ -1,23 +1,25 @@
 import copy
 import logging
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
 import ase.data
-from metatensor.torch import TensorMap, TensorBlock, Labels
 import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
-from metatrain.experimental.flashmd.modules.utils import verify_masses
+from metatrain.pet.modules.finetuning import apply_finetuning_strategy
 from metatrain.utils.abc import TrainerInterface
-from metatrain.utils.additive import remove_additive
+from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
-    _is_disk_dataset,
+    get_num_workers,
+    unpack_batch,
+    validate_num_workers,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
@@ -26,31 +28,48 @@ from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
+from metatrain.utils.loss import LossAggregator
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
-    get_system_with_neighbor_lists,
+    get_system_with_neighbor_lists_transform,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
-from metatomic.torch import System
 
 from . import checkpoints
 from .model import FlashMD
-from .modules.loss import FlashMDLoss
-from .modules.scaler import remove_scale
 
 
+def get_scheduler(
+    optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
+) -> LambdaLR:
+    """
+    Get a CosineAnnealing learning-rate scheduler with warmup
 
-def get_scheduler(optimizer, train_hypers):
-    def func_lr_scheduler(epoch):
-        if epoch < train_hypers["num_epochs_warmup"]:
-            return epoch / train_hypers["num_epochs_warmup"]
-        delta = epoch - train_hypers["num_epochs_warmup"]
-        num_blocks = delta // train_hypers["scheduler_patience"]
-        return train_hypers["scheduler_factor"] ** (num_blocks)
+    :param optimizer: The optimizer for which to create the scheduler.
+    :param train_hypers: The training hyperparameters.
+    :param steps_per_epoch: The number of steps per epoch.
+    :return: The learning rate scheduler.
+    """
+    total_steps = train_hypers["num_epochs"] * steps_per_epoch
+    warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
+    min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
 
-    scheduler = LambdaLR(optimizer, func_lr_scheduler)
+    def lr_lambda(current_step: int) -> float:
+        if current_step < warmup_steps:
+            # Linear warmup
+            return float(current_step) / float(max(1, warmup_steps))
+        else:
+            # Cosine decay
+            progress = (current_step - warmup_steps) / float(
+                max(1, total_steps - warmup_steps)
+            )
+            cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
+
+    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
     return scheduler
 
 
@@ -89,6 +108,7 @@ class Trainer(TrainerInterface):
         model.set_masses(atomic_mass_dict)
 
         is_distributed = self.hypers["distributed"]
+        is_finetune = "finetune" in self.hypers
 
         if is_distributed:
             distr_env = DistributedEnvironment(self.hypers["distributed_port"])
@@ -119,37 +139,17 @@ class Trainer(TrainerInterface):
         else:
             logging.info(f"Training on device {device} with dtype {dtype}")
 
-        # Calculate the neighbor lists in advance (in particular, this
-        # needs to happen before the additive models are trained, as they
-        # might need them):
-        logging.info("Calculating neighbor lists for the datasets")
-        requested_neighbor_lists = get_requested_neighbor_lists(model)
-        for dataset in train_datasets + val_datasets:
-            # If the dataset is a disk dataset, the NLs are already attached, we will
-            # just check the first system
-            if _is_disk_dataset(dataset):
-                system = dataset[0]["system"]
-                for options in requested_neighbor_lists:
-                    if options not in system.known_neighbor_lists():
-                        raise ValueError(
-                            "The requested neighbor lists are not attached to the "
-                            f"system. Neighbor list {options} is missing from the "
-                            "first system in the disk dataset. Make sure you save "
-                            "the neighbor lists in the systems when saving the dataset."
-                        )
-            else:
-                for sample in dataset:
-                    system = sample["system"]
-                    # The following line attaches the neighbors lists to the system,
-                    # and doesn't require to reassign the system to the dataset:
-                    get_system_with_neighbor_lists(system, requested_neighbor_lists)
+        # Apply fine-tuning strategy if provided
+        if is_finetune:
+            model = apply_finetuning_strategy(model, self.hypers["finetune"])
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of FlashMD are always in float64 (to avoid numerical
-        # errors in the composition weights, which can be very large).
+        # The additive models of PET are always in float64 (to avoid numerical errors in
+        # the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
+        model.scaler.to(dtype=torch.float64)
 
         logging.info("Calculating composition weights")
 
@@ -164,7 +164,11 @@ class Trainer(TrainerInterface):
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
             model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
+                train_datasets,
+                model.additive_models,
+                self.hypers["batch_size"],
+                is_distributed,
+                self.hypers["fixed_scaling_weights"],
             )
 
         logging.info("Setting up data loaders")
@@ -194,13 +198,60 @@ class Trainer(TrainerInterface):
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
 
-        # Create a collate function:
-        targets_keys = list(model.dataset_info.targets.keys())
-        collate_fn = CollateFn(target_keys=targets_keys)
+        # Extract additive models and scaler and move them to CPU/float64 so they
+        # can be used in the collate function
+        model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
+        additive_models = copy.deepcopy(
+            model.additive_models.to(dtype=torch.float64, device="cpu")
+        )
+        model.additive_models.to(device)
+        model.additive_models[0].weights_to(device=device, dtype=torch.float64)
+        model.scaler.scales_to(device="cpu", dtype=torch.float64)
+        scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
+        model.scaler.to(device)
+        model.scaler.scales_to(device=device, dtype=torch.float64)
+
+        # Create collate functions:
+        dataset_info = model.dataset_info
+        train_targets = dataset_info.targets
+        extra_data_info = dataset_info.extra_data
+        rotational_augmenter = RotationalAugmenter(
+            target_info_dict=train_targets, extra_data_info_dict=extra_data_info
+        )
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
+        collate_fn_train = CollateFn(
+            target_keys=list(train_targets.keys()),
+            callables=[
+                rotational_augmenter.apply_random_augmentations,
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                get_remove_additive_transform(additive_models, train_targets),
+                get_remove_scale_transform(scaler),
+            ],
+        )
+        collate_fn_val = CollateFn(
+            target_keys=list(train_targets.keys()),
+            callables=[  # no augmentation for validation
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                get_remove_additive_transform(additive_models, train_targets),
+                get_remove_scale_transform(scaler),
+            ],
+        )
 
         # Create dataloader for the training datasets:
+        if self.hypers["num_workers"] is None:
+            num_workers = get_num_workers()
+            logging.info(
+                "Number of workers for data-loading not provided and chosen "
+                f"automatically. Using {num_workers} workers."
+            )
+        else:
+            num_workers = self.hypers["num_workers"]
+            validate_num_workers(num_workers)
+
         train_dataloaders = []
-        for train_dataset, train_sampler in zip(train_datasets, train_samplers):
+        for train_dataset, train_sampler in zip(
+            train_datasets, train_samplers, strict=True
+        ):
             if len(train_dataset) < self.hypers["batch_size"]:
                 raise ValueError(
                     f"A training dataset has fewer samples "
@@ -221,14 +272,15 @@ class Trainer(TrainerInterface):
                         # the sampler takes care of this (if present)
                         train_sampler is None
                     ),
-                    collate_fn=collate_fn,
+                    collate_fn=collate_fn_train,
+                    num_workers=num_workers,
                 )
             )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
         # Create dataloader for the validation datasets:
         val_dataloaders = []
-        for val_dataset, val_sampler in zip(val_datasets, val_samplers):
+        for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
             if len(val_dataset) < self.hypers["batch_size"]:
                 raise ValueError(
                     f"A validation dataset has fewer samples "
@@ -243,7 +295,8 @@ class Trainer(TrainerInterface):
                     sampler=val_sampler,
                     shuffle=False,
                     drop_last=False,
-                    collate_fn=collate_fn,
+                    collate_fn=collate_fn_val,
+                    num_workers=num_workers,
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
@@ -251,10 +304,6 @@ class Trainer(TrainerInterface):
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
 
-        train_targets = (model.module if is_distributed else model).dataset_info.targets
-        extra_data_info = (
-            model.module if is_distributed else model
-        ).dataset_info.extra_data
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -263,10 +312,9 @@ class Trainer(TrainerInterface):
 
         # Create a loss function:
         loss_hypers = self.hypers["loss"]
-        loss_fn = FlashMDLoss(
+        loss_fn = LossAggregator(
             targets=train_targets,
             config=loss_hypers,
-            masses=model.masses
         )
         logging.info("Using the following loss functions:")
         for name, info in loss_fn.metadata.items():
@@ -279,19 +327,27 @@ class Trainer(TrainerInterface):
             for grad, ginfo in info["gradients"].items():
                 logging.info(f"\t{name}::{grad}: {ginfo}")
 
-        optimizer = torch.optim.Adam(
-            model.parameters(), lr=self.hypers["learning_rate"]
-        )
+        if self.hypers["weight_decay"] is not None:
+            optimizer = torch.optim.AdamW(
+                model.parameters(),
+                lr=self.hypers["learning_rate"],
+                weight_decay=self.hypers["weight_decay"],
+            )
+        else:
+            optimizer = torch.optim.Adam(
+                model.parameters(), lr=self.hypers["learning_rate"]
+            )
 
-        if self.optimizer_state_dict is not None:
+        if self.optimizer_state_dict is not None and not is_finetune:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
             if not (model.module if is_distributed else model).has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
-        lr_scheduler = get_scheduler(optimizer, self.hypers)
+        # Create a learning rate scheduler
+        lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
 
-        if self.scheduler_state_dict is not None:
+        if self.scheduler_state_dict is not None and not is_finetune:
             # same as the optimizer, try to load the scheduler state dict
             if not (model.module if is_distributed else model).has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
@@ -299,13 +355,7 @@ class Trainer(TrainerInterface):
         per_structure_targets = self.hypers["per_structure_targets"]
 
         # Log the initial learning rate:
-        old_lr = optimizer.param_groups[0]["lr"]
         logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
-        logging.info(f"Initial learning rate: {old_lr}")
-
-        rotational_augmenter = RotationalAugmenter(
-            train_targets, extra_data_info_dict=extra_data_info
-        )
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
@@ -331,30 +381,10 @@ class Trainer(TrainerInterface):
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
-                systems, targets, extra_data = batch
-
-                systems, targets, extra_data = (
-                    rotational_augmenter.apply_random_augmentations(
-                        systems, targets, extra_data=extra_data
-                    )
-                )
+                systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
+                    systems, targets, extra_data, dtype=dtype, device=device
                 )
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(
-                    systems, targets, (model.module if is_distributed else model).scaler
-                )
-
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
-                )
-                verify_masses(systems, model.masses)
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -367,21 +397,33 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = loss_fn.compute(systems, predictions, targets)
+                train_loss_batch = loss_fn(predictions, targets, extra_data)
                 train_loss_batch.backward()
-                # torch.nn.utils.clip_grad_norm_(
-                #     model.parameters(), self.hypers["grad_clip_norm"]
-                # )
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), self.hypers["grad_clip_norm"]
+                )
                 optimizer.step()
+                lr_scheduler.step()
 
                 if is_distributed:
                     # sum the loss over all processes
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                train_rmse_calculator.update(predictions, targets)
+                scaled_predictions = (model.module if is_distributed else model).scaler(
+                    systems, predictions
+                )
+                scaled_targets = (model.module if is_distributed else model).scaler(
+                    systems, targets
+                )
+                train_rmse_calculator.update(
+                    scaled_predictions, scaled_targets, extra_data
+                )
                 if self.hypers["log_mae"]:
-                    train_mae_calculator.update(predictions, targets)
+                    train_mae_calculator.update(
+                        scaled_predictions, scaled_targets, extra_data
+                    )
+
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
                 is_distributed=is_distributed,
@@ -398,23 +440,10 @@ class Trainer(TrainerInterface):
 
             val_loss = 0.0
             for batch in val_dataloader:
-                systems, targets, extra_data = batch
+                systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
+                    systems, targets, extra_data, dtype=dtype, device=device
                 )
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(
-                    systems, targets, (model.module if is_distributed else model).scaler
-                )
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
-                )
-                verify_masses(systems, model.masses)
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -427,15 +456,26 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                val_loss_batch = loss_fn.compute(systems, predictions, targets)
+                val_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
                     # sum the loss over all processes
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
-                val_rmse_calculator.update(predictions, targets)
+
+                scaled_predictions = (model.module if is_distributed else model).scaler(
+                    systems, predictions
+                )
+                scaled_targets = (model.module if is_distributed else model).scaler(
+                    systems, targets
+                )
+                val_rmse_calculator.update(
+                    scaled_predictions, scaled_targets, extra_data
+                )
                 if self.hypers["log_mae"]:
-                    val_mae_calculator.update(predictions, targets)
+                    val_mae_calculator.update(
+                        scaled_predictions, scaled_targets, extra_data
+                    )
 
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -462,10 +502,6 @@ class Trainer(TrainerInterface):
             }
 
             if epoch == start_epoch:
-                scaler_scales = (
-                    model.module if is_distributed else model
-                ).scaler.get_scales_dict()
-
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
                     dataset_info=(
@@ -473,42 +509,14 @@ class Trainer(TrainerInterface):
                     ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
-                    scales={
-                        key: (
-                            scaler_scales[key.split(" ")[0]]
-                            if ("MAE" in key or "RMSE" in key)
-                            else 1.0
-                        )
-                        for key in finalized_train_info.keys()
-                    },
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(
                     metrics=[finalized_train_info, finalized_val_info],
                     epoch=epoch,
                     rank=rank,
-                    learning_rate=old_lr,
+                    learning_rate=optimizer.param_groups[0]["lr"],
                 )
-
-            lr_scheduler.step()
-            new_lr = lr_scheduler.get_last_lr()[0]
-            if new_lr != old_lr:
-                if new_lr < 1e-7:
-                    logging.info("Learning rate is too small, stopping training")
-                    break
-                else:
-                    if epoch >= self.hypers["num_epochs_warmup"]:
-                        logging.info(
-                            f"Changing learning rate from {old_lr} to {new_lr}"
-                        )
-                    elif epoch == self.hypers["num_epochs_warmup"] - 1:
-                        logging.info(
-                            "Finished warm-up. "
-                            f"Now training with learning rate {new_lr}"
-                        )
-                    else:  # epoch < self.hypers["num_epochs_warmup"] - 1:
-                        pass  # we don't clutter the log at every warm-up step
-                    old_lr = new_lr
 
             val_metric = get_selected_metric(
                 finalized_val_info, self.hypers["best_model_metric"]

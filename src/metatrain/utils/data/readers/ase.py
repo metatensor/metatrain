@@ -63,7 +63,7 @@ def read_systems(filename: str) -> List[System]:
 
     # Add momenta (for FlashMD) if available
     if "momenta" in ase_atoms[0].arrays:
-        for system, atoms in zip(systems, ase_atoms):
+        for system, atoms in zip(systems, ase_atoms, strict=False):
             momenta = TensorMap(
                 keys=Labels(["_"], torch.tensor([[0]])),
                 blocks=[
