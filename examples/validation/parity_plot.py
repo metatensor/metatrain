@@ -1,6 +1,6 @@
 """
 Model validation with parity plots for energies and forces
-=========================================================
+==========================================================
 
 This tutorial shows how to visualise your model output using parity plots. In the
 :ref:`train-from-scratch` we learned how to evaluate a trained model on a test set and
