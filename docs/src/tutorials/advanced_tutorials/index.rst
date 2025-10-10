@@ -13,3 +13,4 @@ This sections includes the advanced tutorials on the usage of the
    ../../examples/llpr/llpr
    ../../examples/zbl/dimers
    ../../advanced-concepts/fitting-generic-targets
+   ../../examples/multi-gpu/multi-gpu
