@@ -1,0 +1,43 @@
+seed: 42
+
+architecture:
+  name: experimental.flashmd
+  training:
+    timestep: 30  # in this case 30 (time lag) * 1 fs (timestep of reference MD)
+    batch_size: 2  # to be increased in a production scenario
+    num_epochs: 5  # to be increased (at least 1000-10000) in a production scenario
+    log_interval: 1
+    loss:
+      positions:
+        type: mse
+        weight: 1.0
+        reduction: mean
+      momenta:
+        type: mse
+        weight: 1.0
+        reduction: mean
+
+training_set:
+  systems:
+    read_from: flashmd.xyz
+    length_unit: A
+  targets:
+    positions:
+      key: future_positions
+      quantity: positions
+      unit: A
+      type:
+        cartesian:
+          rank: 1
+      per_atom: true
+    momenta:
+      key: future_momenta
+      quantity: momentum
+      unit: (eV*u)^1/2
+      type:
+        cartesian:
+          rank: 1
+      per_atom: true
+
+validation_set: 0.1
+test_set: 0.1
