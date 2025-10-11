@@ -26,6 +26,9 @@
         "d_head": {
           "type": "integer"
         },
+        "d_feedforward": {
+          "type": "integer"
+        },
         "num_heads": {
           "type": "integer"
         },
@@ -35,33 +38,23 @@
         "num_gnn_layers": {
           "type": "integer"
         },
-        "heads": {
-          "type": "object",
-          "patternProperties": {
-            ".*": {
-              "type": "string",
-              "enum": [
-                "linear",
-                "mlp"
-              ]
-            }
-          },
-          "additionalProperties": false
-        },
         "long_range": {
           "type": "object",
           "properties": {
             "enable": {
               "type": "boolean"
             },
+            "use_ewald": {
+              "type": "boolean"
+            },
             "smearing": {
+              "type": "number"
+            },
+            "kspace_resolution": {
               "type": "number"
             },
             "interpolation_nodes": {
               "type": "integer"
-            },
-            "mesh_spacing": {
-              "type": "number"
             }
           }
         }

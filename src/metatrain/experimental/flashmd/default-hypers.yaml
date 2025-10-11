@@ -10,22 +10,20 @@ architecture:
     num_heads: 4
     num_attention_layers: 2
     num_gnn_layers: 2
-    heads: {}
     long_range:
       enable: false
       smearing: 1.4
       interpolation_nodes: 5
       mesh_spacing: 1.33
   training:
-    num_epochs_warmup: 1
     masses: {}
     distributed: false
     distributed_port: 39591
     batch_size: 16
     num_epochs: 1000
+    warmup_fraction: 0.01
     learning_rate: 3e-4
     weight_decay: null
-    warmup_fraction: 0.01
     log_interval: 10
     checkpoint_interval: 100
     scale_targets: true
