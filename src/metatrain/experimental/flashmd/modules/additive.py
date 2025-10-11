@@ -67,6 +67,26 @@ class PositionAdditive(torch.nn.Module):
         # TODO: SELECTED ATOMS
 
         all_positions = torch.concatenate([system.positions for system in systems])
+        system_indices = torch.concatenate(
+            [
+                torch.full(
+                    (len(system),), i, dtype=torch.int32, device=all_positions.device
+                )
+                for i, system in enumerate(systems)
+            ]
+        )
+        atom_indices = torch.concatenate(
+            [
+                torch.arange(
+                    len(system), device=all_positions.device, dtype=torch.int32
+                )
+                for system in systems
+            ]
+        )
+        sample_values = torch.stack(
+            [system_indices, atom_indices],
+            dim=1,
+        )
         return {
             "positions": TensorMap(
                 keys=Labels(
@@ -80,15 +100,7 @@ class PositionAdditive(torch.nn.Module):
                         values=all_positions.unsqueeze(-1),
                         samples=Labels(
                             names=["system", "atom"],
-                            values=torch.tensor(
-                                [
-                                    [i, j]
-                                    for i, system in enumerate(systems)
-                                    for j in range(len(system))
-                                ],
-                                dtype=torch.int32,
-                                device=all_positions.device,
-                            ),
+                            values=sample_values,
                         ),
                         components=[
                             Labels(
