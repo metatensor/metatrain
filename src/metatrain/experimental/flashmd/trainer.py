@@ -98,6 +98,20 @@ class Trainer(TrainerInterface):
     ):
         assert dtype in FlashMD.__supported_dtypes__
 
+        # Set time step for the model
+        if self.hypers["timestep"] is None:
+            raise ValueError(
+                "`timestep` must be provided for training a FlashMD model. This "
+                "corresponds to the time step (in fs) that separates the current "
+                "positions and momenta from those (in the future) that the model is "
+                "asked to predict. This is typically the time step used in the MD "
+                "simulations that generated the data times the number of MD steps that "
+                "were skipped in order to create each training sample. For more "
+                "details, see the FlashMD tutorial in the documentation."
+            )
+        else:
+            model.set_timestep(self.hypers["timestep"])
+
         # Set masses for the model
         if len(self.hypers["masses"]) == 0:
             logging.info(

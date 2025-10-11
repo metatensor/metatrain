@@ -169,10 +169,14 @@ class FlashMD(ModelInterface):
         self.register_buffer(
             "masses", torch.full((max(self.atomic_types) + 1,), float("nan"))
         )
+        self.register_buffer("timestep", torch.tensor(float("nan")))
 
     def set_masses(self, masses: Dict[int, float]):
         for atomic_number, mass in masses.items():
             self.masses[atomic_number] = mass
+
+    def set_timestep(self, timestep: float):
+        self.timestep = torch.tensor(timestep)
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs

@@ -64,6 +64,12 @@
     "training": {
       "type": "object",
       "properties": {
+        "timestep": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "masses": {
           "type": "object",
           "propertyNames": {
