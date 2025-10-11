@@ -26,7 +26,7 @@ Default Hyperparameters
 
 The default hyperparameters for the FlashMD architecture are:
 
-.. literalinclude:: ../../../src/metatrain/flashmd/default-hypers.yaml
+.. literalinclude:: ../../../src/metatrain/experimental/flashmd/default-hypers.yaml
    :language: yaml
 
 Hyperparameters

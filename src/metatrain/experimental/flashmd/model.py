@@ -36,18 +36,16 @@ from .modules.transformer import CartesianTransformer
 
 class FlashMD(ModelInterface):
     """
-    Metatrain-native implementation of the PET architecture.
+    Implementation of the FlashMD architecture.
 
-    Originally proposed in work (https://arxiv.org/abs/2305.19302v3),
-    and published in the `pet` package (https://github.com/spozdn/pet).
-
+    For more information, you can refer to https://arxiv.org/abs/2505.19350.
     """
 
     __checkpoint_version__ = 6
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
-        references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
+        references={"architecture": ["https://arxiv.org/abs/2505.19350"]}
     )
     component_labels: Dict[str, List[List[Labels]]]
 
@@ -115,8 +113,8 @@ class FlashMD(ModelInterface):
             self.long_range = True
             if not self.hypers["long_range"]["use_ewald"]:
                 warnings.warn(
-                    "Training PET with the LongRangeFeaturizer initialized "
-                    "with `use_ewald=False` causes instabilities during training. "
+                    "Training FlashMD with the LongRangeFeaturizer initialized "
+                    "with `use_ewald=False` might cause instabilities during training. "
                     "The `use_ewald` variable will be force-switched to `True`. "
                     "during training.",
                     UserWarning,
@@ -195,7 +193,7 @@ class FlashMD(ModelInterface):
         if len(new_atomic_types) > 0:
             raise ValueError(
                 f"New atomic types found in the dataset: {new_atomic_types}. "
-                "The PET model does not support adding new atomic types."
+                "The FlashMD model does not support adding new atomic types."
             )
 
         # register new outputs as new last layers
@@ -739,7 +737,7 @@ class FlashMD(ModelInterface):
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for PET")
+            raise ValueError(f"unsupported dtype {dtype} for FlashMD")
 
         # Make sure the model is all in the same dtype
         # For example, after training, the additive models could still be in
@@ -770,20 +768,11 @@ class FlashMD(ModelInterface):
         return AtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-        # warn that, for Cartesian tensors, we assume that they are symmetric
         if target_info.is_cartesian:
-            if len(target_info.layout.block().components) == 2:
-                warnings.warn(
-                    "PET assumes that Cartesian tensors of rank 2 are "
-                    "stress-like, meaning that they are symmetric and intensive. "
-                    "If this is not the case, please use a different model.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-            # error out for rank > 2
-            if len(target_info.layout.block().components) > 2:
+            # error out for rank > 1
+            if len(target_info.layout.block().components) > 1:
                 raise ValueError(
-                    "PET does not support Cartesian tensors with rank > 2."
+                    "FlashMD does not support Cartesian tensors with rank > 1."
                 )
 
         # one output shape for each tensor block, grouped by target (i.e. tensormap)

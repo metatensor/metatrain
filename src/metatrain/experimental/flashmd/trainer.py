@@ -150,8 +150,9 @@ class Trainer(TrainerInterface):
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of PET are always in float64 (to avoid numerical errors in
-        # the composition weights, which can be very large).
+        # The additive models of FlashMD are always in float64 (to avoid numerical
+        # errors in the addition of positions and/or momenta to their variations
+        # as predicted by the model).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
