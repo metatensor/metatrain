@@ -1,7 +1,7 @@
 architecture:
   name: experimental.flashmd
   model:
-    predict_difference_of_momenta: false
+    predict_momenta_as_difference: false
     cutoff: 5.0
     cutoff_width: 0.5
     d_pet: 128

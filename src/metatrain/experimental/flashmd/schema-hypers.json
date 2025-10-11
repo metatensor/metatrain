@@ -11,7 +11,7 @@
     "model": {
       "type": "object",
       "properties": {
-        "predict_difference_of_momenta": {
+        "predict_momenta_as_difference": {
           "type": "boolean"
         },
         "cutoff": {

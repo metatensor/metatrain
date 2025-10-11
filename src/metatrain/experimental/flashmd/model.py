@@ -146,7 +146,7 @@ class FlashMD(ModelInterface):
             ),
         )
         position_additive = PositionAdditive(
-            hypers={"also_momenta": self.hypers["predict_difference_of_momenta"]},
+            hypers={"also_momenta": self.hypers["predict_momenta_as_difference"]},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
