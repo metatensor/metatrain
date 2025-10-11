@@ -12,7 +12,6 @@ architecture:
     num_attention_layers: 2
     num_gnn_layers: 2
     heads: {positions: linear, momenta: linear}
-    zbl: false
     long_range:
       enable: false
       smearing: 1.4

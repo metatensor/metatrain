@@ -20,7 +20,7 @@ from metatrain.experimental.flashmd.modules.utils import verify_masses
 from metatrain.pet.modules.finetuning import apply_finetuning_strategy
 from metatrain.pet.modules.utilities import cutoff_func
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
@@ -159,22 +159,6 @@ class FlashMD(ModelInterface):
         )
         additive_models = [composition_model, position_additive]
 
-        # Adds the ZBL repulsion model if requested
-        if self.hypers["zbl"]:
-            additive_models.append(
-                ZBL(
-                    {},
-                    dataset_info=DatasetInfo(
-                        length_unit=dataset_info.length_unit,
-                        atomic_types=self.atomic_types,
-                        targets={
-                            target_name: target_info
-                            for target_name, target_info in dataset_info.targets.items()
-                            if ZBL.is_valid_target(target_name, target_info)
-                        },
-                    ),
-                )
-            )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time

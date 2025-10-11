@@ -51,9 +51,6 @@
           },
           "additionalProperties": false
         },
-        "zbl": {
-          "type": "boolean"
-        },
         "long_range": {
           "type": "object",
           "properties": {
