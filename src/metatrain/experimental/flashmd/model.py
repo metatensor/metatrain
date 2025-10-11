@@ -29,6 +29,7 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
+from .modules.additive import PositionAdditive
 from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
 
@@ -144,7 +145,19 @@ class FlashMD(ModelInterface):
                 },
             ),
         )
-        additive_models = [composition_model]
+        position_additive = PositionAdditive(
+            hypers={},
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=self.atomic_types,
+                targets={
+                    target_name: target_info
+                    for target_name, target_info in dataset_info.targets.items()
+                    if PositionAdditive.is_valid_target(target_name, target_info)
+                },
+            ),
+        )
+        additive_models = [composition_model, position_additive]
 
         # Adds the ZBL repulsion model if requested
         if self.hypers["zbl"]:
@@ -687,36 +700,6 @@ class FlashMD(ModelInterface):
                         else:
                             output_blocks.append(b)
                     return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
-
-        # modify p
-        momenta_tensormap = return_dict["momenta"]
-        return_dict["momenta"] = TensorMap(
-            keys=momenta_tensormap.keys,
-            blocks=[
-                TensorBlock(
-                    values=block.values * masses[:, None, None],
-                    samples=block.samples,
-                    components=block.components,
-                    properties=block.properties,
-                )
-                for block in momenta_tensormap.blocks()
-            ],
-        )
-
-        # add positions to delta_q
-        positions_tensormap = return_dict["positions"]
-        return_dict["positions"] = TensorMap(
-            keys=positions_tensormap.keys,
-            blocks=[
-                TensorBlock(
-                    values=block.values * masses[:, None, None] + positions[..., None],
-                    samples=block.samples,
-                    components=block.components,
-                    properties=block.properties,
-                )
-                for block in positions_tensormap.blocks()
-            ],
-        )
 
         return return_dict
 

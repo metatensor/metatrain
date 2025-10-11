@@ -26,13 +26,16 @@ architecture:
     batch_size: 16
     num_epochs: 1000
     learning_rate: 3e-4
-    scheduler_patience: 100
-    scheduler_factor: 0.8
+    weight_decay: null
+    warmup_fraction: 0.01
     log_interval: 10
     checkpoint_interval: 100
     scale_targets: true
     fixed_composition_weights: {}
+    fixed_scaling_weights: {}
     per_structure_targets: []
+    num_workers: null
+    grad_clip_norm: .inf
     log_mae: false
     log_separate_blocks: false
     best_model_metric: rmse_prod

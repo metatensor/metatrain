@@ -99,6 +99,11 @@ class Trainer(TrainerInterface):
         assert dtype in FlashMD.__supported_dtypes__
 
         # Set masses for the model
+        if len(self.hypers["masses"]) == 0:
+            logging.info(
+                "No atomic masses were provided. Default atomic masses from ASE will "
+                "be registered into the model."
+            )
         atomic_mass_dict = {
             atomic_number: self.hypers["masses"].get(
                 atomic_number, ase.data.atomic_masses[atomic_number]
