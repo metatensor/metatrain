@@ -52,9 +52,18 @@ class PositionAdditive(torch.nn.Module):
         :return: The restarted model.
         """
 
-        return self(
-            {"also_momenta": self.do_momenta}, self.dataset_info.union(dataset_info)
-        )
+        self.dataset_info = self.dataset_info.union(dataset_info)
+        self.outputs = {}
+        for key, value in self.dataset_info.targets.items():
+            if (key == "momenta" or key.startswith("momenta/")) and not self.do_momenta:
+                # skip momenta targets unless `also_momenta` is True
+                continue
+            self.outputs[key] = ModelOutput(
+                quantity=value.quantity,
+                unit=value.unit,
+                per_atom=True,
+            )
+        return self
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -76,6 +85,7 @@ class PositionAdditive(torch.nn.Module):
 
         :raises ValueError: If the `outputs` contain unsupported keys.
         """
+        print(systems)
         device = systems[0].positions.device
 
         # TODO: variants

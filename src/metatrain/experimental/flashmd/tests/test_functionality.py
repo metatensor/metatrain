@@ -13,8 +13,8 @@ from metatrain.utils.neighbor_lists import (
 )
 
 
-@pytest.mark.filterwarnings("ignore::UserWarning")
-def test_it_works():
+@pytest.mark.filterwarnings("ignore:custom data:UserWarning")
+def test_forward():
     "Run a forward pass of FlashMD on two small systems and verify the output shapes."
 
     # load default hyper parameters for FlashMD
@@ -31,7 +31,7 @@ def test_it_works():
                     keys=Labels.single(),
                     blocks=[
                         TensorBlock(
-                            values=torch.empty((0, 3, 1)),
+                            values=torch.empty((0, 3, 1), dtype=torch.float64),
                             samples=Labels(
                                 names=["system", "atom"],
                                 values=torch.empty((0, 2), dtype=int),
