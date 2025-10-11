@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional
 
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, NeighborListOptions, System
@@ -19,20 +20,30 @@ class PositionAdditive(torch.nn.Module):
         # `hypers` should be an empty dictionary
         validate(
             instance=hypers,
-            schema={"type": "object", "additionalProperties": False},
+            schema={
+                "type": "object",
+                "properties": {
+                    "also_momenta": {"type": "boolean"},
+                },
+                "required": ["also_momenta"],
+                "additionalProperties": False,
+            },
         )
+        self.do_momenta = hypers["also_momenta"]
 
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
 
-        self.outputs = {
-            key: ModelOutput(
+        self.outputs = {}
+        for key, value in dataset_info.targets.items():
+            if (key == "momenta" or key.startswith("momenta/")) and not self.do_momenta:
+                # skip momenta targets unless `also_momenta` is True
+                continue
+            self.outputs[key] = ModelOutput(
                 quantity=value.quantity,
                 unit=value.unit,
                 per_atom=True,
             )
-            for key, value in dataset_info.targets.items()
-        }
 
     def restart(self, dataset_info: DatasetInfo) -> "PositionAdditive":
         """Restart the model with a new dataset info.
@@ -41,7 +52,9 @@ class PositionAdditive(torch.nn.Module):
         :return: The restarted model.
         """
 
-        return self({}, self.dataset_info.union(dataset_info))
+        return self(
+            {"also_momenta": self.do_momenta}, self.dataset_info.union(dataset_info)
+        )
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -63,23 +76,25 @@ class PositionAdditive(torch.nn.Module):
 
         :raises ValueError: If the `outputs` contain unsupported keys.
         """
+        device = systems[0].positions.device
 
-        # TODO: SELECTED ATOMS
+        # TODO: variants
 
-        all_positions = torch.concatenate([system.positions for system in systems])
+        return_dict: Dict[str, TensorMap] = {}
+
+        single_label = Labels(
+            names=["_"],
+            values=torch.zeros((1, 1), dtype=torch.int32, device=device),
+        )
         system_indices = torch.concatenate(
             [
-                torch.full(
-                    (len(system),), i, dtype=torch.int32, device=all_positions.device
-                )
+                torch.full((len(system),), i, dtype=torch.int32, device=device)
                 for i, system in enumerate(systems)
             ]
         )
         atom_indices = torch.concatenate(
             [
-                torch.arange(
-                    len(system), device=all_positions.device, dtype=torch.int32
-                )
+                torch.arange(len(system), device=device, dtype=torch.int32)
                 for system in systems
             ]
         )
@@ -87,31 +102,48 @@ class PositionAdditive(torch.nn.Module):
             [system_indices, atom_indices],
             dim=1,
         )
-        return {
-            "positions": TensorMap(
-                keys=Labels(
-                    names=["_"],
-                    values=torch.zeros(
-                        (1, 1), dtype=torch.int32, device=all_positions.device
+        samples = Labels(
+            names=["system", "atom"],
+            values=sample_values,
+        )
+        components = [
+            Labels(
+                names=["xyz"],
+                values=torch.arange(3, device=device).unsqueeze(-1),
+            )
+        ]
+        all_positions = torch.concatenate([system.positions for system in systems])
+        position_tensor_map = TensorMap(
+            keys=single_label,
+            blocks=[
+                TensorBlock(
+                    values=all_positions.unsqueeze(-1),
+                    samples=samples,
+                    components=components,
+                    properties=Labels(
+                        names=["positions"],
+                        values=torch.zeros(
+                            (1, 1), dtype=torch.int32, device=all_positions.device
+                        ),
                     ),
-                ),
+                )
+            ],
+        )
+        return_dict["positions"] = position_tensor_map
+
+        if self.do_momenta:
+            all_momenta = torch.concatenate(
+                [system.get_data("momenta").block().values for system in systems]
+            )
+            momenta_tensor_map = TensorMap(
+                keys=single_label,
                 blocks=[
                     TensorBlock(
-                        values=all_positions.unsqueeze(-1),
-                        samples=Labels(
-                            names=["system", "atom"],
-                            values=sample_values,
-                        ),
-                        components=[
-                            Labels(
-                                names=["xyz"],
-                                values=torch.arange(
-                                    3, device=all_positions.device
-                                ).unsqueeze(-1),
-                            )
-                        ],
+                        values=all_momenta,
+                        samples=samples,
+                        components=components,
                         properties=Labels(
-                            names=["_"],
+                            names=["momenta"],
                             values=torch.zeros(
                                 (1, 1), dtype=torch.int32, device=all_positions.device
                             ),
@@ -119,7 +151,17 @@ class PositionAdditive(torch.nn.Module):
                     )
                 ],
             )
-        }
+            return_dict["momenta"] = momenta_tensor_map
+
+        if selected_atoms is not None:
+            for key in list(return_dict.keys()):
+                return_dict[key] = mts.slice(
+                    return_dict[key],
+                    axis="samples",
+                    selection=selected_atoms,
+                )
+
+        return return_dict
 
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return []

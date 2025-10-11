@@ -3,8 +3,8 @@ seed: 42
 architecture:
   name: experimental.flashmd
   model:
-    d_pet: 256
-    d_head: 256
+    d_pet: 128
+    d_head: 128
     num_gnn_layers: 3
   training:
     batch_size: 2
@@ -36,6 +36,7 @@ training_set:
     momenta:
       key: future_momenta
       quantity: momentum
+      unit: (eV*u)^1/2
       type:
         cartesian:
           rank: 1

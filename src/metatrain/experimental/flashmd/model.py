@@ -146,7 +146,7 @@ class FlashMD(ModelInterface):
             ),
         )
         position_additive = PositionAdditive(
-            hypers={},
+            hypers={"also_momenta": self.hypers["predict_difference_of_momenta"]},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
@@ -214,6 +214,17 @@ class FlashMD(ModelInterface):
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
                     if CompositionModel.is_valid_target(target_name, target_info)
+                },
+            ),
+        )
+        self.additive_models[1].restart(
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=self.atomic_types,
+                targets={
+                    target_name: target_info
+                    for target_name, target_info in dataset_info.targets.items()
+                    if PositionAdditive.is_valid_target(target_name, target_info)
                 },
             ),
         )

@@ -1,41 +1,23 @@
 seed: 42
 
 architecture:
-  name: experimental.flashmd
-  model:
-    num_gnn_layers: 3
+  name: soap_bpnn
   training:
-    batch_size: 2
-    num_epochs: 1000
-    log_interval: 1
-    loss:
-      positions:
-        type: mse
-        weight: 1.0
-        reduction: mean
-      momenta:
-        type: mse
-        weight: 1.0
-        reduction: mean
+    batch_size: 5
+    num_epochs: 1
+  model:
+    soap:
+      max_radial: 4
+      max_angular: 2
 
 training_set:
   systems:
-    read_from: water_4fs.zip
-    length_unit: A
+    read_from: qm9_reduced_100.xyz
+    length_unit: angstrom
   targets:
-    positions:
-      quantity: positions
-      unit: A
-      type:
-        cartesian:
-          rank: 1
-      per_atom: true
-    momenta:
-      quantity: momentum
-      type:
-        cartesian:
-          rank: 1
-      per_atom: true
+    energy:
+      key: U0
+      unit: eV
 
+test_set: 0.5
 validation_set: 0.1
-test_set: 0.1

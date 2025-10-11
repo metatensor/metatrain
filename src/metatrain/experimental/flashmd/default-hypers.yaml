@@ -1,8 +1,7 @@
 architecture:
   name: flashmd
   model:
-    hamiltonian: direct
-    integrator: euler
+    predict_difference_of_momenta: false
     cutoff: 5.0
     cutoff_width: 0.5
     d_pet: 128
@@ -11,7 +10,7 @@ architecture:
     num_heads: 4
     num_attention_layers: 2
     num_gnn_layers: 2
-    heads: {positions: linear, momenta: linear}
+    heads: {}
     long_range:
       enable: false
       smearing: 1.4

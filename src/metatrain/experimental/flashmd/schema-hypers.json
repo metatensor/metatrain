@@ -11,11 +11,8 @@
     "model": {
       "type": "object",
       "properties": {
-        "hamiltonian": {
-          "type": "string"
-        },
-        "integrator": {
-          "type": "string"
+        "predict_difference_of_momenta": {
+          "type": "boolean"
         },
         "cutoff": {
           "type": "number"
