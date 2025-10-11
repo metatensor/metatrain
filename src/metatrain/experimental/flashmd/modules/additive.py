@@ -11,13 +11,15 @@ from metatrain.utils.jsonschema import validate
 
 class PositionAdditive(torch.nn.Module):
     """
-    A simple model for short-range repulsive interactions.
+    A simple additive model that adds the positions of the system to any outputs that
+    is either "positions" or one of its variants.
+
+    Optionally, it can also do the same with momenta.
     """
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
 
-        # `hypers` should be an empty dictionary
         validate(
             instance=hypers,
             schema={
@@ -74,18 +76,16 @@ class PositionAdditive(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        """Compute the energies of a system solely based on a ZBL repulsive
-        potential.
+        """Adds positions (and optionally momenta) from the system to the appropriate
+        outputs.
 
-        :param systems: List of systems to calculate the ZBL energy.
+        :param systems: List of systems to compute the predictions for.
         :param outputs: Dictionary containing the model outputs.
         :param selected_atoms: Optional selection of atoms for which to compute the
             predictions.
-        :return: A dictionary with the computed predictions for each system.
-
-        :raises ValueError: If the `outputs` contain unsupported keys.
+        :return: A dictionary with the positions (and optionally momenta) of the
+            systems as "predicted" values.
         """
-        print(systems)
         device = systems[0].positions.device
 
         # TODO: variants
@@ -178,4 +178,8 @@ class PositionAdditive(torch.nn.Module):
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
-        return True
+        if target_name == "positions" or target_name.startswith("positions/"):
+            return True
+        if target_name == "momenta" or target_name.startswith("momenta/"):
+            return True
+        return False
