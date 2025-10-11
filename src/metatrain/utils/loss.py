@@ -573,33 +573,35 @@ class BasisContractionLoss(LossInterface):
         :param extra_data: actual targets.
         :return: scalar torch.Tensor loss.
         """
+
+        def reconstruct(
+            tensor_map: TensorMap, batch_size: int, n_radial: int, size: int
+        ) -> torch.Tensor:
+            tensor_map_blocks = [
+                t.values.reshape(t.shape[0], -1, n_radial, size) for t in tensor_map
+            ]
+            concat = torch.concat(tensor_map_blocks, dim=1)
+            concat = concat.reshape(batch_size, concat.shape[1] * concat.shape[2], size)
+            return torch.bmm(concat, concat.transpose(1, 2))
+
         tensor_map_pred = predictions[self.target]
         name_in_extra_data = self.target.replace("desired", "total")
         tensor_map_targ = extra_data[name_in_extra_data]
         batch_size = tensor_map_pred[0].shape[0]
         contracted_size = int(tensor_map_pred[0].properties.values[:, 1].max() + 1)
         total_basis_size = int(tensor_map_targ[0].properties.values[:, 1].max() + 1)
+        n_radial = tensor_map_pred[0].shape[-1] // contracted_size
 
-        concat = torch.concatenate(
-            [
-                block.values.reshape(*block.shape[:2], -1, contracted_size)
-                for block in tensor_map_pred
-            ],
-            dim=1,
-        ).reshape(batch_size, -1, contracted_size)
-
-        reconstructed = torch.bmm(concat, concat.transpose(1, 2))
-        target = torch.concatenate(
-            [
-                block.values.reshape(*block.shape[:2], -1, contracted_size)
-                for block in tensor_map_targ
-            ],
-            dim=1,
-        ).reshape(batch_size, -1, total_basis_size)
-        assert reconstructed.shape == target.shape
+        reconstructed_pred = reconstruct(
+            tensor_map_pred, batch_size, n_radial, contracted_size
+        )
+        reconstructed_targ = reconstruct(
+            tensor_map_targ, batch_size, n_radial, total_basis_size
+        )
+        assert reconstructed_pred.shape == reconstructed_targ.shape
 
         return torch.functional.F.mse_loss(
-            reconstructed, target, reduction=self.reduction
+            reconstructed_pred, reconstructed_targ, reduction=self.reduction
         )
 
 
