@@ -20,5 +20,7 @@ jobs:
     - name: Test build integrity
       run: tox -e build
       env:
+        # CI should always generate test files
+        FORCE_REGENERATE: true
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu

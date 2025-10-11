@@ -23,6 +23,8 @@ jobs:
       - name: build documentation
         run: tox -e docs
         env:
+          # CI should always generate test files
+          FORCE_REGENERATE: true
           # Use the CPU-only version of torch
           PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
 
