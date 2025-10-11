@@ -1035,7 +1035,8 @@ class PET(ModelInterface):
         next(state_dict_iter)  # skip the species_to_species_index
         dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
+        if len(model.additive_models) > 0:
+            model.additive_models[0].sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -1054,7 +1055,8 @@ class PET(ModelInterface):
 
         # Additionally, the composition model contains some `TensorMap`s that cannot
         # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
+        if len(self.additive_models) > 0:
+            self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
         for additive_model in self.additive_models:
