@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Tuple
 
 import torch
 import torch.nn.functional as F
@@ -345,7 +345,8 @@ class CartesianTransformer(torch.nn.Module):
     """
     Cartesian Transformer implementation for handling 3D coordinates.
 
-    :param hypers: A dictionary of hyperparameters.
+    :param cutoff: The cutoff distance for neighbor interactions.
+    :param cutoff_width: The width of the cutoff function.
     :param d_model: The dimension of the model.
     :param n_head: The number of attention heads.
     :param dim_node_features: The dimension of the node features.
@@ -360,7 +361,8 @@ class CartesianTransformer(torch.nn.Module):
 
     def __init__(
         self,
-        hypers: Dict[str, Any],
+        cutoff: float,
+        cutoff_width: float,
         d_model: int,
         n_head: int,
         dim_node_features: int,
@@ -374,8 +376,8 @@ class CartesianTransformer(torch.nn.Module):
     ) -> None:
         super(CartesianTransformer, self).__init__()
         self.is_first = is_first
-        self.cutoff = float(hypers["cutoff"])
-        self.cutoff_width = float(hypers["cutoff_width"])
+        self.cutoff = cutoff
+        self.cutoff_width = cutoff_width
         self.trans = Transformer(
             d_model=d_model,
             num_layers=n_layers,

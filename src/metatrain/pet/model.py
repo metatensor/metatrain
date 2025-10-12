@@ -85,7 +85,8 @@ class PET(ModelInterface):
         self.gnn_layers = torch.nn.ModuleList(
             [
                 CartesianTransformer(
-                    self.hypers,
+                    self.cutoff,
+                    self.cutoff_width,
                     self.d_pet,
                     self.num_heads,
                     self.d_node,
@@ -563,11 +564,6 @@ class PET(ModelInterface):
 
         return return_dict
 
-    # @torch.compile(
-    #     mode="max-autotune",
-    #     dynamic=True,
-    #     fullgraph=True,
-    # )
     def _calculate_features(
         self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
