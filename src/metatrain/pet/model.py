@@ -203,7 +203,7 @@ class PET(ModelInterface):
         self.dataset_info = merged_info
 
         # restart the composition and scaler models
-        self.additive_models[0].restart(
+        self.additive_models[0] = self.additive_models[0].restart(
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
@@ -214,7 +214,7 @@ class PET(ModelInterface):
                 },
             ),
         )
-        self.scaler.restart(dataset_info)
+        self.scaler = self.scaler.restart(dataset_info)
 
         return self
 

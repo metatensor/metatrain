@@ -66,10 +66,6 @@ class ZBL(torch.nn.Module):
 
         n_types = len(self.atomic_types)
 
-        self.output_to_output_index = {
-            target: i for i, target in enumerate(sorted(dataset_info.targets.keys()))
-        }
-
         self.register_buffer(
             "species_to_index",
             torch.full((max(self.atomic_types) + 1,), -1, dtype=torch.int),
@@ -109,7 +105,8 @@ class ZBL(torch.nn.Module):
                     "Please report this issue and help us improve!"
                 )
 
-        return self({}, self.dataset_info.union(dataset_info))
+        self.dataset_info = self.dataset_info.union(dataset_info)
+        return self
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
