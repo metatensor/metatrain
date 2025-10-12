@@ -533,8 +533,8 @@ class PET(ModelInterface):
                         selected_atoms,
                     )
                     for name in additive_contributions:
-                        # # TODO: uncomment this after metatensor.torch.add is updated to
-                        # # handle sparse sums
+                        # TODO: uncomment this after metatensor.torch.add
+                        # is updated to handle sparse sums
                         # return_dict[name] = metatensor.torch.add(
                         #     return_dict[name],
                         #     additive_contributions[name].to(
@@ -542,9 +542,8 @@ class PET(ModelInterface):
                         #         dtype=return_dict[name].dtype
                         #         ),
                         # )
-
-                        # TODO: "manual" sparse sum: update to metatensor.torch.add after
-                        # sparse sum is implemented in metatensor.operations
+                        # TODO: "manual" sparse sum: update to metatensor.torch.add
+                        # after sparse sum is implemented in metatensor.operations
                         output_blocks: List[TensorBlock] = []
                         for k, b in return_dict[name].items():
                             if k in additive_contributions[name].keys:
