@@ -38,8 +38,9 @@ model:
 |--------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
 | GAP                      | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
 | PET                      | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
-| NanoPET *(deprecated)* | Re-implementation of the original PET with slightly improved training and evaluation speed                                           |
+| NanoPET *(deprecated)*   | Re-implementation of the original PET with slightly improved training and evaluation speed                                           |
 | SOAP BPNN                | A Behler-Parrinello neural network with SOAP features                                                                                |
+| FlashMD                  | An architecture for the direct prediction of molecular dynamics                                                                      |
 
 <!-- marker-documentation -->
 
