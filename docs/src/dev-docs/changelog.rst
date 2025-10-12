@@ -24,6 +24,15 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Added
+#####
+
+- A new dataset format, ``MemmapDataset``, allows storing data on disk in a
+  memory-mapped format, improving performance compared to ``DiskDataset`` on some
+  filesystems.
+- FlashMD was added as a new architecture allowing long-stride molecular dynamics
+  simulations. Its implementation is based on PET.
+
 Changed
 #######
 

@@ -311,6 +311,44 @@ def _apply_augmentations(
             cell=system.cell @ transformation.T,
             pbc=system.pbc,
         )
+        for data_name in system.known_data():
+            data = system.get_data(data_name)
+            # check if this data is easy to handle (scalar/vector), otherwise error out
+            if len(data) != 1:
+                raise ValueError(
+                    f"System data '{data_name}' has {len(data)} blocks, which is not "
+                    "supported by RotationalAugmenter. Only scalar and vector data are "
+                    "supported."
+                )
+            if len(data.block().components) == 0:
+                # scalar data, no change
+                new_system.add_data(data_name, data)
+            elif len(data.block().components) == 1 and data.block().components[
+                0
+            ].names == ["xyz"]:
+                new_system.add_data(
+                    data_name,
+                    TensorMap(
+                        keys=data.keys,
+                        blocks=[
+                            TensorBlock(
+                                values=(
+                                    data.block().values.swapaxes(-1, -2)
+                                    @ transformation.T
+                                ).swapaxes(-1, -2),
+                                samples=data.block().samples,
+                                components=data.block().components,
+                                properties=data.block().properties,
+                            )
+                        ],
+                    ),
+                )
+            else:
+                raise ValueError(
+                    f"System data '{data_name}' has components "
+                    f"{data.block().components}, which are not supported by "
+                    "RotationalAugmenter. Only scalar and vector data are supported."
+                )
         for options in system.known_neighbor_lists():
             neighbors = mts.detach_block(system.get_neighbor_list(options))
 
