@@ -31,9 +31,10 @@ class CartesianTransformer(torch.nn.Module):
             d_model=d_model,
             num_layers=n_layers,
             n_heads=n_head,
+            dim_node_features=d_model,
             dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            activation=torch.nn.SiLU(),
+            norm="LayerNorm",
+            activation="SiLU",
             transformer_type="PostLN",
         )
 
