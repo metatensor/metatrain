@@ -112,26 +112,86 @@ class RotationalAugmenter:
         extra_data: Optional[Dict[str, TensorMap]] = None,
     ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
         """
-        Apply a random augmentation to a number of :py:class:`System` objects and its
-        targets.
+        Applies random augmentations to a number of ``System`` objects, their targets,
+        and optionally extra data.
 
         :param systems: A list of :py:class:`System` objects to be augmented.
         :param targets: A dictionary mapping target names to their corresponding
             :py:class:`TensorMap` objects. These are the targets to be augmented.
         :param extra_data: An optional dictionary mapping extra data names to their
-            corresponding :py:class:`TensorMap` objects. This extra data will also be
+            corresponding :class:`TensorMap` objects. This extra data will also be
             augmented if provided.
 
         :return: A tuple containing the augmented systems and targets.
         """
-
         rotations = [get_random_rotation() for _ in range(len(systems))]
         inversions = [get_random_inversion() for _ in range(len(systems))]
+        return self.apply_augmentations(
+            systems, targets, rotations, inversions, extra_data=extra_data
+        )
+
+    def apply_augmentations(
+        self,
+        systems: List[System],
+        targets: Dict[str, TensorMap],
+        rotations: List[Rotation],
+        inversions: List[int],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+        """
+        Applies augmentations to a number of ``System`` objects, their targets, and
+        optionally extra data. The augmentations are defined by a list of rotations
+        and a list of inversions.
+
+        :param systems: A list of :py:class:`System` objects to be augmented.
+        :param targets: A dictionary mapping target names to their corresponding
+            :py:class:`TensorMap` objects. These are the targets to be augmented.
+        :param rotations: A list of :class:`scipy.spatial.transform.Rotation` objects
+            representing the rotations to be applied to each system.
+        :param inversions: A list of integers (1 or -1) representing the
+            inversion factors to be applied to each system.
+        :param extra_data: An optional dictionary mapping extra data names to their
+            corresponding :class:`TensorMap` objects. This extra data will also be
+            augmented if provided.
+
+        :return: A tuple containing the augmented systems and targets.
+        """
+        self._validate(systems, rotations, inversions)
+
         transformations = [
             torch.from_numpy(r.as_matrix() * i)
             for r, i in zip(rotations, inversions, strict=True)
         ]
 
+        wigner_D_matrices = self._create_wigner_D_matrices(
+            rotations, targets, extra_data=extra_data
+        )
+
+        return _apply_augmentations(
+            systems, targets, transformations, wigner_D_matrices, extra_data=extra_data
+        )
+
+    def _validate(
+        self, systems: List[System], rotations: List[Rotation], inversions: List[int]
+    ) -> None:
+        if len(rotations) != len(systems):
+            raise ValueError(
+                "The number of rotations must match the number of systems."
+            )
+
+        if len(inversions) != len(systems):
+            raise ValueError(
+                "The number of inversions must match the number of systems."
+            )
+        if any(i not in [1, -1] for i in inversions):
+            raise ValueError("Inversions must be either 1 or -1.")
+
+    def _create_wigner_D_matrices(
+        self,
+        rotations: List[Rotation],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ) -> Dict[int, List[torch.Tensor]]:
         wigner_D_matrices = {}
         if self.wigner is not None:
             scipy_quaternions = [r.as_quat() for r in rotations]
@@ -184,10 +244,7 @@ class RotationalAugmenter:
                                         torch.from_numpy(wigner_D_matrix)
                                     )
                                 wigner_D_matrices[ell] = wigner_D_matrices_l
-
-        return _apply_random_augmentations(
-            systems, targets, transformations, wigner_D_matrices, extra_data=extra_data
-        )
+        return wigner_D_matrices
 
 
 def _apply_wigner_D_matrices(
@@ -237,7 +294,7 @@ def _apply_wigner_D_matrices(
 
 
 @torch_jit_script_unless_coverage  # script for speed
-def _apply_random_augmentations(
+def _apply_augmentations(
     systems: List[System],
     targets: Dict[str, TensorMap],
     transformations: List[torch.Tensor],
@@ -254,6 +311,44 @@ def _apply_random_augmentations(
             cell=system.cell @ transformation.T,
             pbc=system.pbc,
         )
+        for data_name in system.known_data():
+            data = system.get_data(data_name)
+            # check if this data is easy to handle (scalar/vector), otherwise error out
+            if len(data) != 1:
+                raise ValueError(
+                    f"System data '{data_name}' has {len(data)} blocks, which is not "
+                    "supported by RotationalAugmenter. Only scalar and vector data are "
+                    "supported."
+                )
+            if len(data.block().components) == 0:
+                # scalar data, no change
+                new_system.add_data(data_name, data)
+            elif len(data.block().components) == 1 and data.block().components[
+                0
+            ].names == ["xyz"]:
+                new_system.add_data(
+                    data_name,
+                    TensorMap(
+                        keys=data.keys,
+                        blocks=[
+                            TensorBlock(
+                                values=(
+                                    data.block().values.swapaxes(-1, -2)
+                                    @ transformation.T
+                                ).swapaxes(-1, -2),
+                                samples=data.block().samples,
+                                components=data.block().components,
+                                properties=data.block().properties,
+                            )
+                        ],
+                    ),
+                )
+            else:
+                raise ValueError(
+                    f"System data '{data_name}' has components "
+                    f"{data.block().components}, which are not supported by "
+                    "RotationalAugmenter. Only scalar and vector data are supported."
+                )
         for options in system.known_neighbor_lists():
             neighbors = mts.detach_block(system.get_neighbor_list(options))
 
