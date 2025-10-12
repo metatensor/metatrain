@@ -69,26 +69,28 @@ class CartesianTransformer(torch.nn.Module):
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
     ):
-        node_elements_embedding = self.node_encoder(element_indices_nodes, momenta)
-        edge_embedding = [edge_vectors, edge_distances[:, :, None]]
-        edge_embedding = torch.cat(edge_embedding, dim=2)
-        edge_embedding = self.edge_embedder(edge_embedding)
+        node_embeddings = self.node_encoder(element_indices_nodes, momenta)
+        edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
+        edge_embeddings = torch.cat(edge_embeddings, dim=2)
+        edge_embeddings = self.edge_embedder(edge_embeddings)
 
         if not self.is_first:
             neighbor_elements_embedding = self.neighbor_embedder(
                 element_indices_neighbors
             )
-            tokens = torch.cat(
-                [edge_embedding, neighbor_elements_embedding, input_messages], dim=2
+            edge_tokens = torch.cat(
+                [edge_embeddings, neighbor_elements_embedding, input_messages], dim=2
             )
         else:
             neighbor_elements_embedding = torch.empty(
                 0, device=edge_vectors.device, dtype=edge_vectors.dtype
             )  # for torch script
-            tokens = torch.cat([edge_embedding, input_messages], dim=2)
+            edge_tokens = torch.cat([edge_embeddings, input_messages], dim=2)
 
-        tokens = self.compress(tokens)
-        tokens = torch.cat([node_elements_embedding[:, None, :], tokens], dim=1)
+        edge_tokens = self.compress(edge_tokens)
+        # edge_tokens = torch.cat(
+        #     [node_elements_embedding[:, None, :], edge_tokens], dim=1
+        # )
 
         padding_mask_with_central_token = torch.ones(
             padding_mask.shape[0], dtype=torch.bool, device=padding_mask.device
@@ -109,8 +111,9 @@ class CartesianTransformer(torch.nn.Module):
         initial_num_tokens = edge_vectors.shape[1]
         max_num_tokens = input_messages.shape[1]
 
-        output_messages = self.trans(
-            tokens[:, : (max_num_tokens + 1), :],
+        output_node_embeddings, output_edge_embeddings = self.trans(
+            node_embeddings[:, None, :],
+            edge_tokens[:, :max_num_tokens, :],
             cutoff_factors=cutoff_factors[
                 :, : (max_num_tokens + 1), : (max_num_tokens + 1)
             ],
@@ -118,13 +121,12 @@ class CartesianTransformer(torch.nn.Module):
         )
         if max_num_tokens < initial_num_tokens:
             padding = torch.zeros(
-                output_messages.shape[0],
+                output_edge_embeddings.shape[0],
                 initial_num_tokens - max_num_tokens,
-                output_messages.shape[2],
-                device=output_messages.device,
+                output_edge_embeddings.shape[2],
+                device=output_edge_embeddings.device,
             )
-            output_messages = torch.cat([output_messages, padding], dim=1)
+            output_edge_embeddings = torch.cat([output_edge_embeddings, padding], dim=1)
 
-        output_node_embeddings = output_messages[:, 0, :]
-        output_edge_embeddings = output_messages[:, 1:, :]
+        output_node_embeddings = output_node_embeddings.squeeze(1)
         return output_node_embeddings, output_edge_embeddings
