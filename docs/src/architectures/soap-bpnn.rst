@@ -97,12 +97,9 @@ briefly explained below.
   divides up the training set into batches during model training.
 - ``num_epochs``: this integer defines the number of epochs to perform in training.
 - ``learning_rate``: this float defines the initial learning rate of the scheduler.
-- ``early_stopping_patience``: this integer defines the number of epochs without
-  improvement are allowed before early stopping is invoked by scheduler.
-- ``scheduler_patience``: this integer defines the number of epochs without
-  improvement until the ``ReduceLROnPlateau`` scheduler lowers the learning rate.
-- ``scheduler_factor``: this float defines the factor by which the learning rate
-  is lowered when lowering is invoked by the scheduler.
+- ``warmup_fraction``: this float defines the fraction of the total number of epochs
+  to be used for linearly increasing the learning rate from zero to the initial
+  learning rate defined by ``learning_rate`` at the start of training.
 - ``log_interval``: this integer defines the epoch interval of metric logging.
 - ``checkpoint_interval``: this integer defines the epoch interval of checkpoint
   saving.
