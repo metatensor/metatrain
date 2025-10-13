@@ -1318,7 +1318,7 @@ def process_non_conservative_stress(
     num_properties: int,
 ) -> torch.Tensor:
     """
-    Symmetrizes and normalizes by the volume a rank-2 Cartesian tensors that is meant
+    Symmetrizes and normalizes by the volume rank-2 Cartesian tensors that are meant
     to predict the non-conservative stress.
 
     :param tensor: Tensor of shape [n_atoms, 9 * num_properties].
