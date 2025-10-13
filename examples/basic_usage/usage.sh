@@ -15,7 +15,8 @@ mtt --help
 # We now demonstrate how to ``train`` and ``evaluate`` a model from the command line.
 # For this example we use the :ref:`architecture-soap-bpnn` architecture and a subset of
 # the `QM9 dataset <https://paperswithcode.com/dataset/qm9>`_. You can obtain the
-# dataset for this example here: :download:qm9_reduced_100.xyz 
+# dataset for this example here: :download:`qm9_reduced_100.xyz 
+# <../../../../examples/basic_usage/qm9_reduced_100.xyz>`.
 # <../../../../examples/basic_usage/qm9_reduced_100.xyz>.
 #
 #
