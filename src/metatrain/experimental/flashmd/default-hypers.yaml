@@ -10,7 +10,7 @@ architecture:
     d_feedforward: 256
     num_heads: 8
     num_attention_layers: 2
-    num_gnn_layers: 2
+    num_gnn_layers: 3
     normalization: RMSNorm
     activation: SwiGLU
     transformer_type: PreLN
