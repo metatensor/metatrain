@@ -86,7 +86,20 @@ def model_trainer():
 
 test_checkpoint_did_not_change = checkpoint_did_not_change
 
-test_loading_old_checkpoints = make_checkpoint_load_tests(DEFAULT_HYPERS)
+test_loading_old_checkpoints = make_checkpoint_load_tests(
+    DEFAULT_HYPERS,
+    incompatible_trainer_checkpoints=[
+        "checkpoints/model-v1_trainer-v1.ckpt.gz",
+        "checkpoints/model-v2_trainer-v1.ckpt.gz",
+        "checkpoints/model-v2_trainer-v2.ckpt.gz",
+        "checkpoints/model-v3_trainer-v2.ckpt.gz",
+        "checkpoints/model-v3_trainer-v3.ckpt.gz",
+        "checkpoints/model-v3_trainer-v4.ckpt.gz",
+        "checkpoints/model-v4_trainer-v3.ckpt.gz",
+        "checkpoints/model-v4_trainer-v4.ckpt.gz",
+        "checkpoints/model-v4_trainer-v5.ckpt.gz",
+    ],
+)
 
 
 @pytest.mark.parametrize("context", ["finetune", "restart", "export"])
