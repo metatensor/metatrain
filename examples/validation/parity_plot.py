@@ -83,9 +83,9 @@ print("RMSE forces:", np.sqrt(np.mean((f_targets - f_predictions) ** 2)), "kcal/
 # was created only for demonstration purposes. In the case of a well-trained model, the
 # points should be closer to the diagonal line.
 
-# %% 
+# %%
 # Check outliers with ``Chemiscope``
-# -----------------------------------
+# ----------------------------------
 # With the approach above, you can inspect the whole dataset, but it might be difficult
 # to identify outliers. `Chemiscope <https://chemiscope.org/docs/index.html>` is a
 # visualisation tool, allowing you to explore the dataset interactively. The following
