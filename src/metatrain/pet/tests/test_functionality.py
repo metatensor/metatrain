@@ -544,16 +544,16 @@ def test_pet_single_atom():
 
 
 @pytest.mark.parametrize("per_atom", [True, False])
-def test_pet_rank_2(per_atom):
-    """Tests that the model can predict a symmetric rank-2 tensor."""
+def test_nc_stress(per_atom):
+    """Tests that the model can predict a symmetric rank-2 tensor as the NC stress."""
     # (note that no composition energies are supplied or calculated here)
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "stress": get_generic_target_info(
-                "stress",
+            "non_conservative_stress": get_generic_target_info(
+                "non_conservative_stress",
                 {
                     "quantity": "stress",
                     "unit": "",
