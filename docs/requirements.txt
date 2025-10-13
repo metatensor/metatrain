@@ -1,4 +1,5 @@
 ase
+chemiscope
 furo
 myst-parser
 sphinx >= 7
