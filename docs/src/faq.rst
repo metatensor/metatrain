@@ -31,7 +31,7 @@ Training troubleshooting
 
 **A:** There are several reasons why training can be slow. If possible,
 try to reduce the dataset size or increase the batch size.
-You can also try to run on a GPU, which significantly increases performance times.
+If available you can also try to run on a GPU, which significantly increases performance times.
 
 **Q: My training is not converging, what can I do?**
 
