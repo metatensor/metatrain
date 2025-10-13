@@ -78,12 +78,12 @@ model
 
 :param cutoff: Cutoff radius for neighbor search
 :param cutoff_width: Width of the smoothing function at the cutoff
-:param d_pet: Latent feature dimension
+:param d_pet: Dimension of the edge features
 :param d_head: Dimension of the attention heads
 :param d_node: Dimension of the node features
 :param d_feedforward: Dimension of the feedforward network in the attention layer
 :param num_heads: Attention heads per attention layer
-:param num_attention_layers: Number of   attention layers per GNN layer
+:param num_attention_layers: Number of attention layers per GNN layer
 :param num_gnn_layers: Number of GNN layers
 :param normalization: Layer normalization type. Currently available options are
   ``RMSNorm`` or ``LayerNorm``.

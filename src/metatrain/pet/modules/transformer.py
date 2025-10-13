@@ -3,7 +3,6 @@ from typing import Tuple
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch.profiler import record_function
 
 from .utilities import DummyModule
 
@@ -93,16 +92,14 @@ class AttentionBlock(nn.Module):
         attn_weights = torch.clamp(cutoff_factors[:, None, :, :], self.epsilon)
         attn_weights = torch.log(attn_weights)
         if use_manual_attention:
-            with record_function("AttentionBlock::manual_attention"):
-                x = manual_attention(queries, keys, values, attn_weights)
+            x = manual_attention(queries, keys, values, attn_weights)
         else:
-            with record_function("AttentionBlock::scaled_dot_product_attention"):
-                x = torch.nn.functional.scaled_dot_product_attention(
-                    queries,
-                    keys,
-                    values,
-                    attn_mask=attn_weights,
-                )
+            x = torch.nn.functional.scaled_dot_product_attention(
+                queries,
+                keys,
+                values,
+                attn_mask=attn_weights,
+            )
         x = x.transpose(1, 2).reshape(initial_shape)
         x = self.output_linear(x)
         return x

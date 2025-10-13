@@ -35,7 +35,7 @@ Added
 
 Changed
 #######
-- ``PET`` model got a major update, including new default hyperparameters, a new
+- ``PET`` model received a major update, including new default hyperparameters, a new
   transformer architecture, and a new featurizer. Please refer to the updated
   documentation for more details.
 - ``NanoPET`` has been deprecated in favor of the stable ``PET`` architecture. The

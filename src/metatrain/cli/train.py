@@ -569,8 +569,6 @@ def train_model(
     except torch.cuda.OutOfMemoryError as e:
         raise ArchitectureError(OutOfMemoryError(e)) from e
     except Exception as e:
-        print("Exception during training:")
-        print(e)
         raise ArchitectureError(e) from e
 
     if not is_main_process():
