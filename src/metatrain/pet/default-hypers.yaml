@@ -5,8 +5,8 @@ architecture:
     cutoff_width: 0.2
     d_pet: 128
     d_head: 128
-    d_node: 128
-    d_feedforward: 512
+    d_node: 256
+    d_feedforward: 256
     num_heads: 8
     num_attention_layers: 2
     num_gnn_layers: 2

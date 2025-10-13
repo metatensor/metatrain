@@ -260,7 +260,7 @@ def test_output_last_layer_features():
     ]
     assert features.values.shape == (
         4,
-        MODEL_HYPERS["d_pet"] * num_readout_layers * 2,
+        (MODEL_HYPERS["d_node"] + MODEL_HYPERS["d_pet"]) * num_readout_layers,
     )
     assert features.properties.names == [
         "feature",
@@ -303,7 +303,7 @@ def test_output_last_layer_features():
     ]
     assert features.values.shape == (
         1,
-        MODEL_HYPERS["d_pet"] * num_readout_layers * 2,
+        (MODEL_HYPERS["d_node"] + MODEL_HYPERS["d_pet"]) * num_readout_layers,
     )
 
     assert outputs["mtt::aux::energy_last_layer_features"].block().samples.names == [
