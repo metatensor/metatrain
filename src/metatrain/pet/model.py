@@ -44,7 +44,7 @@ class PET(ModelInterface):
         targets.
     """
 
-    __checkpoint_version__ = 6
+    __checkpoint_version__ = 7
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -203,7 +203,7 @@ class PET(ModelInterface):
         self.dataset_info = merged_info
 
         # restart the composition and scaler models
-        self.additive_models[0].restart(
+        self.additive_models[0] = self.additive_models[0].restart(
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
@@ -214,7 +214,7 @@ class PET(ModelInterface):
                 },
             ),
         )
-        self.scaler.restart(dataset_info)
+        self.scaler = self.scaler.restart(dataset_info)
 
         return self
 
@@ -647,7 +647,7 @@ class PET(ModelInterface):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(return_dict)
+            return_dict = self.scaler(systems, return_dict)
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
                 for name, output in outputs.items():
@@ -719,6 +719,7 @@ class PET(ModelInterface):
         dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
+        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))

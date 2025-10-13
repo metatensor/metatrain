@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 import ase.io
+import numpy as np
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -753,6 +754,10 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
+    # make sure that num_workers=0 for reproducibility on CI
+    options = copy.deepcopy(options)
+    options["architecture"]["training"]["num_workers"] = 0
+
     if seed is not None:
         options["seed"] = seed
 
@@ -1084,6 +1089,51 @@ def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
     train_model(options)
 
 
+def test_train_memmap_dataset(monkeypatch, tmp_path, options_pet):
+    """Test that training via the training cli runs without an error raise
+    when learning from a `MemmapDataset`."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_CARBON, "carbon.xyz")
+    structures = read("carbon.xyz", index=":")
+    _write_dataset_to_memmap(structures, "carbon/")
+
+    options_pet["training_set"]["systems"]["read_from"] = "carbon/"
+    options_pet["training_set"]["targets"]["energy"]["key"] = "e"
+    options_pet["training_set"]["targets"]["energy"]["forces"] = OmegaConf.create(
+        {"key": "f"}
+    )
+    options_pet["training_set"]["targets"]["energy"]["stress"] = OmegaConf.create(
+        {"key": "s"}
+    )
+    options_pet["training_set"]["targets"]["non_conservative_forces"] = (
+        OmegaConf.create(
+            {
+                "key": "f",
+                "quantity": "force",
+                "unit": "eV/A",
+                "per_atom": True,
+                "type": {"cartesian": {"rank": 1}},
+            }
+        )
+    )
+    options_pet["training_set"]["targets"]["non_conservative_stress"] = (
+        OmegaConf.create(
+            {
+                "key": "s",
+                "quantity": "pressure",
+                "unit": "eV/A^3",
+                "type": {"cartesian": {"rank": 2}},
+            }
+        )
+    )
+
+    with pytest.warns(
+        UserWarning,
+        match="PET assumes that Cartesian tensors of rank 2 are stress-like",
+    ):
+        train_model(options_pet)
+
+
 @pytest.mark.skipif(not WANDB_AVAILABLE.present, reason=WANDB_AVAILABLE.message)
 def test_train_wandb_logger(monkeypatch, tmp_path):
     """Test that training via the training cli runs with an attached wandb logger."""
@@ -1104,3 +1154,46 @@ def test_train_wandb_logger(monkeypatch, tmp_path):
 
     assert "'base_precision': 64" in file_log
     assert "'seed': 42" in file_log
+
+
+def _write_dataset_to_memmap(structures, filename):
+    """Helper function to write a list of `ase.Atoms` objects to a `MemmapDataset`."""
+
+    root = Path("carbon/")
+    root.mkdir()
+
+    ns_path = root / "ns.npy"
+    na_path = root / "na.npy"
+    a_path = root / "a.bin"
+    x_path = root / "x.bin"
+    c_path = root / "c.bin"
+    e_path = root / "e.bin"
+    f_path = root / "f.bin"
+    s_path = root / "s.bin"
+
+    ns = len(structures)
+    na = np.cumsum(np.array([0] + [len(s) for s in structures], dtype=np.int64))
+    np.save(ns_path, ns)
+    np.save(na_path, na)
+
+    a_mm = np.memmap(a_path, dtype="int32", mode="w+", shape=(na[-1],))
+    x_mm = np.memmap(x_path, dtype="float32", mode="w+", shape=(na[-1], 3))
+    c_mm = np.memmap(c_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
+    e_mm = np.memmap(e_path, dtype="float32", mode="w+", shape=(ns, 1))
+    f_mm = np.memmap(f_path, dtype="float32", mode="w+", shape=(na[-1], 3))
+    s_mm = np.memmap(s_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
+
+    for i, s in enumerate(structures):
+        a_mm[na[i] : na[i + 1]] = s.numbers
+        x_mm[na[i] : na[i + 1]] = s.get_positions()
+        c_mm[i] = s.get_cell()[:]
+        e_mm[i] = s.get_potential_energy()
+        f_mm[na[i] : na[i + 1]] = s.arrays["force"]
+        s_mm[i] = -s.info["virial"] / s.get_volume()
+
+    a_mm.flush()
+    x_mm.flush()
+    c_mm.flush()
+    e_mm.flush()
+    f_mm.flush()
+    s_mm.flush()

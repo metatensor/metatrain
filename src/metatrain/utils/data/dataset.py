@@ -11,6 +11,8 @@ import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
 from metatensor.torch import (
+    Labels,
+    TensorBlock,
     TensorMap,
     load_buffer,
     make_contiguous,
@@ -20,6 +22,7 @@ from metatensor.torch import (
 from metatomic.torch import System, load_system, load_system_buffer
 from metatomic.torch import save_buffer as save_system_buffer
 from omegaconf import DictConfig
+from torch.utils.data import Dataset as TorchDataset
 from torch.utils.data import Subset
 
 from metatrain.utils.data.readers.metatensor import (
@@ -821,3 +824,297 @@ def _make_system_contiguous(system: System) -> System:
         data = system.get_data(key)
         new_system.add_data(key, make_contiguous(data))
     return new_system
+
+
+class MemmapArray:
+    """
+    Small helper to reopen a ``np.memmap`` lazily in each worker.
+
+    :param path: Path to the binary file containing the memory-mapped array.
+    :param shape: Shape of the array.
+    :param dtype: Data type of the array.
+    :param mode: Mode to open the array. See ``numpy.memmap`` for details.
+    """
+
+    def __init__(
+        self,
+        path: Union[str, Path],
+        shape: Tuple[int, ...],
+        dtype: Union[str, np.dtype],
+        mode: str = "r",
+    ) -> None:
+        self.path = str(path)
+        self.shape = tuple(shape)
+        self.dtype = np.dtype(dtype)
+        self.mode = mode
+        self._mm = None
+
+    def _ensure_open(self) -> None:
+        if self._mm is None:
+            self._mm = np.memmap(
+                self.path, dtype=self.dtype, mode=self.mode, shape=self.shape
+            )
+
+    def __getitem__(self, idx: Any) -> np.ndarray:
+        self._ensure_open()
+        return self._mm[idx]  # type: ignore
+
+    def close(self) -> None:
+        if self._mm is not None:
+            # np.memmap closes when deleted; explicit close via _mmap isn't public.
+            self._mm._mmap.close()
+            self._mm = None
+
+
+class MemmapDataset(TorchDataset):
+    """A class representing a dataset stored as a set of memory-mapped arrays.
+
+    This dataset supports arbitrary scalar and cartesian vector/tensor targets, but
+    not spherical tensors. Virials of energy targets are not supported in this type of
+    dataset (stresses can be used instead to achieve the same goal).
+
+    The dataset is stored in a directory, where the dataset is stored in a set of
+    memory-mapped numpy arrays. These are:
+
+    - ns.npy: total number of structures in the dataset. Shape: (1,).
+    - na.npy: cumulative number of atoms per structure. na[-1] therefore corresponds to
+        the total number of atoms in the dataset. Shape: (ns+1,).
+    - x.bin: atomic positions of all atoms in the dataset, concatenated. Shape:
+        (na[-1], 3).
+    - a.bin: atomic types of all atoms in the dataset, concatenated. Shape: (na[-1],).
+    - c.bin: cell matrices of all structures in the dataset. Shape: (ns, 3, 3).
+    - <key>.bin: target values for each structure or atom, depending on the
+        whether the target is defined per atom or per structure.
+        Shape: (ns, ..., num_subtargets) if per-structures or
+        (na[-1], ..., num_subtargets) if per-atom, where the
+        ... depends on the type of target (scalar, vector, tensor, etc.). <key> can
+        then be used in the "key" section of targets in metatrain input files to read
+        the target(s).
+
+    :param path: Path to the directory containing the dataset.
+    :param target_options: Dictionary containing the target configurations, in the
+        format corresponding to metatrain yaml input files.
+    """
+
+    def __init__(self, path: Union[str, Path], target_options: Dict[str, Any]) -> None:
+        path = Path(path)
+        self.target_config = target_options
+        self.sample_class = namedtuple(
+            "Sample", ["system"] + list(self.target_config.keys())
+        )
+
+        # Information about the structures
+        self.ns = np.load(path / "ns.npy")
+        self.na = np.load(path / "na.npy")
+        self.x = MemmapArray(path / "x.bin", (self.na[-1], 3), "float32", mode="r")
+        self.a = MemmapArray(path / "a.bin", (self.na[-1],), "int32", mode="r")
+        self.c = MemmapArray(path / "c.bin", (self.ns, 3, 3), "float32", mode="r")
+
+        # Register arrays pointing to the targets
+        self.target_arrays = {}
+        for target_key, single_target_options in target_options.items():
+            data_key = single_target_options["key"]
+            number_of_samples = (
+                self.na[-1] if single_target_options["per_atom"] else self.ns
+            )
+            number_of_properties = single_target_options["num_subtargets"]
+            if single_target_options["type"] == "scalar":
+                self.target_arrays[target_key] = MemmapArray(
+                    path / f"{data_key}.bin",
+                    (number_of_samples, number_of_properties),
+                    "float32",
+                    mode="r",
+                )
+                if (
+                    single_target_options["quantity"] == "energy"
+                    and not single_target_options["per_atom"]
+                    and single_target_options["num_subtargets"] == 1
+                ):
+                    # energy target: look into potential gradients
+                    if single_target_options["forces"]:
+                        self.target_arrays[f"{target_key}_forces"] = MemmapArray(
+                            path / f"{single_target_options['forces']['key']}.bin",
+                            (self.na[-1], 3, 1),
+                            "float32",
+                            mode="r",
+                        )
+                    if single_target_options["stress"]:
+                        self.target_arrays[f"{target_key}_stress"] = MemmapArray(
+                            path / f"{single_target_options['stress']['key']}.bin",
+                            (self.ns, 3, 3, 1),
+                            "float32",
+                            mode="r",
+                        )
+                    if single_target_options["virial"]:
+                        raise ValueError(
+                            "Virial targets are not supported in MemmapDataset."
+                        )
+            elif isinstance(single_target_options["type"], DictConfig) or isinstance(
+                single_target_options["type"], Dict
+            ):
+                if "spherical" in single_target_options["type"]:
+                    raise ValueError(
+                        "Spherical targets are not supported in MemmapDataset."
+                    )
+                else:  # cartesian
+                    n_components = single_target_options["type"]["cartesian"]["rank"]
+                    shape = (
+                        (number_of_samples,)
+                        + (3,) * n_components
+                        + (number_of_properties,)
+                    )
+                    self.target_arrays[target_key] = MemmapArray(
+                        path / f"{data_key}.bin", shape, "float32", mode="r"
+                    )
+            else:
+                raise ValueError(
+                    f"Unsupported target configuration: {single_target_options}"
+                )
+
+    def __len__(self) -> int:
+        return self.ns
+
+    def __getitem__(self, i: int) -> Any:
+        a = torch.tensor(self.a[self.na[i] : self.na[i + 1]], dtype=torch.int32)
+        x = torch.tensor(self.x[self.na[i] : self.na[i + 1]], dtype=torch.float64)
+        c = torch.tensor(self.c[i], dtype=torch.float64)
+
+        system = System(
+            positions=x,
+            types=a,
+            cell=c,
+            pbc=torch.logical_not(torch.all(c == 0.0, dim=1)),
+        )
+
+        target_dict = {}
+        for target_key, target_options in self.target_config.items():
+            target_array = self.target_arrays[target_key]
+            is_per_atom = target_array.shape[0] == (self.na[-1])
+            if is_per_atom:
+                samples = Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor(
+                        [[i, j] for j in range(self.na[i], self.na[i + 1])],
+                        dtype=torch.int32,
+                    ),
+                )
+            else:
+                samples = Labels(
+                    names=["system"],
+                    values=torch.tensor([[i]], dtype=torch.int32),
+                )
+            if len(target_array.shape) > 3:
+                # Cartesian tensor with rank > 1
+                n_components = len(target_array.shape) - 2
+                components = [
+                    Labels.range(f"xyz_{d + 1}", 3) for d in range(n_components)
+                ]
+            elif len(target_array.shape) == 3:
+                # Cartesian vector
+                components = [Labels.range("xyz", 3)]
+            else:
+                # Scalar
+                components = []
+
+            target_block = TensorBlock(
+                values=torch.tensor(
+                    target_array[None, i]
+                    if not is_per_atom
+                    else target_array[self.na[i] : self.na[i + 1]],
+                    dtype=torch.float64,
+                ),
+                samples=samples,
+                components=components,
+                properties=Labels.range(target_key, target_array.shape[-1]),
+            )
+
+            # handle energy gradients
+            if (
+                target_options["quantity"] == "energy"
+                and not target_options["per_atom"]
+                and target_options["num_subtargets"] == 1
+            ):
+                if target_options["forces"]:
+                    f = torch.tensor(
+                        self.target_arrays[f"{target_key}_forces"][
+                            self.na[i] : self.na[i + 1]
+                        ],
+                        dtype=torch.float64,
+                    )
+                    target_block.add_gradient(
+                        "positions",
+                        TensorBlock(
+                            values=-f,
+                            samples=Labels(
+                                names=["sample", "atom"],
+                                values=torch.tensor(
+                                    [[0, j] for j in range(len(a))], dtype=torch.int32
+                                ),
+                            ),
+                            components=[Labels.range("xyz", 3)],
+                            properties=Labels.range("energy", 1),
+                        ),
+                    )
+                if target_options["stress"]:
+                    s = torch.tensor(
+                        self.target_arrays[f"{target_key}_stress"][None, i],
+                        dtype=torch.float64,
+                    )
+                    target_block.add_gradient(
+                        "strain",
+                        TensorBlock(
+                            values=(s * torch.abs(torch.det(c))),
+                            samples=Labels(
+                                names=["sample"],
+                                values=torch.tensor([[0]], dtype=torch.int32),
+                            ),
+                            components=[
+                                Labels.range("xyz_1", 3),
+                                Labels.range("xyz_2", 3),
+                            ],
+                            properties=Labels.range("energy", 1),
+                        ),
+                    )
+
+            target_tensormap = TensorMap(
+                keys=Labels.single(),
+                blocks=[target_block],
+            )
+            target_dict[target_key] = target_tensormap
+
+        sample = self.sample_class(**{"system": system, **target_dict})
+        return sample
+
+    def get_target_info(self) -> Dict[str, TargetInfo]:
+        """
+        Get information about the targets in the dataset.
+
+        :return: A dictionary mapping target names to :py:class:`TargetInfo` objects.
+        """
+        target_info_dict = {}
+        for target_key, target in self.target_config.items():
+            is_energy = (
+                (target["quantity"] == "energy")
+                and (not target["per_atom"])
+                and target["num_subtargets"] == 1
+                and target["type"] == "scalar"
+            )
+            tensor_map = self[0][target_key]
+            if is_energy:
+                if len(tensor_map) != 1:
+                    raise ValueError("Energy TensorMaps should have exactly one block.")
+                add_position_gradients = tensor_map.block().has_gradient("positions")
+                add_strain_gradients = tensor_map.block().has_gradient("strain")
+                target_info = get_energy_target_info(
+                    target_key, target, add_position_gradients, add_strain_gradients
+                )
+                _check_tensor_map_metadata(tensor_map, target_info.layout)
+                target_info_dict[target_key] = target_info
+            else:
+                target_info = get_generic_target_info(target_key, target)
+                _check_tensor_map_metadata(tensor_map, target_info.layout)
+                # make sure that the properties of the target_info.layout also match the
+                # actual properties of the tensor maps
+                target_info.layout = _empty_tensor_map_like(tensor_map)
+                target_info_dict[target_key] = target_info
+        return target_info_dict

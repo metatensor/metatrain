@@ -24,6 +24,15 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Added
+#####
+
+- A new dataset format, ``MemmapDataset``, allows storing data on disk in a
+  memory-mapped format, improving performance compared to ``DiskDataset`` on some
+  filesystems.
+- FlashMD was added as a new architecture allowing long-stride molecular dynamics
+  simulations. Its implementation is based on PET.
+
 Changed
 #######
 
@@ -35,6 +44,8 @@ Changed
 - The ``LLPR`` module is now a stable architecture, instead of a utility module. It can
   be trained from the command line in the same way as other architectures.
 - We now require Python >= 3.10
+- The ``Scaler`` model in metatrain now calculates per-block and per-property scales.
+  For atomic targets, it calculates per-element scales.
 
 Version 2025.10 - 2025-09-09
 ----------------------------
