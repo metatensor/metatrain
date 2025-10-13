@@ -13,7 +13,6 @@ Below are links to the sections:
 Contents
 --------
 
-
 `Training troubleshooting`_
 
 `General training concepts`_
