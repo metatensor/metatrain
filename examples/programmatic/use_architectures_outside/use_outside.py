@@ -52,7 +52,7 @@ class PETWithTanh(torch.nn.Module):
                 targets={},
             ),
         )
-        self.linear = torch.nn.Linear(256, 1)
+        self.linear = torch.nn.Linear(384, 1)
         self.tanh = torch.nn.Tanh()
 
     def forward(self, systems):
