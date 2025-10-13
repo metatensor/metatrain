@@ -26,6 +26,9 @@
         "d_head": {
           "type": "integer"
         },
+        "d_node": {
+          "type": "integer"
+        },
         "d_feedforward": {
           "type": "integer"
         },
@@ -37,6 +40,34 @@
         },
         "num_gnn_layers": {
           "type": "integer"
+        },
+        "normalization": {
+          "type": "string",
+          "enum": [
+            "LayerNorm",
+            "RMSNorm"
+          ]
+        },
+        "transformer_type": {
+          "type": "string",
+          "enum": [
+            "PreLN",
+            "PostLN"
+          ]
+        },
+        "featurizer_type": {
+          "type": "string",
+          "enum": [
+            "residual",
+            "feedforward"
+          ]
+        },
+        "activation": {
+          "type": "string",
+          "enum": [
+            "SiLU",
+            "SwiGLU"
+          ]
         },
         "long_range": {
           "type": "object",
@@ -102,9 +133,6 @@
             "number",
             "null"
           ]
-        },
-        "grad_clip_norm": {
-          "type": "number"
         },
         "log_interval": {
           "type": "integer"
@@ -178,6 +206,71 @@
             "loss"
           ]
         },
+        "finetune": {
+          "type": "object",
+          "properties": {
+            "read_from": {
+              "type": "string",
+              "format": "uri"
+            },
+            "method": {
+              "type": "string",
+              "enum": [
+                "full",
+                "lora",
+                "heads"
+              ]
+            },
+            "config": {
+              "type": "object",
+              "oneOf": [
+                {
+                  "properties": {
+                    "alpha": {
+                      "type": "number"
+                    },
+                    "rank": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "alpha",
+                    "rank"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "properties": {
+                    "head_modules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "last_layer_modules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "head_modules",
+                    "last_layer_modules"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "method"
+          ]
+        },
+        "grad_clip_norm": {
+          "type": "number"
+        },
         "loss": {
           "type": [
             "object",
@@ -192,6 +285,14 @@
         }
       },
       "additionalProperties": false
+    },
+    "atomic_types": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "uniqueItems": true
     }
   },
   "additionalProperties": false,
