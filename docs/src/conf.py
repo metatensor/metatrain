@@ -80,7 +80,7 @@ extensions = [
     "sphinxcontrib.bibtex",
     "sphinx_toggleprompt",
     "sphinx_gallery.gen_gallery",
-    "chemiscope.sphinx"
+    "chemiscope.sphinx",
 ]
 
 # List of patterns, relative to source directory, that match files and
