@@ -110,13 +110,7 @@
         "learning_rate": {
           "type": "number"
         },
-        "early_stopping_patience": {
-          "type": "integer"
-        },
-        "scheduler_patience": {
-          "type": "integer"
-        },
-        "scheduler_factor": {
+        "warmup_fraction": {
           "type": "number"
         },
         "log_interval": {

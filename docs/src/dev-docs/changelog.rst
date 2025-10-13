@@ -36,6 +36,8 @@ Added
 Changed
 #######
 
+- The SOAP-BPNN and PET trainers now uses a cosine annealing learning rate scheduler
+  with warmup.
 - ``NanoPET`` has been deprecated in favor of the stable ``PET`` architecture. The
   ``deprecated.nanopet`` architecture is still available for loading old checkpoints,
   but it will not receive any updates or bug fixes.
