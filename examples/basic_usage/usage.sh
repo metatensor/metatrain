@@ -17,7 +17,6 @@ mtt --help
 # the `QM9 dataset <https://paperswithcode.com/dataset/qm9>`_. You can obtain the
 # dataset for this example here: :download:`qm9_reduced_100.xyz 
 # <../../../../examples/basic_usage/qm9_reduced_100.xyz>`.
-# <../../../../examples/basic_usage/qm9_reduced_100.xyz>.
 #
 #
 # Training
