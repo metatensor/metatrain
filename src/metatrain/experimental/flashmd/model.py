@@ -372,8 +372,6 @@ class FlashMD(ModelInterface):
           layers for each output block
         - Contributions from all GNN layers are summed
         - Edge contributions are summed over neighbors with cutoff weighting
-        - For rank-2 Cartesian tensors (e.g., stress), predictions are symmetrized and
-          normalized by cell volume
         - Multiple tensor blocks per output are handled independently
 
         **Post-processing (Evaluation Only)**
@@ -1077,23 +1075,6 @@ class FlashMD(ModelInterface):
                             key
                         ] + (node_atomic_predictions + edge_atomic_predictions)
 
-                all_components = self.component_labels[output_name]
-                if len(all_components[0]) == 2 and all(
-                    "xyz" in comp.names[0] for comp in all_components[0]
-                ):
-                    block_key = list(atomic_predictions_by_block.keys())[0]
-                    output_shapes_values = list(
-                        self.output_shapes[output_name].values()
-                    )
-                    num_properties = output_shapes_values[0][-1]
-                    symmetrized = symmetrize_cartesian_tensor(
-                        atomic_predictions_by_block[block_key],
-                        systems,
-                        system_indices,
-                        num_properties,
-                    )
-                    atomic_predictions_by_block[block_key] = symmetrized
-
                 blocks = [
                     TensorBlock(
                         values=atomic_predictions_by_block[key].reshape([-1] + shape),
@@ -1215,22 +1196,6 @@ class FlashMD(ModelInterface):
         :param target_name: Name of the target to add.
         :param target_info: TargetInfo object containing details about the target.
         """
-        # warn that, for Cartesian tensors, we assume that they are symmetric
-        if target_info.is_cartesian:
-            if len(target_info.layout.block().components) == 2:
-                warnings.warn(
-                    "FlashMD assumes that Cartesian tensors of rank 2 are "
-                    "stress-like, meaning that they are symmetric and intensive. "
-                    "If this is not the case, please use a different model.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-            # error out for rank > 2
-            if len(target_info.layout.block().components) > 2:
-                raise ValueError(
-                    "FlashMD does not support Cartesian tensors with rank > 2."
-                )
-
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}
         for key, block in target_info.layout.items():
@@ -1365,38 +1330,6 @@ class FlashMD(ModelInterface):
             "best_model_state_dict": self.state_dict(),
         }
         return checkpoint
-
-
-def symmetrize_cartesian_tensor(
-    tensor: torch.Tensor,
-    systems: List[System],
-    system_indices: torch.Tensor,
-    num_properties: int,
-) -> torch.Tensor:
-    """
-    Symmetrize rank-2 Cartesian tensors (e.g., stress).
-    Assumes the tensor is stress-like (symmetric and intensive).
-
-    :param tensor: Tensor of shape [n_atoms, 9 * num_properties].
-    :param systems: List of `metatomic.torch.System` objects to process.
-    :param system_indices: Tensor mapping each atom to its system index [n_atoms].
-    :param num_properties: Number of properties in the tensor (e.g., 6 for stress).
-    :return: Symmetrized tensor of shape [n_atoms, 3, 3, num_properties].
-    """
-    # Reshape to 3x3 matrix per atom
-    tensor_as_three_by_three = tensor.reshape(-1, 3, 3, num_properties)
-
-    # Normalize by cell volume
-    volumes = torch.stack([torch.abs(torch.det(system.cell)) for system in systems])
-    volumes_by_atom = volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
-    tensor_as_three_by_three = tensor_as_three_by_three / volumes_by_atom
-
-    # Symmetrize
-    tensor_as_three_by_three = (
-        tensor_as_three_by_three + tensor_as_three_by_three.transpose(1, 2)
-    ) / 2.0
-
-    return tensor_as_three_by_three
 
 
 def get_last_layer_features_name(target_name: str) -> str:
