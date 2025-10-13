@@ -127,6 +127,7 @@ cs = chemiscope.show(
         },
     ),
 )
+cs
 
 # %%
 # You can check the structures by clicking the red dots on the parity plot, or
