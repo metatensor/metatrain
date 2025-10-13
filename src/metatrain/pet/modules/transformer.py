@@ -1,10 +1,47 @@
-from typing import Any, Callable, Dict, Tuple
+from typing import Tuple
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 
 from .utilities import DummyModule
+
+
+AVAILABLE_NORMALIZATIONS = ["LayerNorm", "RMSNorm"]
+AVAILABLE_TRANSFORMER_TYPES = ["PostLN", "PreLN"]
+AVAILABLE_ACTIVATIONS = ["SiLU", "SwiGLU"]
+
+
+class FeedForward(nn.Module):
+    def __init__(self, d_model: int, dim_feedforward: int, activation: str) -> None:
+        super().__init__()
+
+        # Check if activation is "swiglu" string
+        if activation.lower() == "swiglu":
+            # SwiGLU mode: single projection produces both "value" and "gate"
+            self.w_in = nn.Linear(d_model, 2 * dim_feedforward)
+            self.w_out = nn.Linear(dim_feedforward, d_model)
+            self.activation = torch.nn.Identity()
+            self.is_swiglu = True
+        else:
+            # Standard mode: regular activation function
+            self.w_in = nn.Linear(d_model, dim_feedforward)
+            self.w_out = nn.Linear(dim_feedforward, d_model)
+            self.activation = getattr(F, activation.lower())
+            self.is_swiglu = False
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.is_swiglu:
+            # SwiGLU activation: split into value and gate
+            v, g = self.w_in(x).chunk(2, dim=-1)
+            x = v * torch.sigmoid(g)
+            x = self.w_out(x)
+        else:
+            # Standard activation
+            x = self.w_in(x)
+            x = self.activation(x)
+            x = self.w_out(x)
+        return x
 
 
 class AttentionBlock(nn.Module):
@@ -21,10 +58,6 @@ class AttentionBlock(nn.Module):
 
         self.input_linear = nn.Linear(total_dim, 3 * total_dim)
         self.output_linear = nn.Linear(total_dim, total_dim)
-
-        nn.init.xavier_uniform_(self.input_linear.weight)
-        nn.init.constant_(self.input_linear.bias, 0.0)
-        nn.init.constant_(self.output_linear.bias, 0.0)
 
         self.num_heads = num_heads
         self.epsilon = epsilon
@@ -78,9 +111,10 @@ class TransformerLayer(torch.nn.Module):
 
     :param d_model: The dimension of the model.
     :param n_heads: The number of attention heads.
+    :param dim_node_features: The dimension of the node features.
     :param dim_feedforward: The dimension of the feedforward network.
-    :param dropout: The dropout rate.
-    :param activation: The activation function.
+    :param norm: The normalization type, either "LayerNorm" or "RMSNorm".
+    :param activation: The activation function, either "SiLU" or "SwiGLU".
     :param transformer_type: The type of transformer, either "PostLN" or "PreLN".
     """
 
@@ -88,42 +122,109 @@ class TransformerLayer(torch.nn.Module):
         self,
         d_model: int,
         n_heads: int,
+        dim_node_features: int,
         dim_feedforward: int = 512,
-        dropout: float = 0.0,
-        activation: Callable = F.silu,
+        norm: str = "LayerNorm",
+        activation: str = "SiLU",
         transformer_type: str = "PostLN",
     ) -> None:
         super(TransformerLayer, self).__init__()
         self.attention = AttentionBlock(d_model, n_heads)
-
-        if transformer_type not in ["PostLN", "PreLN"]:
-            raise ValueError("unknown transformer type")
         self.transformer_type = transformer_type
         self.d_model = d_model
-        self.norm_attention = nn.LayerNorm(d_model)
-        self.norm_mlp = nn.LayerNorm(d_model)
-        self.dropout = nn.Dropout(dropout)
+        norm_class = getattr(nn, norm)
+        self.norm_attention = norm_class(d_model)
+        self.norm_mlp = norm_class(d_model)
+        self.mlp = FeedForward(d_model, dim_feedforward, activation)
+        self.expanded_node_features = False
+        if dim_node_features != d_model:
+            self.expanded_node_features = True
+            self.center_contraction = nn.Linear(dim_node_features, d_model)
+            self.center_expansion = nn.Linear(d_model, dim_node_features)
+            self.norm_center_features = norm_class(dim_node_features)
+            self.center_mlp = FeedForward(
+                dim_node_features, 2 * dim_node_features, activation
+            )
+        else:
+            self.center_contraction = torch.nn.Identity()
+            self.center_expansion = torch.nn.Identity()
+            self.norm_center_features = torch.nn.Identity()
+            self.center_mlp = torch.nn.Identity()
 
-        self.activation = activation
-
-        self.mlp = nn.Sequential(
-            nn.Linear(d_model, dim_feedforward),
-            self.activation,
-            nn.Dropout(dropout),
-            nn.Linear(dim_feedforward, d_model),
-            nn.Dropout(dropout),
+    def _forward_pre_ln_impl(
+        self,
+        node_embeddings: torch.Tensor,
+        edge_embeddings: torch.Tensor,
+        cutoff_factors: torch.Tensor,
+        use_manual_attention: bool,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if self.expanded_node_features:
+            input_node_embeddings = self.center_contraction(node_embeddings)
+        else:
+            input_node_embeddings = node_embeddings
+        tokens = torch.cat([input_node_embeddings, edge_embeddings], dim=1)
+        new_tokens = self.attention(
+            self.norm_attention(tokens), cutoff_factors, use_manual_attention
         )
+        output_node_embeddings, output_edge_embeddings = torch.split(
+            new_tokens, [1, new_tokens.shape[1] - 1], dim=1
+        )
+        if self.expanded_node_features:
+            output_node_embeddings = node_embeddings + self.center_expansion(
+                output_node_embeddings
+            )
+            output_node_embeddings = output_node_embeddings + self.center_mlp(
+                self.norm_center_features(output_node_embeddings)
+            )
+
+        output_edge_embeddings = edge_embeddings + output_edge_embeddings
+        output_edge_embeddings = output_edge_embeddings + self.mlp(
+            self.norm_mlp(output_edge_embeddings)
+        )
+
+        return output_node_embeddings, output_edge_embeddings
+
+    def _forward_post_ln_impl(
+        self,
+        node_embeddings: torch.Tensor,
+        edge_embeddings: torch.Tensor,
+        cutoff_factors: torch.Tensor,
+        use_manual_attention: bool,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if self.expanded_node_features:
+            input_node_embeddings = self.center_contraction(node_embeddings)
+        else:
+            input_node_embeddings = node_embeddings
+        tokens = torch.cat([input_node_embeddings, edge_embeddings], dim=1)
+        tokens = self.norm_attention(
+            tokens + self.attention(tokens, cutoff_factors, use_manual_attention)
+        )
+        tokens = self.norm_mlp(tokens + self.mlp(tokens))
+        output_node_embeddings, output_edge_embeddings = torch.split(
+            tokens, [1, tokens.shape[1] - 1], dim=1
+        )
+        if self.expanded_node_features:
+            output_node_embeddings = node_embeddings + self.center_expansion(
+                output_node_embeddings
+            )
+            output_node_embeddings = output_node_embeddings + self.center_mlp(
+                self.norm_center_features(output_node_embeddings)
+            )
+        return output_node_embeddings, output_edge_embeddings
 
     def forward(
         self,
-        tokens: torch.Tensor,
+        node_embeddings: torch.Tensor,
+        edge_embeddings: torch.Tensor,
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass for a single Transformer layer.
 
-        :param tokens: The input tokens to the transformer layer, of shape
+        :param node_embeddings: The input node embeddings, of shape
+            (batch_size, d_model)
+        :param edge_embeddings: The input edge embeddings, of shape
             (batch_size, seq_length, d_model)
         :param cutoff_factors: The cutoff factors for the edges, of shape
             (batch_size, seq_length, seq_length)
@@ -131,25 +232,19 @@ class TransformerLayer(torch.nn.Module):
             (which supports double backward, needed for training with conservative
             forces), or the built-in PyTorch attention (which does not support double
             backward).
-        :return: The output tokens of the transformer layer, of shape
-            (batch_size, seq_length, d_model)
+        :return: A tuple containing:
+            - The output node embeddings, of shape (batch_size, d_model)
+            - The output edge embeddings, of shape (batch_size, seq_length, d_model)
         """
         if self.transformer_type == "PostLN":
-            tokens = self.norm_attention(
-                tokens
-                + self.dropout(
-                    self.attention(tokens, cutoff_factors, use_manual_attention)
-                )
+            node_embeddings, edge_embeddings = self._forward_post_ln_impl(
+                node_embeddings, edge_embeddings, cutoff_factors, use_manual_attention
             )
-            tokens = self.norm_mlp(tokens + self.mlp(tokens))
         if self.transformer_type == "PreLN":
-            tokens = tokens + self.dropout(
-                self.attention(
-                    self.norm_attention(tokens), cutoff_factors, use_manual_attention
-                )
+            node_embeddings, edge_embeddings = self._forward_pre_ln_impl(
+                node_embeddings, edge_embeddings, cutoff_factors, use_manual_attention
             )
-            tokens = tokens + self.mlp(self.norm_mlp(tokens))
-        return tokens
+        return node_embeddings, edge_embeddings
 
 
 class Transformer(torch.nn.Module):
@@ -159,9 +254,10 @@ class Transformer(torch.nn.Module):
     :param d_model: The dimension of the model.
     :param num_layers: The number of transformer layers.
     :param n_heads: The number of attention heads.
+    :param dim_node_features: The dimension of the node features.
     :param dim_feedforward: The dimension of the feedforward network.
-    :param dropout: The dropout rate.
-    :param activation: The activation function.
+    :param norm: The normalization type, either "LayerNorm" or "RMSNorm".
+    :param activation: The activation function, either "SiLU" or "SwiGLU".
     :param transformer_type: The type of transformer, either "PostLN" or "PreLN".
     """
 
@@ -170,24 +266,40 @@ class Transformer(torch.nn.Module):
         d_model: int,
         num_layers: int,
         n_heads: int,
+        dim_node_features: int,
         dim_feedforward: int = 512,
-        dropout: float = 0.0,
-        activation: Callable = F.silu,
+        norm: str = "LayerNorm",
+        activation: str = "SiLU",
         transformer_type: str = "PostLN",
     ) -> None:
         super(Transformer, self).__init__()
+        if norm not in AVAILABLE_NORMALIZATIONS:
+            raise ValueError(
+                f"Unknown normalization flag: {norm}. "
+                f"Please choose from: {AVAILABLE_NORMALIZATIONS}"
+            )
+
+        if transformer_type not in AVAILABLE_TRANSFORMER_TYPES:
+            raise ValueError(
+                f"Unknown transformer flag: {transformer_type}. "
+                f"Please choose from: {AVAILABLE_TRANSFORMER_TYPES}"
+            )
         self.transformer_type = transformer_type
 
-        self.final_norm = DummyModule()  # for torchscript
-        if transformer_type == "PreLN":
-            self.final_norm = nn.LayerNorm(d_model)
+        if activation not in AVAILABLE_ACTIVATIONS:
+            raise ValueError(
+                f"Unknown activation flag: {activation}. "
+                f"Please choose from: {AVAILABLE_ACTIVATIONS}"
+            )
+
         self.layers = nn.ModuleList(
             [
                 TransformerLayer(
                     d_model=d_model,
                     n_heads=n_heads,
+                    dim_node_features=dim_node_features,
                     dim_feedforward=dim_feedforward,
-                    dropout=dropout,
+                    norm=norm,
                     activation=activation,
                     transformer_type=transformer_type,
                 )
@@ -197,13 +309,17 @@ class Transformer(torch.nn.Module):
 
     def forward(
         self,
-        tokens: torch.Tensor,
+        node_embeddings: torch.Tensor,
+        edge_embeddings: torch.Tensor,
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass for the Transformer.
-        :param tokens: The input tokens to the transformer, of shape
+
+        :param node_embeddings: The input node embeddings, of shape
+            (batch_size, d_model)
+        :param edge_embeddings: The input edge embeddings, of shape
             (batch_size, seq_length, d_model)
         :param cutoff_factors: The cutoff factors for the edges, of shape
             (batch_size, seq_length, seq_length)
@@ -211,53 +327,63 @@ class Transformer(torch.nn.Module):
             (which supports double backward, needed for training with conservative
             forces), or the built-in PyTorch attention (which does not support double
             backward).
-        :return: The output tokens of the transformer, of shape
-            (batch_size, seq_length, d_model)
+        :return: A tuple containing:
+            - The output node embeddings, of shape (batch_size, d_model)
+            - The output edge embeddings, of shape (batch_size, seq_length, d_model)
         """
         for layer in self.layers:
-            tokens = layer(tokens, cutoff_factors, use_manual_attention)
-        if self.transformer_type == "PreLN":
-            tokens = self.final_norm(tokens)
-        return tokens
+            node_embeddings, edge_embeddings = layer(
+                node_embeddings, edge_embeddings, cutoff_factors, use_manual_attention
+            )
+        return node_embeddings, edge_embeddings
 
 
 class CartesianTransformer(torch.nn.Module):
     """
     Cartesian Transformer implementation for handling 3D coordinates.
 
-    :param hypers: A dictionary of hyperparameters.
+    :param cutoff: The cutoff distance for neighbor interactions.
+    :param cutoff_width: The width of the cutoff function.
     :param d_model: The dimension of the model.
     :param n_head: The number of attention heads.
+    :param dim_node_features: The dimension of the node features.
     :param dim_feedforward: The dimension of the feedforward network.
     :param n_layers: The number of transformer layers.
-    :param dropout: The dropout rate.
+    :param norm: The normalization type, either "LayerNorm" or "RMSNorm".
+    :param activation: The activation function, either "SiLU" or "SwiGLU".
+    :param transformer_type: The type of transformer, either "PostLN" or "PreLN".
     :param n_atomic_species: The number of atomic species.
     :param is_first: Whether this is the first transformer in the model.
     """
 
     def __init__(
         self,
-        hypers: Dict[str, Any],
+        cutoff: float,
+        cutoff_width: float,
         d_model: int,
         n_head: int,
+        dim_node_features: int,
         dim_feedforward: int,
         n_layers: int,
-        dropout: float,
+        norm: str,
+        activation: str,
+        transformer_type: str,
         n_atomic_species: int,
         is_first: bool,
     ) -> None:
         super(CartesianTransformer, self).__init__()
         self.is_first = is_first
-        self.cutoff = float(hypers["cutoff"])
-        self.cutoff_width = float(hypers["cutoff_width"])
+        self.cutoff = cutoff
+        self.cutoff_width = cutoff_width
         self.trans = Transformer(
             d_model=d_model,
             num_layers=n_layers,
             n_heads=n_head,
+            dim_node_features=dim_node_features,
             dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            activation=torch.nn.SiLU(),
-            transformer_type="PostLN",
+            norm=norm,
+            activation=activation,
+            transformer_type=transformer_type,
         )
 
         self.edge_embedder = nn.Linear(4, d_model)
@@ -275,14 +401,12 @@ class CartesianTransformer(torch.nn.Module):
 
         self.neighbor_embedder = DummyModule()  # for torchscript
         if not is_first:
-            self.neighbor_embedder = nn.Embedding(n_atomic_species + 1, d_model)
-
-        self.node_embedder = nn.Embedding(n_atomic_species + 1, d_model)
+            self.neighbor_embedder = nn.Embedding(n_atomic_species, d_model)
 
     def forward(
         self,
+        input_node_embeddings: torch.Tensor,
         input_messages: torch.Tensor,
-        element_indices_nodes: torch.Tensor,
         element_indices_neighbors: torch.Tensor,
         edge_vectors: torch.Tensor,
         padding_mask: torch.Tensor,
@@ -293,10 +417,10 @@ class CartesianTransformer(torch.nn.Module):
         """
         Forward pass for the CartesianTransformer.
 
+        :param input_node_embeddings: The input node embeddings, of shape
+            (n_nodes, d_model)
         :param input_messages: The input messages to the transformer, of shape
             (n_nodes, max_num_neighbors, d_model)
-        :param element_indices_nodes: The atomic species of the central atoms, of shape
-            (n_nodes,)
         :param element_indices_neighbors: The atomic species of the neighboring atoms,
             of shape (n_nodes, max_num_neighbors)
         :param edge_vectors: The cartesian edge vectors between the central atoms and
@@ -311,28 +435,30 @@ class CartesianTransformer(torch.nn.Module):
             (which supports double backward, needed for training with conservative
             forces), or the built-in PyTorch attention (which does not support double
             backward).
-        :return: A tuple with the output node embeddings of shape (n_nodes, d_pet)
+        :return: A tuple containing:
+            - The output node embeddings, of shape (n_nodes, d_model)
+            - The output edge embeddings, of shape (n_nodes, max_num_neighbors, d_model)
         """
-        node_elements_embedding = self.node_embedder(element_indices_nodes)
-        edge_embedding = [edge_vectors, edge_distances[:, :, None]]
-        edge_embedding = torch.cat(edge_embedding, dim=2)
-        edge_embedding = self.edge_embedder(edge_embedding)
+        node_embeddings = input_node_embeddings
+        edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
+        edge_embeddings = torch.cat(edge_embeddings, dim=2)
+        edge_embeddings = self.edge_embedder(edge_embeddings)
 
         if not self.is_first:
-            neighbor_elements_embedding = self.neighbor_embedder(
+            neighbor_elements_embeddings = self.neighbor_embedder(
                 element_indices_neighbors
             )
-            tokens = torch.cat(
-                [edge_embedding, neighbor_elements_embedding, input_messages], dim=2
+            edge_tokens = torch.cat(
+                [edge_embeddings, neighbor_elements_embeddings, input_messages], dim=2
             )
         else:
-            neighbor_elements_embedding = torch.empty(
+            neighbor_elements_embeddings = torch.empty(
                 0, device=edge_vectors.device, dtype=edge_vectors.dtype
             )  # for torch script
-            tokens = torch.cat([edge_embedding, input_messages], dim=2)
+            edge_tokens = torch.cat([edge_embeddings, input_messages], dim=2)
 
-        tokens = self.compress(tokens)
-        tokens = torch.cat([node_elements_embedding[:, None, :], tokens], dim=1)
+        edge_tokens = self.compress(edge_tokens)
+        # tokens = torch.cat([node_elements_embedding[:, None, :], tokens], dim=1)
 
         padding_mask_with_central_token = torch.ones(
             padding_mask.shape[0], dtype=torch.bool, device=padding_mask.device
@@ -342,7 +468,9 @@ class CartesianTransformer(torch.nn.Module):
         )
 
         cutoff_subfactors = torch.ones(
-            padding_mask.shape[0], device=padding_mask.device
+            padding_mask.shape[0],
+            dtype=cutoff_factors.dtype,
+            device=padding_mask.device,
         )
         cutoff_factors = torch.cat([cutoff_subfactors[:, None], cutoff_factors], dim=1)
         cutoff_factors[~total_padding_mask] = 0.0
@@ -353,8 +481,9 @@ class CartesianTransformer(torch.nn.Module):
         initial_num_tokens = edge_vectors.shape[1]
         max_num_tokens = input_messages.shape[1]
 
-        output_messages = self.trans(
-            tokens[:, : (max_num_tokens + 1), :],
+        output_node_embeddings, output_edge_embeddings = self.trans(
+            node_embeddings[:, None, :],
+            edge_tokens[:, :max_num_tokens, :],
             cutoff_factors=cutoff_factors[
                 :, : (max_num_tokens + 1), : (max_num_tokens + 1)
             ],
@@ -362,15 +491,13 @@ class CartesianTransformer(torch.nn.Module):
         )
         if max_num_tokens < initial_num_tokens:
             padding = torch.zeros(
-                output_messages.shape[0],
+                output_edge_embeddings.shape[0],
                 initial_num_tokens - max_num_tokens,
-                output_messages.shape[2],
-                device=output_messages.device,
+                output_edge_embeddings.shape[2],
+                device=output_edge_embeddings.device,
             )
-            output_messages = torch.cat([output_messages, padding], dim=1)
-
-        output_node_embeddings = output_messages[:, 0, :]
-        output_edge_embeddings = output_messages[:, 1:, :]
+            output_edge_embeddings = torch.cat([output_edge_embeddings, padding], dim=1)
+        output_node_embeddings = output_node_embeddings.squeeze(1)
         return output_node_embeddings, output_edge_embeddings
 
 

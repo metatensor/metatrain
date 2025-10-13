@@ -132,6 +132,17 @@ class Trainer(TrainerInterface):
         # Apply fine-tuning strategy if provided
         if is_finetune:
             model = apply_finetuning_strategy(model, self.hypers["finetune"])
+            method = self.hypers["finetune"]["method"]
+            num_params = sum(p.numel() for p in model.parameters())
+            num_trainable_params = sum(
+                p.numel() for p in model.parameters() if p.requires_grad
+            )
+
+            logging.info(f"Applied finetuning strategy: {method}")
+            logging.info(
+                f"Number of trainable parameters: {num_trainable_params} "
+                f"[{num_trainable_params / num_params:.2%} %]"
+            )
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)

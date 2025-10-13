@@ -249,13 +249,18 @@ def test_output_last_layer_features():
     assert "mtt::aux::energy_last_layer_features" in outputs
 
     features = outputs["features"].block()
+    num_readout_layers = (
+        1
+        if MODEL_HYPERS["featurizer_type"] == "feedforward"
+        else MODEL_HYPERS["num_gnn_layers"]
+    )
     assert features.samples.names == [
         "system",
         "atom",
     ]
     assert features.values.shape == (
         4,
-        MODEL_HYPERS["d_pet"] * MODEL_HYPERS["num_gnn_layers"] * 2,
+        (MODEL_HYPERS["d_node"] + MODEL_HYPERS["d_pet"]) * num_readout_layers,
     )
     assert features.properties.names == [
         "feature",
@@ -268,7 +273,7 @@ def test_output_last_layer_features():
     ]
     assert last_layer_features.values.shape == (
         4,
-        MODEL_HYPERS["d_head"] * MODEL_HYPERS["num_gnn_layers"] * 2,
+        MODEL_HYPERS["d_head"] * num_readout_layers * 2,
     )
     assert last_layer_features.properties.names == [
         "feature",
@@ -298,7 +303,7 @@ def test_output_last_layer_features():
     ]
     assert features.values.shape == (
         1,
-        MODEL_HYPERS["d_pet"] * MODEL_HYPERS["num_gnn_layers"] * 2,
+        (MODEL_HYPERS["d_node"] + MODEL_HYPERS["d_pet"]) * num_readout_layers,
     )
 
     assert outputs["mtt::aux::energy_last_layer_features"].block().samples.names == [
@@ -306,7 +311,7 @@ def test_output_last_layer_features():
     ]
     assert outputs["mtt::aux::energy_last_layer_features"].block().values.shape == (
         1,
-        MODEL_HYPERS["d_head"] * MODEL_HYPERS["num_gnn_layers"] * 2,
+        MODEL_HYPERS["d_head"] * num_readout_layers * 2,
     )
     assert outputs["mtt::aux::energy_last_layer_features"].block().properties.names == [
         "feature",

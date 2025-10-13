@@ -1,7 +1,7 @@
 import logging
 import warnings
 from math import prod
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import metatensor.torch as mts
 import torch
@@ -32,6 +32,9 @@ from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func
 
 
+AVAILABLE_FEATURIZERS = ["feedforward", "residual"]
+
+
 class PET(ModelInterface):
     """
     Metatrain-native implementation of the PET architecture.
@@ -44,51 +47,98 @@ class PET(ModelInterface):
         targets.
     """
 
-    __checkpoint_version__ = 7
+    __checkpoint_version__ = 8
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
     component_labels: Dict[str, List[List[Labels]]]
+    NUM_FEATURE_TYPES: int = 2  # node + edge features
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
+        # Cache frequently accessed hyperparameters
+        self.cutoff = float(self.hypers["cutoff"])
+        self.cutoff_width = float(self.hypers["cutoff_width"])
+        self.d_pet = self.hypers["d_pet"]
+        self.d_node = self.hypers["d_node"]
+        self.d_head = self.hypers["d_head"]
+        self.d_feedforward = self.hypers["d_feedforward"]
+        self.num_heads = self.hypers["num_heads"]
+        self.num_gnn_layers = self.hypers["num_gnn_layers"]
+        self.num_attention_layers = self.hypers["num_attention_layers"]
+        self.normalization = self.hypers["normalization"]
+        self.activation = self.hypers["activation"]
+        self.transformer_type = self.hypers["transformer_type"]
+        self.featurizer_type = self.hypers["featurizer_type"]
+
         self.atomic_types = dataset_info.atomic_types
         self.requested_nl = NeighborListOptions(
-            cutoff=self.hypers["cutoff"],
+            cutoff=self.cutoff,
             full_list=True,
             strict=True,
         )
-
-        self.cutoff = float(self.hypers["cutoff"])
-        self.cutoff_width = float(self.hypers["cutoff_width"])
-        self.embedding = torch.nn.Embedding(
-            len(self.atomic_types) + 1, self.hypers["d_pet"]
+        num_atomic_species = len(self.atomic_types)
+        self.gnn_layers = torch.nn.ModuleList(
+            [
+                CartesianTransformer(
+                    self.cutoff,
+                    self.cutoff_width,
+                    self.d_pet,
+                    self.num_heads,
+                    self.d_node,
+                    self.d_feedforward,
+                    self.num_attention_layers,
+                    self.normalization,
+                    self.activation,
+                    self.transformer_type,
+                    num_atomic_species,
+                    layer_index == 0,  # is first layer
+                )
+                for layer_index in range(self.num_gnn_layers)
+            ]
         )
-        gnn_layers = []
-        for layer_index in range(self.hypers["num_gnn_layers"]):
-            transformer_layer = CartesianTransformer(
-                self.hypers,
-                self.hypers["d_pet"],
-                self.hypers["num_heads"],
-                self.hypers["d_feedforward"],
-                self.hypers["num_attention_layers"],
-                0.0,  # attention dropout rate
-                len(self.atomic_types),
-                layer_index == 0,  # is first layer
+        if self.featurizer_type not in AVAILABLE_FEATURIZERS:
+            raise ValueError(
+                f"Unknown featurizer type: {self.featurizer_type}. "
+                f"Available options are: {AVAILABLE_FEATURIZERS}"
             )
-            gnn_layers.append(transformer_layer)
+        if self.featurizer_type == "feedforward":
+            self.num_readout_layers = 1
+            self.combination_norms = torch.nn.ModuleList(
+                [torch.nn.LayerNorm(2 * self.d_pet) for _ in range(self.num_gnn_layers)]
+            )
+            self.combination_mlps = torch.nn.ModuleList(
+                [
+                    torch.nn.Sequential(
+                        torch.nn.Linear(2 * self.d_pet, 2 * self.d_pet),
+                        torch.nn.SiLU(),
+                        torch.nn.Linear(2 * self.d_pet, self.d_pet),
+                    )
+                    for _ in range(self.num_gnn_layers)
+                ]
+            )
+        else:
+            self.num_readout_layers = self.num_gnn_layers
+            self.combination_norms = torch.nn.ModuleList()
+            self.combination_mlps = torch.nn.ModuleList()
 
-        self.gnn_layers = torch.nn.ModuleList(gnn_layers)
+        self.node_embedders = torch.nn.ModuleList(
+            [
+                torch.nn.Embedding(num_atomic_species, self.d_node)
+                for _ in range(self.num_readout_layers)
+            ]
+        )
+        self.edge_embedder = torch.nn.Embedding(num_atomic_species, self.d_pet)
 
         self.node_heads = torch.nn.ModuleDict()
         self.edge_heads = torch.nn.ModuleDict()
         self.node_last_layers = torch.nn.ModuleDict()
         self.edge_last_layers = torch.nn.ModuleDict()
         self.last_layer_feature_size = (
-            self.hypers["num_gnn_layers"] * self.hypers["d_head"] * 2
+            self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
         )
 
         self.outputs = {
@@ -125,7 +175,7 @@ class PET(ModelInterface):
                 )
             self.long_range_featurizer = LongRangeFeaturizer(
                 hypers=self.hypers["long_range"],
-                feature_dim=self.hypers["d_pet"],
+                feature_dim=self.d_node,
                 neighbor_list_options=self.requested_nl,
             )
         else:
@@ -227,47 +277,125 @@ class PET(ModelInterface):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        """
+        Forward pass of the PET model.
+
+        The forward pass processes atomic systems through multiple stages to produce
+        predictions for the requested outputs. The computation follows a graph neural
+        network architecture with attention-based message passing.
+
+        **Stage 0: Input Preparation**
+
+        The input systems are first converted into a batched representation containing:
+
+        - `element_indices_nodes` [n_atoms]: Atomic species of the central atoms
+        - `element_indices_neighbors` [n_edges]: Atomic species of neighboring atoms
+        - `edge_vectors` [n_atoms, max_num_neighbors, 3]: Cartesian edge vectors
+          between central atoms and their neighbors
+        - `padding_mask` [n_atoms, max_num_neighbors]: Mask indicating real vs padded
+          neighbors
+        - `neighbors_index` [n_atoms, max_num_neighbors]: Indices of neighboring atoms
+          for each central atom
+        - `reversed_neighbor_list` [n_atoms, max_num_neighbors]: For each center atom
+          `i` and its neighbor `j`, the position of atom `i` in the neighbor list of
+          atom `j`
+        - `system_indices` [n_atoms]: System index for each central atom
+        - `sample_labels` [n_atoms, 2]: Metatensor Labels containing indices of each
+          atom in each system
+
+        **Stage 1: Feature Computation via GNN Layers**
+
+        Node and edge representations are computed by iterating through the GNN layers
+        following one of two featurization strategies:
+
+        - **Feedforward featurization**: Features are propagated through all
+          `num_gnn_layers` GNN layers sequentially, using only the final layer outputs
+          for readout. At each layer, forward and reversed edge messages are combined
+          using combination MLPs to enable bidirectional information flow.
+
+        - **Residual featurization**: Intermediate node and edge features from each
+          GNN layer are saved and used during readout. Edge messages between layers are
+          averaged to maintain information from all hops.
+
+        During this stage, the model:
+
+        - Embeds atomic species into learned node and edge representations
+        - Applies Cartesian transformer layers to update features via attention
+        - Uses reversed neighbor lists to enable bidirectional message passing, where
+          the new input message from atom `j` to atom `i` in GNN layer N+1 is the
+          reversed message from atom `i` to atom `j` in GNN layer N
+        - Applies cutoff functions to weight interactions by distance
+
+        If the long-range module is enabled, electrostatic features computed via Ewald
+        summation (during training) or Particle-Particle Particle Mesh Ewald (P3M)
+        (during evaluation) are added to the node features from each GNN layer.
+
+        **Stage 2: Intermediate Feature Output (Optional)**
+
+        If "features" is requested in the outputs, node and edge features from all
+        layers are concatenated to produce intermediate representations. Edge features
+        are summed over neighbors with cutoff weighting to obtain per-node
+        contributions. This output can be used for transfer learning or analysis.
+
+        **Stage 3: Last Layer Feature Computation**
+
+        For each requested output, output-specific heads (shallow MLPs with two linear
+        layers and SiLU activations) are applied to both node and edge features from
+        each GNN layer. This produces last layer features that are specialized for each
+        prediction target. These features can be optionally returned as auxiliary
+        outputs (e.g., "mtt::aux::energy_last_layer_features") for analysis or
+        transfer learning.
+
+        **Stage 4: Atomic Predictions**
+
+        Final linear layers are applied to the last layer features to produce per-atom
+        predictions for each requested output:
+
+        - Node and edge last layer features are processed through separate linear
+          layers for each output block
+        - Contributions from all GNN layers are summed
+        - Edge contributions are summed over neighbors with cutoff weighting
+        - For rank-2 Cartesian tensors (e.g., stress), predictions are symmetrized and
+          normalized by cell volume
+        - Multiple tensor blocks per output are handled independently
+
+        **Post-processing (Evaluation Only)**
+
+        During evaluation (not training), the following transformations are applied:
+
+        1. **Scaling**: Predictions are scaled using learned or configured scale
+           factors
+        2. **Additive contributions**: Composition model and optional ZBL repulsion
+           contributions are added to the predictions
+
+        :param systems: List of `metatomic.torch.System` objects to process. Each
+            system should contain atomic positions, species, and cell information, with
+            neighbor lists computed according to `requested_neighbor_lists()`.
+        :param outputs: Dictionary of requested outputs in the format
+            {output_name: ModelOutput(...)}. The model supports:
+
+            - Target properties (energy, forces, stress, etc.)
+            - "features": intermediate representations from Stage 2
+            - Auxiliary last layer features (e.g.,
+              "mtt::aux::energy_last_layer_features")
+
+        :param selected_atoms: Optional `metatensor.torch.Labels` object specifying a
+            subset of atoms for which to compute outputs. If `None`, all atoms are
+            included. This is useful for computing properties for specific atomic
+            environments.
+        :return: Dictionary of `metatensor.torch.TensorMap` objects containing the
+            requested outputs. Each TensorMap contains per-atom or per-structure
+            predictions (depending on the ModelOutput configuration) with appropriate
+            metatensor metadata (samples, components, properties).
+        """
         device = systems[0].device
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
 
         if self.single_label.values.device != device:
-            self.single_label = self.single_label.to(device)
-            self.key_labels = {
-                output_name: label.to(device)
-                for output_name, label in self.key_labels.items()
-            }
-            self.component_labels = {
-                output_name: [
-                    [labels.to(device) for labels in components_block]
-                    for components_block in components_tmap
-                ]
-                for output_name, components_tmap in self.component_labels.items()
-            }
-            self.property_labels = {
-                output_name: [labels.to(device) for labels in properties_tmap]
-                for output_name, properties_tmap in self.property_labels.items()
-            }
+            self._move_labels_to_device(device)
 
-        # We convert a list of systems to a batch required for the PET model.
-        # The batch consists of the following tensors:
-        # - `element_indices_nodes` [n_atoms]: The atomic species of the central atoms
-        # - `element_indices_neighbors` [n_atoms]: The atomic species of the neighboring
-        #   atoms
-        # - `edge_vectors` [n_atoms, max_num_neighbors, 3]: The cartedian edge vectors
-        #   between the central atoms and their neighbors
-        # - `padding_mask` [n_atoms, max_num_neighbors]: A padding mask indicating which
-        #   neighbors are real, and which are padded
-        # - `neighbors_index` [n_atoms, max_num_neighbors]: The indices of the
-        #   neighboring atoms for each central atom
-        # - `reversed_neighbor_list` [n_atoms, max_num_neighbors]: The reversed neighbor
-        #   list for each central atom, where for each center atom `i` and its neighbor
-        #   `j` in the original neighborlist, the position of atom `i` in the list of
-        #   neighbors of atom `j` is returned.
-        # - `system_indices` [n_atoms]: The indices of the systems for each central atom
-        # - `sample_labels` [n_atoms, 2]: The metatensor.torch.Labels object, containing
-        #   indices of each atom in each system.
-
+        # **Stage 0: Input Preparation**
         (
             element_indices_nodes,
             element_indices_neighbors,
@@ -293,23 +421,244 @@ class PET(ModelInterface):
         cutoff_factors = cutoff_func(edge_distances, self.cutoff, self.cutoff_width)
         cutoff_factors[~padding_mask] = 0.0
 
-        # Stage 1. We iterate over the GNN layers and calculate the node and edge
-        # representations for structures, while saving the intermediate node and edge
-        # features from each layer to the corresponding lists.
+        # **Stage 1: Feature Computation via GNN Layers**
+        featurizer_inputs: Dict[str, torch.Tensor] = dict(
+            element_indices_nodes=element_indices_nodes,
+            element_indices_neighbors=element_indices_neighbors,
+            edge_vectors=edge_vectors,
+            neighbors_index=neighbors_index,
+            reversed_neighbor_list=reversed_neighbor_list,
+            padding_mask=padding_mask,
+            edge_distances=edge_distances,
+            cutoff_factors=cutoff_factors,
+        )
+        node_features_list, edge_features_list = self._calculate_features(
+            featurizer_inputs,
+            use_manual_attention=use_manual_attention,
+        )
 
+        # If the long-range module is activated, we add the long-range features
+        # on top of the node features
+
+        if self.long_range:
+            long_range_features = self._calculate_long_range_features(
+                systems, node_features_list, edge_distances, padding_mask
+            )
+            for i in range(self.num_readout_layers):
+                node_features_list[i] = (
+                    node_features_list[i] + long_range_features
+                ) * 0.5**0.5
+
+        # **Stage 2: Intermediate Feature Output (Optional)**
+
+        if "features" in outputs:
+            features_dict = self._get_output_features(
+                node_features_list,
+                edge_features_list,
+                cutoff_factors,
+                selected_atoms,
+                sample_labels,
+                outputs,
+            )
+            # Since return_dict.update(features_dict) is not Torch-Scriptable,
+            # we use a simple iteration over the features_dict items.
+            for k, v in features_dict.items():
+                return_dict[k] = v
+
+        # **Stage 3: Last Layer Feature Computation**
+        node_last_layer_features_dict, edge_last_layer_features_dict = (
+            self._calculate_last_layer_features(
+                node_features_list,
+                edge_features_list,
+            )
+        )
+        last_layer_features_dict = self._get_output_last_layer_features(
+            node_last_layer_features_dict,
+            edge_last_layer_features_dict,
+            cutoff_factors,
+            selected_atoms,
+            sample_labels,
+            outputs,
+        )
+
+        for k, v in last_layer_features_dict.items():
+            return_dict[k] = v
+
+        # **Stage 4: Atomic Predictions**
+        node_atomic_predictions_dict, edge_atomic_predictions_dict = (
+            self._calculate_atomic_predictions(
+                node_last_layer_features_dict,
+                edge_last_layer_features_dict,
+                padding_mask,
+                cutoff_factors,
+                outputs,
+            )
+        )
+        atomic_predictions_dict = self._get_output_atomic_predictions(
+            systems,
+            node_atomic_predictions_dict,
+            edge_atomic_predictions_dict,
+            edge_vectors,
+            system_indices,
+            sample_labels,
+            outputs,
+            selected_atoms,
+        )
+
+        for k, v in atomic_predictions_dict.items():
+            return_dict[k] = v
+
+        # **Post-processing (Evaluation Only)**
+
+        if not self.training:
+            # at evaluation, we also introduce the scaler and additive contributions
+            return_dict = self.scaler(systems, return_dict)
+            for additive_model in self.additive_models:
+                outputs_for_additive_model: Dict[str, ModelOutput] = {}
+                for name, output in outputs.items():
+                    if name in additive_model.outputs:
+                        outputs_for_additive_model[name] = output
+                additive_contributions = additive_model(
+                    systems,
+                    outputs_for_additive_model,
+                    selected_atoms,
+                )
+                for name in additive_contributions:
+                    # TODO: uncomment this after metatensor.torch.add
+                    # is updated to handle sparse sums
+                    # return_dict[name] = metatensor.torch.add(
+                    #     return_dict[name],
+                    #     additive_contributions[name].to(
+                    #         device=return_dict[name].device,
+                    #         dtype=return_dict[name].dtype
+                    #         ),
+                    # )
+                    # TODO: "manual" sparse sum: update to metatensor.torch.add
+                    # after sparse sum is implemented in metatensor.operations
+                    output_blocks: List[TensorBlock] = []
+                    for k, b in return_dict[name].items():
+                        if k in additive_contributions[name].keys:
+                            output_blocks.append(
+                                _add_block_block(
+                                    b,
+                                    additive_contributions[name]
+                                    .block(k)
+                                    .to(device=b.device, dtype=b.dtype),
+                                )
+                            )
+                        else:
+                            output_blocks.append(b)
+                    return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
+
+        return return_dict
+
+    def _calculate_features(
+        self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        """
+        Calculate node and edge features using the selected featurization strategy.
+        Returns lists of feature tensors from GNN layers.
+
+        :param inputs: Dictionary containing input tensors required for feature
+            computation
+        :param use_manual_attention: Whether to use manual attention computation
+            (required for double backward when edge vectors require gradients)
+        :return: Tuple of two lists:
+            - List of node feature tensors from each GNN layer
+            - List of edge feature tensors from each GNN layer
+        """
+        if self.featurizer_type == "feedforward":
+            return self._feedforward_featurization_impl(inputs, use_manual_attention)
+        else:
+            return self._residual_featurization_impl(inputs, use_manual_attention)
+
+    def _feedforward_featurization_impl(
+        self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        """
+        Feedforward featurization: iterates features through all GNN layers,
+        returning only the final layer outputs. Uses combination MLPs to mix
+        forward and reversed edge messages at each layer.
+
+        :param inputs: Dictionary containing input tensors required for feature
+            computation
+        :param use_manual_attention: Whether to use manual attention computation
+            (required for double backward when edge vectors require gradients)
+        :return: Tuple of two lists:
+            - List of node feature tensors from the final GNN layer
+            - List of edge feature tensors from the final GNN layer
+        """
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
 
-        input_messages = self.embedding(element_indices_neighbors)
-        for gnn_layer in self.gnn_layers:
+        input_node_embeddings = self.node_embedders[0](inputs["element_indices_nodes"])
+        input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
+        for combination_norm, combination_mlp, gnn_layer in zip(
+            self.combination_norms, self.combination_mlps, self.gnn_layers, strict=True
+        ):
             output_node_embeddings, output_edge_embeddings = gnn_layer(
-                input_messages,
-                element_indices_nodes,
-                element_indices_neighbors,
-                edge_vectors,
-                padding_mask,
-                edge_distances,
-                cutoff_factors,
+                input_node_embeddings,
+                input_edge_embeddings,
+                inputs["element_indices_neighbors"],
+                inputs["edge_vectors"],
+                inputs["padding_mask"],
+                inputs["edge_distances"],
+                inputs["cutoff_factors"],
+                use_manual_attention,
+            )
+
+            # The GNN contraction happens by reordering the messages,
+            # using a reversed neighbor list, so the new input message
+            # from atom `j` to atom `i` in on the GNN layer N+1 is a
+            # reversed message from atom `i` to atom `j` on the GNN layer N.
+            input_node_embeddings = output_node_embeddings
+            new_input_edge_embeddings = output_edge_embeddings[
+                inputs["neighbors_index"], inputs["reversed_neighbor_list"]
+            ]
+            # input_messages = 0.5 * (output_edge_embeddings + new_input_messages)
+            concatenated = torch.cat(
+                [output_edge_embeddings, new_input_edge_embeddings], dim=-1
+            )
+            input_edge_embeddings = (
+                input_edge_embeddings
+                + output_edge_embeddings
+                + combination_mlp(combination_norm(concatenated))
+            )
+
+        node_features_list.append(input_node_embeddings)
+        edge_features_list.append(input_edge_embeddings)
+        return node_features_list, edge_features_list
+
+    def _residual_featurization_impl(
+        self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        """
+        Residual featurization: saves intermediate features from each GNN layer
+        for use in readout. Averages forward and reversed edge messages between layers.
+
+        :param inputs: Dictionary containing input tensors required for feature
+            computation
+        :param use_manual_attention: Whether to use manual attention computation
+            (required for double backward when edge vectors require gradients)
+        :return: Tuple of two lists:
+            - List of node feature tensors from the final GNN layer
+            - List of edge feature tensors from the final GNN layer
+        """
+        node_features_list: List[torch.Tensor] = []
+        edge_features_list: List[torch.Tensor] = []
+        input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
+        for node_embedder, gnn_layer in zip(
+            self.node_embedders, self.gnn_layers, strict=True
+        ):
+            input_node_embeddings = node_embedder(inputs["element_indices_nodes"])
+            output_node_embeddings, output_edge_embeddings = gnn_layer(
+                input_node_embeddings,
+                input_edge_embeddings,
+                inputs["element_indices_neighbors"],
+                inputs["edge_vectors"],
+                inputs["padding_mask"],
+                inputs["edge_distances"],
+                inputs["cutoff_factors"],
                 use_manual_attention,
             )
             node_features_list.append(output_node_embeddings)
@@ -320,80 +669,117 @@ class PET(ModelInterface):
             # from atom `j` to atom `i` in on the GNN layer N+1 is a
             # reversed message from atom `i` to atom `j` on the GNN layer N.
             new_input_messages = output_edge_embeddings[
-                neighbors_index, reversed_neighbor_list
+                inputs["neighbors_index"], inputs["reversed_neighbor_list"]
             ]
-            input_messages = 0.5 * (input_messages + new_input_messages)
+            input_edge_embeddings = 0.5 * (input_edge_embeddings + new_input_messages)
+        return node_features_list, edge_features_list
 
-        # If the long-range module is actuvated, we add the long-range features
-        # on top of the node features
+    def _calculate_long_range_features(
+        self,
+        systems: List[System],
+        node_features_list: List[torch.Tensor],
+        edge_distances: torch.Tensor,
+        padding_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Calculate long-range electrostatic features using Ewald summation.
+        Forces use_ewald=True during training for stability.
 
-        if self.long_range:
-            if self.training:
-                # Currently, the long-range implementation show instabilities
-                # during training if P3MCalculator is used instead of the
-                # EwaldCalculator. We will use the EwaldCalculator for training.
-                self.long_range_featurizer.use_ewald = True
-            flattened_lengths = edge_distances[padding_mask]
-            short_range_features = (
-                torch.stack(node_features_list).sum(dim=0)
-                * (1 / len(node_features_list)) ** 0.5
-            )
-            long_range_features = self.long_range_featurizer(
-                systems, short_range_features, flattened_lengths
-            )
-            for i in range(len(self.gnn_layers)):
-                node_features_list[i] = (
-                    node_features_list[i] + long_range_features
-                ) * 0.5**0.5
+        :param systems: List of `metatomic.torch.System` objects to process.
+        :param node_features_list: List of node feature tensors from each GNN layer.
+        :param edge_distances: Tensor of edge distances [n_atoms, max_num_neighbors].
+        :param padding_mask: Boolean mask indicating real vs padded neighbors
+            [n_atoms, max_num_neighbors].
+        :return: Tensor of long-range features [n_atoms, d_pet].
+        """
+        if self.training:
+            # Currently, the long-range implementation show instabilities
+            # during training if P3MCalculator is used instead of the
+            # EwaldCalculator. We will use the EwaldCalculator for training.
+            self.long_range_featurizer.use_ewald = True
+        flattened_lengths = edge_distances[padding_mask]
+        short_range_features = (
+            torch.stack(node_features_list).sum(dim=0)
+            * (1 / len(node_features_list)) ** 0.5
+        )
+        long_range_features = self.long_range_featurizer(
+            systems, short_range_features, flattened_lengths
+        )
+        return long_range_features
 
-        # Stage 2. If `features` requested in the model outputs, we concatenate
-        # the node and edge representations from all layers to provide the intermediate
-        # representation of the systems. Since edge features are calculated for each
-        # pair of atoms, we sum them up with cutoff factors to get their per-node
-        # contribution.
+    def _get_output_features(
+        self,
+        node_features_list: List[torch.Tensor],
+        edge_features_list: List[torch.Tensor],
+        cutoff_factors: torch.Tensor,
+        selected_atoms: Optional[Labels],
+        sample_labels: Labels,
+        requested_outputs: Dict[str, ModelOutput],
+    ) -> Dict[str, TensorMap]:
+        """
+        Concatenate node and edge features from all layers into intermediate
+        feature representations. Edge features are summed with cutoff weighting.
 
-        if "features" in outputs:
-            node_features = torch.cat(node_features_list, dim=1)
-            edge_features = torch.cat(edge_features_list, dim=2)
-            edge_features = edge_features * cutoff_factors[:, :, None]
-            edge_features = edge_features.sum(dim=1)
-            features = torch.cat([node_features, edge_features], dim=1)
+        :param node_features_list: List of node feature tensors from each GNN layer.
+        :param edge_features_list: List of edge feature tensors from each GNN layer.
+        :param cutoff_factors: Tensor of cutoff factors for edge distances
+            [n_atoms, max_num_neighbors].
+        :param selected_atoms: Optional Labels specifying a subset of atoms to include.
+        :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
+        :param requested_outputs: Dictionary of requested outputs.
+        :return: Dictionary mapping "features" to a TensorMap of intermediate
+            representations, either per-atom or summed over atoms.
+        """
+        features_dict: Dict[str, TensorMap] = {}
+        node_features = torch.cat(node_features_list, dim=1)
+        edge_features = torch.cat(edge_features_list, dim=2)
+        edge_features = (edge_features * cutoff_factors[:, :, None]).sum(dim=1)
+        features = torch.cat([node_features, edge_features], dim=1)
 
-            feature_tmap = TensorMap(
-                keys=self.single_label,
-                blocks=[
-                    TensorBlock(
-                        values=features,
-                        samples=sample_labels,
-                        components=[],
-                        properties=Labels(
-                            names=["feature"],
-                            values=torch.arange(
-                                features.shape[-1], device=features.device
-                            ).reshape(-1, 1),
-                            assume_unique=True,
-                        ),
-                    )
-                ],
-            )
-            features_options = outputs["features"]
-            if selected_atoms is not None:
-                feature_tmap = mts.slice(
-                    feature_tmap,
-                    axis="samples",
-                    selection=selected_atoms,
+        feature_tmap = TensorMap(
+            keys=self.single_label,
+            blocks=[
+                TensorBlock(
+                    values=features,
+                    samples=sample_labels,
+                    components=[],
+                    properties=Labels(
+                        names=["feature"],
+                        values=torch.arange(
+                            features.shape[-1], device=features.device
+                        ).reshape(-1, 1),
+                        assume_unique=True,
+                    ),
                 )
-            if features_options.per_atom:
-                return_dict["features"] = feature_tmap
-            else:
-                return_dict["features"] = sum_over_atoms(feature_tmap)
+            ],
+        )
+        if selected_atoms is not None:
+            feature_tmap = mts.slice(
+                feature_tmap,
+                axis="samples",
+                selection=selected_atoms,
+            )
+        if requested_outputs["features"].per_atom:
+            features_dict["features"] = feature_tmap
+        else:
+            features_dict["features"] = sum_over_atoms(feature_tmap)
+        return features_dict
 
-        # Stage 3. We compute last layer features for each requested output,
-        # for both node and edge features from each GNN layer. To do this, apply the
-        # corresponding heads to both node and edge features, and save the results
-        # to the corresponsing dicts. Finally, we stack all the last layer features
-        # to get the final last-layer-features tensor.
+    def _calculate_last_layer_features(
+        self,
+        node_features_list: List[torch.Tensor],
+        edge_features_list: List[torch.Tensor],
+    ) -> Tuple[Dict[str, List[torch.Tensor]], Dict[str, List[torch.Tensor]]]:
+        """
+        Apply output-specific heads to node and edge features from each GNN layer.
+        Returns dictionaries mapping output names to lists of head-transformed features.
 
+        :param node_features_list: List of node feature tensors from each GNN layer.
+        :param edge_features_list: List of edge feature tensors from each GNN layer.
+        :return: Tuple of two dictionaries:
+            - Dictionary mapping output names to lists of node last layer features
+            - Dictionary mapping output names to lists of edge last layer features
+        """
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
         edge_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
 
@@ -415,18 +801,37 @@ class PET(ModelInterface):
                     edge_head(edge_features_list[i])
                 )
 
-        # Stacking node and edge last layer features to get the final
-        # last-layer-features tensor. As was done earlier to `features`
-        # tensor, we sum the edge features with cutoff factors to get their
-        # per-node contribution.
+        return node_last_layer_features_dict, edge_last_layer_features_dict
 
+    def _get_output_last_layer_features(
+        self,
+        node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+        cutoff_factors: torch.Tensor,
+        selected_atoms: Optional[Labels],
+        sample_labels: Labels,
+        requested_outputs: Dict[str, ModelOutput],
+    ) -> Dict[str, TensorMap]:
+        """
+        Combine node and edge last layer features for requested last layer
+        features output. Edge features are summed with cutoff weighting.
+
+        :param node_last_layer_features_dict: Dictionary mapping output names to
+            lists of node last layer features.
+        :param edge_last_layer_features_dict: Dictionary mapping output names to
+            lists of edge last layer features.
+        :param cutoff_factors: Tensor of cutoff factors for edge distances
+            [n_atoms, max_num_neighbors].
+        :param selected_atoms: Optional Labels specifying a subset of atoms to include.
+        :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
+        :param requested_outputs: Dictionary of requested outputs.
+        :return: Dictionary mapping requested last layer features output names
+            to TensorMaps of last layer features, either per-atom or summed over atoms.
+        """
         last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
+        last_layer_features_outputs: Dict[str, TensorMap] = {}
         for output_name in node_last_layer_features_dict.keys():
-            if (
-                output_name not in outputs
-                and f"mtt::aux::{output_name.replace('mtt::aux::', '')}_last_layer_features"  # noqa: E501
-                not in outputs
-            ):
+            if not should_compute_last_layer_features(output_name, requested_outputs):
                 continue
             if output_name not in last_layer_features_dict:
                 last_layer_features_dict[output_name] = []
@@ -435,12 +840,11 @@ class PET(ModelInterface):
                 edge_last_layer_features = edge_last_layer_features_dict[output_name][i]
                 edge_last_layer_features = (
                     edge_last_layer_features * cutoff_factors[:, :, None]
-                )
-                edge_last_layer_features = edge_last_layer_features.sum(dim=1)
+                ).sum(dim=1)
                 last_layer_features_dict[output_name].append(node_last_layer_features)
                 last_layer_features_dict[output_name].append(edge_last_layer_features)
 
-        for output_name in outputs.keys():
+        for output_name in requested_outputs:
             if not (
                 output_name.startswith("mtt::aux::")
                 and output_name.endswith("_last_layer_features")
@@ -479,20 +883,45 @@ class PET(ModelInterface):
                     axis="samples",
                     selection=selected_atoms,
                 )
-            last_layer_features_options = outputs[output_name]
+            last_layer_features_options = requested_outputs[output_name]
             if last_layer_features_options.per_atom:
-                return_dict[output_name] = last_layer_feature_tmap
+                last_layer_features_outputs[output_name] = last_layer_feature_tmap
             else:
-                return_dict[output_name] = sum_over_atoms(last_layer_feature_tmap)
+                last_layer_features_outputs[output_name] = sum_over_atoms(
+                    last_layer_feature_tmap
+                )
+        return last_layer_features_outputs
 
-        # Stage 4. We compute the per-atom predictions by applying the
-        # linear layers to both node and edge last layer features. To do this,
-        # we iterate over the last layer features (both node and edge), and
-        # apply the corresponding last layer to each feature for each requested
-        # output.
+    def _calculate_atomic_predictions(
+        self,
+        node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+        padding_mask: torch.Tensor,
+        cutoff_factors: torch.Tensor,
+        outputs: Dict[str, ModelOutput],
+    ) -> Tuple[
+        Dict[str, List[List[torch.Tensor]]], Dict[str, List[List[torch.Tensor]]]
+    ]:
+        """
+        Apply final linear layers to last layer features to produce
+        per-atom predictions. Handles multiple blocks per output and sums
+        edge contributions with cutoff weighting.
 
-        atomic_predictions_tmap_dict: Dict[str, TensorMap] = {}
-
+        :param node_last_layer_features_dict: Dictionary mapping output names to
+            lists of node last layer features.
+        :param edge_last_layer_features_dict: Dictionary mapping output names to
+            lists of edge last layer features.
+        :param padding_mask: Boolean mask indicating real vs padded neighbors
+            [n_atoms, max_num_neighbors].
+        :param cutoff_factors: Tensor of cutoff factors for edge distances
+            [n_atoms, max_num_neighbors].
+        :param outputs: Dictionary of requested outputs.
+        :return: Tuple of two dictionaries:
+            - Dictionary mapping output names to lists of lists of node atomic
+              prediction tensors (one list per GNN layer, one tensor per block)
+            - Dictionary mapping output names to lists of lists of edge atomic
+              prediction tensors (one list per GNN layer, one tensor per block)
+        """
         node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]] = {}
         edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]] = {}
 
@@ -542,19 +971,50 @@ class PET(ModelInterface):
                         edge_atomic_predictions = torch.where(
                             ~expanded_padding_mask, 0.0, edge_atomic_predictions
                         )
-                        edge_atomic_predictions = (
-                            edge_atomic_predictions * cutoff_factors[:, :, None]
-                        )
                         edge_atomic_predictions_by_block.append(
-                            edge_atomic_predictions.sum(dim=1)
+                            (edge_atomic_predictions * cutoff_factors[:, :, None]).sum(
+                                dim=1
+                            )
                         )
                     edge_atomic_predictions_dict[output_name].append(
                         edge_atomic_predictions_by_block
                     )
 
-        # Finally, we sum all the node and edge atomic predictions from each GNN
-        # layer to a single atomic predictions tensor.
+        return node_atomic_predictions_dict, edge_atomic_predictions_dict
 
+    def _get_output_atomic_predictions(
+        self,
+        systems: List[System],
+        node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+        edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+        edge_vectors: torch.Tensor,
+        system_indices: torch.Tensor,
+        sample_labels: Labels,
+        outputs: Dict[str, ModelOutput],
+        selected_atoms: Optional[Labels],
+    ) -> Dict[str, TensorMap]:
+        """
+        Combine node and edge atomic predictions into final TensorMaps.
+        Handles rank-2 Cartesian tensors by symmetrizing them.
+        Returns per-atom or per-structure predictions based on output configuration.
+
+        :param systems: List of `metatomic.torch.System` objects to process.
+        :param node_atomic_predictions_dict: Dictionary mapping output names to
+            lists of lists of node atomic prediction tensors (one list per GNN layer,
+            one tensor per block).
+        :param edge_atomic_predictions_dict: Dictionary mapping output names to
+            lists of lists of edge atomic prediction tensors (one list per GNN layer,
+            one tensor per block).
+        :param edge_vectors: Tensor of edge vectors [n_atoms, max_num_neighbors, 3].
+        :param system_indices: Tensor mapping each atom to its system index
+            [n_atoms].
+        :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
+        :param outputs: Dictionary of requested outputs.
+        :param selected_atoms: Optional Labels specifying a subset of atoms to include.
+        :return: Dictionary mapping requested output names to TensorMaps of
+            predictions, either per-atom or summed over atoms.
+        """
+        atomic_predictions_tmap_dict: Dict[str, TensorMap] = {}
         for output_name in self.target_names:
             if output_name in outputs:
                 atomic_predictions_by_block = {
@@ -585,26 +1045,17 @@ class PET(ModelInterface):
                     "xyz" in comp.names[0] for comp in all_components[0]
                 ):
                     block_key = list(atomic_predictions_by_block.keys())[0]
-                    # rank-2 Cartesian tensor, symmetrize
-                    tensor_as_three_by_three = atomic_predictions_by_block[
-                        block_key
-                    ].reshape(
-                        -1, 3, 3, list(self.output_shapes[output_name].values())[0][-1]
+                    output_shapes_values = list(
+                        self.output_shapes[output_name].values()
                     )
-                    volumes = torch.stack(
-                        [torch.abs(torch.det(system.cell)) for system in systems]
+                    num_properties = output_shapes_values[0][-1]
+                    symmetrized = symmetrize_cartesian_tensor(
+                        atomic_predictions_by_block[block_key],
+                        systems,
+                        system_indices,
+                        num_properties,
                     )
-                    volumes_by_atom = (
-                        volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
-                    )
-                    tensor_as_three_by_three = (
-                        tensor_as_three_by_three / volumes_by_atom
-                    )
-                    tensor_as_three_by_three = (
-                        tensor_as_three_by_three
-                        + tensor_as_three_by_three.transpose(1, 2)
-                    ) / 2.0
-                    atomic_predictions_by_block[block_key] = tensor_as_three_by_three
+                    atomic_predictions_by_block[block_key] = symmetrized
 
                 blocks = [
                     TensorBlock(
@@ -625,7 +1076,6 @@ class PET(ModelInterface):
                     keys=self.key_labels[output_name],
                     blocks=blocks,
                 )
-
         # If selected atoms request is provided, we slice the atomic predictions
         # tensor maps to get the predictions for the selected atoms only.
 
@@ -641,52 +1091,13 @@ class PET(ModelInterface):
 
         for output_name, atomic_property in atomic_predictions_tmap_dict.items():
             if outputs[output_name].per_atom:
-                return_dict[output_name] = atomic_property
+                atomic_predictions_tmap_dict[output_name] = atomic_property
             else:
-                return_dict[output_name] = sum_over_atoms(atomic_property)
-
-        if not self.training:
-            # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(systems, return_dict)
-            for additive_model in self.additive_models:
-                outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                for name, output in outputs.items():
-                    if name in additive_model.outputs:
-                        outputs_for_additive_model[name] = output
-                additive_contributions = additive_model(
-                    systems,
-                    outputs_for_additive_model,
-                    selected_atoms,
+                atomic_predictions_tmap_dict[output_name] = sum_over_atoms(
+                    atomic_property
                 )
-                for name in additive_contributions:
-                    # # TODO: uncomment this after metatensor.torch.add is updated to
-                    # # handle sparse sums
-                    # return_dict[name] = metatensor.torch.add(
-                    #     return_dict[name],
-                    #     additive_contributions[name].to(
-                    #         device=return_dict[name].device,
-                    #         dtype=return_dict[name].dtype
-                    #         ),
-                    # )
 
-                    # TODO: "manual" sparse sum: update to metatensor.torch.add after
-                    # sparse sum is implemented in metatensor.operations
-                    output_blocks: List[TensorBlock] = []
-                    for k, b in return_dict[name].items():
-                        if k in additive_contributions[name].keys:
-                            output_blocks.append(
-                                _add_block_block(
-                                    b,
-                                    additive_contributions[name]
-                                    .block(k)
-                                    .to(device=b.device, dtype=b.dtype),
-                                )
-                            )
-                        else:
-                            output_blocks.append(b)
-                    return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
-
-        return return_dict
+        return atomic_predictions_tmap_dict
 
     @classmethod
     def load_checkpoint(
@@ -740,7 +1151,7 @@ class PET(ModelInterface):
         # be registered correctly with Pytorch. This function moves them:
         self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
-        interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
+        interaction_ranges = [self.num_gnn_layers * self.cutoff]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)
@@ -760,6 +1171,13 @@ class PET(ModelInterface):
         return AtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
+        """
+        Register a new output target by creating corresponding heads and last layers.
+        Sets up node/edge heads and linear layers for all readout layers.
+
+        :param target_name: Name of the target to add.
+        :param target_info: TargetInfo object containing details about the target.
+        """
         # warn that, for Cartesian tensors, we assume that they are symmetric
         if target_info.is_cartesian:
             if len(target_info.layout.block().components) == 2:
@@ -795,24 +1213,24 @@ class PET(ModelInterface):
         self.node_heads[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.Sequential(
-                    torch.nn.Linear(self.hypers["d_pet"], self.hypers["d_head"]),
+                    torch.nn.Linear(self.d_node, self.d_head),
                     torch.nn.SiLU(),
-                    torch.nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
+                    torch.nn.Linear(self.d_head, self.d_head),
                     torch.nn.SiLU(),
                 )
-                for _ in range(self.hypers["num_gnn_layers"])
+                for _ in range(self.num_readout_layers)
             ]
         )
 
         self.edge_heads[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.Sequential(
-                    torch.nn.Linear(self.hypers["d_pet"], self.hypers["d_head"]),
+                    torch.nn.Linear(self.d_pet, self.d_head),
                     torch.nn.SiLU(),
-                    torch.nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
+                    torch.nn.Linear(self.d_head, self.d_head),
                     torch.nn.SiLU(),
                 )
-                for _ in range(self.hypers["num_gnn_layers"])
+                for _ in range(self.num_readout_layers)
             ]
         )
 
@@ -821,14 +1239,14 @@ class PET(ModelInterface):
                 torch.nn.ModuleDict(
                     {
                         key: torch.nn.Linear(
-                            self.hypers["d_head"],
+                            self.d_head,
                             prod(shape),
                             bias=True,
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }
                 )
-                for _ in range(self.hypers["num_gnn_layers"])
+                for _ in range(self.num_readout_layers)
             ]
         )
 
@@ -837,20 +1255,18 @@ class PET(ModelInterface):
                 torch.nn.ModuleDict(
                     {
                         key: torch.nn.Linear(
-                            self.hypers["d_head"],
+                            self.d_head,
                             prod(shape),
                             bias=True,
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }
                 )
-                for _ in range(self.hypers["num_gnn_layers"])
+                for _ in range(self.num_readout_layers)
             ]
         )
 
-        ll_features_name = (
-            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
-        )
+        ll_features_name = get_last_layer_features_name(target_name)
         self.outputs[ll_features_name] = ModelOutput(per_atom=True)
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [
@@ -859,6 +1275,24 @@ class PET(ModelInterface):
         self.property_labels[target_name] = [
             block.properties for block in target_info.layout.blocks()
         ]
+
+    def _move_labels_to_device(self, device: torch.device) -> None:
+        self.single_label = self.single_label.to(device)
+        self.key_labels = {
+            output_name: label.to(device)
+            for output_name, label in self.key_labels.items()
+        }
+        self.component_labels = {
+            output_name: [
+                [labels.to(device) for labels in components_block]
+                for components_block in components_tmap
+            ]
+            for output_name, components_tmap in self.component_labels.items()
+        }
+        self.property_labels = {
+            output_name: [labels.to(device) for labels in properties_tmap]
+            for output_name, properties_tmap in self.property_labels.items()
+        }
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
@@ -894,3 +1328,64 @@ class PET(ModelInterface):
             "best_model_state_dict": self.state_dict(),
         }
         return checkpoint
+
+
+def symmetrize_cartesian_tensor(
+    tensor: torch.Tensor,
+    systems: List[System],
+    system_indices: torch.Tensor,
+    num_properties: int,
+) -> torch.Tensor:
+    """
+    Symmetrize rank-2 Cartesian tensors (e.g., stress).
+    Assumes the tensor is stress-like (symmetric and intensive).
+
+    :param tensor: Tensor of shape [n_atoms, 9 * num_properties].
+    :param systems: List of `metatomic.torch.System` objects to process.
+    :param system_indices: Tensor mapping each atom to its system index [n_atoms].
+    :param num_properties: Number of properties in the tensor (e.g., 6 for stress).
+    :return: Symmetrized tensor of shape [n_atoms, 3, 3, num_properties].
+    """
+    # Reshape to 3x3 matrix per atom
+    tensor_as_three_by_three = tensor.reshape(-1, 3, 3, num_properties)
+
+    # Normalize by cell volume
+    volumes = torch.stack([torch.abs(torch.det(system.cell)) for system in systems])
+    volumes_by_atom = volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+    tensor_as_three_by_three = tensor_as_three_by_three / volumes_by_atom
+
+    # Symmetrize
+    tensor_as_three_by_three = (
+        tensor_as_three_by_three + tensor_as_three_by_three.transpose(1, 2)
+    ) / 2.0
+
+    return tensor_as_three_by_three
+
+
+def get_last_layer_features_name(target_name: str) -> str:
+    """
+    Get the auxiliary output name for last layer features of a target.
+
+    :param target_name: Name of the target.
+    :return: Name of the corresponding last layer features output.
+    """
+    base_name = target_name.replace("mtt::", "")
+    return f"mtt::aux::{base_name}_last_layer_features"
+
+
+def should_compute_last_layer_features(
+    output_name: str, requested_outputs: Dict[str, ModelOutput]
+) -> bool:
+    """
+    Check if last layer features should be computed for an output.
+
+    :param output_name: Name of the output to check.
+    :param requested_outputs: Dictionary of requested outputs.
+    :return: True if last layer features should be computed, False otherwise.
+    """
+    if output_name in requested_outputs:
+        return True
+    ll_features_name = get_last_layer_features_name(
+        output_name.replace("mtt::aux::", "")
+    )
+    return ll_features_name in requested_outputs
