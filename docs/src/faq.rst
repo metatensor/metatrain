@@ -38,7 +38,7 @@ If available you can also try to run on a GPU, which significantly increases per
 **A:** First, please make sure that you dataset is computed consitently and converged to a reasonable accuracy.
 Looking at a distribution of your energies per atom can help. Furthermore, outliers, such as large forces
 complicate training, so looking at the distribution of the forces and removing structures with large forces
-(e.g. all structures with forces with an absolute force > 20 eV/Å) from the dataset can help to stabilize training.
+(e.g. all structures with forces with an absolute force > 20 eV/Å) from the dataset can help to stabilize training. For these tasks parity plots can be useful to find outliers. See our this tutorial for how to create them.
 
 General training concepts
 -------------------------
