@@ -1,3 +1,4 @@
+import warnings
 from math import prod
 from typing import Any, Dict, List, Literal, Optional
 
@@ -610,6 +611,22 @@ class NanoPET(ModelInterface):
         return AtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
+        # warn that, for Cartesian tensors, we assume that they are symmetric
+        if target_info.is_cartesian:
+            if len(target_info.layout.block().components) == 2:
+                warnings.warn(
+                    "NanoPET assumes that Cartesian tensors of rank 2 are "
+                    "stress-like, meaning that they are symmetric and intensive. "
+                    "If this is not the case, please use a different model.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            # error out for rank > 2
+            if len(target_info.layout.block().components) > 2:
+                raise ValueError(
+                    "NanoPET does not support Cartesian tensors with rank > 2."
+                )
+
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
