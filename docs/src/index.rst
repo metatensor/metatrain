@@ -21,6 +21,7 @@
    architectures/index
    tutorials/index
    advanced-concepts/index
+   faq
    cite
    dev-docs/index
 

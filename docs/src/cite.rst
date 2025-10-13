@@ -1,3 +1,5 @@
+.. _citingmetatrain:
+
 Citing Metatrain
 ================
 
