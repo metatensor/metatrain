@@ -574,6 +574,6 @@ def test_nc_stress(per_atom):
         pbc=torch.tensor([True, True, True]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"stress": ModelOutput(per_atom=per_atom)}
-    stress = model([system], outputs)["stress"].block().values
+    outputs = {"non_conservative_stress": ModelOutput(per_atom=per_atom)}
+    stress = model([system], outputs)["non_conservative_stress"].block().values
     assert torch.allclose(stress, stress.transpose(1, 2))
