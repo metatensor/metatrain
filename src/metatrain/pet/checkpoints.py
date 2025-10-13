@@ -166,8 +166,12 @@ def model_update_v7_v8(checkpoint: dict) -> None:
                 for k, v in state_dict.items():
                     if "embedding." in k and "node" not in k:
                         k = k.replace("embedding.", "edge_embedder.")
+                        v = v[:-1, :]  # removing the embedding for padding +1 type
                     if "node_embedding." in k:
                         k = k.replace("node_embedding.", "node_embedders.0.")
+                        v = v[:-1, :]  # removing the embedding for padding +1 type
+                    if ".neighbor_embedder." in k:
+                        v = v[:-1, :]  # removing the embedding for padding +1 type
                     if "combination_rmsnorms" in k:
                         k = k.replace("combination_rmsnorms", "combination_norms")
                     new_state_dict[k] = v
@@ -206,11 +210,15 @@ def model_update_v7_v8(checkpoint: dict) -> None:
                     # Moving the node embedder to a top-level PET model attribute
                     if "embedding." in k:
                         k = k.replace("embedding.", "edge_embedder.")
+                        v = v[:-1, :]  # removing the embedding for padding +1 type
                     if ".node_embedder." in k:
                         key_content = k.split(".")
                         k = ".".join(
                             ["node_embedders", key_content[1], key_content[-1]]
                         )
+                        v = v[:-1, :]  # removing the embedding for padding +1 type
+                    if ".neighbor_embedder." in k:
+                        v = v[:-1, :]  # removing the embedding for padding +1 type
                     new_state_dict[k] = v
                 checkpoint[key] = new_state_dict
 

@@ -401,7 +401,7 @@ class CartesianTransformer(torch.nn.Module):
 
         self.neighbor_embedder = DummyModule()  # for torchscript
         if not is_first:
-            self.neighbor_embedder = nn.Embedding(n_atomic_species + 1, d_model)
+            self.neighbor_embedder = nn.Embedding(n_atomic_species, d_model)
 
     def forward(
         self,

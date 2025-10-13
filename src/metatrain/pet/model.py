@@ -127,11 +127,11 @@ class PET(ModelInterface):
 
         self.node_embedders = torch.nn.ModuleList(
             [
-                torch.nn.Embedding(num_atomic_species + 1, self.d_node)
+                torch.nn.Embedding(num_atomic_species, self.d_node)
                 for _ in range(self.num_readout_layers)
             ]
         )
-        self.edge_embedder = torch.nn.Embedding(num_atomic_species + 1, self.d_pet)
+        self.edge_embedder = torch.nn.Embedding(num_atomic_species, self.d_pet)
 
         self.node_heads = torch.nn.ModuleDict()
         self.edge_heads = torch.nn.ModuleDict()
