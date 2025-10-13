@@ -12,6 +12,7 @@ these results.
 # %%
 # Import necessary libraries
 import ase.io
+import chemiscope
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -81,3 +82,61 @@ print("RMSE forces:", np.sqrt(np.mean((f_targets - f_predictions) ** 2)), "kcal/
 # The results are a bit poor here because the model was not trained well enough and
 # was created only for demonstration purposes. In the case of a well-trained model, the
 # points should be closer to the diagonal line.
+
+# %%
+# Check outliers with ``Chemiscope``
+# ----------------------------------
+# With the approach above, you can inspect the whole dataset, but it might be difficult
+# to identify outliers. `Chemiscope <https://chemiscope.org/docs/index.html>` is a
+# visualisation tool, allowing you to explore the dataset interactively. The following
+# example shows how to use it to check the structure of probable outliers and the atomic
+# forces.
+
+for frame in targets + predictions:
+    frame.arrays["forces"] = frame.get_forces()
+# a workaround, because the chemiscope interface for getting forces is broken with ASE
+# 3.23
+
+# %%
+# Plot the energy parity plot with Chemiscope. This can be rendered as a widget in a
+# Jupyter notebook.
+cs = chemiscope.show(
+    targets,  # reading structures from the dataset
+    properties={
+        "Target energy": {"values": e_targets, "target": "structure", "units": "kcal"},
+        "Predicted energy": {
+            "values": e_predictions,
+            "target": "structure",
+            "units": "kcal",
+        },
+    },  # plotting the energy parity plot
+    mode="default",
+    shapes={
+        "target_forces": chemiscope.ase_vectors_to_arrows(
+            targets, key="forces", scale=0.05, radius=0.15
+        ),
+        "predicted_forces": chemiscope.ase_vectors_to_arrows(
+            predictions, key="forces", scale=0.05, radius=0.15
+        ),
+    },  # plotting the atomic forces
+    settings=chemiscope.quick_settings(
+        trajectory=True,
+        map_settings={"joinPoints": False},
+        structure_settings={
+            "unitCell": True,
+            "environments": {"activated": False},
+            "shape": "predicted_forces",  # show predicted forces by defalut
+        },
+    ),
+)
+cs
+
+# %%
+# You can check the structures by clicking the red dots on the parity plot, or
+# dragging the bar in the bottom right corner. Currently, plotting the diagonal line is
+# not supported in chemiscope, so please check the parity plot above to see the
+# outliers.
+#
+# The atomic forces are shown in arrows. The predicted forces are shown here. The target
+# forces can be toggled by clicking the "target_forces" option in the menu in the upper
+# right corner of the right panel.

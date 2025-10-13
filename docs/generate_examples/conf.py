@@ -2,6 +2,8 @@
 
 import os
 
+from chemiscope.sphinx import ChemiscopeScraper
+
 
 extensions = [
     "sphinx_gallery.gen_gallery",
@@ -42,4 +44,5 @@ sphinx_gallery_conf = {
     ],
     "min_reported_time": 5,
     "matplotlib_animations": True,
+    "image_scrapers": ( ChemiscopeScraper(), ),
 }
