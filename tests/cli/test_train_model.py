@@ -1127,11 +1127,7 @@ def test_train_memmap_dataset(monkeypatch, tmp_path, options_pet):
         )
     )
 
-    with pytest.warns(
-        UserWarning,
-        match="PET assumes that Cartesian tensors of rank 2 are stress-like",
-    ):
-        train_model(options_pet)
+    train_model(options_pet)
 
 
 @pytest.mark.skipif(not WANDB_AVAILABLE.present, reason=WANDB_AVAILABLE.message)

@@ -544,16 +544,16 @@ def test_pet_single_atom():
 
 
 @pytest.mark.parametrize("per_atom", [True, False])
-def test_pet_rank_2(per_atom):
-    """Tests that the model can predict a symmetric rank-2 tensor."""
+def test_nc_stress(per_atom):
+    """Tests that the model can predict a symmetric rank-2 tensor as the NC stress."""
     # (note that no composition energies are supplied or calculated here)
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "stress": get_generic_target_info(
-                "stress",
+            "non_conservative_stress": get_generic_target_info(
+                "non_conservative_stress",
                 {
                     "quantity": "stress",
                     "unit": "",
@@ -565,13 +565,7 @@ def test_pet_rank_2(per_atom):
         },
     )
 
-    message = (
-        "PET assumes that Cartesian tensors of rank 2 are stress-like, "
-        "meaning that they are symmetric and intensive. "
-        "If this is not the case, please use a different model."
-    )
-    with pytest.warns(UserWarning, match=message):
-        model = PET(MODEL_HYPERS, dataset_info)
+    model = PET(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6]),
@@ -580,6 +574,6 @@ def test_pet_rank_2(per_atom):
         pbc=torch.tensor([True, True, True]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"stress": ModelOutput(per_atom=per_atom)}
-    stress = model([system], outputs)["stress"].block().values
+    outputs = {"non_conservative_stress": ModelOutput(per_atom=per_atom)}
+    stress = model([system], outputs)["non_conservative_stress"].block().values
     assert torch.allclose(stress, stress.transpose(1, 2))
