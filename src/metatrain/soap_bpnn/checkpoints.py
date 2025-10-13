@@ -154,3 +154,15 @@ def trainer_update_v4_v5(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     checkpoint["train_hypers"]["fixed_scaling_weights"] = {}
+
+
+def trainer_update_v5_v6(checkpoint: dict) -> None:
+    """
+    Update a v5 Trainer checkpoint to v6.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    raise ValueError(
+        "In order to use this checkpoint, you need metatrain 2025.10 or earlier. "
+        "You can install it with `pip install metatrain==2025.10`."
+    )
