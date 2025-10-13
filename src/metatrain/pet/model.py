@@ -175,7 +175,7 @@ class PET(ModelInterface):
                 )
             self.long_range_featurizer = LongRangeFeaturizer(
                 hypers=self.hypers["long_range"],
-                feature_dim=self.d_pet,
+                feature_dim=self.d_node,
                 neighbor_list_options=self.requested_nl,
             )
         else:
