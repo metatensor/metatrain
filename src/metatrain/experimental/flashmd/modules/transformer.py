@@ -88,9 +88,6 @@ class CartesianTransformer(torch.nn.Module):
             edge_tokens = torch.cat([edge_embeddings, input_messages], dim=2)
 
         edge_tokens = self.compress(edge_tokens)
-        # edge_tokens = torch.cat(
-        #     [node_elements_embedding[:, None, :], edge_tokens], dim=1
-        # )
 
         padding_mask_with_central_token = torch.ones(
             padding_mask.shape[0], dtype=torch.bool, device=padding_mask.device
