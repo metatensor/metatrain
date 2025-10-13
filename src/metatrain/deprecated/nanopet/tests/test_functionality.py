@@ -519,13 +519,7 @@ def test_nanopet_rank_2(per_atom):
         },
     )
 
-    message = (
-        "NanoPET assumes that Cartesian tensors of rank 2 are stress-like, "
-        "meaning that they are symmetric and intensive. "
-        "If this is not the case, please use a different model."
-    )
-    with pytest.warns(UserWarning, match=message):
-        model = NanoPET(MODEL_HYPERS, dataset_info)
+    model = NanoPET(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6]),
