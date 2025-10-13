@@ -35,7 +35,9 @@ Added
 
 Changed
 #######
-
+- ``PET`` model received a major update, including new default hyperparameters, a new
+  transformer architecture, and a new featurizer. Please refer to the updated
+  documentation for more details.
 - The SOAP-BPNN and PET trainers now uses a cosine annealing learning rate scheduler
   with warmup.
 - ``NanoPET`` has been deprecated in favor of the stable ``PET`` architecture. The

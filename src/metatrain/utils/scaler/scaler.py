@@ -238,7 +238,13 @@ class Scaler(torch.nn.Module):
         self.dataset_info = merged_info
 
         # register new outputs
+        self.new_outputs = []
+        buffer_names = [n for n, _ in self.named_buffers()]
         for target_name, target_info in self.target_infos.items():
+            if target_name + "_scaler_buffer" in buffer_names:
+                continue
+            self.new_outputs.append(target_name)
+            self.model.add_output(target_name, target_info.layout)
             self._add_output(target_name, target_info)
 
         return self

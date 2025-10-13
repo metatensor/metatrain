@@ -2,19 +2,25 @@ architecture:
   name: experimental.flashmd
   model:
     predict_momenta_as_difference: false
-    cutoff: 5.0
-    cutoff_width: 0.5
+    cutoff: 4.5
+    cutoff_width: 0.2
     d_pet: 128
     d_head: 128
-    d_feedforward: 512
-    num_heads: 4
+    d_node: 512
+    d_feedforward: 256
+    num_heads: 8
     num_attention_layers: 2
-    num_gnn_layers: 2
+    num_gnn_layers: 3
+    normalization: RMSNorm
+    activation: SwiGLU
+    transformer_type: PreLN
+    featurizer_type: feedforward
     long_range:
       enable: false
+      use_ewald: false
       smearing: 1.4
+      kspace_resolution: 1.33
       interpolation_nodes: 5
-      mesh_spacing: 1.33
   training:
     timestep: null
     masses: {}
@@ -25,15 +31,15 @@ architecture:
     warmup_fraction: 0.01
     learning_rate: 3e-4
     weight_decay: null
-    log_interval: 10
+    log_interval: 1
     checkpoint_interval: 100
     scale_targets: true
     fixed_composition_weights: {}
     fixed_scaling_weights: {}
     per_structure_targets: []
     num_workers: null
-    grad_clip_norm: .inf
     log_mae: false
     log_separate_blocks: false
     best_model_metric: rmse_prod
+    grad_clip_norm: 1.0
     loss: mse
