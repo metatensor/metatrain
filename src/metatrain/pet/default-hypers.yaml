@@ -5,10 +5,15 @@ architecture:
     cutoff_width: 0.2
     d_pet: 128
     d_head: 128
-    d_feedforward: 512
+    d_node: 256
+    d_feedforward: 256
     num_heads: 8
     num_attention_layers: 2
     num_gnn_layers: 2
+    normalization: RMSNorm
+    activation: SwiGLU
+    transformer_type: PreLN
+    featurizer_type: feedforward
     zbl: false
     long_range:
       enable: false
@@ -26,13 +31,13 @@ architecture:
     weight_decay: null
     log_interval: 1
     checkpoint_interval: 100
-    scale_targets: false
+    scale_targets: true
     fixed_composition_weights: {}
     fixed_scaling_weights: {}
     per_structure_targets: []
     num_workers: null
     log_mae: true
     log_separate_blocks: false
-    best_model_metric: rmse_prod
-    grad_clip_norm: .inf
+    best_model_metric: mae_prod
+    grad_clip_norm: 1.0
     loss: mse
