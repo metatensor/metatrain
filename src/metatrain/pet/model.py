@@ -253,9 +253,9 @@ class PET(ModelInterface):
                     new_num_atomic_species, self.d_pet
                 )
                 new_gnn_neighbor_embedding.weight.data[index] = (
-                    gnn_layer.neighbor_embedding.weight.data
+                    gnn_layer.neighbor_embedder.weight.data
                 )
-                gnn_layer.neighbor_embedding = new_gnn_neighbor_embedding
+                gnn_layer.neighbor_embedder = new_gnn_neighbor_embedding
 
         self.dataset_info = merged_info
         self.atomic_types = merged_atomic_types
