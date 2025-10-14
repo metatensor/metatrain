@@ -24,7 +24,7 @@ training_set:
   targets:
     positions:
       key: future_positions
-      quantity: positions
+      quantity: length
       unit: A
       type:
         cartesian:
