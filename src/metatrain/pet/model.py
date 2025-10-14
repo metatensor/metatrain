@@ -259,6 +259,10 @@ class PET(ModelInterface):
 
         self.dataset_info = merged_info
         self.atomic_types = merged_atomic_types
+        self.register_buffer(
+            "species_to_species_index",
+            torch.full((max(self.atomic_types) + 1,), -1),
+        )
         for i, species in enumerate(self.atomic_types):
             self.species_to_species_index[species] = i
 
