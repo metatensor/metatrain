@@ -229,7 +229,7 @@ class PET(ModelInterface):
     def restart(self, dataset_info: DatasetInfo) -> "PET":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
-        merged_atomic_types = merged_info.atomic_types
+        merged_atomic_types = sorted(merged_info.atomic_types)
         new_atomic_types = [
             at for at in merged_atomic_types if at not in self.atomic_types
         ]
