@@ -414,7 +414,7 @@ class Trainer:
                 # CHANGE: DOS Training loop
                 dos_predictions = predictions['mtt::gapdos'][0].values
                 bandgap_predictions = model.bandgap_layer(dos_predictions)
-                gap_force_predictions = torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True))
+                gap_force_predictions = -1 * torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True))
                 bandgap_target = gap_batch[0].values.reshape(-1,1).to(dtype)
                 bandgap_loss = torch.nn.functional.mse_loss(bandgap_predictions, bandgap_target)
                 gap_force_target = torch.squeeze(gap_force_batch[0].values.to(dtype))
@@ -504,7 +504,7 @@ class Trainer:
                 # targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 dos_predictions = predictions['mtt::gapdos'][0].values
                 bandgap_predictions = model.bandgap_layer(dos_predictions)
-                gap_force_predictions = torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=False))
+                gap_force_predictions = -1 * torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=False))
                 bandgap_target = gap_batch[0].values.reshape(-1,1).to(dtype)
                 bandgap_loss = torch.nn.functional.mse_loss(bandgap_predictions, bandgap_target)
                 gap_force_target = torch.squeeze(gap_force_batch[0].values.to(dtype))
