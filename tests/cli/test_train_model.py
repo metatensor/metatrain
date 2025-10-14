@@ -686,6 +686,84 @@ def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
     assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
 
 
+def test_transfer_learn_inherit_heads(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn = copy.deepcopy(options_pet)
+    options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+        "inherit_heads": {
+            "mtt::energy": "energy",
+        },
+    }
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
+        options_pet_transfer_learn["training_set"]["targets"].pop("energy")
+    )
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet_transfer_learn)
+    assert (
+        r"Inheriting initial weights for heads and last layers "
+        r"for targets: from ['energy'] to ['mtt::energy']" in caplog.text
+    )
+
+
+def test_transfer_learn_inherit_heads_invalid_source(
+    options_pet, caplog, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn_invalid_source = copy.deepcopy(options_pet)
+    options_pet_transfer_learn_invalid_source["architecture"]["training"][
+        "finetune"
+    ] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+        "inherit_heads": {
+            "mtt::energy": "foo",
+        },
+    }
+    options_pet_transfer_learn_invalid_source["training_set"]["targets"][
+        "mtt::energy"
+    ] = options_pet_transfer_learn_invalid_source["training_set"]["targets"].pop(
+        "energy"
+    )
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    match = "source target name 'foo' was not found"
+    with pytest.raises(ArchitectureError, match=match):
+        train_model(options_pet_transfer_learn_invalid_source)
+
+
+def test_transfer_learn_inherit_heads_invalid_destination(
+    options_pet, caplog, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn_invalid_dest = copy.deepcopy(options_pet)
+    options_pet_transfer_learn_invalid_dest["architecture"]["training"]["finetune"] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+        "inherit_heads": {
+            "mtt::foo": "energy",
+        },
+    }
+    options_pet_transfer_learn_invalid_dest["training_set"]["targets"][
+        "mtt::energy"
+    ] = options_pet_transfer_learn_invalid_dest["training_set"]["targets"].pop("energy")
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    match = "destination target name 'mtt::foo' was not found"
+    with pytest.raises(ArchitectureError, match=match):
+        train_model(options_pet_transfer_learn_invalid_dest)
+
+
 @pytest.mark.parametrize("move_folder", [True, False])
 def test_restart_auto(options, caplog, monkeypatch, tmp_path, move_folder):
     """Test that continuing with the `auto` keyword results in

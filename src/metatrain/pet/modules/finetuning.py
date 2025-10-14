@@ -85,6 +85,18 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
     if inherit_heads_config:
         for dest_target_name, source_target_name in inherit_heads_config.items():
             model_parameters = dict(model.named_parameters())
+            if not any(f".{source_target_name}." in name for name in model_parameters):
+                raise ValueError(
+                    f"Weight inheritance was selected in finetuning strategy, but "
+                    f"the source target name '{source_target_name}' was not found in "
+                    "the model. Please specify the correct source target name."
+                )
+            if not any(f".{dest_target_name}." in name for name in model_parameters):
+                raise ValueError(
+                    f"Weight inheritance was selected in finetuning strategy, but "
+                    f"the destination target name '{dest_target_name}' was not found "
+                    "in the model. Please specify the correct destination target name."
+                )
             for name, param in model_parameters.items():
                 if f".{source_target_name}." in name:
                     corresponding_dest_name = name.replace(
