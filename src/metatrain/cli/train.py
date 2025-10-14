@@ -438,6 +438,11 @@ def train_model(
         _print_stats("Training", train_datasets, dataset_info)
         _print_stats("Validation", val_datasets, dataset_info)
         _print_stats("Test", test_datasets, dataset_info)
+    else:
+        logging.info(
+            "Datasets are too large (>1M total structures) to calculate statistics "
+            "quickly. Skipping statistics."
+        )
 
     ###########################
     # SAVE EXPANDED OPTIONS ###
