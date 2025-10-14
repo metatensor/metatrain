@@ -12,7 +12,10 @@ Transfer Learning (experimental)
   Features described in this section are experimental and not yet
   extensively tested. Please use them at your own risk and report any
   issues you encounter to the developers. The transfer learned models
-  cannot be used in MD engines such as ASE or LAMMPS yet.
+  cannot be directly used in MD engines such as ASE or LAMMPS yet.
+  If you still want to use them, please follow the instructions
+  in the :ref:`Using the transfer-learned model in simulation engines <transfer-learned-model-simulation-engines>`
+  section below.
 
 
 This section describes the process of transfer learning, which is a
@@ -67,6 +70,90 @@ The validation and test sets can be set in the same way. The training
 process will then create a new composition model and new heads for the
 target ``mtt::energy_pbe0``. The rest of the model weights will be
 initialized from the pre-trained model checkpoint.
+
+Inheriting weights from existing heads
+--------------------------------------
+
+In some cases, the new targets might be similar to the existing targets
+in the pre-trained model. For example, if the pre-trained model is trained
+on energies and forces computed with the PBE functional, and the new targets
+are energies and forces coming from PBE0 calculations, it might be beneficial
+to initialize the new PBE0 heads and last layers with the weights of the PBE
+heads and last layers. This can be done by specifying the ``inherit_heads``
+parameter in the ``options.yaml`` file:
+
+.. code-block:: yaml
+
+  architecture:
+    training:
+      finetune:
+        method: full
+        read_from: path/to/checkpoint.ckpt
+        inherit_heads:
+          mtt::energy_pbe0: energy # inherit weights from the "energy" head
+
+The ``inherit_heads`` parameter is a dictionary mapping the new trainable
+targets specified in the ``training_set/targets`` section to the existing
+targets in the pre-trained model. The weights of the corresponding heads and
+last layers will be copied from the source heads to the destination heads
+instead of random initialization.
+
+
+Using the transfer-learned model in simulation engines
+-------------------------------------------------------
+
+The default target name expected by the ``metatomic`` package in order
+to use the model in ASE and LAMMPS calculations is ``energy``. If the new
+target has a different name, e.g. ``mtt::energy_pbe0``, the model interface
+will still use the ``energy`` target name, and new new target. Currently,
+the work on the mechanism of heads selection on runtime, that would allow to use
+different target names, is still in process. Therefore, in order to use the
+transfer-learned model in simulation engines, the new target needs to be renamed
+to ``energy`` in the trained model checkpoint ``.ckpt`` file. This can be done
+using a relatively simple python script:
+
+.. code-block:: python
+
+  import torch
+  import metatomic.torch
+
+  def set_output_head(checkpoint, head_name):
+      """
+      Selects the head of the model that corresponds to the given head_name
+      and assigns it to `energy` output
+
+      :param checkpoint: The checkpoint dictionary containing the model state.
+      :param head_name: The name of the head to be set as the output head.
+      :return: The modified checkpoint with the specified head set as the output head.
+      """
+      for state_dict_name in ['model_state_dict', 'best_model_state_dict']:
+          state_dict = checkpoint.get(state_dict_name)
+          if state_dict is not None:
+              new_state_dict = {}
+              for key, value in state_dict.items():
+                  if ".energy." in key:
+                      continue
+                  if "scaler.scales" in key:
+                      value = value[:1]
+                  if head_name in key:
+                      new_key = key.replace(head_name, "energy")
+                  else:
+                      new_key = key
+                  new_state_dict[new_key] = value
+              checkpoint[state_dict_name] = new_state_dict
+      dataset_info = checkpoint['model_data']['dataset_info']
+      if dataset_info is not None:
+          new_target = dataset_info.targets.pop(head_name)
+          if new_target is not None:
+              dataset_info.targets['energy'] = new_target
+              checkpoint['model_data']['dataset_info'] = dataset_info
+      return checkpoint
+
+  checkpoint = torch.load("your_path_to_checkpoint/model.ckpt", map_location="cpu", weights_only=False)
+  new_target_name = "mtt::energy_pbe0"  # specify the name of the new target here
+  checkpoint = set_output_head(checkpoint, new_target_name)
+  torch.save(checkpoint, "new_checkpoint.ckpt")
+
 
 Fitting to a new set of properties
 ----------------------------------
