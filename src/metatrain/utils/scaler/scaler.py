@@ -228,6 +228,13 @@ class Scaler(torch.nn.Module):
 
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
+        merged_atomic_types = sorted(merged_info.atomic_types)
+        self.model.register_buffer(
+            "type_to_index",
+            torch.full((max(merged_atomic_types) + 1,), -1, dtype=torch.long),
+        )
+        for i, atomic_type in enumerate(merged_atomic_types):
+            self.model.type_to_index[atomic_type] = i
 
         self.target_infos = {
             target_name: target_info

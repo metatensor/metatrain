@@ -28,6 +28,7 @@ from metatrain.utils.testing._utils import WANDB_AVAILABLE
 from . import (
     DATASET_PATH_CARBON,
     DATASET_PATH_ETHANOL,
+    DATASET_PATH_LPS,
     DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
     MODEL_PATH_64_BIT,
@@ -762,6 +763,31 @@ def test_transfer_learn_inherit_heads_invalid_destination(
     match = "destination target name 'mtt::foo' was not found"
     with pytest.raises(ArchitectureError, match=match):
         train_model(options_pet_transfer_learn_invalid_dest)
+
+
+def test_transfer_learn_new_atom_types(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn_new_types = copy.deepcopy(options_pet)
+    options_pet_transfer_learn_new_types["architecture"]["training"]["finetune"] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+    }
+    options_pet_transfer_learn_new_types["training_set"]["targets"]["mtt::energy"] = (
+        options_pet_transfer_learn_new_types["training_set"]["targets"].pop("energy")
+    )
+    options_pet_transfer_learn_new_types["training_set"]["targets"]["mtt::energy"][
+        "key"
+    ] = "energy"
+    options_pet_transfer_learn_new_types["training_set"]["systems"]["read_from"] = (
+        "lps_reduced_100.xyz"
+    )
+    shutil.copy(DATASET_PATH_LPS, "lps_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet_transfer_learn_new_types)
+
+    assert "New atomic types found in the dataset: [3, 15, 16]" in caplog.text
 
 
 @pytest.mark.parametrize("move_folder", [True, False])

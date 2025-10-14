@@ -141,7 +141,7 @@ class Trainer(TrainerInterface):
             logging.info(f"Applied finetuning strategy: {method}")
             logging.info(
                 f"Number of trainable parameters: {num_trainable_params} "
-                f"[{num_trainable_params / num_params:.2%} %]"
+                f"[{num_trainable_params / num_params:.2%}]"
             )
             inherit_heads = self.hypers["finetune"].get("inherit_heads", {})
             if inherit_heads:

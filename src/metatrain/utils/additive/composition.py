@@ -222,7 +222,6 @@ class CompositionModel(torch.nn.Module):
             fixed_weights = {}
 
         device = self.dummy_buffer.device
-
         # accumulate
         for batch in dataloader:
             systems, targets, _ = unpack_batch(batch)
@@ -235,7 +234,6 @@ class CompositionModel(torch.nn.Module):
             }
             if len(targets) == 0:
                 break
-
             # remove additive contributions from these targets
             for additive_model in additive_models:
                 targets = remove_additive(
@@ -260,7 +258,6 @@ class CompositionModel(torch.nn.Module):
                 ):
                     torch.distributed.all_reduce(XTX_block.values)
                     torch.distributed.all_reduce(XTY_block.values)
-
         # Fit the model on all ranks
         self.model.fit(fixed_weights, targets_to_fit=self._new_outputs)
 
@@ -289,18 +286,53 @@ class CompositionModel(torch.nn.Module):
                     f"{target_name}. This is an architecture bug. "
                     "Please report this issue and help us improve!"
                 )
-
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
-        new_atomic_types = [
-            at for at in merged_info.atomic_types if at not in self.atomic_types
-        ]
+        merged_atomic_types = sorted(merged_info.atomic_types)
+        self.model.register_buffer(
+            "type_to_index",
+            torch.full((max(merged_atomic_types) + 1,), -1, dtype=torch.long),
+        )
 
+        for i, atomic_type in enumerate(merged_atomic_types):
+            self.model.type_to_index[atomic_type] = i
+        new_atomic_types = [
+            at for at in merged_atomic_types if at not in self.atomic_types
+        ]
         if len(new_atomic_types) > 0:
-            raise ValueError(
-                f"New atomic types found in the dataset: {new_atomic_types}. "
-                "The composition model does not support adding new atomic types."
-            )
+            index = [merged_atomic_types.index(at) for at in self.atomic_types]
+
+            for target_name, weights_tmap in self.model.weights.items():
+                values = weights_tmap.block().values
+                new_values = torch.zeros(
+                    (len(merged_atomic_types), 1),
+                    dtype=values.dtype,
+                    device=values.device,
+                )
+                new_values[index, :] = values
+                new_samples = Labels(
+                    names=["center_type"],
+                    values=torch.tensor(merged_atomic_types, dtype=torch.int).reshape(
+                        -1, 1
+                    ),
+                    assume_unique=True,
+                )
+                new_block = TensorBlock(
+                    values=new_values,
+                    samples=new_samples,
+                    components=weights_tmap.block().components,
+                    properties=weights_tmap.block().properties,
+                )
+                new_weights_tmap = TensorMap(
+                    weights_tmap.keys,
+                    blocks=[new_block],
+                )
+                self.model.weights[target_name] = new_weights_tmap
+
+        self.atomic_types = merged_atomic_types
+        self.model.atomic_types = torch.as_tensor(
+            merged_atomic_types, dtype=torch.int32
+        )
 
         self.target_infos = {
             target_name: target_info

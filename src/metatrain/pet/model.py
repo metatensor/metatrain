@@ -234,6 +234,12 @@ class PET(ModelInterface):
             at for at in merged_atomic_types if at not in self.atomic_types
         ]
         if len(new_atomic_types) > 0:
+            logging.info(
+                f"New atomic types found in the dataset: {new_atomic_types}. "
+                "Composition model, scaler and embedding layers will be "
+                "expanded accordingly. Final list of atomic types: "
+                f"{merged_atomic_types}"
+            )
             index = [merged_atomic_types.index(at) for at in self.atomic_types]
             new_num_atomic_species = len(merged_info.atomic_types)
 
@@ -257,7 +263,6 @@ class PET(ModelInterface):
                 )
                 gnn_layer.neighbor_embedder = new_gnn_neighbor_embedding
 
-        self.dataset_info = merged_info
         self.atomic_types = merged_atomic_types
         self.register_buffer(
             "species_to_species_index",
@@ -271,6 +276,7 @@ class PET(ModelInterface):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
+        self.dataset_info = merged_info
 
         self.has_new_targets = len(new_targets) > 0
 

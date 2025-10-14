@@ -420,7 +420,7 @@ def train_model(
         logging.info("Atomic types explicitly defined in options.yaml")
         atomic_types = sorted(options["architecture"]["atomic_types"])
 
-    logging.info(f"Model defined for atomic types: {atomic_types}")
+    logging.info(f"Training performed for atomic types: {atomic_types}")
 
     dataset_info = DatasetInfo(
         length_unit=options["training_set"][0]["systems"]["length_unit"],
