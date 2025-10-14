@@ -143,6 +143,13 @@ class Trainer(TrainerInterface):
                 f"Number of trainable parameters: {num_trainable_params} "
                 f"[{num_trainable_params / num_params:.2%} %]"
             )
+            inherit_heads = self.hypers["finetune"].get("inherit_heads", {})
+            if inherit_heads:
+                logging.info(
+                    "Inheriting initial weights for heads and last layers for targets: "
+                    f"from {list(inherit_heads.values())} to "
+                    f"{list(inherit_heads.keys())}"
+                )
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)

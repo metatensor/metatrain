@@ -246,6 +246,12 @@
                   "additionalProperties": false
                 }
               ]
+            },
+            "inherit_heads": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
             }
           },
           "additionalProperties": false,
