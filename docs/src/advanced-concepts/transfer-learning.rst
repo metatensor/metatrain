@@ -13,9 +13,7 @@ Transfer Learning (experimental)
   extensively tested. Please use them at your own risk and report any
   issues you encounter to the developers. The transfer learned models
   cannot be directly used in MD engines such as ASE or LAMMPS yet.
-  If you still want to use them, please follow the instructions
-  in the :ref:`Using the transfer-learned model in simulation engines <transfer-learned-model-simulation-engines>`
-  section below.
+  If you still want to use them, please follow the instructions below.
 
 
 This section describes the process of transfer learning, which is a
@@ -96,7 +94,8 @@ The ``inherit_heads`` parameter is a dictionary mapping the new trainable
 targets specified in the ``training_set/targets`` section to the existing
 targets in the pre-trained model. The weights of the corresponding heads and
 last layers will be copied from the source heads to the destination heads
-instead of random initialization.
+instead of random initialization. These weights are still trainable and
+will be adapted to the new dataset during the training process.
 
 
 Using the transfer-learned model in simulation engines
@@ -104,10 +103,11 @@ Using the transfer-learned model in simulation engines
 
 The default target name expected by the ``metatomic`` package in order
 to use the model in ASE and LAMMPS calculations is ``energy``. If the new
-target has a different name, e.g. ``mtt::energy_pbe0``, the model interface
-will still use the ``energy`` target name, and new new target. Currently,
-the work on the mechanism of heads selection on runtime, that would allow to use
-different target names, is still in process. Therefore, in order to use the
+transfer-learned target has a different name, e.g. ``mtt::energy_pbe0``,
+the ``metatomic`` model interface will still try to access the ``energy``
+target name while evaluating energies and forces. Currently, there is no
+automatic way to set the target name in the ``metatomic`` model interface
+(this feature is under development). Therefore, in order to use the
 transfer-learned model in simulation engines, the new target needs to be renamed
 to ``energy`` in the trained model checkpoint ``.ckpt`` file. This can be done
 using a relatively simple python script:
@@ -153,6 +153,15 @@ using a relatively simple python script:
   new_target_name = "mtt::energy_pbe0"  # specify the name of the new target here
   checkpoint = set_output_head(checkpoint, new_target_name)
   torch.save(checkpoint, "new_checkpoint.ckpt")
+
+You need to specify the path to the trained model checkpoint and the name of the new
+target in the script. This name should match the new target name in the
+``options.yaml`` file. The modified checkpoint will be saved as ``new_checkpoint.ckpt``.
+Finally, you can run the ``mtt export new_checkpoint.ckpt`` command to convert the
+model to the ``metatomic`` format and use it in ASE and LAMMPS calculations, as described
+in the `metatomic documentation`_.
+
+.. _metatomic documentation: https://docs.metatensor.org/metatomic/latest/engines/index.html.
 
 
 Fitting to a new set of properties
