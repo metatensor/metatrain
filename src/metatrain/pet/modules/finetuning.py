@@ -11,10 +11,15 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
 
     :param model: The model to be finetuned.
     :param strategy: A dictionary specifying the finetuning strategy.
-        The strategy can be one of the following:
+        The strategy method can be one of the following:
         - lora: Inject LoRA layers into the model, or reapply training if already
             present.
         - heads: Freeze all parameters except for the heads and last layers.
+        - full: All parameters are trainable.
+        Additionally, the strategy can include an "inherit_heads" key,
+        which is a dictionary mapping the new trainable targets to the existing
+        targets in the model. This allows for copying weights from the corresponding
+        source heads to the destination heads instead of random initialization.
     :return: The modified model with the finetuning strategy applied.
     """
     method = strategy.get("method", "full").lower()
