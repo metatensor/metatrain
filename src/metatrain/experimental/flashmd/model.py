@@ -1363,7 +1363,7 @@ def should_compute_last_layer_features(
 
 def verify_masses(systems: list[System], masses: torch.Tensor):
     """Attach masses to systems that don't have them yet."""
-    for system in systems:
+    for system_index, system in enumerate(systems):
         if "masses" not in system.known_data():
             # obtain the masses from the atomic types
             values = masses[system.types].unsqueeze(-1)
@@ -1412,9 +1412,9 @@ def verify_masses(systems: list[System], masses: torch.Tensor):
                     system_mass = system_masses[atom_index, 0]
                     if not torch.allclose(model_mass, system_mass):
                         raise ValueError(
-                            f"The mass of atom {atom_index} in a system is "
-                            f"{model_mass}, while the expected mass for atomic number "
-                            f"{atomic_number} is {system_mass}. FlashMD is not "
-                            "transferable to systems with different masses than it"
-                            " was trained on."
+                            f"The mass of atom {atom_index} in system {system_index} "
+                            f"is {model_mass}, while the expected mass for atomic "
+                            f"number {atomic_number} is {system_mass}. FlashMD is not "
+                            "transferable to systems with different masses than it "
+                            "was trained on."
                         )
