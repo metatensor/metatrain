@@ -235,10 +235,10 @@ class PET(ModelInterface):
         ]
         if len(new_atomic_types) > 0:
             logging.info(
-                f"New atomic types found in the dataset: {new_atomic_types}. "
-                "Composition model, scaler and embedding layers will be "
-                "expanded accordingly. Final list of atomic types: "
-                f"{merged_atomic_types}"
+                "New atomic types found in the dataset, compared to the "
+                f"previous training run: {new_atomic_types}. Composition "
+                "model, scaler and embedding layers will be "
+                "expanded accordingly. "
             )
             index = [merged_atomic_types.index(at) for at in self.atomic_types]
             new_num_atomic_species = len(merged_info.atomic_types)
