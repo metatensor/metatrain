@@ -7,11 +7,13 @@ import random
 import re
 import shutil
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
+
+from metatrain.utils.data import Dataset
 
 from .. import PACKAGE_ROOT
 from ..utils.abc import ModelInterface, TrainerInterface
@@ -431,31 +433,15 @@ def train_model(
     # PRINT DATASET STATS #####
     ###########################
 
-    for i, train_dataset in enumerate(train_datasets):
-        if len(train_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
+    if sum(len(d) for d in train_datasets + val_datasets + test_datasets) < 1_000_000:
+        # only print stats if the datasets are not too large (avoids hanging)
+        _print_stats("Training", train_datasets, dataset_info)
+        _print_stats("Validation", val_datasets, dataset_info)
+        _print_stats("Test", test_datasets, dataset_info)
+    else:
         logging.info(
-            f"Training dataset{index}:\n    {get_stats(train_dataset, dataset_info)}"
-        )
-
-    for i, val_dataset in enumerate(val_datasets):
-        if len(val_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
-        logging.info(
-            f"Validation dataset{index}:\n    {get_stats(val_dataset, dataset_info)}"
-        )
-
-    for i, test_dataset in enumerate(test_datasets):
-        if len(test_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
-        logging.info(
-            f"Test dataset{index}:\n    {get_stats(test_dataset, dataset_info)}"
+            "Datasets are too large (>1M total structures) to calculate statistics "
+            "quickly. Skipping statistics."
         )
 
     ###########################
@@ -697,3 +683,14 @@ def _get_batch_size_from_hypers(hypers: Union[Dict, DictConfig]) -> Optional[int
         ):
             return value
     return None
+
+
+def _print_stats(name: str, datasets: List[Dataset], dataset_info: DatasetInfo) -> None:
+    # Prints statistics about the datasets
+
+    for i, dataset in enumerate(datasets):
+        if len(datasets) == 1:
+            index = ""
+        else:
+            index = f" {i}"
+        logging.info(f"{name} dataset{index}:\n    {get_stats(dataset, dataset_info)}")
