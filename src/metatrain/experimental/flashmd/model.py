@@ -1400,18 +1400,21 @@ def verify_masses(systems: list[System], masses: torch.Tensor):
         else:
             # verify that the masses are correct
             # (compare them to the ones stored in the model)
-            system_masses = system.get_data("masses").block(0).values
-            for atom_index in range(len(system)):
-                # get the (model's expected) mass for this atom
-                atomic_number = system.types[atom_index]
-                model_mass = masses[atomic_number]
-
-                # get the mass stored in the system
-                system_mass = system_masses[atom_index, 0]
-                if model_mass != system_mass:
-                    print("MASSES:", masses)
-                    raise ValueError(
-                        f"The mass of atom {atom_index} in a system is {model_mass}, "
-                        f"while the expected mass for atomic number {atomic_number} "
-                        f"is {system_mass}."
-                    )
+            system_masses = system.get_data("masses").block(0).values.squeeze(-1)
+            expected_system_masses = masses[system.types]
+            if not torch.allclose(system_masses, expected_system_masses):
+                # find which atom has the wrong mass
+                for atom_index in range(len(system)):
+                    # get the (model's expected) mass for this atom
+                    atomic_number = system.types[atom_index]
+                    model_mass = masses[atomic_number]
+                    # get the mass stored in the system
+                    system_mass = system_masses[atom_index, 0]
+                    if not torch.allclose(model_mass, system_mass):
+                        raise ValueError(
+                            f"The mass of atom {atom_index} in a system is "
+                            f"{model_mass}, while the expected mass for atomic number "
+                            f"{atomic_number} is {system_mass}. FlashMD is not "
+                            "transferable to systems with different masses than it"
+                            " was trained on."
+                        )
