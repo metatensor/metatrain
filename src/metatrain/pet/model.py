@@ -289,7 +289,8 @@ class PET(ModelInterface):
         The input systems are first converted into a batched representation containing:
 
         - `element_indices_nodes` [n_atoms]: Atomic species of the central atoms
-        - `element_indices_neighbors` [n_edges]: Atomic species of neighboring atoms
+        - `element_indices_neighbors` [n_atoms, max_num_neighbors]: Atomic species of
+          neighboring atoms
         - `edge_vectors` [n_atoms, max_num_neighbors, 3]: Cartesian edge vectors
           between central atoms and their neighbors
         - `padding_mask` [n_atoms, max_num_neighbors]: Mask indicating real vs padded
@@ -425,14 +426,12 @@ class PET(ModelInterface):
             neighbors_index * neighbors_index.shape[1] + reversed_neighbor_list
         )
 
-        # The first option creates too many of the same index which slows down
-        # backward enormously.
-        # neighbors_index[~padding_mask] = 0
-        neighbors_index[~padding_mask] = torch.randint(
-            0,
-            neighbors_index.shape[0] * neighbors_index.shape[1],
-            (int(torch.sum(~padding_mask)),),
-            device=device,
+        # At this point, we have `neighbors_index[~padding_mask] = 0`, which however
+        # creates too many of the same index which slows down backward enormously.
+        # (See see https://github.com/pytorch/pytorch/issues/41162)
+        # We therefore replace the padded indices with a sequence of unique indices.
+        neighbors_index[~padding_mask] = torch.arange(
+            int(torch.sum(~padding_mask)), device=device
         )
 
         # **Stage 1: Feature Computation via GNN Layers**
