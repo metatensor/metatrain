@@ -421,13 +421,27 @@ class PET(ModelInterface):
         cutoff_factors = cutoff_func(edge_distances, self.cutoff, self.cutoff_width)
         cutoff_factors[~padding_mask] = 0.0
 
+        neighbors_index = (
+            neighbors_index * neighbors_index.shape[1] + reversed_neighbor_list
+        )
+
+        # The first option creates too many of the same index which slows down
+        # backward enormously.
+        # neighbors_index[~padding_mask] = 0
+        neighbors_index[~padding_mask] = torch.randint(
+            0,
+            neighbors_index.shape[0] * neighbors_index.shape[1],
+            (int(torch.sum(~padding_mask)),),
+            device=device,
+        )
+
         # **Stage 1: Feature Computation via GNN Layers**
         featurizer_inputs: Dict[str, torch.Tensor] = dict(
             element_indices_nodes=element_indices_nodes,
             element_indices_neighbors=element_indices_neighbors,
             edge_vectors=edge_vectors,
             neighbors_index=neighbors_index,
-            reversed_neighbor_list=reversed_neighbor_list,
+            # reversed_neighbor_list=reversed_neighbor_list,
             padding_mask=padding_mask,
             edge_distances=edge_distances,
             cutoff_factors=cutoff_factors,
@@ -612,9 +626,15 @@ class PET(ModelInterface):
             # from atom `j` to atom `i` in on the GNN layer N+1 is a
             # reversed message from atom `i` to atom `j` on the GNN layer N.
             input_node_embeddings = output_node_embeddings
-            new_input_edge_embeddings = output_edge_embeddings[
-                inputs["neighbors_index"], inputs["reversed_neighbor_list"]
-            ]
+            with torch.profiler.record_function("reorder_messages"):
+                new_input_edge_embeddings = output_edge_embeddings.reshape(
+                    output_edge_embeddings.shape[0] * output_edge_embeddings.shape[1],
+                    output_edge_embeddings.shape[2],
+                )[inputs["neighbors_index"]].reshape(
+                    output_edge_embeddings.shape[0],
+                    output_edge_embeddings.shape[1],
+                    output_edge_embeddings.shape[2],
+                )
             # input_messages = 0.5 * (output_edge_embeddings + new_input_messages)
             concatenated = torch.cat(
                 [output_edge_embeddings, new_input_edge_embeddings], dim=-1
