@@ -236,6 +236,11 @@ class Scaler(torch.nn.Module):
         for i, atomic_type in enumerate(merged_atomic_types):
             self.model.type_to_index[atomic_type] = i
 
+        self.atomic_types = merged_atomic_types
+        self.model.atomic_types = torch.as_tensor(
+            merged_atomic_types, dtype=torch.int32
+        )
+
         self.target_infos = {
             target_name: target_info
             for target_name, target_info in merged_info.targets.items()

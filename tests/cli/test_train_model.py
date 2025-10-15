@@ -787,7 +787,12 @@ def test_transfer_learn_new_atom_types(options_pet, caplog, monkeypatch, tmp_pat
     caplog.set_level(logging.INFO)
     train_model(options_pet_transfer_learn_new_types)
 
-    assert "New atomic types found in the dataset: [3, 15, 16]" in caplog.text
+    match = (
+        r"New atomic types found in the dataset, compared to the "
+        r"previous training run: [3, 15, 16]."
+    )
+
+    assert match in caplog.text
 
 
 @pytest.mark.parametrize("move_folder", [True, False])
