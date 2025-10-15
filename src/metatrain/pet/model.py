@@ -626,15 +626,14 @@ class PET(ModelInterface):
             # from atom `j` to atom `i` in on the GNN layer N+1 is a
             # reversed message from atom `i` to atom `j` on the GNN layer N.
             input_node_embeddings = output_node_embeddings
-            with torch.profiler.record_function("reorder_messages"):
-                new_input_edge_embeddings = output_edge_embeddings.reshape(
-                    output_edge_embeddings.shape[0] * output_edge_embeddings.shape[1],
-                    output_edge_embeddings.shape[2],
-                )[inputs["neighbors_index"]].reshape(
-                    output_edge_embeddings.shape[0],
-                    output_edge_embeddings.shape[1],
-                    output_edge_embeddings.shape[2],
-                )
+            new_input_edge_embeddings = output_edge_embeddings.reshape(
+                output_edge_embeddings.shape[0] * output_edge_embeddings.shape[1],
+                output_edge_embeddings.shape[2],
+            )[inputs["neighbors_index"]].reshape(
+                output_edge_embeddings.shape[0],
+                output_edge_embeddings.shape[1],
+                output_edge_embeddings.shape[2],
+            )
             # input_messages = 0.5 * (output_edge_embeddings + new_input_messages)
             concatenated = torch.cat(
                 [output_edge_embeddings, new_input_edge_embeddings], dim=-1
@@ -688,9 +687,14 @@ class PET(ModelInterface):
             # using a reversed neighbor list, so the new input message
             # from atom `j` to atom `i` in on the GNN layer N+1 is a
             # reversed message from atom `i` to atom `j` on the GNN layer N.
-            new_input_messages = output_edge_embeddings[
-                inputs["neighbors_index"], inputs["reversed_neighbor_list"]
-            ]
+            new_input_messages = output_edge_embeddings.reshape(
+                output_edge_embeddings.shape[0] * output_edge_embeddings.shape[1],
+                output_edge_embeddings.shape[2],
+            )[inputs["neighbors_index"]].reshape(
+                output_edge_embeddings.shape[0],
+                output_edge_embeddings.shape[1],
+                output_edge_embeddings.shape[2],
+            )
             input_edge_embeddings = 0.5 * (input_edge_embeddings + new_input_messages)
         return node_features_list, edge_features_list
 
