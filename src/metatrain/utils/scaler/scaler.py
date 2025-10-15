@@ -271,7 +271,7 @@ class Scaler(torch.nn.Module):
                     )
                 else:
                     new_weights_tmap = weights_tmap
-                self.model.weights[target_name] = new_weights_tmap
+                self.model.scales[target_name] = new_weights_tmap
 
         self.atomic_types = merged_atomic_types
         self.model.atomic_types = torch.as_tensor(
