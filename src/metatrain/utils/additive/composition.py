@@ -293,9 +293,9 @@ class CompositionModel(torch.nn.Module):
             "type_to_index",
             torch.full((max(merged_atomic_types) + 1,), -1, dtype=torch.long),
         )
-
         for i, atomic_type in enumerate(merged_atomic_types):
             self.model.type_to_index[atomic_type] = i
+
         new_atomic_types = [
             at for at in merged_atomic_types if at not in self.atomic_types
         ]
