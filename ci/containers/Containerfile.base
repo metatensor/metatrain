@@ -7,5 +7,11 @@ RUN apt update && \
 
 RUN python3 -m pip install --break-system-packages tox
 
+# Install uv, using the recommended script
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+# Setup tox for uv usage
+ENV ENV_INSTALLER="uv pip"
+
 ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu129
 ENV CUDA_HOME="/usr/local/cuda"
