@@ -66,28 +66,24 @@ class Trainer(TrainerInterface):
         is_distributed = self.hypers["distributed"]
 
         if is_distributed:
-            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
-            torch.distributed.init_process_group(backend="nccl")
-            world_size = torch.distributed.get_world_size()
-            rank = torch.distributed.get_rank()
-        else:
-            rank = 0
-
-        if is_distributed:
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with NanoPET, please "
+                    " If you want to run distributed training with nanoPET, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
             # processes are not visible to each other and when they are
+            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
             device_number = distr_env.local_rank % torch.cuda.device_count()
             device = torch.device("cuda", device_number)
+            torch.distributed.init_process_group(backend="nccl", device_id=device)
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
         else:
-            device = devices[
-                0
-            ]  # only one device, as we don't support multi-gpu for now
+            rank = 0
+            device = devices[0]
+            # only one device, as we don't support non-distributed multi-gpu for now
 
         if is_distributed:
             logging.info(f"Training on {world_size} devices with dtype {dtype}")
