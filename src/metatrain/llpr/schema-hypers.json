@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "enum": [
+        "llpr"
+      ]
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "ensembles": {
+          "type": "object",
+          "properties": {
+            "means": {
+              "type": "object",
+              "patternProperties": {
+                ".*": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "num_members": {
+              "type": "object",
+              "patternProperties": {
+                ".*": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "additionalProperties": false
+      },
+      "additionalProperties": false
+    },
+    "training": {
+      "type": "object",
+      "properties": {
+        "batch_size": {
+          "type": "integer"
+        },
+        "model_checkpoint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "regularizer": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "atomic_types": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "uniqueItems": true
+    }
+  }
+}

@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Mac OS system files
+.DS_Store
+
 # C extensions
 *.so
 
@@ -174,7 +177,6 @@ extensions/
 # sphinx gallery
 docs/src/examples
 *execution_times*
-qm9_reduced_100.zip
 
 # JavaScript
 node_modules/

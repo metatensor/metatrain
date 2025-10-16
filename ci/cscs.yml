@@ -40,14 +40,16 @@ test tox:
   stage: test
   extends: .container-runner-daint-gh200
   image: $BASE_IMAGE
-  timeout: 1h
+  timeout: 24h
   script:
-    - tox -r
+    - rm -rf /tmp/tox/
+    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    - tox --workdir /tmp/tox/ --list-dependencies
   variables:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
     SLURM_NTASKS: 1
-    SLURM_TIMELIMIT: '01:00:00'
+    SLURM_TIMELIMIT: '00:20:00'
     GIT_STRATEGY: fetch
 
 # Run distributed training (single node, multiple GPUs)
@@ -55,7 +57,7 @@ test distributed:
   stage: test
   extends: .container-runner-daint-gh200
   image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
-  timeout: 1h
+  timeout: 24h
   script:
     - . /mtt-venv/bin/activate
     - cd /metatrain/tests/distributed

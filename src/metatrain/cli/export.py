@@ -14,7 +14,10 @@ from .formatter import CustomHelpFormatter
 
 
 def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
-    """Add `export_model` paramaters to an argparse (sub)-parser."""
+    """Add `export_model` paramaters to an argparse (sub)-parser.
+
+    :param subparser: The argparse (sub)-parser to add the parameters to.
+    """
 
     if export_model.__doc__ is not None:
         description = export_model.__doc__.split(r":param")[0]
@@ -83,7 +86,10 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 
 def _prepare_export_model_args(args: argparse.Namespace) -> None:
-    """Prepare arguments for export_model."""
+    """Prepare arguments for export_model.
+
+    :param args: The argparse.Namespace containing the arguments.
+    """
 
     hf_token = args.__dict__.get("hf_token", None)
 
@@ -172,10 +178,12 @@ def export_model(
         logging.info(f"Model exported to '{path}'")
 
 
-def _has_extensions():
+def _has_extensions() -> bool:
     """
     Check if any torch extensions are currently loaded, except for metatensor_torch and
     metatomic_torch.
+
+    :return: Whether extensions are loaded or not.
     """
     loaded_libraries = torch.ops.loaded_libraries
     for lib in loaded_libraries:

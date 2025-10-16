@@ -16,7 +16,7 @@ be used in this way.
 import torch
 from metatomic.torch import ModelOutput
 
-from metatrain.experimental.nanopet import NanoPET
+from metatrain.pet import PET
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, read_systems
 from metatrain.utils.neighbor_lists import (
@@ -36,27 +36,27 @@ systems = [s.to(torch.float32) for s in systems]
 
 # %%
 #
-# Define the custom model using the NanoPET architecture as a building block.
+# Define the custom model using the PET architecture as a building block.
 # The dummy architecture here adds a linear layer and a tanh activation function
-# on top of the NanoPET model.
+# on top of the PET model.
 
 
-class NanoPETWithTanh(torch.nn.Module):
+class PETWithTanh(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.nanopet = NanoPET(
-            get_default_hypers("experimental.nanopet")["model"],
+        self.pet = PET(
+            get_default_hypers("pet")["model"],
             DatasetInfo(
                 length_unit="angstrom",
                 atomic_types=[1, 6, 7, 8, 9],
                 targets={},
             ),
         )
-        self.linear = torch.nn.Linear(128, 1)
+        self.linear = torch.nn.Linear(384, 1)
         self.tanh = torch.nn.Tanh()
 
     def forward(self, systems):
-        model_outputs = self.nanopet(
+        model_outputs = self.pet(
             systems,
             {"features": ModelOutput()},
             # ModelOutput(per_atom=True) would give per-atom features
@@ -72,7 +72,7 @@ class NanoPETWithTanh(torch.nn.Module):
 my_targets = torch.randn(100, 1)
 
 # instantiate the model
-model = NanoPETWithTanh()
+model = PETWithTanh()
 
 # all metatrain models require neighbor lists to be present in the input systems
 systems = [

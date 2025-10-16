@@ -10,7 +10,7 @@ class ArchitectureError(Exception):
         custom exception.
     """
 
-    def __init__(self, exception):
+    def __init__(self, exception: Exception):
         super().__init__(
             f"{exception.__class__.__name__}: {exception}\n\n"
             "The error above most likely originates from an architecture.\n\n"
@@ -30,7 +30,7 @@ class OutOfMemoryError(Exception):
         custom exception.
     """
 
-    def __init__(self, exception):
+    def __init__(self, exception: Exception):
         super().__init__(
             f"{exception}\n\n"
             "The error above likely means that the model ran out of memory during "

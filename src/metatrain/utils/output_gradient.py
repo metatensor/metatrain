@@ -12,6 +12,14 @@ def compute_gradient(
 
     ``target`` must be a single torch.Tensor object. If target contains multiple values,
     the gradient will be calculated with respect to the sum of all values.
+
+    :param target: The tensor for which the gradient is to be computed.
+    :param inputs: A list of tensors with respect to which the gradient is computed.
+    :param is_training: A boolean indicating whether the model is in training mode.
+        If True, the computation graph is retained for further gradient computations.
+        If False, the graph is not retained, which saves memory.
+    :return: A list of tensors representing the gradients of the target with respect to
+        each input
     """
 
     grad_outputs: Optional[List[Optional[torch.Tensor]]] = [torch.ones_like(target)]

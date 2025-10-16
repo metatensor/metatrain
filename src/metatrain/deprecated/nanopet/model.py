@@ -1,0 +1,717 @@
+import warnings
+from math import prod
+from typing import Any, Dict, List, Literal, Optional
+
+import metatensor.torch as mts
+import torch
+from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import (
+    AtomisticModel,
+    ModelCapabilities,
+    ModelMetadata,
+    ModelOutput,
+    NeighborListOptions,
+    System,
+)
+
+from metatrain.utils.abc import ModelInterface
+from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
+from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.scaler import Scaler
+from metatrain.utils.sum_over_atoms import sum_over_atoms
+
+from . import checkpoints
+from .modules.encoder import Encoder
+from .modules.nef import (
+    edge_array_to_nef,
+    get_corresponding_edges,
+    get_nef_indices,
+    nef_array_to_edges,
+)
+from .modules.radial_mask import get_radial_mask
+from .modules.structures import concatenate_structures
+from .modules.transformer import Transformer
+
+
+class NanoPET(ModelInterface):
+    """
+    Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302).
+
+    The positions and atomic species are encoded into a high-dimensional space
+    using a simple encoder. The resulting features (in NEF, or Node-Edge-Feature
+    format*) are then processed by a series of transformer layers. This process is
+    repeated for a number of message-passing layers, where features are exchanged
+    between corresponding edges (ij and ji). The final representation is used to
+    predict atomic properties through decoders named "heads".
+
+    * NEF format: a three-dimensional tensor where the first dimension corresponds
+    to the nodes, the second to the edges corresponding to the neighbors of the
+    node (padded as different nodes might have different numbers of edges),
+    and the third to the features.
+    """
+
+    __checkpoint_version__ = 3
+    __supported_devices__ = ["cuda", "cpu"]
+    __supported_dtypes__ = [torch.float64, torch.float32]
+    __default_metadata__ = ModelMetadata(
+        references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
+    )
+
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
+
+        self.new_outputs = list(dataset_info.targets.keys())
+        self.atomic_types = dataset_info.atomic_types
+
+        self.requested_nl = NeighborListOptions(
+            cutoff=self.hypers["cutoff"],
+            full_list=True,
+            strict=True,
+        )
+
+        self.cutoff = float(self.hypers["cutoff"])
+        self.cutoff_width = float(self.hypers["cutoff_width"])
+
+        self.encoder = Encoder(len(self.atomic_types), self.hypers["d_pet"])
+
+        self.transformer = Transformer(
+            self.hypers["d_pet"],
+            4 * self.hypers["d_pet"],
+            self.hypers["num_heads"],
+            self.hypers["num_attention_layers"],
+            0.0,  # MLP dropout rate
+            0.0,  # attention dropout rate
+        )
+        # empirically, the model seems to perform better without dropout
+
+        self.num_mp_layers = self.hypers["num_gnn_layers"] - 1
+        gnn_contractions = []
+        gnn_transformers = []
+        for _ in range(self.num_mp_layers):
+            gnn_contractions.append(
+                torch.nn.Linear(
+                    2 * self.hypers["d_pet"], self.hypers["d_pet"], bias=False
+                )
+            )
+            gnn_transformers.append(
+                Transformer(
+                    self.hypers["d_pet"],
+                    4 * self.hypers["d_pet"],
+                    self.hypers["num_heads"],
+                    self.hypers["num_attention_layers"],
+                    0.0,  # MLP dropout rate
+                    0.0,  # attention dropout rate
+                )
+            )
+        self.gnn_contractions = torch.nn.ModuleList(gnn_contractions)
+        self.gnn_transformers = torch.nn.ModuleList(gnn_transformers)
+
+        self.last_layer_feature_size = self.hypers["d_pet"]
+
+        self.outputs = {
+            "features": ModelOutput(unit="", per_atom=True)
+        }  # the model is always capable of outputting the internal features
+
+        self.heads = torch.nn.ModuleDict()
+        self.head_types = self.hypers["heads"]
+        self.last_layers = torch.nn.ModuleDict()
+        for target_name, target_info in dataset_info.targets.items():
+            self._add_output(target_name, target_info)
+
+        self.register_buffer(
+            "species_to_species_index",
+            torch.full(
+                (max(self.atomic_types) + 1,),
+                -1,
+            ),
+        )
+        for i, species in enumerate(self.atomic_types):
+            self.species_to_species_index[species] = i
+
+        # long-range module
+        if self.hypers["long_range"]["enable"]:
+            self.long_range = True
+            self.long_range_featurizer = LongRangeFeaturizer(
+                hypers=self.hypers["long_range"],
+                feature_dim=self.hypers["d_pet"],
+                neighbor_list_options=self.requested_nl,
+            )
+        else:
+            self.long_range = False
+            self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
+
+        # additive models: these are handled by the trainer at training
+        # time, and they are added to the output at evaluation time
+        composition_model = CompositionModel(
+            hypers={},
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=self.atomic_types,
+                targets={
+                    target_name: target_info
+                    for target_name, target_info in dataset_info.targets.items()
+                    if CompositionModel.is_valid_target(target_name, target_info)
+                },
+            ),
+        )
+        additive_models = [composition_model]
+        if self.hypers["zbl"]:
+            additive_models.append(
+                ZBL(
+                    {},
+                    dataset_info=DatasetInfo(
+                        length_unit=dataset_info.length_unit,
+                        atomic_types=self.atomic_types,
+                        targets={
+                            target_name: target_info
+                            for target_name, target_info in dataset_info.targets.items()
+                            if ZBL.is_valid_target(target_name, target_info)
+                        },
+                    ),
+                )
+            )
+        self.additive_models = torch.nn.ModuleList(additive_models)
+
+        # scaler: this is also handled by the trainer at training time
+        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
+
+        self.single_label = Labels.single()
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
+
+    def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
+        # merge old and new dataset info
+        merged_info = self.dataset_info.union(dataset_info)
+        new_atomic_types = [
+            at for at in merged_info.atomic_types if at not in self.atomic_types
+        ]
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in self.dataset_info.targets
+        }
+        self.has_new_targets = len(new_targets) > 0
+
+        if len(new_atomic_types) > 0:
+            raise ValueError(
+                f"New atomic types found in the dataset: {new_atomic_types}. "
+                "The nanoPET model does not support adding new atomic types."
+            )
+
+        # register new outputs as new last layers
+        for target_name, target in new_targets.items():
+            self._add_output(target_name, target)
+
+        self.dataset_info = merged_info
+
+        # restart the composition and scaler models
+        self.additive_models[0] = self.additive_models[0].restart(
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=self.atomic_types,
+                targets={
+                    target_name: target_info
+                    for target_name, target_info in dataset_info.targets.items()
+                    if CompositionModel.is_valid_target(target_name, target_info)
+                },
+            ),
+        )
+        self.scaler = self.scaler.restart(dataset_info)
+
+        return self
+
+    def forward(
+        self,
+        systems: List[System],
+        outputs: Dict[str, ModelOutput],
+        selected_atoms: Optional[Labels] = None,
+    ) -> Dict[str, TensorMap]:
+        # Checks on systems (species) and outputs are done in the
+        # AtomisticModel wrapper
+
+        device = systems[0].device
+
+        self.single_label = self.single_label.to(device)
+        self.dataset_info = self.dataset_info.to(device)
+
+        system_indices = torch.concatenate(
+            [
+                torch.full(
+                    (len(system),),
+                    i_system,
+                    device=device,
+                )
+                for i_system, system in enumerate(systems)
+            ],
+        )
+
+        sample_values = torch.stack(
+            [
+                system_indices,
+                torch.concatenate(
+                    [
+                        torch.arange(
+                            len(system),
+                            device=device,
+                        )
+                        for system in systems
+                    ],
+                ),
+            ],
+            dim=1,
+        )
+        sample_labels = Labels(
+            names=["system", "atom"],
+            values=sample_values,
+            assume_unique=True,
+        )
+
+        (
+            positions,
+            centers,
+            neighbors,
+            species,
+            cells,
+            cell_shifts,
+        ) = concatenate_structures(systems, self.requested_nl)
+
+        # somehow the backward of this operation is very slow at evaluation,
+        # where there is only one cell, therefore we simplify the calculation
+        # for that case
+        if len(cells) == 1:
+            cell_contributions = cell_shifts.to(cells.dtype) @ cells[0]
+        else:
+            cell_contributions = torch.einsum(
+                "ab, abc -> ac",
+                cell_shifts.to(cells.dtype),
+                cells[system_indices[centers]],
+            )
+
+        edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
+
+        bincount = torch.bincount(centers)
+        if bincount.numel() == 0:  # no edges
+            max_edges_per_node = 0
+        else:
+            max_edges_per_node = int(torch.max(bincount))
+
+        # Convert to NEF (Node-Edge-Feature) format:
+        nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
+            centers, len(positions), max_edges_per_node
+        )
+
+        # Get radial mask
+        r = torch.sqrt(torch.sum(edge_vectors**2, dim=-1))
+        radial_mask = get_radial_mask(r, self.cutoff, self.cutoff - self.cutoff_width)
+
+        # Element indices
+        element_indices_nodes = self.species_to_species_index[species]
+        element_indices_centers = element_indices_nodes[centers]
+        element_indices_neighbors = element_indices_nodes[neighbors]
+
+        # Send everything to NEF:
+        edge_vectors = edge_array_to_nef(edge_vectors, nef_indices)
+        radial_mask = edge_array_to_nef(
+            radial_mask, nef_indices, nef_mask, fill_value=0.0
+        )
+        element_indices_centers = edge_array_to_nef(
+            element_indices_centers, nef_indices
+        )
+        element_indices_neighbors = edge_array_to_nef(
+            element_indices_neighbors, nef_indices
+        )
+
+        features = {
+            "cartesian": edge_vectors,
+            "center": element_indices_centers,
+            "neighbor": element_indices_neighbors,
+        }
+
+        # Encode
+        features = self.encoder(features)
+
+        # Transformer
+        features = self.transformer(features, radial_mask)
+
+        # GNN
+        if self.num_mp_layers > 0:
+            corresponding_edges = get_corresponding_edges(
+                torch.concatenate(
+                    [centers.unsqueeze(-1), neighbors.unsqueeze(-1), cell_shifts],
+                    dim=-1,
+                )
+            )
+            for contraction, transformer in zip(
+                self.gnn_contractions, self.gnn_transformers, strict=True
+            ):
+                new_features = nef_array_to_edges(
+                    features, centers, nef_to_edges_neighbor
+                )
+                corresponding_new_features = new_features[corresponding_edges]
+                new_features = torch.concatenate(
+                    [new_features, corresponding_new_features], dim=-1
+                )
+                new_features = contraction(new_features)
+                new_features = edge_array_to_nef(new_features, nef_indices)
+                new_features = transformer(new_features, radial_mask)
+                features = (features + new_features) * 0.5**0.5
+
+        edge_features = features * radial_mask[:, :, None]
+        node_features = torch.sum(edge_features, dim=1)
+
+        if self.long_range:
+            long_range_node_features = self.long_range_featurizer(
+                systems, node_features, r
+            )
+            node_features = (node_features + long_range_node_features) * 0.5**0.5
+
+        return_dict: Dict[str, TensorMap] = {}
+
+        # output the hidden features, if requested:
+        if "features" in outputs:
+            feature_tmap = TensorMap(
+                keys=self.single_label,
+                blocks=[
+                    TensorBlock(
+                        values=node_features,
+                        samples=sample_labels,
+                        components=[],
+                        properties=Labels(
+                            names=["feature"],
+                            values=torch.arange(
+                                node_features.shape[-1], device=node_features.device
+                            ).reshape(-1, 1),
+                            assume_unique=True,
+                        ),
+                    )
+                ],
+            )
+            features_options = outputs["features"]
+            if features_options.per_atom:
+                return_dict["features"] = feature_tmap
+            else:
+                return_dict["features"] = sum_over_atoms(feature_tmap)
+
+        atomic_features_dict: Dict[str, torch.Tensor] = {}
+        for output_name, head in self.heads.items():
+            atomic_features_dict[output_name] = head(node_features)
+
+        # output the last-layer features for the outputs, if requested:
+        for output_name in outputs.keys():
+            if not (
+                output_name.startswith("mtt::aux::")
+                and output_name.endswith("_last_layer_features")
+            ):
+                continue
+            base_name = output_name.replace("mtt::aux::", "").replace(
+                "_last_layer_features", ""
+            )
+            # the corresponding output could be base_name or mtt::base_name
+            if (
+                f"mtt::{base_name}" not in atomic_features_dict
+                and base_name not in atomic_features_dict
+            ):
+                raise ValueError(
+                    f"Features {output_name} can only be requested "
+                    f"if the corresponding output {base_name} is also requested."
+                )
+            if f"mtt::{base_name}" in atomic_features_dict:
+                base_name = f"mtt::{base_name}"
+            last_layer_feature_tmap = TensorMap(
+                keys=self.single_label,
+                blocks=[
+                    TensorBlock(
+                        values=atomic_features_dict[base_name],
+                        samples=sample_labels,
+                        components=[],
+                        properties=Labels(
+                            names=["feature"],
+                            values=torch.arange(
+                                atomic_features_dict[base_name].shape[-1],
+                                device=atomic_features_dict[base_name].device,
+                            ).reshape(-1, 1),
+                            assume_unique=True,
+                        ),
+                    )
+                ],
+            )
+            last_layer_features_options = outputs[output_name]
+            if last_layer_features_options.per_atom:
+                return_dict[output_name] = last_layer_feature_tmap
+            else:
+                return_dict[output_name] = sum_over_atoms(
+                    last_layer_feature_tmap,
+                )
+
+        atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
+        for output_name, last_layer in self.last_layers.items():
+            target_info = self.dataset_info.targets[output_name]
+
+            if output_name in outputs:
+                atomic_features = atomic_features_dict[output_name]
+                atomic_properties_by_block = []
+                for last_layer_by_block in last_layer.values():
+                    atomic_properties_by_block.append(
+                        last_layer_by_block(atomic_features)
+                    )
+                all_components = target_info.component_labels
+                if len(all_components[0]) == 2 and all(
+                    "xyz" in comp.names[0] for comp in all_components[0]
+                ):
+                    # rank-2 Cartesian tensor, symmetrize
+                    tensor_as_three_by_three = atomic_properties_by_block[0].reshape(
+                        -1, 3, 3, list(target_info.blocks_shape.values())[0][-1]
+                    )
+                    volumes = torch.stack(
+                        [torch.abs(torch.det(system.cell)) for system in systems]
+                    )
+                    volumes_by_atom = (
+                        volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+                    )
+                    tensor_as_three_by_three = (
+                        tensor_as_three_by_three / volumes_by_atom
+                    )
+                    tensor_as_three_by_three = (
+                        tensor_as_three_by_three
+                        + tensor_as_three_by_three.transpose(1, 2)
+                    ) / 2.0
+                    atomic_properties_by_block[0] = tensor_as_three_by_three
+
+                blocks = [
+                    TensorBlock(
+                        values=atomic_property.reshape([-1] + shape),
+                        samples=sample_labels,
+                        components=components,
+                        properties=properties,
+                    )
+                    for atomic_property, shape, components, properties in zip(
+                        atomic_properties_by_block,
+                        target_info.blocks_shape.values(),
+                        target_info.component_labels,
+                        target_info.property_labels,
+                        strict=True,
+                    )
+                ]
+                atomic_properties_tmap_dict[output_name] = TensorMap(
+                    keys=target_info.layout.keys,
+                    blocks=blocks,
+                )
+
+        if selected_atoms is not None:
+            for output_name, tmap in atomic_properties_tmap_dict.items():
+                atomic_properties_tmap_dict[output_name] = mts.slice(
+                    tmap, axis="samples", selection=selected_atoms
+                )
+
+        for output_name, atomic_property in atomic_properties_tmap_dict.items():
+            if outputs[output_name].per_atom:
+                return_dict[output_name] = atomic_property
+            else:
+                return_dict[output_name] = sum_over_atoms(atomic_property)
+
+        if not self.training:
+            # at evaluation, we also introduce the scaler and additive contributions
+            return_dict = self.scaler(systems, return_dict)
+            for additive_model in self.additive_models:
+                outputs_for_additive_model: Dict[str, ModelOutput] = {}
+                for name, output in outputs.items():
+                    if name in additive_model.outputs:
+                        outputs_for_additive_model[name] = output
+                additive_contributions = additive_model(
+                    systems,
+                    outputs_for_additive_model,
+                    selected_atoms,
+                )
+                for name in additive_contributions:
+                    return_dict[name] = mts.add(
+                        return_dict[name],
+                        additive_contributions[name],
+                    )
+
+        return return_dict
+
+    def requested_neighbor_lists(
+        self,
+    ) -> List[NeighborListOptions]:
+        return [self.requested_nl]
+
+    @classmethod
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "NanoPET":
+        if context == "restart":
+            model_state_dict = checkpoint["model_state_dict"]
+        elif context == "finetune" or context == "export":
+            model_state_dict = checkpoint["best_model_state_dict"]
+            if model_state_dict is None:
+                model_state_dict = checkpoint["model_state_dict"]
+        else:
+            raise ValueError("Unknown context tag for checkpoint loading!")
+
+        # Create the model
+        model_data = checkpoint["model_data"]
+        model = cls(
+            hypers=model_data["model_hypers"],
+            dataset_info=model_data["dataset_info"],
+        )
+        state_dict_iter = iter(model_state_dict.values())
+        next(state_dict_iter)  # skip `species_to_species_index` buffer (int)
+        dtype = next(state_dict_iter).dtype
+        model.to(dtype).load_state_dict(model_state_dict)
+        model.additive_models[0].sync_tensor_maps()
+        model.scaler.sync_tensor_maps()
+
+        # Loading the metadata from the checkpoint
+        model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
+
+        return model
+
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
+        dtype = next(self.parameters()).dtype
+        if dtype not in self.__supported_dtypes__:
+            raise ValueError(f"unsupported dtype {dtype} for NanoPET")
+
+        # Make sure the model is all in the same dtype
+        # For example, after training, the additive models could still be in
+        # float64
+        self.to(dtype)
+
+        # Move dataset info to CPU so that it can be saved
+        self.dataset_info = self.dataset_info.to(device="cpu")
+
+        # Additionally, the composition model contains some `TensorMap`s that cannot
+        # be registered correctly with Pytorch. This funciton moves them:
+        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
+
+        interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
+        for additive_model in self.additive_models:
+            if hasattr(additive_model, "cutoff_radius"):
+                interaction_ranges.append(additive_model.cutoff_radius)
+            if self.long_range:
+                interaction_ranges.append(torch.inf)
+        interaction_range = max(interaction_ranges)
+
+        capabilities = ModelCapabilities(
+            outputs=self.outputs,
+            atomic_types=self.atomic_types,
+            interaction_range=interaction_range,
+            length_unit=self.dataset_info.length_unit,
+            supported_devices=self.__supported_devices__,
+            dtype=dtype_to_str(dtype),
+        )
+
+        metadata = merge_metadata(self.metadata, metadata)
+
+        return AtomisticModel(self.eval(), metadata, capabilities)
+
+    def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
+        # warn that, for Cartesian tensors, we assume that they are symmetric
+        if target_info.is_cartesian:
+            if len(target_info.layout.block().components) == 2:
+                warnings.warn(
+                    "NanoPET assumes that Cartesian tensors of rank 2 are "
+                    "stress-like, meaning that they are symmetric and intensive. "
+                    "If this is not the case, please use a different model.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            # error out for rank > 2
+            if len(target_info.layout.block().components) > 2:
+                raise ValueError(
+                    "NanoPET does not support Cartesian tensors with rank > 2."
+                )
+
+        self.outputs[target_name] = ModelOutput(
+            quantity=target_info.quantity,
+            unit=target_info.unit,
+            per_atom=True,
+        )
+        if (
+            target_name not in self.head_types  # default to MLP
+            or self.head_types[target_name] == "mlp"
+        ):
+            self.heads[target_name] = torch.nn.Sequential(
+                torch.nn.Linear(
+                    self.hypers["d_pet"], 4 * self.hypers["d_pet"], bias=False
+                ),
+                torch.nn.SiLU(),
+                torch.nn.Linear(
+                    4 * self.hypers["d_pet"], self.hypers["d_pet"], bias=False
+                ),
+                torch.nn.SiLU(),
+            )
+        elif self.head_types[target_name] == "linear":
+            self.heads[target_name] = torch.nn.Sequential()
+        else:
+            raise ValueError(
+                f"Unsupported head type {self.head_types[target_name]} "
+                f"for target {target_name}"
+            )
+
+        ll_features_name = (
+            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
+        )
+        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+
+        self.last_layers[target_name] = torch.nn.ModuleDict(
+            {
+                key: torch.nn.Linear(
+                    self.hypers["d_pet"],
+                    prod(shape),
+                    bias=False,
+                )
+                for key, shape in target_info.blocks_shape.items()
+            }
+        )
+
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
+
+        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current model "
+                f"version is {cls.__checkpoint_version__}."
+            )
+
+        return checkpoint
+
+    def get_checkpoint(self) -> Dict:
+        checkpoint = {
+            "architecture_name": "deprecated.nanopet",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.metadata,
+            "model_data": {
+                "model_hypers": self.hypers,
+                "dataset_info": self.dataset_info.to(device="cpu"),
+            },
+            "model_state_dict": self.state_dict(),
+            "best_model_state_dict": None,
+        }
+        return checkpoint
+
+
+def manual_prod(shape: List[int]) -> int:
+    """
+    Compute the product of a list of integers, since prod from standard library not
+    supported in torchscript
+
+    :param shape: list of integers
+    :return: product of the integers
+    """
+
+    result = 1
+    for dim in shape:
+        result *= dim
+    return result

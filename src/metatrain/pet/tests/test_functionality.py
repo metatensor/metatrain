@@ -1,7 +1,6 @@
 import metatensor.torch as mts
 import pytest
 import torch
-from jsonschema.exceptions import ValidationError
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
@@ -24,7 +23,9 @@ def test_prediction():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
 
@@ -49,7 +50,9 @@ def test_pet_padding():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
 
@@ -100,7 +103,9 @@ def test_prediction_subset_elements():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
 
@@ -131,7 +136,9 @@ def test_prediction_subset_atoms():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
 
@@ -205,7 +212,9 @@ def test_output_last_layer_features():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
 
@@ -240,16 +249,21 @@ def test_output_last_layer_features():
     assert "mtt::aux::energy_last_layer_features" in outputs
 
     features = outputs["features"].block()
+    num_readout_layers = (
+        1
+        if MODEL_HYPERS["featurizer_type"] == "feedforward"
+        else MODEL_HYPERS["num_gnn_layers"]
+    )
     assert features.samples.names == [
         "system",
         "atom",
     ]
     assert features.values.shape == (
         4,
-        MODEL_HYPERS["d_pet"] * MODEL_HYPERS["num_gnn_layers"] * 2,
+        (MODEL_HYPERS["d_node"] + MODEL_HYPERS["d_pet"]) * num_readout_layers,
     )
     assert features.properties.names == [
-        "properties",
+        "feature",
     ]
 
     last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block()
@@ -259,10 +273,10 @@ def test_output_last_layer_features():
     ]
     assert last_layer_features.values.shape == (
         4,
-        MODEL_HYPERS["d_head"] * MODEL_HYPERS["num_gnn_layers"] * 2,
+        MODEL_HYPERS["d_head"] * num_readout_layers * 2,
     )
     assert last_layer_features.properties.names == [
-        "properties",
+        "feature",
     ]
 
     # last-layer features per system:
@@ -289,7 +303,7 @@ def test_output_last_layer_features():
     ]
     assert features.values.shape == (
         1,
-        MODEL_HYPERS["d_pet"] * MODEL_HYPERS["num_gnn_layers"] * 2,
+        (MODEL_HYPERS["d_node"] + MODEL_HYPERS["d_pet"]) * num_readout_layers,
     )
 
     assert outputs["mtt::aux::energy_last_layer_features"].block().samples.names == [
@@ -297,10 +311,10 @@ def test_output_last_layer_features():
     ]
     assert outputs["mtt::aux::energy_last_layer_features"].block().values.shape == (
         1,
-        MODEL_HYPERS["d_head"] * MODEL_HYPERS["num_gnn_layers"] * 2,
+        MODEL_HYPERS["d_head"] * num_readout_layers * 2,
     )
     assert outputs["mtt::aux::energy_last_layer_features"].block().properties.names == [
-        "properties",
+        "feature",
     ]
 
 
@@ -310,7 +324,9 @@ def test_output_per_atom():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
 
@@ -353,11 +369,11 @@ def test_fixed_composition_weights():
 
 
 def test_fixed_composition_weights_error():
-    """Test that only inputd of type Dict[str, Dict[int, float]] are allowed."""
+    """Test that only input of type Dict[str, Dict[int, float]] are allowed."""
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["fixed_composition_weights"] = {"energy": {"H": 300.0}}
     hypers = OmegaConf.create(hypers)
-    with pytest.raises(ValidationError, match=r"'H' does not match '\^\[0-9\]\+\$'"):
+    with pytest.raises(ValueError, match=r"'H' does not match '\^\[0-9\]\+\$'"):
         check_architecture_options(name="pet", options=OmegaConf.to_container(hypers))
 
 
@@ -370,13 +386,14 @@ def test_vector_output(per_atom):
         atomic_types=[1, 6, 7, 8],
         targets={
             "forces": get_generic_target_info(
+                "forces",
                 {
                     "quantity": "forces",
                     "unit": "",
                     "type": {"cartesian": {"rank": 1}},
                     "num_subtargets": 100,
                     "per_atom": per_atom,
-                }
+                },
             )
         },
     )
@@ -405,6 +422,7 @@ def test_spherical_output(per_atom):
         atomic_types=[1, 6, 7, 8],
         targets={
             "spherical_tensor": get_generic_target_info(
+                "spherical_tensor",
                 {
                     "quantity": "spherical_tensor",
                     "unit": "",
@@ -413,7 +431,7 @@ def test_spherical_output(per_atom):
                     },
                     "num_subtargets": 100,
                     "per_atom": per_atom,
-                }
+                },
             )
         },
     )
@@ -443,6 +461,7 @@ def test_spherical_output_multi_block(per_atom):
         atomic_types=[1, 6, 7, 8],
         targets={
             "spherical_tensor": get_generic_target_info(
+                "spherical_tensor",
                 {
                     "quantity": "spherical_tensor",
                     "unit": "",
@@ -457,7 +476,7 @@ def test_spherical_output_multi_block(per_atom):
                     },
                     "num_subtargets": 100,
                     "per_atom": per_atom,
-                }
+                },
             )
         },
     )
@@ -506,7 +525,9 @@ def test_pet_single_atom():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
     model = PET(MODEL_HYPERS, dataset_info)
@@ -523,33 +544,28 @@ def test_pet_single_atom():
 
 
 @pytest.mark.parametrize("per_atom", [True, False])
-def test_pet_rank_2(per_atom):
-    """Tests that the model can predict a symmetric rank-2 tensor."""
+def test_nc_stress(per_atom):
+    """Tests that the model can predict a symmetric rank-2 tensor as the NC stress."""
     # (note that no composition energies are supplied or calculated here)
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "stress": get_generic_target_info(
+            "non_conservative_stress": get_generic_target_info(
+                "non_conservative_stress",
                 {
                     "quantity": "stress",
                     "unit": "",
                     "type": {"cartesian": {"rank": 2}},
                     "num_subtargets": 100,
                     "per_atom": per_atom,
-                }
+                },
             )
         },
     )
 
-    message = (
-        "PET assumes that Cartesian tensors of rank 2 are stress-like, "
-        "meaning that they are symmetric and intensive. "
-        "If this is not the case, please use a different model."
-    )
-    with pytest.warns(UserWarning, match=message):
-        model = PET(MODEL_HYPERS, dataset_info)
+    model = PET(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6]),
@@ -558,6 +574,6 @@ def test_pet_rank_2(per_atom):
         pbc=torch.tensor([True, True, True]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"stress": ModelOutput(per_atom=per_atom)}
-    stress = model([system], outputs)["stress"].block().values
+    outputs = {"non_conservative_stress": ModelOutput(per_atom=per_atom)}
+    stress = model([system], outputs)["non_conservative_stress"].block().values
     assert torch.allclose(stress, stress.transpose(1, 2))

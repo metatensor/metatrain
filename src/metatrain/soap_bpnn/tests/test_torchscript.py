@@ -24,7 +24,7 @@ def test_torchscript():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
     requested_neighbor_lists = get_requested_neighbor_lists(model)
@@ -51,7 +51,7 @@ def test_torchscript_with_identity():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     hypers = copy.deepcopy(MODEL_HYPERS)
     hypers["bpnn"]["layernorm"] = False
@@ -84,6 +84,7 @@ def test_torchscript_spherical(o3_lambda, o3_sigma):
         atomic_types=[1, 6, 7, 8],
         targets={
             "spherical_target": get_generic_target_info(
+                "spherical_target",
                 {
                     "quantity": "",
                     "unit": "",
@@ -94,7 +95,7 @@ def test_torchscript_spherical(o3_lambda, o3_sigma):
                     },
                     "num_subtargets": 100,
                     "per_atom": False,
-                }
+                },
             )
         },
     )
@@ -123,7 +124,7 @@ def test_torchscript_save_load(tmpdir):
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
@@ -143,7 +144,7 @@ def test_torchscript_integers():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     model = SoapBpnn(new_hypers, dataset_info)
     requested_neighbor_lists = get_requested_neighbor_lists(model)

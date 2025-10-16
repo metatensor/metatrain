@@ -1,15 +1,13 @@
 .. _architecture-nanopet:
 
-NanoPET (experimental)
+NanoPET (deprecated)
 ======================
 
 .. warning::
 
-  This is an **experimental model**. You should not use it for anything important.
-
-This is a more user-friendly re-implementation of the original
-PET :footcite:p:`pozdnyakov_smooth_2023` (which lives in https://github.com/spozdn/pet),
-with slightly improved training and evaluation speed.
+  This is an **deprecated model**. You should not use it for anything important, and
+  support for it will be removed in future versions of metatrain. Please use the
+  :ref:`PET model <architecture-pet>` instead.
 
 Installation
 ------------
@@ -29,7 +27,7 @@ Default Hyperparameters
 
 The default hyperparameters for the nanoPET model are:
 
-.. literalinclude:: ../../../src/metatrain/experimental/nanopet/default-hypers.yaml
+.. literalinclude:: ../../../src/metatrain/deprecated/nanopet/default-hypers.yaml
    :language: yaml
 
 
@@ -71,7 +69,7 @@ hyperparameters to tune are (in decreasing order of importance):
 All Hyperparameters
 -------------------
 
-:param name: ``experimental.nanopet``
+:param name: ``deprecated.nanopet``
 
 model
 #####
@@ -122,10 +120,12 @@ The hyperparameters for training are
 :param loss: The loss function to use, with the subfields described in the previous
   section
 :param best_model_metric: specifies the validation set metric to use to select the best
-    model, i.e. the model that will be saved as ``model.ckpt`` and ``model.pt`` both in
-    the current directory and in the checkpoint directory. The default is ``rmse_prod``,
-    i.e., the product of the RMSEs for each target. Other options are ``mae_prod`` and
-    ``loss``.
+  model, i.e. the model that will be saved as ``model.ckpt`` and ``model.pt`` both in
+  the current directory and in the checkpoint directory. The default is ``rmse_prod``,
+  i.e., the product of the RMSEs for each target. Other options are ``mae_prod`` and
+  ``loss``.
+:param num_workers: Number of workers for data loading. If not provided, it is set
+  automatically.
 
 References
 ----------

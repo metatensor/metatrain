@@ -1,1 +1,6 @@
-../../docs/static/qm9/eval.yaml
+systems: qm9_reduced_100.xyz
+
+targets:
+  energy:
+    key: U0
+    unit: eV

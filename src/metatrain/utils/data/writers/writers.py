@@ -20,12 +20,17 @@ class Writer(ABC):
         self.append = append
 
     @abstractmethod
-    def write(self, systems: List[System], predictions: Dict[str, TensorMap]):
-        """Write a single system and its predictions."""
+    def write(self, systems: List[System], predictions: Dict[str, TensorMap]) -> None:
+        """
+        Write a single system and its predictions.
+
+        :param systems: List of systems to write.
+        :param predictions: Dictionary of TensorMaps with predictions for the systems.
+        """
         ...
 
     @abstractmethod
-    def finish(self):
+    def finish(self) -> None:
         """Called after all writes. Optional to override."""
         ...
 
@@ -37,6 +42,11 @@ def _split_tensormaps(
 ) -> List[Dict[str, TensorMap]]:
     """
     Split a TensorMap into multiple TensorMaps, one for each key.
+
+    :param systems: List of systems in the batch.
+    :param batch_predictions: Dictionary of TensorMaps with batch predictions.
+    :param istart_system: Starting index for the systems.
+    :return: List of dictionaries, each containing TensorMaps for a single system.
     """
 
     device = next(iter(batch_predictions.values()))[0].values.device
@@ -67,6 +77,7 @@ def _split_tensormaps(
                             device=block.samples.values.device,
                             dtype=block.samples.values.dtype,
                         )[0],
+                        assume_unique=True,
                     ),
                     components=block.components,
                     properties=block.properties,
@@ -85,6 +96,7 @@ def _split_tensormaps(
                                     device=gradient_block.samples.values.device,
                                     dtype=gradient_block.samples.values.dtype,
                                 )[0],
+                                assume_unique=True,
                             ),
                             components=gradient_block.components,
                             properties=gradient_block.properties,

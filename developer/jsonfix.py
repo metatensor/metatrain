@@ -16,7 +16,7 @@ def parse_args() -> argparse.Namespace:
     """
     Parse command-line arguments.
 
-    :returns: Parsed arguments
+    :return: Parsed arguments
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -37,7 +37,7 @@ def collect_json_files(paths: list[str]) -> list[Path]:
     Recursively collect all .json files from the given paths.
 
     :param paths: List of file and directory paths
-    :returns: List of resolved JSON file paths
+    :return: List of resolved JSON file paths
     """
     json_files: list[Path] = []
 
@@ -58,7 +58,7 @@ def check_and_format_file(path: Path, check_only: bool = False) -> tuple[bool, b
 
     :param path: Path to the JSON file.
     :param check_only: If True, only check; otherwise, reformat if needed.
-    :returns: is_valid and was_changed
+    :return: is_valid and was_changed
     """
     try:
         original = path.read_text(encoding="utf-8")

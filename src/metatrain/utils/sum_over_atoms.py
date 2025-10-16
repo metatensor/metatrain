@@ -7,7 +7,7 @@ from . import torch_jit_script_unless_coverage
 
 
 @torch_jit_script_unless_coverage
-def sum_over_atoms(tensor_map: TensorMap):
+def sum_over_atoms(tensor_map: TensorMap) -> TensorMap:
     """
     A faster version of ``metatensor.torch.sum_over_samples``, specialized for
     summing over atoms in graph-like TensorMaps.
@@ -32,6 +32,7 @@ def sum_over_atoms(tensor_map: TensorMap):
                 values=torch.arange(
                     n_systems, device=device, dtype=torch.int32
                 ).reshape(-1, 1),
+                assume_unique=True,
             ),
             components=block.components,
             properties=block.properties,

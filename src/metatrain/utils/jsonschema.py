@@ -1,11 +1,19 @@
 import difflib
+from typing import Any, Dict, Optional
 
 import jsonschema
 from jsonschema.exceptions import ValidationError
+from jsonschema.protocols import Validator
 
 
-def validate(instance, schema, cls=None, *args, **kwargs) -> None:
-    """Validate an instance under the given schema.
+def validate(
+    instance: Dict,
+    schema: Any,
+    cls: Optional[Validator] = None,
+    *args: Any,
+    **kwargs: Any,
+) -> None:
+    r"""Validate an instance under the given schema.
 
     Function similar to :py:class:`jsonschema.validate` but displaying only the human
     readable error message without showing the reference schema and path if the instance
@@ -14,15 +22,19 @@ def validate(instance, schema, cls=None, *args, **kwargs) -> None:
 
     :param instance: Instance to validate
     :param schema: Schema to validate with
-    :raises jsonschema.exceptions.ValidationError: If the instance is invalid
+    :param cls: Validator class to use.
+    :param \*args: Additional positional arguments to pass to the validator
+    :param \*\*kwargs: Additional keyword arguments to pass to the validator
+    :raises ValueError: If the instance is invalid
     :raises jsonschema.exceptions.SchemaError: If the schema itself is invalid
     """
     try:
         jsonschema.validate(instance, schema, cls=cls, *args, **kwargs)  # noqa: B026
     except ValidationError as error:
+        message = error.message
         if error.validator == "additionalProperties":
             # Change error message to be clearer for users
-            error.message = error.message.replace(
+            message = message.replace(
                 "Additional properties are not allowed", "Unrecognized options"
             )
 
@@ -39,6 +51,9 @@ def validate(instance, schema, cls=None, *args, **kwargs) -> None:
                     closest_matches.append(f"'{closest_match[0]}'")
 
             if closest_matches:
-                error.message += f". Do you mean {', '.join(closest_matches)}?"
+                message += f". Did you mean {', '.join(closest_matches)}?"
 
-        raise ValidationError(message=error.message)
+        message = f"Invalid option for {error.json_path[2:]}: {message}"
+        message += f"\nExpected {error.schema}"
+
+        raise ValueError(message) from error

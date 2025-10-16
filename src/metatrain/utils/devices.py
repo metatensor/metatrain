@@ -24,6 +24,7 @@ def pick_devices(
         should be first and the least one last.
     :param desired_device: desired device by the user. For example, ``"cpu"``,
         "``cuda``", ``"multi-gpu"``, etc.
+    :return: list of torch devices to be used for training.
     """
 
     available_devices = ["cpu"]

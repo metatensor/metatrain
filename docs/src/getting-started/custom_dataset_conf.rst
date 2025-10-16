@@ -56,7 +56,6 @@ format, which is also valid for initial input:
                     read_from: dataset.xyz
                     reader: ase
                     key: stress
-                virial: false
     test_set: 0.1
     validation_set: 0.1
 

@@ -31,7 +31,9 @@ def test_long_range_features(use_ewald):
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
     hypers = copy.deepcopy(MODEL_HYPERS)

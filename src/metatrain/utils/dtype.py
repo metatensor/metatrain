@@ -6,7 +6,7 @@ def dtype_to_str(dtype: torch.dtype) -> str:
     Convert a torch dtype to its string representation.
 
     :param dtype: torch dtype to convert
-    :returns: string representation of the torch dtype
+    :return: string representation of the torch dtype
 
     Example
     -------

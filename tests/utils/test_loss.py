@@ -2,14 +2,12 @@
 
 from pathlib import Path
 
-import metatensor.torch as mts
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.loss import (
-    EMAScheduler,
     LossAggregator,
     LossType,
     TensorMapHuberLoss,
@@ -20,7 +18,6 @@ from metatrain.utils.loss import (
     TensorMapMSELoss,
     create_loss,
 )
-from metatrain.utils.old_loss import TensorMapLoss
 
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
@@ -191,20 +188,6 @@ def test_pointwise_zero_loss(tensor_map_with_grad_1, LossCls):
     assert loss(pred, targ).item() == pytest.approx(0.0)
 
 
-# Check consistency between old and new loss implementations
-def test_check_old_and_new_loss_consistency(tensor_map_with_grad_2):
-    tensor_1 = mts.remove_gradients(tensor_map_with_grad_2)
-    tensor_2 = mts.random_uniform_like(tensor_1)
-    loss_fn_1 = TensorMapLoss()
-    loss_fn_2 = TensorMapMSELoss(
-        name="",
-        gradient=None,
-        weight=1.0,
-        reduction="mean",
-    )
-    assert loss_fn_1(tensor_1, tensor_2) == loss_fn_2({"": tensor_1}, {"": tensor_2})
-
-
 # Masked losses must error if no mask is supplied
 @pytest.mark.parametrize(
     "MaskedCls",
@@ -248,30 +231,6 @@ def test_masked_mse_behavior(tensor_map_with_grad_1, tensor_map_with_grad_2):
     # Only element 1 contributes: (1-2)^2 = 1
     result = loss({key: tm2}, {key: tm1}, extra_data)
     assert result.item() == pytest.approx(1.0)
-
-
-# EMA scheduler: test both no-sliding and sliding-factor cases
-@pytest.mark.parametrize(
-    "sf, expected_init, expected_update",
-    [
-        (0.0, 1.0, 1.0),
-        (0.5, 2 / 3, (2 / 3) * 0.5),
-    ],
-)
-def test_ema_scheduler(
-    tensor_map_with_grad_1, tensor_map_with_grad_2, sf, expected_init, expected_update
-):
-    tm1 = tensor_map_with_grad_1
-    tm2 = tensor_map_with_grad_2
-    key = tm1.keys.names[0]
-    loss = TensorMapMSELoss(name=key, gradient=None, weight=1.0, reduction="mean")
-    sched = EMAScheduler(sliding_factor=sf)
-
-    init_w = sched.initialize(loss, {key: tm1})
-    assert init_w == pytest.approx(expected_init)
-
-    new_w = sched.update(loss, {key: tm2}, {key: tm2})
-    assert new_w == pytest.approx(expected_update)
 
 
 # Factory and enum resolution
@@ -393,20 +352,6 @@ def test_masked_pointwise_gradient_branch(
     # Only one difference of 1 -> MSE mean = 1/3
     result = loss({key: tm3}, {key: tm4}, extra).item()
     assert result == pytest.approx(1 / 3)
-
-
-def test_ema_initialize_gradient_branch(tensor_map_with_grad_1):
-    tm = tensor_map_with_grad_1
-    key = tm.keys.names[0]
-
-    # gradient block values [1,2,3], zero baseline -> MSE = (1+4+9)/3
-    loss = TensorMapMSELoss(
-        name=key, gradient="positions", weight=1.0, reduction="mean"
-    )
-    sched = EMAScheduler(sliding_factor=0.5)
-    init_w = sched.initialize(loss, {key: tm})
-
-    assert init_w == pytest.approx((1 + 4 + 9) / 3)
 
 
 def test_tmap_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):

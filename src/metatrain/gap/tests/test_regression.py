@@ -19,7 +19,7 @@ torch.set_default_dtype(torch.float64)  # GAP only supports float64
 
 
 def test_regression_train():
-    """Regression test on the model when trained for 2 epoch on a small dataset"""
+    """Regression test on the model when trained on a small dataset"""
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
@@ -45,7 +45,7 @@ def test_regression_train():
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     target_info_dict = {}
-    target_info_dict["mtt::U0"] = get_energy_target_info({"unit": "eV"})
+    target_info_dict["mtt::U0"] = get_energy_target_info("mtt::U0", {"unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -104,7 +104,9 @@ def test_invariance():
     hypers["model"]["krr"]["num_sparse_points"] = 900
 
     target_info_dict = {
-        "energy": get_energy_target_info({"unit": "eV"}, add_position_gradients=True)
+        "energy": get_energy_target_info(
+            "energy", {"unit": "eV"}, add_position_gradients=True
+        )
     }
 
     dataset_info = DatasetInfo(

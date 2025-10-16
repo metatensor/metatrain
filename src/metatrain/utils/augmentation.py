@@ -1,5 +1,5 @@
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import metatensor.torch as mts
 import numpy as np
@@ -12,13 +12,21 @@ from . import torch_jit_script_unless_coverage
 from .data import TargetInfo
 
 
-def get_random_rotation():
-    """Random 3D rotation that is Haar uniformly distributed over SO(3)."""
+def get_random_rotation() -> Rotation:
+    """
+    Random 3D rotation that is Haar uniformly distributed over SO(3).
+
+    :return: a random 3D rotation
+    """
     return Rotation.random()
 
 
-def get_random_inversion():
-    """Randomly choose an inversion factor -1 or 1."""
+def get_random_inversion() -> int:
+    """
+    Randomly choose an inversion factor -1 or 1.
+
+    :return: either -1 or 1
+    """
     return random.choice([1, -1])
 
 
@@ -30,6 +38,9 @@ class RotationalAugmenter:
     :param target_info_dict: A dictionary mapping target names to their corresponding
         :class:`TargetInfo` objects. This is used to determine the type of targets and
         how to apply the augmentations.
+    :param extra_data_info_dict: An optional dictionary mapping extra data names to
+        their corresponding :py:class:`TargetInfo` objects. This is used to determine
+        the type of extra data and how to apply the augmentations.
     """
 
     def __init__(
@@ -101,21 +112,86 @@ class RotationalAugmenter:
         extra_data: Optional[Dict[str, TensorMap]] = None,
     ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
         """
-        Apply a random augmentation to a number of ``System`` objects and its targets.
+        Applies random augmentations to a number of ``System`` objects, their targets,
+        and optionally extra data.
 
-        :param systems: A list of :class:`System` objects to be augmented.
+        :param systems: A list of :py:class:`System` objects to be augmented.
         :param targets: A dictionary mapping target names to their corresponding
-            :class:`TensorMap` objects. These are the targets to be augmented.
+            :py:class:`TensorMap` objects. These are the targets to be augmented.
+        :param extra_data: An optional dictionary mapping extra data names to their
+            corresponding :class:`TensorMap` objects. This extra data will also be
+            augmented if provided.
 
         :return: A tuple containing the augmented systems and targets.
         """
-
         rotations = [get_random_rotation() for _ in range(len(systems))]
         inversions = [get_random_inversion() for _ in range(len(systems))]
+        return self.apply_augmentations(
+            systems, targets, rotations, inversions, extra_data=extra_data
+        )
+
+    def apply_augmentations(
+        self,
+        systems: List[System],
+        targets: Dict[str, TensorMap],
+        rotations: List[Rotation],
+        inversions: List[int],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+        """
+        Applies augmentations to a number of ``System`` objects, their targets, and
+        optionally extra data. The augmentations are defined by a list of rotations
+        and a list of inversions.
+
+        :param systems: A list of :py:class:`System` objects to be augmented.
+        :param targets: A dictionary mapping target names to their corresponding
+            :py:class:`TensorMap` objects. These are the targets to be augmented.
+        :param rotations: A list of :class:`scipy.spatial.transform.Rotation` objects
+            representing the rotations to be applied to each system.
+        :param inversions: A list of integers (1 or -1) representing the
+            inversion factors to be applied to each system.
+        :param extra_data: An optional dictionary mapping extra data names to their
+            corresponding :class:`TensorMap` objects. This extra data will also be
+            augmented if provided.
+
+        :return: A tuple containing the augmented systems and targets.
+        """
+        self._validate(systems, rotations, inversions)
+
         transformations = [
-            torch.from_numpy(r.as_matrix() * i) for r, i in zip(rotations, inversions)
+            torch.from_numpy(r.as_matrix() * i)
+            for r, i in zip(rotations, inversions, strict=True)
         ]
 
+        wigner_D_matrices = self._create_wigner_D_matrices(
+            rotations, targets, extra_data=extra_data
+        )
+
+        return _apply_augmentations(
+            systems, targets, transformations, wigner_D_matrices, extra_data=extra_data
+        )
+
+    def _validate(
+        self, systems: List[System], rotations: List[Rotation], inversions: List[int]
+    ) -> None:
+        if len(rotations) != len(systems):
+            raise ValueError(
+                "The number of rotations must match the number of systems."
+            )
+
+        if len(inversions) != len(systems):
+            raise ValueError(
+                "The number of inversions must match the number of systems."
+            )
+        if any(i not in [1, -1] for i in inversions):
+            raise ValueError("Inversions must be either 1 or -1.")
+
+    def _create_wigner_D_matrices(
+        self,
+        rotations: List[Rotation],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ) -> Dict[int, List[torch.Tensor]]:
         wigner_D_matrices = {}
         if self.wigner is not None:
             scipy_quaternions = [r.as_quat() for r in rotations]
@@ -133,7 +209,9 @@ class RotationalAugmenter:
                 if extra_data is not None
                 else [self.target_info_dict]
             )
-            for tensormap_dict, info_dict in zip(tensormap_dicts, info_dicts):
+            for tensormap_dict, info_dict in zip(
+                tensormap_dicts, info_dicts, strict=True
+            ):
                 for name in tensormap_dict.keys():
                     if name.endswith("_mask"):
                         # skip loss masks
@@ -166,10 +244,7 @@ class RotationalAugmenter:
                                         torch.from_numpy(wigner_D_matrix)
                                     )
                                 wigner_D_matrices[ell] = wigner_D_matrices_l
-
-        return _apply_random_augmentations(
-            systems, targets, transformations, wigner_D_matrices, extra_data=extra_data
-        )
+        return wigner_D_matrices
 
 
 def _apply_wigner_D_matrices(
@@ -191,7 +266,7 @@ def _apply_wigner_D_matrices(
         new_values = []
         ell = (len(block.components[0]) - 1) // 2
         for v, transformation, wigner_D_matrix in zip(
-            split_values, transformations, wigner_D_matrices[ell]
+            split_values, transformations, wigner_D_matrices[ell], strict=True
         ):
             is_inverted = torch.det(transformation) < 0
             new_v = v.clone()
@@ -219,7 +294,7 @@ def _apply_wigner_D_matrices(
 
 
 @torch_jit_script_unless_coverage  # script for speed
-def _apply_random_augmentations(
+def _apply_augmentations(
     systems: List[System],
     targets: Dict[str, TensorMap],
     transformations: List[torch.Tensor],
@@ -229,13 +304,51 @@ def _apply_random_augmentations(
     # Apply the transformations to the systems
 
     new_systems: List[System] = []
-    for system, transformation in zip(systems, transformations):
+    for system, transformation in zip(systems, transformations, strict=True):
         new_system = System(
             positions=system.positions @ transformation.T,
             types=system.types,
             cell=system.cell @ transformation.T,
             pbc=system.pbc,
         )
+        for data_name in system.known_data():
+            data = system.get_data(data_name)
+            # check if this data is easy to handle (scalar/vector), otherwise error out
+            if len(data) != 1:
+                raise ValueError(
+                    f"System data '{data_name}' has {len(data)} blocks, which is not "
+                    "supported by RotationalAugmenter. Only scalar and vector data are "
+                    "supported."
+                )
+            if len(data.block().components) == 0:
+                # scalar data, no change
+                new_system.add_data(data_name, data)
+            elif len(data.block().components) == 1 and data.block().components[
+                0
+            ].names == ["xyz"]:
+                new_system.add_data(
+                    data_name,
+                    TensorMap(
+                        keys=data.keys,
+                        blocks=[
+                            TensorBlock(
+                                values=(
+                                    data.block().values.swapaxes(-1, -2)
+                                    @ transformation.T
+                                ).swapaxes(-1, -2),
+                                samples=data.block().samples,
+                                components=data.block().components,
+                                properties=data.block().properties,
+                            )
+                        ],
+                    ),
+                )
+            else:
+                raise ValueError(
+                    f"System data '{data_name}' has components "
+                    f"{data.block().components}, which are not supported by "
+                    "RotationalAugmenter. Only scalar and vector data are supported."
+                )
         for options in system.known_neighbor_lists():
             neighbors = mts.detach_block(system.get_neighbor_list(options))
 
@@ -261,7 +374,7 @@ def _apply_random_augmentations(
             new_extra_data[key] = extra_data.pop(key)
 
     for tensormap_dict, new_dict in zip(
-        [targets, extra_data], [new_targets, new_extra_data]
+        [targets, extra_data], [new_targets, new_extra_data], strict=True
     ):
         if tensormap_dict is None:
             continue
@@ -362,7 +475,9 @@ def _apply_random_augmentations(
                     else:
                         split_vectors = torch.split(vectors, [1 for _ in systems])
                     new_vectors = []
-                    for v, transformation in zip(split_vectors, transformations):
+                    for v, transformation in zip(
+                        split_vectors, transformations, strict=True
+                    ):
                         # fold property dimension in, apply transformation,
                         # unfold property dimension
                         new_v = v.transpose(1, 2)
@@ -392,7 +507,9 @@ def _apply_random_augmentations(
                     else:
                         split_tensors = torch.split(tensor, [1 for _ in systems])
                     new_tensors = []
-                    for tensor, transformation in zip(split_tensors, transformations):
+                    for tensor, transformation in zip(
+                        split_tensors, transformations, strict=True
+                    ):
                         new_tensor = torch.einsum(
                             "Aa,iabp,bB->iABp", transformation, tensor, transformation.T
                         )
@@ -413,7 +530,7 @@ def _apply_random_augmentations(
     return new_systems, new_targets, new_extra_data
 
 
-def _complex_to_real_spherical_harmonics_transform(ell: int):
+def _complex_to_real_spherical_harmonics_transform(ell: int) -> np.ndarray:
     # Generates the transformation matrix from complex spherical harmonics
     # to real spherical harmonics for a given l.
     # Returns a transformation matrix of shape ((2l+1), (2l+1)).
@@ -442,7 +559,9 @@ def _complex_to_real_spherical_harmonics_transform(ell: int):
     return U
 
 
-def _scipy_quaternion_to_quaternionic(q_scipy):
+def _scipy_quaternion_to_quaternionic(
+    q_scipy: Union[np.ndarray, List[float]],
+) -> np.ndarray:
     # This function convert a quaternion obtained from the scipy library to the format
     # used by the quaternionic library.
     # Note: 'xyzw' is the format used by scipy.spatial.transform.Rotation

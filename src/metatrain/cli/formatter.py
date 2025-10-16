@@ -1,10 +1,18 @@
 import argparse
+from argparse import Action, _MutuallyExclusiveGroup
+from typing import Iterable, Optional
 
 
 class CustomHelpFormatter(argparse.RawDescriptionHelpFormatter):
     """Descriptions formatter showing positional arguments before optionals."""
 
-    def _format_usage(self, usage, actions, groups, prefix):
+    def _format_usage(
+        self,
+        usage: Optional[str],
+        actions: Iterable[Action],
+        groups: Iterable[_MutuallyExclusiveGroup],
+        prefix: Optional[str],
+    ) -> str:
         if usage is None:
             # split optionals from positionals
             optionals = []

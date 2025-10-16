@@ -1,7 +1,15 @@
 import torch
 
 
-def cutoff_func(grid: torch.Tensor, r_cut: float, delta: float):
+def cutoff_func(grid: torch.Tensor, r_cut: float, delta: float) -> torch.Tensor:
+    """
+    Cosine cutoff function.
+
+    :param grid: Distances at which to evaluate the cutoff function.
+    :param r_cut: Cutoff radius.
+    :param delta: Width of the cutoff region.
+    :return: Values of the cutoff function at the specified distances.
+    """
     mask_bigger = grid >= r_cut
     mask_smaller = grid <= r_cut - delta
     grid = (grid - r_cut + delta) / delta
@@ -16,8 +24,8 @@ class DummyModule(torch.nn.Module):
     """Dummy torch module to make torchscript happy.
     This model should never be run"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super(DummyModule, self).__init__()
 
-    def forward(self, x) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         raise RuntimeError("This model should never be run")
