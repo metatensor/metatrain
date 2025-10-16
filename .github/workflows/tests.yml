@@ -46,10 +46,9 @@ jobs:
         enable-cache: true
         activate-environment: true
 
-    - name: Set up Python
-      run: uv python install
-
-    - run: |
+    - name: Set up Python and install tox
+      run: |
+        uv python install
         uv pip install coverage[toml]
         uv tool install tox --with tox-uv
 
