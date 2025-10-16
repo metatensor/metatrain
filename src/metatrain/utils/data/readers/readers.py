@@ -204,6 +204,7 @@ _variants_base_list = {
     "non_conservative_stress",
 }
 
+
 def _validate_target(key: str, entry: DictConfig) -> None:
     is_variant = any(key.startswith(f"{base}/") for base in _variants_base_list)
     if (
@@ -237,8 +238,10 @@ def _validate_target(key: str, entry: DictConfig) -> None:
 
 def _decide_target_reader(key: str, entry: DictConfig) -> str:
     is_energy = (
-        (entry.get("quantity") == "energy"
-        or entry.get("quantity").startswith("energy/"))
+        (
+            entry.get("quantity") == "energy"
+            or entry.get("quantity").startswith("energy/")
+        )
         and not entry.get("per_atom", False)
         and entry.get("num_subtargets", 1) == 1
         and entry.get("type") == "scalar"
