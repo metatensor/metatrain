@@ -15,7 +15,9 @@ mtt --help
 # We now demonstrate how to ``train`` and ``evaluate`` a model from the command line.
 # For this example we use the :ref:`architecture-soap-bpnn` architecture and a subset of
 # the `QM9 dataset <https://paperswithcode.com/dataset/qm9>`_. You can obtain the
-# reduced dataset from our :download:`website <../../../static/qm9/qm9_reduced_100.xyz>`.
+# dataset for this example here: :download:`qm9_reduced_100.xyz 
+# <../../../../examples/basic_usage/qm9_reduced_100.xyz>`.
+#
 #
 # Training
 # --------
@@ -42,7 +44,7 @@ mtt --help
 # corresponding documentation page. We will use these minimal options to run an example
 # training using the default hyperparameters of an SOAP BPNN model
 #
-# .. literalinclude:: ../../../static/qm9/options.yaml
+# .. literalinclude:: ../../../../examples/basic_usage/options.yaml
 #    :language: yaml
 #
 # For each training run a new output directory in the format
@@ -83,7 +85,7 @@ mtt train --help
 # system and possible target values for evaluation. The system section of this
 # ``eval.yaml`` is exactly the same as for a dataset in the ``options.yaml`` file.
 #
-# .. literalinclude:: ../../../static/qm9/eval.yaml
+# .. literalinclude:: ../../../../examples/basic_usage/eval.yaml
 #    :language: yaml
 #
 # Note that the ``targets`` section is optional. If the ``targets`` section is present,

@@ -1,4 +1,4 @@
-from typing import List
+from typing import Callable, Dict, List, Tuple
 
 import ase.neighborlist
 import numpy as np
@@ -8,6 +8,42 @@ from metatensor.torch import Labels, TensorBlock
 from metatomic.torch import NeighborListOptions, System, register_autograd_neighbors
 
 from .data.system_to_ase import system_to_ase
+
+
+def get_system_with_neighbor_lists_transform(
+    requested_neighbor_lists: List[NeighborListOptions],
+) -> Callable:
+    """
+    Returns a function that adds the requested neighbor lists to each system.
+
+    :param requested_neighbor_lists: A list of `NeighborListOptions` objects,
+        each of which specifies the parameters for a neighbor list.
+    :return: A function that takes a list of `System` objects and returns a new
+        list of `System` objects with the requested neighbor lists added.
+    """
+
+    def transform(
+        systems: List[System],
+        targets: Dict[str, TensorBlock],
+        extra: Dict[str, TensorBlock],
+    ) -> Tuple[List[System], Dict[str, TensorBlock], Dict[str, TensorBlock]]:
+        """
+        :param systems: A list of `System` objects.
+        :param targets: A dictionary of target `TensorBlock` objects.
+        :param extra: A dictionary of extra `TensorBlock` objects.
+        :return: The systems with the requested neighbor lists added, along with
+            the original targets and extra data.
+        """
+        new_systems = []
+        for system in systems:
+            new_system = get_system_with_neighbor_lists(
+                system,
+                requested_neighbor_lists,
+            )
+            new_systems.append(new_system)
+        return new_systems, targets, extra
+
+    return transform
 
 
 def get_requested_neighbor_lists(
@@ -32,7 +68,7 @@ def _get_requested_neighbor_lists_in_place(
     module: torch.nn.Module,
     module_name: str,
     requested: List[NeighborListOptions],
-):
+) -> None:
     # copied from
     # metatensor/python/metatensor-torch/metatensor/torch/atomistic/model.py
     # and just removed the length units

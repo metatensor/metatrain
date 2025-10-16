@@ -1,7 +1,7 @@
 [project]
 name = "metatrain"
 dynamic = ["version"]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 
 readme = "README.md"
 license = "BSD-3-Clause"
@@ -64,14 +64,6 @@ build-backend = "setuptools.build_meta"
 soap-bpnn = [
     "torch-spex>=0.1,<0.2",
     "wigners",
-]
-deprecated-pet = [
-    "pet-neighbors-convert",
-    "torch_geometric",
-    "matscipy",
-    "scikit-learn",
-    "pathos",
-    "scipy",
 ]
 pet = []
 nanopet = []
@@ -146,9 +138,11 @@ filterwarnings = [
     "ignore:Second derivatives of the spherical harmonics with respect to the Cartesian coordinates were not requested at class creation.",
     # OldCompositionModel deprecation warning
     "ignore:`OldCompositionModel` composition model is deprecated. Please use `CompositionModel` instead.",
-    # We don't yet have a linux-aarch64 wheel on PyPI, so libgomp is not copied to 
+    # We don't yet have a linux-aarch64 wheel on PyPI, so libgomp is not copied to
     # sphericart_torch.libs' by cibuildwheels
     "ignore:No libgomp shared library found in 'sphericart_torch.libs'.",
+    # Multi-threaded tests clash with multi-process data-loading
+    "ignore:This process \\(pid=\\d+\\) is multi-threaded, use of fork\\(\\) may lead to deadlocks in the child.:DeprecationWarning",
 ]
 
 [tool.yamlfix]

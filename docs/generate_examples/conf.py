@@ -2,6 +2,8 @@
 
 import os
 
+from chemiscope.sphinx import ChemiscopeScraper
+
 
 extensions = [
     "sphinx_gallery.gen_gallery",
@@ -21,17 +23,26 @@ sphinx_gallery_conf = {
         os.path.join(ROOT, "examples", "llpr"),
         os.path.join(ROOT, "examples", "zbl"),
         os.path.join(ROOT, "examples", "programmatic", "use_architectures_outside"),
-        os.path.join(ROOT, "examples", "programmatic", "disk_dataset"),
+        os.path.join(ROOT, "examples", "programmatic", "data_preparation"),
+        os.path.join(ROOT, "examples", "programmatic", "flashmd"),
         os.path.join(ROOT, "examples", "basic_usage"),
+        os.path.join(ROOT, "examples", "train_from_scratch"),
+        os.path.join(ROOT, "examples", "validation"),
+        os.path.join(ROOT, "examples", "multi-gpu"),
     ],
     "gallery_dirs": [
         os.path.join(ROOT, "docs", "src", "examples", "ase"),
         os.path.join(ROOT, "docs", "src", "examples",  "llpr"),
         os.path.join(ROOT, "docs", "src", "examples", "zbl"),
         os.path.join(ROOT, "docs", "src", "examples", "programmatic", "use_architectures_outside"),
-        os.path.join(ROOT, "docs", "src", "examples", "programmatic", "disk_dataset"),
+        os.path.join(ROOT, "docs", "src", "examples", "programmatic", "data_preparation"),
+        os.path.join(ROOT, "docs", "src", "examples", "programmatic", "flashmd"),
         os.path.join(ROOT, "docs", "src", "examples", "basic_usage"),
+        os.path.join(ROOT, "docs", "src", "examples", "train_from_scratch"),
+        os.path.join(ROOT, "docs", "src", "examples", "validation"),
+        os.path.join(ROOT, "docs", "src", "examples", "multi-gpu"),
     ],
     "min_reported_time": 5,
     "matplotlib_animations": True,
+    "image_scrapers": ( ChemiscopeScraper(), ),
 }

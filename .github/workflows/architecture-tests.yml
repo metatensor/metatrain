@@ -18,7 +18,7 @@ jobs:
           - llpr
           - pet
           - nanopet
-          - deprecated-pet
+          - flashmd
 
     runs-on: ubuntu-22.04
 

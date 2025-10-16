@@ -33,7 +33,6 @@ def ev_to_mev(value: float, unit: str) -> Tuple[float, str]:
 
     :param value: The value (potentially in eV or a derived quantity of eV).
     :param unit: The unit of the value.
-
     :return: If the `value` is in meV (or a derived quantity), the value and
         the corresponding unit where eV is converted to meV. Otherwise, the input.
     """

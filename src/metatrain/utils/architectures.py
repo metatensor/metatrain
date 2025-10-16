@@ -4,6 +4,7 @@ import json
 import logging
 from importlib.util import find_spec
 from pathlib import Path
+from types import ModuleType
 from typing import Dict, List, Union
 
 from omegaconf import OmegaConf
@@ -51,7 +52,7 @@ def check_architecture_name(name: str) -> None:
             word=name, possibilities=find_all_architectures()
         )
         if closest_match:
-            msg += f" Do you mean '{closest_match[0]}'?"
+            msg += f" Did you mean '{closest_match[0]}'?"
 
     raise ValueError(msg)
 
@@ -84,10 +85,9 @@ def get_architecture_name(path: Union[str, Path]) -> str:
     The function should be used to determine the ``ARCHITECTURE_NAME`` based on the name
     of the folder.
 
-    :param absolute_architecture_path: absolute path of the architecture directory
-    :returns: architecture name
-    :raises ValueError: if ``absolute_architecture_path`` does not point to a valid
-        architecture directory.
+    :param path: absolute path of the architecture directory
+    :return: architecture name
+    :raises ValueError: if ``path`` does not point to a valid architecture directory.
 
     .. seealso::
         :py:func:`get_architecture_path` to get the relative path within the metatrain
@@ -115,11 +115,12 @@ def get_architecture_name(path: Union[str, Path]) -> str:
     return name
 
 
-def import_architecture(name: str):
+def import_architecture(name: str) -> ModuleType:
     """Import an architecture.
 
     :param name: name of the architecture
     :raises ImportError: if the architecture dependencies are not met
+    :return: Imported architecture module
     """
     check_architecture_name(name)
     try:
@@ -145,7 +146,7 @@ def get_architecture_path(name: str) -> Path:
     Path based on the ``name`` within the metatrain project directory.
 
     :param name: name of the architecture
-    :returns: path to the architecture directory
+    :return: path to the architecture directory
 
     .. seealso::
         :py:func:`get_architecture_name` to get the name based on an absolute path of an
@@ -161,7 +162,7 @@ def find_all_architectures() -> List[str]:
     To find the architectures the function searches for the mandatory
     ``default-hypers.yaml`` file in each architecture directory.
 
-    :returns: List of architectures names
+    :return: List of architectures names
     """
     options_files_path = PACKAGE_ROOT.rglob("default-hypers.yaml")
 
@@ -173,10 +174,11 @@ def find_all_architectures() -> List[str]:
 
 
 def get_default_hypers(name: str) -> Dict:
-    """Dictionary of the default architecture hyperparameters.
+    """
+    Dictionary of the default architecture hyperparameters.
 
-    :param: name of the architecture
-    :returns: default hyper parameters of the architectures
+    :param name: Name of the architecture
+    :return: Default hyperparameters of the architectures
     """
     check_architecture_name(name)
     default_hypers = OmegaConf.load(get_architecture_path(name) / "default-hypers.yaml")

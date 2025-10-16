@@ -17,7 +17,7 @@ from metatomic.torch import (
 from skmatter._selection import _FPS as _FPS_skmatter
 
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL, OldCompositionModel
+from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.metadata import merge_metadata
 
@@ -139,7 +139,7 @@ class GAP(ModelInterface):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = OldCompositionModel(
+        composition_model = CompositionModel(
             hypers={},
             dataset_info=dataset_info,
         )
@@ -389,10 +389,12 @@ class _SorKernelSolver:
         self._weights = weights
 
     @property
-    def weights(self):
+    def weights(self) -> Union[torch.Tensor, np.ndarray]:
         return self._weights
 
-    def predict(self, KTM):
+    def predict(
+        self, KTM: Union[torch.Tensor, np.ndarray]
+    ) -> Union[torch.Tensor, np.ndarray]:
         return KTM @ self._weights
 
 
@@ -402,7 +404,7 @@ class AggregateKernel(torch.nn.Module):
     the sum as aggregate function
 
     :param aggregate_names:
-
+    :param structurewise_aggregate: Whether to perform structure-wise aggregation
     """
 
     def __init__(
@@ -450,7 +452,7 @@ class AggregatePolynomial(AggregateKernel):
         super().__init__(aggregate_names, structurewise_aggregate)
         self._degree = degree
 
-    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap):
+    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap) -> TensorMap:
         return mts.pow(mts.dot(tensor1, tensor2), self._degree)
 
 
@@ -460,6 +462,7 @@ class TorchAggregateKernel(torch.nn.Module):
     the sum as aggregate function
 
     :param aggregate_names:
+    :param structurewise_aggregate: Whether to perform structure-wise aggregation
     """
 
     def __init__(
@@ -508,7 +511,7 @@ class TorchAggregatePolynomial(TorchAggregateKernel):
         super().__init__(aggregate_names, structurewise_aggregate)
         self._degree = degree
 
-    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap):
+    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap) -> TensorMap:
         return mts.pow(mts.dot(tensor1, tensor2), self._degree)
 
 
@@ -517,12 +520,15 @@ class _FPS:
     Transformer that performs Greedy Sample Selection using Farthest Point Sampling.
 
     Refer to :py:class:`skmatter.sample_selection.FPS` for full documentation.
+
+    :param n_to_select: The number of samples to select. If None, all samples are
+        selected.
     """
 
     def __init__(
         self,
-        n_to_select=None,
-    ):
+        n_to_select: Optional[int] = None,
+    ) -> None:
         self._n_to_select = n_to_select
         self._selector_class = _FPS_skmatter
         self._selection_type = "sample"
@@ -536,11 +542,11 @@ class _FPS:
 
         return self._support
 
-    def fit(self, X: TensorMap):  # -> GreedySelector:
+    def fit(self, X: TensorMap) -> "_FPS":
         """Learn the features to select.
 
-        :param X:
-            Training vectors.
+        :param X: Training vectors.
+        :return: The fitted selector.
         """
         if len(X.component_names) != 0:
             raise ValueError("Only blocks with no components are supported.")
@@ -591,7 +597,7 @@ class _FPS:
 
         :param X:
             The input tensor.
-        :returns:
+        :return:
             The selected subset of the input.
         """
         blocks = []
@@ -611,8 +617,8 @@ class _FPS:
     def fit_transform(self, X: TensorMap) -> TensorMap:
         """Fit to data, then transform it.
 
-        :param X:
-            Training vectors.
+        :param X: Training vectors.
+        :return: The transformed input.
         """
         return self.fit(X).transform(X)
 
@@ -640,7 +646,7 @@ class SubsetOfRegressors:
         y: TensorMap,
         alpha: float = 1.0,
         alpha_forces: Optional[float] = None,
-    ):
+    ) -> None:
         r"""
         :param X:
             features
@@ -766,6 +772,9 @@ class SubsetOfRegressors:
         :param T:
             features
             if kernel type "precomputed" is used, the kernel k_tm is assumed
+
+        :return:
+            TensorMap with the predictions
         """
         if self._weights is None:
             raise ValueError(
@@ -778,7 +787,7 @@ class SubsetOfRegressors:
             k_tm = self._kernel(T, self._X_pseudo, are_pseudo_points=(False, True))
         return mts.dot(k_tm, self._weights)
 
-    def export_torch_script_model(self):
+    def export_torch_script_model(self) -> "TorchSubsetofRegressors":
         return TorchSubsetofRegressors(
             self._weights,
             self._X_pseudo,
@@ -807,6 +816,9 @@ class TorchSubsetofRegressors(torch.nn.Module):
         :param T:
             features
             if kernel type "precomputed" is used, the kernel k_tm is assumed
+
+        :return:
+            TensorMap with the predictions
         """
         # move weights and X_pseudo to the same device as T
         self._weights = self._weights.to(T.device)

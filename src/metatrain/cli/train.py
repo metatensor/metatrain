@@ -7,11 +7,13 @@ import random
 import re
 import shutil
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
+
+from metatrain.utils.data import Dataset
 
 from .. import PACKAGE_ROOT
 from ..utils.abc import ModelInterface, TrainerInterface
@@ -51,7 +53,10 @@ from .formatter import CustomHelpFormatter
 
 
 def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
-    """Add `train_model` paramaters to an argparse (sub)-parser."""
+    """Add `train_model` paramaters to an argparse (sub)-parser.
+
+    :param subparser: The argparse (sub)-parser to add the parameters to.
+    """
 
     if train_model.__doc__ is not None:
         description = train_model.__doc__.split(r":param")[0]
@@ -114,7 +119,10 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 
 def _prepare_train_model_args(args: argparse.Namespace) -> None:
-    """Prepare arguments for train_model."""
+    """Prepare arguments for train_model.
+
+    :param args: The argparse.Namespace containing the arguments.
+    """
     args.options = OmegaConf.load(args.options)
     # merge/override file options with command line options
     override_options = args.__dict__.pop("override_options")
@@ -154,6 +162,7 @@ def train_model(
 
     :param options: DictConfig containing the training options
     :param output: Path to save the final model
+    :param extensions: Path to save the model extensions, if any
     :param checkpoint_dir: Path to save checkpoints and other intermediate output files
         like the fully expanded training options for a later restart.
     :param restart_from: File to continue training from.
@@ -424,31 +433,15 @@ def train_model(
     # PRINT DATASET STATS #####
     ###########################
 
-    for i, train_dataset in enumerate(train_datasets):
-        if len(train_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
+    if sum(len(d) for d in train_datasets + val_datasets + test_datasets) < 1_000_000:
+        # only print stats if the datasets are not too large (avoids hanging)
+        _print_stats("Training", train_datasets, dataset_info)
+        _print_stats("Validation", val_datasets, dataset_info)
+        _print_stats("Test", test_datasets, dataset_info)
+    else:
         logging.info(
-            f"Training dataset{index}:\n    {get_stats(train_dataset, dataset_info)}"
-        )
-
-    for i, val_dataset in enumerate(val_datasets):
-        if len(val_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
-        logging.info(
-            f"Validation dataset{index}:\n    {get_stats(val_dataset, dataset_info)}"
-        )
-
-    for i, test_dataset in enumerate(test_datasets):
-        if len(test_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
-        logging.info(
-            f"Test dataset{index}:\n    {get_stats(test_dataset, dataset_info)}"
+            "Datasets are too large (>1M total structures) to calculate statistics "
+            "quickly. Skipping statistics."
         )
 
     ###########################
@@ -690,3 +683,14 @@ def _get_batch_size_from_hypers(hypers: Union[Dict, DictConfig]) -> Optional[int
         ):
             return value
     return None
+
+
+def _print_stats(name: str, datasets: List[Dataset], dataset_info: DatasetInfo) -> None:
+    # Prints statistics about the datasets
+
+    for i, dataset in enumerate(datasets):
+        if len(datasets) == 1:
+            index = ""
+        else:
+            index = f" {i}"
+        logging.info(f"{name} dataset{index}:\n    {get_stats(dataset, dataset_info)}")

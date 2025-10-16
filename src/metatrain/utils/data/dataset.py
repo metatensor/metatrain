@@ -1,17 +1,28 @@
 import math
+import multiprocessing
 import os
 import warnings
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
-from metatensor.torch import TensorMap, load_buffer
-from metatomic.torch import load_system
+from metatensor.torch import (
+    Labels,
+    TensorBlock,
+    TensorMap,
+    load_buffer,
+    make_contiguous,
+    make_contiguous_block,
+    save_buffer,
+)
+from metatomic.torch import System, load_system, load_system_buffer
+from metatomic.torch import save_buffer as save_system_buffer
 from omegaconf import DictConfig
+from torch.utils.data import Dataset as TorchDataset
 from torch.utils.data import Subset
 
 from metatrain.utils.data.readers.metatensor import (
@@ -31,6 +42,9 @@ def _set(values: List[int]) -> List[int]:
     """This function just does `list(set(values))`.
 
     But set is not torchscript compatible, so we do it manually.
+
+    :param values: List of integer atomic types.
+    :return: List of unique integer atomic types.
     """
     unique_values: List[int] = []
     for at_type in values:
@@ -81,7 +95,7 @@ class DatasetInfo:
         return sorted(self._atomic_types)
 
     @atomic_types.setter
-    def atomic_types(self, value: List[int]):
+    def atomic_types(self, value: List[int]) -> None:
         self._atomic_types = _set(value)
 
     @property
@@ -101,7 +115,14 @@ class DatasetInfo:
     def to(
         self, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None
     ) -> "DatasetInfo":
-        """Return a copy with all tensors moved to the device and dtype."""
+        """
+        Return a copy with all tensors moved to the device and dtype.
+
+        :param device: The device to move the tensors to.
+        :param dtype: The dtype to move the tensors to.
+        :return: A copy of the DatasetInfo with all tensors moved to the device and
+            dtype.
+        """
         new = self.copy()
         for key, target_info in new.targets.items():
             new.targets[key] = target_info.to(device=device, dtype=dtype)
@@ -109,12 +130,19 @@ class DatasetInfo:
             new.extra_data[key] = extra_data.to(device=device, dtype=dtype)
         return new
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "DatasetInfo(length_unit={!r}, atomic_types={!r}, targets={!r})".format(
             self.length_unit, self.atomic_types, self.targets
         )
 
-    def __eq__(self, other):
+    @torch.jit.unused
+    def __eq__(self, other: Any) -> bool:
+        """
+        Equality operator.
+
+        :param other: Another object to compare with.
+        :return: True if the two objects are equal, False otherwise.
+        """
         if not isinstance(other, DatasetInfo):
             return False
         return (
@@ -125,7 +153,9 @@ class DatasetInfo:
         )
 
     def copy(self) -> "DatasetInfo":
-        """Return a shallow copy of the DatasetInfo."""
+        """
+        :return: A shallow copy of the DatasetInfo.
+        """
         return DatasetInfo(
             length_unit=self.length_unit,
             atomic_types=self.atomic_types.copy(),
@@ -137,6 +167,7 @@ class DatasetInfo:
     def update(self, other: "DatasetInfo") -> None:
         """Update this instance with the union of itself and ``other``.
 
+        :param other: Another :py:class:`DatasetInfo` instance to update this one with.
         :raises ValueError: If the ``length_units`` are different.
         """
         if self.length_unit != other.length_unit:
@@ -172,16 +203,24 @@ class DatasetInfo:
         self.extra_data.update(other.extra_data)
 
     def union(self, other: "DatasetInfo") -> "DatasetInfo":
-        """Return the union of this instance with ``other``."""
+        """
+        Return the union of this instance with ``other``.
+
+        :param other: Another :py:class:`DatasetInfo` instance to combine with this one.
+        :return: A new :py:class:`DatasetInfo` instance containing the union of this
+            instance and ``other``.
+        """
         new = self.copy()
         new.update(other)
         return new
 
     @torch.jit.unused
-    def __setstate__(self, state):
+    def __setstate__(self, state: Dict[str, Any]) -> None:
         """
         Custom ``__setstate__`` to allow loading old checkpoints where ``extra_data`` is
         missing.
+
+        :param state: The state to set.
         """
         self.length_unit = state["length_unit"]
         self._atomic_types = state["_atomic_types"]
@@ -190,7 +229,13 @@ class DatasetInfo:
 
 
 def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str:
-    """Returns the statistics of a dataset or subset as a string."""
+    """
+    Returns the statistics of a dataset or subset as a string.
+
+    :param dataset: The dataset or subset to analyze.
+    :param dataset_info: The DatasetInfo associated with the dataset.
+    :return: A string containing the computed statistics for the dataset.
+    """
 
     dataset_len = len(dataset)
     stats = f"Dataset containing {dataset_len} structures"
@@ -276,7 +321,7 @@ def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
     """List of all atomic types present in a dataset or list of datasets.
 
     :param datasets: the dataset, or list of datasets
-    :returns: sorted list of all atomic types present in the datasets
+    :return: sorted list of all atomic types present in the datasets
     """
 
     if not isinstance(datasets, list):
@@ -295,7 +340,7 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     """Sorted list of all unique targets present in a dataset or list of datasets.
 
     :param datasets: the dataset(s).
-    :returns: Sorted list of all targets present in the dataset(s).
+    :return: Sorted list of all targets present in the dataset(s).
     """
 
     if not isinstance(datasets, list):
@@ -319,9 +364,11 @@ class CollateFn:
     def __init__(
         self,
         target_keys: List[str],
+        callables: Optional[List[Callable]] = None,
         join_kwargs: Optional[Dict[str, Any]] = None,
     ):
         self.target_keys: Set[str] = set(target_keys)
+        self.callables: List[Callable] = callables if callables is not None else []
         self.join_kwargs: Dict[str, Any] = join_kwargs or {
             "remove_tensor_name": True,
             "different_keys": "union",
@@ -330,11 +377,17 @@ class CollateFn:
     def __call__(
         self,
         batch: List[Dict[str, Any]],
-    ) -> Tuple[
-        Any,  # systems
-        Dict[str, TensorMap],  # targets
-        Dict[str, TensorMap],  # extra data
-    ]:
+    ) -> Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]:
+        """
+        :param batch: A batch
+        :return: A tuple containing:
+            - a single tensor containing all systems, targets and extra data
+            - a list with the sizes of each system buffer
+            - a list with the names of each target
+            - a list with the sizes of each target buffer
+            - a list with the names of each extra data
+            - a list with the sizes of each extra data buffer
+        """
         # group & join
         collated = group_and_join(batch, join_kwargs=self.join_kwargs)
         data = collated._asdict()
@@ -352,10 +405,68 @@ class CollateFn:
             else:
                 extra[key] = value
 
-        return systems, targets, extra
+        for callable in self.callables:
+            systems, targets, extra = callable(systems, targets, extra)
+
+        target_names = list(targets.keys())
+        extra_names = list(extra.keys())
+
+        system_buffers = [
+            save_system_buffer(_make_system_contiguous(s)) for s in systems
+        ]
+        target_buffers = [
+            save_buffer(make_contiguous(targets[name])) for name in target_names
+        ]
+        extra_buffers = [
+            save_buffer(make_contiguous(extra[name])) for name in extra_names
+        ]
+
+        system_sizes = [len(b) for b in system_buffers]
+        target_sizes = [len(b) for b in target_buffers]
+        extra_sizes = [len(b) for b in extra_buffers]
+
+        blob = torch.concatenate(system_buffers + target_buffers + extra_buffers)
+
+        return blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes
 
 
-def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]):
+def unpack_batch(
+    batch: Any,
+) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+    """
+    Unpacks a batch into its constituent parts.
+
+    :param batch: The batch to unpack.
+    :return: A tuple with the unpacked batch
+    """
+    blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes = batch
+
+    all_buffers = torch.split(blob, system_sizes + target_sizes + extra_sizes)
+    systems = all_buffers[: len(system_sizes)]
+    targets = {
+        name: buf
+        for name, buf in zip(
+            target_names,
+            all_buffers[len(system_sizes) : len(system_sizes) + len(target_names)],
+            strict=True,
+        )
+    }
+    extra_data = {
+        name: buf
+        for name, buf in zip(
+            extra_names,
+            all_buffers[len(system_sizes) + len(target_names) :],
+            strict=True,
+        )
+    }
+
+    systems = list(load_system_buffer(s) for s in systems)
+    targets = {key: load_buffer(t) for key, t in targets.items()}
+    extra_data = {key: load_buffer(t) for key, t in extra_data.items()}
+    return systems, targets, extra_data
+
+
+def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]) -> None:
     """Check that the training and validation sets are compatible with one another
 
     Although these checks will not fit all use cases, most models would be expected
@@ -465,7 +576,8 @@ def _train_test_random_split(
 
 
 class DiskDataset(torch.utils.data.Dataset):
-    """A class representing a dataset stored on disk.
+    """
+    A class representing a dataset stored on disk.
 
     The dataset is stored in a zip file, where each sample is stored in a separate
     directory. The directory's name is the index of the sample (e.g. ``0/``), and the
@@ -482,18 +594,21 @@ class DiskDataset(torch.utils.data.Dataset):
     """
 
     def __init__(self, path: Union[str, Path], fields: Optional[List[str]] = None):
-        self.zip_file = zipfile.ZipFile(path, "r")
+        self.zip_file_path = path
         self._field_names = ["system"]
         # check that we have at least one sample:
-        if "0/system.mta" not in self.zip_file.namelist():
-            raise ValueError(
-                "Could not find `0/system.mta` in the zip file. "
-                "The dataset format might be wrong, or the dataset might be empty. "
-                "Empty disk datasets are not supported."
-            )
-        for file_name in self.zip_file.namelist():
-            if file_name.startswith("0/") and file_name.endswith(".mts"):
-                self._field_names.append(file_name[2:-4])
+        with zipfile.ZipFile(path, "r") as zip_file:
+            namelist = zip_file.namelist()
+            if "0/system.mta" not in namelist:
+                raise ValueError(
+                    "Could not find `0/system.mta` in the zip file. "
+                    "The dataset format might be wrong, or the dataset might be empty. "
+                    "Empty disk datasets are not supported."
+                )
+            for file_name in namelist:
+                if file_name.startswith("0/") and file_name.endswith(".mts"):
+                    self._field_names.append(file_name[2:-4])
+            self._len = len([f for f in namelist if f.endswith(".mta")])
 
         # Determine which fields are going to be read
         if fields is None:
@@ -511,32 +626,29 @@ class DiskDataset(torch.utils.data.Dataset):
             self._fields_to_read = fields
 
         self._sample_class = namedtuple("Sample", self._fields_to_read)
-        self._len = len([f for f in self.zip_file.namelist() if f.endswith(".mta")])
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self._len
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> Any:
         system_and_targets = []
-        for field_name in self._fields_to_read:
-            if field_name == "system":
-                with self.zip_file.open(f"{index}/system.mta", "r") as file:
-                    system = load_system(file)
-                    system_and_targets.append(system)
-            else:
-                with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
-                    numpy_buffer = np.load(file)
-                    tensor_buffer = torch.from_numpy(numpy_buffer)
-                    tensor_map = load_buffer(tensor_buffer)
-                    system_and_targets.append(tensor_map)
+        with zipfile.ZipFile(self.zip_file_path, "r") as zip_file:
+            for field_name in self._fields_to_read:
+                if field_name == "system":
+                    with zip_file.open(f"{index}/system.mta", "r") as file:
+                        system = load_system(file)
+                        system_and_targets.append(system)
+                else:
+                    with zip_file.open(f"{index}/{field_name}.mts", "r") as file:
+                        numpy_buffer = np.load(file)
+                        tensor_buffer = torch.from_numpy(numpy_buffer)
+                        tensor_map = load_buffer(tensor_buffer)
+                        system_and_targets.append(tensor_map)
         return self._sample_class(*system_and_targets)
 
-    def __iter__(self):
+    def __iter__(self) -> Any:
         for i in range(len(self)):
             yield self[i]
-
-    def __del__(self):
-        self.zip_file.close()
 
     def get_target_info(self, target_config: DictConfig) -> Dict[str, TargetInfo]:
         """
@@ -544,6 +656,7 @@ class DiskDataset(torch.utils.data.Dataset):
 
         :param target_config: The user-provided (through the yaml file) target
             configuration.
+        :return: A dictionary mapping target names to :py:class:`TargetInfo` objects.
         """
         target_info_dict = {}
         for target_key, target in target_config.items():
@@ -623,7 +736,7 @@ def _save_indices(
     else:
         os.mkdir(os.path.join(checkpoint_dir, "indices/"))
         for i, (train, val, test) in enumerate(
-            zip(train_indices, val_indices, test_indices)
+            zip(train_indices, val_indices, test_indices, strict=True)
         ):
             if train is not None:
                 np.savetxt(
@@ -643,3 +756,365 @@ def _save_indices(
                     test,
                     fmt="%d",
                 )
+
+
+def get_num_workers() -> int:
+    """
+    Gets a good number of workers for data loading.
+
+    :return: A good number of workers for data loading.
+    """
+
+    if multiprocessing.get_start_method(allow_none=False) != "fork":
+        return 0
+
+    # len(os.sched_getaffinity(0)) detects thread counts set by slurm,
+    # multiprocessing.cpu_count() doesn't but is more portable
+    if hasattr(os, "sched_getaffinity"):
+        num_threads = min(len(os.sched_getaffinity(0)), multiprocessing.cpu_count())
+    else:
+        num_threads = multiprocessing.cpu_count()
+
+    reserve = 4  # main training process, NCCL, GPU driver, loggers, ...
+    cap = 8  # above this can overwhelm the filesystem
+
+    # can't go below 0, in that case the main training process will handle data loading
+    num_workers = max(0, min(num_threads - reserve, cap))
+
+    return num_workers
+
+
+def validate_num_workers(num_workers: int) -> None:
+    """
+    Gets a good number of workers for data loading.
+
+    :param num_workers: The number of workers to validate.
+    :raises ValueError: If the number of workers is greater than 0 and the
+        multiprocessing start method is not "fork".
+    """
+
+    if multiprocessing.get_start_method(allow_none=False) != "fork" and num_workers > 0:
+        raise ValueError(
+            "You are using a start method for multiprocessing that is not "
+            "'fork' (this is likely because you are on macOS or Windows). "
+            "In this case, num_workers must be set to 0."
+        )
+
+
+def _make_system_contiguous(system: System) -> System:
+    """
+    Return a copy of a ``System`` object with contiguous arrays.
+
+    :param system: The system to make contiguous.
+    :return: A copy of the system with contiguous arrays.
+    """
+    new_system = System(
+        positions=system.positions.contiguous(),
+        types=system.types.contiguous(),
+        cell=system.cell.contiguous(),
+        pbc=system.pbc.contiguous(),
+    )
+    for nl_options in system.known_neighbor_lists():
+        nl = system.get_neighbor_list(nl_options)
+        new_system.add_neighbor_list(
+            nl_options,
+            make_contiguous_block(nl),
+        )
+    for key in system.known_data():
+        data = system.get_data(key)
+        new_system.add_data(key, make_contiguous(data))
+    return new_system
+
+
+class MemmapArray:
+    """
+    Small helper to reopen a ``np.memmap`` lazily in each worker.
+
+    :param path: Path to the binary file containing the memory-mapped array.
+    :param shape: Shape of the array.
+    :param dtype: Data type of the array.
+    :param mode: Mode to open the array. See ``numpy.memmap`` for details.
+    """
+
+    def __init__(
+        self,
+        path: Union[str, Path],
+        shape: Tuple[int, ...],
+        dtype: Union[str, np.dtype],
+        mode: str = "r",
+    ) -> None:
+        self.path = str(path)
+        self.shape = tuple(shape)
+        self.dtype = np.dtype(dtype)
+        self.mode = mode
+        self._mm = None
+
+    def _ensure_open(self) -> None:
+        if self._mm is None:
+            self._mm = np.memmap(
+                self.path, dtype=self.dtype, mode=self.mode, shape=self.shape
+            )
+
+    def __getitem__(self, idx: Any) -> np.ndarray:
+        self._ensure_open()
+        return self._mm[idx]  # type: ignore
+
+    def close(self) -> None:
+        if self._mm is not None:
+            # np.memmap closes when deleted; explicit close via _mmap isn't public.
+            self._mm._mmap.close()
+            self._mm = None
+
+
+class MemmapDataset(TorchDataset):
+    """A class representing a dataset stored as a set of memory-mapped arrays.
+
+    This dataset supports arbitrary scalar and cartesian vector/tensor targets, but
+    not spherical tensors. Virials of energy targets are not supported in this type of
+    dataset (stresses can be used instead to achieve the same goal).
+
+    The dataset is stored in a directory, where the dataset is stored in a set of
+    memory-mapped numpy arrays. These are:
+
+    - ns.npy: total number of structures in the dataset. Shape: (1,).
+    - na.npy: cumulative number of atoms per structure. na[-1] therefore corresponds to
+        the total number of atoms in the dataset. Shape: (ns+1,).
+    - x.bin: atomic positions of all atoms in the dataset, concatenated. Shape:
+        (na[-1], 3).
+    - a.bin: atomic types of all atoms in the dataset, concatenated. Shape: (na[-1],).
+    - c.bin: cell matrices of all structures in the dataset. Shape: (ns, 3, 3).
+    - <key>.bin: target values for each structure or atom, depending on the
+        whether the target is defined per atom or per structure.
+        Shape: (ns, ..., num_subtargets) if per-structures or
+        (na[-1], ..., num_subtargets) if per-atom, where the
+        ... depends on the type of target (scalar, vector, tensor, etc.). <key> can
+        then be used in the "key" section of targets in metatrain input files to read
+        the target(s).
+
+    :param path: Path to the directory containing the dataset.
+    :param target_options: Dictionary containing the target configurations, in the
+        format corresponding to metatrain yaml input files.
+    """
+
+    def __init__(self, path: Union[str, Path], target_options: Dict[str, Any]) -> None:
+        path = Path(path)
+        self.target_config = target_options
+        self.sample_class = namedtuple(
+            "Sample", ["system"] + list(self.target_config.keys())
+        )
+
+        # Information about the structures
+        self.ns = np.load(path / "ns.npy")
+        self.na = np.load(path / "na.npy")
+        self.x = MemmapArray(path / "x.bin", (self.na[-1], 3), "float32", mode="r")
+        self.a = MemmapArray(path / "a.bin", (self.na[-1],), "int32", mode="r")
+        self.c = MemmapArray(path / "c.bin", (self.ns, 3, 3), "float32", mode="r")
+
+        # Register arrays pointing to the targets
+        self.target_arrays = {}
+        for target_key, single_target_options in target_options.items():
+            data_key = single_target_options["key"]
+            number_of_samples = (
+                self.na[-1] if single_target_options["per_atom"] else self.ns
+            )
+            number_of_properties = single_target_options["num_subtargets"]
+            if single_target_options["type"] == "scalar":
+                self.target_arrays[target_key] = MemmapArray(
+                    path / f"{data_key}.bin",
+                    (number_of_samples, number_of_properties),
+                    "float32",
+                    mode="r",
+                )
+                if (
+                    single_target_options["quantity"] == "energy"
+                    and not single_target_options["per_atom"]
+                    and single_target_options["num_subtargets"] == 1
+                ):
+                    # energy target: look into potential gradients
+                    if single_target_options["forces"]:
+                        self.target_arrays[f"{target_key}_forces"] = MemmapArray(
+                            path / f"{single_target_options['forces']['key']}.bin",
+                            (self.na[-1], 3, 1),
+                            "float32",
+                            mode="r",
+                        )
+                    if single_target_options["stress"]:
+                        self.target_arrays[f"{target_key}_stress"] = MemmapArray(
+                            path / f"{single_target_options['stress']['key']}.bin",
+                            (self.ns, 3, 3, 1),
+                            "float32",
+                            mode="r",
+                        )
+                    if single_target_options["virial"]:
+                        raise ValueError(
+                            "Virial targets are not supported in MemmapDataset."
+                        )
+            elif isinstance(single_target_options["type"], DictConfig) or isinstance(
+                single_target_options["type"], Dict
+            ):
+                if "spherical" in single_target_options["type"]:
+                    raise ValueError(
+                        "Spherical targets are not supported in MemmapDataset."
+                    )
+                else:  # cartesian
+                    n_components = single_target_options["type"]["cartesian"]["rank"]
+                    shape = (
+                        (number_of_samples,)
+                        + (3,) * n_components
+                        + (number_of_properties,)
+                    )
+                    self.target_arrays[target_key] = MemmapArray(
+                        path / f"{data_key}.bin", shape, "float32", mode="r"
+                    )
+            else:
+                raise ValueError(
+                    f"Unsupported target configuration: {single_target_options}"
+                )
+
+    def __len__(self) -> int:
+        return self.ns
+
+    def __getitem__(self, i: int) -> Any:
+        a = torch.tensor(self.a[self.na[i] : self.na[i + 1]], dtype=torch.int32)
+        x = torch.tensor(self.x[self.na[i] : self.na[i + 1]], dtype=torch.float64)
+        c = torch.tensor(self.c[i], dtype=torch.float64)
+
+        system = System(
+            positions=x,
+            types=a,
+            cell=c,
+            pbc=torch.logical_not(torch.all(c == 0.0, dim=1)),
+        )
+
+        target_dict = {}
+        for target_key, target_options in self.target_config.items():
+            target_array = self.target_arrays[target_key]
+            is_per_atom = target_array.shape[0] == (self.na[-1])
+            if is_per_atom:
+                samples = Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor(
+                        [[i, j] for j in range(self.na[i], self.na[i + 1])],
+                        dtype=torch.int32,
+                    ),
+                )
+            else:
+                samples = Labels(
+                    names=["system"],
+                    values=torch.tensor([[i]], dtype=torch.int32),
+                )
+            if len(target_array.shape) > 3:
+                # Cartesian tensor with rank > 1
+                n_components = len(target_array.shape) - 2
+                components = [
+                    Labels.range(f"xyz_{d + 1}", 3) for d in range(n_components)
+                ]
+            elif len(target_array.shape) == 3:
+                # Cartesian vector
+                components = [Labels.range("xyz", 3)]
+            else:
+                # Scalar
+                components = []
+
+            target_block = TensorBlock(
+                values=torch.tensor(
+                    target_array[None, i]
+                    if not is_per_atom
+                    else target_array[self.na[i] : self.na[i + 1]],
+                    dtype=torch.float64,
+                ),
+                samples=samples,
+                components=components,
+                properties=Labels.range(target_key, target_array.shape[-1]),
+            )
+
+            # handle energy gradients
+            if (
+                target_options["quantity"] == "energy"
+                and not target_options["per_atom"]
+                and target_options["num_subtargets"] == 1
+            ):
+                if target_options["forces"]:
+                    f = torch.tensor(
+                        self.target_arrays[f"{target_key}_forces"][
+                            self.na[i] : self.na[i + 1]
+                        ],
+                        dtype=torch.float64,
+                    )
+                    target_block.add_gradient(
+                        "positions",
+                        TensorBlock(
+                            values=-f,
+                            samples=Labels(
+                                names=["sample", "atom"],
+                                values=torch.tensor(
+                                    [[0, j] for j in range(len(a))], dtype=torch.int32
+                                ),
+                            ),
+                            components=[Labels.range("xyz", 3)],
+                            properties=Labels.range("energy", 1),
+                        ),
+                    )
+                if target_options["stress"]:
+                    s = torch.tensor(
+                        self.target_arrays[f"{target_key}_stress"][None, i],
+                        dtype=torch.float64,
+                    )
+                    target_block.add_gradient(
+                        "strain",
+                        TensorBlock(
+                            values=(s * torch.abs(torch.det(c))),
+                            samples=Labels(
+                                names=["sample"],
+                                values=torch.tensor([[0]], dtype=torch.int32),
+                            ),
+                            components=[
+                                Labels.range("xyz_1", 3),
+                                Labels.range("xyz_2", 3),
+                            ],
+                            properties=Labels.range("energy", 1),
+                        ),
+                    )
+
+            target_tensormap = TensorMap(
+                keys=Labels.single(),
+                blocks=[target_block],
+            )
+            target_dict[target_key] = target_tensormap
+
+        sample = self.sample_class(**{"system": system, **target_dict})
+        return sample
+
+    def get_target_info(self) -> Dict[str, TargetInfo]:
+        """
+        Get information about the targets in the dataset.
+
+        :return: A dictionary mapping target names to :py:class:`TargetInfo` objects.
+        """
+        target_info_dict = {}
+        for target_key, target in self.target_config.items():
+            is_energy = (
+                (target["quantity"] == "energy")
+                and (not target["per_atom"])
+                and target["num_subtargets"] == 1
+                and target["type"] == "scalar"
+            )
+            tensor_map = self[0][target_key]
+            if is_energy:
+                if len(tensor_map) != 1:
+                    raise ValueError("Energy TensorMaps should have exactly one block.")
+                add_position_gradients = tensor_map.block().has_gradient("positions")
+                add_strain_gradients = tensor_map.block().has_gradient("strain")
+                target_info = get_energy_target_info(
+                    target_key, target, add_position_gradients, add_strain_gradients
+                )
+                _check_tensor_map_metadata(tensor_map, target_info.layout)
+                target_info_dict[target_key] = target_info
+            else:
+                target_info = get_generic_target_info(target_key, target)
+                _check_tensor_map_metadata(tensor_map, target_info.layout)
+                # make sure that the properties of the target_info.layout also match the
+                # actual properties of the tensor maps
+                target_info.layout = _empty_tensor_map_like(tensor_map)
+                target_info_dict[target_key] = target_info
+        return target_info_dict
