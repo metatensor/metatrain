@@ -703,7 +703,9 @@ def test_transfer_learn_variant(options_pet, caplog, monkeypatch, tmp_path):
     options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"]["key"] = (
         "energy"
     )
-    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"]["forces"] = {
+    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"][
+        "forces"
+    ] = {
         "key": "forces",
     }
     shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
