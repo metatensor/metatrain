@@ -19,10 +19,9 @@ jobs:
         enable-cache: true
         activate-environment: true
 
-    - name: Set up Python
-      run: uv python install
-
-    - run: |
+    - name: Set up Python and install tox
+      run: |
+        uv python install
         uv tool install tox --with tox-uv
 
     - name: Lint the code
