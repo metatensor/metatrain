@@ -409,9 +409,15 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
 
 class MaskedDOSLoss(LossInterface):
     """
-    Pointwise masked loss on :py:class:`TensorMap` entries.
+    Masked DOS loss on :py:class:`TensorMap` entries.
 
-    Inherits flattening and torch-loss logic from BaseTensorMapLoss.
+    :param name: key for the dos in the prediction/target dictionary.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param grad_weight: Multiplier for the gradient of the unmasked DOS component.
+    :param int_weight: Multiplier for the cumulative DOS component.
+    :param extra_targets: Number of extra targets predicted by the model.
+    :param reduction: reduction mode for torch loss.
     """
 
     def __init__(
@@ -451,7 +457,7 @@ class MaskedDOSLoss(LossInterface):
         """
         Gather and flatten target and prediction blocks, then compute loss.
 
-        :param predictions: Mapping from target names to TensorMaps.
+        :param model_predictions: Mapping from target names to TensorMaps.
         :param targets: Mapping from target names to TensorMaps.
         :param extra_data: Additional data for loss computation. Assumes that, for the
             target ``name`` used in the constructor, there is a corresponding data field
