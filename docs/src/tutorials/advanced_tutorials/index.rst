@@ -15,3 +15,4 @@ This sections includes the advanced tutorials on the usage of the
    ../../advanced-concepts/fitting-generic-targets
    ../../examples/programmatic/flashmd/flashmd
    ../../examples/multi-gpu/multi-gpu
+   ../../advanced-concepts/dos-loss

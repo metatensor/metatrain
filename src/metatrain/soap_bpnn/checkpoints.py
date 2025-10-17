@@ -166,3 +166,12 @@ def trainer_update_v5_v6(checkpoint: dict) -> None:
         "In order to use this checkpoint, you need metatrain 2025.10 or earlier. "
         "You can install it with `pip install metatrain==2025.10`."
     )
+
+
+def trainer_update_v6_v7(checkpoint: dict) -> None:
+    """
+    Update a v6 Trainer checkpoint to v7.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"]["fit_composition_model"] = True

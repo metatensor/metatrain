@@ -301,3 +301,12 @@ def trainer_update_v6_v7(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     checkpoint["train_hypers"]["fixed_scaling_weights"] = {}
+
+
+def trainer_update_v7_v8(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 7 to version 8.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"]["fit_composition_model"] = True
