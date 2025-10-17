@@ -27,6 +27,137 @@ from e3nn import o3
 
 from .utils.structures import create_batch
 
+def add_contribution(
+    values: Dict[str, TensorMap],
+    systems: List[System],
+    outputs: Dict[str, ModelOutput],
+    additive_model: CompositionModel,
+    selected_atoms: Optional[Labels] = None,
+) -> None:
+    
+    outputs_for_additive_model: Dict[str, ModelOutput] = {}
+    for name, output in outputs.items():
+        if name in additive_model.outputs:
+            outputs_for_additive_model[name] = output
+    additive_contributions = additive_model.forward(
+        systems,
+        outputs_for_additive_model,
+        selected_atoms,
+    )
+    for name in additive_contributions:
+        # # TODO: uncomment this after metatensor.torch.add is updated to
+        # # handle sparse sums
+        # return_dict[name] = metatensor.torch.add(
+        #     return_dict[name],
+        #     additive_contributions[name].to(
+        #         device=return_dict[name].device,
+        #         dtype=return_dict[name].dtype
+        #         ),
+        # )
+
+        # TODO: "manual" sparse sum: update to metatensor.torch.add after
+        # sparse sum is implemented in metatensor.operations
+        output_blocks: List[TensorBlock] = []
+        for k, b in values[name].items():
+            if k in additive_contributions[name].keys:
+                output_blocks.append(
+                    _add_block_block(
+                        b,
+                        additive_contributions[name]
+                        .block(k)
+                        .to(device=b.device, dtype=b.dtype),
+                    )
+                )
+            else:
+                output_blocks.append(b)
+        values[name] = TensorMap(values[name].keys, output_blocks)
+
+def e3nn_to_tensormap(
+    target_values: torch.Tensor,
+    sample_labels: Labels,
+    target_info: TargetInfo,
+    output_name: str,
+    outputs: Dict[str, ModelOutput],
+) -> TensorMap:
+    
+    blocks: list[TensorBlock] = []
+    pointer = 0
+    for i in range(len(target_info.component_labels)):
+
+        components = target_info.component_labels[i]
+        properties = target_info.property_labels[i]
+
+        has_components = len(components) > 0
+        n_components = len(components[0]) if has_components else 1
+        n_properties = len(properties)
+
+        end = pointer + n_components * n_properties
+
+        values = target_values[:, pointer:end].reshape(
+            -1, n_properties, n_components,
+        ).transpose(1, 2)
+
+        if target_info.is_cartesian and n_components == 3:
+            # Go back from YZX to XYZ
+            values = values[:, [2, 0, 1], :]
+
+        if not has_components:
+            # Remove the components dimension if there are no components
+            values = values.squeeze(1)
+
+        blocks.append(
+            TensorBlock(
+                values=values,
+                samples=sample_labels,
+                components=components,
+                properties=properties,
+            )
+        )
+        pointer = end
+
+    atom_target = TensorMap(
+        keys=target_info.layout.keys,
+        blocks=blocks
+    )
+
+    return sum_over_atoms(atom_target) if not outputs[output_name].per_atom else atom_target
+
+def get_system_indices_and_labels(
+    systems: List[System], device: torch.device
+) -> tuple[torch.Tensor, Labels]:
+    
+    system_indices = torch.concatenate(
+    [
+        torch.full(
+                (len(system),),
+                i_system,
+                device=device,
+            )
+            for i_system, system in enumerate(systems)
+        ],
+    )
+
+    sample_values = torch.stack(
+        [
+            system_indices,
+            torch.concatenate(
+                [
+                    torch.arange(
+                        len(system),
+                        device=device,
+                    )
+                    for system in systems
+                ],
+            ),
+        ],
+        dim=1,
+    )
+    sample_labels = Labels(
+        names=["system", "atom"],
+        values=sample_values,
+    )
+    return system_indices, sample_labels
+
 class MetaMACE(ModelInterface):
     """Interface of MACE for metatrain."""
 
@@ -41,11 +172,7 @@ class MetaMACE(ModelInterface):
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__(model_hypers, dataset_info, self.__default_metadata__)
-        # checks on targets inside the RotationalAugmenter class in the trainer
-
-        self.dataset_info = dataset_info
-        self.new_outputs = list(dataset_info.targets.keys())
-        self.atomic_types = dataset_info.atomic_types
+ 
         self.register_buffer(
             "atomic_types_to_species_index", torch.zeros(max(dataset_info.atomic_types) + 1, dtype=torch.int64)
         )
@@ -59,7 +186,6 @@ class MetaMACE(ModelInterface):
         )
 
         self.cutoff = float(self.hypers["cutoff"])
-        self.cutoff_width = float(self.hypers["cutoff_width"])
 
         self.mace_model = MACE(
             r_max=self.cutoff,
@@ -99,7 +225,7 @@ class MetaMACE(ModelInterface):
             hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
+                atomic_types=self.dataset_info.atomic_types,
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
@@ -112,88 +238,7 @@ class MetaMACE(ModelInterface):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
-
-        self.single_label = Labels.single()
-
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
-        return self.outputs
-
-    def restart(self, dataset_info: DatasetInfo) -> MACE:
-        # merge old and new dataset info
-        merged_info = self.dataset_info.union(dataset_info)
-        new_atomic_types = [
-            at for at in merged_info.atomic_types if at not in self.atomic_types
-        ]
-        new_targets = {
-            key: value
-            for key, value in merged_info.targets.items()
-            if key not in self.dataset_info.targets
-        }
-        self.has_new_targets = len(new_targets) > 0
-
-        if len(new_atomic_types) > 0:
-            raise ValueError(
-                f"New atomic types found in the dataset: {new_atomic_types}. "
-                "The nanoPET model does not support adding new atomic types."
-            )
-
-        # register new outputs as new last layers
-        for target_name, target in new_targets.items():
-            self._add_output(target_name, target)
-
-        self.dataset_info = merged_info
-
-        # restart the composition and scaler models
-        self.additive_models[0].restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        self.scaler.restart(dataset_info)
-
-        return self
     
-    def _get_system_indices_and_labels(
-        self, systems: List[System], device: torch.device
-    ):
-        system_indices = torch.concatenate(
-            [
-                torch.full(
-                    (len(system),),
-                    i_system,
-                    device=device,
-                )
-                for i_system, system in enumerate(systems)
-            ],
-        )
-
-        sample_values = torch.stack(
-            [
-                system_indices,
-                torch.concatenate(
-                    [
-                        torch.arange(
-                            len(system),
-                            device=device,
-                        )
-                        for system in systems
-                    ],
-                ),
-            ],
-            dim=1,
-        )
-        sample_labels = Labels(
-            names=["system", "atom"],
-            values=sample_values,
-        )
-        return system_indices, sample_labels
-
     def forward(
         self,
         systems: List[System],
@@ -206,196 +251,63 @@ class MetaMACE(ModelInterface):
                 "selected_atoms is not supported in MetaMACE for now. "
             )
         
+        # Move everything to the same device
         device = systems[0].device
-        
-        if self.single_label.values.device != device:
-            self.single_label = self.single_label.to(device)
-            self.dataset_info = self.dataset_info.to(device=device)
+        self.dataset_info = self.dataset_info.to(device=device)
 
+        # Create the batch to pass as input for MACE.
+        # THIS PROBABLY SHOULD BE MOVED OUTSIDE THE MODEL!!
+        # (But I don't know if this would affect the interfaces e.g. with
+        # ASE, LAMMPS, etc.)
         data = create_batch(
             systems=systems,
             neighbor_list_options=self.requested_nl,
             atomic_types_to_species_index=self.atomic_types_to_species_index,
-            n_types=len(self.atomic_types),
+            n_types=len(self.dataset_info.atomic_types),
             device=device,
         )
 
         # Change coordinates to YZX
         data["positions"] = data["positions"][:, [1, 2, 0]]
 
+        # Run MACE and extract the node features.
         mace_output = self.mace_model(data, training=self.training)
+        node_features = mace_output["node_feats"]
+        assert node_features is not None # For torchscript
 
-        return_dict: Dict[str, TensorMap] = {}
-
-        system_indices, sample_labels = self._get_system_indices_and_labels(
+        # Get the labels for the samples (system and atom of each value)
+        _, sample_labels = get_system_indices_and_labels(
             systems, device
         )
 
-        node_features = mace_output["node_feats"]
-        assert node_features is not None, "Node features should not be None"
-        # # output the last-layer features for the outputs, if requested:
+        # Run all heads and collect outputs as TensorMaps
+        return_dict: Dict[str, TensorMap] = {}
         for output_name, head in self.heads.items():
             node_target = head.forward(node_features, weight=None, bias=None)
             target_info = self.dataset_info.targets[output_name]
 
-            blocks: list[TensorBlock] = []
-            pointer = 0
-            for i in range(len(target_info.component_labels)):
-
-                components = target_info.component_labels[i]
-                properties = target_info.property_labels[i]
-
-                has_components = len(components) > 0
-                n_components = len(components[0]) if has_components else 1
-                n_properties = len(properties)
-
-                end = pointer + n_components * n_properties
-
-                values = node_target[:, pointer:end].reshape(
-                    -1, n_properties, n_components,
-                ).transpose(1, 2)
-
-                if target_info.is_cartesian and n_components == 3:
-                    # Go back from YZX to XYZ
-                    values = values[:, [2, 0, 1], :]
-
-                if not has_components:
-                    # Remove the components dimension if there are no components
-                    values = values.squeeze(1)
-
-                blocks.append(
-                    TensorBlock(
-                        values=values,
-                        samples=sample_labels,
-                        components=components,
-                        properties=properties,
-                    )
-                )
-                pointer = end
-
-            atom_target = TensorMap(
-                keys=target_info.layout.keys,
-                blocks=blocks
+            return_dict[output_name] = e3nn_to_tensormap(
+                node_target,
+                sample_labels,
+                target_info,
+                output_name,
+                outputs, 
             )
-
-            if outputs[output_name].per_atom:
-                return_dict[output_name] = atom_target
-            else:
-                return_dict[output_name] = sum_over_atoms(atom_target)
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
             return_dict = self.scaler(systems,return_dict)
             for additive_model in self.additive_models:
-                outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                for name, output in outputs.items():
-                    if name in additive_model.outputs:
-                        outputs_for_additive_model[name] = output
-                additive_contributions = additive_model(
+                add_contribution(
+                    return_dict,
                     systems,
-                    outputs_for_additive_model,
-                    selected_atoms,
+                    outputs,
+                    additive_model,
+                    selected_atoms
                 )
-                for name in additive_contributions:
-                    # # TODO: uncomment this after metatensor.torch.add is updated to
-                    # # handle sparse sums
-                    # return_dict[name] = metatensor.torch.add(
-                    #     return_dict[name],
-                    #     additive_contributions[name].to(
-                    #         device=return_dict[name].device,
-                    #         dtype=return_dict[name].dtype
-                    #         ),
-                    # )
-
-                    # TODO: "manual" sparse sum: update to metatensor.torch.add after
-                    # sparse sum is implemented in metatensor.operations
-                    output_blocks: List[TensorBlock] = []
-                    for k, b in return_dict[name].items():
-                        if k in additive_contributions[name].keys:
-                            output_blocks.append(
-                                _add_block_block(
-                                    b,
-                                    additive_contributions[name]
-                                    .block(k)
-                                    .to(device=b.device, dtype=b.dtype),
-                                )
-                            )
-                        else:
-                            output_blocks.append(b)
-                    return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
+                
 
         return return_dict
-
-    def requested_neighbor_lists(
-        self,
-    ) -> List[NeighborListOptions]:
-        return [self.requested_nl]
-
-    @classmethod
-    def load_checkpoint(
-        cls,
-        checkpoint: Dict[str, Any],
-        context: Literal["restart", "export"],
-    ) -> "MetaMACE":
-        model_data = checkpoint["model_data"]
-
-        if context == "restart":
-            model_state_dict = checkpoint["model_state_dict"]
-        elif context == "export":
-            model_state_dict = checkpoint["best_model_state_dict"]
-            if model_state_dict is None:
-                model_state_dict = checkpoint["model_state_dict"]
-        else:
-            raise ValueError("Unknown context tag for checkpoint loading!")
-
-        # Create the model
-        model = cls(**model_data)
-        dtype = None
-        for k, v in model_state_dict.items():
-            if k.endswith(".weight"):
-                dtype = v.dtype
-                break
-        else:
-            raise ValueError("Couldn't infer dtype from the checkpoint file")
-        model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-
-        model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
-
-        return model
-
-    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
-        dtype = next(self.parameters()).dtype
-        if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for NanoPET")
-
-        # Make sure the model is all in the same dtype
-        # For example, after training, the additive models could still be in
-        # float64
-        self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
-
-        interaction_ranges = [self.hypers["num_interactions"] * self.hypers["cutoff"]]
-        interaction_range = max(interaction_ranges)
-
-        capabilities = ModelCapabilities(
-            outputs=self.outputs,
-            atomic_types=self.atomic_types,
-            interaction_range=interaction_range,
-            length_unit=self.dataset_info.length_unit,
-            supported_devices=self.__supported_devices__,
-            dtype=dtype_to_str(dtype),
-        )
-
-        if metadata is None:
-            metadata = self.__default_metadata__
-        else:
-            metadata = merge_metadata(self.__default_metadata__, metadata)
-
-        return AtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         # We don't support Cartesian tensors with rank > 1
@@ -440,10 +352,132 @@ class MetaMACE(ModelInterface):
             f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
         )
         self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
     
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for MetaMACE")
+    def requested_neighbor_lists(
+        self,
+    ) -> List[NeighborListOptions]:
+        return [self.requested_nl]
+
+    def restart(self, dataset_info: DatasetInfo) -> "MetaMACE":
+        # Check that the new dataset info does not contain new atomic types
+        if new_atomic_types := set(dataset_info.atomic_types) - set(self.dataset_info.atomic_types):
+            raise ValueError(
+                f"New atomic types found in the dataset: {new_atomic_types}. "
+                "The MACE model does not support adding new atomic types."
+            )
+
+        # Merge the old dataset info with the new one
+        merged_info = self.dataset_info.union(dataset_info)
+
+        # Check if there are new targets
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in self.dataset_info.targets
+        }
+        self.has_new_targets = len(new_targets) > 0
+
+        # Add extra heads for the new targets
+        for target_name, target in new_targets.items():
+            self._add_output(target_name, target)
+
+        self.dataset_info = merged_info
+
+        # Restart the composition and scaler models
+        self.additive_models[0].restart(
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=self.dataset_info.atomic_types,
+                targets={
+                    target_name: target_info
+                    for target_name, target_info in dataset_info.targets.items()
+                    if CompositionModel.is_valid_target(target_name, target_info)
+                },
+            ),
+        )
+        self.scaler.restart(dataset_info)
+
+        return self
+    
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
+        dtype = next(self.parameters()).dtype
+        if dtype not in self.__supported_dtypes__:
+            raise ValueError(f"unsupported dtype {dtype} for MACE")
+
+        # Make sure the model is all in the same dtype
+        # For example, after training, the additive models could still be in
+        # float64
+        self.to(dtype)
+
+        # Additionally, the composition model contains some `TensorMap`s that cannot
+        # be registered correctly with Pytorch. This function moves them:
+        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
+
+        interaction_ranges = [self.hypers["num_interactions"] * self.hypers["cutoff"]]
+        interaction_range = max(interaction_ranges)
+
+        capabilities = ModelCapabilities(
+            outputs=self.outputs,
+            atomic_types=self.dataset_info.atomic_types,
+            interaction_range=interaction_range,
+            length_unit=self.dataset_info.length_unit,
+            supported_devices=self.__supported_devices__,
+            dtype=dtype_to_str(dtype),
+        )
+
+        if metadata is None:
+            metadata = self.__default_metadata__
+        else:
+            metadata = merge_metadata(self.__default_metadata__, metadata)
+
+        return AtomisticModel(self.eval(), metadata, capabilities)
+    
+    @classmethod
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "export"],
+    ) -> "MetaMACE":
+        model_data = checkpoint["model_data"]
+
+        if context == "restart":
+            model_state_dict = checkpoint["model_state_dict"]
+        elif context == "export":
+            model_state_dict = checkpoint["best_model_state_dict"]
+            if model_state_dict is None:
+                model_state_dict = checkpoint["model_state_dict"]
+        else:
+            raise ValueError("Unknown context tag for checkpoint loading!")
+
+        # Create the model
+        model = cls(**model_data)
+        dtype = None
+        for k, v in model_state_dict.items():
+            if k.endswith(".weight"):
+                dtype = v.dtype
+                break
+        else:
+            raise ValueError("Couldn't infer dtype from the checkpoint file")
+        model.to(dtype).load_state_dict(model_state_dict)
+        model.additive_models[0].sync_tensor_maps()
+
+        model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
+
+        return model
+    
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current model "
+                f"version is {cls.__checkpoint_version__}."
+            )
+        
+        return checkpoint
 
     def get_checkpoint(self) -> Dict:
         model_state_dict = self.state_dict()
@@ -459,11 +493,3 @@ class MetaMACE(ModelInterface):
             "best_model_state_dict": None,
         }
         return checkpoint
-
-
-def manual_prod(shape: List[int]) -> int:
-    # prod from standard library not supported in torchscript
-    result = 1
-    for dim in shape:
-        result *= dim
-    return result
