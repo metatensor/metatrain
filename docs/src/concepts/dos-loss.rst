@@ -1,4 +1,5 @@
 .. _dos-loss:
+
 Masked DOS Loss Function
 =========================
 The masked DOS loss function is a specialized loss function designed to support model training on the electronic density of states (DOS) projected on an energy grid where the structures in the dataset
