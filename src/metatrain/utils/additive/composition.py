@@ -207,59 +207,59 @@ class CompositionModel(torch.nn.Module):
 
         # Create dataloader for the training datasets. Note that these might need
         # neighbor lists if any of the `additive_models` require them.
-        requested_neighbor_lists = []
-        for additive_model in additive_models:
-            if hasattr(additive_model, "requested_neighbor_lists"):
-                requested_neighbor_lists += additive_model.requested_neighbor_lists()
-        dataloader = self._get_dataloader(
-            datasets,
-            requested_neighbor_lists,
-            batch_size,
-            is_distributed=is_distributed,
-        )
+        # requested_neighbor_lists = []
+        # for additive_model in additive_models:
+        #     if hasattr(additive_model, "requested_neighbor_lists"):
+        #         requested_neighbor_lists += additive_model.requested_neighbor_lists()
+        # dataloader = self._get_dataloader(
+        #     datasets,
+        #     requested_neighbor_lists,
+        #     batch_size,
+        #     is_distributed=is_distributed,
+        # )
 
         if fixed_weights is None:
             fixed_weights = {}
 
         device = self.dummy_buffer.device
 
-        # accumulate
-        for batch in dataloader:
-            systems, targets, _ = unpack_batch(batch)
-            systems, targets, _ = batch_to(systems, targets, device=device)
-            # only accumulate the targets that do not use fixed weights
-            targets = {
-                target_name: targets[target_name]
-                for target_name, target in targets.items()
-                if target_name not in fixed_weights and target_name in self._new_outputs
-            }
-            if len(targets) == 0:
-                break
+        # # accumulate
+        # for batch in dataloader:
+        #     systems, targets, _ = unpack_batch(batch)
+        #     systems, targets, _ = batch_to(systems, targets, device=device)
+        #     # only accumulate the targets that do not use fixed weights
+        #     targets = {
+        #         target_name: targets[target_name]
+        #         for target_name, target in targets.items()
+        #         if target_name not in fixed_weights and target_name in self._new_outputs
+        #     }
+        #     if len(targets) == 0:
+        #         break
 
-            # remove additive contributions from these targets
-            for additive_model in additive_models:
-                targets = remove_additive(
-                    systems,
-                    targets,
-                    additive_model,
-                    {
-                        target_name: self.target_infos[target_name]
-                        for target_name in targets
-                    },
-                )
-            self.model.accumulate(systems, targets)
+        #     # remove additive contributions from these targets
+        #     for additive_model in additive_models:
+        #         targets = remove_additive(
+        #             systems,
+        #             targets,
+        #             additive_model,
+        #             {
+        #                 target_name: self.target_infos[target_name]
+        #                 for target_name in targets
+        #             },
+        #         )
+        #     self.model.accumulate(systems, targets)
 
-        if is_distributed:
-            torch.distributed.barrier()
-            # All-reduce the accumulated TensorMaps across all processes
-            for target_name in self._new_outputs:
-                for XTX_block, XTY_block in zip(
-                    self.model.XTX[target_name],
-                    self.model.XTY[target_name],
-                    strict=True,
-                ):
-                    torch.distributed.all_reduce(XTX_block.values)
-                    torch.distributed.all_reduce(XTY_block.values)
+        # if is_distributed:
+        #     torch.distributed.barrier()
+        #     # All-reduce the accumulated TensorMaps across all processes
+        #     for target_name in self._new_outputs:
+        #         for XTX_block, XTY_block in zip(
+        #             self.model.XTX[target_name],
+        #             self.model.XTY[target_name],
+        #             strict=True,
+        #         ):
+        #             torch.distributed.all_reduce(XTX_block.values)
+        #             torch.distributed.all_reduce(XTY_block.values)
 
         # Fit the model on all ranks
         self.model.fit(fixed_weights, targets_to_fit=self._new_outputs)

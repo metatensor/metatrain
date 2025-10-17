@@ -431,32 +431,32 @@ def train_model(
     # PRINT DATASET STATS #####
     ###########################
 
-    for i, train_dataset in enumerate(train_datasets):
-        if len(train_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
-        logging.info(
-            f"Training dataset{index}:\n    {get_stats(train_dataset, dataset_info)}"
-        )
+    # for i, train_dataset in enumerate(train_datasets):
+    #     if len(train_datasets) == 1:
+    #         index = ""
+    #     else:
+    #         index = f" {i}"
+    #     logging.info(
+    #         f"Training dataset{index}:\n    {get_stats(train_dataset, dataset_info)}"
+    #     )
 
-    for i, val_dataset in enumerate(val_datasets):
-        if len(val_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
-        logging.info(
-            f"Validation dataset{index}:\n    {get_stats(val_dataset, dataset_info)}"
-        )
+    # for i, val_dataset in enumerate(val_datasets):
+    #     if len(val_datasets) == 1:
+    #         index = ""
+    #     else:
+    #         index = f" {i}"
+    #     logging.info(
+    #         f"Validation dataset{index}:\n    {get_stats(val_dataset, dataset_info)}"
+    #     )
 
-    for i, test_dataset in enumerate(test_datasets):
-        if len(test_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
-        logging.info(
-            f"Test dataset{index}:\n    {get_stats(test_dataset, dataset_info)}"
-        )
+    # for i, test_dataset in enumerate(test_datasets):
+    #     if len(test_datasets) == 1:
+    #         index = ""
+    #     else:
+    #         index = f" {i}"
+    #     logging.info(
+    #         f"Test dataset{index}:\n    {get_stats(test_dataset, dataset_info)}"
+    #     )
 
     ###########################
     # SAVE EXPANDED OPTIONS ###
