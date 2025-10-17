@@ -1,8 +1,8 @@
-import warnings
-from math import prod
 from typing import Any, Dict, List, Literal, Optional
 
-import metatensor.torch
+import mace.modules as mace_modules
+from mace.modules import MACE
+
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.operations._add import _add_block_block
@@ -16,23 +16,16 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
-from mace.modules import MACE, RealAgnosticResidualInteractionBlock
 from e3nn import o3
 
 from .utils.structures import create_batch
-
-from typing import TypedDict
-
-class Target(TypedDict):
-    is_cartesian: bool
 
 class MetaMACE(ModelInterface):
     """Interface of MACE for metatrain."""
@@ -70,20 +63,29 @@ class MetaMACE(ModelInterface):
 
         self.mace_model = MACE(
             r_max=self.cutoff,
-            num_bessel=model_hypers["num_bessel"],
-            num_polynomial_cutoff=model_hypers["num_polynomial_cutoff"],
+            num_bessel=model_hypers["num_radial_basis"],
+            num_polynomial_cutoff=model_hypers["num_cutoff_basis"],
             max_ell=model_hypers["max_ell"],
-            interaction_cls= RealAgnosticResidualInteractionBlock,
-            interaction_cls_first=RealAgnosticResidualInteractionBlock,
+            interaction_cls=mace_modules.interaction_classes[model_hypers["interaction"]],
             num_interactions=model_hypers["num_interactions"],
             num_elements=len(dataset_info.atomic_types),
             hidden_irreps=o3.Irreps(model_hypers["hidden_irreps"]),
-            MLP_irreps=o3.Irreps(model_hypers["MLP_irreps"]),
+            edge_irreps=o3.Irreps(model_hypers["edge_irreps"]) if "edge_irreps" in model_hypers["edge_irreps"] else None,
             atomic_energies=torch.zeros(len(dataset_info.atomic_types)),
+            apply_cutoff=model_hypers["apply_cutoff"],
             avg_num_neighbors=model_hypers["avg_num_neighbors"],
             atomic_numbers=torch.arange(len(dataset_info.atomic_types)),
+            pair_repulsion=model_hypers["pair_repulsion"],
+            distance_transform=model_hypers["distance_transform"],
             correlation=model_hypers["correlation"],
-            gate=model_hypers.get("gate", None),
+            gate=mace_modules.gate_dict[model_hypers["gate"]] if model_hypers["gate"] is not None else None,
+            interaction_cls_first=mace_modules.interaction_classes[model_hypers["interaction_first"]],
+            MLP_irreps=o3.Irreps(model_hypers["MLP_irreps"]),
+            radial_MLP=model_hypers["radial_MLP"],
+            radial_type=model_hypers["radial_type"],
+            use_embedding_readout=model_hypers["use_embedding_readout"],
+            use_last_readout_only=model_hypers["use_last_readout_only"],
+            use_agnostic_product=model_hypers["use_agnostic_product"],
         )
 
         self.outputs = {
@@ -107,21 +109,6 @@ class MetaMACE(ModelInterface):
         )
 
         additive_models = [composition_model]
-        # if self.hypers["zbl"]:
-        #     additive_models.append(
-        #         ZBL(
-        #             {},
-        #             dataset_info=DatasetInfo(
-        #                 length_unit=dataset_info.length_unit,
-        #                 atomic_types=self.atomic_types,
-        #                 targets={
-        #                     target_name: target_info
-        #                     for target_name, target_info in dataset_info.targets.items()
-        #                     if ZBL.is_valid_target(target_name, target_info)
-        #                 },
-        #             ),
-        #         )
-        #     )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
@@ -240,49 +227,6 @@ class MetaMACE(ModelInterface):
 
         return_dict: Dict[str, TensorMap] = {}
 
-        # return_dict["energy"] = TensorMap(
-        #     keys=Labels.single(),
-        #     blocks=[
-        #         TensorBlock(
-        #             values=mace_output["energy"].reshape(-1, 1),
-        #             samples=sample_labels,
-        #             components=[],
-        #             properties=Labels(
-        #                 names=["energy"],
-        #                 values=torch.tensor([[0]], device=device),
-        #             ),
-        #         )
-        #     ]
-        # )
-
-        # output the hidden features, if requested:
-        # if "features" in outputs:
-        #     feature_tmap = TensorMap(
-        #         keys=self.single_label,
-        #         blocks=[
-        #             TensorBlock(
-        #                 values=node_features,
-        #                 samples=sample_labels,
-        #                 components=[],
-        #                 properties=Labels(
-        #                     names=["properties"],
-        #                     values=torch.arange(
-        #                         node_features.shape[-1], device=node_features.device
-        #                     ).reshape(-1, 1),
-        #                 ),
-        #             )
-        #         ],
-        #     )
-        #     features_options = outputs["features"]
-        #     if features_options.per_atom:
-        #         return_dict["features"] = feature_tmap
-        #     else:
-        #         return_dict["features"] = sum_over_atoms(feature_tmap)
-
-        # atomic_features_dict: Dict[str, torch.Tensor] = {}
-        # for output_name, head in self.heads.items():
-        #     atomic_features_dict[output_name] = head(node_features)
-
         system_indices, sample_labels = self._get_system_indices_and_labels(
             systems, device
         )
@@ -339,97 +283,9 @@ class MetaMACE(ModelInterface):
             else:
                 return_dict[output_name] = sum_over_atoms(atom_target)
 
-            # last_layer_feature_tmap = TensorMap(
-            #     keys=self.single_label,
-            #     blocks=[
-            #         TensorBlock(
-            #             values=atomic_features_dict[base_name],
-            #             samples=sample_labels,
-            #             components=[],
-            #             properties=Labels(
-            #                 names=["properties"],
-            #                 values=torch.arange(
-            #                     atomic_features_dict[base_name].shape[-1],
-            #                     device=atomic_features_dict[base_name].device,
-            #                 ).reshape(-1, 1),
-            #             ),
-            #         )
-            #     ],
-            # )
-            # last_layer_features_options = outputs[output_name]
-            # if last_layer_features_options.per_atom:
-            #     return_dict[output_name] = last_layer_feature_tmap
-            # else:
-            #     return_dict[output_name] = sum_over_atoms(
-            #         last_layer_feature_tmap,
-            #     )
-
-        # atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
-        # for output_name, last_layer in self.last_layers.items():
-        #     if output_name in outputs:
-        #         atomic_features = atomic_features_dict[output_name]
-        #         atomic_properties_by_block = []
-        #         for last_layer_by_block in last_layer.values():
-        #             atomic_properties_by_block.append(
-        #                 last_layer_by_block(atomic_features)
-        #             )
-        #         all_components = target_info.component_labels
-        #         if len(all_components[0]) == 2 and all(
-        #             "xyz" in comp.names[0] for comp in all_components[0]
-        #         ):
-        #             # rank-2 Cartesian tensor, symmetrize
-        #             tensor_as_three_by_three = atomic_properties_by_block[0].reshape(
-        #                 -1, 3, 3, list(self.output_shapes[output_name].values())[0][-1]
-        #             )
-        #             volumes = torch.stack(
-        #                 [torch.abs(torch.det(system.cell)) for system in systems]
-        #             )
-        #             volumes_by_atom = (
-        #                 volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
-        #             )
-        #             tensor_as_three_by_three = (
-        #                 tensor_as_three_by_three / volumes_by_atom
-        #             )
-        #             tensor_as_three_by_three = (
-        #                 tensor_as_three_by_three
-        #                 + tensor_as_three_by_three.transpose(1, 2)
-        #             ) / 2.0
-        #             atomic_properties_by_block[0] = tensor_as_three_by_three
-
-        #         blocks = [
-        #             TensorBlock(
-        #                 values=atomic_property.reshape([-1] + shape),
-        #                 samples=sample_labels,
-        #                 components=components,
-        #                 properties=properties,
-        #             )
-        #             for atomic_property, shape, components, properties in zip(
-        #                 atomic_properties_by_block,
-        #                 self.output_shapes[output_name].values(),
-        #                 target_info.component_labels,
-        #                 self.property_labels[output_name],
-        #             )
-        #         ]
-        #         atomic_properties_tmap_dict[output_name] = TensorMap(
-        #             keys=self.key_labels[output_name],
-        #             blocks=blocks,
-        #         )
-
-        # if selected_atoms is not None:
-        #     for output_name, tmap in atomic_properties_tmap_dict.items():
-        #         atomic_properties_tmap_dict[output_name] = metatensor.torch.slice(
-        #             tmap, axis="samples", selection=selected_atoms
-        #         )
-
-        # for output_name, atomic_property in atomic_properties_tmap_dict.items():
-        #     if outputs[output_name].per_atom:
-        #         return_dict[output_name] = atomic_property
-        #     else:
-        #         return_dict[output_name] = sum_over_atoms(atomic_property)
-
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(return_dict)
+            return_dict = self.scaler(systems,return_dict)
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
                 for name, output in outputs.items():
@@ -479,13 +335,13 @@ class MetaMACE(ModelInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        context: Literal["restart", "finetune", "export"],
+        context: Literal["restart", "export"],
     ) -> "MetaMACE":
         model_data = checkpoint["model_data"]
 
         if context == "restart":
             model_state_dict = checkpoint["model_state_dict"]
-        elif context == "finetune" or context == "export":
+        elif context == "export":
             model_state_dict = checkpoint["best_model_state_dict"]
             if model_state_dict is None:
                 model_state_dict = checkpoint["model_state_dict"]
@@ -542,14 +398,14 @@ class MetaMACE(ModelInterface):
         return AtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-        # warn that, for Cartesian tensors, we assume that they are symmetric
+        # We don't support Cartesian tensors with rank > 1
         if target_info.is_cartesian:
             if len(target_info.layout.block().components) > 1:
                 raise ValueError(
                     "MetaMACE does not support Cartesian tensors with rank > 1."
                 )
 
-        # one output shape for each tensor block, grouped by target (i.e. tensormap)
+        # Get the multiplicity and irrep for each target block
         irreps = []
         for key, block in target_info.layout.items():
             multiplicity = len(block.properties.values)
