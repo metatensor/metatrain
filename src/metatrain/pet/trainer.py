@@ -300,6 +300,9 @@ class Trainer(TrainerInterface):
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
+            # Set static graph for fine-tuning scenarios where some heads remain unused
+            # This prevents "marked ready twice" errors when only new heads participate
+            model._set_static_graph()
 
         outputs_list = []
         for target_name, target_info in train_targets.items():
