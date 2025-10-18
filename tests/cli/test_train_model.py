@@ -28,6 +28,7 @@ from metatrain.utils.testing._utils import WANDB_AVAILABLE
 from . import (
     DATASET_PATH_CARBON,
     DATASET_PATH_ETHANOL,
+    DATASET_PATH_LPS,
     DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
     MODEL_PATH_64_BIT,
@@ -138,7 +139,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "with index" not in stdout_log  # index only printed for more than 1 dataset
     assert "Running final evaluation with batch size 5" in stdout_log
     assert "Atomic types" in stdout_log
-    assert "Model defined for atomic types" in stdout_log
+    assert "Training performed for atomic types" in stdout_log
     assert "Starting training from scratch" in stdout_log
 
     output_dir = Path(restart_glob[0]).parent.absolute().resolve()
@@ -684,6 +685,114 @@ def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
     train_model(options_pet_transfer_learn)
 
     assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+
+
+def test_transfer_learn_inherit_heads(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn = copy.deepcopy(options_pet)
+    options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+        "inherit_heads": {
+            "mtt::energy": "energy",
+        },
+    }
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
+        options_pet_transfer_learn["training_set"]["targets"].pop("energy")
+    )
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet_transfer_learn)
+    assert (
+        r"Inheriting initial weights for heads and last layers "
+        r"for targets: from ['energy'] to ['mtt::energy']" in caplog.text
+    )
+
+
+def test_transfer_learn_inherit_heads_invalid_source(
+    options_pet, caplog, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn_invalid_source = copy.deepcopy(options_pet)
+    options_pet_transfer_learn_invalid_source["architecture"]["training"][
+        "finetune"
+    ] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+        "inherit_heads": {
+            "mtt::energy": "foo",
+        },
+    }
+    options_pet_transfer_learn_invalid_source["training_set"]["targets"][
+        "mtt::energy"
+    ] = options_pet_transfer_learn_invalid_source["training_set"]["targets"].pop(
+        "energy"
+    )
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    match = "source target name 'foo' was not found"
+    with pytest.raises(ArchitectureError, match=match):
+        train_model(options_pet_transfer_learn_invalid_source)
+
+
+def test_transfer_learn_inherit_heads_invalid_destination(
+    options_pet, caplog, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn_invalid_dest = copy.deepcopy(options_pet)
+    options_pet_transfer_learn_invalid_dest["architecture"]["training"]["finetune"] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+        "inherit_heads": {
+            "mtt::foo": "energy",
+        },
+    }
+    options_pet_transfer_learn_invalid_dest["training_set"]["targets"][
+        "mtt::energy"
+    ] = options_pet_transfer_learn_invalid_dest["training_set"]["targets"].pop("energy")
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    match = "destination target name 'mtt::foo' was not found"
+    with pytest.raises(ArchitectureError, match=match):
+        train_model(options_pet_transfer_learn_invalid_dest)
+
+
+def test_transfer_learn_new_atom_types(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn_new_types = copy.deepcopy(options_pet)
+    options_pet_transfer_learn_new_types["architecture"]["training"]["finetune"] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+    }
+    options_pet_transfer_learn_new_types["training_set"]["targets"]["mtt::energy"] = (
+        options_pet_transfer_learn_new_types["training_set"]["targets"].pop("energy")
+    )
+    options_pet_transfer_learn_new_types["training_set"]["targets"]["mtt::energy"][
+        "key"
+    ] = "energy"
+    options_pet_transfer_learn_new_types["training_set"]["systems"]["read_from"] = (
+        "lps_reduced_100.xyz"
+    )
+    shutil.copy(DATASET_PATH_LPS, "lps_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet_transfer_learn_new_types)
+
+    match = (
+        r"New atomic types found in the dataset, compared to the "
+        r"previous training run: [3, 15, 16]."
+    )
+
+    assert match in caplog.text
 
 
 @pytest.mark.parametrize("move_folder", [True, False])

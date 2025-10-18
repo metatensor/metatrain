@@ -228,6 +228,55 @@ class Scaler(torch.nn.Module):
 
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
+        merged_atomic_types = sorted(merged_info.atomic_types)
+        self.model.register_buffer(
+            "type_to_index",
+            torch.full((max(merged_atomic_types) + 1,), -1, dtype=torch.long),
+        )
+        for i, atomic_type in enumerate(merged_atomic_types):
+            self.model.type_to_index[atomic_type] = i
+
+        new_atomic_types = [
+            at for at in merged_atomic_types if at not in self.atomic_types
+        ]
+        if len(new_atomic_types) > 0:
+            index = [merged_atomic_types.index(at) for at in self.atomic_types]
+
+            for target_name, weights_tmap in self.model.scales.items():
+                values = weights_tmap.block().values
+                if values.shape[0] == len(self.atomic_types):
+                    # per-atom-type weights
+                    new_values = torch.zeros(
+                        (len(merged_atomic_types), 1),
+                        dtype=values.dtype,
+                        device=values.device,
+                    )
+                    new_values[index, :] = values
+                    new_samples = Labels(
+                        names=["atomic_type"],
+                        values=torch.tensor(
+                            merged_atomic_types, dtype=torch.int
+                        ).reshape(-1, 1),
+                        assume_unique=True,
+                    )
+                    new_block = TensorBlock(
+                        values=new_values,
+                        samples=new_samples,
+                        components=weights_tmap.block().components,
+                        properties=weights_tmap.block().properties,
+                    )
+                    new_weights_tmap = TensorMap(
+                        weights_tmap.keys,
+                        blocks=[new_block],
+                    )
+                else:
+                    new_weights_tmap = weights_tmap
+                self.model.scales[target_name] = new_weights_tmap
+
+        self.atomic_types = merged_atomic_types
+        self.model.atomic_types = torch.as_tensor(
+            merged_atomic_types, dtype=torch.int32
+        )
 
         self.target_infos = {
             target_name: target_info

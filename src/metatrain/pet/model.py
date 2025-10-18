@@ -229,28 +229,61 @@ class PET(ModelInterface):
     def restart(self, dataset_info: DatasetInfo) -> "PET":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
+        merged_atomic_types = sorted(merged_info.atomic_types)
         new_atomic_types = [
-            at for at in merged_info.atomic_types if at not in self.atomic_types
+            at for at in merged_atomic_types if at not in self.atomic_types
         ]
+        if len(new_atomic_types) > 0:
+            logging.info(
+                "New atomic types found in the dataset, compared to the "
+                f"previous training run: {new_atomic_types}. Composition "
+                "model, scaler and embedding layers will be "
+                "expanded accordingly. "
+            )
+            index = [merged_atomic_types.index(at) for at in self.atomic_types]
+            new_num_atomic_species = len(merged_info.atomic_types)
+
+            new_node_embedders = []
+            for old_embedder in self.node_embedders:
+                new_embedder = torch.nn.Embedding(new_num_atomic_species, self.d_node)
+                new_embedder.weight.data[index] = old_embedder.weight.data
+                new_node_embedders.append(new_embedder)
+            self.node_embedders = torch.nn.ModuleList(new_node_embedders)
+
+            new_edge_embedder = torch.nn.Embedding(new_num_atomic_species, self.d_pet)
+            new_edge_embedder.weight.data[index] = self.edge_embedder.weight.data
+            self.edge_embedder = new_edge_embedder
+
+            for gnn_layer in self.gnn_layers[1:]:  # skip first layer
+                new_gnn_neighbor_embedding = torch.nn.Embedding(
+                    new_num_atomic_species, self.d_pet
+                )
+                new_gnn_neighbor_embedding.weight.data[index] = (
+                    gnn_layer.neighbor_embedder.weight.data
+                )
+                gnn_layer.neighbor_embedder = new_gnn_neighbor_embedding
+
+        self.atomic_types = merged_atomic_types
+        self.register_buffer(
+            "species_to_species_index",
+            torch.full((max(self.atomic_types) + 1,), -1),
+        )
+        for i, species in enumerate(self.atomic_types):
+            self.species_to_species_index[species] = i
+
         new_targets = {
             key: value
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
-        self.has_new_targets = len(new_targets) > 0
+        self.dataset_info = merged_info
 
-        if len(new_atomic_types) > 0:
-            raise ValueError(
-                f"New atomic types found in the dataset: {new_atomic_types}. "
-                "The PET model does not support adding new atomic types."
-            )
+        self.has_new_targets = len(new_targets) > 0
 
         # register new outputs as new last layers
         for target_name, target in new_targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target)
-
-        self.dataset_info = merged_info
 
         # restart the composition and scaler models
         self.additive_models[0] = self.additive_models[0].restart(
@@ -564,8 +597,11 @@ class PET(ModelInterface):
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
         :return: Tuple of two lists:
-            - List of node feature tensors from each GNN layer
-            - List of edge feature tensors from each GNN layer
+            - List of node feature tensors
+            - List of edge feature tensors
+            In the case of feedforward featurization, each list contains a single tensor
+            from the final GNN layer. In the case of residual featurization, each list
+            contains tensors from all GNN layers.
         """
         if self.featurizer_type == "feedforward":
             return self._feedforward_featurization_impl(inputs, use_manual_attention)
@@ -641,8 +677,8 @@ class PET(ModelInterface):
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
         :return: Tuple of two lists:
-            - List of node feature tensors from the final GNN layer
-            - List of edge feature tensors from the final GNN layer
+            - List of node feature tensors from all GNN layers
+            - List of edge feature tensors from all GNN layers
         """
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []

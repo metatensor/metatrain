@@ -907,3 +907,90 @@ def test_composition_spherical():
         output_O["energy"].block({"o3_lambda": 0}).values,
         torch.tensor([[[1.0]]], dtype=torch.float64),
     )
+
+
+def test_composition_restart_new_atom_types():
+    """Test restarting the training of a composition model with new atom types."""
+
+    # Here we use three synthetic structures:
+    # - O atom, with an energy of 1.0
+    # - H2O molecule, with an energy of 5.0
+    # - H4O2 molecule, with an energy of 10.0
+    # The expected composition weights are 2.0 for H and 1.0 for O.
+
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [1.0, 0.0, 1.0],
+                    [0.0, 1.0, 1.0],
+                ],
+                dtype=torch.float64,
+            ),
+            types=torch.tensor([1, 1, 8, 1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+    energies = [1.0, 5.0, 10.0]
+    energies = [
+        TensorMap(
+            keys=Labels(names=["_"], values=torch.tensor([[0]])),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[e]], dtype=torch.float64),
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[],
+                    properties=Labels(names=["energy"], values=torch.tensor([[0]])),
+                )
+            ],
+        )
+        for i, e in enumerate(energies)
+    ]
+    dataset = Dataset.from_dict({"system": systems, "energy": energies})
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 8],
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
+    )
+    composition_model = CompositionModel(hypers={}, dataset_info=dataset_info)
+    composition_model.train_model([dataset], [], batch_size=1, is_distributed=False)
+
+    trial_system = systems[-1]
+    output_before_restart = composition_model(
+        [trial_system],
+        {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)},
+    )
+
+    new_dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
+    )
+    composition_model.restart(new_dataset_info)
+    output_after_restart = composition_model(
+        [trial_system],
+        {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)},
+    )
+    torch.testing.assert_close(
+        output_before_restart["energy"].block().values,
+        output_after_restart["energy"].block().values,
+    )
