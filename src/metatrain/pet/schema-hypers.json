@@ -1,0 +1,326 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "enum": [
+        "pet"
+      ]
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "cutoff": {
+          "type": "number"
+        },
+        "cutoff_width": {
+          "type": "number"
+        },
+        "d_pet": {
+          "type": "integer"
+        },
+        "d_head": {
+          "type": "integer"
+        },
+        "d_node": {
+          "type": "integer"
+        },
+        "d_feedforward": {
+          "type": "integer"
+        },
+        "num_heads": {
+          "type": "integer"
+        },
+        "num_attention_layers": {
+          "type": "integer"
+        },
+        "num_gnn_layers": {
+          "type": "integer"
+        },
+        "normalization": {
+          "type": "string",
+          "enum": [
+            "LayerNorm",
+            "RMSNorm"
+          ]
+        },
+        "transformer_type": {
+          "type": "string",
+          "enum": [
+            "PreLN",
+            "PostLN"
+          ]
+        },
+        "featurizer_type": {
+          "type": "string",
+          "enum": [
+            "residual",
+            "feedforward"
+          ]
+        },
+        "activation": {
+          "type": "string",
+          "enum": [
+            "SiLU",
+            "SwiGLU"
+          ]
+        },
+        "zbl": {
+          "type": "boolean"
+        },
+        "long_range": {
+          "type": "object",
+          "properties": {
+            "enable": {
+              "type": "boolean"
+            },
+            "use_ewald": {
+              "type": "boolean"
+            },
+            "smearing": {
+              "type": "number"
+            },
+            "kspace_resolution": {
+              "type": "number"
+            },
+            "interpolation_nodes": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "training": {
+      "type": "object",
+      "properties": {
+        "distributed": {
+          "type": "boolean"
+        },
+        "distributed_port": {
+          "type": "integer"
+        },
+        "batch_size": {
+          "type": "integer"
+        },
+        "num_epochs": {
+          "type": "integer"
+        },
+        "warmup_fraction": {
+          "type": "number"
+        },
+        "learning_rate": {
+          "type": "number"
+        },
+        "weight_decay": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "log_interval": {
+          "type": "integer"
+        },
+        "checkpoint_interval": {
+          "type": "integer"
+        },
+        "scale_targets": {
+          "type": "boolean"
+        },
+        "fixed_composition_weights": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "object",
+              "propertyNames": {
+                "pattern": "^[0-9]+$"
+              },
+              "additionalProperties": {
+                "type": "number"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "fixed_scaling_weights": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[0-9]+$"
+                  },
+                  "additionalProperties": {
+                    "type": "number"
+                  }
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "per_structure_targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "num_workers": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "log_mae": {
+          "type": "boolean"
+        },
+        "log_separate_blocks": {
+          "type": "boolean"
+        },
+        "best_model_metric": {
+          "type": "string",
+          "enum": [
+            "rmse_prod",
+            "mae_prod",
+            "loss"
+          ]
+        },
+        "finetune": {
+          "type": "object",
+          "properties": {
+            "read_from": {
+              "type": "string",
+              "format": "uri"
+            },
+            "method": {
+              "type": "string",
+              "enum": [
+                "full",
+                "lora",
+                "heads"
+              ]
+            },
+            "config": {
+              "type": "object",
+              "oneOf": [
+                {
+                  "properties": {
+                    "alpha": {
+                      "type": "number"
+                    },
+                    "rank": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "alpha",
+                    "rank"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "properties": {
+                    "head_modules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "last_layer_modules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "head_modules",
+                    "last_layer_modules"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "method"
+          ]
+        },
+        "grad_clip_norm": {
+          "type": "number"
+        },
+        "loss": {
+          "type": [
+            "object",
+            "string"
+          ],
+          "patternProperties": {
+            "^.+$": {
+              "$ref": "#/definitions/lossTerm"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "atomic_types": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "uniqueItems": true
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "lossTerm": {
+      "type": [
+        "object",
+        "string"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "number",
+          "minimum": 0.0
+        },
+        "reduction": {
+          "type": "string",
+          "enum": [
+            "none",
+            "mean",
+            "sum"
+          ]
+        },
+        "sliding_factor": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0.0
+        },
+        "gradients": {
+          "type": "object",
+          "patternProperties": {
+            "^.+$": {
+              "$ref": "#/definitions/lossTerm"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -5,11 +5,12 @@ from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
 
 from metatrain.utils.data import (
+    CollateFn,
     CombinedDataLoader,
     Dataset,
-    collate_fn,
     read_systems,
     read_targets,
+    unpack_batch,
 )
 
 
@@ -38,8 +39,9 @@ def test_without_shuffling():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf))
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    collate_fn = CollateFn(target_info_dict)
     dataloader_qm9 = DataLoader(dataset, batch_size=10, collate_fn=collate_fn)
     # will yield 10 batches of 10
 
@@ -60,11 +62,12 @@ def test_without_shuffling():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf))
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
     targets = {"mtt::free_energy": targets["mtt::free_energy"][:10]}
     dataset = Dataset.from_dict(
         {"system": systems, "mtt::free_energy": targets["mtt::free_energy"]}
     )
+    collate_fn = CollateFn(target_info_dict)
     dataloader_alchemical = DataLoader(dataset, batch_size=2, collate_fn=collate_fn)
     # will yield 5 batches of 2
 
@@ -74,6 +77,7 @@ def test_without_shuffling():
 
     assert len(combined_dataloader) == 15
     for i_batch, batch in enumerate(combined_dataloader):
+        batch = unpack_batch(batch)
         if i_batch < 10:
             assert batch[1]["mtt::U0"].block().values.shape == (10, 1)
         else:
@@ -102,8 +106,9 @@ def test_with_shuffling():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf))
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    collate_fn = CollateFn(target_info_dict)
     dataloader_qm9 = DataLoader(
         dataset, batch_size=10, collate_fn=collate_fn, shuffle=True
     )
@@ -126,11 +131,12 @@ def test_with_shuffling():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf))
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
     targets = {"mtt::free_energy": targets["mtt::free_energy"][:10]}
     dataset = Dataset.from_dict(
         {"system": systems, "mtt::free_energy": targets["mtt::free_energy"]}
     )
+    collate_fn = CollateFn(target_info_dict)
     dataloader_alchemical = DataLoader(
         dataset, batch_size=2, collate_fn=collate_fn, shuffle=True
     )
@@ -150,6 +156,7 @@ def test_with_shuffling():
     alchemical_samples = []
 
     for batch in combined_dataloader:
+        batch = unpack_batch(batch)
         if "mtt::U0" in batch[1]:
             qm9_batch_count += 1
             assert batch[1]["mtt::U0"].block().values.shape == (10, 1)

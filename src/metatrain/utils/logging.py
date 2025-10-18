@@ -1,15 +1,17 @@
 """Logging."""
 
 import contextlib
+import csv
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelCapabilities
+from metatomic.torch import ModelCapabilities
 
+from .. import PACKAGE_ROOT, __version__
 from .data import DatasetInfo
 from .distributed.logging import is_main_process
 from .external_naming import to_external_name
@@ -17,30 +19,164 @@ from .io import check_file_extension
 from .units import ev_to_mev, get_gradient_units
 
 
+try:
+    from wandb.sdk.wandb_run import Run
+except ImportError:
+    Run = None
+
+
+def _validate_length(keys: List[str], values: List[str], units: List[str]) -> None:
+    if not (len(keys) == len(values) == len(units)):
+        raise ValueError(
+            f"keys, values and units must have the same length: "
+            f"{len(keys)}, {len(values)}, {len(units)}"
+        )
+
+
+class CSVFileHandler(logging.FileHandler):
+    r"""
+    A custom FileHandler for logging data in CSV format.
+
+    :param \*args: Arguments passed to :py:class:`logging.FileHandler`.
+    :param \*\*kwargs: Keyword arguments passed to :py:class:`logging.FileHandler`.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._header_written = False
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """
+        Override the default behavior preventing any output to the default log.
+
+        :param record: Log record (ignored).
+        """
+        pass
+
+    def emit_data(self, keys: List[str], values: List[str], units: List[str]) -> None:
+        """Write structured data to the CSV file.
+
+        ``keys`` and ``values`` are written only the first time this methods is called.
+
+        :param keys: Column header names
+        :param values: Data values to write
+        :param units: Units for each column
+        """
+        _validate_length(keys, values, units)
+
+        with self._open() as file:
+            writer = csv.writer(file)
+
+            if not self._header_written:
+                writer.writerow(keys)
+                writer.writerow(units)
+                self._header_written = True
+
+            writer.writerow(values)
+
+
+class WandbHandler(logging.Handler):
+    """A custom logging handler that pushes structured logs to Weights & Biases.
+
+    :param run: Weights & Biases run object.
+    """
+
+    def __init__(self, run: Run):
+        super().__init__()
+        self.run = run
+
+    def _clean_key(self, key: str) -> str:
+        for prefix in ["training", "test", "validation"]:
+            if key.startswith(prefix + " "):
+                return key.replace(prefix + " ", prefix + "/", 1)
+        return key
+
+    def _clean_unit(self, unit: str) -> str:
+        return unit.replace("/", " per ") if unit else unit
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """
+        Override default behavior to ignore standard log records.
+
+        :param record: Log record (ignored).
+        """
+        pass
+
+    def emit_data(self, keys: List[str], values: List[str], units: List[str]) -> None:
+        """Log structured data to Weights & Biases.
+
+        :param keys: Column header names
+        :param values: Data values to write
+        :param units: Units for each column
+        """
+        _validate_length(keys, values, units)
+
+        data = {}
+        for key, value, unit in zip(keys, values, units, strict=True):
+            # Cleanup to prevent from grouping metrics by text before the last "/".
+            clean_key = self._clean_key(key)
+            clean_unit = self._clean_unit(unit)
+
+            name = f"{clean_key} [{clean_unit}]" if clean_unit else clean_key
+            data[name] = float(value)
+
+        epoch = int(data.pop("Epoch"))
+        self.run.log(data, step=epoch, commit=True)
+
+    def close(self) -> None:
+        super().close()
+        self.run.finish()
+
+
+class CustomLogger(logging.Logger):
+    """Custom logger to log structured data."""
+
+    def data(self, keys: List[str], values: List[str], units: List[str]) -> None:
+        """Logs data entries to handlers that support an ``emit_data`` method.
+
+        :param keys: Column header names
+        :param values: Data values to write
+        :param units: Units for each column
+        """
+        for handler in self.handlers:
+            if hasattr(handler, "emit_data"):
+                handler.emit_data(keys, values, units)
+
+
+# Use `CustomLogger` as default class. The line below will NOT (!) change the `root`
+# logger behaviour. It only applies for loggers that are created with a specific `name`
+# like for example `logging.getLogger("metatrain")`. `logging.getLogger()` will still
+# return the root logger (a `logging.Logger` instance).
+logging.setLoggerClass(CustomLogger)
+
+
+ROOT_LOGGER = logging.getLogger(name="metatrain")
+
+
 class MetricLogger:
+    """
+    Simple interface to log training metrics logging instance.
+
+    Initialize the metric logger. The logger is initialized with the initial metrics
+    and names relative to the metrics (e.g., "train", "validation").
+
+    In this way, and by assuming that these metrics never increase, the logger can
+    align the output to make it easier to read.
+
+    :param log_obj: A logging instance
+    :param dataset_info: Information about the dataset in the form of either a
+        :py:class:`DatasetInfo` or a :py:class:`ModelCapabilities` object.
+    :param initial_metrics: initial training metrics
+    :param names: names of the metrics (e.g., "train", "validation")
+    """
+
     def __init__(
         self,
-        log_obj: logging.Logger,
+        log_obj: Union[logging.Logger, CustomLogger],
         dataset_info: Union[ModelCapabilities, DatasetInfo],
         initial_metrics: Union[Dict[str, float], List[Dict[str, float]]],
         names: Union[str, List[str]] = "",
-        scales: Optional[Dict[str, float]] = None,
     ):
-        """
-        Simple interface to log training metrics logging instance.
-
-        Initialize the metric logger. The logger is initialized with the initial metrics
-        and names relative to the metrics (e.g., "train", "validation").
-
-        In this way, and by assuming that these metrics never increase, the logger can
-        align the output to make it easier to read.
-
-        :param log_obj: A logging instance
-        :param model_outputs: outputs of the model. Used to infer physical quantities
-            and units
-        :param initial_metrics: initial training metrics
-        :param names: names of the metrics (e.g., "train", "validation")
-        """
         self.log_obj = log_obj
 
         # Length units will be used to infer units of forces/virials
@@ -66,85 +202,107 @@ class MetricLogger:
 
         self.names = names
 
-        if scales is None:
-            scales = {target_name: 1.0 for target_name in initial_metrics[0].keys()}
-        self.scales = scales
-
         # Since the quantities are supposed to decrease, we want to store the
         # number of digits at the start of the training, so that we can align
         # the output later:
         self.digits = {}
-        for name, metrics_dict in zip(names, initial_metrics):
+        for name, metrics_dict in zip(names, initial_metrics, strict=True):
             for key, value in metrics_dict.items():
-                value *= scales[key]
-                target_name = key.split(" ", 1)[0]
-                if key == "loss":
-                    # losses will be printed in scientific notation
-                    continue
-                unit = self._get_units(target_name)
-                value, unit = ev_to_mev(value, unit)
-                self.digits[f"{name}_{key}"] = _get_digits(value)
+                target_name = key.split(maxsplit=1)[0]
+
+                # Check if key is part of the model outputs, only then we can get units
+                if target_name in self.model_outputs or target_name.endswith(
+                    "_gradients"
+                ):
+                    unit = self._get_units(target_name)
+                    value, unit = ev_to_mev(value, unit)
+                    self.digits[f"{name}_{key}"] = _get_digits(value)
 
     def log(
         self,
         metrics: Union[Dict[str, float], List[Dict[str, float]]],
         epoch: Optional[int] = None,
         rank: Optional[int] = None,
-    ):
+        learning_rate: Optional[float] = None,
+    ) -> None:
         """
         Log the metrics.
 
         The metrics are automatically aligned to make them easier to read, based on
         the order of magnitude of each metric given to the class at initialization.
 
-        :param metrics: The current metrics to be printed.
+        :param metrics: The current metrics to be logged.
         :param epoch: The current epoch (optional). If :py:class:`None`, the epoch
             will not be printed, and the logging string will start with the first
             metric in the ``metrics`` dictionary.
         :param rank: The rank of the process, if the training is distributed. In that
             case, the logger will only print the metrics for the process with rank 0.
+        :param learning_rate: The current learning rate (optional).
         """
+        if rank and rank != 0:
+            return
+
+        keys = []
+        values = []
+        units = []
+
+        if epoch is not None:
+            keys.append("Epoch")
+            values.append(f"{epoch:4}")
+            units.append("")
+
+        if learning_rate is not None:
+            keys.append("learning rate")
+            values.append(f"{learning_rate:.3e}")
+            units.append("")
 
         if isinstance(metrics, dict):
             metrics = [metrics]
 
-        if epoch is None:
-            logging_string = ""
-        else:
-            # The epoch is printed with 4 digits, assuming that the training
-            # will not last more than 9999 epochs
-            logging_string = f"Epoch {epoch:4}"
-
-        for name, metrics_dict in zip(self.names, metrics):
+        is_training = False
+        for name, metrics_dict in zip(self.names, metrics, strict=True):
             for key in _sort_metric_names(metrics_dict.keys()):
-                value = metrics_dict[key] * self.scales[key]
+                value = metrics_dict[key]
 
-                new_key = key
-                if key != "loss":  # special case: not a metric associated with a target
-                    target_name, metric = new_key.split(" ", 1)
+                key_split = key.split(maxsplit=1)
+                target_name = key_split[0]
+
+                # Use "loss" key to identify training or evaluation metrics.
+                if key == "loss":
+                    is_training = True
+
+                # Not a metric associated with a target
+                if target_name in self.model_outputs or target_name.endswith(
+                    "_gradients"
+                ):
+                    metric = key_split[1]
                     external_name = to_external_name(target_name, self.model_outputs)  # type: ignore # noqa: E501
-                    new_key = f"{external_name} {metric}"
+                    keys.append(" ".join(p for p in [name, external_name, metric] if p))
 
-                if name == "":
-                    logging_string += f", {new_key}: "
-                else:
-                    logging_string += f", {name} {new_key}: "
-                if key == "loss":  # print losses with scientific notation
-                    logging_string += f"{value:.3e}"
-                else:
                     unit = self._get_units(target_name)
                     value, unit = ev_to_mev(value, unit)
-                    logging_string += (
+
+                    values.append(
                         f"{value:{self.digits[f'{name}_{key}'][0]}.{self.digits[f'{name}_{key}'][1]}f}"  # noqa: E501
-                        + (f" {unit}" if unit != "" else "")
                     )
+                    units.append(unit)
+                else:
+                    # avoiding double spaces: only include non-empty strings (`if p`),
+                    keys.append(" ".join(p for p in [name, key] if p))
+                    values.append(f"{value:.3e}")
+                    units.append("")
 
-        # If there is no epoch, the string will start with a comma. Remove it:
-        if logging_string.startswith(", "):
-            logging_string = logging_string[2:]
+        if is_training and isinstance(self.log_obj, CustomLogger):
+            self.log_obj.data(keys, values, units)
 
-        if rank is None or rank == 0:
-            self.log_obj.info(logging_string)
+        # add space between value and unit only if the unit is not empty. Avoiding
+        # double space when joining metric below
+        formatted_metrics = [
+            f"{key}: {value}{f' {unit}' if unit else ''}"
+            for key, value, unit in zip(keys, values, units, strict=True)
+        ]
+
+        logging.info(" | ".join(formatted_metrics))
 
     def _get_units(self, output: str) -> str:
         # Gets the units of an output
@@ -174,6 +332,8 @@ def _get_digits(value: float) -> Tuple[int, int]:
     5 "significant" digits are guaranteed to be printed.
 
     :param value: The value for which the number of digits is calculated.
+    :return: A tuple with the total number of characters and the number of digits
+        after the decimal point.
     """
 
     # Get order of magnitude of the value:
@@ -201,7 +361,7 @@ def setup_logging(
     log_obj: logging.Logger,
     log_file: Optional[Union[str, Path]] = None,
     level: int = logging.WARNING,
-):
+) -> Generator[None, None, None]:
     """Create a logging environment for a given ``log_obj``.
 
     Extracted and adjusted from
@@ -233,10 +393,15 @@ def setup_logging(
             file_handler.setFormatter(formatter)
             handlers.append(file_handler)
 
+            csv_file = Path(log_file).with_suffix(".csv")
+            csv_handler = CSVFileHandler(filename=str(csv_file), encoding="utf-8")
+            handlers.append(csv_handler)
+
         # hide logging up to ERROR from secondary processes in distributed environments:
         if not is_main_process():
             level = logging.ERROR
 
+        # set the level for root logger
         logging.basicConfig(format=format, handlers=handlers, level=level, style="{")
         logging.captureWarnings(True)
 
@@ -244,8 +409,14 @@ def setup_logging(
             abs_path = str(Path(log_file).absolute().resolve())
             log_obj.info(f"This log is also available at {abs_path!r}.")
         else:
-            log_obj.debug("Logging to file is disabled.")
+            log_obj.info("Logging to file is disabled.")
 
+        log_obj.info(f"Package version: {__version__}")
+        log_obj.info(f"Package directory: {PACKAGE_ROOT}")
+        log_obj.info(f"Working directory: {Path('.').absolute()}")
+        log_obj.info(f"Executed command: {get_cli_input()}")
+
+        # keep in the end to avoid double logging
         for handler in handlers:
             log_obj.addHandler(handler)
 
@@ -255,6 +426,10 @@ def setup_logging(
         for handler in handlers:
             handler.flush()
             handler.close()
+
+            if isinstance(handler, WandbHandler):
+                handler.run.finish()
+
             log_obj.removeHandler(handler)
 
 
@@ -263,6 +438,7 @@ def get_cli_input(argv: Optional[List[str]] = None) -> str:
 
     :param argv: List of strings to parse. If :py:obj:`None` taken from
         :py:obj:`sys.argv`.
+    :return: A string representing the command line input.
     """
     if argv is None:
         argv = sys.argv
@@ -273,7 +449,7 @@ def get_cli_input(argv: Optional[List[str]] = None) -> str:
     return f"{program_name} {' '.join(arguments)}"
 
 
-def _sort_metric_names(name_list):
+def _sort_metric_names(name_list: Any) -> List[str]:
     name_list = list(name_list)
     sorted_name_list = []
     if "loss" in name_list:
@@ -289,3 +465,36 @@ def _sort_metric_names(name_list):
     # add the rest
     sorted_name_list.extend(sorted_remaining_name_list)
     return sorted_name_list
+
+
+def human_readable(n: Union[int, float]) -> str:
+    """Convert a number to a human-readable format with suffixes.
+
+    This function takes a number and formats it into a string with metric
+    suffixes (K for thousands, M for millions, B for billions, T for trillions).
+
+    :param n: The number to be converted.
+    :return: The human-readable string representation of the number.
+
+    """
+    suffixes = ["", "K", "M", "B", "T"]
+    idx = 0
+    x = float(n)
+
+    # repeatedly divide by 1000 to find the right suffix
+    while abs(x) >= 1000 and idx < len(suffixes) - 1:
+        x /= 1000
+        idx += 1
+
+    # one decimal if the reduced value is under 100, else integer
+    if abs(x) < 100:
+        s = f"{x:.1f}".rstrip("0").rstrip(".")
+    else:
+        s = f"{int(round(x))}"
+
+    # handle cases like 999999 so it does not become "1000K"
+    if s == "1000" and idx < len(suffixes) - 1:
+        s = "1"
+        idx += 1
+
+    return f"{s}{suffixes[idx]}"

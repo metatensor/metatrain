@@ -11,7 +11,7 @@ from metatensor.torch import Labels
 from omegaconf import OmegaConf
 from test_targets_ase import ase_system, ase_systems
 
-from metatrain.utils.data import TargetInfo, read_systems, read_targets
+from metatrain.utils.data import TargetInfo, read_extra_data, read_systems, read_targets
 
 
 @pytest.mark.parametrize("reader", (None, "ase"))
@@ -26,7 +26,7 @@ def test_read_systems(reader, monkeypatch, tmp_path):
 
     assert isinstance(results, list)
     assert len(results) == len(systems)
-    for system, result in zip(systems, results):
+    for system, result in zip(systems, results, strict=True):
         assert isinstance(result, torch.ScriptObject)
 
         torch.testing.assert_close(
@@ -357,3 +357,47 @@ def test_read_targets_generic_errors(monkeypatch, tmp_path):
         with pytest.warns(UserWarning, match="should not be its own top-level target"):
             with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
                 read_targets(OmegaConf.create(conf))
+
+
+def test_read_extra_data(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    filename = "systems.xyz"
+    systems = ase_systems()
+    ase.io.write(filename, systems)
+
+    energy_section = {
+        "quantity": "",
+        "read_from": filename,
+        "reader": "ase",
+        "key": "true_energy",
+        "unit": "eV",
+        "type": "scalar",
+        "per_atom": False,
+        "num_subtargets": 1,
+    }
+
+    conf = {"energy": energy_section}
+
+    result, info_dict = read_extra_data(OmegaConf.create(conf))
+
+    assert type(result) is dict
+    assert type(info_dict) is dict
+
+    for name, extra_data_list in result.items():
+        extra_data_section = conf[name]
+
+        assert type(extra_data_list) is list
+        for tensormap in extra_data_list:
+            assert tensormap.keys == Labels(["_"], torch.tensor([[0]]))
+
+            result_block = tensormap.block()
+            assert result_block.values.dtype is torch.float64
+            assert result_block.samples.names == ["system"]
+            assert result_block.properties == Labels("energy", torch.tensor([[0]]))
+
+        extra_data_info = info_dict[name]
+        assert type(extra_data_info) is TargetInfo
+        assert extra_data_info.quantity == extra_data_section["quantity"]
+        assert extra_data_info.unit == extra_data_section["unit"]
+        assert extra_data_info.per_atom is False

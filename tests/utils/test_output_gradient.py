@@ -1,11 +1,14 @@
-import metatensor.torch
 import pytest
 import torch
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
-from metatrain.experimental.soap_bpnn import __model__
+from metatrain.soap_bpnn import __model__
 from metatrain.utils.data import DatasetInfo, read_systems
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 from metatrain.utils.output_gradient import compute_gradient
 
 from . import MODEL_HYPERS, RESOURCES_PATH
@@ -20,11 +23,11 @@ def test_forces(is_training):
         atomic_types={1, 6, 7, 8},
         targets={
             "energy": get_energy_target_info(
-                {"unit": "eV"}, add_position_gradients=True
+                "energy", {"unit": "eV"}, add_position_gradients=True
             )
         },
     )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
     model.to(dtype=torch.float64)
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")[:5]
@@ -35,6 +38,11 @@ def test_forces(is_training):
             types=system.types,
             pbc=system.pbc,
         )
+        for system in systems
+    ]
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    systems = [
+        get_system_with_neighbor_lists(system, requested_neighbor_lists)
         for system in systems
     ]
     output = model(systems, {"energy": model.outputs["energy"]})
@@ -56,6 +64,10 @@ def test_forces(is_training):
         )
         for system in systems
     ]
+    systems = [
+        get_system_with_neighbor_lists(system, requested_neighbor_lists)
+        for system in systems
+    ]
     output = jitted_model(systems, {"energy": model.outputs["energy"]})
     jitted_position_gradients = compute_gradient(
         output["energy"].block().values,
@@ -66,7 +78,7 @@ def test_forces(is_training):
         -position_gradient for position_gradient in jitted_position_gradients
     ]
 
-    for f, jf in zip(forces, jitted_forces):
+    for f, jf in zip(forces, jitted_forces, strict=True):
         torch.testing.assert_close(f, jf)
 
 
@@ -78,10 +90,12 @@ def test_virial(is_training):
         length_unit="angstrom",
         atomic_types={6},
         targets={
-            "energy": get_energy_target_info({"unit": "eV"}, add_strain_gradients=True)
+            "energy": get_energy_target_info(
+                "energy", {"unit": "eV"}, add_strain_gradients=True
+            )
         },
     )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
     model.to(dtype=torch.float64)
 
     systems = read_systems(RESOURCES_PATH / "carbon_reduced_100.xyz")[:2]
@@ -93,15 +107,20 @@ def test_virial(is_training):
         for system in systems
     ]
     systems = [
-        metatensor.torch.atomistic.System(
+        System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
             pbc=system.pbc,
         )
-        for system, strain in zip(systems, strains)
+        for system, strain in zip(systems, strains, strict=True)
     ]
 
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    systems = [
+        get_system_with_neighbor_lists(system, requested_neighbor_lists)
+        for system in systems
+    ]
     output = model(systems, {"energy": model.outputs["energy"]})
     strain_gradients = compute_gradient(
         output["energy"].block().values,
@@ -119,15 +138,19 @@ def test_virial(is_training):
         for system in systems
     ]
     systems = [
-        metatensor.torch.atomistic.System(
+        System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
             pbc=system.pbc,
         )
-        for system, strain in zip(systems, strains)
+        for system, strain in zip(systems, strains, strict=True)
     ]
 
+    systems = [
+        get_system_with_neighbor_lists(system, requested_neighbor_lists)
+        for system in systems
+    ]
     output = jitted_model(systems, {"energy": model.outputs["energy"]})
     jitted_strain_gradients = compute_gradient(
         output["energy"].block().values,
@@ -136,7 +159,7 @@ def test_virial(is_training):
     )
     jitted_virial = [-cell_gradient for cell_gradient in jitted_strain_gradients]
 
-    for v, jv in zip(virial, jitted_virial):
+    for v, jv in zip(virial, jitted_virial, strict=True):
         torch.testing.assert_close(v, jv)
 
 
@@ -148,13 +171,14 @@ def test_both(is_training):
         atomic_types={6},
         targets={
             "energy": get_energy_target_info(
+                "energy",
                 {"unit": "eV"},
                 add_position_gradients=True,
                 add_strain_gradients=True,
             )
         },
     )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
     model.to(dtype=torch.float64)
 
     systems = read_systems(RESOURCES_PATH / "carbon_reduced_100.xyz")[:2]
@@ -168,15 +192,20 @@ def test_both(is_training):
         for system in systems
     ]
     systems = [
-        metatensor.torch.atomistic.System(
+        System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
             pbc=system.pbc,
         )
-        for system, strain in zip(systems, strains)
+        for system, strain in zip(systems, strains, strict=True)
     ]
 
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    systems = [
+        get_system_with_neighbor_lists(system, requested_neighbor_lists)
+        for system in systems
+    ]
     output = model(systems, {"energy": model.outputs["energy"]})
     gradients = compute_gradient(
         output["energy"].block().values,
@@ -192,16 +221,20 @@ def test_both(is_training):
         for system in systems
     ]
     systems = [
-        metatensor.torch.atomistic.System(
+        System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
             pbc=system.pbc,
         )
-        for system, strain in zip(systems, strains)
+        for system, strain in zip(systems, strains, strict=True)
     ]
 
     jitted_model = torch.jit.script(model)
+    systems = [
+        get_system_with_neighbor_lists(system, requested_neighbor_lists)
+        for system in systems
+    ]
     output = jitted_model(systems, {"energy": model.outputs["energy"]})
     jitted_gradients = compute_gradient(
         output["energy"].block().values,
@@ -210,5 +243,5 @@ def test_both(is_training):
     )
     jitted_f_and_v = [-jitted_gradient for jitted_gradient in jitted_gradients]
 
-    for fv, jfv in zip(f_and_v, jitted_f_and_v):
+    for fv, jfv in zip(f_and_v, jitted_f_and_v, strict=True):
         torch.testing.assert_close(fv, jfv)

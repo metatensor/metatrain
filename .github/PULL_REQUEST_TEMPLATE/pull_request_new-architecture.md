@@ -4,17 +4,21 @@
 
 # Contributor (creator of pull-request) checklist
 
-- [ ] Add your architecture to the experimental/stable folder. See the
-  [docs/src/dev-docs/architecture-life-cycle.rst](Architecture life cycle) document for
-  requirements.
-  `src/metatrain/experimental/<architecture_name>`
+- [ ] Add your architecture to the `experimental` or `stable` folder. See the
+  [docs/src/dev-docs/architecture-life-cycle.rst](Architecture life cycle)
+  document for requirements. `src/metatrain/experimental/<architecture_name>`
 - [ ] Add default hyperparameter file to
   `src/metatrain/experimental/<architecture_name>/default-hypers.yml`
-- [ ] Add a `.yml` file into github workflows `.github/workflow/<architecture_name>.yml`
-- [ ] Architecture dependencies entry in the `optional-dependencies` section in the
+- [ ] Add your architecture to the CI in `.github/workflow/architecture-tests.yml`
+- [ ] Add a new dependencies entry in the `optional-dependencies` section in the
   `pyproject.toml`
-- [ ] Tests: torch-scriptability, basic functionality (invariance, fitting, prediction)
+- [ ] Add tests:
+  - [ ] checking that the code is compatible with TorchScript
+  - [ ] checking the basic functionality (invariance, fitting, prediction)
+  - [ ] checking that the checkpoints are properly versionned (see the existing
+    `test_checkpoint.py` in other architectures)
 - [ ] Add maintainers as codeowners in [CODEOWNERS](CODEOWNERS)
+- [ ] Trigger a GPU test by asking a maintainer to comment "cscs-ci run".
 
 # Reviewer checklist
 

@@ -6,9 +6,9 @@ def test_to_external_name():
     """Tests the to_external_name function."""
 
     quantities = {
-        "energy": get_energy_target_info({"unit": "eV"}),
-        "mtt::free_energy": get_energy_target_info({"unit": "eV"}),
-        "mtt::foo": get_energy_target_info({"unit": "eV"}),
+        "energy": get_energy_target_info("energy", {"unit": "eV"}),
+        "mtt::free_energy": get_energy_target_info("mtt::free_energy", {"unit": "eV"}),
+        "mtt::foo": get_energy_target_info("mtt::foo", {"unit": "eV"}),
     }
 
     # hack to test the fact that non-energies should be treated differently

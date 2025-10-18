@@ -1,15 +1,15 @@
 seed: 42
 
 architecture:
-  name: experimental.gap
+  name: gap
 
 # training set section
 training_set:
-  systems: "ethanol_reduced_100.xyz"
+  systems: ethanol_reduced_100.xyz
   targets:
     energy:
-      key: "energy"
-      unit: "kcal/mol" # very important to run simulations
+      key: energy
+      unit: kcal/mol  # very important to run simulations
 
 validation_set: 0.1
 test_set: 0.0

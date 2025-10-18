@@ -1,11 +1,12 @@
 seed: 42
 
 architecture:
-  name: experimental.soap_bpnn
+  name: soap_bpnn
   model:
     zbl: false
   training:
     num_epochs: 10
+    batch_size: 10
 
 # training set section
 training_set:
@@ -14,8 +15,8 @@ training_set:
     length_unit: angstrom
   targets:
     energy:
-      key: "energy"
-      unit: "eV" # very important to run simulations
+      key: energy
+      unit: eV  # very important to run simulations
 
 validation_set: 0.1
 test_set: 0.0

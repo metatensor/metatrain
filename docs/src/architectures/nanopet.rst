@@ -1,37 +1,39 @@
 .. _architecture-nanopet:
 
-NanoPET
-=======
+NanoPET (deprecated)
+======================
 
 .. warning::
 
-  This is an **experimental model**.  You should not use it for anything important.
-
-This is a more user-friendly re-implementation of the original PET (which lives in
-https://github.com/spozdn/pet), with slightly improved training and evaluation speed.
+  This is an **deprecated model**. You should not use it for anything important, and
+  support for it will be removed in future versions of metatrain. Please use the
+  :ref:`PET model <architecture-pet>` instead.
 
 Installation
 ------------
+
 To install the package, you can run the following command in the root
 directory of the repository:
 
 .. code-block:: bash
 
-    pip install .[nanopet]
+    pip install metatrain[nanopet]
 
 This will install the package with the nanoPET dependencies.
 
 
 Default Hyperparameters
 -----------------------
+
 The default hyperparameters for the nanoPET model are:
 
-.. literalinclude:: ../../../src/metatrain/experimental/nanopet/default-hypers.yaml
+.. literalinclude:: ../../../src/metatrain/deprecated/nanopet/default-hypers.yaml
    :language: yaml
 
 
 Tuning Hyperparameters
 ----------------------
+
 The default hyperparameters above will work well in most cases, but they
 may not be optimal for your specific dataset. In general, the most important
 hyperparameters to tune are (in decreasing order of importance):
@@ -56,24 +58,18 @@ hyperparameters to tune are (in decreasing order of importance):
 - ``num_attention_layers``: The number of attention layers in each layer of the graph
   neural network. Depending on the dataset, increasing this hyperparameter might lead to
   better accuracy, at the cost of increased training and evaluation time.
-- ``loss``: This section describes the loss function to be used, and it has three
-  subsections. 1. ``weights``. This controls the weighting of different contributions
-  to the loss (e.g., energy, forces, virial, etc.). The default values of 1.0 for all
-  targets work well for most datasets, but they might need to be adjusted. For example,
-  to set a weight of 1.0 for the energy and 0.1 for the forces, you can set the
-  following in the ``options.yaml`` file under ``loss``:
-  ``weights: {"energy": 1.0, "forces": 0.1}``. 2. ``type``. This controls the type of
-  loss to be used. The default value is ``mse``, and other options are ``mae`` and
-  ``huber``. ``huber`` is a subsection of its own, and it requires the user to specify
-  the ``deltas`` parameters in a similar way to how the ``weights`` are specified (e.g.,
-  ``deltas: {"energy": 0.1, "forces": 0.01}``). 3. ``reduction``. This controls how the
-  loss is reduced over batches. The default value is ``mean``, and the other allowed
-  option is ``sum``.
+- ``loss``: This section describes the loss function to be used. See the
+  :doc:`dedicated documentation page <../advanced-concepts/loss-functions>` for more
+  details.
+- ``long_range``: In some systems and datasets, enabling long-range Coulomb interactions
+  might be beneficial for the accuracy of the model and/or its physical correctness.
+  See below for a breakdown of the long-range section of the model hyperparameters.
 
 
 All Hyperparameters
 -------------------
-:param name: ``experimental.nanopet``
+
+:param name: ``deprecated.nanopet``
 
 model
 #####
@@ -91,9 +87,17 @@ The model-related hyperparameters are
   MLP (multi-layer perceptron) head. MLP heads consist of two hidden layers with
   dimensionality ``d_pet``.
 :param zbl: Whether to use the ZBL short-range repulsion as the baseline for the model
+:param long_range: Parameters related to long-range interactions. ``enable``: whether
+  to use long-range interactions; ``use_ewald``: whether to use an Ewald calculator
+  (faster for smaller systems); ``smearing``: the width of the Gaussian function used
+  to approximate the charge distribution in Fourier space; ``kspace_resolution``: the
+  spatial resolution of the Fourier-space used for calculating long-range interactions;
+  ``interpolation_nodes``: the number of grid points used in spline
+  interpolation for the P3M method.
 
 training
 ########
+
 The hyperparameters for training are
 
 :param distributed: Whether to use distributed training
@@ -116,7 +120,14 @@ The hyperparameters for training are
 :param loss: The loss function to use, with the subfields described in the previous
   section
 :param best_model_metric: specifies the validation set metric to use to select the best
-    model, i.e. the model that will be saved as ``model.ckpt`` and ``model.pt`` both in
-    the current directory and in the checkpoint directory. The default is ``rmse_prod``,
-    i.e., the product of the RMSEs for each target. Other options are ``mae_prod`` and
-    ``loss``.
+  model, i.e. the model that will be saved as ``model.ckpt`` and ``model.pt`` both in
+  the current directory and in the checkpoint directory. The default is ``rmse_prod``,
+  i.e., the product of the RMSEs for each target. Other options are ``mae_prod`` and
+  ``loss``.
+:param num_workers: Number of workers for data loading. If not provided, it is set
+  automatically.
+
+References
+----------
+
+.. footbibliography::

@@ -1,13 +1,24 @@
+import logging
 import os
 
 import hostlist
 
 
-def is_slurm():
+def is_slurm() -> bool:
+    """
+    Check if the code is running within a SLURM job.
+
+    :return: True if running in a SLURM job, False otherwise.
+    """
     return ("SLURM_JOB_ID" in os.environ) and ("SLURM_PROCID" in os.environ)
 
 
-def is_slurm_main_process():
+def is_slurm_main_process() -> bool:
+    """
+    Check if the current process is the main process in a SLURM job.
+
+    :return: True if the current process is the main process, False otherwise.
+    """
     return os.environ["SLURM_PROCID"] == "0"
 
 
@@ -24,7 +35,7 @@ class DistributedEnvironment:
         environment.
     """  # noqa: E501, E262
 
-    def __init__(self, port: int):
+    def __init__(self, port: int) -> None:
         self._setup_distr_env(port)
         self.master_addr = os.environ["MASTER_ADDR"]
         self.master_port = os.environ["MASTER_PORT"]
@@ -32,10 +43,18 @@ class DistributedEnvironment:
         self.rank = int(os.environ["RANK"])
         self.local_rank = int(os.environ["LOCAL_RANK"])
 
-    def _setup_distr_env(self, port: int):
+    def _setup_distr_env(self, port: int) -> None:
         hostnames = hostlist.expand_hostlist(os.environ["SLURM_JOB_NODELIST"])
         os.environ["MASTER_ADDR"] = hostnames[0]  # set first node as master
         os.environ["MASTER_PORT"] = str(port)  # set port for communication
         os.environ["WORLD_SIZE"] = os.environ["SLURM_NTASKS"]
         os.environ["RANK"] = os.environ["SLURM_PROCID"]
         os.environ["LOCAL_RANK"] = os.environ["SLURM_LOCALID"]
+
+        logging.info(
+            f"Distributed environment set up with "
+            f"MASTER_ADDR={os.environ['MASTER_ADDR']}, "
+            f"MASTER_PORT={os.environ['MASTER_PORT']}, "
+            f"WORLD_SIZE={os.environ['WORLD_SIZE']}, "
+            f"RANK={os.environ['RANK']}, LOCAL_RANK={os.environ['LOCAL_RANK']}"
+        )

@@ -6,16 +6,18 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from omegaconf import OmegaConf
 
 from metatrain.utils.data import (
+    CollateFn,
     Dataset,
     DatasetInfo,
     TargetInfo,
     check_datasets,
-    collate_fn,
     get_all_targets,
     get_atomic_types,
     get_stats,
+    read_extra_data,
     read_systems,
     read_targets,
+    unpack_batch,
 )
 
 
@@ -173,15 +175,10 @@ def test_target_info_eq(layout_scalar):
     assert info1 != info2
 
 
-def test_target_info_eq_error(layout_scalar):
+def test_target_info_eq_other_objects(layout_scalar):
     info = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
 
-    match = (
-        "Comparison between a TargetInfo instance and a list instance is not "
-        "implemented."
-    )
-    with pytest.raises(NotImplementedError, match=match):
-        _ = info == [1, 2, 3]
+    assert not info == [1, 2, 3]
 
 
 def test_dataset_info(layout_scalar):
@@ -204,6 +201,7 @@ def test_dataset_info(layout_scalar):
     assert dataset_info.targets["energy"].unit == "kcal/mol"
     assert dataset_info.targets["mtt::U0"].quantity == "energy"
     assert dataset_info.targets["mtt::U0"].unit == "kcal/mol"
+    assert dataset_info.device == layout_scalar.device
 
     expected = (
         "DatasetInfo(length_unit='angstrom', atomic_types=[1, 2, 3], "
@@ -279,7 +277,7 @@ def test_dataset_info_update_non_matching_length_unit(layout_scalar):
 
     match = (
         r"Can't update DatasetInfo with a different `length_unit`: "
-        r"\(angstrom != nanometer\)"
+        r"\('angstrom' != 'nanometer'\)"
     )
 
     with pytest.raises(ValueError, match=match):
@@ -302,18 +300,13 @@ def test_dataset_info_eq(layout_scalar):
     assert info != info2
 
 
-def test_dataset_info_eq_error(layout_scalar):
+def test_dataset_info_eq_other_objects(layout_scalar):
     targets = {}
     targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
 
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
-    match = (
-        "Comparison between a DatasetInfo instance and a list instance is not "
-        "implemented."
-    )
-    with pytest.raises(NotImplementedError, match=match):
-        _ = info == [1, 2, 3]
+    assert not info == [1, 2, 3]
 
 
 def test_dataset_info_update_different_target_info(layout_scalar):
@@ -361,6 +354,17 @@ def test_dataset_info_union(layout_scalar, layout_cartesian):
     assert union.targets == other_targets
 
 
+def test_dataset_info_no_targets():
+    """Tests the properties of a DatasetInfo that has no targets."""
+    dataset_info = DatasetInfo(
+        length_unit="angstrom", atomic_types=[1, 2, 3], targets={}
+    )
+
+    assert dataset_info.device is None
+    # Setting the device should not fail:
+    dataset_info.to(device="cpu")
+
+
 def test_dataset():
     """Tests the readers and the dataset class."""
 
@@ -382,13 +386,15 @@ def test_dataset():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf))
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
+    collate_fn = CollateFn(target_info_dict)
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=10, collate_fn=collate_fn
     )
 
     for batch in dataloader:
+        batch = unpack_batch(batch)
         assert batch[1]["energy"].block().values.shape == (10, 1)
 
 
@@ -565,7 +571,7 @@ def test_collate_fn():
     """Tests the collate_fn function."""
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
-    conf = {
+    conf_targets = {
         "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
@@ -580,15 +586,39 @@ def test_collate_fn():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    targets, target_info_dict = read_targets(OmegaConf.create(conf_targets))
 
+    conf_extra_data = {
+        "U0": {
+            "quantity": "",
+            "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+        }
+    }
+    extra_data, _ = read_extra_data(OmegaConf.create(conf_extra_data))
+
+    dataset = Dataset.from_dict(
+        {
+            "system": systems,
+            "mtt::U0": targets["mtt::U0"],
+            "U0": extra_data["U0"],
+        }
+    )
+
+    collate_fn = CollateFn(target_info_dict)
     batch = collate_fn([dataset[0], dataset[1], dataset[2]])
+    batch = unpack_batch(batch)
 
-    assert len(batch) == 2
-    assert isinstance(batch[0], tuple)
+    assert len(batch) == 3
+    assert isinstance(batch[0], list)
     assert len(batch[0]) == 3
     assert isinstance(batch[1], dict)
+    assert isinstance(batch[2], dict)
 
 
 def test_get_stats(layout_scalar):
@@ -653,3 +683,17 @@ def test_get_stats(layout_scalar):
     assert "stress" not in stats_2
     assert "eV" in stats
     assert "eV" in stats_2
+
+
+def test_instance_torchscript_compatible(layout_scalar):
+    dataset_info = DatasetInfo(
+        length_unit=None,
+        atomic_types=[1, 2, 3],
+        targets={
+            "energy": TargetInfo(
+                quantity="energy", unit="kcal/mol", layout=layout_scalar
+            )
+        },
+    )
+
+    torch.jit.script(dataset_info)

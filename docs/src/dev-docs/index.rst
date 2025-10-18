@@ -13,5 +13,7 @@ module.
    architecture-life-cycle
    new-architecture
    dataset-information
+   new-loss
    cli/index
    utils/index
+   changelog

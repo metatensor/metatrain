@@ -76,14 +76,14 @@ mtt::aux::{target}_last_layer_features
       equivariant.
 
   * - properties
-    - ``"properties"``
+    - ``"feature"``
     - the last-layer features have a single property dimension named
-      ``"properties"``, with entries ranging from 0 to the number of features
+      ``"feature"``, with entries ranging from 0 to the number of features
       in the last layer.
 
 features
 ^^^^^^^^
 
-See the
-`feature output <https://docs.metatensor.org/latest/atomistic/outputs/features.html>`_
-in ``metatensor.torch.atomistic``.
+See the `feature output
+<https://docs.metatensor.org/metatomic/latest/outputs/features.html>`_ in
+``metatomic``.

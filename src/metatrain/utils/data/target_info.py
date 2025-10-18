@@ -1,9 +1,12 @@
-from typing import List, Union
+from typing import Any, Dict, List, Optional, Union
 
-import metatensor.torch
 import torch
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap, equal_metadata
 from omegaconf import DictConfig
+
+# We explicitly import device because otherwise torch.jit.script doesn't
+# recognize the torch.device type
+from torch import device as _torch_device
 
 
 class TargetInfo:
@@ -37,6 +40,9 @@ class TargetInfo:
         self.layout = layout
         self.unit = unit if unit is not None else ""
 
+        self.blocks_shape: Dict[str, List[int]] = {}
+        self._set_blocks_shape()
+
     @property
     def gradients(self) -> List[str]:
         """Sorted and unique list of gradient names."""
@@ -50,26 +56,39 @@ class TargetInfo:
         """Whether the target is per atom."""
         return "atom" in self.layout.block(0).samples.names
 
-    def __repr__(self):
-        return (
-            f"TargetInfo(quantity={self.quantity!r}, unit={self.unit!r}, "
-            f"layout={self.layout!r})"
+    @property
+    def component_labels(self) -> List[List[Labels]]:
+        """The labels of the components of the target."""
+        return [block.components for block in self.layout.blocks()]
+
+    @property
+    def property_labels(self) -> List[Labels]:
+        """The labels of the properties of the target."""
+        return [block.properties for block in self.layout.blocks()]
+
+    def __repr__(self) -> str:
+        return "TargetInfo(quantity={!r}, unit={!r}, layout={!r})".format(
+            self.quantity, self.unit, self.layout
         )
 
-    def __eq__(self, other):
+    @torch.jit.unused
+    def __eq__(self, other: Any) -> bool:
         if not isinstance(other, TargetInfo):
-            raise NotImplementedError(
-                "Comparison between a TargetInfo instance and a "
-                f"{type(other).__name__} instance is not implemented."
-            )
+            return False
         return (
             self.quantity == other.quantity
             and self.unit == other.unit
-            and metatensor.torch.equal(self.layout, other.layout)
+            # we can't use metatensor.torch.equal here because we want to allow
+            # for potential gradient mismatches (e.g. energy-0nly vs energy+forces)
+            and _is_equal_up_to_gradients(self.layout, other.layout)
         )
 
     def _check_layout(self, layout: TensorMap) -> None:
-        """Check that the layout is a valid layout."""
+        """
+        Check that the layout is a valid layout.
+
+        :param layout: The layout TensorMap to check.
+        """
 
         # examine basic properties of all blocks
         for block in layout.blocks():
@@ -154,8 +173,9 @@ class TargetInfo:
                     f"Found '{layout.keys.names}' instead."
                 )
             for key, block in layout.items():
-                o3_lambda, o3_sigma = int(key.values[0].item()), int(
-                    key.values[1].item()
+                o3_lambda, o3_sigma = (
+                    int(key.values[0].item()),
+                    int(key.values[1].item()),
                 )
                 if o3_sigma not in [-1, 1]:
                     raise ValueError(
@@ -186,6 +206,16 @@ class TargetInfo:
                         "Gradients of spherical tensor targets are not supported."
                     )
 
+    def _set_blocks_shape(self) -> None:
+        """Set the attribute storing the shapes of the blocks in layout."""
+        for key, block in self.layout.items():
+            dict_key = self.quantity
+            for n, k in zip(key.names, key.values, strict=True):
+                dict_key += f"_{n}_{int(k)}"
+            self.blocks_shape[dict_key] = [
+                len(comp.values) for comp in block.components
+            ] + [len(block.properties.values)]
+
     def is_compatible_with(self, other: "TargetInfo") -> bool:
         """Check if two targets are compatible.
 
@@ -198,32 +228,76 @@ class TargetInfo:
         :return: :py:obj:`True` if the two target infos are compatible,
             :py:obj:`False` otherwise.
         """
+
         if self.quantity != other.quantity:
             return False
         if self.unit != other.unit:
             return False
-        if self.layout.keys.names != other.layout.keys.names:
-            return False
-        for key, block in self.layout.items():
-            if key not in other.layout.keys:
-                return False
-            other_block = other.layout[key]
-            if not block.samples == other_block.samples:
-                return False
-            if not block.components == other_block.components:
-                return False
-            if not block.properties == other_block.properties:
-                return False
-            # gradients are not checked on purpose
-        return True
+        return equal_metadata(self.layout, other.layout, check_gradients=False)
+
+    @property
+    def device(self) -> _torch_device:
+        """Return the device of the target info's layout."""
+        return self.layout.device
+
+    def to(
+        self, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None
+    ) -> "TargetInfo":
+        """
+        Return a copy with all tensors moved to the device and dtype.
+
+        :param device: The device to move the tensors to.
+        :param dtype: The dtype to move the tensors to.
+        :return: A copy of the TargetInfo with all tensors moved to the device and
+            dtype.
+        """
+        new_layout = self.layout.to(device=device, dtype=dtype)
+        return TargetInfo(
+            quantity=self.quantity,
+            layout=new_layout,
+            unit=self.unit,
+        )
+
+    @torch.jit.unused
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        """
+        Set the state of the target info.
+
+        :param state: The state to set.
+        """
+
+        self.quantity = state["quantity"]
+        self.layout = state["layout"]
+        self.unit = state["unit"]
+        self.is_scalar = state["is_scalar"]
+        self.is_cartesian = state["is_cartesian"]
+        self.is_spherical = state["is_spherical"]
+
+        # For backward compatibility, if blocks_shape is not in the state,
+        # we build it.
+        if "blocks_shape" not in state:
+            self.blocks_shape = {}
+            self._set_blocks_shape()
+        else:
+            self.blocks_shape = state["blocks_shape"]
 
 
 def get_energy_target_info(
+    target_name: str,
     target: DictConfig,
     add_position_gradients: bool = False,
     add_strain_gradients: bool = False,
 ) -> TargetInfo:
+    """Get an empty TargetInfo with the layout of an energy target.
 
+    :param target_name: Not used, but kept for consistency with
+        :py:func:`get_generic_target_info`.
+    :param target: The configuration of the target.
+    :param add_position_gradients: Whether to add position gradients to the layout.
+    :param add_strain_gradients: Whether to add strain gradients to the layout.
+
+    :return: A `TargetInfo` with the layout of an energy target.
+    """
     block = TensorBlock(
         # float64: otherwise metatensor can't serialize
         values=torch.empty(0, 1, dtype=torch.float64),
@@ -258,8 +332,8 @@ def get_energy_target_info(
             # float64: otherwise metatensor can't serialize
             values=torch.empty(0, 3, 3, 1, dtype=torch.float64),
             samples=Labels(
-                names=["sample", "atom"],
-                values=torch.empty((0, 2), dtype=torch.int32),
+                names=["sample"],
+                values=torch.empty((0, 1), dtype=torch.int32),
             ),
             components=[
                 Labels(
@@ -288,13 +362,21 @@ def get_energy_target_info(
     return target_info
 
 
-def get_generic_target_info(target: DictConfig) -> TargetInfo:
+def get_generic_target_info(target_name: str, target: DictConfig) -> TargetInfo:
+    """Get an empty TargetInfo with the appropriate layout.
+
+    :param target_name: The name of the target.
+    :param target: The configuration of the target. Based on the ``type`` field,
+        this function will create a layout for the appropriate type of target.
+
+    :return: A `TargetInfo` with the layout of the target.
+    """
     if target["type"] == "scalar":
-        return _get_scalar_target_info(target)
+        return _get_scalar_target_info(target_name, target)
     elif len(target["type"]) == 1 and next(iter(target["type"])).lower() == "cartesian":
-        return _get_cartesian_target_info(target)
+        return _get_cartesian_target_info(target_name, target)
     elif len(target["type"]) == 1 and next(iter(target["type"])) == "spherical":
-        return _get_spherical_target_info(target)
+        return _get_spherical_target_info(target_name, target)
     else:
         raise ValueError(
             f"Target type {target['type']} is not supported. "
@@ -302,7 +384,7 @@ def get_generic_target_info(target: DictConfig) -> TargetInfo:
         )
 
 
-def _get_scalar_target_info(target: DictConfig) -> TargetInfo:
+def _get_scalar_target_info(target_name: str, target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
     if target["per_atom"]:
         sample_names.append("atom")
@@ -315,7 +397,9 @@ def _get_scalar_target_info(target: DictConfig) -> TargetInfo:
             values=torch.empty((0, len(sample_names)), dtype=torch.int32),
         ),
         components=[],
-        properties=Labels.range("properties", target["num_subtargets"]),
+        properties=Labels.range(
+            target_name.replace("mtt::", ""), target["num_subtargets"]
+        ),
     )
     layout = TensorMap(
         keys=Labels.single(),
@@ -330,7 +414,7 @@ def _get_scalar_target_info(target: DictConfig) -> TargetInfo:
     return target_info
 
 
-def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
+def _get_cartesian_target_info(target_name: str, target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
     if target["per_atom"]:
         sample_names.append("atom")
@@ -360,7 +444,9 @@ def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
             values=torch.empty((0, len(sample_names)), dtype=torch.int32),
         ),
         components=components,
-        properties=Labels.range("properties", target["num_subtargets"]),
+        properties=Labels.range(
+            target_name.replace("mtt::", ""), target["num_subtargets"]
+        ),
     )
     layout = TensorMap(
         keys=Labels.single(),
@@ -375,7 +461,7 @@ def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
     return target_info
 
 
-def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
+def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
     if target["per_atom"]:
         sample_names.append("atom")
@@ -405,7 +491,9 @@ def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
                 values=torch.empty((0, len(sample_names)), dtype=torch.int32),
             ),
             components=components,
-            properties=Labels.range("properties", target["num_subtargets"]),
+            properties=Labels.range(
+                target_name.replace("mtt::", ""), target["num_subtargets"]
+            ),
         )
         keys.append([irrep["o3_lambda"], irrep["o3_sigma"]])
         blocks.append(block)
@@ -424,7 +512,49 @@ def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
 
 
 def is_auxiliary_output(name: str) -> bool:
+    """
+    Check if a target name corresponds to an auxiliary output.
+
+    :param name: The name of the target to check.
+
+    :return: `True` if the target is an auxiliary output, `False` otherwise.
+    """
     is_auxiliary = (
         name == "features" or name == "energy_ensemble" or name.startswith("mtt::aux::")
     )
     return is_auxiliary
+
+
+def _is_equal_up_to_gradients(
+    layout1: TensorMap,
+    layout2: TensorMap,
+) -> bool:
+    """
+    Check if the two layouts are equal up to gradients.
+
+    This includes checking the values, this is why we can't use
+    ``metatensor.torch.equal_metadata``. It ignores the values
+    of the gradients so we can't use ``metatensor.torch.equal`` either.
+
+    :param layout1: The first layout to compare.
+    :param layout2: The second layout to compare.
+
+    :return: `True` if the two layouts are equal up to gradients,
+        `False` otherwise.
+    """
+    if len(layout1) != len(layout2):
+        return False
+    for key in layout1.keys:
+        if key not in layout2.keys:
+            return False
+        block1 = layout1[key]
+        block2 = layout2[key]
+        if block1.samples != block2.samples:
+            return False
+        if block1.components != block2.components:
+            return False
+        if block1.properties != block2.properties:
+            return False
+        if not torch.allclose(block1.values, block2.values):
+            return False
+    return True

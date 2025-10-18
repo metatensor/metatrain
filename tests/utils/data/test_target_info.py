@@ -1,4 +1,5 @@
 import pytest
+import torch
 from omegaconf import DictConfig
 
 from metatrain.utils.data.target_info import (
@@ -72,52 +73,60 @@ def spherical_target_config() -> DictConfig:
 
 
 def test_layout_energy(energy_target_config):
-
-    target_info = get_energy_target_info(energy_target_config)
+    target_info = get_energy_target_info("energy", energy_target_config)
     assert target_info.quantity == "energy"
     assert target_info.unit == "eV"
     assert target_info.per_atom is False
     assert target_info.gradients == []
+    assert target_info.device == target_info.layout.device
 
     target_info = get_energy_target_info(
-        energy_target_config, add_position_gradients=True
+        "energy", energy_target_config, add_position_gradients=True
     )
     assert target_info.quantity == "energy"
     assert target_info.unit == "eV"
     assert target_info.per_atom is False
     assert target_info.gradients == ["positions"]
+    assert target_info.device == target_info.layout.device
 
     target_info = get_energy_target_info(
-        energy_target_config, add_position_gradients=True, add_strain_gradients=True
+        "energy",
+        energy_target_config,
+        add_position_gradients=True,
+        add_strain_gradients=True,
     )
     assert target_info.quantity == "energy"
     assert target_info.unit == "eV"
     assert target_info.per_atom is False
     assert target_info.gradients == ["positions", "strain"]
+    assert target_info.device == target_info.layout.device
 
 
 def test_layout_scalar(scalar_target_config):
-    target_info = get_generic_target_info(scalar_target_config)
+    target_info = get_generic_target_info("scalar", scalar_target_config)
     assert target_info.quantity == "scalar"
     assert target_info.unit == ""
     assert target_info.per_atom is False
     assert target_info.gradients == []
+    assert target_info.device == target_info.layout.device
 
 
 def test_layout_cartesian(cartesian_target_config):
-    target_info = get_generic_target_info(cartesian_target_config)
+    target_info = get_generic_target_info("cartesian", cartesian_target_config)
     assert target_info.quantity == "dipole"
     assert target_info.unit == "D"
     assert target_info.per_atom is True
     assert target_info.gradients == []
+    assert target_info.device == target_info.layout.device
 
 
 def test_layout_spherical(spherical_target_config):
-    target_info = get_generic_target_info(spherical_target_config)
+    target_info = get_generic_target_info("spherical", spherical_target_config)
     assert target_info.quantity == "spherical"
     assert target_info.unit == ""
     assert target_info.per_atom is False
     assert target_info.gradients == []
+    assert target_info.device == target_info.layout.device
 
 
 def test_is_auxiliary_output():
@@ -132,10 +141,12 @@ def test_is_auxiliary_output():
 
 
 def test_is_compatible_with(energy_target_config, spherical_target_config):
-    energy_target_info = get_energy_target_info(energy_target_config)
-    spherical_target_config = get_generic_target_info(spherical_target_config)
+    energy_target_info = get_energy_target_info("energy", energy_target_config)
+    spherical_target_config = get_generic_target_info(
+        "spherical", spherical_target_config
+    )
     energy_target_info_with_forces = get_energy_target_info(
-        energy_target_config, add_position_gradients=True
+        "energy", energy_target_config, add_position_gradients=True
     )
     assert energy_target_info.is_compatible_with(energy_target_info)
     assert energy_target_info_with_forces.is_compatible_with(energy_target_info)
@@ -143,3 +154,19 @@ def test_is_compatible_with(energy_target_config, spherical_target_config):
     assert not (
         energy_target_info_with_forces.is_compatible_with(spherical_target_config)
     )
+
+
+@pytest.mark.parametrize(
+    "target_config",
+    [
+        "energy_target_config",
+        "scalar_target_config",
+        "cartesian_target_config",
+        "spherical_target_config",
+    ],
+)
+def test_instance_torchscript_compatible(target_config, request):
+    target_info = get_generic_target_info(
+        "target_name", request.getfixturevalue(target_config)
+    )
+    torch.jit.script(target_info)

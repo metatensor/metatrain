@@ -24,11 +24,68 @@
     },
     "base_precision": {
       "type": "integer",
-      "enum": [16, 32, 64]
+      "enum": [
+        16,
+        32,
+        64
+      ]
     },
     "seed": {
       "type": "integer",
       "minimum": 0
+    },
+    "wandb": {
+      "type": "object",
+      "additionalProperties": true,
+      "propertyNames": {
+        "not": {
+          "const": "config"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "entity"
+            ]
+          },
+          "then": {
+            "properties": {
+              "entity": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "project"
+            ]
+          },
+          "then": {
+            "properties": {
+              "project": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "name"
+            ]
+          },
+          "then": {
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
     },
     "architecture": {
       "type": "object",
@@ -37,7 +94,9 @@
           "type": "string"
         }
       },
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "additionalProperties": true
     },
     "training_set": {
@@ -90,6 +149,11 @@
       ]
     }
   },
-  "required": ["architecture", "training_set", "test_set", "validation_set"],
+  "required": [
+    "architecture",
+    "training_set",
+    "test_set",
+    "validation_set"
+  ],
   "additionalProperties": false
 }

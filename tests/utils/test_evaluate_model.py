@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from metatrain.experimental.soap_bpnn import __model__
+from metatrain.soap_bpnn import __model__
 from metatrain.utils.data import DatasetInfo, read_systems
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.evaluate_model import evaluate_model
@@ -26,6 +26,7 @@ def test_evaluate_model(training, exported):
 
     targets = {
         "energy": get_energy_target_info(
+            "energy",
             {"unit": "eV"},
             add_position_gradients=True,
             add_strain_gradients=True,
@@ -35,15 +36,16 @@ def test_evaluate_model(training, exported):
     dataset_info = DatasetInfo(
         length_unit="angstrom", atomic_types=atomic_types, targets=targets
     )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
 
     if exported:
         model = model.export()
-        requested_neighbor_lists = get_requested_neighbor_lists(model)
-        systems = [
-            get_system_with_neighbor_lists(system, requested_neighbor_lists)
-            for system in systems
-        ]
+
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    systems = [
+        get_system_with_neighbor_lists(system, requested_neighbor_lists)
+        for system in systems
+    ]
 
     systems = [system.to(torch.float32) for system in systems]
     outputs = evaluate_model(

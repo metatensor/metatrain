@@ -17,20 +17,12 @@ print(' '.join(find_all_architectures()))
   case "$module" in
     train)
       case "${prev_word}" in
-        -h|--help)
+        -h|--help|-o|--output|-r|--override)
           COMPREPLY=( )
           return 0
           ;;
-        -o|--output)
-          COMPREPLY=( )
-          return 0
-          ;;
-        -c|--continue)
-          COMPREPLY=( $( compgen -f -X "$ckpt" -- "${cur_word}") )
-          return 0
-          ;;
-        -r|--override)
-          COMPREPLY=( )
+        --restart)
+          COMPREPLY=( $( compgen -W "auto" -f -X "$ckpt" -- "${cur_word}") )
           return 0
           ;;
         *)
@@ -40,17 +32,13 @@ print(' '.join(find_all_architectures()))
           fi
           ;;
       esac
-      local opts="-h --help -o --output -c --continue -r --override"
+      local opts="-h --help -o --output --restart -r --override"
       COMPREPLY=( $(compgen -W "${opts}" -- "${cur_word}") )
       return 0
       ;;
     export)
       case "${prev_word}" in
-        -o|--output)
-          COMPREPLY=( )
-          return 0
-          ;;
-        -h|--help)
+        -h|--help|-o|--output)
           COMPREPLY=( )
           return 0
           ;;
@@ -65,23 +53,19 @@ print(' '.join(find_all_architectures()))
           fi
           ;;
       esac
-      local opts="-h --help -o --output"
+      local opts="-h --help -o --output -m --metadata --token"
       COMPREPLY=( $(compgen -W "${opts}" -- "${cur_word}") )
       return 0
       ;;
     eval)
       case "${prev_word}" in
-        -o|--output)
+        -h|--help|-o|--output|-b|--batch-size|--check-consistency)
           COMPREPLY=( )
           return 0
           ;;
-        -e|--extdir)
+        -e|--extensions-dir)
           # Only complete directories
           COMPREPLY=( $(compgen -d -- "${cur_word}") )
-          return 0
-          ;;
-        -h|--help)
-          COMPREPLY=( )
           return 0
           ;;
         *)
@@ -94,7 +78,7 @@ print(' '.join(find_all_architectures()))
           fi
           ;;
       esac
-      local opts="-h --help -o --output"
+      local opts="-h --help -o --output -b --batch-size -e --extensions-dir --check-consistency"
       COMPREPLY=( $(compgen -W "${opts}" -- "${cur_word}") )
       return 0
       ;;

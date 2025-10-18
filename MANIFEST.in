@@ -1,7 +1,7 @@
 graft src
 
 include LICENSE
-include README.rst
+include README.md
 
 prune developer
 prune docs
@@ -9,6 +9,7 @@ prune examples
 prune tests
 prune .github
 prune .tox
+prune ci
 
 exclude .codecov.yml
 exclude .gitignore
@@ -16,5 +17,6 @@ exclude .readthedocs.yml
 exclude CODEOWNERS
 exclude CONTRIBUTING.rst
 exclude tox.ini
+exclude CITATION.cff
 
 global-exclude *.py[cod] __pycache__/* *.so *.dylib

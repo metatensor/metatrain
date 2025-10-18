@@ -16,8 +16,8 @@ def get_gradient_units(base_unit: str, gradient_name: str, length_unit: str) -> 
     """
     if base_unit == "":
         return ""  # unknown unit for base quantity -> unknown unit for gradient
-    if length_unit == "angstrom":
-        length_unit = "Å"  # prettier
+    if length_unit.lower() in ["angstrom", "å", "ångstrom"]:
+        length_unit = "A"  # prettier
     if gradient_name == "positions":
         return base_unit + "/" + length_unit
     elif gradient_name == "strain":
@@ -33,7 +33,6 @@ def ev_to_mev(value: float, unit: str) -> Tuple[float, str]:
 
     :param value: The value (potentially in eV or a derived quantity of eV).
     :param unit: The unit of the value.
-
     :return: If the `value` is in meV (or a derived quantity), the value and
         the corresponding unit where eV is converted to meV. Otherwise, the input.
     """

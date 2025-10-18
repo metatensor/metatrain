@@ -1,5 +1,5 @@
 import torch
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 from metatrain.utils.data import system_to_ase
 

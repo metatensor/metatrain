@@ -1,17 +1,49 @@
-from typing import List
+from typing import Callable, Dict, List, Tuple
 
 import ase.neighborlist
 import numpy as np
 import torch
 import vesin
 from metatensor.torch import Labels, TensorBlock
-from metatensor.torch.atomistic import (
-    NeighborListOptions,
-    System,
-    register_autograd_neighbors,
-)
+from metatomic.torch import NeighborListOptions, System, register_autograd_neighbors
 
 from .data.system_to_ase import system_to_ase
+
+
+def get_system_with_neighbor_lists_transform(
+    requested_neighbor_lists: List[NeighborListOptions],
+) -> Callable:
+    """
+    Returns a function that adds the requested neighbor lists to each system.
+
+    :param requested_neighbor_lists: A list of `NeighborListOptions` objects,
+        each of which specifies the parameters for a neighbor list.
+    :return: A function that takes a list of `System` objects and returns a new
+        list of `System` objects with the requested neighbor lists added.
+    """
+
+    def transform(
+        systems: List[System],
+        targets: Dict[str, TensorBlock],
+        extra: Dict[str, TensorBlock],
+    ) -> Tuple[List[System], Dict[str, TensorBlock], Dict[str, TensorBlock]]:
+        """
+        :param systems: A list of `System` objects.
+        :param targets: A dictionary of target `TensorBlock` objects.
+        :param extra: A dictionary of extra `TensorBlock` objects.
+        :return: The systems with the requested neighbor lists added, along with
+            the original targets and extra data.
+        """
+        new_systems = []
+        for system in systems:
+            new_system = get_system_with_neighbor_lists(
+                system,
+                requested_neighbor_lists,
+            )
+            new_systems.append(new_system)
+        return new_systems, targets, extra
+
+    return transform
 
 
 def get_requested_neighbor_lists(
@@ -36,7 +68,7 @@ def _get_requested_neighbor_lists_in_place(
     module: torch.nn.Module,
     module_name: str,
     requested: List[NeighborListOptions],
-):
+) -> None:
     # copied from
     # metatensor/python/metatensor-torch/metatensor/torch/atomistic/model.py
     # and just removed the length units
@@ -80,11 +112,12 @@ def get_system_with_neighbor_lists(
     # Compute the neighbor lists
     for options in neighbor_lists:
         if options not in system.known_neighbor_lists():
-            neighbor_list = _compute_single_neighbor_list(atoms, options).to(
+            neighbors = _compute_single_neighbor_list(atoms, options).to(
                 device=system.device, dtype=system.dtype
             )
-            register_autograd_neighbors(system, neighbor_list)
-            system.add_neighbor_list(options, neighbor_list)
+
+            register_autograd_neighbors(system, neighbors)
+            system.add_neighbor_list(options, neighbors)
 
     return system
 
@@ -92,8 +125,7 @@ def get_system_with_neighbor_lists(
 def _compute_single_neighbor_list(
     atoms: ase.Atoms, options: NeighborListOptions
 ) -> TensorBlock:
-    # Computes a single neighbor list for an ASE atoms object
-    # (as in metatensor.torch.atomistic)
+    # Computes a single neighbor list for an ASE atoms object (as in metatomic.torch)
 
     if np.all(atoms.pbc) or np.all(~atoms.pbc):
         nl_i, nl_j, nl_S, nl_D = vesin.ase_neighbor_list(
@@ -170,6 +202,7 @@ def _compute_single_neighbor_list(
                 "cell_shift_c",
             ],
             values=torch.from_numpy(samples),
+            assume_unique=True,
         ),
         components=[Labels.range("xyz", 3)],
         properties=Labels.range("distance", 1),

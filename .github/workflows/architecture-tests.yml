@@ -8,24 +8,27 @@ on:
 
 jobs:
   tests:
+    name: ${{ matrix.architecture-name }}
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          - architecture-name: gap
-          - architecture-name: soap-bpnn
-          - architecture-name: pet
-          - architecture-name: nanopet
-          - architecture-name: phace
+        architecture-name:
+          - gap
+          - soap-bpnn
+          - llpr
+          - pet
+          - nanopet
+          - flashmd
 
     runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
-        python-version: "3.12"
+        python-version: "3.13"
     - run: pip install tox
 
     - name: run architecture tests

@@ -1,3 +1,5 @@
+.. _fitting-generic-targets:
+
 Fitting generic targets
 =======================
 
@@ -29,20 +31,15 @@ capabilities of the architectures in metatrain.
      - No
      - No
    * - PET
-     - Energy, forces
-     - No
-     - No
-     - No
-   * - NanoPET
      - Energy, forces, stress/virial
      - Yes
      - Yes
-     - Only with ``rank=1`` (vectors)
-   * - PhACE
+     - Only with ``rank=1`` (vectors) and ``rank=2`` (2D tensors)
+   * - NanoPET (deprecated)
      - Energy, forces, stress/virial
      - Yes
-     - Only proper tensors (``o3_sigma=1``)
-     - No
+     - Yes
+     - Only with ``rank=1`` (vectors) and ``rank=2`` (2D tensors)
 
 
 Preparing generic targets for reading by metatrain
@@ -70,7 +67,7 @@ like this:
         unit: ""
         per_atom: True
         type:
-          cartiesian:
+          cartesian:
             rank: 1
         num_subtargets: 10
 
@@ -134,7 +131,7 @@ Preparing your targets -- metatensor
 
 If you are using the metatensor readers to read your targets, you will have to save them
 as a ``metatensor.torch.TensorMap`` object with ``metatensor.torch.TensorMap.save()``
-into a file with the ``.npz`` extension.
+into a file with the ``.mts`` extension.
 
 The metatensor reader will verify that the target data in the input files corresponds to
 the metadata in the provided ``TensorMap`` objects. In case of a mismatch, errors will
@@ -143,7 +140,9 @@ be raised.
 In particular:
 
 - if the target is per atom, the samples should have the [``system``, ``atom``] names,
-  otherwise the [``system``] name.
+  otherwise the [``system``] name. In order to produce correct results, per-atom targets
+  should be prepared in the same order as the atoms in the system. This means that you
+  should use e.g. ``metatensor.torch.sort`` to sort the atoms in your target.
 - if the target is a ``scalar``, only one ``TensorBlock`` should be present, the keys
   of the ``TensorMap`` should be a ``Labels.single()`` object, and there should be no
   components.

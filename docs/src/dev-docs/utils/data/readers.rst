@@ -15,7 +15,7 @@ Parsers for obtaining *system* and *target* information from files. Currently,
     - ``.xyz``, ``.extxyz``
   * - ``metatensor``
     - system, energy, forces, stress, virials
-    - ``.npz``
+    - ``.mts``
 
 
 If the ``reader`` parameter is not set, the library is determined from the file
@@ -44,6 +44,7 @@ ASE
 
 This section describes the parsers for the ASE library.
 
+.. autofunction:: metatrain.utils.data.readers.ase.read
 .. autofunction:: metatrain.utils.data.readers.ase.read_systems
 .. autofunction:: metatrain.utils.data.readers.ase.read_energy
 .. autofunction:: metatrain.utils.data.readers.ase.read_generic

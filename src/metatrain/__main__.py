@@ -2,7 +2,6 @@
 
 import argparse
 import logging
-import os
 import sys
 import traceback
 from datetime import datetime
@@ -17,22 +16,11 @@ from .cli.export import (
 )
 from .cli.train import _add_train_model_parser, _prepare_train_model_args, train_model
 from .utils.distributed.logging import is_main_process
-from .utils.logging import get_cli_input, setup_logging
-
-
-logger = logging.getLogger(__name__)
-
-
-def _datetime_output_path(now: datetime) -> Path:
-    """Get a date and time based output path."""
-    return Path(
-        "outputs",
-        now.strftime("%Y-%m-%d"),
-        now.strftime("%H-%M-%S"),
-    )
+from .utils.logging import ROOT_LOGGER, setup_logging
 
 
 def main():
+    """The main entry point for the metatrain command line interface."""
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawTextHelpFormatter,
@@ -81,34 +69,23 @@ def main():
 
     if callable == "train_model":
         # define and create `checkpoint_dir` based on current directory, date and time
-        checkpoint_dir = _datetime_output_path(now=datetime.now())
+        checkpoint_dir = Path(datetime.now().strftime("outputs/%Y-%m-%d/%H-%M-%S"))
         if is_main_process():
-            try:
-                os.makedirs(checkpoint_dir)
-            except FileExistsError:
-                # directory already exists from a different run, add a suffix
-                # (.1, .2, ...) to the directory name
-                initial_checkpoint_dir = checkpoint_dir
-                i = 1
-                while True:
-                    try:
-                        checkpoint_dir = f"{initial_checkpoint_dir}.{i}"
-                        os.makedirs(checkpoint_dir)
-                        break
-                    except FileExistsError:
-                        i += 1
-                checkpoint_dir = Path(checkpoint_dir)
+            i = 0
+            while True:
+                try:
+                    checkpoint_dir.mkdir(parents=True, exist_ok=False)
+                    break  # success
+                except FileExistsError:
+                    i += 1
+                    checkpoint_dir = checkpoint_dir.with_suffix(f".{i}")
+
         args.checkpoint_dir = checkpoint_dir
 
         log_file = checkpoint_dir / "train.log"
         error_file = checkpoint_dir / error_file
 
-    with setup_logging(logger, log_file=log_file, level=level):
-        logging.info(f"Package directory: {PACKAGE_ROOT}")
-        logging.info(f"Working directory: {Path('.').absolute()}")
-        logging.info(f"Metatrain version: {__version__}")
-        logging.info(f"Executed command: {get_cli_input()}")
-
+    with setup_logging(ROOT_LOGGER, log_file=log_file, level=level):
         try:
             if callable == "eval_model":
                 _prepare_eval_model_args(args)
@@ -124,7 +101,7 @@ def main():
         except Exception as err:
             logging.error(
                 "If the error message below is unclear, please help us improve it by "
-                "opening an issue at https://github.com/lab-cosmo/metatrain/issues. "
+                "opening an issue at https://github.com/metatensor/metatrain/issues. "
                 "When opening the issue, please include the full traceback log from "
                 f"{str(error_file.absolute().resolve())!r}. Thank you!\n\n{err}"
             )

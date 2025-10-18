@@ -15,40 +15,40 @@ class CombinedDataLoader:
     :param shuffle: whether to shuffle the combined dataloader (this does not
         act on the individual batches, but it shuffles the order in which
         they are returned)
-
-    :return: the combined dataloader
     """
 
     def __init__(self, dataloaders: List[torch.utils.data.DataLoader], shuffle: bool):
         self.dataloaders = dataloaders
         self.shuffle = shuffle
 
-        # Create the indices:
-        self.indices = list(range(len(self)))
-
-        # Shuffle the indices if requested
-        if self.shuffle:
-            np.random.shuffle(self.indices)
+        # Create the indices. These contain which dataloader each batch comes from.
+        # These will be shuffled later.
+        self.indices = []
+        for i, dl in enumerate(dataloaders):
+            self.indices.extend([i] * len(dl))
 
         self.reset()
 
-    def reset(self):
+    def reset(self) -> None:
+        self.dataloader_iterators = [iter(dl) for dl in self.dataloaders]
         self.current_index = 0
-        self.full_list = [batch for dl in self.dataloaders for batch in dl]
+        # Shuffle the indices, if requested, for every new epoch
+        if self.shuffle:
+            np.random.shuffle(self.indices)
 
-    def __iter__(self):
+    def __iter__(self) -> "CombinedDataLoader":
         return self
 
-    def __next__(self):
+    def __next__(self) -> torch.utils.data.DataLoader:
         if self.current_index >= len(self.indices):
             self.reset()  # Reset the index for the next iteration
             raise StopIteration
 
         idx = self.indices[self.current_index]
         self.current_index += 1
-        return self.full_list[idx]
+        return next(self.dataloader_iterators[idx])
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Total number of batches in all dataloaders.
 
         This returns the total number of batches in all dataloaders
