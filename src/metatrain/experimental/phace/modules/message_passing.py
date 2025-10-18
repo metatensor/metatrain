@@ -153,7 +153,7 @@ class EquivariantMessagePasser(torch.nn.Module):
 
         self.mp_scaling = mp_scaling
         self.padded_l_list = tensor_product.padded_l_list
-        self.U_dict_parity = tensor_product.U_dict_parity
+        self.U_dict = tensor_product.U_dict
 
         self.linear = Linear(self.k_max_l)
 
@@ -166,14 +166,14 @@ class EquivariantMessagePasser(torch.nn.Module):
         features: List[torch.Tensor],
     ) -> List[torch.Tensor]:
         device = features[0].device
-        if self.U_dict_parity["0_1"].device != device:
-            self.U_dict_parity = {
-                key: U.to(device) for key, U in self.U_dict_parity.items()
+        if self.U_dict[0].device != device:
+            self.U_dict = {
+                key: U.to(device) for key, U in self.U_dict.items()
             }
         dtype = features[0].dtype
-        if self.U_dict_parity["0_1"].dtype != dtype:
-            self.U_dict_parity = {
-                key: U.to(dtype) for key, U in self.U_dict_parity.items()
+        if self.U_dict[0].dtype != dtype:
+            self.U_dict = {
+                key: U.to(dtype) for key, U in self.U_dict.items()
             }
 
         radial_basis = self.radial_basis_calculator(r.values.squeeze(-1), r.samples)
@@ -193,15 +193,12 @@ class EquivariantMessagePasser(torch.nn.Module):
                 ]
             ] + split_vector_expansion
 
-        uncoupled_vector_expansion: List[Tuple[torch.Tensor, torch.Tensor]] = []
+        uncoupled_vector_expansion = []
         for l in range(self.l_max + 1):
             uncoupled_vector_expansion.append(
                 uncouple_features(
                     split_vector_expansion[l],
-                    (
-                        self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"],
-                        self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"],
-                    ),
+                    self.U_dict[self.padded_l_list[l]],
                     self.padded_l_list[l],
                 )
             )
@@ -214,55 +211,40 @@ class EquivariantMessagePasser(torch.nn.Module):
                 [features[lp][:, :, lower_bound:upper_bound] for lp in range(l + 1)]
             ] + split_features
 
-        uncoupled_features: List[Tuple[torch.Tensor, torch.Tensor]] = []
+        uncoupled_features = []
         for l in range(self.l_max + 1):
             uncoupled_features.append(
                 uncouple_features(
                     split_features[l],
-                    (
-                        self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"],
-                        self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"],
-                    ),
+                    self.U_dict[self.padded_l_list[l]],
                     self.padded_l_list[l],
                 )
             )
 
         n_atoms = features[0].shape[0]
 
-        indexed_features: List[Tuple[torch.Tensor, torch.Tensor]] = []
-        for feature_even, feature_odd in uncoupled_features:
-            indexed_features.append((feature_even[neighbors], feature_odd[neighbors]))
+        indexed_features = []
+        for feature in uncoupled_features:
+            indexed_features.append(feature[neighbors])
 
         # TODO: maybe it would be a good idea to break these up to limit memory usage
         combined_features = combine_uncoupled_features(
             uncoupled_vector_expansion, indexed_features
         )
 
-        combined_features_pooled: List[Tuple[torch.Tensor, torch.Tensor]] = []
-        for cfe, cfo in combined_features:
+        combined_features_pooled = []
+        for f in combined_features:
             combined_features_pooled.append(
-                (
                     torch.zeros(
-                        (n_atoms,) + cfe.shape[1:],
-                        device=cfe.device,
-                        dtype=cfe.dtype,
+                        (n_atoms,) + f.shape[1:],
+                        device=f.device,
+                        dtype=f.dtype,
                     ),
-                    torch.zeros(
-                        (n_atoms,) + cfo.shape[1:],
-                        device=cfo.device,
-                        dtype=cfo.dtype,
-                    ),
-                )
             )
-            combined_features_pooled[-1][0].index_add_(
+            combined_features_pooled[-1].index_add_(
                 dim=0,
                 index=centers,
-                source=cfe,
-            )
-            combined_features_pooled[-1][1].index_add_(
-                dim=0,
-                index=centers,
-                source=cfo,
+                source=f,
             )
 
         coupled_features: List[List[torch.Tensor]] = []
@@ -270,12 +252,9 @@ class EquivariantMessagePasser(torch.nn.Module):
             coupled_features.append(
                 couple_features(
                     combined_features_pooled[l],
-                    (
-                        self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"],
-                        self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"],
-                    ),
+                    self.U_dict[self.padded_l_list[l]],
                     self.padded_l_list[l],
-                )[0]
+                )
             )
 
         concatenated_coupled_features = []

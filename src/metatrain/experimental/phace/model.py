@@ -50,7 +50,7 @@ class PhACE(ModelInterface):
 
     component_labels: Dict[str, List[List[Labels]]]
     U_dict: Dict[int, torch.Tensor]
-    U_dict_parity: Dict[str, torch.Tensor]
+    # U_dict_parity: Dict[str, torch.Tensor]
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)

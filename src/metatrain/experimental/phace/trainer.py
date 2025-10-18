@@ -346,6 +346,10 @@ class Trainer(TrainerInterface):
 
             train_loss = 0.0
 
+            # from torch.profiler import profile
+
+            # counter = 0
+            # with profile() as prof:   
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
@@ -395,6 +399,11 @@ class Trainer(TrainerInterface):
                     train_mae_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )
+            #     counter += 1
+            #     if counter == 10:
+            #         break
+            # prof.export_chrome_trace("trace.json")
+            # exit()
 
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
