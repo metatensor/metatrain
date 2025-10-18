@@ -48,6 +48,7 @@ def test_eval_cli(monkeypatch, tmp_path):
 
     output = subprocess.check_output(command, stderr=subprocess.STDOUT)
 
+    assert "100%|██████████" in output.decode()
     assert b"energy RMSE" in output
 
     assert Path("output.xyz").is_file()
@@ -121,7 +122,7 @@ def test_eval_export(monkeypatch, tmp_path, options):
     dataset_info = DatasetInfo(
         length_unit="angstrom",
         atomic_types={1, 6, 7, 8},
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
 

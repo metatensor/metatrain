@@ -1,5 +1,5 @@
 import warnings
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import metatensor.torch as mts
 import torch
@@ -39,8 +39,10 @@ def evaluate_model(
     :param targets: The names of the targets to evaluate (keys), along with their
         associated gradients (values).
     :param is_training: Whether the model is being computed during training.
+    :param check_consistency: Whether to check the consistency of the targets and the
+        model when evaluating the model.
 
-    :returns: The predictions of the model for the requested targets.
+    :return: The predictions of the model for the requested targets.
     """
 
     # ignore warnings about gradients
@@ -146,9 +148,14 @@ def evaluate_model(
     return model_outputs
 
 
-def _position_gradients_to_block(gradients_list):
-    """Convert a list of position gradients to a `TensorBlock`
-    which can act as a gradient block to an energy block."""
+def _position_gradients_to_block(gradients_list: List[torch.Tensor]) -> TensorBlock:
+    """
+    Convert a list of position gradients to a `TensorBlock`
+    which can act as a gradient block to an energy block.
+
+    :param gradients_list: List of position gradient tensors.
+    :return: A TensorBlock with the position gradients.
+    """
 
     # `gradients` consists of a list of tensors where the second dimension is 3
     gradients = torch.concatenate(gradients_list, dim=0).unsqueeze(-1)
@@ -170,6 +177,7 @@ def _position_gradients_to_block(gradients_list):
             ],
             dim=1,
         ),
+        assume_unique=True,
     )
 
     components = [
@@ -187,15 +195,22 @@ def _position_gradients_to_block(gradients_list):
     )
 
 
-def _strain_gradients_to_block(gradients_list):
-    """Convert a list of strain gradients to a `TensorBlock`
-    which can act as a gradient block to an energy block."""
+def _strain_gradients_to_block(gradients_list: List[torch.Tensor]) -> TensorBlock:
+    """
+    Convert a list of strain gradients to a `TensorBlock`
+    which can act as a gradient block to an energy block.
+
+    :param gradients_list: List of strain gradient tensors.
+    :return: A TensorBlock with the strain gradients.
+    """
 
     gradients = torch.stack(gradients_list, dim=0).unsqueeze(-1)
     # unsqueeze for the property dimension
 
     samples = Labels(
-        names=["sample"], values=torch.arange(len(gradients_list)).unsqueeze(-1)
+        names=["sample"],
+        values=torch.arange(len(gradients_list)).unsqueeze(-1),
+        assume_unique=True,
     )
 
     components = [
@@ -219,7 +234,7 @@ def _strain_gradients_to_block(gradients_list):
 
 def _get_supported_outputs(
     model: Union[torch.nn.Module, torch.jit.RecursiveScriptModule],
-):
+) -> Dict[str, ModelOutput]:
     if is_atomistic_model(model):
         return model.capabilities().outputs
     else:
@@ -263,10 +278,19 @@ def _get_model_outputs(
 @torch_jit_script_unless_coverage
 def _prepare_system(
     system: System, positions_grad: bool, strain_grad: bool, check_consistency: bool
-):
+) -> Tuple[System, Optional[torch.Tensor]]:
     """
-    Prepares a system for gradient calculation.
+    Prepares a system for gradient calculation, if necessary.
+
+    :param system: The input system.
+    :param positions_grad: Whether to require gradients with respect to positions.
+    :param strain_grad: Whether to require gradients with respect to strain.
+    :param check_consistency: Whether to check the consistency of the system.
+    :return: A tuple containing the new system and the strain tensor (if applicable).
     """
+    if (not positions_grad) and (not strain_grad):
+        return system, None
+
     if strain_grad:
         strain = torch.eye(
             3,
@@ -301,5 +325,8 @@ def _prepare_system(
         neighbors = mts.detach_block(system.get_neighbor_list(options))
         register_autograd_neighbors(system, neighbors)
         new_system.add_neighbor_list(options, neighbors)
+
+    for name in system.known_data():
+        new_system.add_data(name, system.get_data(name))
 
     return new_system, strain

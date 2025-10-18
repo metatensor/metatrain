@@ -27,18 +27,87 @@ Unreleased
 Added
 #####
 
-- Additional logs to the checkpoints, model and the output dirs at the end of training
-- When downloading checkpoints and models from Hugging Face, the files will be cached
-  locally and re-used.
-- ``extra_data`` is now a valid section in the ``options.yaml`` file, allowing users to
-  add custom data to the training set. The data is contained in the dataloader and can
-  be used in custom loss functions or models.
-- ``mtt eval`` can be used to evaluate models on a ``DiskDataset``.
+- A new dataset format, ``MemmapDataset``, allows storing data on disk in a
+  memory-mapped format, improving performance compared to ``DiskDataset`` on some
+  filesystems.
+- FlashMD was added as a new architecture allowing long-stride molecular dynamics
+  simulations. Its implementation is based on PET.
+
+Changed
+#######
+- ``PET`` model received a major update, including new default hyperparameters, a new
+  transformer architecture, and a new featurizer. Please refer to the updated
+  documentation for more details.
+- The SOAP-BPNN and PET trainers now uses a cosine annealing learning rate scheduler
+  with warmup.
+- ``NanoPET`` has been deprecated in favor of the stable ``PET`` architecture. The
+  ``deprecated.nanopet`` architecture is still available for loading old checkpoints,
+  but it will not receive any updates or bug fixes.
+- The ``NanoPET`` and ``GAP`` architectures now use the new composition model, and the
+  old composition model has been removed.
+- The ``LLPR`` module is now a stable architecture, instead of a utility module. It can
+  be trained from the command line in the same way as other architectures.
+- We now require Python >= 3.10
+- The ``Scaler`` model in metatrain now calculates per-block and per-property scales.
+  For atomic targets, it calculates per-element scales.
+
+Version 2025.10 - 2025-09-09
+----------------------------
 
 Fixed
 #####
 
-- Log is shown when training with ``restart="auto"``
+- Fixed a bug with the composition model during transfer-learning
+
+Changed
+#######
+
+- Refactored the ``loss.py`` module to provide an easier to extend interface for custom
+  loss functions.
+- Updated the trainer checkpoints to account for changes in the loss-related hypers.
+
+Version 2025.9.1 - 2025-08-21
+-----------------------------
+
+Fixed
+#####
+
+- Fixed incompatibilities with PET-MAD when updating checkpoints and exporting
+
+
+Version 2025.9 - 2025-08-18
+---------------------------
+
+Added
+#####
+
+- Use the best model instead of the latest model for evaluation at the end of training.
+- Log the best epoch when loading checkpoints.
+- Allow changing the scheduler factor in PET.
+- Introduce checkpoint versioning and updating.
+- Added CI tests on GPU.
+- Log the number of model parameters before training starts.
+- Add additional logs to the checkpoints, model, and output directories at the end of
+  training.
+- Cache files locally and re-use them when downloading checkpoints and models from
+  Hugging Face.
+- ``extra_data`` is now a valid section in the ``options.yaml`` file, allowing users to
+  add custom data to the training set. The data is included in the dataloader and can be
+  used in custom loss functions or models.
+- ``mtt eval`` can now evaluate models on a ``DiskDataset``.
+
+Changed
+#######
+
+- Updated to a new general composition model.
+- Updated to a new implementation of LLPR.
+
+Fixed
+#####
+
+- Fixed ``device`` and ``dtype`` not being set during LoRA fine-tuning in PET.
+- Log messages are now shown when training with ``restart="auto"``.
+- Fixed incorrect sub-section naming in the Wandb logger.
 
 Version 2025.8 - 2025-06-11
 ---------------------------

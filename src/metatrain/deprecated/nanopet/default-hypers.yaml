@@ -1,0 +1,36 @@
+architecture:
+  name: deprecated.nanopet
+  model:
+    cutoff: 5.0
+    cutoff_width: 0.5
+    d_pet: 128
+    num_heads: 4
+    num_attention_layers: 2
+    num_gnn_layers: 2
+    heads: {}
+    zbl: false
+    long_range:
+      enable: false
+      use_ewald: false
+      smearing: 1.4
+      kspace_resolution: 1.33
+      interpolation_nodes: 5
+  training:
+    distributed: false
+    distributed_port: 39591
+    batch_size: 16
+    num_epochs: 10000
+    learning_rate: 3e-4
+    scheduler_patience: 100
+    scheduler_factor: 0.8
+    log_interval: 10
+    checkpoint_interval: 100
+    scale_targets: true
+    fixed_composition_weights: {}
+    fixed_scaling_weights: {}
+    per_structure_targets: []
+    num_workers: null
+    log_mae: false
+    log_separate_blocks: false
+    best_model_metric: rmse_prod
+    loss: mse

@@ -1,5 +1,5 @@
-Advanced concepts
-=================
+Concepts and Design
+===================
 
 This section covers advanced concepts of the ``metatrain`` library,
 such as output naming, auxiliary outputs, and wrapper models.
@@ -9,9 +9,5 @@ such as output naming, auxiliary outputs, and wrapper models.
    :maxdepth: 1
 
    output-naming
+   loss-functions
    auxiliary-outputs
-   multi-gpu
-   auto-restarting
-   fine-tuning
-   fitting-generic-targets
-   transfer-learning

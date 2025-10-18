@@ -90,6 +90,7 @@ def test_load_trainer_checkpoint_wrong_version(monkeypatch, tmp_path):
         r"checkpoint is using version 5000000, while the current version is \d+; "
         "and trying to upgrade the checkpoint failed."
     )
+
     with pytest.raises(RuntimeError, match=message):
         checkpoint = torch.load(file, weights_only=False, map_location="cpu")
         trainer_from_checkpoint(checkpoint, context="restart", hypers={})

@@ -15,6 +15,7 @@ from metatrain.utils.data.readers import (
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.omegaconf import CONF_LOSS
 
 from . import DATASET_PATH, DATASET_WITH_FORCES_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -26,7 +27,9 @@ def test_regression_init():
     torch.manual_seed(0)
 
     targets = {}
-    targets["mtt::U0"] = get_energy_target_info({"quantity": "energy", "unit": "eV"})
+    targets["mtt::U0"] = get_energy_target_info(
+        "mtt::U0", {"quantity": "energy", "unit": "eV"}
+    )
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
@@ -46,11 +49,11 @@ def test_regression_init():
 
     expected_output = torch.tensor(
         [
-            [3.015289306641],
-            [1.845376491547],
-            [0.776397109032],
-            [1.858697414398],
-            [1.014655113220],
+            [1.146098375320],
+            [0.171331465244],
+            [0.539504408836],
+            [0.861489117146],
+            [0.177449733019],
         ]
     )
 
@@ -96,6 +99,11 @@ def test_regression_energies_forces_train(device):
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["scheduler_patience"] = 1
     hypers["training"]["fixed_composition_weights"] = {}
+    loss_conf = {"energy": CONF_LOSS.copy()}
+    loss_conf["energy"]["gradients"] = {"positions": CONF_LOSS.copy()}
+    loss_conf = OmegaConf.create(loss_conf)
+    OmegaConf.resolve(loss_conf)
+    hypers["training"]["loss"] = loss_conf
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[6], targets=target_info_dict
@@ -122,21 +130,21 @@ def test_regression_energies_forces_train(device):
 
     expected_output = torch.tensor(
         [
-            [20.386034011841],
-            [20.353490829468],
-            [20.303865432739],
-            [20.413286209106],
-            [20.318788528442],
+            [25.199459075928],
+            [25.222875595093],
+            [25.237026214600],
+            [25.187496185303],
+            [25.231588363647],
         ],
         device=device,
     )
 
     expected_gradients_output = torch.tensor(
-        [0.208536088467, -0.117365449667, -0.278660595417], device=device
+        [0.268817871809, -0.137333616614, -0.344198584557], device=device
     )
 
-    # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
+    # # if you need to change the hardcoded values:
+    torch.set_printoptions(precision=12)
     # print(output["energy"].block().values)
     # print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
 

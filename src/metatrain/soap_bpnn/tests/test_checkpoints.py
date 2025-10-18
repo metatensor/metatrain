@@ -3,6 +3,7 @@ import logging
 
 import pytest
 import torch
+from omegaconf import OmegaConf
 
 from metatrain.soap_bpnn import SoapBpnn, Trainer
 from metatrain.utils.data import (
@@ -11,6 +12,7 @@ from metatrain.utils.data import (
     get_dataset,
 )
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.omegaconf import CONF_LOSS
 from metatrain.utils.testing.checkpoints import (
     checkpoint_did_not_change,
     make_checkpoint_load_tests,
@@ -64,6 +66,10 @@ def model_trainer():
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 1
+    loss_hypers = OmegaConf.create({"energy": CONF_LOSS.copy()})
+    loss_hypers = OmegaConf.to_container(loss_hypers, resolve=True)
+    hypers["training"]["loss"] = loss_hypers
+
     trainer = Trainer(hypers["training"])
 
     trainer.train(
@@ -80,7 +86,20 @@ def model_trainer():
 
 test_checkpoint_did_not_change = checkpoint_did_not_change
 
-test_loading_old_checkpoints = make_checkpoint_load_tests(DEFAULT_HYPERS)
+test_loading_old_checkpoints = make_checkpoint_load_tests(
+    DEFAULT_HYPERS,
+    incompatible_trainer_checkpoints=[
+        "checkpoints/model-v1_trainer-v1.ckpt.gz",
+        "checkpoints/model-v2_trainer-v1.ckpt.gz",
+        "checkpoints/model-v2_trainer-v2.ckpt.gz",
+        "checkpoints/model-v3_trainer-v2.ckpt.gz",
+        "checkpoints/model-v3_trainer-v3.ckpt.gz",
+        "checkpoints/model-v3_trainer-v4.ckpt.gz",
+        "checkpoints/model-v4_trainer-v3.ckpt.gz",
+        "checkpoints/model-v4_trainer-v4.ckpt.gz",
+        "checkpoints/model-v4_trainer-v5.ckpt.gz",
+    ],
+)
 
 
 @pytest.mark.parametrize("context", ["finetune", "restart", "export"])
@@ -92,7 +111,7 @@ def test_get_checkpoint(context, caplog):
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
     checkpoint = model.get_checkpoint()

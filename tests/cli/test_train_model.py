@@ -1,3 +1,4 @@
+import copy
 import glob
 import logging
 import os
@@ -8,19 +9,21 @@ import time
 from pathlib import Path
 
 import ase.io
+import numpy as np
 import pytest
 import torch
-from jsonschema.exceptions import ValidationError
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import NeighborListOptions, systems_to_torch
 from omegaconf import OmegaConf
 
+import metatrain.soap_bpnn
 from metatrain import RANDOM_SEED
 from metatrain.cli.train import _process_restart_from, train_model
 from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.testing._utils import WANDB_AVAILABLE
 
 from . import (
     DATASET_PATH_CARBON,
@@ -229,9 +232,9 @@ def test_train_unknown_arch_options(monkeypatch, tmp_path):
 
     match = (
         r"Unrecognized options \('num_epoch' was unexpected\). "
-        r"Do you mean 'num_epochs'?"
+        r"Did you mean 'num_epochs'?"
     )
-    with pytest.raises(ValidationError, match=match):
+    with pytest.raises(ValueError, match=match):
         train_model(options)
 
 
@@ -310,6 +313,16 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     train_model(options)
 
 
+def test_train_with_zbl(monkeypatch, tmp_path, options):
+    """Test that training works with a ZBL baseline."""
+    monkeypatch.chdir(tmp_path)
+
+    systems_qm9 = ase.io.read(DATASET_PATH_QM9, ":")
+    ase.io.write("qm9_reduced_100.xyz", systems_qm9[:50])
+    options["architecture"]["model"]["zbl"] = True
+    train_model(options)
+
+
 def test_empty_training_set(monkeypatch, tmp_path, options):
     """Test that an error is raised if no training set is provided."""
     monkeypatch.chdir(tmp_path)
@@ -340,7 +353,7 @@ def test_wrong_test_split_size(split, monkeypatch, tmp_path, options):
     if split < 0:
         match = rf"{split} is less than the minimum of 0"
 
-    with pytest.raises(ValidationError, match=match):
+    with pytest.raises(ValueError, match=match):
         train_model(options)
 
 
@@ -359,7 +372,7 @@ def test_wrong_validation_split_size(split, monkeypatch, tmp_path, options):
     if split <= 0:
         match = rf"{split} is less than or equal to the minimum of 0"
 
-    with pytest.raises(ValidationError, match=match):
+    with pytest.raises(ValueError, match=match):
         train_model(options)
 
 
@@ -605,7 +618,9 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
 def test_finetune_no_read_from(options_pet, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    options_pet["architecture"]["training"]["finetune"] = OmegaConf.create({})
+    options_pet["architecture"]["training"]["finetune"] = OmegaConf.create(
+        {"method": "full"}
+    )
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     match = (
@@ -614,6 +629,61 @@ def test_finetune_no_read_from(options_pet, monkeypatch, tmp_path):
     )
     with pytest.raises(ValueError, match=match):
         train_model(options_pet)
+
+
+def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn = copy.deepcopy(options_pet)
+    options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
+        "method": "heads",
+        "read_from": str(MODEL_PATH_PET),
+        "config": {
+            "head_modules": ["node_heads", "edge_heads"],
+            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+        },
+    }
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
+        options_pet_transfer_learn["training_set"]["targets"].pop("energy")
+    )
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet_transfer_learn)
+
+    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+
+
+def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn = copy.deepcopy(options_pet)
+    options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
+        "method": "heads",
+        "read_from": str(MODEL_PATH_PET),
+        "config": {
+            "head_modules": ["node_heads", "edge_heads"],
+            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+        },
+    }
+    options_pet_transfer_learn["training_set"]["systems"]["read_from"] = (
+        "ethanol_reduced_100.xyz"
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
+        options_pet_transfer_learn["training_set"]["targets"].pop("energy")
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"]["key"] = (
+        "energy"
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"]["forces"] = {
+        "key": "forces",
+    }
+    shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet_transfer_learn)
+
+    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
 
 
 @pytest.mark.parametrize("move_folder", [True, False])
@@ -684,6 +754,10 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
+    # make sure that num_workers=0 for reproducibility on CI
+    options = copy.deepcopy(options)
+    options["architecture"]["training"]["num_workers"] = 0
+
     if seed is not None:
         options["seed"] = seed
 
@@ -718,7 +792,7 @@ def test_base_validation(options, monkeypatch, tmp_path):
     options["base_precision"] = 67
 
     match = r"67 is not one of \[16, 32, 64\]"
-    with pytest.raises(ValidationError, match=match):
+    with pytest.raises(ValueError, match=match):
         train_model(options)
 
 
@@ -742,6 +816,24 @@ def test_architecture_error(options, monkeypatch, tmp_path):
     )
 
     with pytest.raises(ArchitectureError, match="originates from an architecture"):
+        train_model(options)
+
+
+def test_oom_error(options, monkeypatch, tmp_path):
+    """Test an error raise if there is problem wth the architecture."""
+
+    def oom_error(*args, **kwargs):
+        raise torch.cuda.OutOfMemoryError()
+
+    monkeypatch.setattr(metatrain.soap_bpnn.Trainer, "train", oom_error)
+
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    match = (
+        "The error above likely means that the model ran out of memory during training."
+    )
+    with pytest.raises(ArchitectureError, match=match):
         train_model(options)
 
 
@@ -828,6 +920,21 @@ def test_train_generic_target(monkeypatch, tmp_path):
     options["training_set"]["targets"]["energy"]["type"] = {
         "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
     }
+    options["training_set"]["targets"]["energy"]["per_atom"] = True
+    options["training_set"]["targets"]["energy"]["key"] = "forces"
+
+    train_model(options)
+
+
+def test_train_direct_forces(monkeypatch, tmp_path):
+    """Test training on a Cartesian vector target"""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
+
+    # run training with original options
+    options = OmegaConf.load(OPTIONS_PET_PATH)
+    options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
+    options["training_set"]["targets"]["energy"]["type"] = {"cartesian": {"rank": 1}}
     options["training_set"]["targets"]["energy"]["per_atom"] = True
     options["training_set"]["targets"]["energy"]["key"] = "forces"
 
@@ -940,7 +1047,7 @@ def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     for subset_name, xyz_idxs in zip(
-        ["training", "test"], [range(0, 80), range(80, 100)]
+        ["training", "test"], [range(0, 80), range(80, 100)], strict=True
     ):
         disk_dataset_writer = DiskDatasetWriter(f"qm9_reduced_100_{subset_name}.zip")
         for subset_i, xyz_i in enumerate(xyz_idxs):
@@ -982,6 +1089,48 @@ def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
     train_model(options)
 
 
+def test_train_memmap_dataset(monkeypatch, tmp_path, options_pet):
+    """Test that training via the training cli runs without an error raise
+    when learning from a `MemmapDataset`."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_CARBON, "carbon.xyz")
+    structures = read("carbon.xyz", index=":")
+    _write_dataset_to_memmap(structures, "carbon/")
+
+    options_pet["training_set"]["systems"]["read_from"] = "carbon/"
+    options_pet["training_set"]["targets"]["energy"]["key"] = "e"
+    options_pet["training_set"]["targets"]["energy"]["forces"] = OmegaConf.create(
+        {"key": "f"}
+    )
+    options_pet["training_set"]["targets"]["energy"]["stress"] = OmegaConf.create(
+        {"key": "s"}
+    )
+    options_pet["training_set"]["targets"]["non_conservative_forces"] = (
+        OmegaConf.create(
+            {
+                "key": "f",
+                "quantity": "force",
+                "unit": "eV/A",
+                "per_atom": True,
+                "type": {"cartesian": {"rank": 1}},
+            }
+        )
+    )
+    options_pet["training_set"]["targets"]["non_conservative_stress"] = (
+        OmegaConf.create(
+            {
+                "key": "s",
+                "quantity": "pressure",
+                "unit": "eV/A^3",
+                "type": {"cartesian": {"rank": 2}},
+            }
+        )
+    )
+
+    train_model(options_pet)
+
+
+@pytest.mark.skipif(not WANDB_AVAILABLE.present, reason=WANDB_AVAILABLE.message)
 def test_train_wandb_logger(monkeypatch, tmp_path):
     """Test that training via the training cli runs with an attached wandb logger."""
     monkeypatch.chdir(tmp_path)
@@ -1001,3 +1150,46 @@ def test_train_wandb_logger(monkeypatch, tmp_path):
 
     assert "'base_precision': 64" in file_log
     assert "'seed': 42" in file_log
+
+
+def _write_dataset_to_memmap(structures, filename):
+    """Helper function to write a list of `ase.Atoms` objects to a `MemmapDataset`."""
+
+    root = Path("carbon/")
+    root.mkdir()
+
+    ns_path = root / "ns.npy"
+    na_path = root / "na.npy"
+    a_path = root / "a.bin"
+    x_path = root / "x.bin"
+    c_path = root / "c.bin"
+    e_path = root / "e.bin"
+    f_path = root / "f.bin"
+    s_path = root / "s.bin"
+
+    ns = len(structures)
+    na = np.cumsum(np.array([0] + [len(s) for s in structures], dtype=np.int64))
+    np.save(ns_path, ns)
+    np.save(na_path, na)
+
+    a_mm = np.memmap(a_path, dtype="int32", mode="w+", shape=(na[-1],))
+    x_mm = np.memmap(x_path, dtype="float32", mode="w+", shape=(na[-1], 3))
+    c_mm = np.memmap(c_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
+    e_mm = np.memmap(e_path, dtype="float32", mode="w+", shape=(ns, 1))
+    f_mm = np.memmap(f_path, dtype="float32", mode="w+", shape=(na[-1], 3))
+    s_mm = np.memmap(s_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
+
+    for i, s in enumerate(structures):
+        a_mm[na[i] : na[i + 1]] = s.numbers
+        x_mm[na[i] : na[i + 1]] = s.get_positions()
+        c_mm[i] = s.get_cell()[:]
+        e_mm[i] = s.get_potential_energy()
+        f_mm[na[i] : na[i + 1]] = s.arrays["force"]
+        s_mm[i] = -s.info["virial"] / s.get_volume()
+
+    a_mm.flush()
+    x_mm.flush()
+    c_mm.flush()
+    e_mm.flush()
+    f_mm.flush()
+    s_mm.flush()
