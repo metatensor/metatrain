@@ -43,13 +43,17 @@ training run.
 
 .. code-block:: bash
 
-    outputs/2025-10-07/17-08-25/ ├── indices  # the results of dataset-spliting │   ├──
-    test.txt │   ├── training.txt │   └── validation.txt ├── model_0.ckpt  # the
-    intermediate model saved at the 0th training step ├── model.ckpt  # the final model
-    ├── model.pt  # the final model in .pt format, can be directly used by ASE and
-    LAMMPS ├── options_restart.yaml  # an expanded options file ├── train.csv  # a
-    structured output of training criteria, like training losses, energy MAEs, and force
-    RMSEs └── train.log  # a human-friendly output
+    outputs/2025-10-07/17-08-25/
+    ├── indices  # the results of dataset-spliting
+    │   ├── test.txt
+    │   ├── training.txt
+    │   └── validation.txt
+    ├── model_0.ckpt  # the intermediate model saved at the 0th training step
+    ├── model.ckpt  # the final model
+    ├── model.pt  # the final model , usable directly by ASE and LAMMPS
+    ├── options_restart.yaml  # an expanded options file
+    ├── train.csv  # structured log of training metrics (loss, MAE, RMSE,...)
+    └── train.log  # a human-friendly output
 
 The ``train.log`` provides information of the training procedure. For example, by
 checking the following:
