@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List
 
 import torch
 
@@ -30,7 +30,6 @@ class CGIterator(torch.nn.Module):
         self.cg_iterations = torch.nn.ModuleList(cg_iterations)
 
     def forward(self, features: List[torch.Tensor]) -> List[torch.Tensor]:
-
         density = features
         mixed_densities = [mixer(density) for mixer in self.mixers]
 
@@ -62,5 +61,7 @@ class CGIteration(torch.nn.Module):
     ) -> List[torch.Tensor]:
         features_out = self.tensor_product(features_1, features_2)
         features_out = self.linear(features_out)
-        features_out = [f1 + fo for f1, fo in zip(features_1, features_out)]
+        features_out = [
+            f1 + fo for f1, fo in zip(features_1, features_out, strict=False)
+        ]
         return features_out

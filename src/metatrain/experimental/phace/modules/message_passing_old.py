@@ -59,7 +59,6 @@ class InvariantMessagePasser(torch.nn.Module):
         initial_center_embedding: TensorMap,
         samples: Labels,  # TODO: can this go?
     ) -> TensorMap:
-
         # TODO: extract radial basis calculation to a separate module
         # (e.g. vector expansion) and use the splines once
         radial_basis = self.radial_basis_calculator(r.values.squeeze(-1), r.samples)
@@ -145,7 +144,8 @@ class EquivariantMessagePasser(torch.nn.Module):
         self.cgs = cgs
         self.irreps_out: List[Tuple[int, int]] = []
         self.irreps_in_vector_expansion = [
-            (l, 1) for l in range(self.l_max + 1)  # noqa: E741
+            (l, 1)
+            for l in range(self.l_max + 1)  # noqa: E741
         ]
         self.irreps_in_features = irreps_in_features
 

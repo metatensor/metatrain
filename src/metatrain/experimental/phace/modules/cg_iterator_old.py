@@ -60,7 +60,6 @@ class CGIterator(torch.nn.Module):
         self.irreps_out = self.cg_iterations[-1].irreps_out
 
     def forward(self, features: TensorMap) -> TensorMap:
-
         density = features
         mixed_densities = [mixer(density) for mixer in self.mixers]
 

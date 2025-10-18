@@ -11,7 +11,6 @@ from .splines import generate_splines
 
 
 def get_physical_basis_spliner(E_max, r_cut, normalize):
-
     l_max = 50
     n_max = 50
     a = 10.0  # by construction of the files

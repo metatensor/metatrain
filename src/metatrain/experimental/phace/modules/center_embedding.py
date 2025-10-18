@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List
 
 import torch
 from metatensor.torch import TensorBlock, TensorMap

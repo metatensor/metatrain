@@ -8,7 +8,6 @@ from .layers import EquivariantLinear
 
 
 class EquivariantTensorAdd(torch.nn.Module):
-
     def __init__(self, common_irreps: List[Tuple[int, int]], k_max_l):
         super().__init__()
 

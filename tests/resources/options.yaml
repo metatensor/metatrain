@@ -11,7 +11,7 @@ architecture:
   training:
     batch_size: 5
     num_epochs: 1000
-    per_structure_targets: ["energy"]
+    per_structure_targets: [energy]
     log_mae: true
     log_interval: 1
 
@@ -26,4 +26,3 @@ training_set:
 
 test_set: 0.90
 validation_set: 0.05
-

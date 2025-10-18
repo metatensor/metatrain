@@ -1,11 +1,10 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 
 class Linear(torch.nn.Module):
-
     def __init__(self, n_feat_in, n_feat_out):
         super().__init__()
         self.linear_layer = torch.nn.Linear(n_feat_in, n_feat_out, bias=False)
@@ -19,9 +18,7 @@ class Linear(torch.nn.Module):
 class LinearList(torch.nn.Module):
     def __init__(self, k_max_l: List[int]) -> None:
         super().__init__()
-        self.linears = torch.nn.ModuleList(
-            [Linear(k_max, k_max) for k_max in k_max_l]
-        )
+        self.linears = torch.nn.ModuleList([Linear(k_max, k_max) for k_max in k_max_l])
 
     def forward(self, features_list: List[torch.Tensor]) -> List[torch.Tensor]:
         new_features_list: List[torch.Tensor] = []
@@ -29,12 +26,11 @@ class LinearList(torch.nn.Module):
             current_features = features_list[i]
             new_features = linear(current_features)
             new_features_list.append(new_features)
-            
+
         return new_features_list
 
 
 class InvariantMLP(torch.nn.Module):
-
     def __init__(self, n_inputs: int, n_layers: int) -> None:
         super().__init__()
         # the last linear layer is applied outside of the MLP
@@ -51,7 +47,6 @@ class InvariantMLP(torch.nn.Module):
         self.mlp = torch.nn.Sequential(*layers)
 
     def forward(self, features: TensorMap) -> TensorMap:
-
         # assume invariant
         block = features.block({"o3_lambda": 0, "o3_sigma": 1})
 
@@ -78,7 +73,6 @@ class InvariantMLP(torch.nn.Module):
 
 
 class EquivariantLinear(torch.nn.Module):
-
     def __init__(self, irreps, k_max_l, double=False) -> None:
         # double can be used to double the input dimension (used in tensor_sum.py)
         super().__init__()
@@ -122,7 +116,6 @@ class EquivariantLinear(torch.nn.Module):
 
 
 class EquivariantLastLayer(torch.nn.Module):
-
     output_components: Dict[str, List[Labels]]
     output_properties: Dict[str, Labels]
 
@@ -141,17 +134,17 @@ class EquivariantLastLayer(torch.nn.Module):
                 f"{L}_{S}": torch.nn.Sequential(
                     Linear(k_max_l[L], len(properties)),
                 )
-                for (L, S), properties in zip(irreps, output_properties)
+                for (L, S), properties in zip(irreps, output_properties, strict=False)
             }
         )
 
         self.output_components = {
             f"{L}_{S}": components
-            for (L, S), components in zip(irreps, output_components)
+            for (L, S), components in zip(irreps, output_components, strict=False)
         }
         self.output_properties = {
             f"{L}_{S}": properties
-            for (L, S), properties in zip(irreps, output_properties)
+            for (L, S), properties in zip(irreps, output_properties, strict=False)
         }
         self.single_label = Labels.single()
         self.keys = Labels(

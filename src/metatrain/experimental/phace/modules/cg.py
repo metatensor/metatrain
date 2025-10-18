@@ -38,7 +38,6 @@ def get_cg_coefficients(l_max):
 
 
 class ClebschGordanReal:
-
     def __init__(self):
         self._cgs = {}
 
@@ -84,7 +83,10 @@ class ClebschGordanReal:
         if len(where_almost_zero[0] != 0):
             print("INFO: Found almost-zero CG!")
         for i0, i1, i2 in zip(
-            where_almost_zero[0], where_almost_zero[1], where_almost_zero[2]
+            where_almost_zero[0],
+            where_almost_zero[1],
+            where_almost_zero[2],
+            strict=False,
         ):
             rcg[i0, i1, i2] = 0.0
 

@@ -5,10 +5,13 @@ import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from .cg import cg_combine_l1l2L
 from .layers import LinearList as Linear
 from .radial_basis import RadialBasis
-from .tensor_product import combine_uncoupled_features, uncouple_features, couple_features
+from .tensor_product import (
+    combine_uncoupled_features,
+    couple_features,
+    uncouple_features,
+)
 from .tensor_sum import EquivariantTensorAdd
 
 
@@ -60,7 +63,6 @@ class InvariantMessagePasser(torch.nn.Module):
         initial_center_embedding: TensorMap,
         samples: Labels,  # TODO: can this go?
     ) -> TensorMap:
-
         # TODO: extract radial basis calculation to a separate module
         # (e.g. vector expansion) and use the splines once
         radial_basis = self.radial_basis_calculator(r.values.squeeze(-1), r.samples)
@@ -163,7 +165,6 @@ class EquivariantMessagePasser(torch.nn.Module):
         neighbors,
         features: List[torch.Tensor],
     ) -> List[torch.Tensor]:
-
         device = features[0].device
         if self.U_dict_parity["0_1"].device != device:
             self.U_dict_parity = {
@@ -197,7 +198,10 @@ class EquivariantMessagePasser(torch.nn.Module):
             uncoupled_vector_expansion.append(
                 uncouple_features(
                     split_vector_expansion[l],
-                    (self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"], self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
+                    (
+                        self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"],
+                        self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"],
+                    ),
                     self.padded_l_list[l],
                 )
             )
@@ -207,10 +211,7 @@ class EquivariantMessagePasser(torch.nn.Module):
             lower_bound = self.k_max_l[l + 1] if l < self.l_max else 0
             upper_bound = self.k_max_l[l]
             split_features = [
-                [
-                    features[lp][:, :, lower_bound:upper_bound]
-                    for lp in range(l + 1)
-                ]
+                [features[lp][:, :, lower_bound:upper_bound] for lp in range(l + 1)]
             ] + split_features
 
         uncoupled_features: List[Tuple[torch.Tensor, torch.Tensor]] = []
@@ -218,7 +219,10 @@ class EquivariantMessagePasser(torch.nn.Module):
             uncoupled_features.append(
                 uncouple_features(
                     split_features[l],
-                    (self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"], self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
+                    (
+                        self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"],
+                        self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"],
+                    ),
                     self.padded_l_list[l],
                 )
             )
@@ -247,7 +251,7 @@ class EquivariantMessagePasser(torch.nn.Module):
                         (n_atoms,) + cfo.shape[1:],
                         device=cfo.device,
                         dtype=cfo.dtype,
-                    )
+                    ),
                 )
             )
             combined_features_pooled[-1][0].index_add_(
@@ -266,7 +270,10 @@ class EquivariantMessagePasser(torch.nn.Module):
             coupled_features.append(
                 couple_features(
                     combined_features_pooled[l],
-                    (self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"], self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
+                    (
+                        self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"],
+                        self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"],
+                    ),
                     self.padded_l_list[l],
                 )[0]
             )
@@ -285,7 +292,5 @@ class EquivariantMessagePasser(torch.nn.Module):
         ]
 
         features_out = self.linear(concatenated_coupled_features)
-        features_out = [
-            f + fo for f, fo in zip(features, features_out)
-        ]
+        features_out = [f + fo for f, fo in zip(features, features_out, strict=False)]
         return features_out

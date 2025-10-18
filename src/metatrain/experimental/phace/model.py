@@ -1,8 +1,7 @@
+import logging
 import warnings
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union, Any, Literal
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from metatrain.utils.metadata import merge_metadata
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -14,16 +13,14 @@ from metatomic.torch import (
     NeighborListOptions,
     System,
 )
-import logging
-
-from .modules.tensor_product import TensorProduct
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.io import check_file_extension
+from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
+
 from .modules.center_embedding import embed_centers, embed_centers_tensor_map
 from .modules.cg import get_cg_coefficients
 from .modules.cg_iterator import CGIterator
@@ -32,19 +29,15 @@ from .modules.layers import EquivariantLastLayer, Identity, InvariantMLP
 from .modules.message_passing import EquivariantMessagePasser, InvariantMessagePasser
 from .modules.precomputations import Precomputer
 from .modules.tensor_product import (
-    couple_features,
-    uncouple_features,
+    TensorProduct,
 )
 from .utils import systems_to_batch
-from metatomic.torch import AtomisticModel
 
 
 warnings.filterwarnings(
     "ignore",
     category=UserWarning,
-    message=(
-        "The TorchScript type system doesn't support " "instance-level annotations"
-    ),
+    message=("The TorchScript type system doesn't support instance-level annotations"),
 )
 
 
@@ -52,9 +45,7 @@ class PhACE(ModelInterface):
     __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
-    __default_metadata__ = ModelMetadata(
-        references={}
-    )
+    __default_metadata__ = ModelMetadata(references={})
 
     component_labels: Dict[str, List[List[Labels]]]
     U_dict: Dict[int, torch.Tensor]
@@ -62,7 +53,7 @@ class PhACE(ModelInterface):
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
-        
+
         self.hypers = hypers
         self.dataset_info = dataset_info
         self.new_outputs = list(dataset_info.targets.keys())
@@ -107,7 +98,8 @@ class PhACE(ModelInterface):
         n_max = self.invariant_message_passer.n_max_l
         self.l_max = len(n_max) - 1
         self.k_max_l = [
-            n_channels * n_max[l] for l in range(self.l_max + 1)  # noqa: E741
+            n_channels * n_max[l]
+            for l in range(self.l_max + 1)  # noqa: E741
         ]
         print(self.k_max_l)
         self.k_max_l_max = [0] * (self.l_max + 1)
@@ -255,7 +247,6 @@ class PhACE(ModelInterface):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-
         # transfer labels, if needed
         device = systems[0].device
         if self.single_label.values.device != device:
@@ -337,14 +328,19 @@ class PhACE(ModelInterface):
             n_atoms,
             initial_element_embedding,
             samples,
-        )           
+        )
 
-        features = [spherical_expansion.block({"o3_lambda": l}).values for l in range(self.l_max + 1)]
+        features = [
+            spherical_expansion.block({"o3_lambda": l}).values
+            for l in range(self.l_max + 1)
+        ]
         features = self.cg_iterator(features)
 
         # message passing
         for message_passer, generalized_cg_iterator in zip(
-            self.equivariant_message_passers, self.generalized_cg_iterators
+            self.equivariant_message_passers,
+            self.generalized_cg_iterators,
+            strict=False,
         ):
             embedded_features = embed_centers(features, center_embeddings)
             mp_features = message_passer(
@@ -457,9 +453,9 @@ class PhACE(ModelInterface):
                                 values=cartesian_values,
                                 samples=tmap_as_spherical.block().samples,
                                 components=self.component_labels[output_name][0],
-                                properties=self.property_labels[output_name][0]
+                                properties=self.property_labels[output_name][0],
                             )
-                        ]
+                        ],
                     )
 
         for output_name in self.last_layers:
@@ -471,7 +467,7 @@ class PhACE(ModelInterface):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(return_dict)
+            return_dict = self.scaler(systems, return_dict)
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
                 for name, output in outputs.items():
@@ -500,7 +496,7 @@ class PhACE(ModelInterface):
         cls,
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
-    ) -> "SoapBpnn":
+    ) -> "PhACE":
         if context == "restart":
             logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
@@ -557,7 +553,6 @@ class PhACE(ModelInterface):
         return AtomisticModel(self.eval(), ModelMetadata(), capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
@@ -600,7 +595,9 @@ class PhACE(ModelInterface):
                 )
                 self.requested_LS_tuples.append((1, 1))
             else:
-                raise NotImplementedError("PhACE only supports Cartesian targets with rank=1.")
+                raise NotImplementedError(
+                    "PhACE only supports Cartesian targets with rank=1."
+                )
         else:  # spherical equivariant
             irreps = []
             for key in target_info.layout.keys:
@@ -652,7 +649,7 @@ class PhACE(ModelInterface):
             "best_model_state_dict": self.state_dict(),
         }
         return checkpoint
-    
+
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         return ValueError()

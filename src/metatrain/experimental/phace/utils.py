@@ -7,7 +7,6 @@ from metatomic.torch import NeighborListOptions, System
 def systems_to_batch(
     systems: List[System], nl_options: NeighborListOptions
 ) -> Dict[str, torch.Tensor]:
-
     device = systems[0].positions.device
     positions = torch.cat([item.positions for item in systems])
     cells = torch.stack([item.cell for item in systems])

@@ -98,7 +98,8 @@ class Precomputer(torch.nn.Module):
     def __init__(self, l_max, use_sphericart):
         super().__init__()
         self.spherical_harmonics_split_list = [
-            (2 * l + 1) for l in range(l_max + 1)  # noqa: E741
+            (2 * l + 1)
+            for l in range(l_max + 1)  # noqa: E741
         ]
         if use_sphericart:
             self.spherical_harmonics = SphericalHarmonicsSphericart(l_max)

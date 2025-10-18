@@ -8,7 +8,6 @@ from .physical_basis import get_physical_basis_spliner
 
 
 class RadialBasis(torch.nn.Module):
-
     def __init__(self, hypers, all_species) -> None:
         super().__init__()
 
@@ -65,7 +64,6 @@ class RadialBasis(torch.nn.Module):
         self.cutoff_width = hypers["cutoff_width"]
 
     def forward(self, r, samples_metadata: Labels):
-
         a_i = samples_metadata.column("species_center")
         a_j = samples_metadata.column("species_neighbor")
         x = r / (

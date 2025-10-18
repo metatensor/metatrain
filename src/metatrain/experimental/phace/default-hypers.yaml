@@ -1,6 +1,5 @@
 architecture:
-  name: experimental.phace 
-  
+  name: experimental.phace
   model:
     max_correlation_order_per_layer: 3
     num_message_passing_layers: 2
@@ -15,18 +14,18 @@ architecture:
     nu_scaling: 0.1
     mp_scaling: 0.1
     overall_scaling: 1.0
-    disable_nu_0: True
-    use_sphericart: False
+    disable_nu_0: true
+    use_sphericart: false
     head_num_layers: 1
     heads: {}
-    zbl: False
-
+    zbl: false
   training:
-    distributed: False
+    distributed: false
     distributed_port: 39591
     batch_size: 8
     num_epochs: 1000
     learning_rate: 0.01
+    warmup_fraction: 0.01
     gradient_clipping: null
     scheduler_patience: 100
     scheduler_factor: 0.7
@@ -34,9 +33,11 @@ architecture:
     checkpoint_interval: 25
     scale_targets: true
     fixed_composition_weights: {}
+    fixed_scaling_weights: {}
+    num_workers: null
     per_structure_targets: []
-    log_separate_blocks: False
-    log_mae: False
+    log_separate_blocks: false
+    log_mae: false
     loss:
       type: mse
       weights: {}
