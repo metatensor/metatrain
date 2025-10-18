@@ -505,7 +505,11 @@ class Trainer(TrainerInterface):
                 self.scheduler_state_dict = lr_scheduler.state_dict()
                 self.epoch = epoch
                 if rank == 0:
-                    # Are the weights synced???
+                    model.load_state_dict(
+                        (
+                            scripted_model.module if is_distributed else scripted_model
+                        ).state_dict()
+                    )
                     self.save_checkpoint(
                         model,
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
