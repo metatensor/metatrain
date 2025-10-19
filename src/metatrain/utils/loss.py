@@ -194,23 +194,7 @@ class BaseTensorMapLoss(LossInterface):
         :return: scalar torch.Tensor loss.
         """
         tensor_map_pred = predictions[self.target]
-        if self.target in targets:
-            tensor_map_targ = targets[self.target]
-        else:
-            # This is here to allow a workaround for limitations in torch's
-            # DistributedDataParallel, which doesn't allow missing gradients for
-            # some model parameters. In this case, model trainers can request all
-            # outputs (e.g. in the `targets` argument of `evaluate_model()`), and
-            # this function will handle missing targets by artificially creating
-            # a detached copy of the predictions as the targets, resulting in zero loss
-            # and gradients of zero.
-            # TODO: the extra predictions generally come from different heads of the
-            # same model and are therefore very cheap. One case where the overhead is
-            # significant is when some targets involve forces and stresses and others
-            # don't. In that case, training of the targets without gradients will
-            # be made less efficient by the need to compute forces/stresses for other
-            # targets.
-            tensor_map_targ = mts.detach(predictions[self.target])
+        tensor_map_targ = targets[self.target]
 
         # Check gradients are present in the target TensorMap
         if self.gradient is not None:
