@@ -355,7 +355,10 @@ class Trainer(TrainerInterface):
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: train_targets[key] for key in targets.keys()},
+                    (
+                        train_targets if is_distributed else
+                        {key: train_targets[key] for key in targets.keys()}
+                    ),
                     is_training=True,
                 )
 
