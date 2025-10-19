@@ -22,6 +22,7 @@ from metatrain.utils.testing.equivariance import (
 from . import DATASET_PATH, DATASET_PATH_PERIODIC, MODEL_HYPERS
 
 
+@pytest.mark.filterwarnings("ignore:__array__ implementation:DeprecationWarning")
 def test_rotational_invariance():
     """Tests that the model is rotationally invariant for a scalar target."""
     torch.set_default_dtype(torch.float64)  # make sure we have enough precision
@@ -29,7 +30,7 @@ def test_rotational_invariance():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     model = torch.jit.script(PhACE(MODEL_HYPERS, dataset_info))
 
@@ -64,6 +65,7 @@ def test_rotational_invariance():
     torch.set_default_dtype(torch.float32)  # change back
 
 
+@pytest.mark.filterwarnings("ignore:__array__ implementation:DeprecationWarning")
 @pytest.mark.parametrize("o3_lambda", [0, 1, 2, 3])
 @pytest.mark.parametrize("o3_sigma", [1])
 def test_equivariance_rotations(o3_lambda, o3_sigma):
@@ -76,6 +78,7 @@ def test_equivariance_rotations(o3_lambda, o3_sigma):
         atomic_types=[1, 6, 7, 8],
         targets={
             "spherical_target": get_generic_target_info(
+                "spherical_target",
                 {
                     "quantity": "",
                     "unit": "",
@@ -127,6 +130,7 @@ def test_equivariance_rotations(o3_lambda, o3_sigma):
     torch.set_default_dtype(torch.float32)  # change back
 
 
+@pytest.mark.filterwarnings("ignore:__array__ implementation:DeprecationWarning")
 @pytest.mark.parametrize("dataset_path", [DATASET_PATH, DATASET_PATH_PERIODIC])
 @pytest.mark.parametrize("o3_lambda", [0, 1, 2, 3])
 @pytest.mark.parametrize("o3_sigma", [1])
@@ -140,6 +144,7 @@ def test_equivariance_inversion(dataset_path, o3_lambda, o3_sigma):
         atomic_types=[1, 6, 7, 8],
         targets={
             "spherical_target": get_generic_target_info(
+                "spherical_target",
                 {
                     "quantity": "",
                     "unit": "",
