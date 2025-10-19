@@ -63,6 +63,8 @@ test distributed:
     - cd /metatrain/tests/distributed
     - mtt train options-distributed.yaml
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" outputs/*/*/train.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
+    - mtt train options-distributed-multitarget.yaml -o model-multitarget.pt
+    - mtt train options-distributed-finetuning.yaml --continue model-multitarget.ckpt
   variables:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
