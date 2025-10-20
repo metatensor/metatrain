@@ -100,7 +100,7 @@ test distributed multitarget:
 test distributed multitarget finetuning:
   stage: test
   needs:
-    - "test distributed multitarget"
+    - job: "test distributed multitarget"
       artifacts: true
   extends: .container-runner-daint-gh200
   image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
