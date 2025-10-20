@@ -1,19 +1,16 @@
 import argparse
 import copy
 import logging
-import math
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
 import torch
-from torch.optim.lr_scheduler import LambdaLR
-from torch.utils.data import DataLoader, DistributedSampler
-
 from mace.tools.scripts_utils import (
-    get_params_options,
-    get_optimizer,
     LRScheduler,
+    get_optimizer,
+    get_params_options,
 )
+from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
@@ -45,6 +42,7 @@ from metatrain.utils.transfer import batch_to
 from . import checkpoints
 from .model import MetaMACE
 
+
 def get_optimizer_and_scheduler(
     trainer_hypers: dict[str, Any],
     model: MetaMACE,
@@ -53,7 +51,7 @@ def get_optimizer_and_scheduler(
     is_distributed: bool = False,
 ) -> tuple[torch.optim.Optimizer, LRScheduler]:
     """Initialize the optimizer and scheduler as implemented in MACE.
-    
+
     It just uses the functions from mace.tools.scripts_utils to create them.
 
     :param trainer_hypers: The trainer hyperparameters as provided in metatrain.yaml
@@ -79,11 +77,13 @@ def get_optimizer_and_scheduler(
     opt_options = get_params_options(opt_args, model.mace_model)
 
     # Add heads, additive models and scaler parameters to the optimizer:
-    opt_options["params"].extend([
-        {"name": "heads", "params": model.heads.parameters()},
-        {"name": "additive_models", "params": model.additive_models.parameters()},
-        {"name": "scaler", "params": model.scaler.parameters()},
-    ])
+    opt_options["params"].extend(
+        [
+            {"name": "heads", "params": model.heads.parameters()},
+            {"name": "additive_models", "params": model.additive_models.parameters()},
+            {"name": "scaler", "params": model.scaler.parameters()},
+        ]
+    )
 
     optimizer = get_optimizer(opt_args, opt_options)
 
@@ -101,6 +101,7 @@ def get_optimizer_and_scheduler(
             scheduler.load_state_dict(scheduler_state_dict)
 
     return optimizer, scheduler
+
 
 class Trainer(TrainerInterface):
     __checkpoint_version__ = 1
@@ -156,8 +157,8 @@ class Trainer(TrainerInterface):
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of MetaMACE are always in float64 (to avoid numerical errors in
-        # the composition weights, which can be very large).
+        # The additive models of MetaMACE are always in float64 (to avoid numerical
+        # errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
@@ -225,7 +226,6 @@ class Trainer(TrainerInterface):
         # Create collate functions:
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
-        extra_data_info = dataset_info.extra_data
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
@@ -335,11 +335,11 @@ class Trainer(TrainerInterface):
                 logging.info(f"\t{name}::{grad}: {ginfo}")
 
         optimizer, lr_scheduler = get_optimizer_and_scheduler(
-            self.hypers, 
-            model, 
+            self.hypers,
+            model,
             self.optimizer_state_dict,
             self.scheduler_state_dict,
-            is_distributed
+            is_distributed,
         )
 
         per_structure_targets = self.hypers["per_structure_targets"]
@@ -393,7 +393,7 @@ class Trainer(TrainerInterface):
                     model.parameters(), self.hypers["grad_clip_norm"]
                 )
                 optimizer.step()
-                lr_scheduler.step(metrics=train_loss_batch)
+                lr_scheduler.step(metrics=train_loss_batch.detach())
 
                 if is_distributed:
                     # sum the loss over all processes

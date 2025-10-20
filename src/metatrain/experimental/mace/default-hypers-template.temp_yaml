@@ -6,30 +6,28 @@ architecture:
   name: experimental.mace
 
   model:
-    cutoff: 5.0
-    cutoff_width: 0.5 
-    # The original MACE 
+    cutoff: {{ mace_defaults.r_max }} # Named "r_max" in MACE
     {% for item in mace_model_defaults %}
     {{ item[0] }}: {{ item[1] }}
     {% endfor %}
     
   training:
+    # Optimizer hypers (directly using MACE's scripts)
+    optimizer: {{ mace_defaults.optimizer }}
+    learning_rate: {{ mace_defaults.lr }} # Named "lr" in MACE
+    weight_decay: {{ mace_defaults.weight_decay }}
+    amsgrad: {{ mace_defaults.amsgrad }}
+    beta: {{ mace_defaults.beta }}
+    # Scheduler hypers (directly using MACE's scripts)
+    lr_scheduler: {{ mace_defaults.scheduler }} # Named "scheduler" in MACE
+    lr_scheduler_gamma: {{ mace_defaults.lr_scheduler_gamma }}
+    lr_factor: {{ mace_defaults.lr_factor }}
+    lr_scheduler_patience: {{ mace_defaults.scheduler_patience }} # Named "scheduler_patience" in MACE
+    # General training parameters that are shared across architectures
     distributed: false
     distributed_port: 39591
     batch_size: 16
     num_epochs: 1000
-    # Optimizer hypers
-    optimizer: {{ mace_defaults.optimizer }}
-    learning_rate: {{ mace_defaults.lr }}
-    weight_decay: {{ mace_defaults.weight_decay }}
-    amsgrad: {{ mace_defaults.amsgrad }}
-    beta: {{ mace_defaults.beta }}
-    # Scheduler hypers
-    lr_scheduler: {{ mace_defaults.scheduler }}
-    lr_scheduler_gamma: {{ mace_defaults.lr_scheduler_gamma }}
-    lr_factor: {{ mace_defaults.lr_factor }}
-    lr_scheduler_patience: {{ mace_defaults.scheduler_patience }}
-    # Others
     log_interval: 1
     checkpoint_interval: 100
     scale_targets: true

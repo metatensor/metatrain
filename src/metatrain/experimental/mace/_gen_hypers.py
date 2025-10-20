@@ -2,11 +2,13 @@
 Fills the default_hypers_template.yaml with the default arguments
 from MACE.
 """
+
 import argparse
-from jinja2 import Environment, FileSystemLoader
 from pathlib import Path
 
+from jinja2 import Environment, FileSystemLoader
 from mace.tools import build_default_arg_parser
+
 
 # Keys from the MACE argparser that correspond to model hyperparameters
 mace_model_keys = [
@@ -32,6 +34,7 @@ mace_model_keys = [
     "use_agnostic_product",
 ]
 
+
 def get_mace_defaults():
     parser = build_default_arg_parser()
 
@@ -39,7 +42,7 @@ def get_mace_defaults():
     mace_defaults = {
         action.dest: action.default
         for action in parser._actions
-        if action.default is not argparse.SUPPRESS and action.dest != 'help'
+        if action.default is not argparse.SUPPRESS and action.dest != "help"
     }
 
     # Currently the default for gate is 'silu', but this makes the model
@@ -48,8 +51,8 @@ def get_mace_defaults():
 
     return mace_defaults
 
-def regenerate_default_hypers():
 
+def regenerate_default_hypers():
     # Extract defaults without triggering required arguments
     mace_defaults = get_mace_defaults()
 
@@ -63,8 +66,13 @@ def regenerate_default_hypers():
 
     mace_model_defaults = [(k, mace_defaults[k]) for k in mace_model_keys]
 
-    with open(Path(__file__).parent / "default-hypers.yaml", "w") as f:
-        f.write(template.render(mace_defaults=mace_defaults, mace_model_defaults=mace_model_defaults))
+    with open(Path(__file__).parent / "default-hypers.temp_yaml", "w") as f:
+        f.write(
+            template.render(
+                mace_defaults=mace_defaults, mace_model_defaults=mace_model_defaults
+            )
+        )
+
 
 if __name__ == "__main__":
     regenerate_default_hypers()
