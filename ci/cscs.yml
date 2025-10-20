@@ -94,8 +94,8 @@ test distributed multitarget:
     USE_NCCL: 'cuda12'
   artifacts:
     paths:
-      - test-distributed-multitarget/model-multitarget.pt
-      - test-distributed-multitarget/model-multitarget.ckpt
+      - model-multitarget.pt
+      - model-multitarget.ckpt
 
 test distributed multitarget finetuning:
   stage: test
