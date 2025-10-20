@@ -58,11 +58,9 @@ test distributed:
   extends: .container-runner-daint-gh200
   image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
   timeout: 24h
-  before_script:
-    - cp -r /metatrain/tests/distributed test-distributed
   script:
-    - cd test-distributed
     - . /mtt-venv/bin/activate
+    - cd tests/distributed
     - mtt train options-distributed.yaml | tee train.log
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:
@@ -74,17 +72,16 @@ test distributed:
     SLURM_TIMELIMIT: '00:10:00'
     SLURM_UNBUFFEREDIO: 1
     USE_NCCL: 'cuda12'
+    GIT_STRATEGY: fetch
 
 test distributed multitarget:
   stage: test
   extends: .container-runner-daint-gh200
   image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
   timeout: 24h
-  before_script:
-    - cp -r /metatrain/tests/distributed test-distributed-multitarget
   script:
     - . /mtt-venv/bin/activate
-    - cd test-distributed-multitarget
+    - cd tests/distributed
     - mtt train options-distributed-multitarget.yaml -o model-multitarget.pt | tee train-multitarget.log
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train-multitarget.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:
@@ -96,10 +93,11 @@ test distributed multitarget:
     SLURM_TIMELIMIT: '00:10:00'
     SLURM_UNBUFFEREDIO: 1
     USE_NCCL: 'cuda12'
+    GIT_STRATEGY: fetch
   artifacts:
     paths:
-      - model-multitarget.pt
-      - model-multitarget.ckpt
+      - tests/distributed/model-multitarget.pt
+      - tests/distributed/model-multitarget.ckpt
 
 test distributed multitarget finetuning:
   stage: test
@@ -110,9 +108,9 @@ test distributed multitarget finetuning:
   image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
   timeout: 24h
   script:
-    - cd test-distributed-multitarget
     - . /mtt-venv/bin/activate
-    - mtt train options-distributed-finetuning.yaml --restart ../model-multitarget.ckpt | tee train-multitarget-finetuning.log
+    - cd tests/distributed
+    - mtt train options-distributed-finetuning.yaml --restart ../../model-multitarget.ckpt | tee train-multitarget-finetuning.log
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train-multitarget-finetuning.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:
     SLURM_JOB_NUM_NODES: 1
@@ -123,3 +121,4 @@ test distributed multitarget finetuning:
     SLURM_TIMELIMIT: '00:10:00'
     SLURM_UNBUFFEREDIO: 1
     USE_NCCL: 'cuda12'
+    GIT_STRATEGY: fetch
