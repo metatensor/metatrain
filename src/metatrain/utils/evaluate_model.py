@@ -86,7 +86,13 @@ def evaluate_model(
     # Based on the keys of the targets, get the outputs of the model:
     model_outputs = _get_model_outputs(model, systems, targets, check_consistency)
 
-    for energy_target in energy_targets:
+    energy_targets_with_gradients = list(
+        set(
+            energy_targets_that_require_position_gradients
+            + energy_targets_that_require_strain_gradients
+        )
+    )
+    for index, energy_target in enumerate(energy_targets_with_gradients):
         # If the energy target requires gradients, compute them:
         target_requires_pos_gradients = (
             energy_target in energy_targets_that_require_position_gradients
@@ -99,6 +105,7 @@ def evaluate_model(
                 model_outputs[energy_target].block().values,
                 [system.positions for system in systems] + strains,
                 is_training=is_training,
+                destroy_graph=(index == len(energy_targets_with_gradients) - 1),
             )
             old_energy_tensor_map = model_outputs[energy_target]
             new_block = old_energy_tensor_map.block().copy()
@@ -119,6 +126,7 @@ def evaluate_model(
                 model_outputs[energy_target].block().values,
                 [system.positions for system in systems],
                 is_training=is_training,
+                destroy_graph=(index == len(energy_targets_with_gradients) - 1),
             )
             old_energy_tensor_map = model_outputs[energy_target]
             new_block = old_energy_tensor_map.block().copy()
@@ -133,6 +141,7 @@ def evaluate_model(
                 model_outputs[energy_target].block().values,
                 strains,
                 is_training=is_training,
+                destroy_graph=(index == len(energy_targets_with_gradients) - 1),
             )
             old_energy_tensor_map = model_outputs[energy_target]
             new_block = old_energy_tensor_map.block().copy()
@@ -143,7 +152,7 @@ def evaluate_model(
             )
             model_outputs[energy_target] = new_energy_tensor_map
         else:
-            pass
+            raise ValueError("This should not happen, please report this bug.")
 
     return model_outputs
 

@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -527,10 +528,31 @@ class NanoPET(ModelInterface):
                     selected_atoms,
                 )
                 for name in additive_contributions:
-                    return_dict[name] = mts.add(
-                        return_dict[name],
-                        additive_contributions[name],
-                    )
+                    # TODO: uncomment this after metatensor.torch.add
+                    # is updated to handle sparse sums
+                    # return_dict[name] = metatensor.torch.add(
+                    #     return_dict[name],
+                    #     additive_contributions[name].to(
+                    #         device=return_dict[name].device,
+                    #         dtype=return_dict[name].dtype
+                    #         ),
+                    # )
+                    # TODO: "manual" sparse sum: update to metatensor.torch.add
+                    # after sparse sum is implemented in metatensor.operations
+                    output_blocks: List[TensorBlock] = []
+                    for k, b in return_dict[name].items():
+                        if k in additive_contributions[name].keys:
+                            output_blocks.append(
+                                _add_block_block(
+                                    b,
+                                    additive_contributions[name]
+                                    .block(k)
+                                    .to(device=b.device, dtype=b.dtype),
+                                )
+                            )
+                        else:
+                            output_blocks.append(b)
+                    return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
 
         return return_dict
 

@@ -289,16 +289,15 @@ class PET(ModelInterface):
         The input systems are first converted into a batched representation containing:
 
         - `element_indices_nodes` [n_atoms]: Atomic species of the central atoms
-        - `element_indices_neighbors` [n_edges]: Atomic species of neighboring atoms
+        - `element_indices_neighbors` [n_atoms, max_num_neighbors]: Atomic species of
+          neighboring atoms
         - `edge_vectors` [n_atoms, max_num_neighbors, 3]: Cartesian edge vectors
           between central atoms and their neighbors
         - `padding_mask` [n_atoms, max_num_neighbors]: Mask indicating real vs padded
           neighbors
-        - `neighbors_index` [n_atoms, max_num_neighbors]: Indices of neighboring atoms
-          for each central atom
-        - `reversed_neighbor_list` [n_atoms, max_num_neighbors]: For each center atom
-          `i` and its neighbor `j`, the position of atom `i` in the neighbor list of
-          atom `j`
+        - `reverse_neighbor_index` [n_atoms * max_num_neighbors]: Index of the ji edge
+          for each ij edge, once the edges are flattened into an array whose first
+          dimension is n_atoms * max_num_neighbors
         - `system_indices` [n_atoms]: System index for each central atom
         - `sample_labels` [n_atoms, 2]: Metatensor Labels containing indices of each
           atom in each system
@@ -401,8 +400,7 @@ class PET(ModelInterface):
             element_indices_neighbors,
             edge_vectors,
             padding_mask,
-            neighbors_index,
-            reversed_neighbor_list,
+            reverse_neighbor_index,
             system_indices,
             sample_labels,
         ) = systems_to_batch(
@@ -426,8 +424,7 @@ class PET(ModelInterface):
             element_indices_nodes=element_indices_nodes,
             element_indices_neighbors=element_indices_neighbors,
             edge_vectors=edge_vectors,
-            neighbors_index=neighbors_index,
-            reversed_neighbor_list=reversed_neighbor_list,
+            reverse_neighbor_index=reverse_neighbor_index,
             padding_mask=padding_mask,
             edge_distances=edge_distances,
             cutoff_factors=cutoff_factors,
@@ -612,9 +609,14 @@ class PET(ModelInterface):
             # from atom `j` to atom `i` in on the GNN layer N+1 is a
             # reversed message from atom `i` to atom `j` on the GNN layer N.
             input_node_embeddings = output_node_embeddings
-            new_input_edge_embeddings = output_edge_embeddings[
-                inputs["neighbors_index"], inputs["reversed_neighbor_list"]
-            ]
+            new_input_edge_embeddings = output_edge_embeddings.reshape(
+                output_edge_embeddings.shape[0] * output_edge_embeddings.shape[1],
+                output_edge_embeddings.shape[2],
+            )[inputs["reverse_neighbor_index"]].reshape(
+                output_edge_embeddings.shape[0],
+                output_edge_embeddings.shape[1],
+                output_edge_embeddings.shape[2],
+            )
             # input_messages = 0.5 * (output_edge_embeddings + new_input_messages)
             concatenated = torch.cat(
                 [output_edge_embeddings, new_input_edge_embeddings], dim=-1
@@ -668,9 +670,15 @@ class PET(ModelInterface):
             # using a reversed neighbor list, so the new input message
             # from atom `j` to atom `i` in on the GNN layer N+1 is a
             # reversed message from atom `i` to atom `j` on the GNN layer N.
-            new_input_messages = output_edge_embeddings[
-                inputs["neighbors_index"], inputs["reversed_neighbor_list"]
-            ]
+            # (Flatten, index, and reshape to the original shape)
+            new_input_messages = output_edge_embeddings.reshape(
+                output_edge_embeddings.shape[0] * output_edge_embeddings.shape[1],
+                output_edge_embeddings.shape[2],
+            )[inputs["reverse_neighbor_index"]].reshape(
+                output_edge_embeddings.shape[0],
+                output_edge_embeddings.shape[1],
+                output_edge_embeddings.shape[2],
+            )
             input_edge_embeddings = 0.5 * (input_edge_embeddings + new_input_messages)
         return node_features_list, edge_features_list
 
