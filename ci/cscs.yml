@@ -110,7 +110,7 @@ test distributed multitarget finetuning:
   script:
     - . /mtt-venv/bin/activate
     - cd tests/distributed
-    - mtt train options-distributed-finetuning.yaml --restart ../../model-multitarget.ckpt | tee train-multitarget-finetuning.log
+    - mtt train options-distributed-finetuning.yaml --restart model-multitarget.ckpt | tee train-multitarget-finetuning.log
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train-multitarget-finetuning.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:
     SLURM_JOB_NUM_NODES: 1
