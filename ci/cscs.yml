@@ -60,7 +60,7 @@ test distributed:
   timeout: 24h
   script:
     - . /mtt-venv/bin/activate
-    - cd /metatrain/tests/distributed
+    - cp -r /metatrain/tests/distributed test-distributed && cd test-distributed
     - mtt train options-distributed.yaml | tee train.log
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:
@@ -80,7 +80,7 @@ test distributed multitarget:
   timeout: 24h
   script:
     - . /mtt-venv/bin/activate
-    - cp -r /metatrain/tests/distributed test-distributed && cd test-distributed
+    - cp -r /metatrain/tests/distributed test-distributed-multitarget && cd test-distributed-multitarget
     - mtt train options-distributed-multitarget.yaml -o model-multitarget.pt | tee train-multitarget.log
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train-multitarget.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:
@@ -94,8 +94,8 @@ test distributed multitarget:
     USE_NCCL: 'cuda12'
   artifacts:
     paths:
-      - test-distributed/model-multitarget.pt
-      - test-distributed/model-multitarget.ckpt
+      - test-distributed-multitarget/model-multitarget.pt
+      - test-distributed-multitarget/model-multitarget.ckpt
 
 test distributed multitarget finetuning:
   stage: test
@@ -107,7 +107,7 @@ test distributed multitarget finetuning:
   timeout: 24h
   script:
     - . /mtt-venv/bin/activate
-    - cp -r /metatrain/tests/distributed test-distributed && cd test-distributed
+    - cd test-distributed-multitarget
     - mtt train options-distributed-finetuning.yaml --restart ../model-multitarget.ckpt | tee train-multitarget-finetuning.log
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train-multitarget-finetuning.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:
