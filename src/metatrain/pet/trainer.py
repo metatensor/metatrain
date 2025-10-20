@@ -148,7 +148,7 @@ class Trainer(TrainerInterface):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
-        if self.hypers["fit_composition_model"]:
+        if self.hypers["remove_composition_contribution"]:
             logging.info("Calculating composition weights")
             model.additive_models[0].train_model(  # this is the composition model
                 train_datasets,

@@ -133,3 +133,12 @@ def trainer_update_v3_v4(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     checkpoint["train_hypers"]["fixed_scaling_weights"] = {}
+
+
+def trainer_update_v4_v5(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 4 to version 5.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"]["remove_composition_contribution"] = True

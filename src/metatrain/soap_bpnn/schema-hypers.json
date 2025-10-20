@@ -119,7 +119,7 @@
         "checkpoint_interval": {
           "type": "integer"
         },
-        "fit_composition_model": {
+        "remove_composition_contribution": {
           "type": "boolean"
         },
         "scale_targets": {

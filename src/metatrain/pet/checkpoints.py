@@ -306,4 +306,4 @@ def trainer_update_v7_v8(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to update.
     """
-    checkpoint["train_hypers"]["fit_composition_model"] = True
+    checkpoint["train_hypers"]["remove_composition_contribution"] = True
