@@ -199,6 +199,7 @@ def test_continue_restart_num_epochs(monkeypatch, tmp_path):
     )
     assert trainer.epoch == 3  # zero-indexed, so 4 epochs total completed
 
+
 def test_continue_finetune_num_epochs(monkeypatch, tmp_path):
     """Tests that a training finetune runs the correct
     number of epochs"""
@@ -265,7 +266,9 @@ def test_continue_finetune_num_epochs(monkeypatch, tmp_path):
     model_after.restart(dataset_info)
 
     hypers["training"]["num_epochs"] = 1  # modify max num epochs to 1
-    trainer = Trainer.load_checkpoint(checkpoint, hypers["training"], context="finetune")
+    trainer = Trainer.load_checkpoint(
+        checkpoint, hypers["training"], context="finetune"
+    )
     trainer.train(
         model=model_after,
         dtype=torch.float32,

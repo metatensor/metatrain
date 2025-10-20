@@ -133,8 +133,6 @@ def test_continue_restart_num_epochs(monkeypatch, tmp_path):
         for system in systems
     ]
 
-    output_before = model(systems[:5], {"mtt::U0": model.outputs["mtt::U0"]})
-
     conf = {
         "mtt::U0": {
             "quantity": "energy",
@@ -214,8 +212,6 @@ def test_continue_finetune_num_epochs(monkeypatch, tmp_path):
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
         for system in systems
     ]
-
-    output_before = model(systems[:5], {"mtt::U0": model.outputs["mtt::U0"]})
 
     conf = {
         "mtt::U0": {

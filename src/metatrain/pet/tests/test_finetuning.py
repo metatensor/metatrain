@@ -224,4 +224,3 @@ def test_finetuning_restart(monkeypatch, tmp_path):
         val_datasets=[dataset],
         checkpoint_dir=".",
     )
-
