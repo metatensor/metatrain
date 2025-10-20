@@ -130,3 +130,145 @@ class TrainingTests(ArchitectureTests):
             assert torch.allclose(
                 torch.vstack(gradients_before), torch.vstack(gradients_after)
             )
+
+    def test_continue_restart_num_epochs(
+        self,
+        monkeypatch: Any,
+        tmp_path: Path,
+        dataset_path: str,
+        dataset_targets: dict[str, dict],
+        default_hypers: dict[str, Any],
+        model_hypers: dict[str, Any],
+    ) -> None:
+        """
+        Tests that a training restart runs the correct
+        number of epochs
+
+        :param monkeypatch: Pytest fixture to modify the current working
+            directory.
+        :param tmp_path: Temporary path to use for saving checkpoints.
+        :param dataset_path: Path to the dataset to use for training.
+        :param dataset_targets: Target hypers for the targets in the dataset.
+        :param default_hypers: Default hyperparameters for the architecture.
+        :param model_hypers: Hyperparameters to initialize the model.
+        """
+
+        monkeypatch.chdir(tmp_path)
+
+        dataset, targets_info, dataset_info = self.get_dataset(
+            dataset_targets, dataset_path
+        )
+
+        model = self.model_cls(model_hypers, dataset_info)
+
+        hypers = copy.deepcopy(default_hypers)
+        hypers["training"]["num_epochs"] = 2
+        loss_conf = OmegaConf.create(
+            {k: init_with_defaults(LossSpecification) for k in dataset_targets}
+        )
+        OmegaConf.resolve(loss_conf)
+        hypers["training"]["loss"] = loss_conf
+
+        trainer = self.trainer_cls(hypers["training"])
+        trainer.train(
+            model=model,
+            dtype=torch.float32,
+            devices=[torch.device("cpu")],
+            train_datasets=[dataset],
+            val_datasets=[dataset],
+            checkpoint_dir=".",
+        )
+        print(trainer.epoch, hypers["training"]["num_epochs"])
+        assert trainer.epoch == 1  # zero-indexed, so 2 completed
+        trainer.save_checkpoint(model, "tmp.ckpt")
+
+        checkpoint = torch.load("tmp.ckpt", weights_only=False, map_location="cpu")
+        model_after = model_from_checkpoint(checkpoint, context="restart")
+        assert isinstance(model_after, self.model_cls)
+        model_after.restart(model.dataset_info)
+
+        hypers["training"]["num_epochs"] = 4  # modify max num epochs to 4
+        trainer = self.trainer_cls(hypers["training"])
+        trainer.train(
+            model=model_after,
+            dtype=torch.float32,
+            devices=[torch.device("cpu")],
+            train_datasets=[dataset],
+            val_datasets=[dataset],
+            checkpoint_dir=".",
+        )
+        print(trainer.epoch)
+        assert trainer.epoch == 3  # zero-indexed, so 4 epochs total completed
+
+    def test_continue_finetune_num_epochs(
+        self,
+        monkeypatch: Any,
+        tmp_path: Path,
+        dataset_path: str,
+        dataset_targets: dict[str, dict],
+        default_hypers: dict[str, Any],
+        model_hypers: dict[str, Any],
+    ) -> None:
+        """
+        Tests that a training finetune runs the correct
+        number of epochs
+
+        :param monkeypatch: Pytest fixture to modify the current working
+            directory.
+        :param tmp_path: Temporary path to use for saving checkpoints.
+        :param dataset_path: Path to the dataset to use for training.
+        :param dataset_targets: Target hypers for the targets in the dataset.
+        :param default_hypers: Default hyperparameters for the architecture.
+        :param model_hypers: Hyperparameters to initialize the model.
+        """
+
+        monkeypatch.chdir(tmp_path)
+
+        dataset, targets_info, dataset_info = self.get_dataset(
+            dataset_targets, dataset_path
+        )
+
+        model = self.model_cls(model_hypers, dataset_info)
+
+        hypers = copy.deepcopy(default_hypers)
+        hypers["training"]["num_epochs"] = 2
+        loss_conf = OmegaConf.create(
+            {k: init_with_defaults(LossSpecification) for k in dataset_targets}
+        )
+        OmegaConf.resolve(loss_conf)
+        hypers["training"]["loss"] = loss_conf
+
+        trainer = self.trainer_cls(hypers["training"])
+        trainer.train(
+            model=model,
+            dtype=torch.float32,
+            devices=[torch.device("cpu")],
+            train_datasets=[dataset],
+            val_datasets=[dataset],
+            checkpoint_dir=".",
+        )
+
+        assert trainer.epoch == 1  # zero-indexed, so 2 completed
+        trainer.save_checkpoint(model, "tmp.ckpt")
+
+        checkpoint = torch.load("tmp.ckpt", weights_only=False, map_location="cpu")
+        model_after = model_from_checkpoint(checkpoint, context="finetune")
+        assert isinstance(model_after, self.model_cls)
+        model_after.restart(model.dataset_info)
+
+        hypers["training"]["num_epochs"] = 1  # modify max num epochs to 1
+        trainer = self.trainer_cls.load_checkpoint(
+            checkpoint, hypers["training"], context="finetune"
+        )
+        print("BEFORE", trainer.epoch)
+        trainer.train(
+            model=model_after,
+            dtype=torch.float32,
+            devices=[torch.device("cpu")],
+            train_datasets=[dataset],
+            val_datasets=[dataset],
+            checkpoint_dir=".",
+        )
+        print(trainer.epoch)
+
+        assert trainer.epoch == 0  # zero-indexed, so 1 finetuning epoch completed

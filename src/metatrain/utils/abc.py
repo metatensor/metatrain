@@ -230,6 +230,9 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
     This is used to upgrade checkpoints produced with earlier versions of the code.
     See :ref:`ckpt_version` for more information."""
 
+    epoch: int | None = None
+    """The current training epoch."""
+
     def __init__(self, hypers: HypersType):
         required_attributes = [
             "__checkpoint_version__",
