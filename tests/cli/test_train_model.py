@@ -313,6 +313,49 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     train_model(options)
 
 
+def test_train_two_datasets_two_forces(monkeypatch, tmp_path, options):
+    """Test that training via the training cli runs without an error raise
+    when learning on two different datasets, both with forces."""
+    monkeypatch.chdir(tmp_path)
+
+    systems_ethanol = ase.io.read(DATASET_PATH_ETHANOL, ":")
+    ase.io.write("ethanol_reduced_100.xyz", systems_ethanol[:50])
+
+    options["training_set"] = OmegaConf.create(2 * [options["training_set"]])
+    options["training_set"][0]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
+    options["training_set"][0]["targets"]["energy"]["key"] = "energy"
+    options["training_set"][1]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
+    options["training_set"][1]["targets"]["mtt::another-energy"] = options[
+        "training_set"
+    ][1]["targets"].pop("energy")
+    options["training_set"][1]["targets"]["mtt::another-energy"]["key"] = "energy"
+
+    options["training_set"][0]["targets"]["energy"]["forces"] = True
+    options["training_set"][1]["targets"]["mtt::another-energy"]["forces"] = True
+
+    train_model(options)
+
+
+def test_train_single_dataset_two_forces(monkeypatch, tmp_path, options):
+    """Test that training via the training cli runs without an error raise
+    when learning on two different datasets, both with forces."""
+    monkeypatch.chdir(tmp_path)
+
+    systems_ethanol = ase.io.read(DATASET_PATH_ETHANOL, ":")
+    ase.io.write("ethanol_reduced_100.xyz", systems_ethanol[:50])
+
+    options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
+    options["training_set"]["targets"]["energy"]["key"] = "energy"
+    options["training_set"]["targets"]["mtt::another-energy"] = copy.deepcopy(
+        options["training_set"]["targets"]["energy"]
+    )
+
+    options["training_set"]["targets"]["energy"]["forces"] = True
+    options["training_set"]["targets"]["mtt::another-energy"]["forces"] = True
+
+    train_model(options)
+
+
 def test_train_with_zbl(monkeypatch, tmp_path, options):
     """Test that training works with a ZBL baseline."""
     monkeypatch.chdir(tmp_path)

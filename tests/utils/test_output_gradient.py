@@ -50,6 +50,7 @@ def test_forces(is_training):
         output["energy"].block().values,
         [system.positions for system in systems],
         is_training=is_training,
+        destroy_graph=not is_training,
     )
     forces = [-position_gradient for position_gradient in position_gradients]
 
@@ -73,6 +74,7 @@ def test_forces(is_training):
         output["energy"].block().values,
         [system.positions for system in systems],
         is_training=is_training,
+        destroy_graph=not is_training,
     )
     jitted_forces = [
         -position_gradient for position_gradient in jitted_position_gradients
@@ -126,6 +128,7 @@ def test_virial(is_training):
         output["energy"].block().values,
         strains,
         is_training=is_training,
+        destroy_graph=not is_training,
     )
     virial = [-cell_gradient for cell_gradient in strain_gradients]
 
@@ -156,6 +159,7 @@ def test_virial(is_training):
         output["energy"].block().values,
         strains,
         is_training=is_training,
+        destroy_graph=not is_training,
     )
     jitted_virial = [-cell_gradient for cell_gradient in jitted_strain_gradients]
 
@@ -211,6 +215,7 @@ def test_both(is_training):
         output["energy"].block().values,
         [system.positions for system in systems] + strains,
         is_training=is_training,
+        destroy_graph=not is_training,
     )
     f_and_v = [-gradient for gradient in gradients]
 
@@ -240,6 +245,7 @@ def test_both(is_training):
         output["energy"].block().values,
         [system.positions for system in systems] + strains,
         is_training=is_training,
+        destroy_graph=not is_training,
     )
     jitted_f_and_v = [-jitted_gradient for jitted_gradient in jitted_gradients]
 
