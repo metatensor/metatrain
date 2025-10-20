@@ -295,11 +295,9 @@ class PET(ModelInterface):
           between central atoms and their neighbors
         - `padding_mask` [n_atoms, max_num_neighbors]: Mask indicating real vs padded
           neighbors
-        - `neighbors_index` [n_atoms, max_num_neighbors]: Indices of neighboring atoms
-          for each central atom
-        - `reversed_neighbor_list` [n_atoms, max_num_neighbors]: For each center atom
-          `i` and its neighbor `j`, the position of atom `i` in the neighbor list of
-          atom `j`
+        - `reverse_neighbor_index` [n_atoms * max_num_neighbors]: Index of the ji edge
+          for each ij edge, once the edges are flattened into an array whose first
+          dimension is n_atoms * max_num_neighbors
         - `system_indices` [n_atoms]: System index for each central atom
         - `sample_labels` [n_atoms, 2]: Metatensor Labels containing indices of each
           atom in each system
@@ -402,8 +400,7 @@ class PET(ModelInterface):
             element_indices_neighbors,
             edge_vectors,
             padding_mask,
-            neighbors_index,
-            reversed_neighbor_list,
+            reverse_neighbor_index,
             system_indices,
             sample_labels,
         ) = systems_to_batch(
@@ -422,25 +419,12 @@ class PET(ModelInterface):
         cutoff_factors = cutoff_func(edge_distances, self.cutoff, self.cutoff_width)
         cutoff_factors[~padding_mask] = 0.0
 
-        neighbors_index = (
-            neighbors_index * neighbors_index.shape[1] + reversed_neighbor_list
-        )
-
-        # At this point, we have `neighbors_index[~padding_mask] = 0`, which however
-        # creates too many of the same index which slows down backward enormously.
-        # (See see https://github.com/pytorch/pytorch/issues/41162)
-        # We therefore replace the padded indices with a sequence of unique indices.
-        neighbors_index[~padding_mask] = torch.arange(
-            int(torch.sum(~padding_mask)), device=device
-        )
-
         # **Stage 1: Feature Computation via GNN Layers**
         featurizer_inputs: Dict[str, torch.Tensor] = dict(
             element_indices_nodes=element_indices_nodes,
             element_indices_neighbors=element_indices_neighbors,
             edge_vectors=edge_vectors,
-            neighbors_index=neighbors_index,
-            # reversed_neighbor_list=reversed_neighbor_list,
+            reverse_neighbor_index=reverse_neighbor_index,
             padding_mask=padding_mask,
             edge_distances=edge_distances,
             cutoff_factors=cutoff_factors,
@@ -628,7 +612,7 @@ class PET(ModelInterface):
             new_input_edge_embeddings = output_edge_embeddings.reshape(
                 output_edge_embeddings.shape[0] * output_edge_embeddings.shape[1],
                 output_edge_embeddings.shape[2],
-            )[inputs["neighbors_index"]].reshape(
+            )[inputs["reverse_neighbor_index"]].reshape(
                 output_edge_embeddings.shape[0],
                 output_edge_embeddings.shape[1],
                 output_edge_embeddings.shape[2],
@@ -686,10 +670,11 @@ class PET(ModelInterface):
             # using a reversed neighbor list, so the new input message
             # from atom `j` to atom `i` in on the GNN layer N+1 is a
             # reversed message from atom `i` to atom `j` on the GNN layer N.
+            # (Flatten, index, and reshape to the original shape)
             new_input_messages = output_edge_embeddings.reshape(
                 output_edge_embeddings.shape[0] * output_edge_embeddings.shape[1],
                 output_edge_embeddings.shape[2],
-            )[inputs["neighbors_index"]].reshape(
+            )[inputs["reverse_neighbor_index"]].reshape(
                 output_edge_embeddings.shape[0],
                 output_edge_embeddings.shape[1],
                 output_edge_embeddings.shape[2],
