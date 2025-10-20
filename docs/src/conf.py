@@ -78,6 +78,7 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx_sitemap",
     "sphinxcontrib.bibtex",
+    "sphinx_copybutton",
     "sphinx_toggleprompt",
     "sphinx_gallery.gen_gallery",
     "chemiscope.sphinx",
