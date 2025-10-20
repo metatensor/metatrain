@@ -102,6 +102,9 @@ briefly explained below.
 - ``log_interval``: this integer defines the epoch interval of metric logging.
 - ``checkpoint_interval``: this integer defines the epoch interval of checkpoint
   saving.
+- ``remove_composition_contribution``: this boolean determines whether to remove the
+  atomic composition contribution from the targets by fitting a linear model to the
+  training data before training the neural network.
 - ``scale_targets``: this boolean determines whether or not to scale the targets
   with the internal scalers before the targets are exposed to the models for learning.
 - ``fixed_composition_weights``: this nested dictionary allows one to set fixed
