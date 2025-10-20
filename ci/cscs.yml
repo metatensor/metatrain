@@ -58,9 +58,11 @@ test distributed:
   extends: .container-runner-daint-gh200
   image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
   timeout: 24h
+  before_script:
+    - cp -r /metatrain/tests/distributed test-distributed
   script:
+    - cd test-distributed
     - . /mtt-venv/bin/activate
-    - cp -r /metatrain/tests/distributed test-distributed && cd test-distributed
     - mtt train options-distributed.yaml | tee train.log
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:
@@ -78,9 +80,11 @@ test distributed multitarget:
   extends: .container-runner-daint-gh200
   image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
   timeout: 24h
+  before_script:
+    - cp -r /metatrain/tests/distributed test-distributed-multitarget
   script:
     - . /mtt-venv/bin/activate
-    - cp -r /metatrain/tests/distributed test-distributed-multitarget && cd test-distributed-multitarget
+    - cd test-distributed-multitarget
     - mtt train options-distributed-multitarget.yaml -o model-multitarget.pt | tee train-multitarget.log
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train-multitarget.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:
@@ -106,8 +110,8 @@ test distributed multitarget finetuning:
   image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
   timeout: 24h
   script:
-    - . /mtt-venv/bin/activate
     - cd test-distributed-multitarget
+    - . /mtt-venv/bin/activate
     - mtt train options-distributed-finetuning.yaml --restart ../model-multitarget.ckpt | tee train-multitarget-finetuning.log
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train-multitarget-finetuning.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:
