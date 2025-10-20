@@ -393,7 +393,6 @@ class Trainer(TrainerInterface):
                     model.parameters(), self.hypers["grad_clip_norm"]
                 )
                 optimizer.step()
-                lr_scheduler.step(metrics=train_loss_batch.detach())
 
                 if is_distributed:
                     # sum the loss over all processes
@@ -466,6 +465,8 @@ class Trainer(TrainerInterface):
                     val_mae_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )
+
+            lr_scheduler.step(metrics=val_loss)
 
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
