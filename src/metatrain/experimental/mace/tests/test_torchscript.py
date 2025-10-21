@@ -1,3 +1,5 @@
+import copy
+
 import torch
 from metatomic.torch import System
 
