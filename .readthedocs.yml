@@ -13,9 +13,7 @@ build:
     rust: "1.75"
   jobs:
     pre_build:
-      - set -e && cd examples/ase && bash train.sh
-      - set -e && cd examples/llpr && bash train.sh
-      - set -e && cd examples/zbl && bash train.sh
+      - set -e && for f in $(find examples -name '*.sh'); do cd $(dirname $f); bash $(basename $f); cd -; done
 
 # Build documentation in the docs/ directory with Sphinx
 sphinx:
