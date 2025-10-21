@@ -1,0 +1,728 @@
+{
+  "LogNorm": [
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "matplotlib.colors",
+      "module_short": "matplotlib.colors",
+      "name": "LogNorm"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "LogNorm"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "matplotlib.colors",
+      "module_short": "matplotlib.colors",
+      "name": "Normalize"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "Normalize"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.colors",
+      "module_short": "matplotlib.colors",
+      "name": "LogNorm"
+    }
+  ],
+  "MetatomicCalculator": [
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "metatomic.torch.ase_calculator",
+      "module_short": "metatomic.torch.ase_calculator",
+      "name": "MetatomicCalculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "metatomic.torch",
+      "module_short": "metatomic.torch",
+      "name": "MetatomicCalculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "metatomic",
+      "module_short": "metatomic",
+      "name": "MetatomicCalculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators.calculator",
+      "module_short": "ase.calculators.calculator",
+      "name": "Calculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators",
+      "module_short": "ase.calculators",
+      "name": "Calculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Calculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators.calculator",
+      "module_short": "ase.calculators.calculator",
+      "name": "BaseCalculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators",
+      "module_short": "ase.calculators",
+      "name": "BaseCalculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "BaseCalculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators.abc",
+      "module_short": "ase.calculators.abc",
+      "name": "GetPropertiesMixin"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators",
+      "module_short": "ase.calculators",
+      "name": "GetPropertiesMixin"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "GetPropertiesMixin"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "abc",
+      "module_short": "abc",
+      "name": "ABC"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "metatomic.torch.ase_calculator",
+      "module_short": "metatomic.torch.ase_calculator",
+      "name": "MetatomicCalculator"
+    }
+  ],
+  "ModelOutput": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "torch",
+      "module_short": "torch",
+      "name": "ScriptClass"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "metatomic.torch",
+      "module_short": "metatomic.torch",
+      "name": "ModelOutput"
+    }
+  ],
+  "ase.io.read": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.io",
+      "module_short": "ase.io",
+      "name": "read"
+    }
+  ],
+  "ax": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.axes._axes",
+      "module_short": "matplotlib.axes",
+      "name": "Axes"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.axes",
+      "module_short": "matplotlib.axes",
+      "name": "Axes"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "Axes"
+    }
+  ],
+  "ax.set_xticks": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.axes._axes",
+      "module_short": "matplotlib.axes",
+      "name": "Axes.set_xticks"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.axes",
+      "module_short": "matplotlib.axes",
+      "name": "Axes.set_xticks"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "Axes.set_xticks"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.axes._base",
+      "module_short": "matplotlib.axes._base",
+      "name": "_AxesBase.set_xticks"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.axes",
+      "module_short": "matplotlib.axes",
+      "name": "_AxesBase.set_xticks"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "_AxesBase.set_xticks"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.artist",
+      "module_short": "matplotlib.artist",
+      "name": "Artist.set_xticks"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "Artist.set_xticks"
+    }
+  ],
+  "ax.set_yticks": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.axes._axes",
+      "module_short": "matplotlib.axes",
+      "name": "Axes.set_yticks"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.axes",
+      "module_short": "matplotlib.axes",
+      "name": "Axes.set_yticks"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "Axes.set_yticks"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.axes._base",
+      "module_short": "matplotlib.axes._base",
+      "name": "_AxesBase.set_yticks"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.axes",
+      "module_short": "matplotlib.axes",
+      "name": "_AxesBase.set_yticks"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "_AxesBase.set_yticks"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.artist",
+      "module_short": "matplotlib.artist",
+      "name": "Artist.set_yticks"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "Artist.set_yticks"
+    }
+  ],
+  "calc": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "metatomic.torch.ase_calculator",
+      "module_short": "metatomic.torch.ase_calculator",
+      "name": "MetatomicCalculator"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "metatomic.torch",
+      "module_short": "metatomic.torch",
+      "name": "MetatomicCalculator"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "metatomic",
+      "module_short": "metatomic",
+      "name": "MetatomicCalculator"
+    }
+  ],
+  "calc.run_model": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "metatomic.torch.ase_calculator",
+      "module_short": "metatomic.torch.ase_calculator",
+      "name": "MetatomicCalculator.run_model"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "metatomic.torch",
+      "module_short": "metatomic.torch",
+      "name": "MetatomicCalculator.run_model"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "metatomic",
+      "module_short": "metatomic",
+      "name": "MetatomicCalculator.run_model"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.calculators.calculator",
+      "module_short": "ase.calculators.calculator",
+      "name": "Calculator.run_model"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.calculators",
+      "module_short": "ase.calculators",
+      "name": "Calculator.run_model"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Calculator.run_model"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.calculators.calculator",
+      "module_short": "ase.calculators.calculator",
+      "name": "BaseCalculator.run_model"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.calculators",
+      "module_short": "ase.calculators",
+      "name": "BaseCalculator.run_model"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "BaseCalculator.run_model"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.calculators.abc",
+      "module_short": "ase.calculators.abc",
+      "name": "GetPropertiesMixin.run_model"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.calculators",
+      "module_short": "ase.calculators",
+      "name": "GetPropertiesMixin.run_model"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "GetPropertiesMixin.run_model"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "abc",
+      "module_short": "abc",
+      "name": "ABC.run_model"
+    }
+  ],
+  "cbar": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.colorbar",
+      "module_short": "matplotlib.colorbar",
+      "name": "Colorbar"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "Colorbar"
+    }
+  ],
+  "cbar.ax.set_yticklabels": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.axes._axes",
+      "module_short": "matplotlib.axes",
+      "name": "Axes.set_yticklabels"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.axes",
+      "module_short": "matplotlib.axes",
+      "name": "Axes.set_yticklabels"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "Axes.set_yticklabels"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.axes._base",
+      "module_short": "matplotlib.axes._base",
+      "name": "_AxesBase.set_yticklabels"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.axes",
+      "module_short": "matplotlib.axes",
+      "name": "_AxesBase.set_yticklabels"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "_AxesBase.set_yticklabels"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.artist",
+      "module_short": "matplotlib.artist",
+      "name": "Artist.set_yticklabels"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "Artist.set_yticklabels"
+    }
+  ],
+  "cbar.minorticks_off": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.colorbar",
+      "module_short": "matplotlib.colorbar",
+      "name": "Colorbar.minorticks_off"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "Colorbar.minorticks_off"
+    }
+  ],
+  "colormap": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.colors",
+      "module_short": "matplotlib.colors",
+      "name": "ListedColormap"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "ListedColormap"
+    }
+  ],
+  "colors": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "numpy",
+      "module_short": "numpy",
+      "name": "ndarray"
+    }
+  ],
+  "custom_ticks": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "list"
+    }
+  ],
+  "energies": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "numpy",
+      "module_short": "numpy",
+      "name": "ndarray"
+    }
+  ],
+  "local_uncertainty": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "numpy",
+      "module_short": "numpy",
+      "name": "ndarray"
+    }
+  ],
+  "norm": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.colors",
+      "module_short": "matplotlib.colors",
+      "name": "LogNorm"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "LogNorm"
+    }
+  ],
+  "plot_atoms": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.visualize.plot",
+      "module_short": "ase.visualize.plot",
+      "name": "plot_atoms"
+    }
+  ],
+  "plt.cm.ScalarMappable": [
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "matplotlib.colorizer",
+      "module_short": "matplotlib.colorizer",
+      "name": "_ScalarMappable"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "_ScalarMappable"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "matplotlib.colorizer",
+      "module_short": "matplotlib.colorizer",
+      "name": "_ColorizerInterface"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "matplotlib",
+      "module_short": "matplotlib",
+      "name": "_ColorizerInterface"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.pyplot.cm",
+      "module_short": "matplotlib.pyplot.cm",
+      "name": "ScalarMappable"
+    }
+  ],
+  "plt.colorbar": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.pyplot",
+      "module_short": "matplotlib.pyplot",
+      "name": "colorbar"
+    }
+  ],
+  "plt.get_cmap": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.pyplot",
+      "module_short": "matplotlib.pyplot",
+      "name": "get_cmap"
+    }
+  ],
+  "plt.show": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.pyplot",
+      "module_short": "matplotlib.pyplot",
+      "name": "show"
+    }
+  ],
+  "predictions": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "dict"
+    }
+  ],
+  "structure": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms"
+    }
+  ],
+  "structures": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "list"
+    }
+  ],
+  "uncertainties": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "numpy",
+      "module_short": "numpy",
+      "name": "ndarray"
+    }
+  ]
+}

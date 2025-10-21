@@ -1,0 +1,870 @@
+{
+  "EMT": [
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators.emt",
+      "module_short": "ase.calculators.emt",
+      "name": "EMT"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators",
+      "module_short": "ase.calculators",
+      "name": "EMT"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "EMT"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators.calculator",
+      "module_short": "ase.calculators.calculator",
+      "name": "Calculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators",
+      "module_short": "ase.calculators",
+      "name": "Calculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Calculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators.calculator",
+      "module_short": "ase.calculators.calculator",
+      "name": "BaseCalculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators",
+      "module_short": "ase.calculators",
+      "name": "BaseCalculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "BaseCalculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators.abc",
+      "module_short": "ase.calculators.abc",
+      "name": "GetPropertiesMixin"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators",
+      "module_short": "ase.calculators",
+      "name": "GetPropertiesMixin"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "GetPropertiesMixin"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "abc",
+      "module_short": "abc",
+      "name": "ABC"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.calculators.emt",
+      "module_short": "ase.calculators.emt",
+      "name": "EMT"
+    }
+  ],
+  "Langevin": [
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.md.langevin",
+      "module_short": "ase.md",
+      "name": "Langevin"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.md",
+      "module_short": "ase.md",
+      "name": "Langevin"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Langevin"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.md.md",
+      "module_short": "ase.md.md",
+      "name": "MolecularDynamics"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.md",
+      "module_short": "ase.md",
+      "name": "MolecularDynamics"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "MolecularDynamics"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.optimize.optimize",
+      "module_short": "ase.optimize.optimize",
+      "name": "Dynamics"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.optimize",
+      "module_short": "ase.optimize",
+      "name": "Dynamics"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Dynamics"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.utils",
+      "module_short": "ase.utils",
+      "name": "IOContext"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "IOContext"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.md.langevin",
+      "module_short": "ase.md",
+      "name": "Langevin"
+    }
+  ],
+  "MaxwellBoltzmannDistribution": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.md.velocitydistribution",
+      "module_short": "ase.md.velocitydistribution",
+      "name": "MaxwellBoltzmannDistribution"
+    }
+  ],
+  "VelocityVerlet": [
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.md.verlet",
+      "module_short": "ase.md",
+      "name": "VelocityVerlet"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.md",
+      "module_short": "ase.md",
+      "name": "VelocityVerlet"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "VelocityVerlet"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.md.md",
+      "module_short": "ase.md.md",
+      "name": "MolecularDynamics"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.md",
+      "module_short": "ase.md",
+      "name": "MolecularDynamics"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "MolecularDynamics"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.optimize.optimize",
+      "module_short": "ase.optimize.optimize",
+      "name": "Dynamics"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.optimize",
+      "module_short": "ase.optimize",
+      "name": "Dynamics"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Dynamics"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.utils",
+      "module_short": "ase.utils",
+      "name": "IOContext"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "IOContext"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.md",
+      "module_short": "ase.md",
+      "name": "VelocityVerlet"
+    }
+  ],
+  "ase.build.bulk": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.build",
+      "module_short": "ase.build",
+      "name": "bulk"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.build",
+      "module_short": "ase.build",
+      "name": "bulk"
+    }
+  ],
+  "ase.io.write": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.io",
+      "module_short": "ase.io",
+      "name": "write"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.io",
+      "module_short": "ase.io",
+      "name": "write"
+    }
+  ],
+  "ase.units.fs": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "float"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.units",
+      "module_short": "ase.units",
+      "name": "fs"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.units",
+      "module_short": "ase.units",
+      "name": "fs"
+    }
+  ],
+  "atoms": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms"
+    }
+  ],
+  "atoms.calc": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms.calc"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms.calc"
+    }
+  ],
+  "copy.deepcopy": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "copy",
+      "module_short": "copy",
+      "name": "deepcopy"
+    }
+  ],
+  "dyn": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.md.verlet",
+      "module_short": "ase.md",
+      "name": "VelocityVerlet"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.md",
+      "module_short": "ase.md",
+      "name": "VelocityVerlet"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "VelocityVerlet"
+    }
+  ],
+  "dyn.attach": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.md.verlet",
+      "module_short": "ase.md",
+      "name": "VelocityVerlet.attach"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.md",
+      "module_short": "ase.md",
+      "name": "VelocityVerlet.attach"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "VelocityVerlet.attach"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.md.md",
+      "module_short": "ase.md.md",
+      "name": "MolecularDynamics.attach"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.md",
+      "module_short": "ase.md",
+      "name": "MolecularDynamics.attach"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "MolecularDynamics.attach"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.optimize.optimize",
+      "module_short": "ase.optimize.optimize",
+      "name": "Dynamics.attach"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.optimize",
+      "module_short": "ase.optimize",
+      "name": "Dynamics.attach"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Dynamics.attach"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.utils",
+      "module_short": "ase.utils",
+      "name": "IOContext.attach"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "IOContext.attach"
+    }
+  ],
+  "dyn.run": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.md.verlet",
+      "module_short": "ase.md",
+      "name": "VelocityVerlet.run"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.md",
+      "module_short": "ase.md",
+      "name": "VelocityVerlet.run"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "VelocityVerlet.run"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.md.md",
+      "module_short": "ase.md.md",
+      "name": "MolecularDynamics.run"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.md",
+      "module_short": "ase.md",
+      "name": "MolecularDynamics.run"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "MolecularDynamics.run"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.optimize.optimize",
+      "module_short": "ase.optimize.optimize",
+      "name": "Dynamics.run"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.optimize",
+      "module_short": "ase.optimize",
+      "name": "Dynamics.run"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Dynamics.run"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.utils",
+      "module_short": "ase.utils",
+      "name": "IOContext.run"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "IOContext.run"
+    }
+  ],
+  "frame_ahead": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms"
+    }
+  ],
+  "frame_ahead.get_momenta": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms.get_momenta"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms.get_momenta"
+    }
+  ],
+  "frame_ahead.get_positions": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms.get_positions"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms.get_positions"
+    }
+  ],
+  "frame_ahead_trev": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms"
+    }
+  ],
+  "frame_ahead_trev.get_momenta": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms.get_momenta"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms.get_momenta"
+    }
+  ],
+  "frame_ahead_trev.set_momenta": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms.set_momenta"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms.set_momenta"
+    }
+  ],
+  "frame_now": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms"
+    }
+  ],
+  "frame_now_trev": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms"
+    }
+  ],
+  "frame_now_trev.get_momenta": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms.get_momenta"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms.get_momenta"
+    }
+  ],
+  "frame_now_trev.set_momenta": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms.set_momenta"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms.set_momenta"
+    }
+  ],
+  "get_structure_for_dataset": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    }
+  ],
+  "i": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "int"
+    }
+  ],
+  "s": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms"
+    }
+  ],
+  "s.arrays": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "dict"
+    }
+  ],
+  "spacing": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "int"
+    }
+  ],
+  "store_trajectory": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    }
+  ],
+  "structures_for_dataset": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "list"
+    }
+  ],
+  "structures_for_dataset.append": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "builtin_function_or_method"
+    }
+  ],
+  "subprocess.run": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "subprocess",
+      "module_short": "subprocess",
+      "name": "run"
+    }
+  ],
+  "time_lag": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "int"
+    }
+  ],
+  "trajectory": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "list"
+    }
+  ],
+  "trajectory.append": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "builtin_function_or_method"
+    }
+  ]
+}
