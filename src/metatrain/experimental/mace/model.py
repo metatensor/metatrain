@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Dict, List, Literal, Optional
 
 import mace.modules as mace_modules
@@ -23,7 +24,8 @@ from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
-from .utils.structures import create_batch
+from .modules.finetuning import apply_finetuning_strategy
+from .modules.structures import create_batch
 
 
 def add_contribution(
@@ -170,10 +172,13 @@ class MetaMACE(ModelInterface):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
-        # references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
+        references={
+            "architecture": [
+                "https://arxiv.org/abs/2205.06643",
+                "https://openreview.net/forum?id=YPpSngE-ZU",
+            ]
+        }
     )
-
-    dataset_info: DatasetInfo
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__(model_hypers, dataset_info, self.__default_metadata__)
@@ -229,7 +234,7 @@ class MetaMACE(ModelInterface):
         )
 
         self.outputs = {"features": ModelOutput(unit="", per_atom=True)}
-        self.heads: Dict[str, torch.nn.Module] = torch.nn.ModuleDict()
+        self.heads = torch.nn.ModuleDict()
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -245,11 +250,54 @@ class MetaMACE(ModelInterface):
                 },
             ),
         )
-
         additive_models = [composition_model]
         self.additive_models = torch.nn.ModuleList(additive_models)
 
+        # scaler: this is also handled by the trainer at training time
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
+
+    def restart(self, dataset_info: DatasetInfo) -> "MetaMACE":
+        # Check that the new dataset info does not contain new atomic types
+        if new_atomic_types := set(dataset_info.atomic_types) - set(
+            self.dataset_info.atomic_types
+        ):
+            raise ValueError(
+                f"New atomic types found in the dataset: {new_atomic_types}. "
+                "The MACE model does not support adding new atomic types."
+            )
+
+        # Merge the old dataset info with the new one
+        merged_info = self.dataset_info.union(dataset_info)
+
+        # Check if there are new targets
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in self.dataset_info.targets
+        }
+        self.has_new_targets = len(new_targets) > 0
+
+        # Add extra heads for the new targets
+        for target_name, target in new_targets.items():
+            self._add_output(target_name, target)
+
+        self.dataset_info = merged_info
+
+        # restart the composition and scaler models
+        self.additive_models[0] = self.additive_models[0].restart(
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=self.dataset_info.atomic_types,
+                targets={
+                    target_name: target_info
+                    for target_name, target_info in dataset_info.targets.items()
+                    if CompositionModel.is_valid_target(target_name, target_info)
+                },
+            ),
+        )
+        self.scaler = self.scaler.restart(dataset_info)
+
+        return self
 
     def forward(
         self,
@@ -313,7 +361,91 @@ class MetaMACE(ModelInterface):
 
         return return_dict
 
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
+
+    def requested_neighbor_lists(
+        self,
+    ) -> List[NeighborListOptions]:
+        return [self.requested_nl]
+
+    @classmethod
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "MetaMACE":
+        if context == "restart":
+            logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
+            model_state_dict = checkpoint["model_state_dict"]
+        elif context in {"finetune", "export"}:
+            logging.info(f"Using best model from epoch {checkpoint['best_epoch']}")
+            model_state_dict = checkpoint["best_model_state_dict"]
+            if model_state_dict is None:
+                model_state_dict = checkpoint["model_state_dict"]
+        else:
+            raise ValueError("Unknown context tag for checkpoint loading!")
+
+        # Create the model
+        model_data = checkpoint["model_data"]
+        model = cls(**model_data)
+        dtype = None
+        for k, v in model_state_dict.items():
+            if k.endswith(".weight"):
+                dtype = v.dtype
+                break
+        else:
+            raise ValueError("Couldn't infer dtype from the checkpoint file")
+        finetune_config = model_state_dict.pop("finetune_config", {})
+        if finetune_config:
+            # Apply the finetuning strategy
+            model = apply_finetuning_strategy(model, finetune_config)
+        model.to(dtype).load_state_dict(model_state_dict)
+        model.additive_models[0].sync_tensor_maps()
+        model.scaler.sync_tensor_maps()
+
+        # Loading the metadata from the checkpoint
+        model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
+
+        return model
+
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
+        dtype = next(self.parameters()).dtype
+        if dtype not in self.__supported_dtypes__:
+            raise ValueError(f"unsupported dtype {dtype} for MACE")
+
+        # Make sure the model is all in the same dtype
+        # For example, after training, the additive models could still be in
+        # float64
+        self.to(dtype)
+
+        # Additionally, the composition model contains some `TensorMap`s that cannot
+        # be registered correctly with Pytorch. This function moves them:
+        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
+
+        interaction_ranges = [self.hypers["num_interactions"] * self.hypers["cutoff"]]
+        interaction_range = max(interaction_ranges)
+
+        capabilities = ModelCapabilities(
+            outputs=self.outputs,
+            atomic_types=self.dataset_info.atomic_types,
+            interaction_range=interaction_range,
+            length_unit=self.dataset_info.length_unit,
+            supported_devices=self.__supported_devices__,
+            dtype=dtype_to_str(dtype),
+        )
+
+        metadata = merge_metadata(self.metadata, metadata)
+
+        return AtomisticModel(self.eval(), metadata, capabilities)
+
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
+        """
+        Register a new output target by creating corresponding heads and last layers.
+
+        :param target_name: Name of the target to add.
+        :param target_info: TargetInfo object containing details about the target.
+        """
         # We don't support Cartesian tensors with rank > 1
         if target_info.is_cartesian:
             if len(target_info.layout.block().components) > 1:
@@ -358,123 +490,6 @@ class MetaMACE(ModelInterface):
         )
         self.outputs[ll_features_name] = ModelOutput(per_atom=True)
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
-        return self.outputs
-
-    def requested_neighbor_lists(
-        self,
-    ) -> List[NeighborListOptions]:
-        return [self.requested_nl]
-
-    def restart(self, dataset_info: DatasetInfo) -> "MetaMACE":
-        # Check that the new dataset info does not contain new atomic types
-        if new_atomic_types := set(dataset_info.atomic_types) - set(
-            self.dataset_info.atomic_types
-        ):
-            raise ValueError(
-                f"New atomic types found in the dataset: {new_atomic_types}. "
-                "The MACE model does not support adding new atomic types."
-            )
-
-        # Merge the old dataset info with the new one
-        merged_info = self.dataset_info.union(dataset_info)
-
-        # Check if there are new targets
-        new_targets = {
-            key: value
-            for key, value in merged_info.targets.items()
-            if key not in self.dataset_info.targets
-        }
-        self.has_new_targets = len(new_targets) > 0
-
-        # Add extra heads for the new targets
-        for target_name, target in new_targets.items():
-            self._add_output(target_name, target)
-
-        self.dataset_info = merged_info
-
-        # Restart the composition and scaler models
-        self.additive_models[0].restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.dataset_info.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        self.scaler.restart(dataset_info)
-
-        return self
-
-    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
-        dtype = next(self.parameters()).dtype
-        if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for MACE")
-
-        # Make sure the model is all in the same dtype
-        # For example, after training, the additive models could still be in
-        # float64
-        self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
-
-        interaction_ranges = [self.hypers["num_interactions"] * self.hypers["cutoff"]]
-        interaction_range = max(interaction_ranges)
-
-        capabilities = ModelCapabilities(
-            outputs=self.outputs,
-            atomic_types=self.dataset_info.atomic_types,
-            interaction_range=interaction_range,
-            length_unit=self.dataset_info.length_unit,
-            supported_devices=self.__supported_devices__,
-            dtype=dtype_to_str(dtype),
-        )
-
-        if metadata is None:
-            metadata = self.__default_metadata__
-        else:
-            metadata = merge_metadata(self.__default_metadata__, metadata)
-
-        return AtomisticModel(self.eval(), metadata, capabilities)
-
-    @classmethod
-    def load_checkpoint(
-        cls,
-        checkpoint: Dict[str, Any],
-        context: Literal["restart", "export"],
-    ) -> "MetaMACE":
-        model_data = checkpoint["model_data"]
-
-        if context == "restart":
-            model_state_dict = checkpoint["model_state_dict"]
-        elif context == "export":
-            model_state_dict = checkpoint["best_model_state_dict"]
-            if model_state_dict is None:
-                model_state_dict = checkpoint["model_state_dict"]
-        else:
-            raise ValueError("Unknown context tag for checkpoint loading!")
-
-        # Create the model
-        model = cls(**model_data)
-        dtype = None
-        for k, v in model_state_dict.items():
-            if k.endswith(".weight"):
-                dtype = v.dtype
-                break
-        else:
-            raise ValueError("Couldn't infer dtype from the checkpoint file")
-        model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-
-        model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
-
-        return model
-
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
@@ -488,6 +503,7 @@ class MetaMACE(ModelInterface):
 
     def get_checkpoint(self) -> Dict:
         model_state_dict = self.state_dict()
+        model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {
             "architecture_name": "experimental.mace",
             "model_ckpt_version": self.__checkpoint_version__,
@@ -496,7 +512,9 @@ class MetaMACE(ModelInterface):
                 "model_hypers": self.hypers,
                 "dataset_info": self.dataset_info.to(device="cpu"),
             },
+            "epoch": None,
+            "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": None,
+            "best_model_state_dict": self.state_dict(),
         }
         return checkpoint
