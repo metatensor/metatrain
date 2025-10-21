@@ -256,6 +256,8 @@ class MetaMACE(ModelInterface):
         # scaler: this is also handled by the trainer at training time
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
 
+        self.finetune_config: Dict[str, Any] = {}
+
     def restart(self, dataset_info: DatasetInfo) -> "MetaMACE":
         # Check that the new dataset info does not contain new atomic types
         if new_atomic_types := set(dataset_info.atomic_types) - set(
