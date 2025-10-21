@@ -41,6 +41,7 @@ from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
 from .model import MetaMACE
+from .modules.finetuning import apply_finetuning_strategy
 
 
 def get_optimizer_and_scheduler(
@@ -76,7 +77,10 @@ def get_optimizer_and_scheduler(
 
     opt_options = get_params_options(opt_args, model.mace_model)
 
-    # Add heads, additive models and scaler parameters to the optimizer:
+    # Add heads, additive models and scaler parameters to the optimizer. Although the
+    # additive models and scaler weights are not optimized, this maintains consistency
+    # with PET, where all model parameters (including the additive models stored as
+    # attributes) are passed to the optimizer.
     opt_options["params"].extend(
         [
             {"name": "heads", "params": model.heads.parameters()},
@@ -87,7 +91,9 @@ def get_optimizer_and_scheduler(
 
     optimizer = get_optimizer(opt_args, opt_options)
 
-    if optimizer_state_dict is not None:
+    is_finetune = "finetune" in trainer_hypers
+
+    if optimizer_state_dict is not None and not is_finetune:
         # try to load the optimizer state dict, but this is only possible
         # if there are no new targets in the model (new parameters)
         if not (model.module if is_distributed else model).has_new_targets:
@@ -95,7 +101,7 @@ def get_optimizer_and_scheduler(
 
     scheduler = LRScheduler(optimizer, opt_args)
 
-    if scheduler_state_dict is not None:
+    if scheduler_state_dict is not None and not is_finetune:
         # same as the optimizer, try to load the scheduler state dict
         if not (model.module if is_distributed else model).has_new_targets:
             scheduler.load_state_dict(scheduler_state_dict)
@@ -129,6 +135,7 @@ class Trainer(TrainerInterface):
         assert dtype in MetaMACE.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
+        is_finetune = "finetune" in self.hypers
 
         if is_distributed:
             if len(devices) > 1:
@@ -154,6 +161,21 @@ class Trainer(TrainerInterface):
             logging.info(f"Training on {world_size} devices with dtype {dtype}")
         else:
             logging.info(f"Training on device {device} with dtype {dtype}")
+
+        # Apply fine-tuning strategy if provided
+        if is_finetune:
+            model = apply_finetuning_strategy(model, self.hypers["finetune"])
+            method = self.hypers["finetune"]["method"]
+            num_params = sum(p.numel() for p in model.parameters())
+            num_trainable_params = sum(
+                p.numel() for p in model.parameters() if p.requires_grad
+            )
+
+            logging.info(f"Applied finetuning strategy: {method}")
+            logging.info(
+                f"Number of trainable parameters: {num_trainable_params} "
+                f"[{num_trainable_params / num_params:.2%} %]"
+            )
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
@@ -355,7 +377,7 @@ class Trainer(TrainerInterface):
         logging.info("Starting training")
         epoch = start_epoch
 
-        for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
+        for epoch in range(start_epoch, self.hypers["num_epochs"]):
             if is_distributed:
                 for train_sampler in train_samplers:
                     train_sampler.set_epoch(epoch)
@@ -542,6 +564,8 @@ class Trainer(TrainerInterface):
 
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
+        if self.best_model_state_dict is not None:
+            self.best_model_state_dict["finetune_config"] = model.finetune_config
         checkpoint.update(
             {
                 "trainer_ckpt_version": self.__checkpoint_version__,
@@ -565,12 +589,16 @@ class Trainer(TrainerInterface):
         cls,
         checkpoint: Dict[str, Any],
         hypers: Dict[str, Any],
-        context: Literal["restart"],
+        context: Literal["restart", "finetune"],
     ) -> "Trainer":
         trainer = cls(hypers)
         trainer.optimizer_state_dict = checkpoint["optimizer_state_dict"]
         trainer.scheduler_state_dict = checkpoint["scheduler_state_dict"]
-        trainer.epoch = checkpoint["epoch"]
+        if context == "restart":
+            trainer.epoch = checkpoint["epoch"]
+        else:
+            assert "context" == "finetune"
+            trainer.epoch = None  # interpreted as zero in training loop
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
         trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
