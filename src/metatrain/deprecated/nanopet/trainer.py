@@ -345,6 +345,13 @@ class Trainer(TrainerInterface):
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
+
+                if is_distributed:
+                    # make sure all parameters contribute to the gradient calculation
+                    # to make torch DDP happy
+                    for param in model.parameters():
+                        train_loss_batch += 0.0 * param.sum()
+
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
