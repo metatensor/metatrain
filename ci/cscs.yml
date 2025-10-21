@@ -63,9 +63,9 @@ test distributed:
   timeout: 24h
   script:
     - . /mtt-venv/bin/activate
-    - cd /metatrain/tests/distributed
-    - mtt train options-distributed.yaml
-    - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" outputs/*/*/train.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
+    - cd tests/distributed
+    - mtt train options-distributed.yaml | tee train.log
+    - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
@@ -73,4 +73,55 @@ test distributed:
     SLURM_GPUS_PER_TASK: 1
     SLURM_CPUS_PER_TASK: 16
     SLURM_TIMELIMIT: '00:10:00'
+    SLURM_UNBUFFEREDIO: 1
     USE_NCCL: 'cuda12'
+    GIT_STRATEGY: fetch
+
+test distributed multitarget:
+  stage: test
+  extends: .container-runner-daint-gh200
+  image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
+  timeout: 24h
+  script:
+    - . /mtt-venv/bin/activate
+    - cd tests/distributed
+    - mtt train options-distributed-multitarget.yaml -o model-multitarget.pt | tee train-multitarget.log
+    - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train-multitarget.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 4
+    SLURM_GPUS_PER_TASK: 1
+    SLURM_CPUS_PER_TASK: 16
+    SLURM_TIMELIMIT: '00:10:00'
+    SLURM_UNBUFFEREDIO: 1
+    USE_NCCL: 'cuda12'
+    GIT_STRATEGY: fetch
+  artifacts:
+    paths:
+      - tests/distributed/model-multitarget.pt
+      - tests/distributed/model-multitarget.ckpt
+
+test distributed multitarget finetuning:
+  stage: test
+  needs:
+    - job: "test distributed multitarget"
+      artifacts: true
+  extends: .container-runner-daint-gh200
+  image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
+  timeout: 24h
+  script:
+    - . /mtt-venv/bin/activate
+    - cd tests/distributed
+    - mtt train options-distributed-finetuning.yaml --restart model-multitarget.ckpt | tee train-multitarget-finetuning.log
+    - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train-multitarget-finetuning.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 4
+    SLURM_GPUS_PER_TASK: 1
+    SLURM_CPUS_PER_TASK: 16
+    SLURM_TIMELIMIT: '00:10:00'
+    SLURM_UNBUFFEREDIO: 1
+    USE_NCCL: 'cuda12'
+    GIT_STRATEGY: fetch
