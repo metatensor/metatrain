@@ -20,7 +20,11 @@
    configuration/index
    architectures/index
    generated_examples/index
+<<<<<<< HEAD
    concepts/index
+=======
+   advanced-concepts/index
+>>>>>>> a77e21e8 (Reorganized example files)
    faq
    cite
    dev-docs/index

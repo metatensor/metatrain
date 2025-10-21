@@ -1,0 +1,478 @@
+{
+  "MetatomicCalculator": [
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "metatomic.torch.ase_calculator",
+      "module_short": "metatomic.torch.ase_calculator",
+      "name": "MetatomicCalculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "metatomic.torch",
+      "module_short": "metatomic.torch",
+      "name": "MetatomicCalculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "metatomic",
+      "module_short": "metatomic",
+      "name": "MetatomicCalculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators.calculator",
+      "module_short": "ase.calculators.calculator",
+      "name": "Calculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators",
+      "module_short": "ase.calculators",
+      "name": "Calculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Calculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators.calculator",
+      "module_short": "ase.calculators.calculator",
+      "name": "BaseCalculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators",
+      "module_short": "ase.calculators",
+      "name": "BaseCalculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "BaseCalculator"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators.abc",
+      "module_short": "ase.calculators.abc",
+      "name": "GetPropertiesMixin"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.calculators",
+      "module_short": "ase.calculators",
+      "name": "GetPropertiesMixin"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "GetPropertiesMixin"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "abc",
+      "module_short": "abc",
+      "name": "ABC"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "metatomic.torch.ase_calculator",
+      "module_short": "metatomic.torch.ase_calculator",
+      "name": "MetatomicCalculator"
+    }
+  ],
+  "ase.Atoms": [
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms"
+    },
+    {
+      "is_class": true,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms"
+    }
+  ],
+  "atoms": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms"
+    }
+  ],
+  "atoms.get_potential_energy": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms.get_potential_energy"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms.get_potential_energy"
+    }
+  ],
+  "atoms.set_calculator": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase.atoms",
+      "module_short": "ase",
+      "name": "Atoms.set_calculator"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "ase",
+      "module_short": "ase",
+      "name": "Atoms.set_calculator"
+    }
+  ],
+  "calc_no_zbl": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "metatomic.torch.ase_calculator",
+      "module_short": "metatomic.torch.ase_calculator",
+      "name": "MetatomicCalculator"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "metatomic.torch",
+      "module_short": "metatomic.torch",
+      "name": "MetatomicCalculator"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "metatomic",
+      "module_short": "metatomic",
+      "name": "MetatomicCalculator"
+    }
+  ],
+  "calc_zbl": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "metatomic.torch.ase_calculator",
+      "module_short": "metatomic.torch.ase_calculator",
+      "name": "MetatomicCalculator"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "metatomic.torch",
+      "module_short": "metatomic.torch",
+      "name": "MetatomicCalculator"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "metatomic",
+      "module_short": "metatomic",
+      "name": "MetatomicCalculator"
+    }
+  ],
+  "distance": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "numpy",
+      "module_short": "numpy",
+      "name": "float64"
+    }
+  ],
+  "distances": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "numpy",
+      "module_short": "numpy",
+      "name": "ndarray"
+    }
+  ],
+  "energies": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "numpy",
+      "module_short": "numpy",
+      "name": "ndarray"
+    }
+  ],
+  "energies.append": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "numpy",
+      "module_short": "numpy",
+      "name": "ndarray"
+    }
+  ],
+  "new_distances": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "numpy",
+      "module_short": "numpy",
+      "name": "ndarray"
+    }
+  ],
+  "np.array": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "builtin_function_or_method"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "numpy",
+      "module_short": "numpy",
+      "name": "array"
+    }
+  ],
+  "np.linspace": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "numpy",
+      "module_short": "numpy",
+      "name": "_ArrayFunctionDispatcher"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "numpy",
+      "module_short": "numpy",
+      "name": "linspace"
+    }
+  ],
+  "pair": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "tuple"
+    }
+  ],
+  "pairs": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "dict"
+    }
+  ],
+  "pairs.items": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "builtin_function_or_method"
+    }
+  ],
+  "plt.legend": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.pyplot",
+      "module_short": "matplotlib.pyplot",
+      "name": "legend"
+    }
+  ],
+  "plt.plot": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.pyplot",
+      "module_short": "matplotlib.pyplot",
+      "name": "plot"
+    }
+  ],
+  "plt.show": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.pyplot",
+      "module_short": "matplotlib.pyplot",
+      "name": "show"
+    }
+  ],
+  "plt.tight_layout": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.pyplot",
+      "module_short": "matplotlib.pyplot",
+      "name": "tight_layout"
+    }
+  ],
+  "plt.title": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.pyplot",
+      "module_short": "matplotlib.pyplot",
+      "name": "title"
+    }
+  ],
+  "plt.xlabel": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.pyplot",
+      "module_short": "matplotlib.pyplot",
+      "name": "xlabel"
+    }
+  ],
+  "plt.ylabel": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "matplotlib.pyplot",
+      "module_short": "matplotlib.pyplot",
+      "name": "ylabel"
+    }
+  ],
+  "structures": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "list"
+    }
+  ],
+  "structures.append": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "builtin_function_or_method"
+    }
+  ],
+  "structures_for_pair": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "list"
+    }
+  ],
+  "torch.jit.optimized_execution": [
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "builtins",
+      "module_short": "builtins",
+      "name": "function"
+    },
+    {
+      "is_class": false,
+      "is_explicit": false,
+      "module": "torch.jit",
+      "module_short": "torch.jit",
+      "name": "optimized_execution"
+    }
+  ]
+}

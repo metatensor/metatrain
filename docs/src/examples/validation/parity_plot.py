@@ -98,22 +98,15 @@ print("RMSE forces:", np.sqrt(np.mean((f_targets - f_predictions) ** 2)), "kcal/
 
 for frame in targets + predictions:
     frame.arrays["forces"] = frame.get_forces()
-<<<<<<< HEAD
 
-=======
->>>>>>> a77e21e8 (Reorganized example files)
 # a workaround, because the chemiscope interface for getting forces is broken with ASE
 # 3.23
 
 # %%
 # Plot the energy parity plot with Chemiscope. This can be rendered as a widget in a
 # Jupyter notebook.
-<<<<<<< HEAD
 
 chemiscope.show(
-=======
-cs = chemiscope.show(
->>>>>>> a77e21e8 (Reorganized example files)
     targets,  # reading structures from the dataset
     properties={
         "Target energy": {"values": e_targets, "target": "structure", "units": "kcal"},
@@ -142,10 +135,6 @@ cs = chemiscope.show(
         },
     ),
 )
-<<<<<<< HEAD
-=======
-cs
->>>>>>> a77e21e8 (Reorganized example files)
 
 # %%
 # You can check the structures by clicking the red dots on the parity plot, or
