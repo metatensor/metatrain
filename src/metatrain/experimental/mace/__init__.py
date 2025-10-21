@@ -7,6 +7,7 @@ __trainer__ = Trainer
 
 __authors__ = [
     ("Pol Febrer <pol.febrer@epfl.ch>", "@pfebrer"),
+    ("Joseph W. Abbott <joseph.william.abbott@gmail.com>", "@jwa7"),
 ]
 
 __maintainers__ = [
