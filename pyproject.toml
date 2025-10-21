@@ -73,6 +73,10 @@ gap = [
     "scipy",
 ]
 llpr = []
+mace = [
+    "mace-torch",
+    # manually install afterwards e3nn>0.5.0
+]
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]
