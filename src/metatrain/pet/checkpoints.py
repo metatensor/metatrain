@@ -30,8 +30,8 @@ def model_update_v2_v3(checkpoint: dict) -> None:
     """
     for key in ["model_state_dict", "best_model_state_dict"]:
         if (state_dict := checkpoint.get(key)) is not None:
-            if "train_hypers" in state_dict:
-                finetune_config = state_dict["train_hypers"].get("finetune", {})
+            if "train_hypers" in checkpoint:
+                finetune_config = checkpoint["train_hypers"].get("finetune", {})
             else:
                 finetune_config = {}
             state_dict["finetune_config"] = finetune_config
