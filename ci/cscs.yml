@@ -38,6 +38,9 @@ build mtt:
 # Run tox tests (single GPU)
 test tox:
   stage: test
+  # Trigger tox tests as soon as base image is ready
+  needs:
+    - build base
   extends: .container-runner-daint-gh200
   image: $BASE_IMAGE
   timeout: 24h
