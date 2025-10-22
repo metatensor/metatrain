@@ -19,7 +19,7 @@
    getting-started/index
    configuration/index
    architectures/index
-   tutorials/index
+   generated_examples/index
    advanced-concepts/index
    faq
    cite
