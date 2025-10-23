@@ -167,6 +167,7 @@ def trainer_update_v5_v6(checkpoint: dict) -> None:
         "You can install it with `pip install metatrain==2025.10`."
     )
 
+
 def trainer_update_v6_v7(checkpoint: dict) -> None:
     """
     Update a v6 Trainer checkpoint to v7.
@@ -181,9 +182,9 @@ def trainer_update_v6_v7(checkpoint: dict) -> None:
     for target_name in dataset_info.targets.keys():
         # retain everything except sliding_factor for each target
         new_loss_hypers[target_name] = {
-            k: v for k, v in old_loss_hypers[target_name].items()
+            k: v
+            for k, v in old_loss_hypers[target_name].items()
             if k != "sliding_factor"
         }
 
     checkpoint["train_hypers"]["loss"] = new_loss_hypers
-

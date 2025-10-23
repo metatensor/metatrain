@@ -134,6 +134,7 @@ def trainer_update_v3_v4(checkpoint: dict) -> None:
     """
     checkpoint["train_hypers"]["fixed_scaling_weights"] = {}
 
+
 def trainer_update_v4_v5(checkpoint: dict) -> None:
     # remove all entries in the loss `sliding_factor`
     old_loss_hypers = checkpoint["train_hypers"]["loss"].copy()
@@ -143,7 +144,8 @@ def trainer_update_v4_v5(checkpoint: dict) -> None:
     for target_name in dataset_info.targets.keys():
         # retain everything except sliding_factor for each target
         new_loss_hypers[target_name] = {
-            k: v for k, v in old_loss_hypers[target_name].items()
+            k: v
+            for k, v in old_loss_hypers[target_name].items()
             if k != "sliding_factor"
         }
 
