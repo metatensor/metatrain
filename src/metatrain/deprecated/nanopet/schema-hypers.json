@@ -211,13 +211,6 @@
             "sum"
           ]
         },
-        "sliding_factor": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0.0
-        },
         "gradients": {
           "type": "object",
           "patternProperties": {

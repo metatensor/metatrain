@@ -387,13 +387,11 @@ def test_tmap_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
             "type": "mse",
             "weight": 1.0,
             "reduction": "sum",
-            "sliding_factor": None,
             "gradients": {
                 "positions": {
                     "type": "mse",
                     "weight": 0.5,
                     "reduction": "sum",
-                    "sliding_factor": None,
                 },
             },
         },
@@ -401,13 +399,11 @@ def test_tmap_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
             "type": "mse",
             "weight": 1.0,
             "reduction": "sum",
-            "sliding_factor": None,
             "gradients": {
                 "positions": {
                     "type": "mse",
                     "weight": 0.5,
                     "reduction": "sum",
-                    "sliding_factor": None,
                 },
             },
         },
@@ -496,19 +492,16 @@ def test_tmap_loss_multiple_datasets_same_target_different_gradients(
             "type": "mse",
             "weight": 1.0,
             "reduction": "sum",
-            "sliding_factor": None,
             "gradients": {
                 "positions": {
                     "type": "mse",
                     "weight": 0.5,
                     "reduction": "sum",
-                    "sliding_factor": None,
                 },
                 "strain": {
                     "type": "mse",
                     "weight": 0.3,
                     "reduction": "sum",
-                    "sliding_factor": None,
                 },
             },
         },
