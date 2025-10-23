@@ -136,6 +136,11 @@ def trainer_update_v3_v4(checkpoint: dict) -> None:
 
 
 def trainer_update_v4_v5(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 4 to version 5.
+
+    :param checkpoint: The checkpoint to update.
+    """
     # remove all entries in the loss `sliding_factor`
     old_loss_hypers = checkpoint["train_hypers"]["loss"].copy()
     dataset_info = checkpoint["model_data"]["dataset_info"]
