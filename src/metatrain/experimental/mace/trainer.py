@@ -75,7 +75,9 @@ def get_optimizer_and_scheduler(
         scheduler_patience=trainer_hypers["lr_scheduler_patience"],
     )
 
-    opt_options = get_params_options(opt_args, model.mace_model)
+    opt_options = get_params_options(
+        opt_args, (model.module if is_distributed else model).mace_model
+    )
 
     # Add heads, additive models and scaler parameters to the optimizer. Although the
     # additive models and scaler weights are not optimized, this maintains consistency
@@ -83,9 +85,24 @@ def get_optimizer_and_scheduler(
     # attributes) are passed to the optimizer.
     opt_options["params"].extend(
         [
-            {"name": "heads", "params": model.heads.parameters()},
-            {"name": "additive_models", "params": model.additive_models.parameters()},
-            {"name": "scaler", "params": model.scaler.parameters()},
+            {
+                "name": "heads",
+                "params": (
+                    model.module if is_distributed else model
+                ).heads.parameters(),
+            },
+            {
+                "name": "additive_models",
+                "params": (
+                    model.module if is_distributed else model
+                ).additive_models.parameters(),
+            },
+            {
+                "name": "scaler",
+                "params": (
+                    model.module if is_distributed else model
+                ).scaler.parameters(),
+            },
         ]
     )
 
@@ -410,6 +427,13 @@ class Trainer(TrainerInterface):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
+
+                if is_distributed:
+                    # make sure all parameters contribute to the gradient calculation
+                    # to make torch DDP happy
+                    for param in model.parameters():
+                        train_loss_batch += 0.0 * param.sum()
+
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
