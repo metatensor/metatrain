@@ -687,6 +687,9 @@ class DiskDataset(torch.utils.data.Dataset):
                 target_info_dict[target_key] = target_info
         return target_info_dict
 
+    def __del__(self) -> None:
+        self.zip_file.close()
+
 
 def _is_disk_dataset(dataset: Any) -> bool:
     # this also needs to detect if it's a ``torch.nn.utils.data.Subset`` object
