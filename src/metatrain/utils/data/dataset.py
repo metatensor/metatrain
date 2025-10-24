@@ -627,12 +627,19 @@ class DiskDataset(torch.utils.data.Dataset):
 
         self._sample_class = namedtuple("Sample", self._fields_to_read)
 
-        self.zip_file = zipfile.ZipFile(self.zip_file_path, "r")
+        # Do not open file in the main process and start sub-processes with None
+        self.zip_file = None
+
+    def _open_zip_once(self) -> None:
+        if self.zip_file is None:
+            self.zip_file = zipfile.ZipFile(self.zip_file_path, "r")
 
     def __len__(self) -> int:
         return self._len
 
     def __getitem__(self, index: int) -> Any:
+        self._open_zip_once()
+
         system_and_targets = []
         for field_name in self._fields_to_read:
             if field_name == "system":
