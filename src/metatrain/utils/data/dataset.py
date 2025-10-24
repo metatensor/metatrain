@@ -23,7 +23,7 @@ from metatomic.torch import System, load_system, load_system_buffer
 from metatomic.torch import save_buffer as save_system_buffer
 from omegaconf import DictConfig
 from torch.utils.data import Dataset as TorchDataset
-from torch.utils.data import Subset
+from torch.utils.data import Subset, get_worker_info
 
 from metatrain.utils.data.readers.metatensor import (
     _check_tensor_map_metadata,
@@ -638,6 +638,8 @@ class DiskDataset(torch.utils.data.Dataset):
         return self._len
 
     def __getitem__(self, index: int) -> Any:
+        _ = get_worker_info()
+
         self._open_zip_once()
 
         system_and_targets = []
