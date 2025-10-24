@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 import torch
 from metatomic.torch import System
 
@@ -18,17 +16,24 @@ class LongRangeFeaturizer(torch.nn.Module):
     """
 
     def __init__(
-        self, hypers: Dict, feature_dim: int, neighbor_list_options: NeighborListOptions
-    ):
+        self,
+        hypers: dict,
+        feature_dim: int,
+        neighbor_list_options: NeighborListOptions,
+    ) -> None:
         super(LongRangeFeaturizer, self).__init__()
 
         try:
-            from torchpme import CoulombPotential
-            from torchpme.calculators import Calculator, EwaldCalculator, P3MCalculator
+            from torchpme import (
+                Calculator,
+                CoulombPotential,
+                EwaldCalculator,
+                P3MCalculator,
+            )
         except ImportError:
             raise ImportError(
                 "`torch-pme` is required for long-range models. "
-                "Please install it with `pip install torch-pme`."
+                "Please install it with `pip install 'torch-pme>=0.3.2'`."
             )
 
         self.ewald_calculator = EwaldCalculator(
@@ -81,7 +86,7 @@ class LongRangeFeaturizer(torch.nn.Module):
 
     def forward(
         self,
-        systems: List[System],
+        systems: list[System],
         features: torch.Tensor,
         neighbor_distances: torch.Tensor,
     ) -> torch.Tensor:
@@ -115,12 +120,7 @@ class LongRangeFeaturizer(torch.nn.Module):
             ]
             last_len_edges += len(neighbor_indices_system)
 
-            if system.pbc.any() and system.pbc.sum() < 2:
-                raise NotImplementedError(
-                    "Long-range features are not currently supported for 1D systems "
-                )
-
-            if system.pbc.all():  # periodic
+            if system.pbc.any():
                 if self.use_ewald and self.training:  # use Ewald for training only
                     potential = self.ewald_calculator.forward(
                         charges=system_charges,
@@ -174,7 +174,7 @@ class DummyLongRangeFeaturizer(torch.nn.Module):
 
     def forward(
         self,
-        systems: List[System],
+        systems: list[System],
         features: torch.Tensor,
         neighbor_distances: torch.Tensor,
     ) -> torch.Tensor:
