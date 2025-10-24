@@ -629,10 +629,16 @@ class DiskDataset(torch.utils.data.Dataset):
 
         # Do not open file in the main process and start sub-processes with None
         self.zip_file = None
+        self.zip_file_pid = None
 
     def _open_zip_once(self) -> None:
-        if self.zip_file is None:
+        pid = os.getpid()
+        if self.zip_file is None and self.zip_file_pid != pid:
+            if self.zip_file is not None:
+                self.zip_file.close()
+
             self.zip_file = zipfile.ZipFile(self.zip_file_path, "r")
+            self.zip_file_pid = pid
 
     def __len__(self) -> int:
         return self._len
@@ -697,7 +703,8 @@ class DiskDataset(torch.utils.data.Dataset):
         return target_info_dict
 
     def __del__(self) -> None:
-        self.zip_file.close()
+        if self.zip_file is not None:
+            self.zip_file.close()
 
 
 def _is_disk_dataset(dataset: Any) -> bool:
