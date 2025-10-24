@@ -121,6 +121,10 @@ class LongRangeFeaturizer(torch.nn.Module):
             last_len_edges += len(neighbor_indices_system)
 
             if system.pbc.any():
+                if system.pbc.sum() == 1:
+                    raise NotImplementedError(
+                        "Long-range featurizer does not support 1D systems."
+                    )
                 if self.use_ewald and self.training:  # use Ewald for training only
                     potential = self.ewald_calculator.forward(
                         charges=system_charges,
