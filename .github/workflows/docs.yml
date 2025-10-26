@@ -32,8 +32,6 @@ jobs:
         env:
           # Use the CPU-only version of torch
           PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
-          UV_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
-          UV_INDEX_STRATEGY: unsafe-best-match
 
       - name: put documentation in the website
         run: |
