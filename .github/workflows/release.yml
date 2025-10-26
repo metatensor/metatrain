@@ -34,9 +34,6 @@ jobs:
 
     - name: Build package
       run: tox -e build
-      env:
-        # For tox to use uv..
-        ENV_INSTALLER: "uv pip"
     - name: Publish distribution to PyPI
       if: startsWith(github.ref, 'refs/tags/v')
       uses: pypa/gh-action-pypi-publish@release/v1

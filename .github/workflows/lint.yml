@@ -26,6 +26,3 @@ jobs:
 
     - name: Lint the code
       run: tox -e lint
-      env:
-        # For tox to use uv..
-        ENV_INSTALLER: "uv pip"
