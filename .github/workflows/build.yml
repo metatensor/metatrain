@@ -20,9 +20,8 @@ jobs:
         enable-cache: true
         activate-environment: true
 
-    - name: Set up Python and install tox
+    - name: Setup dependencies
       run: |
-        uv python install
         uv tool install tox --with tox-uv
 
     - name: Test build integrity
