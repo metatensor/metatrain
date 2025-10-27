@@ -20,7 +20,7 @@
    configuration/index
    architectures/index
    generated_examples/index
-   advanced-concepts/index
+   concepts/index
    faq
    cite
    dev-docs/index
