@@ -175,7 +175,7 @@ examples/basic_usage/*.xyz
 extensions/
 
 # sphinx gallery
-docs/src/examples
+docs/src/generated_examples/
 *execution_times*
 
 # JavaScript

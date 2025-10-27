@@ -59,8 +59,7 @@ hyperparameters to tune are (in decreasing order of importance):
   neural network. Depending on the dataset, increasing this hyperparameter might lead to
   better accuracy, at the cost of increased training and evaluation time.
 - ``loss``: This section describes the loss function to be used. See the
-  :doc:`dedicated documentation page <../advanced-concepts/loss-functions>` for more
-  details.
+  :ref:`loss-functions` for more details.
 - ``long_range``: In some systems and datasets, enabling long-range Coulomb interactions
   might be beneficial for the accuracy of the model and/or its physical correctness.
   See below for a breakdown of the long-range section of the model hyperparameters.

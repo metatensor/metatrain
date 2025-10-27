@@ -57,8 +57,7 @@ We explain below the model-specific hypers for SOAP-BPNN.
   this hyperparameter to ``false`` will lead to slower convergence of training, but
   might lead to better generalization outside of the training set distribution.
 - ``loss``: This section describes the loss function to be used. See the
-  :doc:`dedicated documentation page <../advanced-concepts/loss-functions>` for more
-  details.
+  :ref:`loss-functions` for more details.
 
 In addition to these model-specific hypers, we re-highlight that the following additive
 models (``zbl`` and ``long_range``) may be needed to achieve better description at the

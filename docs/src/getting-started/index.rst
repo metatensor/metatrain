@@ -7,7 +7,6 @@ This sections describes how to install the package, and its most basic commands.
    :maxdepth: 1
 
    quickstart
-   ../examples/basic_usage/usage
    custom_dataset_conf
    advanced_base_config
    override
