@@ -18,7 +18,7 @@ The YAML input file can be divided into five sections:
 
 Computational Parameters
 ======================================
-The computational parameters define the computational device, precision and seed. These parameters are optional.
+The computational parameters define the computational ``device``, ``precision`` and ``seed``. These parameters are optional.
 
 .. code-block:: yaml
 
@@ -26,7 +26,7 @@ The computational parameters define the computational device, precision and seed
     precision: 32
     seed: 0
 
-:param device [optional]: The computational device used for model training. The script automatically
+:param device [optional]: The computational device used for model training. The metatrain automatically
     chooses the best option by default. The possible devices that can be used, and the best device option,
     depend on the model architecture. The easiest way to use this parameter is to use either either ``cpu``, ``gpu``,
     ``multi-gpu``. Internally, under the choice ``gpu``, the script will automatically choose between ``cuda`` or ``mps``.
@@ -35,11 +35,11 @@ The computational parameters define the computational device, precision and seed
     ``float16`` respectively. The datatypes that can be supported also depends on the model architecture used.
 :param seed [optional]: The seed used for non-deterministic operations and is used to set the seed for ``numpy.random``,
     ``random``, ``torch`` and ``torch.cuda``. The input must be a non-negative integer. This parameter is important for ensuring
-    reproducibility. If not specified, the seed is generated randomly.
+    reproducibility. If not specified, the seed is generated randomly and reported in the log.
 
 wandb integration
 ===================
-The next set of parameters are also optional and deals with integration with Weights and Biases (wandb) logging. Leaving this
+Optional section dealing with integration with `Weights and Biases (wandb) <link>`_ logging. Leaving this
 section blank will simply disable wandb integration. The parameters for this section is the same as that in
 `wandb.init <https://docs.wandb.ai/ref/python/init/>`_. Here we provide a minimal example for the YAML input
 
@@ -71,7 +71,7 @@ their default values, are highly specific to the model architecture. It is bette
 :ref:`architecture documentation <available-architectures>` page for further details.
 
 Loss
-===================
+====
 Within the architecture section, there is a parameter dedicated to the loss. Due to the plethora of loss functions
 used in different ML workflows, it is best to refer to the page on :ref:`loss functions <loss-functions>` page for further details.
 
