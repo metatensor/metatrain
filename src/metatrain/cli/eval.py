@@ -38,6 +38,7 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.omegaconf import expand_dataset_config
 from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.transfer import batch_to
 
 
 logger = logging.getLogger(__name__)
@@ -197,11 +198,10 @@ def _eval_targets(
 
     # Main evaluation loop
     for batch in tqdm.tqdm(dataloader, ncols=100):
-        systems, batch_targets, _ = unpack_batch(batch)
-        systems = [system.to(dtype=dtype, device=device) for system in systems]
-        batch_targets = {
-            k: v.to(device=device, dtype=dtype) for k, v in batch_targets.items()
-        }
+        systems, batch_targets, batch_extra_data = unpack_batch(batch)
+        systems, batch_targets, batch_extra_data = batch_to(
+            systems, batch_targets, batch_extra_data, dtype=dtype, device=device
+        )
 
         start_time = time.time()
         batch_predictions = evaluate_model(
@@ -222,8 +222,8 @@ def _eval_targets(
         targ_per_atom = average_by_num_atoms(
             batch_targets, systems, per_structure_keys=[]
         )
-        rmse_acc.update(preds_per_atom, targ_per_atom)
-        mae_acc.update(preds_per_atom, targ_per_atom)
+        rmse_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
+        mae_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
 
         # Write out each sample if a writer is configured
         if writer:

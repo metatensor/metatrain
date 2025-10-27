@@ -30,8 +30,8 @@ def model_update_v2_v3(checkpoint: dict) -> None:
     """
     for key in ["model_state_dict", "best_model_state_dict"]:
         if (state_dict := checkpoint.get(key)) is not None:
-            if "train_hypers" in state_dict:
-                finetune_config = state_dict["train_hypers"].get("finetune", {})
+            if "train_hypers" in checkpoint:
+                finetune_config = checkpoint["train_hypers"].get("finetune", {})
             else:
                 finetune_config = {}
             state_dict["finetune_config"] = finetune_config
@@ -160,22 +160,25 @@ def model_update_v7_v8(checkpoint: dict) -> None:
         checkpoint["model_data"]["model_hypers"]["d_feedforward"] = (
             2 * checkpoint["model_data"]["model_hypers"]["d_pet"]
         )
-        for key in ["model_state_dict", "best_model_state_dict"]:
-            if (state_dict := checkpoint.get(key)) is not None:
-                new_state_dict = {}
-                for k, v in state_dict.items():
-                    if "embedding." in k and "node" not in k:
-                        k = k.replace("embedding.", "edge_embedder.")
-                        v = v[:-1, :]  # removing the embedding for padding +1 type
-                    if "node_embedding." in k:
-                        k = k.replace("node_embedding.", "node_embedders.0.")
-                        v = v[:-1, :]  # removing the embedding for padding +1 type
-                    if ".neighbor_embedder." in k:
-                        v = v[:-1, :]  # removing the embedding for padding +1 type
-                    if "combination_rmsnorms" in k:
-                        k = k.replace("combination_rmsnorms", "combination_norms")
-                    new_state_dict[k] = v
-                checkpoint[key] = new_state_dict
+        if (state_dict := checkpoint.get("model_state_dict")) is not None:
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if "embedding." in k and "node" not in k:
+                    k = k.replace("embedding.", "edge_embedder.")
+                    v = v[:-1, :]  # removing the embedding for padding +1 type
+                if "node_embedding." in k:
+                    k = k.replace("node_embedding.", "node_embedders.0.")
+                    v = v[:-1, :]  # removing the embedding for padding +1 type
+                if ".neighbor_embedder." in k:
+                    v = v[:-1, :]  # removing the embedding for padding +1 type
+                if "combination_rmsnorms" in k:
+                    k = k.replace("combination_rmsnorms", "combination_norms")
+                new_state_dict[k] = v
+            checkpoint["model_state_dict"] = new_state_dict
+
+        # for the large-scale checkpoints, the model for evaluation is always
+        # taken to be the last
+        checkpoint["best_model_state_dict"] = checkpoint["model_state_dict"]
 
     else:
         ###############################################
@@ -298,3 +301,25 @@ def trainer_update_v6_v7(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     checkpoint["train_hypers"]["fixed_scaling_weights"] = {}
+
+
+def trainer_update_v7_v8(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 7 to version 8.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # remove all entries in the loss `sliding_factor`
+    old_loss_hypers = checkpoint["train_hypers"]["loss"].copy()
+    dataset_info = checkpoint["model_data"]["dataset_info"]
+    new_loss_hypers = {}
+
+    for target_name in dataset_info.targets.keys():
+        # retain everything except sliding_factor for each target
+        new_loss_hypers[target_name] = {
+            k: v
+            for k, v in old_loss_hypers[target_name].items()
+            if k != "sliding_factor"
+        }
+
+    checkpoint["train_hypers"]["loss"] = new_loss_hypers
