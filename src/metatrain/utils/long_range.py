@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 import torch
 from metatomic.torch import System
 
@@ -18,17 +16,24 @@ class LongRangeFeaturizer(torch.nn.Module):
     """
 
     def __init__(
-        self, hypers: Dict, feature_dim: int, neighbor_list_options: NeighborListOptions
-    ):
+        self,
+        hypers: dict,
+        feature_dim: int,
+        neighbor_list_options: NeighborListOptions,
+    ) -> None:
         super(LongRangeFeaturizer, self).__init__()
 
         try:
-            from torchpme import CoulombPotential
-            from torchpme.calculators import Calculator, EwaldCalculator, P3MCalculator
+            from torchpme import (
+                Calculator,
+                CoulombPotential,
+                EwaldCalculator,
+                P3MCalculator,
+            )
         except ImportError:
             raise ImportError(
                 "`torch-pme` is required for long-range models. "
-                "Please install it with `pip install torch-pme`."
+                "Please install it with `pip install 'torch-pme>=0.3.2'`."
             )
 
         self.ewald_calculator = EwaldCalculator(
@@ -73,9 +78,15 @@ class LongRangeFeaturizer(torch.nn.Module):
         self.charges_map = torch.nn.Linear(feature_dim, feature_dim)
         """Map the short-range features to atomic charges."""
 
+        self.out_projection = torch.nn.Sequential(
+            torch.nn.Linear(feature_dim, feature_dim),
+            torch.nn.SiLU(),
+            torch.nn.Linear(feature_dim, feature_dim),
+        )
+
     def forward(
         self,
-        systems: List[System],
+        systems: list[System],
         features: torch.Tensor,
         neighbor_distances: torch.Tensor,
     ) -> torch.Tensor:
@@ -109,13 +120,11 @@ class LongRangeFeaturizer(torch.nn.Module):
             ]
             last_len_edges += len(neighbor_indices_system)
 
-            if system.pbc.any() and not system.pbc.all():
-                raise NotImplementedError(
-                    "Long-range features are not currently supported for systems "
-                    "with mixed periodic and non-periodic boundary conditions."
-                )
-
-            if system.pbc.all():  # periodic
+            if system.pbc.any():
+                if system.pbc.sum() == 1:
+                    raise NotImplementedError(
+                        "Long-range featurizer does not support 1D systems."
+                    )
                 if self.use_ewald and self.training:  # use Ewald for training only
                     potential = self.ewald_calculator.forward(
                         charges=system_charges,
@@ -123,6 +132,7 @@ class LongRangeFeaturizer(torch.nn.Module):
                         positions=system.positions,
                         neighbor_indices=neighbor_indices_system,
                         neighbor_distances=neighbor_distances_system,
+                        periodic=system.pbc,
                     )
                 else:
                     potential = self.p3m_calculator.forward(
@@ -131,6 +141,7 @@ class LongRangeFeaturizer(torch.nn.Module):
                         positions=system.positions,
                         neighbor_indices=neighbor_indices_system,
                         neighbor_distances=neighbor_distances_system,
+                        periodic=system.pbc,
                     )
             else:  # non-periodic
                 # compute the distance between all pairs of atoms
@@ -154,7 +165,8 @@ class LongRangeFeaturizer(torch.nn.Module):
                     neighbor_indices=neighbor_indices_system,
                     neighbor_distances=neighbor_distances_system,
                 )
-            long_range_features.append(potential * system_charges)
+            long_range_features.append(self.out_projection(potential))
+
         return torch.concatenate(long_range_features)
 
 
@@ -166,7 +178,7 @@ class DummyLongRangeFeaturizer(torch.nn.Module):
 
     def forward(
         self,
-        systems: List[System],
+        systems: list[System],
         features: torch.Tensor,
         neighbor_distances: torch.Tensor,
     ) -> torch.Tensor:
