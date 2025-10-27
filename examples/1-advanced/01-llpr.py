@@ -14,7 +14,7 @@ last-layer prediction rigidity (`LLPR <LLPR_>`_) approximation. Both total and l
 The baseline model was trained using the following training options, where the training
 set consists of 100 structures from the QM9 dataset.
 
-.. literalinclude:: options-model.yaml
+.. literalinclude:: options-no-llpr.yaml
    :language: yaml
 
 Once a model is trained, you can add LLPR uncertainties to it by launching a training
@@ -35,6 +35,8 @@ You can repeat the same training yourself with
 
 import subprocess
 
+import subprocess
+
 import ase.io
 import matplotlib.pyplot as plt
 from ase.visualize.plot import plot_atoms
@@ -47,10 +49,9 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 #
 # We first train the baseline model without uncertainties and then the LLPR model.
 
-# Here, we run training as a subprocess, in reality you would run this from the command
-# line, e.g. ``mtt train options-model.yaml -o model.pt``.
-subprocess.run(["mtt", "train", "options-model.yaml", "-o", "model.pt"], check=True)
-subprocess.run(["mtt", "train", "options-llpr.yaml", "-o", "model-llpr.pt"], check=True)
+
+subprocess.run(["mtt", "train", "options-no-llpr.yaml", "-o", "model.pt"])
+subprocess.run(["mtt", "train", "options-llpr.yaml", "-o", "model-llpr.pt"])
 
 # %%
 #

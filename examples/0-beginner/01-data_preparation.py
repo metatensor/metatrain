@@ -190,6 +190,7 @@ structures = ase.io.read("carbon_reduced_100.xyz", index=":")
 
 root = Path("carbon_reduced_100_memmap/")
 root.mkdir(exist_ok=True)
+root.mkdir(exist_ok=True)
 
 ns_path = root / "ns.npy"
 na_path = root / "na.npy"
@@ -237,8 +238,7 @@ s_mm.flush()
 # For example, you can use the following options file:
 #
 # .. literalinclude:: options-memmap.yaml
+# .. literalinclude:: options-memmap.yaml
 #    :language: yaml
 
-# Here, we run training as a subprocess, in reality you would run this from the command
-# line as ``mtt train options-memmap.yaml``.
-subprocess.run(["mtt", "train", "options-memmap.yaml"], check=True)
+subprocess.run(["mtt", "train", "options-memmap.yaml"])

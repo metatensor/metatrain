@@ -13,8 +13,17 @@ subset of the `rMD17 dataset
 The model was trained using the following training options.
 
 .. literalinclude:: options-ase.yaml
+.. literalinclude:: options-ase.yaml
    :language: yaml
 
+We first train the model same model but and before import the necessary libraries and
+run the training process and the integration of ASE.
+
+"""
+# %%
+#
+
+import subprocess
 We first train the model same model but and before import the necessary libraries and
 run the training process and the integration of ASE.
 
@@ -37,11 +46,7 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 # %%
 #
 
-# Here, we run training as a subprocess, in reality you would run this from the command
-# line as ``mtt train options-ase.yaml --output model-md.pt``.
-subprocess.run(
-    ["mtt", "train", "options-ase.yaml", "--output", "model-md.pt"], check=True
-)
+subprocess.run(["mtt", "train", "options-ase.yaml", "--output", "model-md.pt"])
 
 # %%
 #
