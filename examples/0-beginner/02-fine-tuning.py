@@ -1,8 +1,8 @@
-"""
+r"""
 .. _fine-tuning:
 
-Fine-tuning
-===========
+Fine-tune a pre-trained model
+=============================
 
 .. warning::
 

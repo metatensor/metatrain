@@ -3,7 +3,7 @@ Training a model from scratch
 =============================
 
 This tutorial explains how to train a model with ``metatrain`` from scratch and evaluate
-it. `This dataset <./ethanol_reduced_100.xyz>`_ is used here as an example of the
+it. :download:`This dataset <ethanol_reduced_100.xyz>` is used here as an example of the
 preferred dataset format. If you have your own dataset, you can simply replace the
 dataset file name with yours.
 
