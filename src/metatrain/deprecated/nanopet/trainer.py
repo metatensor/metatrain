@@ -40,7 +40,7 @@ from .model import NanoPET
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 5
 
     def __init__(self, hypers):
         super().__init__(hypers)

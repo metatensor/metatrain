@@ -586,7 +586,6 @@ class LossAggregator(LossInterface):
                     "type": "mse",
                     "weight": 1.0,
                     "reduction": "mean",
-                    "sliding_factor": None,
                     "gradients": {},
                 },
             )
@@ -606,7 +605,6 @@ class LossAggregator(LossInterface):
                         "type",
                         "weight",
                         "reduction",
-                        "sliding_factor",
                         "gradients",
                     )
                 },
@@ -616,7 +614,6 @@ class LossAggregator(LossInterface):
                 "type": target_config["type"],
                 "weight": base_loss.weight,
                 "reduction": base_loss.reduction,
-                "sliding_factor": target_config["sliding_factor"],
                 "gradients": {},
             }
             for pname, pval in target_config.items():
@@ -624,7 +621,6 @@ class LossAggregator(LossInterface):
                     "type",
                     "weight",
                     "reduction",
-                    "sliding_factor",
                     "gradients",
                 ):
                     self.metadata[target_name][pname] = pval
@@ -640,7 +636,6 @@ class LossAggregator(LossInterface):
                         "type": "mse",
                         "weight": 1.0,
                         "reduction": "mean",
-                        "sliding_factor": None,
                     },
                 )
 
@@ -658,7 +653,6 @@ class LossAggregator(LossInterface):
                             "type",
                             "weight",
                             "reduction",
-                            "sliding_factor",
                             "gradients",
                         )
                     },
@@ -668,14 +662,12 @@ class LossAggregator(LossInterface):
                     "type": gradient_specific_config["type"],
                     "weight": grad_loss.weight,
                     "reduction": grad_loss.reduction,
-                    "sliding_factor": target_config["sliding_factor"],
                 }
                 for pname, pval in gradient_specific_config.items():
                     if pname not in (
                         "type",
                         "weight",
                         "reduction",
-                        "sliding_factor",
                         "gradients",
                     ):
                         self.metadata[target_name]["gradients"][gradient_name][
