@@ -53,7 +53,7 @@ section blank will simply disable wandb integration. The parameters for this sec
         - tag2
         notes: This is a test run
 
-All parameters of your options file will be automatically added to the wandb run so
+All parameters of your ``options.yaml`` file will be automatically added to the wandb run so
 you don't have to set the ``config`` parameter.
 
 .. important::
