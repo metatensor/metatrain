@@ -12,8 +12,10 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 .. Fixed
 .. #####
 
-.. Added
-.. #####
+Added
+#####
+
+- Longe-range featurizer now also works with 2D periodic boundary conditions.
 
 .. Changed
 .. #######
