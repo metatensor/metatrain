@@ -19,8 +19,8 @@
    getting-started/index
    configuration/index
    architectures/index
-   tutorials/index
-   advanced-concepts/index
+   generated_examples/index
+   concepts/index
    faq
    cite
    dev-docs/index
