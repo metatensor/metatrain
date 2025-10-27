@@ -1,8 +1,4 @@
 """
-<<<<<<< HEAD
-=======
-==================
->>>>>>> a77e21e8 (Reorganized example files)
 Multi-GPU training
 ==================
 
@@ -16,7 +12,6 @@ computation is run for each of the smaller mini-batches in parallel on different
 The different gradients obtained on each device are then summed. This approach allows
 the user to reduce the time it takes to train models.
 
-<<<<<<< HEAD
 To know if the model supports multi-GPU training, please check
 :ref:`available-architectures` and see if the default hyperparameters have the
 ``distributed`` option.
@@ -28,18 +23,18 @@ To do this, you only need to switch on the ``distributed`` option in the ``.yaml
 for the training. Let's take the
 :ref:`sphx_glr_generated_examples_0-beginner_03-train_from_scratch.py` example and
 adjust the ``options.yaml`` file.
-=======
-To know if the model supports multi-GPU training, please check `Available Architectures
-<../../docs/src/architectures/index.rst>`_ and see if the default hyperparameters have
-the ``distributed`` option.
+
+To know if the model supports multi-GPU training, please check
+:ref:`available-architectures` and see if the default hyperparameters have the
+``distributed`` option.
 
 Input file
 ----------
+
 To do this, you only need to switch on the ``distributed`` option in the ``.yaml`` file
-for the training. Let's take `this tutorial
-<../beginner_tutorials/train-from-scratch.rst>`_ as an example. Now, the
-``options.yaml`` is
->>>>>>> a77e21e8 (Reorganized example files)
+for the training. Let's take the
+:ref:`sphx_glr_generated_examples_0-beginner_03-train_from_scratch.py` example and
+adjust the ``options.yaml`` file.
 
 .. literalinclude:: options-distributed.yaml
    :language: yaml
@@ -52,13 +47,8 @@ Below is an example Slurm script for submitting the job. Please be aware that th
 configurations vary from clusters to clusters, so you have to modify it. Different
 scheduler will require similar options. ``metatrain`` will automatically use all the
 GPUs that you have asked for. You should make a single GPU visible for each process
-<<<<<<< HEAD
 (setting ``--gpus-per-node`` equal to the number of GPUs, or setting
 ``--gpus-per-task=1``, depending on your cluster configuration).
-=======
-(setting `--gpus-per-node` equal to the number of GPUs, or setting `--gpus-per-task=1`,
-depending on your cluster configuration).
->>>>>>> a77e21e8 (Reorganized example files)
 
 .. code-block:: bash
 
@@ -106,14 +96,8 @@ submit this job again. The training takes 69 seconds.
 
 Multi-GPU fine-tuning
 ---------------------
-<<<<<<< HEAD
 
 You can use multi-GPU for fine-tuning too, by writing ``distributed: True`` in the
 ``.yaml`` input. For information about fine-tuning, please refer to the
 :ref:`sphx_glr_generated_examples_0-beginner_02-fine-tuning.py` example.
-=======
-You can use multi-GPU for fine-tuning too, by writing ``distributed: True`` in the
-``.yaml`` input. For information about fine-tuning, please refer to `this tutorial on
-fine-tuning <../../getting-started/finetuning-example.rst>`_.
->>>>>>> a77e21e8 (Reorganized example files)
 """

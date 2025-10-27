@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 r"""
-=======
-"""
->>>>>>> a77e21e8 (Reorganized example files)
 .. _fine-tuning:
 
 Fine-tune a pre-trained model
