@@ -4,7 +4,7 @@ Override Architecture's Default Parameters
 In our initial tutorial, we used default parameters to train a model employing the
 SOAP-BPNN architecture, as shown in the following config:
 
-.. literalinclude:: ../../../examples/basic_usage/options.yaml
+.. literalinclude:: ../../../examples/0-beginner/options-basic.yaml
    :language: yaml
 
 While default parameters often serve as a good starting point, depending on your
