@@ -158,7 +158,7 @@ def trainer_update_v4_v5(checkpoint: dict) -> None:
 
 def trainer_update_v5_v6(checkpoint: dict) -> None:
     """
-    Update a v5 Trainer checkpoint to v6.
+    Update trainer checkpoint from version 5 to version 6.
 
     :param checkpoint: The checkpoint to update.
     """
@@ -170,7 +170,7 @@ def trainer_update_v5_v6(checkpoint: dict) -> None:
 
 def trainer_update_v6_v7(checkpoint: dict) -> None:
     """
-    Update a v6 Trainer checkpoint to v7.
+    Update trainer checkpoint from version 7 to version 8.
 
     :param checkpoint: The checkpoint to update.
     """
