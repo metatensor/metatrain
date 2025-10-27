@@ -68,7 +68,9 @@ supported tox environments please use
 
 .. note::
 
-    Within the ``tox`` environments, ``pip`` is not present, users must use ``uv pip`` instead.
+    Within the ``tox`` environments, ``pip`` does not exist by default,
+    we recommend that users use ``uv pip``. Alternatively
+    ``python -m ensurepip`` within the environment will setup ``pip``.
 
 
 Running the tests
