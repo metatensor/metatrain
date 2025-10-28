@@ -82,7 +82,6 @@ OmegaConf.register_new_resolver("default_precision", default_precision)
 OmegaConf.register_new_resolver("default_random_seed", lambda: RANDOM_SEED)
 OmegaConf.register_new_resolver("default_loss_type", lambda: "mse")
 OmegaConf.register_new_resolver("default_loss_reduction", lambda: "mean")
-OmegaConf.register_new_resolver("default_loss_sliding_factor", lambda: None)
 OmegaConf.register_new_resolver("default_loss_weight", lambda: 1.0)
 
 
@@ -148,7 +147,6 @@ CONF_LOSS = OmegaConf.create(
         "type": "${default_loss_type:}",
         "weight": "${default_loss_weight:}",
         "reduction": "${default_loss_reduction:}",
-        "sliding_factor": "${default_loss_sliding_factor:}",
         "gradients": {},
     }
 )

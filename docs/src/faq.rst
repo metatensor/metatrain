@@ -39,7 +39,7 @@ If available you can also try to run on a GPU, which significantly increases per
 Looking at a distribution of your energies per atom can help. Furthermore, outliers, such as large forces
 complicate training, so looking at the distribution of the forces and removing structures with large forces
 (e.g. all structures with forces with an absolute force > 20 eV/Å) from the dataset can help to stabilize training. For these tasks parity plots can be useful to find outliers.
-See our :ref:`sphx_glr_examples_validation_parity_plot.py` for how to create them.
+See our :ref:`sphx_glr_generated_examples_0-beginner_04-parity_plot.py` for how to create them.
 
 General training concepts
 -------------------------
@@ -63,7 +63,7 @@ correlations up to roughly 10 Å.
 **Q: In what format should I provide my data?**
 
 **A:** You can find everything on how to prepare your data in
-:ref:`sphx_glr_examples_programmatic_data_preparation_data_preparation.py`.
+:ref:`sphx_glr_generated_examples_0-beginner_01-data_preparation.py`.
 
 **Q: How small should my errors be before I can use my model to run Molecular Dynamics simulations?**
 

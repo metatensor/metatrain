@@ -1,8 +1,0 @@
-systems:
-  read_from: ./ethanol_reduced_100.xyz  # file where the positions are stored
-  length_unit: Angstrom
-
-targets:
-  energy:
-    key: energy  # name of the target value
-    unit: eV  # unit of the target value

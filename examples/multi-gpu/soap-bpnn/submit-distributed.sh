@@ -1,1 +1,0 @@
-../../../tests/distributed/submit-distributed.sh
