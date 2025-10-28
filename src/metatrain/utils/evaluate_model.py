@@ -247,7 +247,7 @@ def _get_supported_outputs(
     if is_atomistic_model(model):
         return model.capabilities().outputs
     else:
-        return model.supported_outputs()
+        return model.outputs #supported_outputs()
 
 
 def _get_model_outputs(

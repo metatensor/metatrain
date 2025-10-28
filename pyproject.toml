@@ -67,6 +67,7 @@ soap-bpnn = [
 ]
 pet = []
 nanopet = []
+petgap = []
 gap = [
     "featomic-torch >=0.7,<0.8",
     "skmatter",

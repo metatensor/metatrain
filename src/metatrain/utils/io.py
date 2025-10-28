@@ -206,7 +206,7 @@ def model_from_checkpoint(
         checkpoint["model_ckpt_version"] = model_ckpt_version
 
     if model_ckpt_version != architecture.__model__.__checkpoint_version__:
-        try:
+        # try:
             if ckpt_before_versioning:
                 warnings.warn(
                     "trying to upgrade an old model checkpoint with unknown "
@@ -215,14 +215,14 @@ def model_from_checkpoint(
                 )
 
             checkpoint = architecture.__model__.upgrade_checkpoint(checkpoint)
-        except Exception as e:
-            raise RuntimeError(
-                f"Unable to load the model checkpoint for "
-                f"the '{architecture_name}' architecture: the checkpoint is using "
-                f"version {model_ckpt_version}, while the current version is "
-                f"{architecture.__model__.__checkpoint_version__}; and trying to "
-                "upgrade the checkpoint failed."
-            ) from e
+        # except Exception as e:
+        #     raise RuntimeError(
+        #         f"Unable to load the model checkpoint for "
+        #         f"the '{architecture_name}' architecture: the checkpoint is using "
+        #         f"version {model_ckpt_version}, while the current version is "
+        #         f"{architecture.__model__.__checkpoint_version__}; and trying to "
+        #         "upgrade the checkpoint failed."
+        #     ) from e
 
     return architecture.__model__.load_checkpoint(checkpoint, context=context)
 
