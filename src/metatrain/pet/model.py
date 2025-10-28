@@ -234,6 +234,19 @@ class PET(torch.nn.Module):
                 nn.SiLU(),
                 nn.Linear(1024, 1, bias=True)
             )
+        elif self.hypers['gap_layer'] == 'mlpl':
+            self.bandgap_layer = nn.Sequential(
+                nn.Linear(4806, 16, bias=True),
+                nn.SiLU(),
+                nn.Linear(16, 1, bias=True)
+            )
+        elif self.hypers['gap_layer'] == 'mlpb':
+            self.bandgap_layer = nn.Sequential(
+                nn.Linear(4806, 4806, bias=True),
+                nn.SiLU(),
+                nn.Linear(4806, 1, bias=True)
+            )
+
 
         # restart the composition and scaler models
         # self.additive_models[0].restart(

@@ -1,1 +1,22 @@
-../../../tests/distributed/options-distributed.yaml
+seed: 42
+device: cuda
+
+architecture:
+  name: soap_bpnn
+  training:
+    distributed: True
+    batch_size: 25
+    num_epochs: 100
+
+training_set:
+  systems:
+    read_from: ethanol_reduced_100.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: energy
+      unit: eV
+      forces: on
+
+test_set: 0.0
+validation_set: 0.5
