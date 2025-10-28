@@ -335,7 +335,7 @@ class Trainer(TrainerInterface):
                 model.parameters(), lr=self.hypers["learning_rate"]
             )
 
-        if self.optimizer_state_dict is not None and not is_finetune:
+        if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
             if not (model.module if is_distributed else model).has_new_targets:
@@ -344,7 +344,7 @@ class Trainer(TrainerInterface):
         # Create a learning rate scheduler
         lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
 
-        if self.scheduler_state_dict is not None and not is_finetune:
+        if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
             if not (model.module if is_distributed else model).has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
