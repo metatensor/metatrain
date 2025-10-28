@@ -81,6 +81,7 @@ class PET(torch.nn.Module):
             dataset_info.targets[i].layout = output_map
         try:
             del dataset_info.targets["mtt::mask"]
+            del dataset_info.targets["mtt::gap"]
         except:
             print ("Did not manage to delete mtt::mask from dataset_info.targets")
 
@@ -108,6 +109,26 @@ class PET(torch.nn.Module):
         self.last_layer_feature_size = (
             self.hypers["num_gnn_layers"] * self.hypers["d_head"] * 2
         )
+        if self.hypers['gap_layer'] == 'linear':
+            self.bandgap_layer = nn.Linear(4806, 1)
+        elif self.hypers['gap_layer'] == 'mlp':
+            self.bandgap_layer = nn.Sequential(
+                nn.Linear(4806, 1024, bias=True),
+                nn.SiLU(),
+                nn.Linear(1024, 1, bias=True)
+            )
+        elif self.hypers['gap_layer'] == 'mlpl':
+            self.bandgap_layer = nn.Sequential(
+                nn.Linear(4806, 16, bias=True),
+                nn.SiLU(),
+                nn.Linear(16, 1, bias=True)
+            )
+        elif self.hypers['gap_layer'] == 'mlpb':
+            self.bandgap_layer = nn.Sequential(
+                nn.Linear(4806, 4806, bias=True),
+                nn.SiLU(),
+                nn.Linear(4806, 1, bias=True)
+            )
 
         self.outputs = {
             "features": ModelOutput(unit="", per_atom=True)

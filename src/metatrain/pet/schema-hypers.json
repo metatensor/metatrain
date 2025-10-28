@@ -66,6 +66,9 @@
             }
           },
           "additionalProperties": false
+        },
+        "gap_layer": {
+          "type": "string"
         }
       },
       "additionalProperties": false

@@ -19,6 +19,7 @@ architecture:
       kspace_resolution: 1.33
       interpolation_nodes: 5
     excess_targets: {}
+    gap_layer: 'mlp'
 
   training:
     distributed: false
