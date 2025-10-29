@@ -131,18 +131,13 @@ print("\nCreated options-mixed-stress.yaml configuration file")
 # Now we train the model using the mixed dataset. The training will proceed
 # normally, with stress contributions to the loss only coming from structures
 # where stress is well-defined (non-NaN values).
+#
+# For example, you can use the following options file:
+#
+# .. literalinclude:: options-mixed-stress.yaml
+#    :language: yaml
 
-print("\nStarting training...")
-result = subprocess.run(
-    ["mtt", "train", "options-mixed-stress.yaml", "-o", "model_mixed_stress.pt"],
-    capture_output=True,
-    text=True,
-)
-
-print(result.stdout)
-if result.returncode != 0:
-    print("Error during training:")
-    print(result.stderr)
+subprocess.run(["mtt", "train", "options-mixed-stress.yaml"])
 
 # %%
 #
