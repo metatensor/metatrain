@@ -65,23 +65,29 @@ def remove_additive(
                 properties=old_block.properties.to(device=device),
             )
             for gradient_name in targets[target_key].block(block_key).gradients_list():
-                gradient = (
-                    additive_contribution[target_key]
+                if (
+                    gradient_name
+                    in additive_contribution[target_key]
                     .block(block_key)
-                    .gradient(gradient_name)
-                )
-                block.add_gradient(
-                    gradient_name,
-                    mts.TensorBlock(
-                        values=gradient.values.detach(),
-                        samples=targets[target_key]
+                    .gradients_list()
+                ):
+                    gradient = (
+                        additive_contribution[target_key]
                         .block(block_key)
                         .gradient(gradient_name)
-                        .samples,
-                        components=gradient.components,
-                        properties=gradient.properties,
-                    ),
-                )
+                    )
+                    block.add_gradient(
+                        gradient_name,
+                        mts.TensorBlock(
+                            values=gradient.values.detach(),
+                            samples=targets[target_key]
+                            .block(block_key)
+                            .gradient(gradient_name)
+                            .samples,
+                            components=gradient.components,
+                            properties=gradient.properties,
+                        ),
+                    )
             blocks.append(block)
         additive_contribution[target_key] = TensorMap(
             keys=additive_contribution[target_key].keys.to(device=device),
