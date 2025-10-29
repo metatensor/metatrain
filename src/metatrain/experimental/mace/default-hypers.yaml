@@ -5,20 +5,24 @@
 architecture:
   name: experimental.mace
   model:
+    mace_model: null
+    mace_head_target: energy
+    # If no mace model is provided, the following are the settings to
+    # initialize it:
     cutoff: 5.0  # Named "r_max" in MACE
     num_radial_basis: 8
     num_cutoff_basis: 5
     max_ell: 3
     interaction: RealAgnosticResidualInteractionBlock
     num_interactions: 2
-    hidden_irreps: None
-    edge_irreps: None
+    hidden_irreps: null
+    edge_irreps: null
     apply_cutoff: true
     avg_num_neighbors: 1
     pair_repulsion: false
-    distance_transform: None
+    distance_transform: null
     correlation: 3
-    gate: None
+    gate: silu
     interaction_first: RealAgnosticResidualInteractionBlock
     MLP_irreps: 16x0e
     radial_MLP: [64, 64, 64]
