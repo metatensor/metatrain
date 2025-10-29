@@ -1223,9 +1223,7 @@ def test_train_mixed_stress(monkeypatch, tmp_path, options):
 
     # Create multiple molecules with NaN stress (stress not defined for molecules)
     for i in range(5):
-        molecule = ase.Atoms(
-            "Cu2", positions=[[0, 0, 0], [2.5 + 0.1 * i, 2.5, 2.5]]
-        )
+        molecule = ase.Atoms("Cu2", positions=[[0, 0, 0], [2.5 + 0.1 * i, 2.5, 2.5]])
         molecule.calc = calculator
         molecule.info["energy"] = molecule.get_potential_energy()
         molecule.arrays["forces"] = molecule.get_forces()
