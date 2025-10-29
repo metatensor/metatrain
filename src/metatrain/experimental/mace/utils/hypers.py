@@ -38,8 +38,4 @@ def get_mace_defaults():
         if action.default is not argparse.SUPPRESS and action.dest != "help"
     }
 
-    # Currently the default for gate is 'silu', but this makes the model
-    # no torchscriptable. We set it to None.
-    mace_defaults["gate"] = None
-
     return mace_defaults
