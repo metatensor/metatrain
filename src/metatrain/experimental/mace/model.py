@@ -4,9 +4,9 @@ from typing import Any, Dict, List, Literal, Optional
 import mace.modules as mace_modules
 import torch
 from e3nn import o3
+from e3nn.util import jit
 from mace.modules import MACE
-from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.operations._add import _add_block_block
+from metatensor.torch import Labels, TensorMap
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -22,147 +22,15 @@ from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
-from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from .modules.finetuning import apply_finetuning_strategy
+from .modules.heads import NonLinearHead
 from .modules.structures import create_batch
-
-
-def add_contribution(
-    values: Dict[str, TensorMap],
-    systems: List[System],
-    outputs: Dict[str, ModelOutput],
-    additive_model: CompositionModel,
-    selected_atoms: Optional[Labels] = None,
-) -> None:
-    outputs_for_additive_model: Dict[str, ModelOutput] = {}
-    for name, output in outputs.items():
-        if name in additive_model.outputs:
-            outputs_for_additive_model[name] = output
-    additive_contributions = additive_model.forward(
-        systems,
-        outputs_for_additive_model,
-        selected_atoms,
-    )
-    for name in additive_contributions:
-        # # TODO: uncomment this after metatensor.torch.add is updated to
-        # # handle sparse sums
-        # return_dict[name] = metatensor.torch.add(
-        #     return_dict[name],
-        #     additive_contributions[name].to(
-        #         device=return_dict[name].device,
-        #         dtype=return_dict[name].dtype
-        #         ),
-        # )
-
-        # TODO: "manual" sparse sum: update to metatensor.torch.add after
-        # sparse sum is implemented in metatensor.operations
-        output_blocks: List[TensorBlock] = []
-        for k, b in values[name].items():
-            if k in additive_contributions[name].keys:
-                output_blocks.append(
-                    _add_block_block(
-                        b,
-                        additive_contributions[name]
-                        .block(k)
-                        .to(device=b.device, dtype=b.dtype),
-                    )
-                )
-            else:
-                output_blocks.append(b)
-        values[name] = TensorMap(values[name].keys, output_blocks)
-
-
-def e3nn_to_tensormap(
-    target_values: torch.Tensor,
-    sample_labels: Labels,
-    target_info: TargetInfo,
-    output_name: str,
-    outputs: Dict[str, ModelOutput],
-) -> TensorMap:
-    blocks: list[TensorBlock] = []
-    pointer = 0
-    for i in range(len(target_info.component_labels)):
-        components = target_info.component_labels[i]
-        properties = target_info.property_labels[i]
-
-        has_components = len(components) > 0
-        n_components = len(components[0]) if has_components else 1
-        n_properties = len(properties)
-
-        end = pointer + n_components * n_properties
-
-        values = (
-            target_values[:, pointer:end]
-            .reshape(
-                -1,
-                n_properties,
-                n_components,
-            )
-            .transpose(1, 2)
-        )
-
-        if target_info.is_cartesian and n_components == 3:
-            # Go back from YZX to XYZ
-            values = values[:, [2, 0, 1], :]
-
-        if not has_components:
-            # Remove the components dimension if there are no components
-            values = values.squeeze(1)
-
-        blocks.append(
-            TensorBlock(
-                values=values,
-                samples=sample_labels,
-                components=components,
-                properties=properties,
-            )
-        )
-        pointer = end
-
-    atom_target = TensorMap(keys=target_info.layout.keys, blocks=blocks)
-
-    return (
-        sum_over_atoms(atom_target)
-        if not outputs[output_name].per_atom
-        else atom_target
-    )
-
-
-def get_system_indices_and_labels(
-    systems: List[System], device: torch.device
-) -> tuple[torch.Tensor, Labels]:
-    system_indices = torch.concatenate(
-        [
-            torch.full(
-                (len(system),),
-                i_system,
-                device=device,
-            )
-            for i_system, system in enumerate(systems)
-        ],
-    )
-
-    sample_values = torch.stack(
-        [
-            system_indices,
-            torch.concatenate(
-                [
-                    torch.arange(
-                        len(system),
-                        device=device,
-                    )
-                    for system in systems
-                ],
-            ),
-        ],
-        dim=1,
-    )
-    sample_labels = Labels(
-        names=["system", "atom"],
-        values=sample_values,
-    )
-    return system_indices, sample_labels
+from .utils.mts import (
+    add_contribution,
+    e3nn_to_tensormap,
+    get_system_indices_and_labels,
+)
 
 
 class MetaMACE(ModelInterface):
@@ -180,15 +48,8 @@ class MetaMACE(ModelInterface):
         }
     )
 
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__(model_hypers, dataset_info, self.__default_metadata__)
-
-        self.register_buffer(
-            "atomic_types_to_species_index",
-            torch.zeros(max(dataset_info.atomic_types) + 1, dtype=torch.int64),
-        )
-        for i, atomic_type in enumerate(dataset_info.atomic_types):
-            self.atomic_types_to_species_index[atomic_type] = i
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.requested_nl = NeighborListOptions(
             cutoff=self.hypers["cutoff"],
@@ -198,40 +59,54 @@ class MetaMACE(ModelInterface):
 
         self.cutoff = float(self.hypers["cutoff"])
 
-        self.mace_model = MACE(
-            r_max=self.cutoff,
-            num_bessel=model_hypers["num_radial_basis"],
-            num_polynomial_cutoff=model_hypers["num_cutoff_basis"],
-            max_ell=model_hypers["max_ell"],
-            interaction_cls=mace_modules.interaction_classes[
-                model_hypers["interaction"]
-            ],
-            num_interactions=model_hypers["num_interactions"],
-            num_elements=len(dataset_info.atomic_types),
-            hidden_irreps=o3.Irreps(model_hypers["hidden_irreps"]),
-            edge_irreps=o3.Irreps(model_hypers["edge_irreps"])
-            if "edge_irreps" in model_hypers["edge_irreps"]
-            else None,
-            atomic_energies=torch.zeros(len(dataset_info.atomic_types)),
-            apply_cutoff=model_hypers["apply_cutoff"],
-            avg_num_neighbors=model_hypers["avg_num_neighbors"],
-            atomic_numbers=torch.arange(len(dataset_info.atomic_types)),
-            pair_repulsion=model_hypers["pair_repulsion"],
-            distance_transform=model_hypers["distance_transform"],
-            correlation=model_hypers["correlation"],
-            gate=mace_modules.gate_dict[model_hypers["gate"]]
-            if model_hypers["gate"] is not None
-            else None,
-            interaction_cls_first=mace_modules.interaction_classes[
-                model_hypers["interaction_first"]
-            ],
-            MLP_irreps=o3.Irreps(model_hypers["MLP_irreps"]),
-            radial_MLP=model_hypers["radial_MLP"],
-            radial_type=model_hypers["radial_type"],
-            use_embedding_readout=model_hypers["use_embedding_readout"],
-            use_last_readout_only=model_hypers["use_last_readout_only"],
-            use_agnostic_product=model_hypers["use_agnostic_product"],
+        if self.hypers["mace_model"] is not None:
+            self.mace_model = torch.load(self.hypers["mace_model"], weights_only=False)
+        else:
+            self.mace_model = MACE(
+                r_max=self.cutoff,
+                num_bessel=self.hypers["num_radial_basis"],
+                num_polynomial_cutoff=self.hypers["num_cutoff_basis"],
+                max_ell=self.hypers["max_ell"],
+                interaction_cls=mace_modules.interaction_classes[
+                    self.hypers["interaction"]
+                ],
+                num_interactions=self.hypers["num_interactions"],
+                num_elements=len(dataset_info.atomic_types),
+                hidden_irreps=o3.Irreps(self.hypers["hidden_irreps"]),
+                edge_irreps=o3.Irreps(self.hypers["edge_irreps"])
+                if "edge_irreps" in self.hypers
+                else None,
+                atomic_energies=torch.zeros(len(dataset_info.atomic_types)),
+                apply_cutoff=self.hypers["apply_cutoff"],
+                avg_num_neighbors=self.hypers["avg_num_neighbors"],
+                atomic_numbers=dataset_info.atomic_types,
+                pair_repulsion=self.hypers["pair_repulsion"],
+                distance_transform=self.hypers["distance_transform"],
+                correlation=self.hypers["correlation"],
+                gate=mace_modules.gate_dict[self.hypers["gate"]]
+                if self.hypers["gate"] is not None
+                else None,
+                interaction_cls_first=mace_modules.interaction_classes[
+                    self.hypers["interaction_first"]
+                ],
+                MLP_irreps=o3.Irreps(self.hypers["MLP_irreps"]),
+                radial_MLP=self.hypers["radial_MLP"],
+                radial_type=self.hypers["radial_type"],
+                use_embedding_readout=self.hypers["use_embedding_readout"],
+                use_last_readout_only=self.hypers["use_last_readout_only"],
+                use_agnostic_product=self.hypers["use_agnostic_product"],
+            )
+
+        self.mace_head_target = str(self.hypers["mace_head_target"])
+
+        self.atomic_types = self.mace_model.atomic_numbers.tolist()
+
+        self.register_buffer(
+            "atomic_types_to_species_index",
+            torch.zeros(max(self.atomic_types) + 1, dtype=torch.int64),
         )
+        for i, atomic_type in enumerate(self.atomic_types):
+            self.atomic_types_to_species_index[atomic_type] = i
 
         self.outputs = {"features": ModelOutput(unit="", per_atom=True)}
         self.heads = torch.nn.ModuleDict()
@@ -242,7 +117,7 @@ class MetaMACE(ModelInterface):
             hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
-                atomic_types=self.dataset_info.atomic_types,
+                atomic_types=self.atomic_types,
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
@@ -324,7 +199,7 @@ class MetaMACE(ModelInterface):
             systems=systems,
             neighbor_list_options=self.requested_nl,
             atomic_types_to_species_index=self.atomic_types_to_species_index,
-            n_types=len(self.dataset_info.atomic_types),
+            n_types=len(self.atomic_types),
             device=device,
         )
 
@@ -332,7 +207,7 @@ class MetaMACE(ModelInterface):
         data["positions"] = data["positions"][:, [1, 2, 0]]
 
         # Run MACE and extract the node features.
-        mace_output = self.mace_model(data, training=self.training)
+        mace_output = self.mace_model(data, training=self.training, compute_force=False)
         node_features = mace_output["node_feats"]
         assert node_features is not None  # For torchscript
 
@@ -342,18 +217,25 @@ class MetaMACE(ModelInterface):
         # Run all heads and collect outputs as TensorMaps
         return_dict: Dict[str, TensorMap] = {}
         for output_name, head in self.heads.items():
-            node_target = head.forward(node_features, weight=None, bias=None)
-            target_info = self.dataset_info.targets[output_name]
+            # Get the per node target values
+            if output_name == self.mace_head_target:
+                # Use the internal MACE head
+                node_energy = mace_output["node_energy"]
+                assert node_energy is not None  # For torchscript
+                node_target = node_energy.reshape(-1, 1)
+            else:
+                node_target = head.forward(node_features)
 
+            # Convert to TensorMap and store
             return_dict[output_name] = e3nn_to_tensormap(
                 node_target,
-                sample_labels,
-                target_info,
-                output_name,
-                outputs,
+                sample_labels=sample_labels,
+                target_info=self.dataset_info.targets[output_name],
+                output_name=output_name,
+                outputs=outputs,
             )
 
-        if not self.training:
+        if True or not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
             return_dict = self.scaler(systems, return_dict)
             for additive_model in self.additive_models:
@@ -430,7 +312,7 @@ class MetaMACE(ModelInterface):
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
-            atomic_types=self.dataset_info.atomic_types,
+            atomic_types=self.atomic_types,
             interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
@@ -439,7 +321,7 @@ class MetaMACE(ModelInterface):
 
         metadata = merge_metadata(self.metadata, metadata)
 
-        return AtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(jit.compile(self.eval()), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         """
@@ -481,11 +363,20 @@ class MetaMACE(ModelInterface):
             self.hypers["num_interactions"] - 1
         ) + o3.Irreps([(n_scalars, (0, 1))])
 
-        self.heads[target_name] = o3.Linear(
-            irreps_in=mace_out_irreps, irreps_out=o3.Irreps(irreps)
-        )
+        if target_name == self.mace_head_target:
+            # Dummy head so that torchscript loops through this target_name
+            # when doing self.heads.items(). In reality we use the internal
+            # MACE head for this target
+            self.heads[target_name] = torch.nn.Identity()
+        else:
+            self.heads[target_name] = NonLinearHead(
+                irreps_in=mace_out_irreps,
+                irreps_out=o3.Irreps(irreps),
+                MLP_irreps=o3.Irreps(self.hypers["MLP_irreps"]),
+                gate=mace_modules.gate_dict.get(self.hypers["gate"], None),
+            )
 
-        self.heads[target_name].to(torch.float64)
+            self.heads[target_name].to(torch.float64)
 
         ll_features_name = (
             f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
@@ -511,7 +402,7 @@ class MetaMACE(ModelInterface):
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {
-                "model_hypers": self.hypers,
+                "hypers": self.hypers,
                 "dataset_info": self.dataset_info.to(device="cpu"),
             },
             "epoch": None,
