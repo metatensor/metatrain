@@ -64,9 +64,13 @@ def concatenate_structures(
                 torch.cat([system_selected_atoms, unique_centers])
             )
             # calculate the mapping from the ghost atoms to the real atoms
+            if torch.numel(unique_centers) == 0:
+                max_center_index = -1
+            else:
+                max_center_index = int(unique_centers.max())
             ghost_to_real_index = torch.full(
                 [
-                    int(unique_centers.max()) + 1,
+                    max_center_index + 1,
                 ],
                 -1,
                 device=centers_values.device,

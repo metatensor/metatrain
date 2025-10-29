@@ -20,7 +20,11 @@ def sum_over_atoms(tensor_map: TensorMap) -> TensorMap:
     for block in tensor_map.blocks():
         device = block.values.device
         dtype = block.values.dtype
-        n_systems = int(block.samples.column("system").max() + 1)
+        system_samples = block.samples.column("system")
+        if system_samples.numel() == 0:
+            n_systems = 0
+        else:
+            n_systems = int(system_samples.max()) + 1
         new_tensor = torch.zeros(
             [n_systems] + list(block.values.shape[1:]), device=device, dtype=dtype
         )
