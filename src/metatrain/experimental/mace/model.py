@@ -235,7 +235,7 @@ class MetaMACE(ModelInterface):
                 outputs=outputs,
             )
 
-        if True or not self.training:
+        if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
             return_dict = self.scaler(systems, return_dict)
             for additive_model in self.additive_models:
