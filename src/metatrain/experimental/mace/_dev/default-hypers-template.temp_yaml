@@ -7,6 +7,10 @@ architecture:
   name: experimental.mace
 
   model:
+    mace_model: null
+    mace_head_target: energy
+    # If no mace model is provided, the following are the settings to
+    # initialize it:
     cutoff: {{ mace_defaults.r_max }} # Named "r_max" in MACE
     {% for item in mace_model_defaults %}
     {{ item[0] }}: {{ item[1] }}
