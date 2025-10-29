@@ -103,8 +103,23 @@ class RMSEAccumulator:
                     prediction_gradient = prediction_block.gradient(gradient_name)
 
                     if mask is None:
+                        if gradient_name == "strain":
+                            # For stress targets, we allow users to use NaN entries for
+                            # systems without PBCs or with mixed PBCs. We filter them
+                            # out here.
+                            valid_mask = ~torch.isnan(target_gradient.values)
+                        else:
+                            valid_mask = torch.ones_like(
+                                target_gradient.values, dtype=torch.bool
+                            )
                         gradient_rmse_value = (
-                            ((prediction_gradient.values - target_gradient.values) ** 2)
+                            (
+                                (
+                                    prediction_gradient.values[valid_mask]
+                                    - target_gradient.values[valid_mask]
+                                )
+                                ** 2
+                            )
                             .sum()
                             .item()
                         )
@@ -269,8 +284,20 @@ class MAEAccumulator:
                     prediction_gradient = prediction_block.gradient(gradient_name)
 
                     if mask is None:
+                        if gradient_name == "strain":
+                            # For stress targets, we allow users to use NaN entries for
+                            # systems without PBCs or with mixed PBCs. We filter them
+                            # out here.
+                            valid_mask = ~torch.isnan(target_gradient.values)
+                        else:
+                            valid_mask = torch.ones_like(
+                                target_gradient.values, dtype=torch.bool
+                            )
                         gradient_mae_value = (
-                            (prediction_gradient.values - target_gradient.values)
+                            (
+                                prediction_gradient.values[valid_mask]
+                                - target_gradient.values[valid_mask]
+                            )
                             .abs()
                             .sum()
                             .item()

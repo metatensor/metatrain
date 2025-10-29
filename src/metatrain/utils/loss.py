@@ -177,6 +177,14 @@ class BaseTensorMapLoss(LossInterface):
         # Concatenate all segments and apply the torch loss
         all_predictions_flattened = torch.cat(list_of_prediction_segments)
         all_targets_flattened = torch.cat(list_of_target_segments)
+
+        # For stress targets, we allow users to use NaN entries for systems without
+        # PBCs or with mixed PBCs. We filter them out here.
+        if self.gradient == "strain":
+            valid_mask = ~torch.isnan(all_targets_flattened)
+            all_predictions_flattened = all_predictions_flattened[valid_mask]
+            all_targets_flattened = all_targets_flattened[valid_mask]
+
         return self.torch_loss(all_predictions_flattened, all_targets_flattened)
 
     def compute(
