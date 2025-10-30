@@ -17,6 +17,9 @@ dependencies = [
     "metatensor-torch >=0.8.1,<0.9",
     "metatomic-torch >=0.1.5,<0.2",
     "jsonschema",
+    # pydantic started to send a bunch of warning with wandb, so we can pin it
+    # until https://github.com/wandb/wandb/issues/10662 is resolved
+    "pydantic<2.12",
     "omegaconf >= 2.3.0",
     "python-hostlist",
     "tqdm",
