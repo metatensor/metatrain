@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import List
 
 import pytest
-import wandb
 from metatomic.torch import ModelCapabilities, ModelOutput
 
 from metatrain import PACKAGE_ROOT
@@ -20,6 +19,11 @@ from metatrain.utils.logging import (
     human_readable,
     setup_logging,
 )
+from metatrain.utils.testing._utils import WANDB_AVAILABLE
+
+
+if WANDB_AVAILABLE.present:
+    import wandb
 
 
 def assert_log_entry(logtext: str, loglevel: str, message: str) -> None:
@@ -178,6 +182,7 @@ def test_custom_logger_logs_to_csv_handler(monkeypatch, tmp_path):
     handler.close()
 
 
+@pytest.mark.skipif(not WANDB_AVAILABLE.present, reason=WANDB_AVAILABLE.message)
 def test_wandb_handler_emit_data(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
@@ -193,6 +198,7 @@ def test_wandb_handler_emit_data(monkeypatch, tmp_path):
     handler.close()
 
 
+@pytest.mark.skipif(not WANDB_AVAILABLE.present, reason=WANDB_AVAILABLE.message)
 def test_wandb_handler_handler_emit_does_nothing(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
@@ -232,6 +238,7 @@ class MockWandbRun:
 
 
 @pytest.mark.parametrize("prefix", ["training", "test", "validation"])
+@pytest.mark.skipif(not WANDB_AVAILABLE.present, reason=WANDB_AVAILABLE.message)
 def test_custom_logger_logs_to_wandb(monkeypatch, tmp_path, prefix):
     monkeypatch.chdir(tmp_path)
 
@@ -271,6 +278,8 @@ def test_custom_logger_logs_to_wandb(monkeypatch, tmp_path, prefix):
 
 @pytest.mark.parametrize("handler_cls", [WandbHandler, CSVFileHandler])
 def test_handler_different_lengths(handler_cls, monkeypatch, tmp_path):
+    if handler_cls is WandbHandler and not WANDB_AVAILABLE.present:
+        pytest.skip(WANDB_AVAILABLE.message)
     monkeypatch.chdir(tmp_path)
 
     if handler_cls is CSVFileHandler:
@@ -332,6 +341,7 @@ def test_metric_logger(caplog, monkeypatch, tmp_path):
     assert type(logger) is CustomLogger
 
     outputs = {
+        "energy": ModelOutput(unit="eV", explicit_gradients=["positions"]),
         "mtt::foo": ModelOutput(unit="eV"),
         "mtt::bar": ModelOutput(unit="hartree"),
     }
@@ -342,21 +352,41 @@ def test_metric_logger(caplog, monkeypatch, tmp_path):
     )
 
     names = ["train"]
+    train_metrics = [
+        {
+            "loss": 0.1,
+            "baz": 1e-5,
+            "energy RMSE": 1.0,
+            "energy_positions_gradients MAE": 0.5,
+            "mtt::foo RMSE": 1.0,
+            "mtt::bar RMSE": 0.1,
+        }
+    ]
 
-    train_metrics = [{"loss": 0.1, "mtt::foo RMSE": 1.0, "mtt::bar RMSE": 0.1}]
-    eval_metrics = [{"mtt::foo RMSE": 5.0, "mtt::bar RMSE": 10.0}]
+    # single dict to test that metrics will be converted to list
+    eval_metrics = {"mtt::foo RMSE": 5.0, "mtt::bar RMSE": 10.0}
 
     with setup_logging(logger, log_file="logfile.log", level=logging.INFO):
-        trainer_logger = MetricLogger(logger, capabilities, train_metrics, names)
-        trainer_logger.log(train_metrics, epoch=1)
+        trainer_logger = MetricLogger(
+            log_obj=logger,
+            dataset_info=capabilities,
+            initial_metrics=train_metrics,
+            names=names,
+        )
+        trainer_logger.log(metrics=train_metrics, epoch=1)
 
-        eval_logger = MetricLogger(logger, capabilities, eval_metrics)
-        eval_logger.log(eval_metrics)
+        eval_logger = MetricLogger(
+            log_obj=logger, dataset_info=capabilities, initial_metrics=eval_metrics
+        )
+        eval_logger.log(metrics=eval_metrics)
 
     # Test for correctly formatted log messages (only one space between words)
     # During training
     assert "Epoch:    1 | " in caplog.text
     assert "train loss: 1.000e-01 | " in caplog.text
+    assert "train baz: 1.000e-05 | " in caplog.text
+    assert "train energy RMSE: 1000.0 meV | " in caplog.text
+    assert "train energy_positions_gradients MAE: 500.00 meV/A | " in caplog.text
     assert "train mtt::bar RMSE: 0.10000 hartree | " in caplog.text
     assert "train mtt::foo RMSE: 1000.0 meV" in caplog.text  # eV converted to meV
 
@@ -370,11 +400,22 @@ def test_metric_logger(caplog, monkeypatch, tmp_path):
     assert rows[0] == [
         "Epoch",
         "train loss",
+        "train baz",
+        "train energy RMSE",
+        "train energy_positions_gradients MAE",
         "train mtt::bar RMSE",
         "train mtt::foo RMSE",
     ]
-    assert rows[1] == ["", "", "hartree", "meV"]
-    assert rows[2] == ["   1", "1.000e-01", "0.10000", "1000.0"]
+    assert rows[1] == ["", "", "", "meV", "meV/A", "hartree", "meV"]
+    assert rows[2] == [
+        "   1",
+        "1.000e-01",
+        "1.000e-05",
+        "1000.0",
+        "500.00",
+        "0.10000",
+        "1000.0",
+    ]
 
 
 def get_argv():

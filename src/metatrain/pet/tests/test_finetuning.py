@@ -12,6 +12,7 @@ from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.io import model_from_checkpoint
+from metatrain.utils.omegaconf import CONF_LOSS
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -19,7 +20,7 @@ from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 def test_lora_finetuning_functionality():
     target_info_dict = {}
     target_info_dict["energy"] = get_energy_target_info(
-        {"quantity": "energy", "unit": "eV"}
+        "energy", {"quantity": "energy", "unit": "eV"}
     )
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -49,7 +50,7 @@ def test_lora_finetuning_device(device):
 
     target_info_dict = {}
     target_info_dict["energy"] = get_energy_target_info(
-        {"quantity": "energy", "unit": "eV"}
+        "energy", {"quantity": "energy", "unit": "eV"}
     )
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -74,7 +75,7 @@ def test_lora_finetuning_device(device):
 def test_heads_finetuning_functionality():
     target_info_dict = {}
     target_info_dict["energy"] = get_energy_target_info(
-        {"quantity": "energy", "unit": "eV"}
+        "energy", {"quantity": "energy", "unit": "eV"}
     )
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -109,7 +110,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
 
     target_info_dict = {}
     target_info_dict["mtt::U0"] = get_energy_target_info(
-        {"quantity": "energy", "unit": "eV"}
+        "mtt::U0", {"quantity": "energy", "unit": "eV"}
     )
 
     dataset_info = DatasetInfo(
@@ -142,6 +143,10 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     hypers = DEFAULT_HYPERS.copy()
 
     hypers["training"]["num_epochs"] = 1
+
+    loss_conf = OmegaConf.create({"mtt::U0": CONF_LOSS.copy()})
+    OmegaConf.resolve(loss_conf)
+    hypers["training"]["loss"] = loss_conf
 
     # Pre-training
     trainer = Trainer(hypers["training"])

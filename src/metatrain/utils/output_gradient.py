@@ -5,13 +5,28 @@ import torch
 
 
 def compute_gradient(
-    target: torch.Tensor, inputs: List[torch.Tensor], is_training: bool
+    target: torch.Tensor,
+    inputs: List[torch.Tensor],
+    is_training: bool,
+    destroy_graph: bool,
 ) -> List[torch.Tensor]:
     """
     Calculates the gradient of a target tensor with respect to a list of input tensors.
 
     ``target`` must be a single torch.Tensor object. If target contains multiple values,
     the gradient will be calculated with respect to the sum of all values.
+
+    :param target: The tensor for which the gradient is to be computed.
+    :param inputs: A list of tensors with respect to which the gradient is computed.
+    :param is_training: A boolean indicating whether the model is in training mode.
+        If True, the computation graph is retained for further gradient computations
+        and the graph of the derivative will be constructed, allowing to compute
+        higher-order derivatives.
+    :param destroy_graph: A boolean indicating whether to destroy the computation graph
+        after computing the gradient. If True, the graph is destroyed (unless
+        ``is_training`` is True).
+    :return: A list of tensors representing the gradients of the target with respect to
+        each input
     """
 
     grad_outputs: Optional[List[Optional[torch.Tensor]]] = [torch.ones_like(target)]
@@ -20,7 +35,7 @@ def compute_gradient(
             outputs=[target],
             inputs=inputs,
             grad_outputs=grad_outputs,
-            retain_graph=is_training,
+            retain_graph=is_training or (not destroy_graph),
             create_graph=is_training,
         )
     except RuntimeError as e:

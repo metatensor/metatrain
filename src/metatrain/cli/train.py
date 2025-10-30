@@ -7,11 +7,13 @@ import random
 import re
 import shutil
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
+
+from metatrain.utils.data import Dataset
 
 from .. import PACKAGE_ROOT
 from ..utils.abc import ModelInterface, TrainerInterface
@@ -30,7 +32,7 @@ from ..utils.data import (
 from ..utils.data.dataset import _save_indices, _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
-from ..utils.errors import ArchitectureError
+from ..utils.errors import ArchitectureError, OutOfMemoryError
 from ..utils.io import (
     check_file_extension,
     load_model,
@@ -39,14 +41,22 @@ from ..utils.io import (
 )
 from ..utils.jsonschema import validate
 from ..utils.logging import ROOT_LOGGER, WandbHandler, human_readable
-from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
+from ..utils.omegaconf import (
+    BASE_OPTIONS,
+    check_units,
+    expand_dataset_config,
+    expand_loss_config,
+)
 from .eval import _eval_targets
 from .export import _has_extensions
 from .formatter import CustomHelpFormatter
 
 
 def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
-    """Add `train_model` paramaters to an argparse (sub)-parser."""
+    """Add `train_model` paramaters to an argparse (sub)-parser.
+
+    :param subparser: The argparse (sub)-parser to add the parameters to.
+    """
 
     if train_model.__doc__ is not None:
         description = train_model.__doc__.split(r":param")[0]
@@ -109,7 +119,10 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 
 def _prepare_train_model_args(args: argparse.Namespace) -> None:
-    """Prepare arguments for train_model."""
+    """Prepare arguments for train_model.
+
+    :param args: The argparse.Namespace containing the arguments.
+    """
     args.options = OmegaConf.load(args.options)
     # merge/override file options with command line options
     override_options = args.__dict__.pop("override_options")
@@ -125,7 +138,7 @@ def _process_restart_from(restart_from: str) -> Optional[Union[str, Path]]:
     pattern = re.compile(r".*\d{4}-\d{2}-\d{2}/\d{2}-\d{2}-\d{2}/*")
     checkpoints = sorted(
         (f for f in Path("outputs").glob("*/*/*.ckpt") if pattern.match(str(f))),
-        key=lambda f: f.stat().st_ctime,
+        key=lambda f: f.stat().st_mtime,
         reverse=True,
     )
 
@@ -149,6 +162,7 @@ def train_model(
 
     :param options: DictConfig containing the training options
     :param output: Path to save the final model
+    :param extensions: Path to save the model extensions, if any
     :param checkpoint_dir: Path to save checkpoints and other intermediate output files
         like the fully expanded training options for a later restart.
     :param restart_from: File to continue training from.
@@ -205,7 +219,6 @@ def train_model(
         {"architecture": get_default_hypers(architecture_name)},
         options,
     )
-    hypers = OmegaConf.to_container(options["architecture"])
 
     ###########################
     # PROCESS BASE PARAMETERS #
@@ -237,7 +250,7 @@ def train_model(
         torch.cuda.manual_seed_all(options["seed"])
 
     # setup wandb logging
-    if hasattr(options, "wandb"):
+    if hasattr(options, "wandb") and is_main_process():
         try:
             import wandb
         except ImportError:
@@ -386,6 +399,10 @@ def train_model(
             test_datasets.append(dataset)
             test_indices.append(None)
 
+    # Expand loss options and finalize the hypers
+    options = expand_loss_config(options)
+    hypers = OmegaConf.to_container(options["architecture"])
+
     ############################################
     # SAVE TRAIN, VALIDATION, TEST INDICES #####
     ############################################
@@ -416,31 +433,15 @@ def train_model(
     # PRINT DATASET STATS #####
     ###########################
 
-    for i, train_dataset in enumerate(train_datasets):
-        if len(train_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
+    if sum(len(d) for d in train_datasets + val_datasets + test_datasets) < 1_000_000:
+        # only print stats if the datasets are not too large (avoids hanging)
+        _print_stats("Training", train_datasets, dataset_info)
+        _print_stats("Validation", val_datasets, dataset_info)
+        _print_stats("Test", test_datasets, dataset_info)
+    else:
         logging.info(
-            f"Training dataset{index}:\n    {get_stats(train_dataset, dataset_info)}"
-        )
-
-    for i, val_dataset in enumerate(val_datasets):
-        if len(val_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
-        logging.info(
-            f"Validation dataset{index}:\n    {get_stats(val_dataset, dataset_info)}"
-        )
-
-    for i, test_dataset in enumerate(test_datasets):
-        if len(test_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
-        logging.info(
-            f"Test dataset{index}:\n    {get_stats(test_dataset, dataset_info)}"
+            "Datasets are too large (>1M total structures) to calculate statistics "
+            "quickly. Skipping statistics."
         )
 
     ###########################
@@ -523,7 +524,7 @@ def train_model(
             model = Model(hypers["model"], dataset_info)
             trainer = Trainer(hypers["training"])
     except Exception as e:
-        raise ArchitectureError(e)
+        raise ArchitectureError(e) from e
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logging.info(
@@ -551,8 +552,10 @@ def train_model(
             val_datasets=val_datasets,
             checkpoint_dir=str(checkpoint_dir),
         )
+    except torch.cuda.OutOfMemoryError as e:
+        raise ArchitectureError(OutOfMemoryError(e)) from e
     except Exception as e:
-        raise ArchitectureError(e)
+        raise ArchitectureError(e) from e
 
     if not is_main_process():
         return  # only save and evaluate on the main process
@@ -568,7 +571,11 @@ def train_model(
         trainer.save_checkpoint(model, checkpoint_output)
     except Exception as e:
         raise ArchitectureError(e)
+
     if checkpoint_output.exists():
+        # Reload ensuring (best) model intended for inference
+        model = load_model(checkpoint_output)
+
         logging.info(f"Final checkpoint: {checkpoint_output.absolute().resolve()}")
 
     mts_atomistic_model = model.export()
@@ -676,3 +683,14 @@ def _get_batch_size_from_hypers(hypers: Union[Dict, DictConfig]) -> Optional[int
         ):
             return value
     return None
+
+
+def _print_stats(name: str, datasets: List[Dataset], dataset_info: DatasetInfo) -> None:
+    # Prints statistics about the datasets
+
+    for i, dataset in enumerate(datasets):
+        if len(datasets) == 1:
+            index = ""
+        else:
+            index = f" {i}"
+        logging.info(f"{name} dataset{index}:\n    {get_stats(dataset, dataset_info)}")

@@ -1,9 +1,11 @@
 ase
+chemiscope
 furo
 myst-parser
 sphinx >= 7
 sphinxcontrib-bibtex
 sphinx-gallery
+sphinx-copybutton
+sphinx-sitemap
 sphinx-toggleprompt
-setuptools  # required for sphinxcontrib-bibtex together with Python 3.13
 tomli

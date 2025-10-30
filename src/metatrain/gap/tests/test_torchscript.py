@@ -17,7 +17,7 @@ torch.set_default_dtype(torch.float64)  # GAP only supports float64
 def test_torchscript():
     """Tests that the model can be jitted."""
     target_info_dict = {}
-    target_info_dict["mtt::U0"] = get_energy_target_info({"unit": "eV"})
+    target_info_dict["mtt::U0"] = get_energy_target_info("mtt::U0", {"unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -69,7 +69,7 @@ def test_torchscript():
 def test_torchscript_save_load(tmpdir):
     """Tests that the model can be jitted and saved."""
     targets = {}
-    targets["mtt::U0"] = get_energy_target_info({"unit": "eV"})
+    targets["mtt::U0"] = get_energy_target_info("mtt::U0", {"unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
@@ -93,10 +93,8 @@ def test_torchscript_integers():
     new_hypers["soap"]["density"]["scaling"]["scale"] = 2
     new_hypers["soap"]["density"]["scaling"]["exponent"] = 7
 
-    # print(new_hypers)
-
     target_info_dict = {}
-    target_info_dict["mtt::U0"] = get_energy_target_info({"unit": "eV"})
+    target_info_dict["mtt::U0"] = get_energy_target_info("mtt::U0", {"unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict

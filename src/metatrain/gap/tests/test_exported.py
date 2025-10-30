@@ -34,7 +34,7 @@ def test_export():
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
 
     target_info_dict = {}
-    target_info_dict["energy"] = get_energy_target_info({"unit": "eV"})
+    target_info_dict["energy"] = get_energy_target_info("energy", {"unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -44,7 +44,9 @@ def test_export():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
     model = GAP(DEFAULT_HYPERS["model"], dataset_info)

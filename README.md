@@ -38,9 +38,9 @@ model:
 |--------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
 | GAP                      | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
 | PET                      | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
-| NanoPET *(experimental)* | Re-implementation of the original PET with slightly improved training and evaluation speed                                           |
-| PET *(deprecated)*       | Original implementation of the PET model used for prototyping, now deprecated in favor of the native `metatrain` PET implementation. |
+| NanoPET *(deprecated)*   | Re-implementation of the original PET with slightly improved training and evaluation speed                                           |
 | SOAP BPNN                | A Behler-Parrinello neural network with SOAP features                                                                                |
+| FlashMD                  | An architecture for the direct prediction of molecular dynamics                                                                      |
 
 <!-- marker-documentation -->
 
@@ -72,7 +72,7 @@ conda install -c conda-forge metatrain
 ```
 
 > ⚠️ The conda installation does not install model-specific dependencies and will only
-> work for architectures without optional dependencies such as NanoPET or PET.
+> work for architectures without optional dependencies such as PET.
 
 After installation, you can use mtt from the command line to train your models!
 
@@ -137,3 +137,24 @@ Submit new features or bug fixes through a pull request.
 Thanks goes to all people who make metatrain possible:
 
 [![Contributors](https://contrib.rocks/image?repo=metatensor/metatrain)](https://github.com/metatensor/metatrain/graphs/contributors)
+
+# Citing metatrain
+
+If you found ``metatrain`` useful, you can cite its pre-print
+(<https://doi.org/10.48550/arXiv.2508.15704>) as
+
+```
+@misc{metatrain,
+title = {Metatensor and Metatomic: Foundational Libraries for Interoperable Atomistic
+Machine Learning},
+shorttitle = {Metatensor and Metatomic},
+author = {Bigi, Filippo and Abbott, Joseph W. and Loche, Philip and Mazitov, Arslan
+and Tisi, Davide and Langer, Marcel F. and Goscinski, Alexander and Pegolo, Paolo
+and Chong, Sanggyu and Goswami, Rohit and Chorna, Sofiia and Kellner, Matthias and
+Ceriotti, Michele and Fraux, Guillaume},
+year = {2025},
+month = aug,
+publisher = {arXiv},
+doi = {10.48550/arXiv.2508.15704},
+}
+```

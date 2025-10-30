@@ -31,7 +31,7 @@ def check_file_extension(
 
     :param filename: Name of the file to be checked.
     :param extension: Expected file extension i.e. ``.txt``.
-    :returns: Checked and probably extended file name.
+    :return: Checked and probably extended file name.
     """
     path_filename = Path(filename)
 
@@ -77,9 +77,15 @@ def _hf_hub_download_url(
     hf_token: Optional[str] = None,
     cache_dir: Optional[Union[str, Path]] = None,
 ) -> str:
-    """Wrapper around `hf_hub_download` allowing passing the URL directly.
+    """
+    Wrapper around `hf_hub_download` allowing passing the URL directly.
 
     Function is in inverse of `hf_hub_url`
+
+    :param url: Full URL to a file in the Hugging Face Hub.
+    :param hf_token: HuggingFace API token to download models from HuggingFace
+    :param cache_dir: Path to a directory in which downloaded files are cached.
+    :return: Path to the downloaded file in the local cache directory.
     """
 
     match = hf_pattern.match(url)
@@ -133,10 +139,11 @@ def load_model(
     :param path: local or remote path to a model. For supported URL schemes see
         :py:class:`urllib.request`
     :param extensions_directory: path to a directory containing all extensions required
-        by an *exported* model
+        by an exported model
     :param hf_token: HuggingFace API token to download (private) models from HuggingFace
 
     :raises ValueError: if ``path`` is a YAML option file and no model
+    :return: the loaded model
     """
 
     if Path(path).suffix in [".yaml", ".yml"]:
@@ -170,6 +177,17 @@ def model_from_checkpoint(
     Load the checkpoint at the given ``path``, and create the corresponding model
     instance. The model architecture is determined from information stored inside the
     checkpoint.
+
+    :param checkpoint: checkpoint dictionary as returned by ``torch.load(path)``.
+    :param context: context in which the model is loaded, one of:
+
+        - ``"restart"``: the model is loaded to restart training from a previous
+            checkpoint;
+        - ``"finetune"``: the model is loaded to finetune a pretrained model;
+        - ``"export"``: the model is loaded to export a trained model.
+
+    :return: the loaded model instance.
+
     """
     architecture_name = checkpoint["architecture_name"]
     if architecture_name not in find_all_architectures():
@@ -181,15 +199,15 @@ def model_from_checkpoint(
     architecture = import_architecture(architecture_name)
 
     model_ckpt_version = checkpoint.get("model_ckpt_version")
-    ckpt_before_versionning = model_ckpt_version is None
-    if ckpt_before_versionning:
+    ckpt_before_versioning = model_ckpt_version is None
+    if ckpt_before_versioning:
         # assume version 1 and try our best
         model_ckpt_version = 1
         checkpoint["model_ckpt_version"] = model_ckpt_version
 
     if model_ckpt_version != architecture.__model__.__checkpoint_version__:
         try:
-            if ckpt_before_versionning:
+            if ckpt_before_versioning:
                 warnings.warn(
                     "trying to upgrade an old model checkpoint with unknown "
                     "version, this might fail and require manual modifications",
@@ -218,6 +236,19 @@ def trainer_from_checkpoint(
     Load the checkpoint at the given ``path``, and create the corresponding trainer
     instance. The architecture is determined from information stored inside the
     checkpoint.
+
+    :param checkpoint: checkpoint dictionary as returned by ``torch.load(path)``.
+    :param context: context in which the trainer is loaded, one of:
+
+        - ``"restart"``: the trainer is loaded to restart training from a previous
+            checkpoint;
+        - ``"finetune"``: the trainer is loaded to finetune a pretrained model;
+        - ``"export"``: the trainer is loaded to export a trained model.
+
+    :param hypers: hyperparameters to be used by the trainer. Required if
+        ``context="finetune"``, ignored otherwise.
+    :return: the loaded trainer instance.
+
     """
     architecture_name = checkpoint["architecture_name"]
     if architecture_name not in find_all_architectures():
@@ -229,15 +260,16 @@ def trainer_from_checkpoint(
     architecture = import_architecture(architecture_name)
 
     trainer_ckpt_version = checkpoint.get("trainer_ckpt_version")
-    ckpt_before_versionning = trainer_ckpt_version is None
-    if ckpt_before_versionning:
+
+    ckpt_before_versioning = trainer_ckpt_version is None
+    if ckpt_before_versioning:
         # assume version 1 and try our best
         trainer_ckpt_version = 1
         checkpoint["trainer_ckpt_version"] = trainer_ckpt_version
 
     if trainer_ckpt_version != architecture.__trainer__.__checkpoint_version__:
         try:
-            if ckpt_before_versionning:
+            if ckpt_before_versioning:
                 warnings.warn(
                     "trying to upgrade an old trainer checkpoint with unknown "
                     "version, this might fail and require manual modifications",

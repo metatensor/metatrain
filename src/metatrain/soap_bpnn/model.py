@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Literal, Optional
+import logging
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import metatensor.torch as mts
 import torch
@@ -31,7 +32,7 @@ from .spherical import TensorBasis
 
 
 class Identity(torch.nn.Module):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
     def forward(self, x: TensorMap) -> TensorMap:
@@ -73,7 +74,7 @@ class MLPMap(ModuleMap):
         )
         out_properties = [
             Labels(
-                names=["properties"],
+                names=["feature"],
                 values=torch.arange(
                     hypers["num_neurons_per_layer"],
                 ).reshape(-1, 1),
@@ -97,7 +98,7 @@ class LayerNormMap(ModuleMap):
         )
         out_properties = [
             Labels(
-                names=["properties"],
+                names=["feature"],
                 values=torch.arange(n_layer).reshape(-1, 1),
             )
             for _ in range(len(in_keys))
@@ -128,7 +129,17 @@ class MLPHeadMap(ModuleMap):
 
 def concatenate_structures(
     systems: List[System], neighbor_list_options: NeighborListOptions
-):
+) -> Tuple[
+    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+]:
+    """
+    Concatenate a list of systems into a single batch.
+
+    :param systems: List of systems to concatenate.
+    :param neighbor_list_options: Options for the neighbor list.
+    :return: A tuple containing the concatenated positions, centers, neighbors,
+        species, cells, and cell shifts.
+    """
     positions = []
     centers = []
     neighbors = []
@@ -171,7 +182,7 @@ def concatenate_structures(
 
 
 class SoapBpnn(ModelInterface):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 4
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -337,7 +348,7 @@ class SoapBpnn(ModelInterface):
         self.dataset_info = merged_info
 
         # restart the composition and scaler models
-        self.additive_models[0].restart(
+        self.additive_models[0] = self.additive_models[0].restart(
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
@@ -348,7 +359,7 @@ class SoapBpnn(ModelInterface):
                 },
             ),
         )
-        self.scaler.restart(dataset_info)
+        self.scaler = self.scaler.restart(dataset_info)
 
         return self
 
@@ -618,7 +629,7 @@ class SoapBpnn(ModelInterface):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(return_dict)
+            return_dict = self.scaler(systems, return_dict)
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
                 for name, output in outputs.items():
@@ -670,18 +681,17 @@ class SoapBpnn(ModelInterface):
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
     ) -> "SoapBpnn":
-        model_data = checkpoint["model_data"]
-
         if context == "restart":
+            logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
-        elif context == "finetune" or context == "export":
+        elif context in {"finetune", "export"}:
+            logging.info(f"Using best model from epoch {checkpoint['best_epoch']}")
             model_state_dict = checkpoint["best_model_state_dict"]
-            if model_state_dict is None:
-                model_state_dict = checkpoint["model_state_dict"]
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
         # Create the model
+        model_data = checkpoint["model_data"]
         model = cls(
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
@@ -689,6 +699,7 @@ class SoapBpnn(ModelInterface):
         dtype = next(iter(model_state_dict.values())).dtype
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
+        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -737,7 +748,7 @@ class SoapBpnn(ModelInterface):
         if target.is_scalar:
             for key, block in target.layout.items():
                 dict_key = target_name
-                for n, k in zip(key.names, key.values):
+                for n, k in zip(key.names, key.values, strict=True):
                     dict_key += f"_{n}_{int(k)}"
                 self.num_properties[target_name][dict_key] = len(
                     block.properties.values
@@ -752,7 +763,7 @@ class SoapBpnn(ModelInterface):
         elif target.is_spherical:
             for key, block in target.layout.items():
                 dict_key = target_name
-                for n, k in zip(key.names, key.values):
+                for n, k in zip(key.names, key.values, strict=True):
                     dict_key += f"_{n}_{int(k)}"
                 self.num_properties[target_name][dict_key] = len(
                     block.properties.values
@@ -808,7 +819,7 @@ class SoapBpnn(ModelInterface):
         self.last_layers[target_name] = torch.nn.ModuleDict({})
         for key, block in target.layout.items():
             dict_key = target_name
-            for n, k in zip(key.names, key.values):
+            for n, k in zip(key.names, key.values, strict=True):
                 dict_key += f"_{n}_{int(k)}"
             # the spherical tensor basis is made of 2*l+1 tensors, same as the number
             # of components. The lambda basis adds a further 2*l+1 tensors, but only
@@ -858,10 +869,11 @@ class SoapBpnn(ModelInterface):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        if checkpoint["model_ckpt_version"] == 1:
-            checkpoints.update_v1_v2(checkpoint["model_state_dict"])
-            checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
-            checkpoint["model_ckpt_version"] = 2
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
 
         if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
@@ -880,8 +892,10 @@ class SoapBpnn(ModelInterface):
                 "model_hypers": self.hypers,
                 "dataset_info": self.dataset_info,
             },
+            "epoch": None,
+            "best_epoch": None,
             "model_state_dict": self.state_dict(),
-            "best_model_state_dict": None,
+            "best_model_state_dict": self.state_dict(),
         }
         return checkpoint
 
@@ -895,10 +909,11 @@ def _remove_center_type_from_properties(tensor_map: TensorMap) -> TensorMap:
                 samples=block.samples,
                 components=block.components,
                 properties=Labels(
-                    names=["properties"],
+                    names=["feature"],
                     values=torch.arange(
                         block.values.shape[-1], device=block.values.device
                     ).reshape(-1, 1),
+                    assume_unique=True,
                 ),
             )
         )

@@ -1,3 +1,4 @@
+import copy
 import random
 
 import numpy as np
@@ -14,6 +15,7 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from metatrain.utils.omegaconf import CONF_LOSS
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS, SPHERICAL_DISK_DATASET_PATH
 
@@ -25,7 +27,7 @@ def test_regression_init():
     torch.manual_seed(0)
 
     targets = {}
-    targets["mtt::U0"] = get_energy_target_info({"unit": "eV"})
+    targets["mtt::U0"] = get_energy_target_info("mtt::U0", {"unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
@@ -95,6 +97,11 @@ def test_regression_train(device):
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
+    hypers["training"]["num_workers"] = 0  # for reproducibility
+
+    loss_conf = OmegaConf.create({"mtt::U0": CONF_LOSS.copy()})
+    OmegaConf.resolve(loss_conf)
+    hypers["training"]["loss"] = loss_conf
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -126,11 +133,11 @@ def test_regression_train(device):
 
     expected_output = torch.tensor(
         [
-            [1.313830614090],
-            [4.282801628113],
-            [5.629218101501],
-            [4.297008991241],
-            [2.226550817490],
+            [0.783539175987],
+            [0.388317406178],
+            [1.728710055351],
+            [6.365263938904],
+            [0.569676578045],
         ],
         device=device,
     )
@@ -175,14 +182,15 @@ def test_regression_train_spherical(device):
             },
         },
     }
-    # targets, target_info_dict = read_targets(OmegaConf.create(conf))
-    # dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     dataset, target_info_dict, _ = get_dataset(conf)
 
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["batch_size"] = 1
+    hypers["training"]["loss"]["mtt::electron_density_basis"] = hypers["training"][
+        "loss"
+    ].pop("mtt::U0")
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -191,6 +199,7 @@ def test_regression_train_spherical(device):
     requested_neighbor_lists = get_requested_neighbor_lists(model)
 
     hypers["training"]["num_epochs"] = 1
+    hypers["training"]["num_workers"] = 0  # for reproducibility
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model,
@@ -212,7 +221,7 @@ def test_regression_train_spherical(device):
         systems,
         {
             "mtt::electron_density_basis": ModelOutput(
-                quantity="energy", unit="", per_atom=True
+                quantity="", unit="", per_atom=True
             )
         },
     )
@@ -220,13 +229,13 @@ def test_regression_train_spherical(device):
     expected_output = torch.tensor(
         [
             [
-                -0.038565825671,
-                0.000463733566,
-                0.000264365954,
-                0.023815866560,
-                0.018959790468,
-                -0.000692606962,
-                0.020604602993,
+                -0.015746125951,
+                0.008406482637,
+                0.010487615131,
+                0.011963039637,
+                0.028127808124,
+                -0.009492993355,
+                0.021495090798,
             ],
             [
                 0.000000000000,
@@ -238,13 +247,13 @@ def test_regression_train_spherical(device):
                 0.000000000000,
             ],
             [
-                0.024628046900,
-                -0.001363838091,
-                0.003145742230,
-                -0.024710856378,
-                -0.010125328787,
-                -0.015510082245,
-                -0.014338681474,
+                0.011813754216,
+                0.002038915642,
+                -0.004326812923,
+                -0.026226855814,
+                -0.015365801752,
+                -0.006548378151,
+                -0.008180803619,
             ],
         ],
         device=device,
