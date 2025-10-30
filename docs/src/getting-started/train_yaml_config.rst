@@ -6,7 +6,7 @@ Overview
 ===================
 ``metatrain`` uses a YAML file to specify the parameters for model training,
 accessed via ``mtt train options.yaml``. In this section, we provide a complete reference
-for the parameters provided by the training YAML input.
+for the parameters provided by the training YAML input. For a minimal example of a YAML input file, suitable to start a first training, we refer the viewer to the sample YAML file in the :ref:`Quickstart <label_quickstart>` section.
 
 The YAML input file can be divided into five sections:
 
@@ -74,6 +74,8 @@ Loss
 ====
 Within the architecture section, there is a parameter dedicated to the loss. Due to the plethora of loss functions
 used in different ML workflows, it is best to refer to the page on :ref:`loss functions <loss-functions>` page for further details.
+
+.. _data-section:
 
 Data
 ===================
