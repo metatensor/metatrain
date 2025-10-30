@@ -1341,6 +1341,7 @@ def process_non_conservative_stress(
 
     # Normalize by cell volume
     volumes = torch.stack([torch.abs(torch.det(system.cell)) for system in systems])
+    volumes[volumes == 0.0] = torch.inf
     volumes_by_atom = volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
     tensor_as_three_by_three = tensor_as_three_by_three / volumes_by_atom
 

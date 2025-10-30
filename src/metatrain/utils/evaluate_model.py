@@ -312,8 +312,6 @@ def _prepare_system(
             types=system.types,
             pbc=system.pbc,
         )
-        if not torch.all(system.pbc):
-            system.cell.detach()
     else:
         if positions_grad:
             new_system = System(

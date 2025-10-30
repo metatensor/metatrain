@@ -182,15 +182,8 @@ class BaseTensorMapLoss(LossInterface):
         # PBCs or with mixed PBCs. We filter them out here.
         if self.gradient == "strain" or "non_conservative_stress" in self.target:
             valid_mask = ~torch.isnan(all_targets_flattened)
-            all_predictions_flattened = (
-                all_predictions_flattened[valid_mask].clone().detach()
-            )
-            all_targets_flattened = all_targets_flattened[valid_mask].clone().detach()
-
-        # print(all_predictions_flattened)
-        # print(all_targets_flattened)
-        # print(self.target)
-        # print(self.gradient)
+            all_predictions_flattened = all_predictions_flattened[valid_mask]
+            all_targets_flattened = all_targets_flattened[valid_mask]
 
         if len(all_targets_flattened) == 0:
             # No valid data points to compute the loss
