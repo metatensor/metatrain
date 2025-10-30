@@ -25,108 +25,97 @@ This will install the PET model along with the ``metatrain`` package.
 Default Hyperparameters
 -----------------------
 
-The default hyperparameters for the PET model are:
+The description of all the hyperparameters used in PET is provided further
+down this page. However, here we provide you with a yaml file containing all 
+the default hyperparameters, which might be convenient as a starting point to
+create your own hyperparameter files:
 
 .. literalinclude:: ../../../src/metatrain/pet/default-hypers.yaml
    :language: yaml
+   :lines: 2-
 
-Tuning Hyperparameters
+Tuning hyperparameters
 ----------------------
 
-PET offers a number of tuning knobs for flexibility across datasets:
-
 The default hyperparameters above will work well in most cases, but they
-may not be optimal for your specific dataset. In general, the most important
-hyperparameters to tune are (in decreasing order of importance):
+may not be optimal for your specific dataset. There is good number of
+parameters to tune, both for the :ref:`model <pet_model_hypers>` and the
+:ref:`trainer <pet_trainer_hypers>`. Since seeing them for the first time
+might be overwhelming, here we provide a **list of the parameters that are
+in general the most important** (in decreasing order of importance):
 
-- ``cutoff``: This should be set to a value after which most of the interactions between
-  atoms is expected to be negligible. A lower cutoff will lead to faster models.
-- ``learning_rate``: The learning rate for the neural network. This hyperparameter
-  controls how much the weights of the network are updated at each step of the
-  optimization. A larger learning rate will lead to faster training, but might cause
-  instability and/or divergence.
-- ``batch_size``: The number of samples to use in each batch of training. This
-  hyperparameter controls the tradeoff between training speed and memory usage. In
-  general, larger batch sizes will lead to faster training, but might require more
-  memory.
-- ``d_pet``: This hyperparameters controls width of the neural network. In general,
-  increasing it might lead to better accuracy, especially on larger datasets, at the
-  cost of increased training and evaluation time.
-- ``d_node``: The dimension of the node features. Increasing this hyperparameter
-  might lead to better accuracy, with a relatively small increase in inference time.
-- ``num_gnn_layers``: The number of graph neural network layers. In general, decreasing
-  this hyperparameter to 1 will lead to much faster models, at the expense of accuracy.
-  Increasing it may or may not lead to better accuracy, depending on the dataset, at the
-  cost of increased training and evaluation time.
-- ``num_attention_layers``: The number of attention layers in each layer of the graph
-  neural network. Depending on the dataset, increasing this hyperparameter might lead to
-  better accuracy, at the cost of increased training and evaluation time.
-- ``loss``: This section describes the loss function to be used. See the
-  :ref:`loss-functions` for more details.
-- ``long_range``: In some systems and datasets, enabling long-range Coulomb interactions
-  might be beneficial for the accuracy of the model and/or its physical correctness.
-  See below for a breakdown of the long-range section of the model hyperparameters.
+.. container:: mtt-hypers-remove-classname
 
-All Hyperparameters
--------------------
+  .. autoattribute:: metatrain.pet.hypers.PETHypers.cutoff
+      :no-index:
 
-:param name: ``pet``
+  .. autoattribute:: metatrain.pet.hypers.PETTrainerHypers.learning_rate
+      :no-index:
 
-model
-#####
+  .. autoattribute:: metatrain.pet.hypers.PETTrainerHypers.batch_size
+      :no-index:
 
-:param cutoff: Cutoff radius for neighbor search
-:param cutoff_width: Width of the smoothing function at the cutoff
-:param d_pet: Dimension of the edge features
-:param d_head: Dimension of the attention heads
-:param d_node: Dimension of the node features
-:param d_feedforward: Dimension of the feedforward network in the attention layer
-:param num_heads: Attention heads per attention layer
-:param num_attention_layers: Number of attention layers per GNN layer
-:param num_gnn_layers: Number of GNN layers
-:param normalization: Layer normalization type. Currently available options are
-  ``RMSNorm`` or ``LayerNorm``.
-:param activation: Activation function. Currently available options are ``SiLU``,
-  and ``SwiGLU``.
-:param transformer_type: The order in which the layer normalization and attention
-  are applied in a transformer block. Available options are ``PreLN``
-  (normalization before attention) and ``PostLN`` (normalization after attention).
-:param featurizer_type: Implementation of the featurizer of the model to use. Available
-  options are ``residual`` (the original featurizer from the PET paper, that uses
-  residual connections at each GNN layer for readout) and ``feedforward`` (a modern
-  version that uses the last representation after all GNN iterations for readout).
-  Additionally, the feedforward version uses bidirectional features flow during the
-  message passing iterations, that favors features flowing from atom ``i`` to atom
-  ``j`` to be not equal to the features flowing from atom ``j`` to atom ``i``.
-:param zbl: Use ZBL potential for short-range repulsion
-:param long_range: Long-range Coulomb interactions parameters:
-  - ``enable``: Toggle for enabling long-range interactions
-  - ``use_ewald``: Use Ewald summation. If False, P3M is used
-  - ``smearing``: Smearing width in Fourier space
-  - ``kspace_resolution``: Resolution of the reciprocal space grid
-  - ``interpolation_nodes``: Number of grid points for interpolation (for PME only)
+  .. autoattribute:: metatrain.pet.hypers.PETHypers.d_pet
+      :no-index:
 
-training
-########
+  .. autoattribute:: metatrain.pet.hypers.PETHypers.d_node
+      :no-index:
 
-:param distributed: Whether to use distributed training
-:param distributed_port: Port for DDP communication
-:param batch_size: Training batch size
-:param num_epochs: Number of epochs
-:param warmup_fraction: Fraction of training steps used for learning rate warmup
-:param learning_rate: Learning rate
-:param log_interval: Interval to log metrics
-:param checkpoint_interval: Interval to save checkpoints
-:param scale_targets: Normalize targets to unit std during training
-:param fixed_composition_weights: Weights for atomic contributions
-:param per_structure_targets: Targets to calculate per-structure losses
-:param log_mae: Log MAE alongside RMSE
-:param log_separate_blocks: Log per-block error
-:param grad_clip_norm: Maximum gradient norm value, by default inf (no clipping)
-:param loss: Loss configuration (see above)
-:param best_model_metric: Metric used to select best checkpoint (e.g., ``rmse_prod``)
-:param num_workers: Number of workers for data loading. If not provided, it is set
-  automatically.
+  .. autoattribute:: metatrain.pet.hypers.PETHypers.num_gnn_layers
+      :no-index:
+
+  .. autoattribute:: metatrain.pet.hypers.PETHypers.num_attention_layers
+      :no-index:
+
+  .. autoattribute:: metatrain.pet.hypers.PETTrainerHypers.loss
+      :no-index:
+
+  .. autoattribute:: metatrain.pet.hypers.PETHypers.long_range
+      :no-index:
+
+.. _pet_model_hypers:
+
+Model hyperparameters
+------------------------
+
+The parameters that go under the ``architecture.model`` section of the config file
+are the following:
+
+.. autoclass:: metatrain.pet.hypers.PETHypers
+    :members:
+    :undoc-members:
+
+with the long-range section being:
+
+.. autoclass:: metatrain.pet.hypers.LongRangeHypers
+    :members:
+    :undoc-members:
+
+.. _pet_trainer_hypers:
+
+Trainer hyperparameters
+-------------------------
+
+The parameters that go under the ``architecture.trainer`` section of the config file
+are the following:
+
+.. autoclass:: metatrain.pet.hypers.PETTrainerHypers
+    :members:
+    :undoc-members:
+
+with the following relevant parameter descriptions:
+
+.. autoclass:: metatrain.pet.hypers.FinetuneHypers
+    :members:
+    :undoc-members:
+
+.. autoclass:: metatrain.pet.hypers.LoRaFinetuneConfig
+    :members:
+    :undoc-members:
+
+.. autoclass:: metatrain.pet.hypers.HeadsFinetuneConfig
+    :members:
+    :undoc-members:
 
 References
 ----------

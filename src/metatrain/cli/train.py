@@ -18,7 +18,6 @@ from metatrain.utils.data import Dataset
 from .. import PACKAGE_ROOT
 from ..utils.abc import ModelInterface, TrainerInterface
 from ..utils.architectures import (
-    check_architecture_options,
     get_default_hypers,
     import_architecture,
 )
@@ -47,6 +46,7 @@ from ..utils.omegaconf import (
     expand_dataset_config,
     expand_loss_config,
 )
+from ..utils.pydantic import validate_architecture_options
 from .eval import _eval_targets
 from .export import _has_extensions
 from .formatter import CustomHelpFormatter
@@ -189,9 +189,6 @@ def train_model(
     ###########################
 
     architecture_name = options["architecture"]["name"]
-    check_architecture_options(
-        name=architecture_name, options=OmegaConf.to_container(options["architecture"])
-    )
     architecture = import_architecture(architecture_name)
 
     logging.info(f"Running training for {architecture_name!r} architecture")
@@ -218,6 +215,12 @@ def train_model(
         BASE_OPTIONS,
         {"architecture": get_default_hypers(architecture_name)},
         options,
+    )
+
+    validate_architecture_options(
+        OmegaConf.to_container(options["architecture"]),
+        Model,
+        Trainer,
     )
 
     ###########################

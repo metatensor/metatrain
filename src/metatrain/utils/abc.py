@@ -1,6 +1,15 @@
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import (
+    Any,
+    Dict,
+    Generic,
+    List,
+    Literal,
+    Optional,
+    TypeVar,
+    Union,
+)
 
 import torch
 from metatensor.torch import Labels, TensorMap
@@ -14,7 +23,10 @@ from metatomic.torch import (
 from metatrain.utils.data.dataset import Dataset, DatasetInfo
 
 
-class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
+HypersType = TypeVar("HypersType")
+
+
+class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
     """
     Abstract base class for a machine learning model in metatrain.
 
@@ -29,7 +41,7 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
     """
 
     def __init__(
-        self, hypers: Dict, dataset_info: DatasetInfo, metadata: ModelMetadata
+        self, hypers: HypersType, dataset_info: DatasetInfo, metadata: ModelMetadata
     ) -> None:
         """"""
         super().__init__()
@@ -172,7 +184,7 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
         """
 
 
-class TrainerInterface(metaclass=ABCMeta):
+class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
     """
     Abstract base class for a model trainer in metatrain.
 
@@ -183,7 +195,7 @@ class TrainerInterface(metaclass=ABCMeta):
     :param hypers: A dictionary with the trainer's hyper-parameters.
     """
 
-    def __init__(self, hypers: Dict[str, Any]):
+    def __init__(self, hypers: HypersType):
         required_attributes = [
             "__checkpoint_version__",
         ]
@@ -258,7 +270,7 @@ class TrainerInterface(metaclass=ABCMeta):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: HypersType,
         context: Literal["restart", "finetune"],
     ) -> "TrainerInterface":
         """

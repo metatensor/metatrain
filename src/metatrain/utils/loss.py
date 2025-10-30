@@ -1,13 +1,24 @@
+# mypy: disable-error-code=misc
+# We ignore misc errors in this file because TypedDict
+# with default values is not allowed by mypy.
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, Literal, NotRequired, Optional, Type
 
 import metatensor.torch as mts
 import torch
 from metatensor.torch import TensorMap
 from torch.nn.modules.loss import _Loss
+from typing_extensions import TypedDict
 
 from metatrain.utils.data import TargetInfo
+
+
+class LossSpecification(TypedDict):
+    type: str
+    weight: float = 1.0
+    reduction: Literal["none", "mean", "sum"] = "mean"
+    gradients: NotRequired[dict[str, "LossSpecification"]]
 
 
 class LossInterface(ABC):
@@ -420,7 +431,7 @@ class LossAggregator(LossInterface):
     """
 
     def __init__(
-        self, targets: Dict[str, TargetInfo], config: Dict[str, Dict[str, Any]]
+        self, targets: Dict[str, TargetInfo], config: Dict[str, LossSpecification]
     ):
         super().__init__(name="", gradient=None, weight=0.0, reduction="mean")
         self.losses: Dict[str, LossInterface] = {}
@@ -429,12 +440,14 @@ class LossAggregator(LossInterface):
         for target_name, target_info in targets.items():
             target_config = config.get(
                 target_name,
-                {
-                    "type": "mse",
-                    "weight": 1.0,
-                    "reduction": "mean",
-                    "gradients": {},
-                },
+                LossSpecification(
+                    {
+                        "type": "mse",
+                        "weight": 1.0,
+                        "reduction": "mean",
+                        "gradients": {},
+                    }
+                ),
             )
 
             # Create main loss and its scheduler
@@ -479,11 +492,13 @@ class LossAggregator(LossInterface):
 
                 gradient_specific_config = gradient_config.get(
                     gradient_name,
-                    {
-                        "type": "mse",
-                        "weight": 1.0,
-                        "reduction": "mean",
-                    },
+                    LossSpecification(
+                        {
+                            "type": "mse",
+                            "weight": 1.0,
+                            "reduction": "mean",
+                        }
+                    ),
                 )
 
                 grad_loss = create_loss(

@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 import torch
 from metatomic.torch import System
 
@@ -17,7 +19,7 @@ class LongRangeFeaturizer(torch.nn.Module):
 
     def __init__(
         self,
-        hypers: dict,
+        hypers: Mapping,
         feature_dim: int,
         neighbor_list_options: NeighborListOptions,
     ) -> None:
