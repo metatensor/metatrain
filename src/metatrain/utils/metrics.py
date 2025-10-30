@@ -68,8 +68,23 @@ class RMSEAccumulator:
                     self.information[key_to_write] = (0.0, 0)
 
                 if mask is None:
+                    if "non_conservative_stress" in key:
+                        # For stress targets, we allow users to use NaN entries for
+                        # systems without PBCs or with mixed PBCs. We filter them
+                        # out here.
+                        valid_mask = ~torch.isnan(target_block.values)
+                    else:
+                        valid_mask = torch.ones_like(
+                            target_block.values, dtype=torch.bool
+                        )
                     rmse_value = (
-                        ((prediction_block.values - target_block.values) ** 2)
+                        (
+                            (
+                                prediction_block.values[valid_mask]
+                                - target_block.values[valid_mask]
+                            )
+                            ** 2
+                        )
                         .sum()
                         .item()
                     )
@@ -250,8 +265,20 @@ class MAEAccumulator:
                     self.information[key_to_write] = (0.0, 0)
 
                 if mask is None:
+                    if "non_conservative_stress" in key:
+                        # For stress targets, we allow users to use NaN entries for
+                        # systems without PBCs or with mixed PBCs. We filter them
+                        # out here.
+                        valid_mask = ~torch.isnan(target_block.values)
+                    else:
+                        valid_mask = torch.ones_like(
+                            target_block.values, dtype=torch.bool
+                        )
                     mae_value = (
-                        (prediction_block.values - target_block.values)
+                        (
+                            prediction_block.values[valid_mask]
+                            - target_block.values[valid_mask]
+                        )
                         .abs()
                         .sum()
                         .item()
