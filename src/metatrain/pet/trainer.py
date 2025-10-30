@@ -426,7 +426,7 @@ class Trainer:
                     print (gap_force_loss)
                     train_print = False
 
-                total_loss = bandgap_loss + gap_force_loss
+                total_loss = bandgap_loss + (gap_force_loss * self.hypers["force_weight"])
                 total_loss.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
@@ -515,7 +515,7 @@ class Trainer:
                     print (gap_force_target.shape)
                     print (gap_force_loss)
                     val_print = False
-                total_loss = bandgap_loss + gap_force_loss
+                total_loss = bandgap_loss + (gap_force_loss * self.hypers["force_weight"])
                 val_loss_batch = (total_loss * len(bandgap_target)).detach()# CHANGE: We need to multiply the loss by the number of samples in the batch to get the correct loss value
                 val_force_loss_batch = (gap_force_loss * len(bandgap_target)).detach()
                 if is_distributed:

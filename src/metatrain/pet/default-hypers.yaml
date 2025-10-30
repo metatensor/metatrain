@@ -48,3 +48,4 @@ architecture:
     use_permanent: false
     integral_penalty: 2.0
     gradient_penalty: 1e-4
+    force_weight: 1.0

@@ -290,6 +290,9 @@
         },
         "gradient_penalty": {
           "type": "number"
+        },
+        "force_weight": {
+          "type": "number"
         }
       },
       "additionalProperties": false
