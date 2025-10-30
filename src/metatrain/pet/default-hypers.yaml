@@ -33,8 +33,6 @@ architecture:
     checkpoint_interval: 100
     remove_composition_contribution: true
     scale_targets: true
-    fit_composition_model: true
-    scale_targets: false
     fixed_composition_weights: {}
     fixed_scaling_weights: {}
     per_structure_targets: []
