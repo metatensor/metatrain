@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import time
+import warnings
 from pathlib import Path
 
 import ase.build
@@ -13,6 +14,7 @@ import ase.io
 import numpy as np
 import pytest
 import torch
+from ase.calculators.emt import EMT
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import NeighborListOptions, systems_to_torch
 from omegaconf import OmegaConf
@@ -1199,19 +1201,15 @@ def test_train_wandb_logger(monkeypatch, tmp_path):
 def test_train_mixed_stress(monkeypatch, tmp_path, options):
     """Test that training works with structures with and without stress in the same
     dataset (e.g., bulk with stress, molecule/slab with NaN stress)."""
-    import warnings
 
     monkeypatch.chdir(tmp_path)
 
     # Create structures with mixed stress: bulk, molecule, and slab
-    from ase.calculators.emt import EMT
-
     calculator = EMT()
-
     structures = []
 
     # Create multiple bulk structures with valid stress
-    for _ in range(5):
+    for _ in range(10):
         bulk = ase.build.bulk("Cu", "fcc", a=3.6, cubic=True)
         bulk.rattle(0.01)  # Small perturbation to make structures different
         bulk.calc = calculator
@@ -1222,7 +1220,7 @@ def test_train_mixed_stress(monkeypatch, tmp_path, options):
         structures.append(bulk)
 
     # Create multiple molecules with NaN stress (stress not defined for molecules)
-    for i in range(5):
+    for i in range(10):
         molecule = ase.Atoms("Cu2", positions=[[0, 0, 0], [2.5 + 0.1 * i, 2.5, 2.5]])
         molecule.calc = calculator
         molecule.info["energy"] = molecule.get_potential_energy()
@@ -1232,7 +1230,7 @@ def test_train_mixed_stress(monkeypatch, tmp_path, options):
         structures.append(molecule)
 
     # Create multiple slabs with NaN stress (stress not defined for slabs)
-    for _ in range(5):
+    for _ in range(10):
         slab = ase.build.fcc111("Cu", size=(2, 2, 4), vacuum=10.0)
         slab.pbc = (True, True, False)
         slab.rattle(0.01)  # Small perturbation
@@ -1257,10 +1255,18 @@ def test_train_mixed_stress(monkeypatch, tmp_path, options):
     options["training_set"]["targets"]["energy"]["stress"] = OmegaConf.create(
         {"key": "stress"}
     )
+    options["training_set"]["targets"]["non_conservative_stress"] = OmegaConf.create(
+        {
+            "key": "stress",
+            "quantity": "pressure",
+            "unit": "eV/A^3",
+            "type": {"cartesian": {"rank": 2}},
+        }
+    )
     options["architecture"]["training"]["num_epochs"] = 1
     options["architecture"]["training"]["batch_size"] = 1
     options["test_set"] = 0.0  # No test set
-    options["validation_set"] = 0.2  # 20% validation
+    options["validation_set"] = 0.5  # 50% validation
 
     # Train the model - this should not raise an error
     # We expect warnings about cell vectors with non-periodic boundaries
