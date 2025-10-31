@@ -98,6 +98,8 @@ print("  - 5 slabs (with NaN stress)")
 # normally, with stress contributions to the loss only coming from structures
 # where stress is well-defined (non-NaN values).
 
+# Here, we run training as a subprocess, in reality you would run this from the command
+# line as ``mtt train options-mixed-stress.yaml``.
 subprocess.run(["mtt", "train", "options-mixed-stress.yaml"], check=True)
 
 # %%
