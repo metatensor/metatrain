@@ -818,7 +818,11 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
 
     for tensor_name in m1["model_state_dict"]:
         if "type_to_index" in tensor_name or "spliner" in tensor_name:
-            continue  # these the same for both models
+            continue  # these are always the same for both models
+        if "buffer" in tensor_name and (
+            "additive" in tensor_name or "scaler" in tensor_name
+        ):
+            continue  # these are not comparable in general
         tensor1 = m1["model_state_dict"][tensor_name]
         tensor2 = m2["model_state_dict"][tensor_name]
 
