@@ -27,16 +27,12 @@ jobs:
         enable-cache: true
         activate-environment: true
 
-    - name: Set up Python and install tox
+    - name: Setup dependencies
       run: |
-        uv python install
         uv tool install tox --with tox-uv
 
     - name: Build package
       run: tox -e build
-      env:
-        # For tox to use uv..
-        ENV_INSTALLER: "uv pip"
     - name: Publish distribution to PyPI
       if: startsWith(github.ref, 'refs/tags/v')
       uses: pypa/gh-action-pypi-publish@release/v1
