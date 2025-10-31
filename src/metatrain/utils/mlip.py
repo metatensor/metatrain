@@ -247,14 +247,14 @@ class MLIPModel(ModelInterface):
 
         return return_dict
 
-    def request_neighbor_list(self, cutoff) -> None:
+    def request_neighbor_list(self, cutoff: float) -> None:
         self.nl_options = NeighborListOptions(
             cutoff=cutoff,
             full=True,
             strict=True,
         )
 
-        def requested_neighbor_lists():
+        def requested_neighbor_lists() -> List[NeighborListOptions]:
             return [self.nl_options]
 
         self.requested_neighbor_lists = requested_neighbor_lists
@@ -287,7 +287,11 @@ class MLIPModel(ModelInterface):
         """
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
-        """Get the outputs currently supported by this model."""
+        """
+        Get the outputs currently supported by this model.
+
+        :return: Dictionary mapping output names to their ModelOutput definitions.
+        """
         return self.outputs
 
     def restart(self, dataset_info: DatasetInfo) -> "MLIPModel":
@@ -493,6 +497,8 @@ class MLIPTrainer(TrainerInterface):
 
     This class provides common training logic for models that only predict energies
     and forces. Derived classes can customize behavior by implementing abstract methods.
+
+    :param hypers: Training hyperparameters.
     """
 
     __checkpoint_version__ = 1
@@ -986,7 +992,12 @@ class MLIPTrainer(TrainerInterface):
             torch.distributed.destroy_process_group()
 
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
-        """Save a checkpoint of the model and trainer state."""
+        """
+        Save a checkpoint of the model and trainer state.
+
+        :param model: The model to save.
+        :param path: Path where the checkpoint will be saved.
+        """
         checkpoint = model.get_checkpoint()
         checkpoint.update(
             {
@@ -1013,7 +1024,14 @@ class MLIPTrainer(TrainerInterface):
         hypers: Dict[str, Any],
         context: Literal["restart", "finetune"],  # not used at the moment
     ) -> "MLIPTrainer":
-        """Load trainer state from a checkpoint."""
+        """
+        Load trainer state from a checkpoint.
+
+        :param checkpoint: Dictionary containing the checkpoint data.
+        :param hypers: Training hyperparameters.
+        :param context: Loading context ('restart' or 'finetune').
+        :return: Initialized trainer with loaded state.
+        """
         trainer = cls(hypers)
         trainer.optimizer_state_dict = checkpoint["optimizer_state_dict"]
         trainer.scheduler_state_dict = checkpoint["scheduler_state_dict"]
