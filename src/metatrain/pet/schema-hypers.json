@@ -23,6 +23,9 @@
         "d_head": {
           "type": "integer"
         },
+        "d_node": {
+          "type": "integer"
+        },
         "d_feedforward": {
           "type": "integer"
         },
@@ -34,6 +37,34 @@
         },
         "num_gnn_layers": {
           "type": "integer"
+        },
+        "normalization": {
+          "type": "string",
+          "enum": [
+            "LayerNorm",
+            "RMSNorm"
+          ]
+        },
+        "transformer_type": {
+          "type": "string",
+          "enum": [
+            "PreLN",
+            "PostLN"
+          ]
+        },
+        "featurizer_type": {
+          "type": "string",
+          "enum": [
+            "residual",
+            "feedforward"
+          ]
+        },
+        "activation": {
+          "type": "string",
+          "enum": [
+            "SiLU",
+            "SwiGLU"
+          ]
         },
         "zbl": {
           "type": "boolean"
@@ -112,11 +143,39 @@
           },
           "additionalProperties": false
         },
+        "fixed_scaling_weights": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[0-9]+$"
+                  },
+                  "additionalProperties": {
+                    "type": "number"
+                  }
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
         "per_structure_targets": {
           "type": "array",
           "items": {
             "type": "string"
           }
+        },
+        "num_workers": {
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "log_mae": {
           "type": "boolean"
@@ -189,7 +248,10 @@
               ]
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "required": [
+            "method"
+          ]
         },
         "grad_clip_norm": {
           "type": "number"

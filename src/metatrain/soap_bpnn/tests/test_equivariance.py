@@ -31,7 +31,7 @@ def test_rotational_invariance():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
@@ -74,6 +74,7 @@ def test_equivariance_rotations(o3_lambda, o3_sigma):
         atomic_types=[1, 6, 7, 8],
         targets={
             "spherical_target": get_generic_target_info(
+                "spherical_target",
                 {
                     "quantity": "",
                     "unit": "",
@@ -84,7 +85,7 @@ def test_equivariance_rotations(o3_lambda, o3_sigma):
                     },
                     "num_subtargets": 100,
                     "per_atom": False,
-                }
+                },
             )
         },
     )
@@ -133,6 +134,7 @@ def test_equivariance_inversion(o3_lambda, o3_sigma):
         atomic_types=[1, 6, 7, 8],
         targets={
             "spherical_target": get_generic_target_info(
+                "spherical_target",
                 {
                     "quantity": "",
                     "unit": "",
@@ -143,7 +145,7 @@ def test_equivariance_inversion(o3_lambda, o3_sigma):
                     },
                     "num_subtargets": 100,
                     "per_atom": False,
-                }
+                },
             )
         },
     )

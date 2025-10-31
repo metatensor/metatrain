@@ -18,7 +18,9 @@ def test_torchscript():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
     model = PET(MODEL_HYPERS, dataset_info)
@@ -46,7 +48,9 @@ def test_torchscript_save_load(tmpdir):
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
     model = PET(MODEL_HYPERS, dataset_info)
@@ -68,7 +72,9 @@ def test_torchscript_integers():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
         },
     )
     model = PET(new_hypers, dataset_info)

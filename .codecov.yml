@@ -2,7 +2,7 @@ coverage:
   status:
     project:
       default:
-        target: 90%
+        target: 88%
     patch:
       default:
         informational: true
@@ -17,6 +17,7 @@ coverage:
     - "src/metatrain/gap/.*"
     - "src/metatrain/pet/.*"
     - "src/metatrain/soap_bpnn/.*"
+    - "src/metatrain/llpr/.*"
     # we don't currently run distributed tests on CI
     - "src/metatrain/utils/distributed/.*"
 

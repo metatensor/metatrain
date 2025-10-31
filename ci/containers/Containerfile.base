@@ -1,11 +1,21 @@
-FROM docker://nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+FROM docker://nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04
 
 # FFTW library required by spinfast: https://github.com/moble/spinsfast?tab=readme-ov-file#pip
 RUN apt update && \
-	apt install -y libfftw3-dev python3 python3-pip python3-venv git && \
+	apt install -y libfftw3-dev \
+    python3 python3-pip python3-venv \
+    git curl && \
 	apt clean
 
 RUN python3 -m pip install --break-system-packages tox
 
-ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu128
+# Install uv, using the recommended script
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+# Setup tox for uv usage
+ENV ENV_INSTALLER="uv pip"
+
+ENV PIP_EXTRA_INDEX_URL="https://download.pytorch.org/whl/cu129"
+ENV UV_EXTRA_INDEX_URL="https://download.pytorch.org/whl/cu129"
+ENV UV_INDEX_STRATEGY="unsafe-best-match"
 ENV CUDA_HOME="/usr/local/cuda"

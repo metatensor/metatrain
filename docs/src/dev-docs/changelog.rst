@@ -24,6 +24,49 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Version 2025.11 - 2025-10-20
+----------------------------
+
+Fixed
+#####
+
+- Training speed has been improved for all neural network models.
+- Multi-GPU training with multiple datasets, each with different targets, now works
+  correctly.
+- It is now possible to train on multiple force/stress targets without errors.
+
+Added
+#####
+
+- A new dataset format, ``MemmapDataset``, allows storing data on disk in a
+  memory-mapped format, improving performance compared to ``DiskDataset`` on some
+  filesystems.
+- FlashMD was added as a new architecture allowing long-stride molecular dynamics
+  simulations. Its implementation is based on PET.
+
+Changed
+#######
+
+- ``PET`` model received a major update, including new default hyperparameters, a new
+  transformer architecture, and a new featurizer. Please refer to the updated
+  documentation for more details.
+- The SOAP-BPNN and PET trainers now uses a cosine annealing learning rate scheduler
+  with warm-up.
+- ``NanoPET`` has been deprecated in favor of the stable ``PET`` architecture. The
+  ``deprecated.nanopet`` architecture is still available for loading old checkpoints.
+- The ``NanoPET`` and ``GAP`` architectures now use the new composition model, and the
+  old composition model has been removed.
+- The ``LLPR`` module is now a stable architecture, instead of a utility module. It can
+  be trained from the command line in the same way as other architectures.
+- We now require Python >= 3.10.
+- The ``Scaler`` model in metatrain now calculates per-block and per-property scales.
+  For atomic targets, it calculates per-element scales.
+
+Removed
+#######
+
+- The ``deprecated.pet`` architecture has been removed.
+
 Version 2025.10 - 2025-09-09
 ----------------------------
 

@@ -26,7 +26,7 @@ def test_continue(monkeypatch, tmp_path):
 
     target_info_dict = {}
     target_info_dict["mtt::U0"] = get_energy_target_info(
-        {"quantity": "energy", "unit": "eV"}
+        "mtt::U0", {"quantity": "energy", "unit": "eV"}
     )
 
     dataset_info = DatasetInfo(

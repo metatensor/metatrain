@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import torch
 from metatensor.torch import Labels
@@ -16,7 +16,26 @@ def concatenate_structures(
     systems: List[System],
     neighbor_list_options: NeighborListOptions,
     selected_atoms: Optional[Labels] = None,
-):
+) -> Tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    Labels,
+]:
+    """
+    Concatenate a list of systems into a single batch.
+
+    :param systems: List of systems to concatenate.
+    :param neighbor_list_options: Options for the neighbor list.
+    :param selected_atoms: Optional labels of selected atoms to include in the batch.
+    :return: A tuple containing the concatenated positions, centers, neighbors,
+        species, cells, cell shifts, system indices, and sample labels.
+    """
+
     positions: List[torch.Tensor] = []
     centers: List[torch.Tensor] = []
     neighbors: List[torch.Tensor] = []
@@ -96,6 +115,7 @@ def concatenate_structures(
     sample_labels = Labels(
         names=["system", "atom"],
         values=sample_values,
+        assume_unique=True,
     )
 
     return (
@@ -116,21 +136,35 @@ def systems_to_batch(
     all_species_list: List[int],
     species_to_species_index: torch.Tensor,
     selected_atoms: Optional[Labels] = None,
-):
+) -> Tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    Labels,
+]:
     """
     Converts a list of systems to a batch required for the PET model.
-    The batch consists of the following tensors:
-    - `element_indices_nodes`: The atomic species of the central atoms
-    - `element_indices_neighbors`: The atomic species of the neighboring atoms
-    - `edge_vectors`: The cartedian edge vectors between the central atoms and their
-      neighbors
-    - `padding_mask`: A padding mask indicating which neighbors are real, and which are
-      padded
-    - `neighbors_index`: The indices of the neighboring atoms for each central atom
-    - `num_neghbors`: The number of neighbors for each central atom
-    - `reversed_neighbor_list`: The reversed neighbor list for each central atom
+
+    :param systems: List of systems to convert to a batch.
+    :param options: Options for the neighbor list.
+    :param all_species_list: List of all atomic species in the dataset.
+    :param species_to_species_index: Mapping from atomic species to species indices.
+    :param selected_atoms: Optional labels of selected atoms to include in the batch.
+    :return: A tuple containing the batch tensors.
+        The batch consists of the following tensors:
+        - `element_indices_nodes`: The atomic species of the central atoms
+        - `element_indices_neighbors`: The atomic species of the neighboring atoms
+        - `edge_vectors`: The cartesian edge vectors between the central atoms and their
+            neighbors
+        - `padding_mask`: A padding mask indicating which neighbors are real, and which
+            are padded
+        - `neighbors_index`: The indices of the neighboring atoms for each central atom
+        - `num_neighbors`: The number of neighbors for each central atom
+        - `reversed_neighbor_list`: The reversed neighbor list for each central atom
     """
-    # save_system(systems[0], options, selected_atoms)
     (
         positions,
         centers,
@@ -187,17 +221,33 @@ def systems_to_batch(
         )
     )
 
+    # These are the two arrays we need for message passing with edge reversals,
+    # if indexing happens in a two-dimensional way:
+    # edges_ji = edges_ij[reversed_neighbor_list, neighbors_index]
     reversed_neighbor_list = compute_reversed_neighbor_list(
         nef_indices, corresponding_edges, nef_mask
     )
     neighbors_index = edge_array_to_nef(neighbors, nef_indices).to(torch.int64)
+
+    # Here, we compute the array that allows indexing into a flattened
+    # version of the edge array (where the first two dimensions are merged):
+    reverse_neighbor_index = (
+        neighbors_index * neighbors_index.shape[1] + reversed_neighbor_list
+    )
+    # At this point, we have `reverse_neighbor_index[~nef_mask] = 0`, which however
+    # creates too many of the same index which slows down backward enormously.
+    # (See see https://github.com/pytorch/pytorch/issues/41162)
+    # We therefore replace the padded indices with a sequence of unique indices.
+    reverse_neighbor_index[~nef_mask] = torch.arange(
+        int(torch.sum(~nef_mask)), device=reverse_neighbor_index.device
+    )
+
     return (
         element_indices_nodes,
         element_indices_neighbors,
         edge_vectors,
         nef_mask,
-        neighbors_index,
-        reversed_neighbor_list,
+        reverse_neighbor_index,
         system_indices,
         sample_labels,
     )

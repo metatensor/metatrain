@@ -23,7 +23,7 @@ def test_forces(is_training):
         atomic_types={1, 6, 7, 8},
         targets={
             "energy": get_energy_target_info(
-                {"unit": "eV"}, add_position_gradients=True
+                "energy", {"unit": "eV"}, add_position_gradients=True
             )
         },
     )
@@ -50,6 +50,7 @@ def test_forces(is_training):
         output["energy"].block().values,
         [system.positions for system in systems],
         is_training=is_training,
+        destroy_graph=not is_training,
     )
     forces = [-position_gradient for position_gradient in position_gradients]
 
@@ -73,12 +74,13 @@ def test_forces(is_training):
         output["energy"].block().values,
         [system.positions for system in systems],
         is_training=is_training,
+        destroy_graph=not is_training,
     )
     jitted_forces = [
         -position_gradient for position_gradient in jitted_position_gradients
     ]
 
-    for f, jf in zip(forces, jitted_forces):
+    for f, jf in zip(forces, jitted_forces, strict=True):
         torch.testing.assert_close(f, jf)
 
 
@@ -90,7 +92,9 @@ def test_virial(is_training):
         length_unit="angstrom",
         atomic_types={6},
         targets={
-            "energy": get_energy_target_info({"unit": "eV"}, add_strain_gradients=True)
+            "energy": get_energy_target_info(
+                "energy", {"unit": "eV"}, add_strain_gradients=True
+            )
         },
     )
     model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
@@ -111,7 +115,7 @@ def test_virial(is_training):
             types=system.types,
             pbc=system.pbc,
         )
-        for system, strain in zip(systems, strains)
+        for system, strain in zip(systems, strains, strict=True)
     ]
 
     requested_neighbor_lists = get_requested_neighbor_lists(model)
@@ -124,6 +128,7 @@ def test_virial(is_training):
         output["energy"].block().values,
         strains,
         is_training=is_training,
+        destroy_graph=not is_training,
     )
     virial = [-cell_gradient for cell_gradient in strain_gradients]
 
@@ -142,7 +147,7 @@ def test_virial(is_training):
             types=system.types,
             pbc=system.pbc,
         )
-        for system, strain in zip(systems, strains)
+        for system, strain in zip(systems, strains, strict=True)
     ]
 
     systems = [
@@ -154,10 +159,11 @@ def test_virial(is_training):
         output["energy"].block().values,
         strains,
         is_training=is_training,
+        destroy_graph=not is_training,
     )
     jitted_virial = [-cell_gradient for cell_gradient in jitted_strain_gradients]
 
-    for v, jv in zip(virial, jitted_virial):
+    for v, jv in zip(virial, jitted_virial, strict=True):
         torch.testing.assert_close(v, jv)
 
 
@@ -169,6 +175,7 @@ def test_both(is_training):
         atomic_types={6},
         targets={
             "energy": get_energy_target_info(
+                "energy",
                 {"unit": "eV"},
                 add_position_gradients=True,
                 add_strain_gradients=True,
@@ -195,7 +202,7 @@ def test_both(is_training):
             types=system.types,
             pbc=system.pbc,
         )
-        for system, strain in zip(systems, strains)
+        for system, strain in zip(systems, strains, strict=True)
     ]
 
     requested_neighbor_lists = get_requested_neighbor_lists(model)
@@ -208,6 +215,7 @@ def test_both(is_training):
         output["energy"].block().values,
         [system.positions for system in systems] + strains,
         is_training=is_training,
+        destroy_graph=not is_training,
     )
     f_and_v = [-gradient for gradient in gradients]
 
@@ -224,7 +232,7 @@ def test_both(is_training):
             types=system.types,
             pbc=system.pbc,
         )
-        for system, strain in zip(systems, strains)
+        for system, strain in zip(systems, strains, strict=True)
     ]
 
     jitted_model = torch.jit.script(model)
@@ -237,8 +245,9 @@ def test_both(is_training):
         output["energy"].block().values,
         [system.positions for system in systems] + strains,
         is_training=is_training,
+        destroy_graph=not is_training,
     )
     jitted_f_and_v = [-jitted_gradient for jitted_gradient in jitted_gradients]
 
-    for fv, jfv in zip(f_and_v, jitted_f_and_v):
+    for fv, jfv in zip(f_and_v, jitted_f_and_v, strict=True):
         torch.testing.assert_close(fv, jfv)
