@@ -1229,7 +1229,7 @@ def test_train_mixed_stress(monkeypatch, tmp_path, options_pet):
         molecule.calc = calculator
         molecule.info["energy"] = molecule.get_potential_energy()
         molecule.arrays["forces"] = molecule.get_forces()
-        molecule.info["stress"] = np.full((3, 3), np.nan)
+        molecule.info["stress"] = np.full((3, 3), np.nan, dtype=np.float64)
         molecule.calc = None
         structures.append(molecule)
 
@@ -1241,7 +1241,7 @@ def test_train_mixed_stress(monkeypatch, tmp_path, options_pet):
         slab.calc = calculator
         slab.info["energy"] = slab.get_potential_energy()
         slab.arrays["forces"] = slab.get_forces()
-        slab.info["stress"] = np.full((3, 3), np.nan)
+        slab.info["stress"] = np.full((3, 3), np.nan, dtype=np.float64)
         slab.calc = None
         structures.append(slab)
 

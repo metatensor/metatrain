@@ -67,7 +67,7 @@ def read_systems(
     # A C++ double/torch.float64 is `7` according to
     # https://github.com/pytorch/pytorch/blob/207564bab1c4fe42750931765734ee604032fb69/c10/core/ScalarType.h#L54-L93
     if not all(s.dtype == 7 for s in systems):
-        raise ValueError(f"The loaded systems are not in double precision {[s.type for s in systems]}.")
+        raise ValueError("The loaded systems are not in double precision.")
 
     return systems
 

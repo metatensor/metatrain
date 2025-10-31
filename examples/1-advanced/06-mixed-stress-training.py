@@ -51,7 +51,9 @@ for i in range(5):
     molecule.calc = calculator
     molecule.info["energy"] = molecule.get_potential_energy()
     molecule.arrays["forces"] = molecule.get_forces()
-    molecule.info["stress"] = np.full((3, 3), np.nan, dtype=np.float64)  # Use NaN for undefined stress
+    molecule.info["stress"] = np.full(
+        (3, 3), np.nan, dtype=np.float64
+    )  # Use NaN for undefined stress
     molecule.calc = None
     structures.append(molecule)
 
@@ -63,7 +65,9 @@ for _ in range(5):
     slab.calc = calculator
     slab.info["energy"] = slab.get_potential_energy()
     slab.arrays["forces"] = slab.get_forces()
-    slab.info["stress"] = np.full((3, 3), np.nan, dtype=np.float64)  # Use NaN for undefined stress
+    slab.info["stress"] = np.full(
+        (3, 3), np.nan, dtype=np.float64
+    )  # Use NaN for undefined stress
     slab.calc = None
     structures.append(slab)
 
