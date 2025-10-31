@@ -37,12 +37,15 @@ from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
+from .hypers import PETTrainerHypers
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
 
 def get_scheduler(
-    optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
+    optimizer: torch.optim.Optimizer,
+    train_hypers: PETTrainerHypers,
+    steps_per_epoch: int,
 ) -> LambdaLR:
     """
     Get a CosineAnnealing learning-rate scheduler with warmup
@@ -72,10 +75,10 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface):
+class Trainer(TrainerInterface[PETTrainerHypers]):
     __checkpoint_version__ = 8
 
-    def __init__(self, hypers: Dict[str, Any]) -> None:
+    def __init__(self, hypers: PETTrainerHypers) -> None:
         super().__init__(hypers)
 
         self.optimizer_state_dict: Optional[Dict[str, Any]] = None
@@ -309,6 +312,7 @@ class Trainer(TrainerInterface):
 
         # Create a loss function:
         loss_hypers = self.hypers["loss"]
+        assert not isinstance(loss_hypers, str)  # For mypy type checking
         loss_fn = LossAggregator(
             targets=train_targets,
             config=loss_hypers,
@@ -579,7 +583,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: PETTrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
         trainer = cls(hypers)

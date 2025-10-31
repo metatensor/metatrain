@@ -1,10 +1,76 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import NotRequired, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from typing_extensions import Literal, TypedDict
 
 
-def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.Module:
+class LoRaFinetuneConfig(TypedDict):
+    """Configuration for LoRA finetuning strategy."""
+
+    rank: int
+    """Rank of the LoRA matrices."""
+    alpha: float
+    """Scaling factor for the LoRA matrices."""
+    target_modules: NotRequired[list[str]]
+
+
+class HeadsFinetuneConfig(TypedDict):
+    """Configuration for heads finetuning strategy."""
+
+    head_modules: list[str]
+    """List of module name prefixes for the prediction heads to finetune."""
+    last_layer_modules: list[str]
+    """List of module name prefixes for the last layers to finetune."""
+
+
+class FullFinetuneHypers(TypedDict):
+    """Hyperparameters to use full finetuning of PET models.
+
+    This means all model parameters are trainable.
+    """
+
+    method: Literal["full"]
+    """Finetuning method to use."""
+    read_from: str
+    """Path to the pretrained model checkpoint."""
+    config: None
+    """No configuration needed for full finetuning."""
+
+
+class LoRaFinetuneHypers(TypedDict):
+    """Hyperparameters for LoRA finetuning of PET models.
+
+    Injects LoRA layers and finetunes only them.
+    """
+
+    method: Literal["lora"]
+    """Finetuning method to use"""
+    read_from: str
+    """Path to the pretrained model checkpoint."""
+    config: LoRaFinetuneConfig
+    """Configuration for LoRA finetuning."""
+
+
+class HeadsFinetuneHypers(TypedDict):
+    """Hyperparameters for heads finetuning of PET models.
+
+    Freezes all model parameters except for the prediction heads
+    and last layers.
+    """
+
+    method: Literal["heads"]
+    """Finetuning method to use."""
+    read_from: str
+    """Path to the pretrained model checkpoint."""
+    config: HeadsFinetuneConfig
+    """Configuration for heads finetuning."""
+
+
+FinetuneHypers = FullFinetuneHypers | LoRaFinetuneHypers | HeadsFinetuneHypers
+
+
+def apply_finetuning_strategy(model: nn.Module, strategy: FinetuneHypers) -> nn.Module:
     """
     Apply the specified finetuning strategy to the model.
     This function modifies the model in place based on the provided strategy.
@@ -17,17 +83,16 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
         - heads: Freeze all parameters except for the heads and last layers.
     :return: The modified model with the finetuning strategy applied.
     """
-    method = strategy.get("method", "full").lower()
 
     for param in model.parameters():
         param.requires_grad = True
 
-    if method == "full":
+    if strategy["method"] == "full":
         # Full finetuning, all parameters are trainable
         pass
 
-    elif method == "lora":
-        strategy_cfg = strategy.get("config", {})
+    elif strategy["method"] == "lora":
+        lora_config = strategy.get("config", {})
         lora_already_applied = any(isinstance(m, LoRALinear) for m in model.modules())
         if not lora_already_applied:
             model_device = next(model.parameters()).device
@@ -35,12 +100,10 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
             model = inject_lora_layers(
                 model,
                 target_modules=tuple(
-                    strategy_cfg.get(
-                        "target_modules", ("input_linear", "output_linear")
-                    )
+                    lora_config.get("target_modules", ["input_linear", "output_linear"])
                 ),
-                rank=strategy_cfg.get("rank", 4),
-                alpha=strategy_cfg.get("alpha", 8),
+                rank=lora_config.get("rank", 4),
+                alpha=lora_config.get("alpha", 8),
                 device=model_device,
                 dtype=model_dtype,
             )
@@ -50,8 +113,8 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
             if "lora_" not in name:
                 param.requires_grad = False
 
-    elif method == "heads":
-        strategy_cfg = strategy.get(
+    elif strategy["method"] == "heads":
+        heads_config = strategy.get(
             "config",
             {
                 "head_modules": ["node_heads", "edge_heads"],
@@ -59,8 +122,8 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
             },
         )
 
-        head_keywords = strategy_cfg.get("head_modules", [])
-        last_layer_keywords = strategy_cfg.get("last_layer_modules", [])
+        head_keywords = heads_config.get("head_modules", [])
+        last_layer_keywords = heads_config.get("last_layer_modules", [])
 
         for name, param in model.named_parameters():
             if any(name.startswith(kw) for kw in head_keywords + last_layer_keywords):
@@ -70,7 +133,7 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
 
     else:
         raise ValueError(
-            f"Unknown finetuning strategy: {method}. Available methods "
+            f"Unknown finetuning strategy: {strategy['method']}. Available methods "
             "are: 'full', 'lora', 'heads'."
         )
 

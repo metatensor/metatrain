@@ -17,7 +17,7 @@ from ..additive import remove_additive
 from ..data import DatasetInfo, TargetInfo, unpack_batch
 from ..jsonschema import validate
 from ..transfer import batch_to
-from ._base_scaler import BaseScaler
+from ._base_scaler import BaseScaler, FixedScalerWeights
 
 
 class Scaler(torch.nn.Module):
@@ -139,7 +139,7 @@ class Scaler(torch.nn.Module):
         additive_models: List[torch.nn.Module],
         batch_size: int,
         is_distributed: bool,
-        fixed_weights: Optional[Dict[str, Union[float, Dict[int, float]]]] = None,
+        fixed_weights: Optional[FixedScalerWeights] = None,
     ) -> None:
         """
         Placeholder docs.

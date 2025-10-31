@@ -17,7 +17,11 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists_transf
 from ..data import DatasetInfo, TargetInfo, unpack_batch
 from ..jsonschema import validate
 from ..transfer import batch_to
-from ._base_composition import BaseCompositionModel, _include_key
+from ._base_composition import (
+    BaseCompositionModel,
+    FixedCompositionWeights,
+    _include_key,
+)
 from .remove import remove_additive
 
 
@@ -175,7 +179,7 @@ class CompositionModel(torch.nn.Module):
         additive_models: List[torch.nn.Module],
         batch_size: int,
         is_distributed: bool,
-        fixed_weights: Optional[Dict[str, Dict[int, float]]] = None,
+        fixed_weights: Optional[FixedCompositionWeights] = None,
     ) -> None:
         """
         Train the composition model on the provided training data in the ``datasets``.
