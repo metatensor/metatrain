@@ -89,10 +89,16 @@ class MLIPModel(ModelInterface):
             )
 
         self.atomic_types = dataset_info.atomic_types
-        self.outputs = {self.target_name: dataset_info.targets[self.target_name].copy()}
 
-        # Add position gradients (forces) as a supported output
+        # Create outputs dictionary from targets
+        self.outputs = {}
         for target_name, target_info in dataset_info.targets.items():
+            self.outputs[target_name] = ModelOutput(
+                quantity=target_info.quantity,
+                unit=target_info.unit,
+                per_atom=target_info.per_atom,
+            )
+            # Add position gradients (forces) as a supported output
             if "positions" in target_info.gradients:
                 self.outputs[f"{target_name}_positions_gradients"] = ModelOutput(
                     unit=f"{target_info.unit}/{dataset_info.length_unit}",
@@ -424,6 +430,30 @@ class MLIPModel(ModelInterface):
         metadata = merge_metadata(self.metadata, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
+
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Upgrade the checkpoint to the current version of the model.
+
+        This method should be implemented by derived classes if they need to
+        upgrade checkpoints between versions. The base MLIPModel implementation
+        is version 1 and does not require any upgrades yet.
+
+        :param checkpoint: Checkpoint's state dictionary.
+
+        :raises RuntimeError: if the checkpoint cannot be upgraded to the current
+            version of the model.
+
+        :return: The upgraded checkpoint.
+        """
+        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current "
+                f"model version is {cls.__checkpoint_version__}."
+            )
+        return checkpoint
 
 
 def get_mlip_scheduler(
