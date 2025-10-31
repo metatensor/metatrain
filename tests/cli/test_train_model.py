@@ -1255,13 +1255,15 @@ def test_train_mixed_stress(monkeypatch, tmp_path, options_pet):
     options_pet["training_set"]["targets"]["energy"]["stress"] = OmegaConf.create(
         {"key": "stress"}
     )
-    options_pet["training_set"]["targets"]["non_conservative_stress"] = OmegaConf.create(
-        {
-            "key": "stress",
-            "quantity": "pressure",
-            "unit": "eV/A^3",
-            "type": {"cartesian": {"rank": 2}},
-        }
+    options_pet["training_set"]["targets"]["non_conservative_stress"] = (
+        OmegaConf.create(
+            {
+                "key": "stress",
+                "quantity": "pressure",
+                "unit": "eV/A^3",
+                "type": {"cartesian": {"rank": 2}},
+            }
+        )
     )
     options_pet["architecture"]["training"]["num_epochs"] = 1
     options_pet["architecture"]["training"]["batch_size"] = 1
