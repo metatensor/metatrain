@@ -649,6 +649,7 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
         },
+        "inherit_heads": {},
     }
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
@@ -656,22 +657,6 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
     train_model(options_pet)
 
     assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
-
-
-def test_finetune_no_read_from(options_pet, monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-
-    options_pet["architecture"]["training"]["finetune"] = OmegaConf.create(
-        {"method": "full"}
-    )
-    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
-
-    match = (
-        "Finetuning is enabled but no checkpoint was provided. Please provide one "
-        "using the `read_from` option in the `finetune` section."
-    )
-    with pytest.raises(ValueError, match=match):
-        train_model(options_pet)
 
 
 def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
@@ -685,6 +670,7 @@ def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
         },
+        "inherit_heads": {},
     }
     options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
         options_pet_transfer_learn["training_set"]["targets"].pop("energy")
@@ -708,6 +694,7 @@ def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
         },
+        "inherit_heads": {},
     }
     options_pet_transfer_learn["training_set"]["systems"]["read_from"] = (
         "ethanol_reduced_100.xyz"
@@ -736,6 +723,7 @@ def test_transfer_learn_inherit_heads(options_pet, caplog, monkeypatch, tmp_path
     options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
         "method": "full",
         "read_from": str(MODEL_PATH_PET),
+        "config": {},
         "inherit_heads": {
             "mtt::energy": "energy",
         },
@@ -764,6 +752,7 @@ def test_transfer_learn_inherit_heads_invalid_source(
     ] = {
         "method": "full",
         "read_from": str(MODEL_PATH_PET),
+        "config": {},
         "inherit_heads": {
             "mtt::energy": "foo",
         },
