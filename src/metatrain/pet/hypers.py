@@ -5,13 +5,11 @@ from typing import Literal, NotRequired, Optional
 
 from typing_extensions import TypedDict
 
-from metatrain.utils.hypers import (
-    CompositionWeightsDict,
-    ScalingWeightsDict,
-    init_with_defaults,
-)
+from metatrain.utils.additive import FixedCompositionWeights
+from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.long_range import LongRangeHypers
 from metatrain.utils.loss import LossSpecification
+from metatrain.utils.scaler import FixedScalerWeights
 
 from .modules.finetuning import FinetuneHypers
 
@@ -117,10 +115,10 @@ class PETTrainerHypers(TypedDict):
     """Interval to save checkpoints."""
     scale_targets: bool = True
     """Normalize targets to unit std during training."""
-    fixed_composition_weights: CompositionWeightsDict = {}
+    fixed_composition_weights: FixedCompositionWeights = {}
     """Weights for atomic contributions."""
-    fixed_scaling_weights: ScalingWeightsDict = {}
-
+    fixed_scaling_weights: FixedScalerWeights = {}
+    """Weights for target scaling."""
     per_structure_targets: list[str] = []
     """Targets to calculate per-structure losses."""
     num_workers: Optional[int] = None

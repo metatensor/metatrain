@@ -54,7 +54,7 @@ class LoRaFinetuneHypers(TypedDict):
 
 class HeadsFinetuneHypers(TypedDict):
     """Hyperparameters for heads finetuning of PET models.
-    
+
     Freezes all model parameters except for the prediction heads
     and last layers.
     """

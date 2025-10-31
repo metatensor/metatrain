@@ -3,16 +3,17 @@ import pytest
 import torch
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
+from pydantic import ValidationError
 
-from metatrain.pet import PET
+from metatrain.pet import PET, Trainer
 from metatrain.pet.modules.transformer import AttentionBlock
-from metatrain.utils.architectures import check_architecture_options
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
     get_generic_target_info,
 )
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.pydantic import validate_architecture_options
 
 from . import DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -365,7 +366,7 @@ def test_fixed_composition_weights():
         }
     }
     hypers = OmegaConf.create(hypers)
-    check_architecture_options(name="pet", options=OmegaConf.to_container(hypers))
+    validate_architecture_options(OmegaConf.to_container(hypers), PET, Trainer)
 
 
 def test_fixed_composition_weights_error():
@@ -373,8 +374,8 @@ def test_fixed_composition_weights_error():
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["fixed_composition_weights"] = {"energy": {"H": 300.0}}
     hypers = OmegaConf.create(hypers)
-    with pytest.raises(ValueError, match=r"'H' does not match '\^\[0-9\]\+\$'"):
-        check_architecture_options(name="pet", options=OmegaConf.to_container(hypers))
+    with pytest.raises(ValidationError, match=r"Input should be a valid integer"):
+        validate_architecture_options(OmegaConf.to_container(hypers), PET, Trainer)
 
 
 @pytest.mark.parametrize("per_atom", [True, False])
