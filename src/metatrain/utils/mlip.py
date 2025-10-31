@@ -5,9 +5,9 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
-import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -57,6 +57,14 @@ class MLIPModel(ModelInterface):
 
     def __init__(self, hypers: Dict[str, Any], dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
+
+        # Infer architecture name from module name
+        # e.g., "metatrain.mlip_example.model" -> "mlip_example"
+        module_parts = self.__class__.__module__.split(".")
+        if len(module_parts) >= 2 and module_parts[0] == "metatrain":
+            self._architecture_name = module_parts[1]
+        else:
+            self._architecture_name = "mlip"
 
         if len(dataset_info.targets) > 1:
             raise ValueError(
@@ -239,10 +247,24 @@ class MLIPModel(ModelInterface):
                     systems, outputs_for_additive_model, selected_atoms
                 )
                 for name in additive_contributions:
-                    # Add contributions to the return dict
+                    # TODO: "manual" sparse sum: update to metatensor.torch.add after
+                    # sparse sum is implemented in metatensor.operations
                     if name in return_dict:
-                        return_dict[name] = metatensor.torch.add(
-                            return_dict[name], additive_contributions[name]
+                        output_blocks: List[TensorBlock] = []
+                        for k, b in return_dict[name].items():
+                            if k in additive_contributions[name].keys:
+                                output_blocks.append(
+                                    _add_block_block(
+                                        b,
+                                        additive_contributions[name]
+                                        .block(k)
+                                        .to(device=b.device, dtype=b.dtype),
+                                    )
+                                )
+                            else:
+                                output_blocks.append(b)
+                        return_dict[name] = TensorMap(
+                            return_dict[name].keys, output_blocks
                         )
 
         return return_dict
@@ -250,7 +272,7 @@ class MLIPModel(ModelInterface):
     def request_neighbor_list(self, cutoff: float) -> None:
         self.nl_options = NeighborListOptions(
             cutoff=cutoff,
-            full=True,
+            full_list=True,
             strict=True,
         )
 
@@ -388,7 +410,7 @@ class MLIPModel(ModelInterface):
         :return: Checkpoint dictionary.
         """
         checkpoint = {
-            "architecture_name": "mlip",
+            "architecture_name": self._architecture_name,
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {
