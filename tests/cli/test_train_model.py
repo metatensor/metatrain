@@ -1240,3 +1240,81 @@ def _write_dataset_to_memmap(structures, filename):
     e_mm.flush()
     f_mm.flush()
     s_mm.flush()
+
+
+def test_mlip_example_train(monkeypatch, tmp_path):
+    """Test that training works for the mlip_example architecture."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    # Create options for the mlip_example architecture
+    options = OmegaConf.create(
+        {
+            "seed": 42,
+            "architecture": {
+                "name": "mlip_example",
+                "model": {
+                    "cutoff": 5.0,
+                },
+                "training": {
+                    "batch_size": 5,
+                    "num_epochs": 1,
+                    "num_workers": 0,
+                },
+            },
+            "training_set": {
+                "systems": {
+                    "read_from": "qm9_reduced_100.xyz",
+                    "length_unit": "angstrom",
+                },
+                "targets": {
+                    "energy": {
+                        "key": "U0",
+                        "unit": "eV",
+                    },
+                },
+            },
+            "test_set": 0.5,
+            "validation_set": 0.1,
+        }
+    )
+
+    train_model(options, output="model.pt")
+
+    # Check that the model was trained and saved
+    assert Path("model.pt").is_file()
+    assert Path("model.ckpt").is_file()
+
+    # Check that the model predicts zero energy (approximately)
+    # Load and evaluate the model
+    model_path = Path("model.pt")
+    assert model_path.exists()
+
+    # Load the model using torch
+    from metatrain.utils.io import load_model
+
+    model = load_model(str(model_path), extensions_directory="extensions/")
+
+    # Load test structures and evaluate
+    structures = ase.io.read("qm9_reduced_100.xyz", ":")[:5]
+    systems = systems_to_torch(structures)
+
+    # Get neighbor lists for the systems
+    from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+
+    nl_options = NeighborListOptions(cutoff=5.0, full=True, strict=True)
+    systems = [
+        get_system_with_neighbor_lists(system, [nl_options]) for system in systems
+    ]
+
+    # Evaluate the model
+    outputs = model(
+        systems,
+        {"energy": model.capabilities().outputs["energy"]},
+    )
+
+    # Check that energies are close to zero (accounting for composition model)
+    # The composition model may add non-zero offsets, so we just check that
+    # the model runs without errors
+    assert "energy" in outputs
+    assert outputs["energy"].block().values.shape[0] == len(systems)

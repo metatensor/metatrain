@@ -1,5 +1,5 @@
 architecture:
-  name: example
+  name: mlip_example
   model:
     cutoff: 5.0
   training:

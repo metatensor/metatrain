@@ -165,7 +165,7 @@ Example: Creating an MLIP-only architecture
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 To demonstrate how easy it is to add a new MLIP-only architecture using the base
-classes, let's look at the ``example`` architecture in ``metatrain``. This minimal
+classes, let's look at the ``mlip_example`` architecture in ``metatrain``. This minimal
 architecture always predicts zero energy, serving as a simple template for MLIP
 development.
 
@@ -218,7 +218,7 @@ composition weights, scaling, checkpointing, and export functionality. This
 allows you to focus on implementing the core physics of your model in the
 ``compute_energy`` method.
 
-The complete example architecture can be found in ``src/metatrain/example/``.
+The complete example architecture can be found in ``src/metatrain/mlip_example/``.
 
 Trainer class (``trainer.py``)
 ------------------------------

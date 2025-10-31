@@ -5,7 +5,7 @@
     "name": {
       "type": "string",
       "enum": [
-        "example"
+        "mlip_example"
       ]
     },
     "model": {
