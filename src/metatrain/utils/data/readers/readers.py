@@ -67,7 +67,7 @@ def read_systems(
     # A C++ double/torch.float64 is `7` according to
     # https://github.com/pytorch/pytorch/blob/207564bab1c4fe42750931765734ee604032fb69/c10/core/ScalarType.h#L54-L93
     if not all(s.dtype == 7 for s in systems):
-        raise ValueError("The loaded systems are not in double precision.")
+        raise ValueError(f"The loaded systems are not in double precision {[s.type for s in systems]}.")
 
     return systems
 
@@ -210,10 +210,7 @@ def _validate_target(key: str, entry: DictConfig) -> None:
                 f"Target name ({key}) must either be one of "
                 f"{_standard_outputs_list} or start with `mtt::`."
             )
-    if (
-        any(name in key.lower() for name in ("force", "virial", "stress"))
-        and "non_conservative" not in key
-    ):
+    if any(name in key.lower() for name in ("force", "virial", "stress")):
         warnings.warn(
             f"the name of {key!r} resembles to a gradient of "
             "energies; it should probably not be its own top-level target, "
