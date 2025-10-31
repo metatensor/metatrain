@@ -1198,7 +1198,7 @@ def test_train_wandb_logger(monkeypatch, tmp_path):
     assert "'seed': 42" in file_log
 
 
-def test_train_mixed_stress(monkeypatch, tmp_path, options):
+def test_train_mixed_stress(monkeypatch, tmp_path, options_pet):
     """Test that training works with structures with and without stress in the same
     dataset (e.g., bulk with stress, molecule/slab with NaN stress)."""
 
@@ -1247,15 +1247,15 @@ def test_train_mixed_stress(monkeypatch, tmp_path, options):
         ase.io.write("structures.xyz", structures)
 
     # Configure options to use the mixed stress dataset
-    options["training_set"]["systems"]["read_from"] = "structures.xyz"
-    options["training_set"]["targets"]["energy"]["key"] = "energy"
-    options["training_set"]["targets"]["energy"]["forces"] = OmegaConf.create(
+    options_pet["training_set"]["systems"]["read_from"] = "structures.xyz"
+    options_pet["training_set"]["targets"]["energy"]["key"] = "energy"
+    options_pet["training_set"]["targets"]["energy"]["forces"] = OmegaConf.create(
         {"key": "forces"}
     )
-    options["training_set"]["targets"]["energy"]["stress"] = OmegaConf.create(
+    options_pet["training_set"]["targets"]["energy"]["stress"] = OmegaConf.create(
         {"key": "stress"}
     )
-    options["training_set"]["targets"]["non_conservative_stress"] = OmegaConf.create(
+    options_pet["training_set"]["targets"]["non_conservative_stress"] = OmegaConf.create(
         {
             "key": "stress",
             "quantity": "pressure",
@@ -1263,17 +1263,17 @@ def test_train_mixed_stress(monkeypatch, tmp_path, options):
             "type": {"cartesian": {"rank": 2}},
         }
     )
-    options["architecture"]["training"]["num_epochs"] = 1
-    options["architecture"]["training"]["batch_size"] = 1
-    options["test_set"] = 0.0  # No test set
-    options["validation_set"] = 0.5  # 50% validation
+    options_pet["architecture"]["training"]["num_epochs"] = 1
+    options_pet["architecture"]["training"]["batch_size"] = 1
+    options_pet["test_set"] = 0.0  # No test set
+    options_pet["validation_set"] = 0.5  # 50% validation
 
     # Train the model - this should not raise an error
     # We expect warnings about cell vectors with non-periodic boundaries
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning)
         warnings.filterwarnings("ignore", category=RuntimeWarning)
-        train_model(options)
+        train_model(options_pet)
 
 
 def _write_dataset_to_memmap(structures, filename):
