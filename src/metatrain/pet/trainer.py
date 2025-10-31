@@ -73,7 +73,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 8
+    __checkpoint_version__ = 9
 
     def __init__(self, hypers: Dict[str, Any]) -> None:
         super().__init__(hypers)
@@ -148,15 +148,15 @@ class Trainer(TrainerInterface):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
-        logging.info("Calculating composition weights")
-
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
-            is_distributed,
-            self.hypers["fixed_composition_weights"],
-        )
+        if self.hypers["remove_composition_contribution"]:
+            logging.info("Calculating composition weights")
+            model.additive_models[0].train_model(  # this is the composition model
+                train_datasets,
+                model.additive_models[1:],
+                self.hypers["batch_size"],
+                is_distributed,
+                self.hypers["fixed_composition_weights"],
+            )
 
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")

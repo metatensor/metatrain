@@ -11,3 +11,4 @@ such as output naming, auxiliary outputs, and wrapper models.
    output-naming
    loss-functions
    auxiliary-outputs
+   dos-loss
