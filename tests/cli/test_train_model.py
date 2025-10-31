@@ -829,7 +829,6 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
         if seed is None:
             assert not torch.allclose(tensor1, tensor2)
         else:
-            print(tensor_name)
             torch.testing.assert_close(tensor1, tensor2)
 
 
