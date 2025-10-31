@@ -5,14 +5,22 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
+import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import ModelMetadata, ModelOutput, NeighborListOptions, System
+from metatomic.torch import (
+    AtomisticModel,
+    ModelCapabilities,
+    ModelMetadata,
+    ModelOutput,
+    NeighborListOptions,
+    System,
+)
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
 from .abc import ModelInterface, TrainerInterface
-from .additive import get_remove_additive_transform
+from .additive import CompositionModel, get_remove_additive_transform
 from .augmentation import RotationalAugmenter
 from .data import (
     CollateFn,
@@ -25,17 +33,19 @@ from .data import (
 from .data.dataset import DatasetInfo
 from .distributed.distributed_data_parallel import DistributedDataParallel
 from .distributed.slurm import DistributedEnvironment
+from .dtype import dtype_to_str
 from .evaluate_model import evaluate_model
 from .io import check_file_extension
 from .logging import ROOT_LOGGER, MetricLogger
 from .loss import LossAggregator
+from .metadata import merge_metadata
 from .metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from .neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists_transform,
 )
 from .per_atom import average_by_num_atoms
-from .scaler import get_remove_scale_transform
+from .scaler import Scaler, get_remove_scale_transform
 from .transfer import batch_to
 
 
@@ -53,7 +63,7 @@ class MLIPModel(ModelInterface):
                 "MLIPModel only supports datasets with a single target. "
                 f"Found {len(dataset_info.targets)} targets."
             )
-        self.target_name = dataset_info.targets.keys()[0]
+        self.target_name = list(dataset_info.targets.keys())[0]
         if dataset_info.targets[self.target_name].quantity != "energy":
             raise ValueError(
                 "MLIPModel only supports datasets with an energy as target quantity. "
@@ -69,13 +79,47 @@ class MLIPModel(ModelInterface):
                 "MLIPModel only supports datasets with a total energy target. "
                 "Found a per-atom target."
             )
-        if (dataset_info.targets[self.target_name].layout.block().properties) > 1:
+        num_properties = len(
+            dataset_info.targets[self.target_name].layout.block().properties
+        )
+        if num_properties > 1:
             raise ValueError(
                 "MLIPModel only supports datasets with a single sub-target. "
-                "Found "
-                f"{dataset_info.targets[self.target_name].layout.block().properties} "
-                "sub-targets."
+                f"Found {num_properties} sub-targets."
             )
+
+        self.atomic_types = dataset_info.atomic_types
+        self.outputs = {self.target_name: dataset_info.targets[self.target_name].copy()}
+
+        # Add position gradients (forces) as a supported output
+        for target_name, target_info in dataset_info.targets.items():
+            if "positions" in target_info.gradients:
+                self.outputs[f"{target_name}_positions_gradients"] = ModelOutput(
+                    unit=f"{target_info.unit}/{dataset_info.length_unit}",
+                    per_atom=True,
+                )
+
+        # Additive models: these are handled by the trainer at training time
+        # and they are added to the output at evaluation time
+        composition_model = CompositionModel(
+            hypers={},
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=self.atomic_types,
+                targets={
+                    target_name: target_info
+                    for target_name, target_info in dataset_info.targets.items()
+                    if CompositionModel.is_valid_target(target_name, target_info)
+                },
+            ),
+        )
+        self.additive_models = torch.nn.ModuleList([composition_model])
+
+        # Scaler: this is also handled by the trainer at training time
+        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
+
+        # Track whether new targets have been added (for restart/finetuning)
+        self.has_new_targets = False
 
     def forward(
         self,
@@ -83,16 +127,14 @@ class MLIPModel(ModelInterface):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        if len(outputs) > 1:
-            raise ValueError(
-                "MLIPModel only supports a single output. "
-                f"Found {len(outputs)} outputs."
-            )
-        if self.target_name not in outputs:
-            raise ValueError(
-                f"MLIPModel only supports the '{self.target_name}' output. "
-                f"Found outputs: {list(outputs.keys())}."
-            )
+        # Check that we're only being asked for supported outputs
+        for output_name in outputs:
+            if output_name not in self.outputs:
+                raise ValueError(
+                    f"Output '{output_name}' is not supported by this model. "
+                    f"Supported outputs: {list(self.outputs.keys())}"
+                )
+
         if selected_atoms is not None:
             raise ValueError(
                 "MLIPModel does not support the 'selected_atoms' argument."
@@ -177,7 +219,27 @@ class MLIPModel(ModelInterface):
             ],
         )
 
-        return {self.target_info.name: energy_as_tensor_map}
+        return_dict = {self.target_name: energy_as_tensor_map}
+
+        # At evaluation time, add the scaler and additive contributions
+        if not self.training:
+            return_dict = self.scaler(systems, return_dict)
+            for additive_model in self.additive_models:
+                outputs_for_additive_model: Dict[str, ModelOutput] = {}
+                for name, output in outputs.items():
+                    if name in additive_model.outputs:
+                        outputs_for_additive_model[name] = output
+                additive_contributions = additive_model(
+                    systems, outputs_for_additive_model, selected_atoms
+                )
+                for name in additive_contributions:
+                    # Add contributions to the return dict
+                    if name in return_dict:
+                        return_dict[name] = metatensor.torch.add(
+                            return_dict[name], additive_contributions[name]
+                        )
+
+        return return_dict
 
     def request_neighbor_list(self, cutoff) -> None:
         self.nl_options = NeighborListOptions(
@@ -217,6 +279,151 @@ class MLIPModel(ModelInterface):
         :return: Tensor of shape (N_systems,) containing the total energy for each
             system.
         """
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        """Get the outputs currently supported by this model."""
+        return self.outputs
+
+    def restart(self, dataset_info: DatasetInfo) -> "MLIPModel":
+        """
+        Restart training with a new dataset, potentially with new targets.
+
+        :param dataset_info: New dataset information.
+        :return: Updated model instance.
+        """
+        # Merge old and new dataset info
+        merged_info = self.dataset_info.union(dataset_info)
+        new_atomic_types = [
+            at for at in merged_info.atomic_types if at not in self.atomic_types
+        ]
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in self.dataset_info.targets
+        }
+        self.has_new_targets = len(new_targets) > 0
+
+        if len(new_atomic_types) > 0:
+            raise ValueError(
+                f"New atomic types found in the dataset: {new_atomic_types}. "
+                "The MLIPModel does not support adding new atomic types."
+            )
+
+        if self.has_new_targets:
+            raise ValueError(
+                "New targets found in the dataset. "
+                "The MLIPModel does not support adding new targets."
+            )
+
+        self.dataset_info = merged_info
+
+        # Restart the composition model and scaler
+        self.additive_models[0] = self.additive_models[0].restart(
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=self.atomic_types,
+                targets={
+                    target_name: target_info
+                    for target_name, target_info in dataset_info.targets.items()
+                    if CompositionModel.is_valid_target(target_name, target_info)
+                },
+            ),
+        )
+        self.scaler = self.scaler.restart(dataset_info)
+
+        return self
+
+    @classmethod
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "MLIPModel":
+        """
+        Load a model from a checkpoint.
+
+        :param checkpoint: Checkpoint dictionary.
+        :param context: Context for loading (restart, finetune, or export).
+        :return: Loaded model instance.
+        """
+        if context == "restart":
+            logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
+            model_state_dict = checkpoint["model_state_dict"]
+        elif context in {"finetune", "export"}:
+            logging.info(f"Using best model from epoch {checkpoint['best_epoch']}")
+            model_state_dict = checkpoint["best_model_state_dict"]
+        else:
+            raise ValueError("Unknown context tag for checkpoint loading!")
+
+        # Create the model
+        model_data = checkpoint["model_data"]
+        model = cls(
+            hypers=model_data["model_hypers"],
+            dataset_info=model_data["dataset_info"],
+        )
+        dtype = next(iter(model_state_dict.values())).dtype
+        model.to(dtype).load_state_dict(model_state_dict)
+        model.additive_models[0].sync_tensor_maps()
+        model.scaler.sync_tensor_maps()
+
+        # Loading the metadata from the checkpoint
+        model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
+
+        return model
+
+    def get_checkpoint(self) -> Dict:
+        """
+        Get a checkpoint dictionary for saving the model.
+
+        :return: Checkpoint dictionary.
+        """
+        checkpoint = {
+            "architecture_name": "mlip",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.metadata,
+            "model_data": {
+                "model_hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "epoch": None,
+            "best_epoch": None,
+            "model_state_dict": self.state_dict(),
+            "best_model_state_dict": self.state_dict(),
+        }
+        return checkpoint
+
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
+        """
+        Export the model to a metatomic AtomisticModel.
+
+        :param metadata: Optional metadata to merge with the model's metadata.
+        :return: Exported AtomisticModel.
+        """
+        dtype = next(self.parameters()).dtype
+        if dtype not in self.__supported_dtypes__:
+            raise ValueError(f"unsupported dtype {dtype} for MLIPModel")
+
+        # Make sure the model is all in the same dtype
+        self.to(dtype)
+
+        # The composition model contains some TensorMaps that need to be moved
+        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
+
+        # Get interaction range from neighbor list cutoff
+        interaction_range = self.nl_options.cutoff
+
+        capabilities = ModelCapabilities(
+            outputs=self.outputs,
+            atomic_types=self.atomic_types,
+            interaction_range=interaction_range,
+            length_unit=self.dataset_info.length_unit,
+            supported_devices=self.__supported_devices__,
+            dtype=dtype_to_str(dtype),
+        )
+
+        metadata = merge_metadata(self.metadata, metadata)
+
+        return AtomisticModel(self.eval(), metadata, capabilities)
 
 
 def get_mlip_scheduler(
