@@ -1,9 +1,10 @@
+import copy
+
 import pytest
 
 
 pytest.importorskip("torchpme")
 
-import copy
 
 import torch
 from metatomic.torch import ModelOutput, System
@@ -79,7 +80,7 @@ def test_long_range_training(use_ewald):
     targets, target_info_dict = read_targets(OmegaConf.create(conf))
     targets = {"energy": targets["energy"]}
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["scheduler_patience"] = 1
     hypers["training"]["fixed_composition_weights"] = {}

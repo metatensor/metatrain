@@ -1,3 +1,4 @@
+import copy
 import shutil
 
 import metatensor
@@ -56,7 +57,7 @@ def test_continue(monkeypatch, tmp_path):
 
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 0
     loss_conf = OmegaConf.create({"mtt::U0": CONF_LOSS.copy()})
     OmegaConf.resolve(loss_conf)
