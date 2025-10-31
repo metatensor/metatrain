@@ -35,7 +35,6 @@ calculator = EMT()
 structures = []
 
 # Create bulk structures with valid stress
-print("Creating bulk structures with valid stress...")
 for _ in range(5):
     bulk = ase.build.bulk("Cu", "fcc", a=3.6, cubic=True)
     bulk.rattle(0.01)  # Small perturbation to make structures different
@@ -47,7 +46,6 @@ for _ in range(5):
     structures.append(bulk)
 
 # Create molecules with NaN stress (stress not defined for molecules)
-print("Creating molecules with NaN stress...")
 for i in range(5):
     molecule = ase.Atoms("Cu2", positions=[[0, 0, 0], [2.5 + 0.1 * i, 2.5, 2.5]])
     molecule.calc = calculator
@@ -58,7 +56,6 @@ for i in range(5):
     structures.append(molecule)
 
 # Create slabs with NaN stress (stress not defined for slabs with non-periodic BC)
-print("Creating slabs with NaN stress...")
 for _ in range(5):
     slab = ase.build.fcc111("Cu", size=(2, 2, 4), vacuum=10.0)
     slab.pbc = (True, True, False)  # Periodic in xy, non-periodic in z

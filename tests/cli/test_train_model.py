@@ -1279,13 +1279,16 @@ def test_train_mixed_stress(monkeypatch, tmp_path, options_pet):
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
-            message=".*cell.*|.*pbc.*|.*periodic.*",
+            message=(
+                "A conversion to `System` was requested for an `ase.Atoms` object "
+                "with one or more non-zero cell vectors"
+            ),
             category=UserWarning,
         )
         warnings.filterwarnings(
             "ignore",
-            message=".*invalid value.*|.*divide.*",
-            category=RuntimeWarning,
+            message="Requested dataset",
+            category=UserWarning,
         )
         train_model(options_pet)
 
