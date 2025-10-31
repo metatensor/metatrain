@@ -17,7 +17,6 @@
 
    installation/installation
    getting-started/index
-   configuration/index
    architectures/index
    generated_examples/index
    concepts/index
