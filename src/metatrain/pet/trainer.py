@@ -278,6 +278,14 @@ class Trainer(TrainerInterface):
         # Create dataloader for the validation datasets:
         val_dataloaders = []
         for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
+            # In distributed training, we need at least as many samples as GPUs
+            # to ensure each sample is processed exactly once
+            if is_distributed and len(val_dataset) < world_size:
+                raise ValueError(
+                    f"A validation dataset has fewer samples ({len(val_dataset)}) "
+                    f"than the number of processes ({world_size}) in distributed training. "
+                    f"Please use a larger validation set or reduce the number of processes."
+                )
             val_dataloaders.append(
                 DataLoader(
                     dataset=val_dataset,

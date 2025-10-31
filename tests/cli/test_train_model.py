@@ -1209,7 +1209,7 @@ def test_small_validation_set_with_large_batch_size(
 
     This test verifies that the fix for issue #711 works correctly -
     validation datasets with fewer samples than the batch size should not
-    raise a ValueError and training should complete successfully.
+    raise a ValueError and training should complete successfully in non-distributed mode.
 
     Before the fix, this would fail with:
     ValueError: A validation dataset has fewer samples (X) than the batch size (Y).
@@ -1282,13 +1282,12 @@ def test_small_validation_set_with_large_batch_size(
 
 
 def test_regression_validation_batch_size_constraint_removed():
-    """Test that demonstrates the validation batch size constraint was removed.
+    """Test that the validation batch size constraint was removed for non-distributed training.
 
-    This test verifies that the specific validation constraint from issue #711
-    was removed, while preserving training dataset constraints.
+    This test verifies that the batch size constraint from issue #711 was removed
+    for non-distributed training, while a distributed training constraint was added
+    to ensure each sample is processed exactly once.
     """
-    # Check that validation constraint was removed but training constraint remains
-
     trainer_files = [
         "/home/runner/work/metatrain/metatrain/src/metatrain/pet/trainer.py",
         "/home/runner/work/metatrain/metatrain/src/metatrain/soap_bpnn/trainer.py",
@@ -1300,44 +1299,32 @@ def test_regression_validation_batch_size_constraint_removed():
             with open(trainer_file, "r") as f:
                 content = f.read()
 
-            # Verify validation constraint was removed
-            # (Look for validation-specific patterns)
+            # Verify validation section exists
             validation_section_start = content.find(
                 "# Create dataloader for the validation datasets:"
             )
+            assert validation_section_start != -1, f"Validation section not found in {trainer_file}"
+
+            # Find the validation section
             validation_section_end = content.find(
-                "# Create dataloader for the test datasets:"
+                "val_dataloaders.append(", validation_section_start
             )
-            if validation_section_end == -1:
-                # Look for other section markers
-                validation_section_end = content.find(
-                    "val_dataloaders.append(", validation_section_start
-                )
-                if validation_section_end != -1:
-                    # Find the end of the validation section
-                    validation_section_end = (
-                        content.find(")", validation_section_end) + 1
-                    )
+            if validation_section_end != -1:
+                validation_section_end = content.find(")", validation_section_end) + 1
+                validation_section = content[validation_section_start:validation_section_end]
 
-            if validation_section_start != -1 and validation_section_end != -1:
-                validation_section = content[
-                    validation_section_start:validation_section_end
-                ]
-
-                # Verify no batch size constraint in validation section
-                assert "fewer samples" not in validation_section, (
-                    f"Validation batch size constraint was not removed from "
-                    f"{trainer_file}"
-                )
-                assert (
-                    "batch_size" not in validation_section
-                    or "len(" not in validation_section
-                ), (
-                    f"Validation batch size constraint logic still present in "
-                    f"{trainer_file}"
+                # Verify old batch size constraint was removed
+                assert "than the batch size" not in validation_section, (
+                    f"Old batch size constraint still present in {trainer_file}"
                 )
 
-            # Verify training constraint still exists (this should remain)
+                # Verify distributed constraint was added
+                assert "is_distributed and len(val_dataset) < world_size" in validation_section or \
+                       "number of processes" in validation_section, (
+                    f"Distributed constraint not found in {trainer_file}"
+                )
+
+            # Verify training constraint still exists
             training_section_start = content.find(
                 "# Create dataloader for the training datasets:"
             )
@@ -1347,14 +1334,12 @@ def test_regression_validation_batch_size_constraint_removed():
                     training_section_start,
                 )
                 if training_section_end != -1:
-                    training_section = content[
-                        training_section_start:training_section_end
-                    ]
+                    training_section = content[training_section_start:training_section_end]
                     # Training constraint should still be there
                     assert "training dataset has fewer samples" in training_section, (
-                        f"Training batch size constraint was incorrectly removed from "
-                        f"{trainer_file}"
+                        f"Training batch size constraint was incorrectly removed from {trainer_file}"
                     )
+
 
 
 def _write_dataset_to_memmap(structures, filename):
