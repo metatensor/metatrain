@@ -1243,7 +1243,11 @@ def test_train_mixed_stress(monkeypatch, tmp_path, options_pet):
 
     # Write structures to file
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.filterwarnings(
+            "ignore",
+            message="Skipping unhashable information",
+            category=UserWarning,
+        )
         ase.io.write("structures.xyz", structures)
 
     # Configure options to use the mixed stress dataset
@@ -1273,8 +1277,16 @@ def test_train_mixed_stress(monkeypatch, tmp_path, options_pet):
     # Train the model - this should not raise an error
     # We expect warnings about cell vectors with non-periodic boundaries
     with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=UserWarning)
-        warnings.filterwarnings("ignore", category=RuntimeWarning)
+        warnings.filterwarnings(
+            "ignore",
+            message=".*cell.*|.*pbc.*|.*periodic.*",
+            category=UserWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message=".*invalid value.*|.*divide.*",
+            category=RuntimeWarning,
+        )
         train_model(options_pet)
 
 
