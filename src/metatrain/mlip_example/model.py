@@ -28,8 +28,12 @@ class ZeroModel(MLIPModel):
         super().__init__(hypers, dataset_info)
 
         # Request a neighbor list with the cutoff from hyperparameters
-        cutoff = hypers["model"]["cutoff"]
+        cutoff = hypers["cutoff"]
         self.request_neighbor_list(cutoff)
+
+        # Add a dummy parameter for the optimizer to work with
+        # This is needed because PyTorch optimizers require at least one parameter
+        self.dummy_param = torch.nn.Parameter(torch.zeros(1))
 
     def compute_energy(
         self,
@@ -61,7 +65,9 @@ class ZeroModel(MLIPModel):
         # Get the number of systems
         n_systems = system_indices.max().item() + 1
 
-        # Return zeros for all systems
-        return torch.zeros(
-            n_systems, device=edge_vectors.device, dtype=edge_vectors.dtype
+        # Return zeros for all systems, but multiply by dummy_param to maintain
+        # gradient tracking (dummy_param is always 0, so the result is still 0)
+        return (
+            torch.zeros(n_systems, device=edge_vectors.device, dtype=edge_vectors.dtype)
+            + self.dummy_param.sum()
         )

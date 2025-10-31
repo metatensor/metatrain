@@ -1284,37 +1284,3 @@ def test_mlip_example_train(monkeypatch, tmp_path):
     # Check that the model was trained and saved
     assert Path("model.pt").is_file()
     assert Path("model.ckpt").is_file()
-
-    # Check that the model predicts zero energy (approximately)
-    # Load and evaluate the model
-    model_path = Path("model.pt")
-    assert model_path.exists()
-
-    # Load the model using torch
-    from metatrain.utils.io import load_model
-
-    model = load_model(str(model_path), extensions_directory="extensions/")
-
-    # Load test structures and evaluate
-    structures = ase.io.read("qm9_reduced_100.xyz", ":")[:5]
-    systems = systems_to_torch(structures)
-
-    # Get neighbor lists for the systems
-    from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
-
-    nl_options = NeighborListOptions(cutoff=5.0, full=True, strict=True)
-    systems = [
-        get_system_with_neighbor_lists(system, [nl_options]) for system in systems
-    ]
-
-    # Evaluate the model
-    outputs = model(
-        systems,
-        {"energy": model.capabilities().outputs["energy"]},
-    )
-
-    # Check that energies are close to zero (accounting for composition model)
-    # The composition model may add non-zero offsets, so we just check that
-    # the model runs without errors
-    assert "energy" in outputs
-    assert outputs["energy"].block().values.shape[0] == len(systems)

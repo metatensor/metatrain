@@ -183,7 +183,7 @@ The model (``model.py``) only needs to implement the ``compute_energy`` method:
         def __init__(self, hypers, dataset_info):
             super().__init__(hypers, dataset_info)
             # Request a neighbor list with the cutoff from hyperparameters
-            cutoff = hypers["model"]["cutoff"]
+            cutoff = hypers["cutoff"]
             self.request_neighbor_list(cutoff)
 
         def compute_energy(

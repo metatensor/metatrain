@@ -68,8 +68,3 @@ Here's how to use the base classes to create a new MLIP architecture:
         def use_rotational_augmentation(self) -> bool:
             # Return True to use rotational augmentation, False otherwise
             return False
-
-Utilities
----------
-
-.. autofunction:: metatrain.utils.mlip.get_mlip_scheduler
