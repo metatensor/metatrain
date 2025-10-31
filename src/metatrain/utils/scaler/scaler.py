@@ -178,17 +178,6 @@ class Scaler(torch.nn.Module):
             if len(targets) == 0:
                 break
 
-            # remove additive contributions from these targets
-            for additive_model in additive_models:
-                targets = remove_additive(
-                    systems,
-                    targets,
-                    additive_model,
-                    {
-                        target_name: self.target_infos[target_name]
-                        for target_name in targets
-                    },
-                )
             targets = average_by_num_atoms(targets, systems, [])
             self.model.accumulate(systems, targets, extra_data)
 
