@@ -787,3 +787,27 @@ class MLIPTrainer(TrainerInterface):
         trainer.best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         return trainer
+
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        """
+        Upgrade the checkpoint to the current version of the trainer.
+
+        This method should be implemented by derived classes if they need to
+        upgrade checkpoints between versions. The base MLIPTrainer implementation
+        is version 1 and does not require any upgrades yet.
+
+        :param checkpoint: Checkpoint's state dictionary.
+
+        :raises RuntimeError: if the checkpoint cannot be upgraded to the current
+            version of the trainer.
+
+        :return: The upgraded checkpoint.
+        """
+        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using trainer "
+                f"version {checkpoint['trainer_ckpt_version']}, while the current "
+                f"trainer version is {cls.__checkpoint_version__}."
+            )
+        return checkpoint
