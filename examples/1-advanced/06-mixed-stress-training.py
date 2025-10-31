@@ -51,7 +51,7 @@ for i in range(5):
     molecule.calc = calculator
     molecule.info["energy"] = molecule.get_potential_energy()
     molecule.arrays["forces"] = molecule.get_forces()
-    molecule.info["stress"] = np.full((3, 3), np.nan)  # Use NaN for undefined stress
+    molecule.info["stress"] = np.full((3, 3), np.nan, dtype=np.float64)  # Use NaN for undefined stress
     molecule.calc = None
     structures.append(molecule)
 
@@ -63,7 +63,7 @@ for _ in range(5):
     slab.calc = calculator
     slab.info["energy"] = slab.get_potential_energy()
     slab.arrays["forces"] = slab.get_forces()
-    slab.info["stress"] = np.full((3, 3), np.nan)  # Use NaN for undefined stress
+    slab.info["stress"] = np.full((3, 3), np.nan, dtype=np.float64)  # Use NaN for undefined stress
     slab.calc = None
     structures.append(slab)
 
@@ -108,7 +108,7 @@ subprocess.run(["mtt", "train", "options-mixed-stress.yaml"], check=True)
 # ----------
 #
 # 1. **Use NaN for undefined stress**: When stress is not defined for a structure,
-#    set the stress tensor to ``np.full((3, 3), np.nan)``.
+#    set the stress tensor to ``np.full((3, 3), np.nan, dtype=np.float64)``.
 #
 # 2. **Mixed training is automatic**: ``metatrain`` automatically handles the mixed
 #    dataset during training, only computing stress loss for structures where stress
