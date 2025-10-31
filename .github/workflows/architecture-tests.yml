@@ -33,9 +33,8 @@ jobs:
         enable-cache: true
         activate-environment: true
 
-    - name: Set up Python and install tox
+    - name: Setup dependencies
       run: |
-        uv python install
         uv tool install tox --with tox-uv
 
     - name: run architecture tests
@@ -43,7 +42,3 @@ jobs:
       env:
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
-        UV_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
-        UV_INDEX_STRATEGY: unsafe-best-match
-        # For tox to use uv..
-        ENV_INSTALLER: "uv pip"

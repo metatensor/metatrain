@@ -117,4 +117,6 @@ ase.io.write("flashmd.xyz", structures_for_dataset)
 # .. literalinclude:: options-flashmd.yaml
 #    :language: yaml
 
-subprocess.run(["mtt", "train", "options-flashmd.yaml"])
+# Here, we run training as a subprocess, in reality you would run this from the command
+# line as ``mtt train options-flashmd.yaml``.
+subprocess.run(["mtt", "train", "options-flashmd.yaml"], check=True)
