@@ -50,6 +50,52 @@ from .transfer import batch_to
 
 
 class MLIPModel(ModelInterface):
+    """
+    Base model class for MLIP-only architectures.
+
+    This class is a base class for MLIP-only models that predict only energies and
+    forces. It provides:
+
+    - Common forward pass logic with neighbor list processing
+    - Automatic integration of :py:class:`~metatrain.utils.additive.CompositionModel`
+      for composition-based energy corrections
+    - Automatic integration of :py:class:`~metatrain.utils.scaler.Scaler` for
+      target scaling
+    - Checkpoint saving/loading (``get_checkpoint``, ``load_checkpoint``)
+    - Model export to metatomic format (``export``)
+    - Support for restarting training (``restart``)
+
+    Derived classes only need to implement the
+    :py:meth:`~metatrain.utils.mlip.MLIPModel.compute_energy` method.
+
+    The base class automatically handles additive models and scaling at evaluation
+    time, so the derived class only needs to compute the "raw" energy predictions.
+
+    Example:
+
+    .. code-block:: python
+
+        from metatrain.utils.mlip import MLIPModel
+
+
+        class MyMLIPModel(MLIPModel):
+            def compute_energy(
+                self,
+                edge_vectors: torch.Tensor,
+                species: torch.Tensor,
+                centers: torch.Tensor,
+                neighbors: torch.Tensor,
+                system_indices: torch.Tensor,
+            ) -> torch.Tensor:
+                # Implement your energy computation here
+                ...
+                return energies  # shape: (N_systems,)
+
+    :param hypers: Model hyperparameters.
+    :param dataset_info: Information about the dataset, including atomic types and
+        targets.
+    """
+
     __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
@@ -517,8 +563,35 @@ class MLIPTrainer(TrainerInterface):
     """
     Base trainer class for MLIP-only architectures.
 
-    This class provides common training logic for models that only predict energies
-    and forces. Derived classes can customize behavior by implementing abstract methods.
+    This class is a base trainer for MLIP-only models. It implements the complete
+    training loop and handles:
+
+    - Distributed training
+    - Data loading with optional rotational augmentation
+    - Loss computation
+    - Checkpointing
+
+    Derived classes only need to implement the
+    :py:meth:`~metatrain.utils.mlip.MLIPTrainer.use_rotational_augmentation` method
+    to specify whether rotational data augmentation should be used during training.
+
+    Note on rotational augmentation: You don't need rotational augmentation if
+    rotational invariance is enforced in the neural network architecture itself
+    (e.g., through equivariant message passing). However, if your architecture does
+    not enforce rotational invariance, you should use rotational augmentation to
+    ensure the model learns rotationally invariant representations.
+
+    Example:
+
+    .. code-block:: python
+
+        from metatrain.utils.mlip import MLIPTrainer
+
+
+        class MyMLIPTrainer(MLIPTrainer):
+            def use_rotational_augmentation(self) -> bool:
+                # Return True to use rotational augmentation, False otherwise
+                return False
 
     :param hypers: Training hyperparameters.
     """
