@@ -14,7 +14,7 @@ last-layer prediction rigidity (`LLPR <LLPR_>`_) approximation. Both total and l
 The baseline model was trained using the following training options, where the training
 set consists of 100 structures from the QM9 dataset.
 
-.. literalinclude:: options-no-llpr.yaml
+.. literalinclude:: options-model.yaml
    :language: yaml
 
 Once a model is trained, you can add LLPR uncertainties to it by launching a training
