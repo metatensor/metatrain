@@ -144,6 +144,8 @@ def systems_to_batch(
     torch.Tensor,
     torch.Tensor,
     Labels,
+    torch.Tensor,
+    torch.Tensor,
 ]:
     """
     Converts a list of systems to a batch required for the PET model.
@@ -250,4 +252,6 @@ def systems_to_batch(
         reverse_neighbor_index,
         system_indices,
         sample_labels,
+        centers,
+        nef_to_edges_neighbor,
     )

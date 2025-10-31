@@ -6,8 +6,9 @@ The class ``Scaler`` wraps this to be compatible with metatrain-style objects.
 import logging
 from typing import Dict, List, Optional, Union
 
+import metatensor.torch as mts
 import torch
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
 from metatomic.torch import System
 
 
@@ -75,6 +76,14 @@ class BaseScaler(torch.nn.Module):
                 "system",
                 "atom",
             ],
+            [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ],
         ]
 
         if layout.sample_names == valid_sample_names[0]:
@@ -87,12 +96,26 @@ class BaseScaler(torch.nn.Module):
                 ["atomic_type"], torch.arange(len(self.atomic_types)).reshape(-1, 1)
             )
 
+        elif layout.sample_names == valid_sample_names[2]:
+            self.sample_kinds[target_name] = "per_pair"
+            samples = Labels(
+                ["atomic_type"], torch.arange(len(self.atomic_types)).reshape(-1, 1)
+            )
+
         else:
             raise ValueError(
                 "unknown sample kind. TensorMap has sample names"
                 f" {layout.sample_names} but expected one of "
                 f"{valid_sample_names}."
             )
+
+        layout = mts.filter_blocks(
+            layout,
+            Labels(
+                layout.keys.names,
+                torch.vstack([key.values for key in layout.keys if _include_key(key)]),
+            ),
+        )
 
         # Initialize TensorMaps for the quantities to accumulate for this target.
         self.N[target_name] = TensorMap(
@@ -176,6 +199,9 @@ class BaseScaler(torch.nn.Module):
                 mask = extra_data[target_name + "_mask"]
 
             for key, block in target.items():
+                if not _include_key(key):
+                    continue
+
                 if self.sample_kinds[target_name] == "per_structure":
                     if mask is not None:
                         raise NotImplementedError(
@@ -193,7 +219,10 @@ class BaseScaler(torch.nn.Module):
                     self.Y2[target_name][key].values[0] += Y2_values
 
                 else:
-                    assert self.sample_kinds[target_name] == "per_atom"
+                    assert self.sample_kinds[target_name] in ["per_atom", "per_pair"]
+
+                    if "n_centers" in key.names:
+                        assert key["n_centers"] == 1
 
                     Y_block = block.to(device=device, dtype=dtype)
 
@@ -299,7 +328,10 @@ class BaseScaler(torch.nn.Module):
                     if torch.isnan(
                         scale_vals_type
                     ).any():  # this can only happen for per-atom targets
-                        assert self.sample_kinds[target_name] == "per_atom"
+                        assert self.sample_kinds[target_name] in [
+                            "per_atom",
+                            "per_pair",
+                        ]
                         logging.info(
                             f"Per-atom target {target_name} has not enough samples in "
                             f"block {key} for atomic type"
@@ -359,6 +391,13 @@ class BaseScaler(torch.nn.Module):
 
             prediction_blocks: List[TensorBlock] = []
             for key, output_block in output_tmap.items():
+                # TODO: Use the unscaled offsite blocks for now
+                if key not in self.scales[output_name].keys:
+                    # sanity check for now. TODO: handle offsite scaling
+                    assert "n_centers" in key.names and key["n_centers"] == 2
+                    prediction_blocks.append(output_block)
+                    continue
+
                 # Find the scales block and check metadata
                 scales_block = self.scales[output_name].block(key)
                 assert scales_block.properties == output_block.properties, (
@@ -419,7 +458,7 @@ class BaseScaler(torch.nn.Module):
                             )
 
                 else:
-                    assert self.sample_kinds[output_name] == "per_atom"
+                    assert self.sample_kinds[output_name] in ["per_atom", "per_pair"]
 
                     # TODO: gradients of per-atom targets are not supported
                     if len(output_block.gradients_list()) > 0:
@@ -538,3 +577,42 @@ class BaseScaler(torch.nn.Module):
             target_name: tm.to(device=device, dtype=dtype)
             for target_name, tm in self.scales.items()
         }
+
+
+def _include_key(key: LabelsEntry) -> bool:
+    """
+    Determines whether a block indexed by the input ``key`` should be included in the
+    scaler model. All keys except those for offsite blocks of per-pair targets are
+    included.
+
+    :param key: The key to check.
+
+    :return: Whether the key should be included in the composition model.
+    """
+    valid_key_names = [
+        ["_"],  # scalar
+        ["o3_lambda", "o3_sigma"],  # spherical
+        ["o3_lambda", "o3_sigma", "n_centers"],  # spherical per-atom
+    ]
+    include_key = False
+
+    if key.names == valid_key_names[0]:
+        include_key = True
+
+    elif key.names == valid_key_names[1]:
+        if key["o3_lambda"] == 0 and key["o3_sigma"] == 1:
+            include_key = True
+
+    elif key.names == valid_key_names[2]:
+        if key["n_centers"] == 1:
+            include_key = True
+        else:
+            assert key["n_centers"] == 2
+            include_key = False
+
+    else:
+        raise ValueError(
+            f"key names {key.names} not in valid key names {valid_key_names}"
+        )
+
+    return include_key

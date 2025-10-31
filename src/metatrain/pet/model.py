@@ -19,6 +19,7 @@ from metatomic.torch import (
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.data.pad import get_pair_sample_labels
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
@@ -150,10 +151,11 @@ class PET(ModelInterface):
         self.property_labels: Dict[str, List[Labels]] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
+        self.is_per_pair_output: Dict[str, bool] = {}
+        self.n_centers_block: Dict[str, Dict[str, int]] = {}
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
-
         self.register_buffer(
             "species_to_species_index",
             torch.full((max(self.atomic_types) + 1,), -1),
@@ -403,12 +405,17 @@ class PET(ModelInterface):
             reverse_neighbor_index,
             system_indices,
             sample_labels,
+            centers,
+            nef_to_edges_neighbor,
         ) = systems_to_batch(
             systems,
             nl_options,
             self.atomic_types,
             self.species_to_species_index,
             selected_atoms,
+        )
+        pair_sample_labels = get_pair_sample_labels(
+            systems, sample_labels, nl_options, device
         )
 
         # the scaled_dot_product_attention function from torch cannot do
@@ -489,6 +496,8 @@ class PET(ModelInterface):
                 padding_mask,
                 cutoff_factors,
                 outputs,
+                centers,
+                nef_to_edges_neighbor,
             )
         )
         atomic_predictions_dict = self._get_output_atomic_predictions(
@@ -500,6 +509,7 @@ class PET(ModelInterface):
             sample_labels,
             outputs,
             selected_atoms,
+            pair_sample_labels,
         )
 
         for k, v in atomic_predictions_dict.items():
@@ -779,8 +789,10 @@ class PET(ModelInterface):
         edge_features_list: List[torch.Tensor],
     ) -> Tuple[Dict[str, List[torch.Tensor]], Dict[str, List[torch.Tensor]]]:
         """
-        Apply output-specific heads to node and edge features from each GNN layer.
-        Returns dictionaries mapping output names to lists of head-transformed features.
+        Apply output-specific heads to node and edge features. Returns dictionaries
+        mapping output names to lists of head-transformed features. For 'residual'
+        featurizers, this has length corresponding to the number of GNN layers. For
+        'feedforward' featurizers, this has length 1 (final layer only).
 
         :param node_features_list: List of node feature tensors from each GNN layer.
         :param edge_features_list: List of edge feature tensors from each GNN layer.
@@ -907,6 +919,8 @@ class PET(ModelInterface):
         padding_mask: torch.Tensor,
         cutoff_factors: torch.Tensor,
         outputs: Dict[str, ModelOutput],
+        centers: torch.Tensor,
+        nef_to_edges_neighbor: torch.Tensor,
     ) -> Tuple[
         Dict[str, List[List[torch.Tensor]]], Dict[str, List[List[torch.Tensor]]]
     ]:
@@ -924,6 +938,11 @@ class PET(ModelInterface):
         :param cutoff_factors: Tensor of cutoff factors for edge distances
             [n_atoms, max_num_neighbors].
         :param outputs: Dictionary of requested outputs.
+        :param centers: A 1D tensor of shape (n_edges,) containing the
+            indices of the center nodes for each edge, with the center nodes
+            being the "i" node in an "i -> j" edge.
+        :param nef_to_edges_neighbor: Tensor mapping neighbor indices to edge
+            indices [n_atoms, max_num_neighbors].
         :return: Tuple of two dictionaries:
             - Dictionary mapping output names to lists of lists of node atomic
               prediction tensors (one list per GNN layer, one tensor per block)
@@ -947,10 +966,18 @@ class PET(ModelInterface):
                         output_name
                     ][i]
                     node_atomic_predictions_by_block: List[torch.Tensor] = []
-                    for node_last_layer_by_block in node_last_layer.values():
-                        node_atomic_predictions_by_block.append(
-                            node_last_layer_by_block(node_last_layer_features)
-                        )
+                    for key, node_last_layer_by_block in node_last_layer.items():
+                        # if this output block is a pair quantity, the onsite/per-atom
+                        # features are not used
+                        if self.n_centers_block[output_name][key] == 2:
+                            node_atomic_predictions_by_block.append(
+                                torch.zeros(1, dtype=node_last_layer_features.dtype)
+                            )
+
+                        else:
+                            node_atomic_predictions_by_block.append(
+                                node_last_layer_by_block(node_last_layer_features)
+                            )
                     node_atomic_predictions_dict[output_name].append(
                         node_atomic_predictions_by_block
                     )
@@ -969,7 +996,7 @@ class PET(ModelInterface):
                         output_name
                     ][i]
                     edge_atomic_predictions_by_block: List[torch.Tensor] = []
-                    for edge_last_layer_by_block in edge_last_layer.values():
+                    for key, edge_last_layer_by_block in edge_last_layer.items():
                         edge_atomic_predictions = edge_last_layer_by_block(
                             edge_last_layer_features
                         )
@@ -979,11 +1006,27 @@ class PET(ModelInterface):
                         edge_atomic_predictions = torch.where(
                             ~expanded_padding_mask, 0.0, edge_atomic_predictions
                         )
-                        edge_atomic_predictions_by_block.append(
-                            (edge_atomic_predictions * cutoff_factors[:, :, None]).sum(
-                                dim=1
-                            )
+                        edge_atomic_predictions = (
+                            edge_atomic_predictions * cutoff_factors[:, :, None]
                         )
+
+                        # Now handle aggregation. For onsite/per-pair predictions, the
+                        # edge predictions are aggregated over neighbors. This is the
+                        # normal use case.
+                        if self.n_centers_block[output_name][key] == 1:
+                            edge_atomic_predictions = edge_atomic_predictions.sum(dim=1)
+
+                        # For pair quantities, we do not aggregate over neighbors,
+                        # instead reshaping such that the atom pairs (i, j) exist
+                        # together in the first dimension, with padded neighbors
+                        # removed.
+                        else:
+                            assert self.n_centers_block[output_name][key] == 2
+                            edge_atomic_predictions = edge_atomic_predictions[
+                                centers, nef_to_edges_neighbor
+                            ]
+
+                        edge_atomic_predictions_by_block.append(edge_atomic_predictions)
                     edge_atomic_predictions_dict[output_name].append(
                         edge_atomic_predictions_by_block
                     )
@@ -1000,6 +1043,7 @@ class PET(ModelInterface):
         sample_labels: Labels,
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels],
+        pair_sample_labels: Dict[str, Labels],
     ) -> Dict[str, TensorMap]:
         """
         Combine node and edge atomic predictions into final TensorMaps.
@@ -1019,6 +1063,8 @@ class PET(ModelInterface):
         :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
         :param outputs: Dictionary of requested outputs.
         :param selected_atoms: Optional Labels specifying a subset of atoms to include.
+        :param pair_sample_labels: Optional Labels for atom pairs in the batch. These
+            are only used if predicting per-pair outputs.
         :return: Dictionary mapping requested output names to TensorMaps of
             predictions, either per-atom or summed over atoms.
         """
@@ -1042,11 +1088,20 @@ class PET(ModelInterface):
                     node_atomic_prediction_block = node_atomic_predictions_by_block[i]
                     edge_atomic_prediction_block = edge_atomic_predictions_by_block[i]
                     for j, key in enumerate(atomic_predictions_by_block):
-                        node_atomic_predictions = node_atomic_prediction_block[j]
-                        edge_atomic_predictions = edge_atomic_prediction_block[j]
-                        atomic_predictions_by_block[key] = atomic_predictions_by_block[
-                            key
-                        ] + (node_atomic_predictions + edge_atomic_predictions)
+                        if self.n_centers_block[output_name][key] == 1:
+                            node_atomic_predictions = node_atomic_prediction_block[j]
+                            edge_atomic_predictions = edge_atomic_prediction_block[j]
+                            atomic_predictions_by_block[key] = (
+                                atomic_predictions_by_block[key]
+                                + (node_atomic_predictions + edge_atomic_predictions)
+                            )
+                        else:
+                            assert self.n_centers_block[output_name][key] == 2
+                            edge_atomic_predictions = edge_atomic_prediction_block[j]
+                            atomic_predictions_by_block[key] = (
+                                atomic_predictions_by_block[key]
+                                + edge_atomic_predictions
+                            )
 
                 if output_name == "non_conservative_stress":  # TODO: variants
                     block_key = list(atomic_predictions_by_block.keys())[0]
@@ -1065,7 +1120,15 @@ class PET(ModelInterface):
                 blocks = [
                     TensorBlock(
                         values=atomic_predictions_by_block[key].reshape([-1] + shape),
-                        samples=sample_labels,
+                        samples=(
+                            sample_labels
+                            if not self.is_per_pair_output[output_name]
+                            else (
+                                pair_sample_labels["onsite"]
+                                if self.n_centers_block[output_name][key] == 1
+                                else pair_sample_labels["offsite"]
+                            )
+                        ),
                         components=components,
                         properties=properties,
                     )
@@ -1185,6 +1248,7 @@ class PET(ModelInterface):
         """
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}
+        self.n_centers_block[target_name] = {}
         for key, block in target_info.layout.items():
             dict_key = target_name
             for n, k in zip(key.names, key.values, strict=True):
@@ -1192,12 +1256,17 @@ class PET(ModelInterface):
             self.output_shapes[target_name][dict_key] = [
                 len(comp.values) for comp in block.components
             ] + [len(block.properties.values)]
+            if "n_centers" in key.names:
+                self.n_centers_block[target_name][dict_key] = key["n_centers"]
+            else:
+                self.n_centers_block[target_name][dict_key] = 1
 
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
         )
+        self.is_per_pair_output[target_name] = target_info.per_pair
 
         self.node_heads[target_name] = torch.nn.ModuleList(
             [
@@ -1223,14 +1292,19 @@ class PET(ModelInterface):
             ]
         )
 
+        # Node last layers only exist for atomic prediction blocks
         self.node_last_layers[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.ModuleDict(
                     {
-                        key: torch.nn.Linear(
-                            self.d_head,
-                            prod(shape),
-                            bias=True,
+                        key: (
+                            torch.nn.Linear(
+                                self.d_head,
+                                prod(shape),
+                                bias=True,
+                            )
+                            if self.n_centers_block[target_name][key] == 1
+                            else torch.nn.Identity()
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }
@@ -1239,6 +1313,9 @@ class PET(ModelInterface):
             ]
         )
 
+        # Edge last layers exist for all blocks. For onsite/per-atom blocks, only the
+        # atomic last layer features pass through them. For offsite/per-pair blocks,
+        # only the pair last layer features pass through them.
         self.edge_last_layers[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.ModuleDict(

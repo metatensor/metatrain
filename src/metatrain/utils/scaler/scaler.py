@@ -13,8 +13,11 @@ from metatrain.utils.data import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 
-from ..additive import remove_additive
-from ..data import DatasetInfo, TargetInfo, unpack_batch
+from ..data import (
+    DatasetInfo,
+    TargetInfo,
+    unpack_batch,
+)
 from ..jsonschema import validate
 from ..transfer import batch_to
 from ._base_scaler import BaseScaler
@@ -68,6 +71,7 @@ class Scaler(torch.nn.Module):
     def _get_dataloader(
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        collate_fn: CollateFn,
         batch_size: int,
         is_distributed: bool,
     ) -> DataLoader:
@@ -79,14 +83,11 @@ class Scaler(torch.nn.Module):
         is enforced.
 
         :param datasets: List of datasets to create the dataloader from.
+        :param collate_fn: Collate function to use for the dataloader.
         :param batch_size: Batch size to use for the dataloader.
         :param is_distributed: Whether to use distributed sampling or not.
         :return: The created DataLoader.
         """
-        # Create the collate function
-        targets_keys = list(self.dataset_info.targets.keys())
-        collate_fn = CollateFn(target_keys=targets_keys)
-
         dtype = datasets[0][0]["system"].positions.dtype
         if dtype != torch.float64:
             raise ValueError(
@@ -136,7 +137,7 @@ class Scaler(torch.nn.Module):
     def train_model(
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        additive_models: List[torch.nn.Module],
+        collate_fn: CollateFn,
         batch_size: int,
         is_distributed: bool,
         fixed_weights: Optional[Dict[str, Union[float, Dict[int, float]]]] = None,
@@ -145,8 +146,7 @@ class Scaler(torch.nn.Module):
         Placeholder docs.
 
         :param datasets: List of datasets to use for training the scaler.
-        :param additive_models: List of additive models to remove from the targets
-            before accumulating the quantities needed for fitting the scales.
+        :param collate_fn: Collate function to use for the dataloader.
         :param batch_size: Batch size to use for the dataloader.
         :param is_distributed: Whether to use distributed sampling or not.
         :param fixed_weights: Optional dict of fixed weights to apply to the scales
@@ -164,7 +164,7 @@ class Scaler(torch.nn.Module):
 
         # Create dataloader for the training datasets
         dataloader = self._get_dataloader(
-            datasets, batch_size, is_distributed=is_distributed
+            datasets, collate_fn, batch_size, is_distributed=is_distributed
         )
 
         device = self.dummy_buffer.device
@@ -290,12 +290,25 @@ class Scaler(torch.nn.Module):
         valid_sample_names = [
             ["system"],
             ["system", "atom"],
+            [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ],
         ]
 
         if layout.sample_names == valid_sample_names[0]:
             samples = Labels(["atomic_type"], torch.tensor([[-1]]))
 
         elif layout.sample_names == valid_sample_names[1]:
+            samples = Labels(
+                ["atomic_type"], torch.arange(len(self.atomic_types)).reshape(-1, 1)
+            )
+
+        elif layout.sample_names == valid_sample_names[2]:
             samples = Labels(
                 ["atomic_type"], torch.arange(len(self.atomic_types)).reshape(-1, 1)
             )

@@ -19,12 +19,17 @@ from metatensor.torch import (
     make_contiguous_block,
     save_buffer,
 )
-from metatomic.torch import System, load_system, load_system_buffer
+from metatomic.torch import NeighborListOptions, System, load_system, load_system_buffer
 from metatomic.torch import save_buffer as save_system_buffer
 from omegaconf import DictConfig
 from torch.utils.data import Dataset as TorchDataset
 from torch.utils.data import Subset
 
+from metatrain.utils.data.pad import (
+    get_atom_sample_labels,
+    get_pair_sample_labels,
+    pad_block,
+)
 from metatrain.utils.data.readers.metatensor import (
     _check_tensor_map_metadata,
     _empty_tensor_map_like,
@@ -428,6 +433,205 @@ class CollateFn:
         blob = torch.concatenate(system_buffers + target_buffers + extra_buffers)
 
         return blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes
+
+
+def get_pad_samples_transform(
+    target_names: List[str],
+    nl_options: NeighborListOptions,
+) -> Callable:
+    """
+    Get a function that pads the samples of spherical per-atom and per-pair targets
+    according to the neighborlists of the systems.
+
+    :param target_names: List of target names to pad. These should only be spherical,
+        per-atom/per-pair targets.
+    :param nl_options: The neighbor list options to use for building the pair sample
+        labels.
+    :return: A function that takes in systems, targets and extra data, and returns the
+        systems, targets and extra data with padded samples.
+    """
+
+    def transform(
+        systems: List[System],
+        targets: Dict[str, TensorMap],
+        extra: Dict[str, TensorMap],
+    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+        """
+        Transform function that pads the samples of spherical per-atom and per-pair
+        targets according to the neighborlists of the systems.
+
+        :param systems: List of systems.
+        :param targets: Dictionary containing the targets corresponding to the systems.
+        :param extra: Dictionary containing any extra data.
+        :return: The systems, targets and extra data with padded samples.
+        """
+        device = systems[0].positions.device
+        atom_sample_labels = get_atom_sample_labels(systems, device)
+        pair_sample_labels = get_pair_sample_labels(
+            systems, atom_sample_labels, nl_options, device
+        )
+        for name, target in targets.items():
+            if name not in target_names:
+                continue
+
+            padded_blocks: List[TensorBlock] = []
+            for key, block in target.items():
+                if target.sample_names == ["system", "atom"]:
+                    padded_sample_labels = atom_sample_labels
+                elif target.sample_names == [
+                    "system",
+                    "first_atom",
+                    "second_atom",
+                    "cell_shift_a",
+                    "cell_shift_b",
+                    "cell_shift_c",
+                ]:
+                    if key["n_centers"] == 1:
+                        padded_sample_labels = pair_sample_labels["onsite"]
+                    else:
+                        padded_sample_labels = pair_sample_labels["offsite"]
+                else:
+                    raise ValueError(
+                        f"Target '{name}' has unsupported sample names "
+                        f"{target.sample_names} for padding."
+                    )
+
+                padded_blocks.append(
+                    pad_block(
+                        block,
+                        "samples",
+                        padded_sample_labels,
+                        pad_value=torch.nan,
+                    )
+                )
+
+            targets[name] = TensorMap(target.keys, padded_blocks)
+
+        return systems, targets, extra
+
+    return transform
+
+
+def get_reindex_system_to_batch_id_transform() -> Callable:
+    """
+    Get a function that reindexes the systems to have batch ids.
+
+    :return: A function that takes in systems, targets and extra data, and returns
+        the systems, targets and extra data with reindexed batch ids.
+    """
+
+    def transform(
+        systems: List[System],
+        targets: Dict[str, TensorMap],
+        extra: Dict[str, TensorMap],
+    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+        """
+        Transform function that reindexes the systems to have batch ids, modifying
+        in-place.
+
+        :param systems: List of systems.
+        :param targets: Dictionary containing the targets corresponding to the systems.
+        :param extra: Dictionary containing any extra data.
+        :return: The systems, targets and extra data with reindexed system ids.
+        """
+        # TODO: more efficient way to do this?
+        for name, tensor in targets.items():
+            blocks = []
+            for block in tensor:
+                system_ids = block.samples.values[:, 0]
+                batch_id = torch.unique_consecutive(system_ids, return_inverse=True)[1]
+                block = TensorBlock(
+                    samples=Labels(
+                        block.samples.names,
+                        torch.hstack(
+                            [
+                                batch_id.reshape(-1, 1),
+                                block.samples.values[:, 1:],
+                            ]
+                        ),
+                    ),
+                    components=block.components,
+                    properties=block.properties,
+                    values=block.values,
+                )
+                blocks.append(block)
+            targets[name] = TensorMap(tensor.keys, blocks)
+
+        for name, tensor in extra.items():
+            blocks = []
+            for block in tensor:
+                system_ids = block.samples.values[:, 0]
+                batch_id = torch.unique_consecutive(system_ids, return_inverse=True)[1]
+                block = TensorBlock(
+                    samples=Labels(
+                        block.samples.names,
+                        torch.hstack(
+                            [
+                                batch_id.reshape(-1, 1),
+                                block.samples.values[:, 1:],
+                            ]
+                        ),
+                    ),
+                    components=block.components,
+                    properties=block.properties,
+                    values=block.values,
+                )
+                blocks.append(block)
+            extra[name] = TensorMap(tensor.keys, blocks)
+
+        return systems, targets, extra
+
+    return transform
+
+
+def get_create_dynamic_target_mask_transform(
+    target_names: List[str],
+) -> Callable:
+    """
+    Get a function that creates dynamic target masks.
+
+    :param target_names: List of target names to create dynamic masks for.
+    :return: A function that takes in systems, targets and extra data, and returns
+        the systems, targets and extra data with dynamic target masks.
+    """
+
+    def transform(
+        systems: List[System],
+        targets: Dict[str, TensorMap],
+        extra: Dict[str, TensorMap],
+    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+        """
+        Transform function that creates dynamic target masks.
+
+        :param systems: List of systems.
+        :param targets: Dictionary containing the targets corresponding to the systems.
+        :param extra: Dictionary containing any extra data.
+        :return: The systems, targets and extra data with dynamic target masks.
+        """
+        for name, target in targets.items():
+            if name not in target_names:
+                continue
+
+            if name + "_mask" in extra:
+                raise ValueError(
+                    f"Extra data already contains a mask for target '{name}'."
+                )
+
+            mask_blocks = []
+            for block in target:
+                mask_blocks.append(
+                    TensorBlock(
+                        samples=block.samples,
+                        components=block.components,
+                        properties=block.properties,
+                        values=(~torch.isnan(block.values)).to(torch.float64),
+                    )
+                )
+            extra[name + "_mask"] = TensorMap(target.keys, mask_blocks)
+
+        return systems, targets, extra
+
+    return transform
 
 
 def unpack_batch(

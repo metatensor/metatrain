@@ -183,6 +183,9 @@
                                   },
                                   "o3_sigma": {
                                     "type": "number"
+                                  },
+                                  "n_centers": {
+                                    "type": "integer"
                                   }
                                 },
                                 "required": [
@@ -315,6 +318,9 @@
                                   },
                                   "o3_sigma": {
                                     "type": "number"
+                                  },
+                                  "n_centers": {
+                                    "type": "integer"
                                   }
                                 },
                                 "required": [

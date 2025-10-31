@@ -28,7 +28,11 @@ def average_by_num_atoms(
     device = systems[0].device
     num_atoms = torch.tensor([len(s) for s in systems], device=device)
     for key in tensor_map_dict.keys():
-        if key in per_structure_keys:
+        is_per_pair = (
+            "first_atom" in tensor_map_dict[key].sample_names
+            or "second_atom" in tensor_map_dict[key].sample_names
+        )
+        if key in per_structure_keys or is_per_pair:
             averaged_tensor_map_dict[key] = tensor_map_dict[key]
         else:
             averaged_tensor_map_dict[key] = divide_by_num_atoms(
