@@ -37,7 +37,11 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 # %%
 #
 
-subprocess.run(["mtt", "train", "options-ase.yaml", "--output", "model-md.pt"])
+# Here, we run training as a subprocess, in reality you would run this from the command
+# line as ``mtt train options-ase.yaml --output model-md.pt``.
+subprocess.run(
+    ["mtt", "train", "options-ase.yaml", "--output", "model-md.pt"], check=True
+)
 
 # %%
 #
