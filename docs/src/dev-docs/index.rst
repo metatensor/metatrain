@@ -12,6 +12,7 @@ module.
    getting-started
    architecture-life-cycle
    new-architecture
+   new-mlip
    dataset-information
    new-loss
    cli/index

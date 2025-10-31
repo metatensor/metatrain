@@ -122,4 +122,4 @@ mtt eval --help
 # ---------------------
 #
 # The trained model can also be used to run molecular simulations.
-# You can find how in the examples section.
+# You can find how in the :ref:`tutorials` section.
