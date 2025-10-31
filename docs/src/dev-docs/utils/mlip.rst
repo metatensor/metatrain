@@ -10,12 +10,22 @@ MLIPModel
 ---------
 
 The :py:class:`metatrain.utils.mlip.MLIPModel` class is a base class for
-MLIP-only models that predict only energies and forces. It provides a common
-implementation of the forward pass that processes neighbor lists and computes
-energies using a simplified interface.
+MLIP-only models that predict only energies and forces. It provides:
+
+- Common forward pass logic with neighbor list processing
+- Automatic integration of :py:class:`~metatrain.utils.additive.CompositionModel`
+  for composition-based energy corrections
+- Automatic integration of :py:class:`~metatrain.utils.scaler.Scaler` for
+  target scaling
+- Checkpoint saving/loading (``get_checkpoint``, ``load_checkpoint``)
+- Model export to metatomic format (``export``)
+- Support for restarting training (``restart``)
 
 Derived classes only need to implement the
 :py:meth:`~metatrain.utils.mlip.MLIPModel.compute_energy` method.
+
+The base class automatically handles additive models and scaling at evaluation
+time, so the derived class only needs to compute the "raw" energy predictions.
 
 MLIPTrainer
 -----------
