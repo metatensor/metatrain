@@ -1,0 +1,26 @@
+architecture:
+  name: soap_bpnn
+  model:
+    cutoff: 5.0
+    num_hidden_layers: 2
+    hidden_size: 32
+    learning_rate: 0.001
+  training:
+    batch_size: 2
+    num_epochs: 5
+
+training_set:
+  systems:
+    read_from: mixed_structures.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: energy
+      unit: eV
+      forces:
+        key: forces
+      stress:
+        key: stress
+
+validation_set: 0.2
+test_set: 0.0

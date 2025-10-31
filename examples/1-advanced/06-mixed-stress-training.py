@@ -82,43 +82,12 @@ print("  - 5 slabs (with NaN stress)")
 # Configuration for Mixed Stress Training
 # ----------------------------------------
 #
-# We need to create an options file that specifies training on energy, forces,
+# We use an options file that specifies training on energy, forces,
 # and stress. The model will automatically handle structures with NaN stress
 # during training.
-
-options_content = """
-architecture:
-    name: soap_bpnn
-    model:
-        cutoff: 5.0
-        num_hidden_layers: 2
-        hidden_size: 32
-        learning_rate: 0.001
-    training:
-        batch_size: 2
-        num_epochs: 5
-
-training_set:
-    systems:
-        read_from: mixed_structures.xyz
-        length_unit: angstrom
-    targets:
-        energy:
-            key: energy
-            unit: eV
-            forces:
-                key: forces
-            stress:
-                key: stress
-
-validation_set: 0.2
-test_set: 0.0
-"""
-
-with open("options-mixed-stress.yaml", "w") as f:
-    f.write(options_content)
-
-print("\nCreated options-mixed-stress.yaml configuration file")
+#
+# .. literalinclude:: options-mixed-stress.yaml
+#    :language: yaml
 
 # %%
 #
@@ -128,11 +97,6 @@ print("\nCreated options-mixed-stress.yaml configuration file")
 # Now we train the model using the mixed dataset. The training will proceed
 # normally, with stress contributions to the loss only coming from structures
 # where stress is well-defined (non-NaN values).
-#
-# For example, you can use the following options file:
-#
-# .. literalinclude:: options-mixed-stress.yaml
-#    :language: yaml
 
 subprocess.run(["mtt", "train", "options-mixed-stress.yaml"])
 
