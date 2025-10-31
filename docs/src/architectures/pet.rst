@@ -85,12 +85,6 @@ are the following:
     :members:
     :undoc-members:
 
-with the long-range section being:
-
-.. autoclass:: metatrain.pet.hypers.LongRangeHypers
-    :members:
-    :undoc-members:
-
 .. _pet_trainer_hypers:
 
 Trainer hyperparameters
@@ -103,17 +97,28 @@ are the following:
     :members:
     :undoc-members:
 
-with the following relevant parameter descriptions:
+Configuration for fine-tuning
+-----------------------------
 
-.. autoclass:: metatrain.pet.hypers.FinetuneHypers
+This section contains the definitions needed to understand the ``training.finetune`` parameter.
+
+.. autoclass:: metatrain.pet.modules.finetuning.FullFinetuneHypers
     :members:
     :undoc-members:
 
-.. autoclass:: metatrain.pet.hypers.LoRaFinetuneConfig
+.. autoclass:: metatrain.pet.modules.finetuning.LoRaFinetuneHypers
     :members:
     :undoc-members:
 
-.. autoclass:: metatrain.pet.hypers.HeadsFinetuneConfig
+.. autoclass:: metatrain.pet.modules.finetuning.HeadsFinetuneHypers
+    :members:
+    :undoc-members:
+
+.. autoclass:: metatrain.pet.modules.finetuning.LoRaFinetuneConfig
+    :members:
+    :undoc-members:
+
+.. autoclass:: metatrain.pet.modules.finetuning.HeadsFinetuneConfig
     :members:
     :undoc-members:
 

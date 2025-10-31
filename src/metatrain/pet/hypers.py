@@ -10,28 +10,15 @@ from metatrain.utils.hypers import (
     ScalingWeightsDict,
     init_with_defaults,
 )
+from metatrain.utils.long_range import LongRangeHypers
 from metatrain.utils.loss import LossSpecification
+
+from .modules.finetuning import FinetuneHypers
 
 
 ###########################
 #  MODEL HYPERPARAMETERS  #
 ###########################
-
-class LongRangeHypers(TypedDict):
-    """In some systems and datasets, enabling long-range Coulomb interactions
-    might be beneficial for the accuracy of the model and/or
-    its physical correctness."""
-
-    enable: bool = False
-    """Toggle for enabling long-range interactions"""
-    use_ewald: bool = False
-    """Use Ewald summation. If False, P3M is used"""
-    smearing: float = 1.4
-    """Smearing width in Fourier space"""
-    kspace_resolution: float = 1.33
-    """Resolution of the reciprocal space grid"""
-    interpolation_nodes: int = 5
-    """Number of grid points for interpolation (for PME only)"""
 
 
 class PETHypers(TypedDict):
@@ -98,41 +85,10 @@ class PETHypers(TypedDict):
     long_range: LongRangeHypers = init_with_defaults(LongRangeHypers)
     """Long-range Coulomb interactions parameters."""
 
+
 ##############################
 #  TRAINER HYPERPARAMETERS   #
 ##############################
-
-class LoRaFinetuneConfig(TypedDict):
-    """Configuration for LoRA finetuning strategy."""
-
-    rank: int
-    """Rank of the LoRA matrices."""
-    alpha: float
-    """Scaling factor for the LoRA matrices."""
-
-
-class HeadsFinetuneConfig(TypedDict):
-    """Configuration for heads finetuning strategy."""
-
-    head_modules: list[str]
-    """List of module name prefixes for the prediction heads to finetune."""
-    last_layer_modules: list[str]
-    """List of module name prefixes for the last layers to finetune."""
-
-
-class FinetuneHypers(TypedDict):
-    """Hyperparameters for finetuning PET models."""
-
-    read_from: str
-    """Path to the pretrained model checkpoint."""
-    method: Literal["full", "lora", "heads"]
-    """Finetuning method to use. Available methods are:
-    - ``full``: finetune all model parameters.
-    - ``lora``: inject LoRA layers and finetune only them.
-    - ``heads``: finetune only the prediction heads of the model.
-    """
-    config: LoRaFinetuneConfig | HeadsFinetuneConfig | None
-    """Configuration for the selected finetuning method."""
 
 
 class PETTrainerHypers(TypedDict):
@@ -183,4 +139,7 @@ class PETTrainerHypers(TypedDict):
     :ref:`loss-functions` for more details."""
 
     finetune: NotRequired[FinetuneHypers]
-    """Finetuning parameters for PET models pretrained on large datasets."""
+    """Finetuning parameters for PET models pretrained on large datasets.
+    
+    See :ref:`fine-tuning-example` for more details.
+    """
