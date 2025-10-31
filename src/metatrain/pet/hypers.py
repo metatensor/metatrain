@@ -182,5 +182,5 @@ class PETTrainerHypers(TypedDict):
     """This section describes the loss function to be used. See the
     :ref:`loss-functions` for more details."""
 
-    finetune: NotRequired[dict]
+    finetune: NotRequired[FinetuneHypers]
     """Finetuning parameters for PET models pretrained on large datasets."""
