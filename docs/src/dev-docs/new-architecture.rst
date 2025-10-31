@@ -154,6 +154,13 @@ order of preference since ``metatrain`` will use these to determine, based on
 the user request and machines' availability, the optimal ``dtype`` and
 ``device`` for training.
 
+.. note::
+
+    For MLIP-only models (models that only predict energies and forces),
+    ``metatrain`` provides base classes :py:class:`metatrain.utils.mlip.MLIPModel`
+    and :py:class:`metatrain.utils.mlip.MLIPTrainer` that implement most of the
+    boilerplate code. See :doc:`utils/mlip` for more details.
+
 Trainer class (``trainer.py``)
 ------------------------------
 
