@@ -22,7 +22,7 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
         source heads to the destination heads instead of random initialization.
     :return: The modified model with the finetuning strategy applied.
     """
-    method = strategy.get("method", "full").lower()
+    method = strategy["method"]
 
     for param in model.parameters():
         param.requires_grad = True
@@ -32,7 +32,7 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
         pass
 
     elif method == "lora":
-        strategy_cfg = strategy.get("config", {})
+        strategy_cfg = strategy["config"]
         lora_already_applied = any(isinstance(m, LoRALinear) for m in model.modules())
         if not lora_already_applied:
             model_device = next(model.parameters()).device
@@ -81,7 +81,7 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
 
     model.finetune_config = strategy
 
-    inherit_heads_config = strategy.get("inherit_heads", {})
+    inherit_heads_config = strategy["inherit_heads"]
     if inherit_heads_config:
         for dest_target_name, source_target_name in inherit_heads_config.items():
             model_parameters = dict(model.named_parameters())
