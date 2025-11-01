@@ -331,4 +331,21 @@ def trainer_update_v8_v9(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to update.
     """
+    # Adding the empty finetune config if not present
+    if "finetune" not in checkpoint["train_hypers"]:
+        checkpoint["train_hypers"]["finetune"] = {
+            "read_from": None,
+            "method": "full",
+            "config": {},
+            "inherit_heads": {},
+        }
+
+
+def trainer_update_v9_v10(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 9 to version 10.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Ensuring that the finetune read_from is None if not specified
     checkpoint["train_hypers"]["remove_composition_contribution"] = True
