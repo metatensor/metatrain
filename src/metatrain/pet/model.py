@@ -561,8 +561,11 @@ class PET(ModelInterface):
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
         :return: Tuple of two lists:
-            - List of node feature tensors from each GNN layer
-            - List of edge feature tensors from each GNN layer
+            - List of node feature tensors
+            - List of edge feature tensors
+            In the case of feedforward featurization, each list contains a single tensor
+            from the final GNN layer. In the case of residual featurization, each list
+            contains tensors from all GNN layers.
         """
         if self.featurizer_type == "feedforward":
             return self._feedforward_featurization_impl(inputs, use_manual_attention)
@@ -643,8 +646,8 @@ class PET(ModelInterface):
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
         :return: Tuple of two lists:
-            - List of node feature tensors from the final GNN layer
-            - List of edge feature tensors from the final GNN layer
+            - List of node feature tensors from all GNN layers
+            - List of edge feature tensors from all GNN layers
         """
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
