@@ -156,7 +156,7 @@ the user request and machines' availability, the optimal ``dtype`` and
 
 .. note::
 
-    For MLIP-only models (models that only predict energies and forces),
+    For MLIP-only architectures (that only predict energies and forces),
     ``metatrain`` provides base classes that implement most of the boilerplate
     code. See :doc:`new-mlip` for a complete guide on adding MLIP-only
     architectures.
