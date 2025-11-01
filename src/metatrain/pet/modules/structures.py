@@ -199,7 +199,10 @@ def systems_to_batch(
         max_edges_per_node = int(torch.max(num_neghbors))
 
     if selected_atoms is not None:
-        num_nodes = int(centers.max()) + 1
+        if torch.numel(centers) == 0:
+            num_nodes = 0
+        else:
+            num_nodes = int(centers.max()) + 1
     else:
         num_nodes = len(positions)
 
