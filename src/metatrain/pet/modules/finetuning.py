@@ -11,13 +11,18 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
 
     :param model: The model to be finetuned.
     :param strategy: A dictionary specifying the finetuning strategy.
-        The strategy can be one of the following:
+        The strategy method can be one of the following:
         - lora: Inject LoRA layers into the model, or reapply training if already
             present.
         - heads: Freeze all parameters except for the heads and last layers.
+        - full: All parameters are trainable.
+        Additionally, the strategy can include an "inherit_heads" key,
+        which is a dictionary mapping the new trainable targets to the existing
+        targets in the model. This allows for copying weights from the corresponding
+        source heads to the destination heads instead of random initialization.
     :return: The modified model with the finetuning strategy applied.
     """
-    method = strategy.get("method", "full").lower()
+    method = strategy["method"]
 
     for param in model.parameters():
         param.requires_grad = True
@@ -27,7 +32,7 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
         pass
 
     elif method == "lora":
-        strategy_cfg = strategy.get("config", {})
+        strategy_cfg = strategy["config"]
         lora_already_applied = any(isinstance(m, LoRALinear) for m in model.modules())
         if not lora_already_applied:
             model_device = next(model.parameters()).device
@@ -76,6 +81,33 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
 
     model.finetune_config = strategy
 
+    inherit_heads_config = strategy["inherit_heads"]
+    if inherit_heads_config:
+        for dest_target_name, source_target_name in inherit_heads_config.items():
+            model_parameters = dict(model.named_parameters())
+            if not any(f".{source_target_name}." in name for name in model_parameters):
+                raise ValueError(
+                    f"Weight inheritance was selected in finetuning strategy, but "
+                    f"the source target name '{source_target_name}' was not found in "
+                    "the model. Please specify the correct source target name."
+                )
+            if not any(f".{dest_target_name}." in name for name in model_parameters):
+                raise ValueError(
+                    f"Weight inheritance was selected in finetuning strategy, but "
+                    f"the destination target name '{dest_target_name}' was not found "
+                    "in the model. Please specify the correct destination target name."
+                )
+            for name, param in model_parameters.items():
+                if f".{source_target_name}." in name:
+                    corresponding_dest_name = name.replace(
+                        source_target_name, dest_target_name
+                    )
+                    if corresponding_dest_name in model_parameters:
+                        model_parameters[corresponding_dest_name].data.copy_(param.data)
+                    else:
+                        raise ValueError(
+                            f"Destination head '{dest_target_name}' not found in model."
+                        )
     return model
 
 

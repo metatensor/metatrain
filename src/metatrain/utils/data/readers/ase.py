@@ -226,7 +226,7 @@ def _read_virial_stress_ase(
         if is_virial:
             values *= -1
         else:  # is stress
-            if atoms.cell.volume == 0:
+            if atoms.cell.volume == 0 and not torch.all(torch.isnan(values)).item():
                 raise ValueError(
                     f"system {i_system} has zero cell vectors. Stress can only "
                     "be used if cell is non zero."

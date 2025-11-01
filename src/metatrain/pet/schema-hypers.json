@@ -195,8 +195,10 @@
           "type": "object",
           "properties": {
             "read_from": {
-              "type": "string",
-              "format": "uri"
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "method": {
               "type": "string",
@@ -208,50 +210,16 @@
             },
             "config": {
               "type": "object",
-              "oneOf": [
-                {
-                  "properties": {
-                    "alpha": {
-                      "type": "number"
-                    },
-                    "rank": {
-                      "type": "integer"
-                    }
-                  },
-                  "required": [
-                    "alpha",
-                    "rank"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "properties": {
-                    "head_modules": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "last_layer_modules": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  },
-                  "required": [
-                    "head_modules",
-                    "last_layer_modules"
-                  ],
-                  "additionalProperties": false
-                }
-              ]
+              "additionalProperties": true
+            },
+            "inherit_heads": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
             }
           },
-          "additionalProperties": false,
-          "required": [
-            "method"
-          ]
+          "additionalProperties": false
         },
         "grad_clip_norm": {
           "type": "number"
