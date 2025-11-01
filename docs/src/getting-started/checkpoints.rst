@@ -73,7 +73,8 @@ Keep in mind that a checkpoint (``.ckpt``) is only a temporary file, which can h
 several dependencies and may become unusable if the corresponding architecture is
 updated. In constrast, exported models (``.pt``) act as standalone files. For long-term
 usage, you should export your model! Exporting a model is also necessary if you want to
-use it in other frameworks, especially in molecular simulations (see the examples).
+use it in other frameworks, especially in molecular simulations (see the
+:ref:`tutorials`).
 
 Adding information about models to checkpoints
 ----------------------------------------------
