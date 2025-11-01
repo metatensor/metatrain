@@ -210,7 +210,10 @@ def _validate_target(key: str, entry: DictConfig) -> None:
                 f"Target name ({key}) must either be one of "
                 f"{_standard_outputs_list} or start with `mtt::`."
             )
-    if any(name in key.lower() for name in ("force", "virial", "stress")):
+    if (
+        any(name in key.lower() for name in ("force", "virial", "stress"))
+        and "non_conservative" not in key
+    ):
         warnings.warn(
             f"the name of {key!r} resembles to a gradient of "
             "energies; it should probably not be its own top-level target, "
