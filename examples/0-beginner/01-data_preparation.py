@@ -239,4 +239,6 @@ s_mm.flush()
 # .. literalinclude:: options-memmap.yaml
 #    :language: yaml
 
-subprocess.run(["mtt", "train", "options-memmap.yaml"])
+# Here, we run training as a subprocess, in reality you would run this from the command
+# line as ``mtt train options-memmap.yaml``.
+subprocess.run(["mtt", "train", "options-memmap.yaml"], check=True)

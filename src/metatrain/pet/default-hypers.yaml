@@ -29,6 +29,11 @@ architecture:
     warmup_fraction: 0.01
     learning_rate: 1e-4
     weight_decay: null
+    finetune:
+      read_from: null
+      method: full
+      config: {}
+      inherit_heads: {}
     log_interval: 1
     checkpoint_interval: 100
     scale_targets: true

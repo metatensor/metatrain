@@ -571,8 +571,11 @@ class PET(ModelInterface):
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
         :return: Tuple of two lists:
-            - List of node feature tensors from each GNN layer
-            - List of edge feature tensors from each GNN layer
+            - List of node feature tensors
+            - List of edge feature tensors
+            In the case of feedforward featurization, each list contains a single tensor
+            from the final GNN layer. In the case of residual featurization, each list
+            contains tensors from all GNN layers.
         """
         if self.featurizer_type == "feedforward":
             return self._feedforward_featurization_impl(inputs, use_manual_attention)
@@ -653,8 +656,8 @@ class PET(ModelInterface):
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
         :return: Tuple of two lists:
-            - List of node feature tensors from the final GNN layer
-            - List of edge feature tensors from the final GNN layer
+            - List of node feature tensors from all GNN layers
+            - List of edge feature tensors from all GNN layers
         """
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
@@ -1418,6 +1421,9 @@ def process_non_conservative_stress(
 
     # Normalize by cell volume
     volumes = torch.stack([torch.abs(torch.det(system.cell)) for system in systems])
+    # Zero volume can happen due to metatomic's convention of zero cell
+    # vectors for non-periodic directions. The actual volume is +inf
+    volumes[volumes == 0.0] = torch.inf
     volumes_by_atom = volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
     tensor_as_three_by_three = tensor_as_three_by_three / volumes_by_atom
 

@@ -6,12 +6,15 @@ import re
 import shutil
 import subprocess
 import time
+import warnings
 from pathlib import Path
 
+import ase.build
 import ase.io
 import numpy as np
 import pytest
 import torch
+from ase.calculators.emt import EMT
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import NeighborListOptions, systems_to_torch
 from omegaconf import OmegaConf
@@ -649,6 +652,7 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
         },
+        "inherit_heads": {},
     }
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
@@ -656,22 +660,6 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
     train_model(options_pet)
 
     assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
-
-
-def test_finetune_no_read_from(options_pet, monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-
-    options_pet["architecture"]["training"]["finetune"] = OmegaConf.create(
-        {"method": "full"}
-    )
-    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
-
-    match = (
-        "Finetuning is enabled but no checkpoint was provided. Please provide one "
-        "using the `read_from` option in the `finetune` section."
-    )
-    with pytest.raises(ValueError, match=match):
-        train_model(options_pet)
 
 
 def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
@@ -685,6 +673,7 @@ def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
         },
+        "inherit_heads": {},
     }
     options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
         options_pet_transfer_learn["training_set"]["targets"].pop("energy")
@@ -708,6 +697,7 @@ def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
         },
+        "inherit_heads": {},
     }
     options_pet_transfer_learn["training_set"]["systems"]["read_from"] = (
         "ethanol_reduced_100.xyz"
@@ -727,6 +717,86 @@ def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
     train_model(options_pet_transfer_learn)
 
     assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+
+
+def test_transfer_learn_inherit_heads(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn = copy.deepcopy(options_pet)
+    options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+        "config": {},
+        "inherit_heads": {
+            "mtt::energy": "energy",
+        },
+    }
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
+        options_pet_transfer_learn["training_set"]["targets"].pop("energy")
+    )
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet_transfer_learn)
+    assert (
+        r"Inheriting initial weights for heads and last layers "
+        r"for targets: from ['energy'] to ['mtt::energy']" in caplog.text
+    )
+
+
+def test_transfer_learn_inherit_heads_invalid_source(
+    options_pet, caplog, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn_invalid_source = copy.deepcopy(options_pet)
+    options_pet_transfer_learn_invalid_source["architecture"]["training"][
+        "finetune"
+    ] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+        "config": {},
+        "inherit_heads": {
+            "mtt::energy": "foo",
+        },
+    }
+    options_pet_transfer_learn_invalid_source["training_set"]["targets"][
+        "mtt::energy"
+    ] = options_pet_transfer_learn_invalid_source["training_set"]["targets"].pop(
+        "energy"
+    )
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    match = "source target name 'foo' was not found"
+    with pytest.raises(ArchitectureError, match=match):
+        train_model(options_pet_transfer_learn_invalid_source)
+
+
+def test_transfer_learn_inherit_heads_invalid_destination(
+    options_pet, caplog, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn_invalid_dest = copy.deepcopy(options_pet)
+    options_pet_transfer_learn_invalid_dest["architecture"]["training"]["finetune"] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+        "inherit_heads": {
+            "mtt::foo": "energy",
+        },
+    }
+    options_pet_transfer_learn_invalid_dest["training_set"]["targets"][
+        "mtt::energy"
+    ] = options_pet_transfer_learn_invalid_dest["training_set"]["targets"].pop("energy")
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    match = "destination target name 'mtt::foo' was not found"
+    with pytest.raises(ArchitectureError, match=match):
+        train_model(options_pet_transfer_learn_invalid_dest)
 
 
 @pytest.mark.parametrize("move_folder", [True, False])
@@ -818,7 +888,11 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
 
     for tensor_name in m1["model_state_dict"]:
         if "type_to_index" in tensor_name or "spliner" in tensor_name:
-            continue  # these the same for both models
+            continue  # these are always the same for both models
+        if "buffer" in tensor_name and (
+            "additive" in tensor_name or "scaler" in tensor_name
+        ):
+            continue  # these are not comparable in general
         tensor1 = m1["model_state_dict"][tensor_name]
         tensor2 = m2["model_state_dict"][tensor_name]
 
@@ -1193,6 +1267,101 @@ def test_train_wandb_logger(monkeypatch, tmp_path):
 
     assert "'base_precision': 64" in file_log
     assert "'seed': 42" in file_log
+
+
+def test_train_mixed_stress(monkeypatch, tmp_path, options_pet):
+    """Test that training works with structures with and without stress in the same
+    dataset (e.g., bulk with stress, molecule/slab with NaN stress)."""
+
+    monkeypatch.chdir(tmp_path)
+
+    # Create structures with mixed stress: bulk, molecule, and slab
+    calculator = EMT()
+    structures = []
+
+    # Create multiple bulk structures with valid stress
+    for _ in range(10):
+        bulk = ase.build.bulk("Cu", "fcc", a=3.6, cubic=True)
+        bulk.rattle(0.01)  # Small perturbation to make structures different
+        bulk.calc = calculator
+        bulk.info["energy"] = bulk.get_potential_energy()
+        bulk.arrays["forces"] = bulk.get_forces()
+        bulk.info["stress"] = bulk.get_stress(voigt=False)
+        bulk.calc = None
+        structures.append(bulk)
+
+    # Create multiple molecules with NaN stress (stress not defined for molecules)
+    for i in range(10):
+        molecule = ase.Atoms("Cu2", positions=[[0, 0, 0], [2.5 + 0.1 * i, 2.5, 2.5]])
+        molecule.calc = calculator
+        molecule.info["energy"] = molecule.get_potential_energy()
+        molecule.arrays["forces"] = molecule.get_forces()
+        molecule.info["stress"] = np.full((3, 3), np.nan, dtype=np.float64)
+        molecule.calc = None
+        structures.append(molecule)
+
+    # Create multiple slabs with NaN stress (stress not defined for slabs)
+    for _ in range(10):
+        slab = ase.build.fcc111("Cu", size=(2, 2, 4), vacuum=10.0)
+        slab.pbc = (True, True, False)
+        slab.rattle(0.01)  # Small perturbation
+        slab.calc = calculator
+        slab.info["energy"] = slab.get_potential_energy()
+        slab.arrays["forces"] = slab.get_forces()
+        slab.info["stress"] = np.full((3, 3), np.nan, dtype=np.float64)
+        slab.calc = None
+        structures.append(slab)
+
+    # Write structures to file
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Skipping unhashable information",
+            category=UserWarning,
+        )
+        ase.io.write("structures.xyz", structures)
+
+    # Configure options to use the mixed stress dataset
+    options_pet["training_set"]["systems"]["read_from"] = "structures.xyz"
+    options_pet["training_set"]["targets"]["energy"]["key"] = "energy"
+    options_pet["training_set"]["targets"]["energy"]["forces"] = OmegaConf.create(
+        {"key": "forces"}
+    )
+    options_pet["training_set"]["targets"]["energy"]["stress"] = OmegaConf.create(
+        {"key": "stress"}
+    )
+    options_pet["training_set"]["targets"]["non_conservative_stress"] = (
+        OmegaConf.create(
+            {
+                "key": "stress",
+                "quantity": "pressure",
+                "unit": "eV/A^3",
+                "type": {"cartesian": {"rank": 2}},
+            }
+        )
+    )
+    options_pet["architecture"]["training"]["num_epochs"] = 1
+    options_pet["architecture"]["training"]["batch_size"] = 1
+    options_pet["test_set"] = 0.0  # No test set
+    options_pet["validation_set"] = 0.5  # 50% validation
+
+    # Train the model - this should not raise an error
+    # We expect warnings about cell vectors with non-periodic boundaries
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=(
+                "A conversion to `System` was requested for an `ase.Atoms` object "
+                "with one or more non-zero cell vectors"
+            ),
+            category=UserWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message="Requested dataset",
+            category=UserWarning,
+        )
+        train_model(options_pet)
 
 
 def _write_dataset_to_memmap(structures, filename):
