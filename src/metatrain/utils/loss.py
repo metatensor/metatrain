@@ -45,11 +45,9 @@ class LossInterface(ABC):
     @abstractmethod
     def compute(
         self,
-        model_predictions: Dict[str, TensorMap],
+        predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
-        systems: Any,
-        model: Any,
-        extra_data: Optional[Dict[str, TensorMap]] = None,
+        extra_data: Optional[Any] = None,
     ) -> torch.Tensor:
         """
         Compute the loss value.
@@ -65,11 +63,9 @@ class LossInterface(ABC):
 
     def __call__(
         self,
-        model_predictions: Dict[str, TensorMap],
+        predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
-        systems: Any,
-        model: Any,
-        extra_data: Optional[Dict[str, TensorMap]] = None,
+        extra_data: Optional[Any] = None,
     ) -> torch.Tensor:
         """
         Alias to compute() for direct invocation.
@@ -81,7 +77,7 @@ class LossInterface(ABC):
 
         :return: Value of the loss.
         """
-        return self.compute(model_predictions, targets, systems, model, extra_data)
+        return self.compute(predictions, targets, extra_data)
 
     @classmethod
     def from_config(cls, cfg: Dict[str, Any]) -> "LossInterface":
@@ -613,15 +609,13 @@ class BandgapLoss(LossInterface):
         self,
         model_predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
-        systems: Any,
-        model: Any,
-        extra_data: Optional[Dict[str, TensorMap]] = None,
+        extra_data: Optional[Any] = None,
     ) -> torch.Tensor:
         """
         """
         gap_key = f"mtt::gap"
         gapforce_key = f"mtt::gapforce"
-
+        systems, model, extra_data = extra_data
         if extra_data is None or gap_key not in extra_data:
             raise ValueError(
                 f"Expected extra_data to contain TensorMap under '{gap_key}'"
@@ -822,7 +816,7 @@ class LossType(Enum):
     POINTWISE = ("pointwise", BaseTensorMapLoss)
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
     MASKED_DOS = ("masked_dos", MaskedDOSLoss)
-    BANDGAP = ("bandgap", BandgapLoss)
+    GAPDOS = ("gapdos", BandgapLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key

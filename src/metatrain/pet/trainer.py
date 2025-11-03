@@ -413,7 +413,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = loss_fn.compute(predictions, targets, systems, model, extra_data)
+                train_loss_batch = loss_fn.compute(predictions, targets, [systems, model, extra_data])
 
                 if is_distributed:
                     # make sure all parameters contribute to the gradient calculation
@@ -491,7 +491,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                val_loss_batch = loss_fn.compute(predictions, targets, systems, model, extra_data)
+                val_loss_batch = loss_fn(predictions, targets, [systems, model, extra_data])
 
                 if is_distributed:
                     # sum the loss over all processes
