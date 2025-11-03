@@ -22,6 +22,7 @@ architecture:
       kspace_resolution: 1.33
       interpolation_nodes: 5
     gap_layer: [128,128,1]
+    
   training:
     distributed: false
     distributed_port: 39591
