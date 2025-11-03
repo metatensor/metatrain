@@ -63,7 +63,7 @@ class LossInterface(ABC):
         """
         ...
 
-    def compute(
+    def __call__(
         self,
         model_predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
@@ -81,7 +81,7 @@ class LossInterface(ABC):
 
         :return: Value of the loss.
         """
-        return self.compute(predictions, targets, extra_data)
+        return self.compute(model_predictions, targets, systems, model, extra_data)
 
     @classmethod
     def from_config(cls, cfg: Dict[str, Any]) -> "LossInterface":
