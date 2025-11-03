@@ -25,6 +25,7 @@ from metatrain.utils.scaler import Scaler
 
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.heads import NonLinearHead
+from .modules.scale_shift import FakeScaleShift
 from .modules.structures import create_batch
 from .utils.mts import (
     add_contribution,
@@ -60,7 +61,23 @@ class MetaMACE(ModelInterface):
         self.cutoff = float(self.hypers["cutoff"])
 
         if self.hypers["mace_model"] is not None:
-            self.mace_model = torch.load(self.hypers["mace_model"], weights_only=False)
+            # MACE model provided, load it in case it's a path or use it directly
+            if isinstance(self.hypers["mace_model"], str):
+                self.mace_model = torch.load(
+                    self.hypers["mace_model"], weights_only=False
+                )
+            elif isinstance(self.hypers["mace_model"], torch.nn.Module):
+                self.mace_model = self.hypers["mace_model"]
+            else:
+                raise ValueError(
+                    "The 'mace_model' hyper must be a path or a torch.nn.Module"
+                )
+
+            # Remove scale and shift if present
+            if self.hypers.get("mace_model_remove_scale_shift", True) and hasattr(
+                self.mace_model, "scale_shift"
+            ):
+                self.mace_model.scale_shift = FakeScaleShift()
         else:
             self.mace_model = MACE(
                 r_max=self.cutoff,
@@ -100,6 +117,10 @@ class MetaMACE(ModelInterface):
         self.mace_head_target = str(self.hypers["mace_head_target"])
 
         self.atomic_types = self.mace_model.atomic_numbers.tolist()
+        self.features_irreps = sum(
+            (product.linear.irreps_out for product in self.mace_model.products),
+            o3.Irreps(),
+        )
 
         self.register_buffer(
             "atomic_types_to_species_index",
@@ -222,7 +243,7 @@ class MetaMACE(ModelInterface):
                 # Use the internal MACE head
                 node_energy = mace_output["node_energy"]
                 assert node_energy is not None  # For torchscript
-                node_target = node_energy.reshape(-1, 1)
+                node_target = node_energy.to(dtype=node_features.dtype).reshape(-1, 1)
             else:
                 node_target = head.forward(node_features)
 
@@ -273,18 +294,41 @@ class MetaMACE(ModelInterface):
         # Create the model
         model_data = checkpoint["model_data"]
         model = cls(**model_data)
+        # Infer dtype
         dtype = None
-        for k, v in model_state_dict.items():
-            if k.endswith(".weight"):
-                dtype = v.dtype
-                break
+        has_stored_mace = model_data["hypers"]["mace_model"] is not None
+        if has_stored_mace:
+            # If the model was part of the hypers, get the dtype from the model
+            # itself (its parameters are not in the state_dict)
+            dtype = list(model.mace_model.parameters())[0].dtype
         else:
-            raise ValueError("Couldn't infer dtype from the checkpoint file")
+            # Otherwise, just look at the weights in the state dict
+            for k, v in model_state_dict.items():
+                if k.endswith(".weight"):
+                    dtype = v.dtype
+                    break
+            else:
+                raise ValueError("Couldn't infer dtype from the checkpoint file")
+        # Set up finetuning if needed
         finetune_config = model_state_dict.pop("finetune_config", {})
         if finetune_config:
             # Apply the finetuning strategy
             model = apply_finetuning_strategy(model, finetune_config)
-        model.to(dtype).load_state_dict(model_state_dict)
+
+        # Load the state dict. In the case of having stored the MACE model
+        # (see get_checkpoint), its parameters are not in the state dict. Therefore
+        # we allow the state dict having missing keys that start with "mace_model".
+        missing_keys, unexpected_keys = model.to(dtype).load_state_dict(
+            model_state_dict, strict=not has_stored_mace
+        )
+        if len(unexpected_keys) > 0 or any(
+            not k.startswith("mace_model") for k in missing_keys
+        ):
+            raise ValueError(
+                f"Error loading the checkpoint: missing keys {missing_keys}, "
+                f"unexpected keys {unexpected_keys}."
+            )
+        # Set up composition and scaler models
         model.additive_models[0].sync_tensor_maps()
         model.scaler.sync_tensor_maps()
 
@@ -357,12 +401,6 @@ class MetaMACE(ModelInterface):
             per_atom=True,
         )
 
-        hidden_irreps = o3.Irreps(self.hypers["hidden_irreps"])
-        n_scalars = hidden_irreps.count((0, 1))
-        mace_out_irreps = hidden_irreps * (
-            self.hypers["num_interactions"] - 1
-        ) + o3.Irreps([(n_scalars, (0, 1))])
-
         if target_name == self.mace_head_target:
             # Dummy head so that torchscript loops through this target_name
             # when doing self.heads.items(). In reality we use the internal
@@ -370,7 +408,7 @@ class MetaMACE(ModelInterface):
             self.heads[target_name] = torch.nn.Identity()
         else:
             self.heads[target_name] = NonLinearHead(
-                irreps_in=mace_out_irreps,
+                irreps_in=self.features_irreps,
                 irreps_out=o3.Irreps(irreps),
                 MLP_irreps=o3.Irreps(self.hypers["MLP_irreps"]),
                 gate=mace_modules.gate_dict.get(self.hypers["gate"], None),
@@ -397,17 +435,29 @@ class MetaMACE(ModelInterface):
     def get_checkpoint(self) -> Dict:
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
+
+        # If the MACE model was passed as part of the hypers, we store it
+        # again as part of the hypers.
+        hypers = self.hypers.copy()
+        if hypers["mace_model"] is not None:
+            hypers["mace_model"] = self.mace_model.to(device="cpu")
+
+            # Remove mace_model from state dict to avoid redundancy
+            for k in list(model_state_dict.keys()):
+                if k.startswith("mace_model."):
+                    model_state_dict.pop(k)
+
         checkpoint = {
             "architecture_name": "experimental.mace",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {
-                "hypers": self.hypers,
+                "hypers": hypers,
                 "dataset_info": self.dataset_info.to(device="cpu"),
             },
             "epoch": None,
             "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": self.state_dict(),
+            "best_model_state_dict": model_state_dict,
         }
         return checkpoint

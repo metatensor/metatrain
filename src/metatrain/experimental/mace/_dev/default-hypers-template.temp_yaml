@@ -8,6 +8,7 @@ architecture:
 
   model:
     mace_model: null
+    mace_model_remove_scale_shift: true
     mace_head_target: energy
     # If no mace model is provided, the following are the settings to
     # initialize it:
