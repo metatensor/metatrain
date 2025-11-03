@@ -15,9 +15,9 @@ configuration is
 
   loss: mse
 
-which sets the loss function to mean squared error (MSE) for all targets.
-When training a potential energy surface on energy, forces, and virial,
-for example, this configuration is internally expanded to
+which sets the loss function to mean squared error (MSE) for all targets and, if
+present, their gradients. When training a potential energy surface on energy,
+forces, and stress, for example, this configuration is internally expanded to
 
 .. code-block:: yaml
 
@@ -26,18 +26,51 @@ for example, this configuration is internally expanded to
       type: mse
       weight: 1.0
       reduction: mean
-    forces:
-      type: mse
-      weight: 1.0
-      reduction: mean
-    virial:
-      type: mse
-      weight: 1.0
-      reduction: mean
+      gradients:
+        positions:
+          type: mse
+          weight: 1.0
+          reduction: mean
+        strain:
+          type: mse
+          weight: 1.0
+          reduction: mean
 
-This internal, more detailed configuration can be used in the options file
+This example assumes the training set contains a target named ``energy``, which has
+both forces and stress/virial gradients requested. In case the energy target has a
+custom name (say, ``mtt::etot``), the configuration would instead be
+
+.. code-block:: yaml
+
+  loss:
+    mtt::etot:
+      type: mse
+      weight: 1.0
+      reduction: mean
+      gradients:
+        positions:
+          type: mse
+          weight: 1.0
+          reduction: mean
+        strain:
+          type: mse
+          weight: 1.0
+          reduction: mean
+  ...
+  training_set:
+    systems:
+    ...
+    targets:
+      mtt::etot:
+        quantity: energy
+        forces: true # or some other allowed configuration
+        stress: true # or some other allowed configuration
+    ...
+
+The internal, more detailed configuration can be used in the options file
 to specify different loss functions for each target, or to override default
-values for the parameters. The parameters accepted by each loss function are
+values for the parameters. The parameters accepted by each loss function term
+are
 
 1. ``type``. This controls the type of loss to be used. The default value is ``mse``,
    and other standard options are ``mae`` and ``huber``, which implement the equivalent
@@ -87,6 +120,70 @@ a table summarizing losses that require or allow additional parameters:
     * - ``masked_huber``
       - Masked Huber loss
       - ``delta``: Threshold at which to switch from squared error to absolute error.
+
+
+Simplified configurations
+-------------------------
+
+The internal specification of loss functions can be cumbersome for common use cases.
+There are then shortcuts to simplify the configuration for standard scenarios.
+
+The first example is that of machine-learning interatomic potentials (MLIPs).
+Since often one wants to train on gradients, like forces and stress/virial, the loss
+functions can be specified without explicitly defining the gradients subsection,
+by using the shorthand names ``forces`` and ``stress`` or ``virial`` at the top level
+of the loss configuration. For example, the following configuration is equivalent to the
+one above for the ``energy`` target:
+
+.. code-block:: yaml
+
+  loss:
+    energy:
+      type: mse
+      weight: 1.0
+      reduction: mean
+    forces:
+      type: mse
+      weight: 1.0
+      reduction: mean
+    stress:
+      type: mse
+      weight: 1.0
+      reduction: mean
+
+Another common scenario is when only the loss function type is to be specified.
+In this case, it is possible to use the following shorthand notation:
+
+.. code-block:: yaml
+
+  loss:
+    energy:
+      type: mse
+    forces:
+      type: mae
+    stress:
+      type: huber
+
+which is equivalent to the more detailed configuration:
+
+.. code-block:: yaml
+
+  loss:
+    energy:
+      type: mse
+      weight: 1.0
+      reduction: mean
+    forces:
+      type: mae
+      weight: 1.0
+      reduction: mean
+    stress:
+      type: huber
+      weight: 1.0
+      reduction: mean
+      delta: 1.0
+
+
 
 
 Masked loss functions
