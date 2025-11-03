@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import metatensor.torch as mts
 import torch
+import torch.nn as nn
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
@@ -33,6 +34,20 @@ from .modules.utilities import cutoff_func
 
 
 AVAILABLE_FEATURIZERS = ["feedforward", "residual"]
+
+def build_sequential_silu(sizes):
+    """
+    sizes: e.g. [10, 3, 1] -> Linear(10->3) + SiLU + Linear(3->1)
+    """
+    if len(sizes) < 2:
+        raise ValueError("Provide at least [in_features, out_features].")
+    layers = []
+    for i, (inp, out) in enumerate(zip(sizes[:-1], sizes[1:])):
+        layers.append(nn.Linear(inp, out))
+        # Add SiLU after every layer except the last (output) one
+        if i < len(sizes) - 2:
+            layers.append(nn.SiLU())
+    return nn.Sequential(*layers)
 
 
 class PET(ModelInterface):
@@ -223,10 +238,13 @@ class PET(ModelInterface):
 
         self.finetune_config: Dict[str, Any] = {}
 
+        self.bandgap_layer = build_sequential_silu(self.hypers['gap_layer'])
+
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
     def restart(self, dataset_info: DatasetInfo) -> "PET":
+        print ("Restarting PET model with new dataset info...")
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -247,9 +265,13 @@ class PET(ModelInterface):
 
         # register new outputs as new last layers
         for target_name, target in new_targets.items():
+            print ("Added new target", target_name)
             self.target_names.append(target_name)
             self._add_output(target_name, target)
-
+        if not self.bandgap_layer:
+            print ("MLP")
+            print (self.hypers['gap_layer'])
+            self.bandgap_layer = build_sequential_silu(self.hypers['gap_layer'])
         self.dataset_info = merged_info
 
         # restart the composition and scaler models

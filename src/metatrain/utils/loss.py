@@ -8,7 +8,7 @@ from metatensor.torch import TensorMap
 from torch.nn.modules.loss import _Loss
 
 from metatrain.utils.data import TargetInfo
-
+from metatrain.utils.output_gradient import compute_gradient
 
 class LossInterface(ABC):
     """
@@ -574,6 +574,87 @@ class MaskedDOSLoss(LossInterface):
         return dos_loss + gradient_loss + int_MSE
 
 
+class BandgapLoss(LossInterface):
+    """
+    Masked DOS loss on :py:class:`TensorMap` entries.
+
+    :param name: key for the dos in the prediction/target dictionary.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param force_weight: Multiplier for the forces of the gap.
+    :param force: Whether to apply the force term.
+    :param reduction: reduction mode for torch loss.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        force_weight: float,
+        force: bool,
+        reduction: str,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+        )
+        self.force_weight = force_weight
+        self.force = force
+        self.print = True
+
+    def compute(
+        self,
+        model_predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        systems: Any,
+        model: Any,
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ) -> torch.Tensor:
+        """
+        """
+        gap_key = f"mtt::gap"
+        gapforce_key = f"mtt::gapforce"
+
+        if extra_data is None or gap_key not in extra_data:
+            raise ValueError(
+                f"Expected extra_data to contain TensorMap under '{gap_key}'"
+            )
+        if self.force:
+            if gapforce_key not in extra_data:
+                raise ValueError(
+                    f"Expected extra_data to contain TensorMap under '{gapforce_key}'"
+                )
+        
+        tensor_map_pred = model_predictions[self.target] # should be the gapdos prediction
+        tensor_map_gap = extra_data[gap_key]
+        if self.force:
+            tensor_map_gapforce = extra_data[gapforce_key]
+            true_gapforce = tensor_map_gapforce.block().values
+
+        # There should only be one block
+        gapdos_predictions = tensor_map_pred.block().values
+        true_gap = tensor_map_gap.block().values
+
+        bandgap_predictions = model.bandgap_layer(gapdos_predictions)
+        if self.force:
+             gap_force_predictions = torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True))
+        if print:
+            print ("Printing Shapes")
+            print("Bandgap predictions:", bandgap_predictions.shape)
+            print("Bandgap targets:", true_gap.shape)
+            if self.force:
+                print("Gap force predictions:", gap_force_predictions.shape)
+                print("Gap force targets:", true_gapforce.shape)
+            self.print = False
+        
+        total_loss = torch.mean((bandgap_predictions - target) ** 2)
+        if self.force:
+            gapforce_loss = torch.mean((gap_force_predictions - true_gapforce) ** 2) 
+            total_loss += gapforce_loss * self.force_weight
+        return total_loss
 # --- aggregator -----------------------------------------------------------------------
 
 

@@ -332,7 +332,7 @@ def _prepare_system(
 
     for options in system.known_neighbor_lists():
         neighbors = mts.detach_block(system.get_neighbor_list(options))
-        register_autograd_neighbors(system, neighbors)
+        register_autograd_neighbors(new_system, neighbors)
         new_system.add_neighbor_list(options, neighbors)
 
     for name in system.known_data():

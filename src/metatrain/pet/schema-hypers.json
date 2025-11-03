@@ -88,6 +88,13 @@
               "type": "integer"
             }
           }
+        },
+        "gap_layer": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
         }
       },
       "additionalProperties": false

@@ -23,7 +23,7 @@ from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
 from metatrain.utils.distributed.slurm import DistributedEnvironment
-from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.evaluate_model import evaluate_model, _prepare_system
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator
@@ -389,6 +389,18 @@ class Trainer(TrainerInterface):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device
                 )
+
+                new_systems = []
+                for system in systems:
+                    new_system, strain = _prepare_system(
+                        system,
+                        positions_grad= True,
+                        strain_grad= False,
+                        check_consistency=False,
+                    )
+                new_systems.append(new_system)
+                systems = new_systems
+
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -401,7 +413,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = loss_fn(predictions, targets, extra_data)
+                train_loss_batch = loss_fn(predictions, targets, systems, model, extra_data)
 
                 if is_distributed:
                     # make sure all parameters contribute to the gradient calculation
@@ -455,6 +467,18 @@ class Trainer(TrainerInterface):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device
                 )
+
+                new_systems = []
+                for system in systems:
+                    new_system, strain = _prepare_system(
+                        system,
+                        positions_grad= True,
+                        strain_grad= False,
+                        check_consistency=False,
+                    )
+                new_systems.append(new_system)
+                systems = new_systems
+
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -467,7 +491,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                val_loss_batch = loss_fn(predictions, targets, extra_data)
+                val_loss_batch = loss_fn(predictions, targets, systems, model, extra_data)
 
                 if is_distributed:
                     # sum the loss over all processes
