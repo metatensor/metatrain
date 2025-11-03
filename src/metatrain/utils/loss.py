@@ -818,6 +818,7 @@ class LossType(Enum):
     POINTWISE = ("pointwise", BaseTensorMapLoss)
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
     MASKED_DOS = ("masked_dos", MaskedDOSLoss)
+    BANDGAP = ("bandgap", BandgapLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key
