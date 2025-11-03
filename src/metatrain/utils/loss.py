@@ -45,9 +45,11 @@ class LossInterface(ABC):
     @abstractmethod
     def compute(
         self,
-        predictions: Dict[str, TensorMap],
+        model_predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
-        extra_data: Optional[Any] = None,
+        systems: Any,
+        model: Any,
+        extra_data: Optional[Dict[str, TensorMap]] = None,
     ) -> torch.Tensor:
         """
         Compute the loss value.
@@ -61,11 +63,13 @@ class LossInterface(ABC):
         """
         ...
 
-    def __call__(
+    def compute(
         self,
-        predictions: Dict[str, TensorMap],
+        model_predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
-        extra_data: Optional[Any] = None,
+        systems: Any,
+        model: Any,
+        extra_data: Optional[Dict[str, TensorMap]] = None,
     ) -> torch.Tensor:
         """
         Alias to compute() for direct invocation.
