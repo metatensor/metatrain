@@ -1,7 +1,7 @@
 from typing import Dict, List, Tuple
 
 import torch
-from metatensor.torch import Labels, TensorBlock
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import NeighborListOptions, System
 
 
@@ -238,3 +238,26 @@ def get_pair_sample_labels(
     )
 
     return {"onsite": pair_sample_labels_onsite, "offsite": pair_sample_labels_offsite}
+
+
+def build_tensor_map_mask(tensor: TensorMap) -> TensorMap:
+    """
+    Builds a boolean mask TensorMap from the input ``tensor``, where the mask is
+    inferred from the NaN values in the tensor's blocks. The returned mask has the same
+    metadata structure as the input tensor, but with float values as either 1.0 or 0.0
+    indicating whether each entry is valid (not NaN) or not.
+
+    :param tensor: The input TensorMap to build the mask from.
+    :return: A TensorMap containing the boolean mask.
+    """
+    mask_blocks = []
+    for block in tensor:
+        mask_blocks.append(
+            TensorBlock(
+                samples=block.samples,
+                components=block.components,
+                properties=block.properties,
+                values=(~torch.isnan(block.values)).to(torch.float64),
+            )
+        )
+    return TensorMap(tensor.keys, mask_blocks)

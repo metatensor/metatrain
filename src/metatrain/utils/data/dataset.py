@@ -26,6 +26,7 @@ from torch.utils.data import Dataset as TorchDataset
 from torch.utils.data import Subset
 
 from metatrain.utils.data.pad import (
+    build_tensor_map_mask,
     get_atom_sample_labels,
     get_pair_sample_labels,
     pad_block,
@@ -617,17 +618,7 @@ def get_create_dynamic_target_mask_transform(
                     f"Extra data already contains a mask for target '{name}'."
                 )
 
-            mask_blocks = []
-            for block in target:
-                mask_blocks.append(
-                    TensorBlock(
-                        samples=block.samples,
-                        components=block.components,
-                        properties=block.properties,
-                        values=(~torch.isnan(block.values)).to(torch.float64),
-                    )
-                )
-            extra[name + "_mask"] = TensorMap(target.keys, mask_blocks)
+            extra[name + "_mask"] = build_tensor_map_mask(target)
 
         return systems, targets, extra
 
