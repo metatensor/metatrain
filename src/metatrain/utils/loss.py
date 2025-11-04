@@ -627,8 +627,6 @@ class BandgapLoss(LossInterface):
                 )
         
         tensor_map_pred = model_predictions[self.target] # should be the gapdos prediction
-        print ("Printing gapdos tensor map")
-        print (tensor_map_pred)
         tensor_map_gap = extra_data[gap_key]
         if self.force:
             tensor_map_gapforce = extra_data[gapforce_key]
@@ -642,7 +640,7 @@ class BandgapLoss(LossInterface):
         bandgap_predictions = model.bandgap_layer(gapdos_predictions)
         if self.force:
              gap_force_predictions = torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True))
-        if print:
+        if self.print:
             print ("Printing Shapes")
             print ("Gapdos predictions:", gapdos_predictions.shape)
             print ("Gapdos2 predictions:", gapdos_predictions2.shape)
@@ -653,7 +651,7 @@ class BandgapLoss(LossInterface):
                 print("Gap force targets:", true_gapforce.shape)
             self.print = False
         
-        total_loss = torch.mean((bandgap_predictions - target) ** 2)
+        total_loss = torch.mean((bandgap_predictions - true_gap) ** 2)
         if self.force:
             gapforce_loss = torch.mean((gap_force_predictions - true_gapforce) ** 2) 
             total_loss += gapforce_loss * self.force_weight

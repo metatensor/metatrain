@@ -389,8 +389,6 @@ class Trainer(TrainerInterface):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device
                 )
-                print ("number of systems")
-                print (len(systems))
                 new_systems = []
                 for system in systems:
                     new_system, strain = _prepare_system(
@@ -401,8 +399,6 @@ class Trainer(TrainerInterface):
                     )
                     new_systems.append(new_system)
                 systems = new_systems
-                print ("Final")
-                print (len(systems))
                 predictions = evaluate_model(
                     model,
                     systems,
