@@ -7,6 +7,9 @@ DATASET_PATH = str(Path(__file__).parents[4] / "tests/resources/qm9_reduced_100.
 DATASET_WITH_FORCES_PATH = str(
     Path(__file__).parents[4] / "tests/resources/carbon_reduced_100.xyz"
 )
+LAYOUT_HAM_PATH = str(
+    Path(__file__).parents[4] / "tests/resources/layout_hamiltonian.mts"
+)
 
 DEFAULT_HYPERS = get_default_hypers("pet")
 MODEL_HYPERS = DEFAULT_HYPERS["model"]

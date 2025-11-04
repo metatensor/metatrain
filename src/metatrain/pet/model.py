@@ -19,9 +19,10 @@ from metatomic.torch import (
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
-from metatrain.utils.data.pad import get_pair_sample_labels, transpose_tensormap
+from metatrain.utils.data.pad import get_pair_sample_labels
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
+from metatrain.utils.matrix import transpose_tensormap
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
@@ -1171,6 +1172,7 @@ class PET(ModelInterface):
                     atomic_property
                 )
 
+        # For per-pair targets, enforce Hermitian symmetry
         for output_name, atomic_property in atomic_predictions_tmap_dict.items():
             if self.dataset_info.targets[output_name].per_pair:
                 atomic_predictions_tmap_dict[output_name] = mts.multiply(
