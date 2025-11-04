@@ -1152,6 +1152,12 @@ class PET(ModelInterface):
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
         )
+        # Delete the bandgap layer here if it exists
+        try:
+            del model.bandgap_layer
+            print ("Deleted bandgap layer from the model for finetuning")
+        except:
+            print ("Could not find bandgap layer to delete from the model for finetuning")
 
         finetune_config = model_state_dict.pop("finetune_config", {})
         if finetune_config:
