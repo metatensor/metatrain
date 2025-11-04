@@ -264,7 +264,7 @@ for each system in the dataset. For this, you can add the following section to y
    unless using specific loss functions. If the loss function you picked does not
    support the extra data, it will be ignored.
 
-The extra_data section supports the same parameters as the target sections. In this case, we have also read the targets and extra data from files other than the systems file.
+The ``extra_data`` section supports the same parameters as the target sections. In this case, we have also read the targets and extra data from files other than the systems file.
 
 
 
@@ -318,7 +318,7 @@ starting with a ``"- "`` (a dash and a space)
     validation_set: 0.1
 
 The required test and validation splits are performed consistently for each element
-element in ``training_set``
+element in ``training_set`` .
 
 The ``length_unit`` has to be the same for each element of the list. If target section
 names are the same for different elements of the list, their unit also has to be the
