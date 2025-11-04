@@ -270,7 +270,7 @@ class PET(ModelInterface):
             print ("Added new target", target_name)
             self.target_names.append(target_name)
             self._add_output(target_name, target)
-        if not self.bandgap_layer:
+        if self.hypers['gap_layer']:
             print ("MLP")
             print (self.hypers['gap_layer'])
             self.bandgap_layer = build_sequential_silu(self.hypers['gap_layer'])
