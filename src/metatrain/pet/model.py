@@ -39,6 +39,8 @@ def build_sequential_silu(sizes):
     """
     sizes: e.g. [10, 3, 1] -> Linear(10->3) + SiLU + Linear(3->1)
     """
+    print ("HERE ARE THE SIZES")
+    print (sizes)
     if len(sizes) < 2:
         raise ValueError("Provide at least [in_features, out_features].")
     layers = []
@@ -237,7 +239,7 @@ class PET(ModelInterface):
         self.single_label = Labels.single()
 
         self.finetune_config: Dict[str, Any] = {}
-
+        print (self.hypers['gap_layer'])
         self.bandgap_layer = build_sequential_silu(self.hypers['gap_layer'])
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
