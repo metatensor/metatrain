@@ -11,8 +11,8 @@ for the parameters provided by the training YAML input. For a minimal example of
 The YAML input file can be divided into five sections:
 
 - Computational Parameters
-- ``architecture``
-- ``loss``
+- architecture
+- loss
 - Data
 - wandb integration
 
@@ -91,8 +91,8 @@ parameter configuration. As an example, the configuration of the training set is
                     key: stress
             non_conservative_forces:
                 quantity: null
-                read_from: dataset.xyz
-                reader: ase
+                read_from: nonconservative_force.mts
+                reader: metatensor
                 key: forces
                 unit: null
                 per_atom: True
@@ -102,8 +102,8 @@ parameter configuration. As an example, the configuration of the training set is
                 num_subtargets: 1
             mtt::dos:
                 quantity: null
-                read_from: dataset.xyz
-                reader: ase
+                read_from: DOS.mts
+                reader: metatensor
                 key: dos
                 unit: null
                 per_atom: False
@@ -124,6 +124,8 @@ parameter configuration. As an example, the configuration of the training set is
 
 The options for ``training set`` is divided into two categories, ``systems``, ``targets`` and ``extra_data``. ``systems`` refer to the molecular/crystal structures,
 which are the inputs to the model. ``targets`` refer to the output that is predicted by the model. ``extra_data`` refer to any additional data that is required by the loss function during training.
+One can also get ``metatrain`` to automatically split the training data into training and validation sets by providing a float between 0 and 1 for the ``validation_set`` and
+``test_set`` parameters. This float indicates the fraction of the training data to be used for validation and testing respectively. See the :ref:`Validation and Test Systems <validation-and-test-systems>` section for more details.
 
 Systems YAML
 ----------------
@@ -266,7 +268,7 @@ for each system in the dataset. For this, you can add the following section to y
 
 The ``extra_data`` section supports the same parameters as the target sections. In this case, we have also read the targets and extra data from files other than the systems file.
 
-
+.. _validation-and-test-systems:
 
 Validation and Test Systems
 -----------------------------
@@ -353,7 +355,7 @@ file:
 
 wandb integration
 ===================
-Optional section dealing with integration with `Weights and Biases (wandb) <link>`_ logging. Leaving this
+Optional section dealing with integration with `Weights and Biases (wandb) <https://wandb.ai/site/>`_ logging. Leaving this
 section blank will simply disable wandb integration. The parameters for this section is the same as that in
 `wandb.init <https://docs.wandb.ai/ref/python/init/>`_. Here we provide a minimal example for the YAML input
 
