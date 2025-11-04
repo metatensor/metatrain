@@ -11,7 +11,7 @@ for the parameters provided by the training YAML input. For a minimal example of
 The YAML input file can be divided into five sections:
 
 - Computational Parameters
-- :ref:`Architecture`
+- :ref:`Architecture <available-architectures>`
 - loss
 - data
 - wandb integration
