@@ -496,7 +496,7 @@ class MaskedDOSLoss(LossInterface):
         predictions = tensor_map_pred.block().values
         target = tensor_map_targ.block().values[:, self.extra_targets :]
         mask = tensor_map_mask.block().values[:, self.extra_targets :].bool()
-
+        dtype = predictions.dtype
         device = predictions.device
         predictions_unfolded = predictions.unfold(1, len(target[0]), 1)
         target_expanded = target[:, None, :]
@@ -537,7 +537,7 @@ class MaskedDOSLoss(LossInterface):
         adjusted_dos_mask = torch.vstack(adjusted_dos_mask)
         if self.grad_weight > 0:
             grad_predictions = torch.nn.functional.conv1d(
-                predictions.unsqueeze(dim=1), self.grid.to(device)
+                predictions.unsqueeze(dim=1), self.grid.to(device).to(dtype)
             ).squeeze(dim=1)
             dim_loss = (
                 predictions.shape[1] - grad_predictions.shape[1]

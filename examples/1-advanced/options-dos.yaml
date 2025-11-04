@@ -1,0 +1,52 @@
+device: cpu
+base_precision: 64
+seed: 42
+
+architecture:
+  name: soap_bpnn
+  training:
+    batch_size: 1
+    num_epochs: 10
+    learning_rate: 0.01
+    remove_composition_contribution: false
+    scale_targets: false
+    loss:
+      mtt::dos:
+        type: masked_dos
+        weight: 1.0
+        grad_weight: 1e-4
+        int_weight: 2
+        extra_targets: 200  # Number of extra zero-padded targets to ignore during loss computation
+        reduction: mean
+
+# Section defining the parameters for system and target data
+training_set:
+  systems: DOS.xyz
+  targets:
+    mtt::dos:
+      key: dos
+      per_atom: false
+      type: scalar
+      num_subtargets: 3830
+  extra_data:
+    mtt::dos_mask:
+      key: dos_mask
+      per_atom: false
+      type: scalar
+      num_subtargets: 3830
+
+validation_set:
+  systems: DOS.xyz
+  targets:
+    mtt::dos:
+      key: dos
+      per_atom: false
+      type: scalar
+      num_subtargets: 3830
+  extra_data:
+    mtt::dos_mask:
+      key: dos_mask
+      per_atom: false
+      type: scalar
+      num_subtargets: 3830
+test_set: 0.0
