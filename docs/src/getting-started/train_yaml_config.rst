@@ -11,13 +11,13 @@ for the parameters provided by the training YAML input. For a minimal example of
 The YAML input file can be divided into five sections:
 
 - Computational Parameters
-- architecture
+- :ref:`Architecture`
 - loss
-- Data
+- data
 - wandb integration
 
 Computational Parameters
-======================================
+========================
 The computational parameters define the computational ``device``, ``precision`` and ``seed``. These parameters are optional.
 
 .. code-block:: yaml
@@ -38,7 +38,7 @@ The computational parameters define the computational ``device``, ``precision`` 
     reproducibility. If not specified, the seed is generated randomly and reported in the log.
 
 Architecture
-===================
+============
 The next section of the YAML file would focus on options pertaining the architecture. As these options, along with
 their default values, are highly specific to the model architecture. It is better to instead consult the respective
 :ref:`architecture documentation <available-architectures>` page for further details.
@@ -51,7 +51,7 @@ used in different ML workflows, it is best to refer to the page on :ref:`loss fu
 .. _data-section:
 
 Data
-===================
+====
 The final section of the YAML file focuses on options regarding the data used in model training. This secion can be broken
 down into three subsections:
 
