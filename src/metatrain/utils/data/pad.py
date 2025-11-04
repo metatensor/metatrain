@@ -261,3 +261,45 @@ def build_tensor_map_mask(tensor: TensorMap) -> TensorMap:
             )
         )
     return TensorMap(tensor.keys, mask_blocks)
+
+
+def transpose_tensormap(tensor: TensorMap) -> TensorMap:
+    """
+    Transposes the input TensorMap by swapping the sample (atom indices, cell shifts)
+    and property (angular basis indices, radial basis indices) axes in each block,
+    assuming they are Hamiltonian-like.
+
+    :param tensor: The input TensorMap to transpose.
+    :return: The transposed TensorMap.
+    """
+
+    blocks_T = []
+    for key, block in tensor.items():
+        vals_T = block.values.clone()
+
+        # Only permute samples if two-center
+        if key["n_centers"] == 2:
+            samples_vals = block.samples.permute((0, 2, 1, 3, 4, 5)).values
+            samples_vals[:, 3:6] *= -1
+            samples_perm = Labels(block.samples.names, samples_vals)
+            sample_idxs = samples_perm.select(block.samples)
+
+        else:
+            sample_idxs = torch.arange(len(block.samples))
+
+        vals_T = vals_T[sample_idxs]
+
+        # Permute properties
+        properties_vals = block.properties.permute((1, 0, 3, 2)).values
+        properties_perm = Labels(block.properties.names, properties_vals)
+        property_idxs = properties_perm.select(block.properties)
+        vals_T = vals_T[..., property_idxs]
+        blocks_T.append(
+            TensorBlock(
+                samples=block.samples,
+                components=block.components,
+                properties=block.properties,
+                values=vals_T,
+            )
+        )
+    return TensorMap(tensor.keys, blocks_T)

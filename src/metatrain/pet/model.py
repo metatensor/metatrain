@@ -19,7 +19,7 @@ from metatomic.torch import (
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
-from metatrain.utils.data.pad import get_pair_sample_labels
+from metatrain.utils.data.pad import get_pair_sample_labels, transpose_tensormap
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
@@ -1169,6 +1169,12 @@ class PET(ModelInterface):
             else:
                 atomic_predictions_tmap_dict[output_name] = sum_over_atoms(
                     atomic_property
+                )
+
+        for output_name, atomic_property in atomic_predictions_tmap_dict.items():
+            if self.dataset_info.targets[output_name].per_pair:
+                atomic_predictions_tmap_dict[output_name] = mts.multiply(
+                    mts.add(atomic_property, transpose_tensormap(atomic_property)), 0.5
                 )
 
         return atomic_predictions_tmap_dict
