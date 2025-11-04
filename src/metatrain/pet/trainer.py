@@ -399,7 +399,7 @@ class Trainer(TrainerInterface):
                         strain_grad= False,
                         check_consistency=False,
                     )
-                new_systems.append(new_system)
+                    new_systems.append(new_system)
                 systems = new_systems
                 print ("Final")
                 print (len(systems))
@@ -477,7 +477,7 @@ class Trainer(TrainerInterface):
                         strain_grad= False,
                         check_consistency=False,
                     )
-                new_systems.append(new_system)
+                    new_systems.append(new_system)
                 systems = new_systems
                 predictions = evaluate_model(
                     model,
