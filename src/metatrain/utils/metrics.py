@@ -68,8 +68,23 @@ class RMSEAccumulator:
                     self.information[key_to_write] = (0.0, 0)
 
                 if mask is None:
+                    if "non_conservative_stress" in key:
+                        # For stress targets, we allow users to use NaN entries for
+                        # systems without PBCs or with mixed PBCs. We filter them
+                        # out here.
+                        valid_mask = ~torch.isnan(target_block.values)
+                    else:
+                        valid_mask = torch.ones_like(
+                            target_block.values, dtype=torch.bool
+                        )
                     rmse_value = (
-                        ((prediction_block.values - target_block.values) ** 2)
+                        (
+                            (
+                                prediction_block.values[valid_mask]
+                                - target_block.values[valid_mask]
+                            )
+                            ** 2
+                        )
                         .sum()
                         .item()
                     )
@@ -103,8 +118,23 @@ class RMSEAccumulator:
                     prediction_gradient = prediction_block.gradient(gradient_name)
 
                     if mask is None:
+                        if gradient_name == "strain":
+                            # For stress targets, we allow users to use NaN entries for
+                            # systems without PBCs or with mixed PBCs. We filter them
+                            # out here.
+                            valid_mask = ~torch.isnan(target_gradient.values)
+                        else:
+                            valid_mask = torch.ones_like(
+                                target_gradient.values, dtype=torch.bool
+                            )
                         gradient_rmse_value = (
-                            ((prediction_gradient.values - target_gradient.values) ** 2)
+                            (
+                                (
+                                    prediction_gradient.values[valid_mask]
+                                    - target_gradient.values[valid_mask]
+                                )
+                                ** 2
+                            )
                             .sum()
                             .item()
                         )
@@ -235,8 +265,20 @@ class MAEAccumulator:
                     self.information[key_to_write] = (0.0, 0)
 
                 if mask is None:
+                    if "non_conservative_stress" in key:
+                        # For stress targets, we allow users to use NaN entries for
+                        # systems without PBCs or with mixed PBCs. We filter them
+                        # out here.
+                        valid_mask = ~torch.isnan(target_block.values)
+                    else:
+                        valid_mask = torch.ones_like(
+                            target_block.values, dtype=torch.bool
+                        )
                     mae_value = (
-                        (prediction_block.values - target_block.values)
+                        (
+                            prediction_block.values[valid_mask]
+                            - target_block.values[valid_mask]
+                        )
                         .abs()
                         .sum()
                         .item()
@@ -269,8 +311,20 @@ class MAEAccumulator:
                     prediction_gradient = prediction_block.gradient(gradient_name)
 
                     if mask is None:
+                        if gradient_name == "strain":
+                            # For stress targets, we allow users to use NaN entries for
+                            # systems without PBCs or with mixed PBCs. We filter them
+                            # out here.
+                            valid_mask = ~torch.isnan(target_gradient.values)
+                        else:
+                            valid_mask = torch.ones_like(
+                                target_gradient.values, dtype=torch.bool
+                            )
                         gradient_mae_value = (
-                            (prediction_gradient.values - target_gradient.values)
+                            (
+                                prediction_gradient.values[valid_mask]
+                                - target_gradient.values[valid_mask]
+                            )
                             .abs()
                             .sum()
                             .item()

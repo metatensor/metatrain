@@ -470,6 +470,9 @@ class NanoPET(ModelInterface):
                     volumes = torch.stack(
                         [torch.abs(torch.det(system.cell)) for system in systems]
                     )
+                    # Zero volume can happen due to metatomic's convention of zero cell
+                    # vectors for non-periodic directions. The actual volume is +inf
+                    volumes[volumes == 0.0] = torch.inf
                     volumes_by_atom = (
                         volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
                     )

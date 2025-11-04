@@ -29,12 +29,14 @@ def test_lora_finetuning_functionality():
     model = PET(MODEL_HYPERS, dataset_info)
 
     finetuning_strategy = {
+        "read_from": None,
         "method": "lora",
         "config": {
             "target_modules": ["input_linear", "output_linear"],
             "rank": 4,
             "alpha": 8,
         },
+        "inherit_heads": {},
     }
 
     model = apply_finetuning_strategy(model, finetuning_strategy)
@@ -59,12 +61,14 @@ def test_lora_finetuning_device(device):
     model = PET(MODEL_HYPERS, dataset_info).to(device)
 
     finetuning_strategy = {
+        "read_from": None,
         "method": "lora",
         "config": {
             "target_modules": ["input_linear", "output_linear"],
             "rank": 4,
             "alpha": 8,
         },
+        "inherit_heads": {},
     }
 
     model = apply_finetuning_strategy(model, finetuning_strategy)
@@ -84,11 +88,13 @@ def test_heads_finetuning_functionality():
     model = PET(MODEL_HYPERS, dataset_info)
 
     finetuning_strategy = {
+        "read_from": None,
         "method": "heads",
         "config": {
             "head_modules": ["input_linear", "output_linear"],
             "last_layer_modules": ["last_layers", "bond_last_layers"],
         },
+        "inherit_heads": {},
     }
 
     model = apply_finetuning_strategy(model, finetuning_strategy)
@@ -171,12 +177,14 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     hypers["training"]["num_epochs"] = 0
 
     hypers["training"]["finetune"] = {
+        "read_from": "tmp.ckpt",
         "method": "lora",
         "config": {
             "target_modules": ["input_linear", "output_linear"],
             "rank": 4,
             "alpha": 8,
         },
+        "inherit_heads": {},
     }
 
     trainer = Trainer(hypers["training"])
@@ -208,11 +216,13 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     hypers["training"]["num_epochs"] = 0
 
     hypers["training"]["finetune"] = {
+        "read_from": "finetuned.ckpt",
         "method": "heads",
         "config": {
             "head_modules": ["input_linear", "output_linear"],
             "last_layer_modules": ["last_layers", "bond_last_layers"],
         },
+        "inherit_heads": {},
     }
 
     trainer = Trainer(hypers["training"])
