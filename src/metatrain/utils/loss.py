@@ -641,6 +641,7 @@ class BandgapLoss(LossInterface):
              gap_force_predictions = torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True))
         if print:
             print ("Printing Shapes")
+            print ("Gapdos predictions:", gapdos_predictions.shape)
             print("Bandgap predictions:", bandgap_predictions.shape)
             print("Bandgap targets:", true_gap.shape)
             if self.force:
