@@ -634,7 +634,6 @@ class BandgapLoss(LossInterface):
 
         # There should only be one block
         gapdos_predictions = tensor_map_pred.block().values
-        gapdos_predictions2 = tensor_map_pred[0].values
         true_gap = tensor_map_gap.block().values
 
         bandgap_predictions = model.bandgap_layer(gapdos_predictions)
@@ -643,7 +642,6 @@ class BandgapLoss(LossInterface):
         if self.print:
             print ("Printing Shapes")
             print ("Gapdos predictions:", gapdos_predictions.shape)
-            print ("Gapdos2 predictions:", gapdos_predictions2.shape)
             print("Bandgap predictions:", bandgap_predictions.shape)
             print("Bandgap targets:", true_gap.shape)
             if self.force:
