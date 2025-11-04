@@ -30,6 +30,7 @@ from metatrain.utils.testing._utils import WANDB_AVAILABLE
 
 from . import (
     DATASET_PATH_CARBON,
+    DATASET_PATH_DOS,
     DATASET_PATH_ETHANOL,
     DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
@@ -1054,6 +1055,54 @@ def test_train_direct_forces(monkeypatch, tmp_path):
     options["training_set"]["targets"]["energy"]["type"] = {"cartesian": {"rank": 1}}
     options["training_set"]["targets"]["energy"]["per_atom"] = True
     options["training_set"]["targets"]["energy"]["key"] = "forces"
+
+    train_model(options)
+
+
+def test_train_density_of_states(monkeypatch, tmp_path):
+    """Test training with the DOS loss"""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_DOS, "dos.xyz")
+
+    # run training with original options
+    options = OmegaConf.load(OPTIONS_PET_PATH)
+    options["training_set"]["systems"]["read_from"] = "dos.xyz"
+    options["training_set"]["targets"] = {
+        "mtt::dos": {
+            "read_from": "dos.xyz",
+            "key": "DOS",
+            "quantity": "",
+            "unit": "",
+            "per_atom": False,
+            "type": "scalar",
+            "num_subtargets": 4806,
+        }
+    }
+    options["training_set"]["extra_data"] = {
+        "mtt::dos_mask": {
+            "read_from": "dos.xyz",
+            "key": "mask",
+            "quantity": "",
+            "unit": "",
+            "per_atom": False,
+            "type": "scalar",
+            "num_subtargets": 4806,
+        }
+    }
+    options["validation_set"] = copy.deepcopy(options["training_set"])
+    options["test_set"] = copy.deepcopy(options["training_set"])
+    options["architecture"]["training"]["loss"] = {
+        "mtt::dos": {
+            "type": "masked_dos",
+            "weight": 1.0,
+            "grad_weight": 1e-4,
+            "int_weight": 2.0,
+            "extra_targets": 200,
+            "reduction": "mean",
+        }
+    }
+    options["architecture"]["training"]["scale_targets"] = False
+    options["architecture"]["training"]["remove_composition_contribution"] = False
 
     train_model(options)
 
