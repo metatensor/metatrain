@@ -153,7 +153,7 @@ can be condensed into
         systems: dataset.xyz
 
 Targets YAML
-----------------
+------------
 In the ``targets`` category, one can define any number of target sections, each with a unique name. The name of the target should either
 be a standard output of ``metatomic`` (see https://docs.metatensor.org/metatomic/latest/outputs/index.html) or begin with ``mtt::``, for instance ``mtt::dos`` for
 the electronic density of states in the full example above.
