@@ -261,6 +261,7 @@ class BaseCompositionModel(torch.nn.Module):
 
                 # Get the target block values
                 Y = block.values
+                mask = ~torch.isnan(Y).any(dim=tuple(range(1, Y.ndim)))
 
                 if self.sample_kinds[target_name] == "per_structure":
                     X = self._compute_X_per_structure(systems)
@@ -277,11 +278,11 @@ class BaseCompositionModel(torch.nn.Module):
 
                 # Compute "XTX", i.e. X.T @ X
                 # TODO: store XTX by sample kind instead, saving memory
-                self.XTX[target_name][key].values[:] += X.T @ X
+                self.XTX[target_name][key].values[:] += X[mask].T @ X[mask]
 
                 # Compute "XTY", i.e. X.T @ Y
                 self.XTY[target_name][key].values[:] += torch.tensordot(
-                    X, Y, dims=([0], [0])
+                    X[mask], Y[mask], dims=([0], [0])
                 )
 
     def fit(
