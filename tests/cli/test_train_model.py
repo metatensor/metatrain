@@ -1390,7 +1390,7 @@ def test_train_mixed_stress(monkeypatch, tmp_path, options_pet):
         )
     )
     options_pet["architecture"]["training"]["num_epochs"] = 1
-    options_pet["architecture"]["training"]["batch_size"] = 1
+    options_pet["architecture"]["training"]["batch_size"] = 10
     options_pet["test_set"] = 0.0  # No test set
     options_pet["validation_set"] = 0.5  # 50% validation
 
