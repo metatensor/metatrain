@@ -49,4 +49,5 @@ validation_set:
       per_atom: false
       type: scalar
       num_subtargets: 3830
+
 test_set: 0.0

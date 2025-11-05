@@ -129,14 +129,16 @@ ase.io.write("DOS.xyz", structures)
 # .. literalinclude:: options-dos.yaml
 #    :language: yaml
 
-# We also disable composition contribution because it is difficult to fit the DOS
+# We disable composition contributions because it is difficult to fit the DOS
 # using a composition model, accounting for the ill-defined energy reference of
-# the DOS. scale targets is defined because it does not support masks. 
+# the DOS. ``scale_targets`` is also set to false because it does not support masks.
 # For details regarding the parameters of the loss function, please refer
 # to the :ref:`masked dos loss function <dos-loss>` documentation. Additionally,
 # the mask should be provided as extra data and share the same name as the target
 # DOS with a "_mask" suffix. Due to the small dataset in this example, we set the
 # validation set to be identical to the train set. In practice, you should use a
-# separate validation set. Here, we run training as a subprocess, in reality you
+# separate validation set or set it as a fraction of the training set.
+
+# Here, we run training as a subprocess, in reality you
 # would run this from the command line as ``mtt train options-dos.yaml``.
 subprocess.run(["mtt", "train", "options-dos.yaml"], check=True)
