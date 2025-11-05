@@ -108,6 +108,9 @@ The hyperparameters for training are
 :param scheduler_factor: Factor to reduce the learning rate by
 :param log_interval: Interval at which to log training metrics
 :param checkpoint_interval: Interval at which to save model checkpoints
+:param remove_composition_contribution: Whether to remove the atomic composition
+  contribution from the targets by fitting a linear model to the training data before
+  training the neural network.
 :param scale_targets: Whether to scale the targets to have unit standard deviation
   across the training set during training.
 :param fixed_composition_weights: Weights for fixed atomic contributions to scalar
