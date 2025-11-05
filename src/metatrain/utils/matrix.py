@@ -50,77 +50,6 @@ def transpose_tensormap(tensor: TensorMap) -> TensorMap:
 
 
 @torch.jit.script
-def build_orbital_mask(
-    systems: List[System],
-    basis_set: Dict[str, int],
-    tensor: TensorMap,
-) -> TensorMap:
-    """
-    Builds a boolean mask TensorMap from the input ``tensor``, where the mask is implied
-    from the basis set definition. The returned mask has the same metadata structure as
-    the input tensor, but with float values as either 1.0 or 0.0 indicating whether each
-    entry is valid (not NaN) or not.
-
-    :param systems: List of metatomic.torch.System objects the matrix ``tensor``
-        corresponds to.
-    :param tensor: The TensorMap of the matrix quantity (either predicted or target).
-    :param basis_set: The basis set definition used to determine valid entries.
-    :return: A TensorMap containing the boolean mask.
-    """
-    mask_blocks: List[TensorBlock] = []
-    for k, b in tensor.items():
-        o3_lambda = int(k["o3_lambda"])
-        o3_sigma = int(k["o3_sigma"])
-
-        # Initialize as zeros
-        mask_values = torch.zeros_like(b.values)
-
-        # loop over samples
-        for i_s, s in enumerate(b.samples.values):
-            A, i_1, i_2 = int(s[0]), int(s[1]), int(s[2])
-
-            # get atomic numbers
-            Z_1 = systems[A].types[i_1].item()
-            Z_2 = systems[A].types[i_2].item()
-
-            # loop over properties
-            for i_p, p in enumerate(b.properties.values):
-                l_1, l_2, n_1, n_2 = int(p[0]), int(p[1]), int(p[2]), int(p[3])
-
-                # skip if either (l, Z) pair is not in basis set
-                if f"{l_1}_{Z_1}" not in basis_set or f"{l_2}_{Z_2}" not in basis_set:
-                    continue
-
-                if o3_sigma != (-1) ** (l_1 + l_2 + o3_lambda):
-                    continue
-
-                if k["n_centers"] == 1 and o3_sigma == -1:
-                    continue
-
-                # get allowed radial quantum numbers
-                allowed_n_1 = list(range(basis_set[f"{l_1}_{Z_1}"]))
-                allowed_n_2 = list(range(basis_set[f"{l_2}_{Z_2}"]))
-
-                # skip if either n_1 or n_2 is not allowed
-                if n_1 not in allowed_n_1 or n_2 not in allowed_n_2:
-                    continue
-
-                # mark this (sample, property) pair as valid
-                mask_values[i_s, ..., i_p] = 1.0
-
-        mask_blocks.append(
-            TensorBlock(
-                samples=b.samples,
-                components=b.components,
-                properties=b.properties,
-                values=mask_values,
-            )
-        )
-
-    return TensorMap(tensor.keys, mask_blocks)
-
-
-@torch.jit.script
 def make_orbital_map(
     systems: List[System], basis_set: Dict[str, int]
 ) -> Tuple[List[Dict[str, int]], List[int]]:
@@ -205,6 +134,20 @@ def get_coupled_basis_set(
 
 
 class Blocks2Matrix(torch.nn.Module):
+    """
+    Transform Hamiltonian coupled blocks into dense matrices.
+
+
+    Precompute CG blocks and normalize input maps.
+    :param basis_set: Basis set for the matrices
+    :param o3_lambda_max: Maximum o3_lambda in the basis set
+    :param dtype: Data type for internal computations
+    :param device: Device for internal computations
+    """
+
+    basis_set: Dict[str, int]
+    _cached_system_types: Dict[int, torch.Tensor]
+
     def __init__(
         self,
         basis_set: Dict[Tuple[int, int], int],
@@ -215,12 +158,23 @@ class Blocks2Matrix(torch.nn.Module):
     ):
         super().__init__()
 
-        self.basis_set = {f"{k[0]}_{k[1]}": v for k, v in basis_set.items()}
-        self.coupled_basis_set = {
-            f"{k[0]}_{k[1]}_{k[2]}": v
-            for k, v in get_coupled_basis_set(basis_set, True).items()
+        # keep a string-keyed local version of basis_set for forward to use
+        self.basis_set: Dict[str, int] = {
+            f"{k[0]}_{k[1]}": v for k, v in basis_set.items()
         }
-        self.cg_coeffs = calculate_cg_coefficients(
+
+        # Build coupled_basis_set
+        raw_coupled = get_coupled_basis_set(basis_set, True)
+        cb: Dict[str, List[List[int]]] = {}
+        for k, v in raw_coupled.items():
+            # k presumably (lambda, sigma, n_centers), v is list of (Zi, Zj)
+            key = f"{k[0]}_{k[1]}_{k[2]}"
+            # convert pairs to lists of ints for easier TorchScript compatibility later
+            cb[key] = [[int(p[0]), int(p[1])] for p in v]
+        self.coupled_basis_set: Dict[str, List[List[int]]] = cb
+
+        # Precompute CG coefficient blocks for all lambda up to 2*o3_lambda_max
+        cg = calculate_cg_coefficients(
             o3_lambda_max * 2,
             cg_backend="python-dense",
             arrays_backend="torch",
@@ -228,156 +182,386 @@ class Blocks2Matrix(torch.nn.Module):
             device=device,
         )
 
+        # only store the values for combinations that exist in cg.blocks
+        cg_cache: Dict[str, torch.Tensor] = {}
+        max_l = o3_lambda_max * 2
+        for l1 in range(max_l + 1):
+            for l2 in range(max_l + 1):
+                for lam in range(max_l + 1):
+                    blocks = cg.blocks({"l1": l1, "l2": l2, "lambda": lam})
+                    if len(blocks) == 0:
+                        continue
+                    # fetch block values and store reshaped tensor
+                    key = f"{l1}_{l2}_{lam}"
+                    try:
+                        t = cg.block({"l1": l1, "l2": l2, "lambda": lam}).values
+                        # reshape to (2*l1+1, 2*l2+1, 2*lam+1)
+                        t = t.reshape(2 * l1 + 1, 2 * l2 + 1, 2 * lam + 1)
+                        cg_cache[key] = t
+                    except Exception:
+                        # if fetching fails, skip
+                        continue
+
+        # Store cache
+        self._cg_cache: Dict[str, torch.Tensor] = cg_cache
+
+        # Precompute basis_table (l,Z) -> max_n
+        max_l = max(k[0] for k in basis_set.keys())
+        max_Z = max(k[1] for k in basis_set.keys())
+        self._basis_table = torch.full(
+            (max_l + 1, max_Z + 1), -1, dtype=torch.long, device=device
+        )
+        for key, val in self.basis_set.items():
+            ell, Z = map(int, key.split("_"))
+            self._basis_table[ell, Z] = val
+
+        # Cache atomic numbers per system
+        self._cached_system_types: Dict[int, torch.Tensor] = {}
+
+        # dtype/device for constructing zero matrices if needed
+        self._dtype = dtype
+        self._device = device
+
+    @torch.jit.export
+    def build_orbital_mask(
+        self,
+        systems: List[System],
+        tensor: TensorMap,
+    ) -> TensorMap:
+        mask_blocks: List[TensorBlock] = []
+
+        basis_table = self._basis_table
+
+        for k, b in tensor.items():
+            o3_lambda = int(k["o3_lambda"])
+            o3_sigma = int(k["o3_sigma"])
+
+            mask_values = torch.zeros_like(b.values)
+
+            samples = b.samples.values
+            props = b.properties.values
+            S = samples.shape[0]
+            P = props.shape[0]
+
+            if S == 0 or P == 0:
+                mask_blocks.append(
+                    TensorBlock(
+                        samples=b.samples,
+                        components=b.components,
+                        properties=b.properties,
+                        values=mask_values,
+                    )
+                )
+                continue
+
+            # Precompute sample info
+            samples_A = samples[:, 0].to(torch.long)
+            samples_i1 = samples[:, 1].to(torch.long)
+            samples_i2 = samples[:, 2].to(torch.long)
+
+            Z_1 = torch.empty((S,), dtype=torch.long, device=samples.device)
+            Z_2 = torch.empty((S,), dtype=torch.long, device=samples.device)
+
+            # Fill Z_1/Z_2 per system
+            sys_seen: List[int] = []
+            for idx in range(S):
+                Ai = int(samples_A[idx].item())
+                if Ai not in sys_seen:
+                    sys_seen.append(Ai)
+            for Ai in sys_seen:
+                pos_mask = samples_A == Ai
+                idxs = torch.nonzero(pos_mask).squeeze(1)
+                if idxs.numel() == 0:
+                    continue
+                # cache system types if not already
+                if Ai not in self._cached_system_types:
+                    self._cached_system_types[Ai] = systems[Ai].types.to(torch.long)
+                types_tensor = self._cached_system_types[Ai]
+                Z_1[idxs] = types_tensor[samples_i1[idxs]]
+                Z_2[idxs] = types_tensor[samples_i2[idxs]]
+
+            # Extract properties
+            l1s = torch.tensor(
+                [int(p[0].item()) for p in props],
+                dtype=torch.long,
+                device=samples.device,
+            )
+            l2s = torch.tensor(
+                [int(p[1].item()) for p in props],
+                dtype=torch.long,
+                device=samples.device,
+            )
+            n1s = torch.tensor(
+                [int(p[2].item()) for p in props],
+                dtype=torch.long,
+                device=samples.device,
+            )
+            n2s = torch.tensor(
+                [int(p[3].item()) for p in props],
+                dtype=torch.long,
+                device=samples.device,
+            )
+
+            # Parity and n_centers
+            parity_ok = (-1) ** (l1s + l2s + o3_lambda) == o3_sigma
+            skip_prop = torch.zeros_like(parity_ok, dtype=torch.bool)
+            if k["n_centers"] == 1 and o3_sigma == -1:
+                skip_prop[:] = True
+            valid_prop_mask = parity_ok & (~skip_prop)
+            if not valid_prop_mask.any().item():
+                mask_blocks.append(
+                    TensorBlock(
+                        samples=b.samples,
+                        components=b.components,
+                        properties=b.properties,
+                        values=mask_values,
+                    )
+                )
+                continue
+
+            # Expand for vectorized checks
+            l1_expand = l1s.unsqueeze(0).expand(S, P)
+            l2_expand = l2s.unsqueeze(0).expand(S, P)
+            n1_expand = n1s.unsqueeze(0).expand(S, P)
+            n2_expand = n2s.unsqueeze(0).expand(S, P)
+            Z1_expand = Z_1.unsqueeze(1).expand(S, P)
+            Z2_expand = Z_2.unsqueeze(1).expand(S, P)
+
+            # Safe indexing
+            in_l1 = (l1_expand >= 0) & (l1_expand < basis_table.shape[0])
+            in_l2 = (l2_expand >= 0) & (l2_expand < basis_table.shape[0])
+            in_Z1 = (Z1_expand >= 0) & (Z1_expand < basis_table.shape[1])
+            in_Z2 = (Z2_expand >= 0) & (Z2_expand < basis_table.shape[1])
+
+            allowed_n1 = torch.full((S, P), -1, dtype=torch.long, device=samples.device)
+            allowed_n2 = torch.full((S, P), -1, dtype=torch.long, device=samples.device)
+
+            ok1 = in_l1 & in_Z1
+            ok2 = in_l2 & in_Z2
+
+            if ok1.any().item():
+                idxs1 = torch.nonzero(ok1).t()
+                allowed_n1[idxs1[0], idxs1[1]] = basis_table[
+                    l1_expand[idxs1[0], idxs1[1]], Z1_expand[idxs1[0], idxs1[1]]
+                ]
+            if ok2.any().item():
+                idxs2 = torch.nonzero(ok2).t()
+                allowed_n2[idxs2[0], idxs2[1]] = basis_table[
+                    l2_expand[idxs2[0], idxs2[1]], Z2_expand[idxs2[0], idxs2[1]]
+                ]
+
+            # Final mask
+            valid_mask = (allowed_n1 > n1_expand) & (allowed_n2 > n2_expand)
+            valid_mask = valid_mask & valid_prop_mask.unsqueeze(0).expand(S, P)
+
+            if valid_mask.any().item():
+                if mask_values.dim() == 2:
+                    mask_values[valid_mask] = 1.0
+                else:
+                    # reshape middle dims
+                    S_dim = mask_values.shape[0]
+                    P_dim = mask_values.shape[-1]
+                    M = 1
+                    for d in mask_values.shape[1:-1]:
+                        M *= d
+                    mid = mask_values.view(S_dim, M, P_dim)
+                    nonzero = torch.nonzero(valid_mask)
+                    S_idx, P_idx = nonzero[:, 0], nonzero[:, 1]
+                    mid[S_idx, :, P_idx] = 1.0
+                    mask_values = mid.view(mask_values.shape)
+
+            mask_blocks.append(
+                TensorBlock(
+                    samples=b.samples,
+                    components=b.components,
+                    properties=b.properties,
+                    values=mask_values,
+                )
+            )
+
+        return TensorMap(tensor.keys, mask_blocks)
+
     def forward(
         self,
         systems: List[System],
         tensor: TensorMap,
         mask: Optional[TensorMap] = None,
-    ) -> TensorMap:
+    ) -> List[Dict[str, torch.Tensor]]:
         """
-        Takes the coupled block representation of a per-pair target property on an
-        atom-centered basis and uncouples the blocks.
+        Apply the block-to-matrix transformation.
+
+        :param systems: List of metatomic.torch.System objects the TensorMap matrix
+            corresponds to.
+        :param tensor: The TensorMap with coupled blocks to be transformed.
+        :param mask: Optional TensorMap mask indicating valid entries.
+        :return: A list (over systems) of dictionaries mapping cell shifts to dense
+            matrix tensors.
         """
 
         device = tensor[0].values.device
         dtype = tensor[0].values.dtype
 
         if mask is None:
-            mask = build_orbital_mask(systems, self.basis_set, tensor)
+            mask = self.build_orbital_mask(systems, tensor)
 
-        # Check key names
         assert tensor.keys.names == ["o3_lambda", "o3_sigma", "n_centers"]
 
+        # create orbital_map and n_orbs
         orbital_map, n_orbs = make_orbital_map(systems, self.basis_set)
 
-        per_system_indices = {}
-        per_system_values = {}
-        unique_system_idx = []
+        per_system_indices: Dict[int, Dict[str, List[List[int]]]] = {}
+        per_system_values: Dict[int, Dict[str, List[torch.Tensor]]] = {}
+        unique_system_idx_py: List[int] = []
 
-        is_to_skip = False
+        cg_cache = self._cg_cache
+        coupled_bs = self.coupled_basis_set
 
+        # iterate blocks
         for k, b in tensor.items():
             o3_lambda = int(k["o3_lambda"])
             o3_sigma = int(k["o3_sigma"])
             n_centers = int(k["n_centers"])
-            samples = b.samples.values.tolist()
+
+            samples = b.samples.values
 
             mask_block = None
             if mask is not None:
                 mask_block = mask.block(k).values
 
-            for ip, (l1, l2, n1, n2) in enumerate(b.properties.values.tolist()):
-                if (
-                    len(
-                        self.cg_coeffs.blocks({"l1": l1, "l2": l2, "lambda": o3_lambda})
-                    )
-                    == 0
-                ):
+            props = b.properties.values
+            n_props = props.shape[0]
+
+            coupled_key = f"{o3_lambda}_{o3_sigma}_{n_centers}"
+            if coupled_key not in coupled_bs:
+                continue
+            pair_list = coupled_bs[coupled_key]
+
+            for ip in range(n_props):
+                l1 = int(props[ip, 0].item())
+                l2 = int(props[ip, 1].item())
+                n1 = int(props[ip, 2].item())
+                n2 = int(props[ip, 3].item())
+
+                cg_key = f"{l1}_{l2}_{o3_lambda}"
+                if cg_key not in cg_cache:
                     continue
-                C = (
-                    o3_sigma
-                    * self.cg_coeffs.block(
-                        {"l1": l1, "l2": l2, "lambda": o3_lambda}
-                    ).values
+                C = cg_cache[cg_key]
+
+                # Multiply by sigma for decoupling
+                C_sig = o3_sigma * C
+
+                vals_ip = b.values[..., ip]
+
+                # flatten C_sig: (m1, m2, M) -> (M, m1*m2)
+                C_flat = C_sig.permute(2, 0, 1).reshape(C_sig.shape[2], -1)
+
+                # uncouple block
+                uncoupled_block = (vals_ip @ C_flat).view(
+                    vals_ip.shape[0], C_sig.shape[0], C_sig.shape[1]
                 )
-                # TODO: fix for the case of sparse cg coeffs
-                C = C.reshape(2 * l1 + 1, 2 * l2 + 1, 2 * o3_lambda + 1)
 
-                uncoupled_block = torch.einsum(
-                    "mnM,SM->Smn",
-                    C,
-                    b.values[..., ip],
-                )
+                if mask_block is not None:
+                    mb = mask_block[..., ip]
+                    if mb.dim() > 1:
+                        # reduce all but sample dim
+                        allowed_mask = ~torch.all(mb == 0, dim=1)
+                    else:
+                        allowed_mask = mb != 0
+                else:
+                    allowed_mask = torch.ones(
+                        vals_ip.shape[0], dtype=torch.bool, device=device
+                    )
 
-                for isample, s in enumerate(samples):
-                    if mask_block is not None:
-                        is_to_skip = torch.allclose(
-                            mask_block[isample, ..., ip],
-                            torch.zeros_like(mask_block[isample, ..., ip]),
-                        )
-                        if is_to_skip:
-                            continue
+                allowed_idx = torch.nonzero(allowed_mask).squeeze(1)
+                if allowed_idx.numel() == 0:
+                    continue  # skip if no allowed samples
 
-                    A, i, j = s[:3]
-                    A, i, j = int(A), int(i), int(j)
-                    Zi = int(systems[A].types[i])
-                    Zj = int(systems[A].types[j])
+                # select allowed samples at once
+                uncoupled_block_allowed = uncoupled_block[allowed_idx]
+                samples_allowed = samples[allowed_idx]
 
-                    # skip if this pair of atoms does not have this coupled basis
-                    if [Zi, Zj] not in self.coupled_basis_set[
-                        f"{o3_lambda}_{o3_sigma}_{n_centers}"
-                    ]:
+                # now loop over allowed samples only
+                for s_idx, s in enumerate(samples_allowed):
+                    A = int(s[0].item())
+                    i = int(s[1].item())
+                    j = int(s[2].item())
+
+                    Zi = int(systems[A].types[i].item())
+                    Zj = int(systems[A].types[j].item())
+
+                    # membership test in coupled basis
+                    pair_ok = any(p[0] == Zi and p[1] == Zj for p in pair_list)
+                    if not pair_ok:
                         continue
 
+                    empty_dict: Dict[str, List[List[int]]] = {}
+                    empty_values_dict: Dict[str, List[torch.Tensor]] = {}
                     if A not in per_system_indices:
-                        per_system_indices[A] = {}
-                        per_system_values[A] = {}
+                        per_system_indices[A] = empty_dict
+                        per_system_values[A] = empty_values_dict
+                    unique_system_idx_py.append(A)
 
-                    unique_system_idx.append(A)
-                    cell_shift = tuple(x for x in s[3:6])
+                    cs0 = int(s[3].item())
+                    cs1 = int(s[4].item())
+                    cs2 = int(s[5].item())
+                    cell_shift = f"{cs0}_{cs1}_{cs2}"
 
+                    empty_list: List[List[int]] = []
+                    empty_values_list: List[torch.Tensor] = []
                     if cell_shift not in per_system_indices[A]:
-                        per_system_indices[A][cell_shift] = []
-                        per_system_values[A][cell_shift] = []
+                        per_system_indices[A][cell_shift] = empty_list
+                        per_system_values[A][cell_shift] = empty_values_list
 
-                    for im1, m1 in enumerate(range(-l1, l1 + 1)):
-                        for im2, m2 in enumerate(range(-l2, l2 + 1)):
-                            idx_1 = f"{i}_{l1}_{n1}_{m1}"
-                            idx_2 = f"{j}_{l2}_{n2}_{m2}"
+                    omap = orbital_map[A]
 
-                            idx1_does_not_exist = idx_1 not in orbital_map[A]
-                            idx2_does_not_exist = idx_2 not in orbital_map[A]
-                            if idx1_does_not_exist or idx2_does_not_exist:
+                    for m1 in range(-l1, l1 + 1):
+                        lbl1 = f"{i}_{l1}_{n1}_{m1}"
+                        if lbl1 not in omap:
+                            continue
+                        ii = int(omap[lbl1])
+                        for m2 in range(-l2, l2 + 1):
+                            lbl2 = f"{j}_{l2}_{n2}_{m2}"
+                            if lbl2 not in omap:
                                 continue
-
-                            idx_i = orbital_map[A][idx_1]
-                            idx_j = orbital_map[A][idx_2]
-
-                            per_system_indices[A][cell_shift].append((idx_i, idx_j))
+                            jj = int(omap[lbl2])
+                            per_system_indices[A][cell_shift].append([ii, jj])
                             per_system_values[A][cell_shift].append(
-                                uncoupled_block[isample, im1, im2]
+                                uncoupled_block_allowed[s_idx, m1 + l1, m2 + l2]
                             )
-        unique_system_idx = torch.unique(torch.tensor(unique_system_idx)).tolist()
 
-        dense_list = []
+        # assemble dense matrices
+        if len(unique_system_idx_py) == 0:
+            unique_system_idx = torch.tensor([], dtype=torch.long)
+        else:
+            unique_system_idx = torch.unique(
+                torch.tensor(unique_system_idx_py, dtype=torch.long)
+            )
+
+        dense_list: List[Dict[str, torch.Tensor]] = []
         for sys_id in unique_system_idx:
-            if len(per_system_indices[sys_id]) == 0:
-                # zero matrix if no data
-                # TODO: check
+            sys_id = int(sys_id.item())
+            sys_map: Dict[str, List[List[int]]] = {}
+            if sys_id in per_system_indices:
+                sys_map = per_system_indices[sys_id]
+            if len(sys_map) == 0:
                 H_dense = {
-                    (0, 0, 0): torch.zeros(
+                    "0_0_0": torch.zeros(
                         (n_orbs[sys_id], n_orbs[sys_id]), device=device, dtype=dtype
                     )
                 }
             else:
-                indices = {
-                    cell_shift: torch.tensor(
-                        per_system_indices[sys_id][cell_shift],
-                        dtype=torch.long,
-                        device=device,
-                    ).T
-                    for cell_shift in per_system_indices[sys_id]
-                }
-                values = {
-                    cell_shift: torch.stack(per_system_values[sys_id][cell_shift])
-                    for cell_shift in per_system_indices[sys_id]
-                }
-
-                H_sparse = {
-                    cell_shift: torch.sparse_coo_tensor(
-                        indices[cell_shift],
-                        values[cell_shift],
-                        size=(n_orbs[sys_id], n_orbs[sys_id]),
-                        device=device,
-                        requires_grad=True,
+                H_dense: Dict[str, torch.Tensor] = {}
+                for cell_shift, pairs in sys_map.items():
+                    if len(pairs) == 0:
+                        continue
+                    inds = torch.tensor(pairs, dtype=torch.long, device=device).t()
+                    vals = torch.stack(per_system_values[sys_id][cell_shift])
+                    size = (n_orbs[sys_id], n_orbs[sys_id])
+                    Hs = torch.sparse_coo_tensor(
+                        inds, vals, size=size, device=device
                     ).coalesce()
-                    for cell_shift in indices
-                }
-
-                H_dense = {
-                    cell_shift: H.to_dense() for cell_shift, H in H_sparse.items()
-                }
-
+                    Hs.requires_grad_(True)
+                    H_dense[cell_shift] = Hs.to_dense()
             dense_list.append(H_dense)
 
         return dense_list
