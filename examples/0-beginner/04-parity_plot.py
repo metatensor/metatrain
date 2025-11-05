@@ -92,7 +92,7 @@ print("RMSE forces:", np.sqrt(np.mean((f_targets - f_predictions) ** 2)), "kcal/
 # ----------------------------------
 #
 # With the approach above, you can inspect the whole dataset, but it might be difficult
-# to identify outliers. `Chemiscope <https://chemiscope.org/docs/index.html>` is a
+# to identify outliers. `Chemiscope <https://chemiscope.org/docs/index.html>`_ is a
 # visualisation tool, allowing you to explore the dataset interactively. The following
 # example shows how to use it to check the structure of probable outliers and the atomic
 # forces.
