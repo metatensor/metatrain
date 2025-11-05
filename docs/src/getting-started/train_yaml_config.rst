@@ -14,11 +14,13 @@ the :ref:`Quickstart <label_quickstart>` section.
 
 The YAML input file can be divided into five sections:
 
-- :ref:`Computational Parameters``
-- :ref:`Architecture`
-- :ref:`Loss`
-- :ref:`Data`
-- :ref:`WandB Integration`
+- :ref:`computational-parameters-section`
+- :ref:`architecture-section`
+- :ref:`loss-section`
+- :ref:`data-section`
+- :ref:`wandb-integration-section`
+
+.. _computational-parameters-section:
 
 Computational Parameters
 ========================
@@ -28,7 +30,9 @@ The computational parameters define the computational ``device``, ``precision`` 
 
 .. code-block:: yaml
 
-    device: 'cuda' precision: 32 seed: 0
+    device: cuda
+    precision: 32
+    seed: 0
 
 :param device [optional]: The computational device used for model training. The
     metatrain automatically chooses the best option by default. The possible devices
@@ -47,6 +51,8 @@ The computational parameters define the computational ``device``, ``precision`` 
     reproducibility. If not specified, the seed is generated randomly and reported in
     the log.
 
+.. _architecture-section:
+
 Architecture
 ============
 
@@ -54,6 +60,8 @@ The next section of the YAML file would focus on options pertaining the architec
 these options, along with their default values, are highly specific to the model
 architecture. It is better to instead consult the respective :ref:`architecture
 documentation <available-architectures>` page for further details.
+
+.. _loss-section:
 
 Loss
 ====
@@ -75,9 +83,9 @@ training. This secion can be broken down into three subsections:
 - ``test_set``
 
 The training set is the data that will be used for model training, the validation set is
-the data that will be used to track the generalizability of the model during trainingand
-is used to decide on the best model. The test set is only used after training and it is
-used to evaluate the model's performance on an unseen dataset after training. Each
+the data that will be used to track the generalizability of the model during training
+and is used to decide on the best model. The test set is only used after training and it
+is used to evaluate the model's performance on an unseen dataset after training. Each
 subsection has the same parameter configuration. As an example, the configuration of the
 training set is as follows:
 
@@ -136,8 +144,6 @@ training set is as follows:
                 per_atom: False
                 type: scalar
                 num_subtargets: 4000
-
-
 
 The options for ``training set`` is divided into two categories, ``systems``,
 ``targets`` and ``extra_data``. ``systems`` refer to the molecular/crystal structures,
@@ -278,7 +284,6 @@ can be condensed into
                 forces: on
                 stress: on
 
-
 .. note::
 
    Unknown keys are ignored and not deleted in all sections during dataset parsing.
@@ -337,7 +342,7 @@ validation. The selected indices for the training, validation and test subset wi
 available in the ``outputs`` directory.
 
 As an example, the following configuration would use 10% of the training set for
-validation and 20% for testing:
+validation and 20 % for testing:
 
 .. code-block:: yaml
 
@@ -410,6 +415,8 @@ file:
    Even though parsing several datasets is supported by the library, it may not work
    with every architecture. Check your :ref:`desired architecture
    <available-architectures>` if they **support multiple datasets**.
+
+.. _wandb-integration-section:
 
 WandB Integration
 =================
