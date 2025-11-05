@@ -92,8 +92,8 @@ We assumed that the pre-trained model is trained on the dataset ``dataset.xyz`` 
 energies are written in the ``energy`` key of the ``info`` dictionary of the
 energies. Additionally, forces and stresses should be provided with corresponding keys
 which you can specify in the ``options.yaml`` file under ``targets``.
-Further information on specifying targets can be found in :ref:`Customize a Dataset Configuration
-<dataset_conf>`.
+Further information on specifying targets can be found in the :ref:`data section of the Training YAML Reference
+<data-section>`.
 
 .. note::
 
