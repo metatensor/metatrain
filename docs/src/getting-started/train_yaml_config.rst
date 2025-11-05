@@ -41,12 +41,12 @@ The computational parameters define the computational ``device``, ``precision`` 
     ``multi-gpu``. Internally, under the choice ``gpu``, the script will automatically
     choose between ``cuda`` or ``mps``.
 :param precision [optional]: The base precision for all floats in model training. This
-    impacts the datatype used. Possible options are the integers ``64``, ``32`` and
+    impacts the datatype used. Possible options are the integers ``64``, ``32``, and
     ``16``, resulting in the datatype used to be ``float64``, ``float32`` and
     ``float16`` respectively. The datatypes that can be supported also depends on the
     model architecture used.
 :param seed [optional]: The seed used for non-deterministic operations and is used to
-    set the seed for ``numpy.random``, ``random``, ``torch`` and ``torch.cuda``. The
+    set the seed for ``numpy.random``, ``random``, ``torch``, and ``torch.cuda``. The
     input must be a non-negative integer. This parameter is important for ensuring
     reproducibility. If not specified, the seed is generated randomly and reported in
     the log.
