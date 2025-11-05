@@ -194,11 +194,11 @@ class Trainer(TrainerInterface):
             callables=[
                 get_reindex_system_to_batch_id_transform(),
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                rotational_augmenter.apply_random_augmentations,
                 get_pad_samples_transform(
                     spherical_per_atom_targets,
                     requested_neighbor_lists[0],
                 ),
+                rotational_augmenter.apply_random_augmentations,
                 get_create_dynamic_target_mask_transform(dynamic_mask_targets),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),

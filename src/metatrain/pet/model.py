@@ -1174,7 +1174,7 @@ class PET(ModelInterface):
 
         # For per-pair targets, enforce Hermitian symmetry
         for output_name, atomic_property in atomic_predictions_tmap_dict.items():
-            if self.dataset_info.targets[output_name].per_pair:
+            if self.is_per_pair_output[output_name]:
                 atomic_predictions_tmap_dict[output_name] = mts.multiply(
                     mts.add(atomic_property, transpose_tensormap(atomic_property)), 0.5
                 )

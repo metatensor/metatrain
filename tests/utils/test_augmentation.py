@@ -199,7 +199,7 @@ def test_rotation_per_atom_spherical(batch_size):
                             ]
                         }
                     },
-                    "per_atom": False,
+                    "per_atom": True,
                     "num_subtargets": 1,
                 },
             )
@@ -219,6 +219,101 @@ def test_rotation_per_atom_spherical(batch_size):
 
     # Check that the rotated target matches the reference
     mts.allclose_raise(RfX, fRX, atol=1e-5)
+
+
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_rotation_per_pair_spherical(batch_size):
+    """Tests that the rotational augmenter rotates a Hamiltonian matrix consistent with
+    targets computed from DFT"""
+
+    target_name = "mtt::hamiltonian"
+
+    # Hard-coded rotation matrix used to generate the system for which DFT was run
+    R = np.array(
+        [
+            [0.22922512, -0.15149287, 0.96151222],
+            [0.66175278, -0.70015582, -0.26807664],
+            [0.71382008, 0.69773328, -0.06024247],
+        ]
+    )
+
+    # Load the target data
+    dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
+    dataset_rotated = DiskDataset(RESOURCES_PATH / "spherical_targets_rotated.zip")
+    X = [
+        sample["system"].to(torch.float64)
+        for i, sample in enumerate(dataset_unrotated)
+        if i < batch_size
+    ]
+    fX = mts.join(
+        [
+            sample[target_name]
+            for i, sample in enumerate(dataset_unrotated)
+            if i < batch_size
+        ],
+        "samples",
+        remove_tensor_name=True,
+    )
+    fRX = mts.join(
+        [
+            sample[target_name]
+            for i, sample in enumerate(dataset_rotated)
+            if i < batch_size
+        ],
+        "samples",
+        remove_tensor_name=True,
+    )
+
+    # Init the RotationalAugmenter
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 8],
+        targets={
+            target_name: get_generic_target_info(
+                target_name,
+                {
+                    "quantity": "spherical",
+                    "unit": "",
+                    "type": {
+                        "spherical": {
+                            "irreps": [
+                                {"o3_lambda": 0, "o3_sigma": 1, "n_centers": 1},
+                                {"o3_lambda": 0, "o3_sigma": 1, "n_centers": 2},
+                                {"o3_lambda": 1, "o3_sigma": 1, "n_centers": 2},
+                                {"o3_lambda": 1, "o3_sigma": 1, "n_centers": 1},
+                                {"o3_lambda": 1, "o3_sigma": -1, "n_centers": 2},
+                                {"o3_lambda": 2, "o3_sigma": 1, "n_centers": 1},
+                                {"o3_lambda": 2, "o3_sigma": 1, "n_centers": 2},
+                            ]
+                        }
+                    },
+                    "per_atom": True,
+                    "num_subtargets": 1,
+                },
+            )
+        },
+    )
+    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+
+    # Apply the augmentation to the target
+    _, RfX, _ = rotational_augmenter.apply_augmentations(
+        X,
+        {target_name: fX},
+        extra_data={},
+        rotations=[Rotation.from_matrix(R.T)] * batch_size,
+        inversions=[1] * batch_size,
+    )
+    RfX = RfX[target_name]
+
+    # Check that the rotated target matches the reference
+
+    for k in RfX.keys:
+        block_RfX = RfX.block(k)
+        block_fRX = fRX.block(k)
+
+        assert torch.equal(torch.isnan(block_RfX.values), torch.isnan(block_fRX.values))
+        mask = ~torch.isnan(block_RfX.values)
+        assert torch.allclose(block_RfX.values[mask], block_fRX.values[mask])
 
 
 def test_missing_library(monkeypatch, layout_spherical):

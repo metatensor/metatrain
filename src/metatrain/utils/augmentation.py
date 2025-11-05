@@ -262,14 +262,24 @@ def _apply_wigner_D_matrices(
             new_blocks.append(block)
             continue
 
-        if "atom" in block.samples.names:
+        per_structure = block.samples.names == ["system"]
+        per_atom = "atom" in block.samples.names or (
+            (
+                "first_atom" in block.samples.names
+                and "second_atom" in block.samples.names
+            )
+            and key["n_centers"] == 1
+        )
+        per_pair = (
+            "first_atom" in block.samples.names and "second_atom" in block.samples.names
+        ) and key["n_centers"] == 2
+
+        if per_atom:
             split_values = torch.split(
                 values, [len(system.positions) for system in systems]
             )
 
-        elif (
-            "first_atom" in block.samples.names and "second_atom" in block.samples.names
-        ):
+        elif per_pair:
             unique_system_ids, inverse_indices = torch.unique(
                 block.samples.values[:, 0], return_inverse=True
             )
@@ -278,7 +288,7 @@ def _apply_wigner_D_matrices(
             ]
 
         else:
-            assert block.samples.names == ["system"]
+            assert per_structure
             split_values = torch.split(values, [1 for _ in systems])
         new_values = []
         ell = (len(block.components[0]) - 1) // 2
