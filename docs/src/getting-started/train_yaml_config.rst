@@ -422,9 +422,9 @@ WandB Integration
 =================
 
 Optional section dealing with integration with `Weights and Biases (wandb)
-<https://wandb.ai/site/>`_ logging. Leaving this section blank will simply disable wandb
+<https://wandb.ai>`_ logging. Leaving this section blank will simply disable wandb
 integration. The parameters for this section is the same as that in `wandb.init
-<https://docs.wandb.ai/ref/python/init/>`_. Here we provide a minimal example for the
+<https://docs.wandb.ai/models/ref/python/functions/init>`_. Here we provide a minimal example for the
 YAML input
 
 .. code-block:: yaml
@@ -445,4 +445,4 @@ run so you don't have to set the ``config`` parameter.
     You need to install wandb with ``pip install wandb`` if you want to use this logger.
     **Before** running also set up your credentials with ``wandb login`` from the
     command line. See `wandb login documentation
-    <https://docs.wandb.ai/ref/cli/wandb-login/>`_ for details on the setup.
+    <https://docs.wandb.ai/ref/cli/wandb-login>`_ for details on the setup.
