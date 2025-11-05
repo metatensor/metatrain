@@ -648,6 +648,7 @@ def _get_sample_labels(
         )
 
     return {
+        "per_structure": atom_sample_labels,
         "per_atom": atom_sample_labels,
         "per_pair": pair_sample_labels_onsite,
     }
