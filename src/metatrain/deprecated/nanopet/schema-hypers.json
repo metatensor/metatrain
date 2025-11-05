@@ -98,6 +98,9 @@
         "checkpoint_interval": {
           "type": "integer"
         },
+        "remove_composition_contribution": {
+          "type": "boolean"
+        },
         "scale_targets": {
           "type": "boolean"
         },
