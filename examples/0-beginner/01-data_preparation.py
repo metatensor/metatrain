@@ -2,27 +2,40 @@
 How to prepare data for training
 ================================
 
+This tutorial shows you how to organize your atomic structures and properties for training
+machine learning models with metatrain.
+
 .. attention::
 
-    This tutorial is only relevant for users who need to prepare their data from scratch
-    from several files or for big datasets. If you already have your data in a common
-    file format (like XYZ or `ASE database`_), you can skip this tutorial and directly
-    start training.
+    **Do you already have an XYZ file with your structures and properties?** If yes, you
+    can probably skip this tutorial and go straight to training! This tutorial is for
+    users who need to:
+    
+    - Combine data from multiple files
+    - Work with very large datasets (>10,000 structures)
+    - Pre-process data for faster training
 
 .. _ASE database: https://ase-lib.org/ase/db/db.html
 
-XYZ, ASE databases, and also from metrain's
-:class:`metatrain.utils.data.dataset.DiskDataset <DiskDataset>` file.
+When to use different formats
+------------------------------
 
-For the small datasets (<10k structures), you can simply provide an XYZ file or an ASE
-database to ``metatrain``, and it will handle the data loading for you. Large datasets
-(>10k structures) may not fit into the GPU memory. In such cases, it is useful to
-pre-process the dataset, save it to disk and load it on the fly during training.
+**Small datasets (< 10,000 structures)**: Use simple XYZ files. Metatrain will load
+everything into memory automatically. This is the easiest option for most users.
 
-In this tutorial, we will show how to prepare data for training using three different
-formats. You can choose the one that best fits your needs.
+**Large datasets (10,000 - 1,000,000 structures)**: Use DiskDataset. This pre-processes
+your data and loads it on-the-fly during training, avoiding memory issues.
 
-We start by importing the necessary packages.
+**Very large datasets (> 1,000,000 structures) on HPC**: Use MemmapDataset. This is
+optimized for parallel filesystems and avoids I/O bottlenecks.
+
+This tutorial covers all three formats. Choose the one that fits your needs.
+
+Getting Started
+---------------
+
+We'll demonstrate with a small example dataset. First, let's import the necessary Python
+packages:
 """
 
 # %%
@@ -41,57 +54,94 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
 # %%
-# Create a XYZ training file (small datasets)
-# -------------------------------------------
+# Option 1: Create a simple XYZ file (recommended for beginners)
+# ---------------------------------------------------------------
 #
-# First, we will show how to create a XYZ file with fields corresponding to the target
-# properties. On modern HPC systems, this format is suitable for datasets up to around
-# 1M structures. As an example, we will use 100 structures from a file read by ASE_.
-# Since files from reference calculations may be located in different directories, we
-# first create a list of all path that we want to read from. Here, for simplicity, we
-# assume that all files are located in the same directory.
+# This is the easiest approach and works great for most datasets. An XYZ file stores
+# atomic structures with their properties in a simple text format that ASE can read.
+#
+# **What you need:**
+#
+# - Atomic positions and elements
+# - Target properties (energies, forces, etc.)
+#
+# **When to use:** Datasets with < 10,000 structures (works up to ~1 million on modern
+# systems)
+#
+# Setting up the data
+# ^^^^^^^^^^^^^^^^^^^
+#
+# For this example, we'll read structures from an existing file. In practice, your data
+# might come from:
+#
+# - Quantum chemistry calculations (Gaussian, ORCA, CP2K, etc.)
+# - Ab initio MD trajectories
+# - Database files
+#
+# ASE_ can read many formats. Check the `ASE I/O documentation`_ for supported formats.
 #
 # .. _ASE: https://ase-lib.org/
+# .. _ASE I/O documentation: https://wiki.fysik.dtu.dk/ase/ase/io/io.html
 
+# In this example, all structures are in one file for simplicity.
+# In reality, you might have multiple files from different calculations.
 filelist = 100 * ["qm9_reduced_100.xyz"]
 
 # %%
 #
-# We will now read the structures using the ASE package. Check the ase documentation for
-# more details on how to read different file formats. Instead of creating the ``atoms``
-# object by reading from disk, you can also create an
-# :class:`ase.Atoms` object containing the chemical ``symbols``, ``positions``, the
-# ``cell`` and the periodic boundary conditions (``pbc``) by hand using its constructor.
+# Reading and adding properties
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 #
-# .. hint::
+# Now we read structures and add properties. ASE stores:
 #
-#   If a property is not read by the :func:`ase.io.read` function, you can add custom
-#   scalar properties to the ``info`` dictionary. Vector properties (e.g. forces) can be
-#   added to the ``arrays`` dictionary. Tensor properties (e.g. stress) must
-#   be flattened before adding them to the ``arrays`` dictionary.
+# - **Scalar properties** (like energy) in the ``atoms.info`` dictionary
+# - **Per-atom properties** (like forces) in the ``atoms.arrays`` dictionary
+#
+# .. tip::
+#
+#   If ASE doesn't automatically read a property from your file format, you can add it
+#   manually:
+#   
+#   - Scalars: ``atoms.info["energy"] = -100.0``
+#   - Vectors: ``atoms.arrays["forces"] = force_array``  (shape: n_atoms × 3)
+#   - Tensors: Flatten first, e.g., ``stress.reshape(-1, 9)`` for 3×3 stress tensors
 
 frames = []
 for i, fname in enumerate(filelist):
+    # Read one structure from the file
     atoms = ase.io.read(fname, index=i)
 
     n_atoms = len(atoms)
-    # scalar
+    
+    # Add energy (scalar property)
     atoms.info["U0"] = -100.0
-    # vector
+    
+    # Add forces (per-atom vector property)
     atoms.arrays["forces"] = np.zeros((n_atoms, 3))
-    # tensor
+    
+    # Add a custom tensor property (e.g., stress or polarizability)
+    # Tensors must be flattened: 3×3 becomes a vector of length 9
     atoms.arrays["my_tensor"] = np.zeros((n_atoms, 3, 3)).reshape(n_atoms, 9)
 
     frames.append(atoms)
 
+# Write all structures to a single XYZ file
 ase.io.write("data.xyz", frames)
 
 # %%
 #
-# .. note::
+# **That's it!** You now have a ``data.xyz`` file that metatrain can use directly. In your
+# ``options.yaml``, reference the properties by their names:
 #
-#   The names of the added properties (like, ``U0``, etc.) must be referenced correctly
-#   in the ``options.yaml`` file.
+# .. code-block:: yaml
+#
+#     training_set:
+#         systems: "data.xyz"
+#         targets:
+#             energy:
+#                 key: "U0"        # Must match the key we used above
+#                 unit: "eV"
+#                 forces: on       # Will look for "forces" in arrays
 #
 # Create a ``DiskDataset`` (large datasets)
 # -----------------------------------------
