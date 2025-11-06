@@ -1,10 +1,10 @@
 .. _train_yaml_config:
 
 Training YAML Reference
-***********************
+=======================
 
 Overview
-========
+--------
 
 ``metatrain`` uses a YAML file to configure model training. YAML is a human-readable text
 format for configuration - think of it as a more user-friendly alternative to JSON or XML.
@@ -30,7 +30,7 @@ The YAML file has five main sections:
 .. _computational-parameters-section:
 
 Computational Parameters
-========================
+------------------------
 
 These parameters control **where and how** your model is trained. All are **optional** -
 metatrain will choose sensible defaults if you don't specify them.
@@ -96,7 +96,7 @@ reproduce the training later if needed.
 .. _architecture-section:
 
 Architecture
-============
+------------
 
 The next section of the YAML file would focus on options pertaining the architecture. As
 these options, along with their default values, are highly specific to the model
@@ -106,7 +106,7 @@ documentation <available-architectures>` page for further details.
 .. _loss-section:
 
 Loss
-====
+----
 
 Within the architecture section, there is a parameter dedicated to the loss. Due to the
 plethora of loss functions used in different ML workflows, it is best to refer to the
@@ -115,7 +115,7 @@ page on :ref:`loss functions <loss-functions>` page for further details.
 .. _data-section:
 
 Data
-====
+----
 
 This is where you tell metatrain about your **training data** - the atomic structures and
 properties that the model will learn from.
@@ -548,7 +548,7 @@ file:
 .. _wandb-integration-section:
 
 WandB Integration
-=================
+-----------------
 
 Optional section dealing with integration with `Weights and Biases (wandb)
 <https://wandb.ai>`_ logging. Leaving this section blank will simply disable wandb
