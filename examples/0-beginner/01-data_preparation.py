@@ -10,7 +10,7 @@ machine learning models with metatrain.
     **Do you already have an XYZ file with your structures and properties?** If yes, you
     can probably skip this tutorial and go straight to training! This tutorial is for
     users who need to:
-    
+
     - Combine data from multiple files
     - Work with very large datasets (>10,000 structures)
     - Pre-process data for faster training
@@ -101,7 +101,7 @@ filelist = 100 * ["qm9_reduced_100.xyz"]
 #
 #   If ASE doesn't automatically read a property from your file format, you can add it
 #   manually:
-#   
+#
 #   - Scalars: ``atoms.info["energy"] = -100.0``
 #   - Vectors: ``atoms.arrays["forces"] = force_array``  (shape: n_atoms × 3)
 #   - Tensors: Flatten first, e.g., ``stress.reshape(-1, 9)`` for 3×3 stress tensors
@@ -112,13 +112,13 @@ for i, fname in enumerate(filelist):
     atoms = ase.io.read(fname, index=i)
 
     n_atoms = len(atoms)
-    
+
     # Add energy (scalar property)
     atoms.info["U0"] = -100.0
-    
+
     # Add forces (per-atom vector property)
     atoms.arrays["forces"] = np.zeros((n_atoms, 3))
-    
+
     # Add a custom tensor property (e.g., stress or polarizability)
     # Tensors must be flattened: 3×3 becomes a vector of length 9
     atoms.arrays["my_tensor"] = np.zeros((n_atoms, 3, 3)).reshape(n_atoms, 9)
