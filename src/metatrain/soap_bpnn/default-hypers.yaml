@@ -25,14 +25,14 @@ architecture:
     distributed_port: 39591
     batch_size: 8
     num_epochs: 100
+    warmup_fraction: 0.01
     learning_rate: 0.001
-    early_stopping_patience: 200
-    scheduler_patience: 100
-    scheduler_factor: 0.8
     log_interval: 5
     checkpoint_interval: 25
+    remove_composition_contribution: true
     scale_targets: true
     fixed_composition_weights: {}
+    fixed_scaling_weights: {}
     per_structure_targets: []
     num_workers: null
     log_mae: false

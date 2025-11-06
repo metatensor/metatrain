@@ -15,9 +15,12 @@
    :maxdepth: 1
    :hidden:
 
+   installation/installation
    getting-started/index
    architectures/index
-   tutorials/index
-   advanced-concepts/index
-   dev-docs/index
+   generated_examples/index
+   concepts/index
+   faq
    cite
+   dev-docs/index
+

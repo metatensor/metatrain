@@ -60,8 +60,7 @@ We explain below the model-specific hypers for SOAP-BPNN.
   this hyperparameter to ``false`` will lead to slower convergence of training, but
   might lead to better generalization outside of the training set distribution.
 - ``loss``: This section describes the loss function to be used. See the
-  :doc:`dedicated documentation page <../advanced-concepts/loss-functions>` for more
-  details.
+  :ref:`loss-functions` for more details.
 
 In addition to these model-specific hypers, we re-highlight that the following additive
 models (``zbl`` and ``long_range``) may be needed to achieve better description at the
@@ -100,17 +99,17 @@ briefly explained below.
   divides up the training set into batches during model training.
 - ``num_epochs``: this integer defines the number of epochs to perform in training.
 - ``learning_rate``: this float defines the initial learning rate of the scheduler.
-- ``early_stopping_patience``: this integer defines the number of epochs without
-  improvement are allowed before early stopping is invoked by scheduler.
-- ``scheduler_patience``: this integer defines the number of epochs without
-  improvement until the ``ReduceLROnPlateau`` scheduler lowers the learning rate.
-- ``scheduler_factor``: this float defines the factor by which the learning rate
-  is lowered when lowering is invoked by the scheduler.
+- ``warmup_fraction``: this float defines the fraction of the total number of epochs
+  to be used for linearly increasing the learning rate from zero to the initial
+  learning rate defined by ``learning_rate`` at the start of training.
 - ``log_interval``: this integer defines the epoch interval of metric logging.
 - ``checkpoint_interval``: this integer defines the epoch interval of checkpoint
   saving.
 - ``scale_targets``: this boolean determines whether or not to scale the targets
   with the internal scalers before the targets are exposed to the models for learning.
+- ``remove_composition_contribution``: this boolean determines whether to remove the
+  atomic composition contribution from the targets by fitting a linear model to the
+  training data before training the neural network.
 - ``fixed_composition_weights``: this nested dictionary allows one to set fixed
   composition values in the composition model being used as a baseline for the model.
   These are per target name and per (integer) atom type. For example,

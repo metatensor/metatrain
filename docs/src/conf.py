@@ -76,9 +76,12 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
+    "sphinx_sitemap",
     "sphinxcontrib.bibtex",
+    "sphinx_copybutton",
     "sphinx_toggleprompt",
     "sphinx_gallery.gen_gallery",
+    "chemiscope.sphinx",
 ]
 
 # List of patterns, relative to source directory, that match files and
@@ -103,7 +106,7 @@ autodoc_typehints_format = "short"
 intersphinx_mapping = {
     "ase": ("https://ase-lib.org/", None),
     "python": ("https://docs.python.org/3", None),
-    "torch": ("https://pytorch.org/docs/stable/", None),
+    "torch": ("https://docs.pytorch.org/docs/stable/", None),
     "metatensor": ("https://docs.metatensor.org/latest/", None),
     "metatomic": ("https://docs.metatensor.org/metatomic/latest/", None),
     "omegaconf": ("https://omegaconf.readthedocs.io/en/latest/", None),
@@ -113,6 +116,11 @@ intersphinx_mapping = {
 bibtex_bibfiles = ["../static/refs.bib"]
 bibtex_default_style = "unsrt"
 bibtex_reference_style = "author_year"
+
+# sitemap/SEO settings
+html_baseurl = "https://docs.metatensor.org/metatrain/latest/"  # prefix for the sitemap
+sitemap_url_scheme = "{link}"  # avoids language settings
+html_extra_path = ["robots.txt"]  # extra files to move
 
 # -- Options for HTML output -------------------------------------------------
 

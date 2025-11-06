@@ -8,7 +8,6 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.loss import (
-    EMAScheduler,
     LossAggregator,
     LossType,
     TensorMapHuberLoss,
@@ -234,30 +233,6 @@ def test_masked_mse_behavior(tensor_map_with_grad_1, tensor_map_with_grad_2):
     assert result.item() == pytest.approx(1.0)
 
 
-# EMA scheduler: test both no-sliding and sliding-factor cases
-@pytest.mark.parametrize(
-    "sf, expected_init, expected_update",
-    [
-        (0.0, 1.0, 1.0),
-        (0.5, 2 / 3, (2 / 3) * 0.5),
-    ],
-)
-def test_ema_scheduler(
-    tensor_map_with_grad_1, tensor_map_with_grad_2, sf, expected_init, expected_update
-):
-    tm1 = tensor_map_with_grad_1
-    tm2 = tensor_map_with_grad_2
-    key = tm1.keys.names[0]
-    loss = TensorMapMSELoss(name=key, gradient=None, weight=1.0, reduction="mean")
-    sched = EMAScheduler(sliding_factor=sf)
-
-    init_w = sched.initialize(loss, {key: tm1})
-    assert init_w == pytest.approx(expected_init)
-
-    new_w = sched.update(loss, {key: tm2}, {key: tm2})
-    assert new_w == pytest.approx(expected_update)
-
-
 # Factory and enum resolution
 def test_loss_type_and_factory():
     mapping = {
@@ -379,20 +354,6 @@ def test_masked_pointwise_gradient_branch(
     assert result == pytest.approx(1 / 3)
 
 
-def test_ema_initialize_gradient_branch(tensor_map_with_grad_1):
-    tm = tensor_map_with_grad_1
-    key = tm.keys.names[0]
-
-    # gradient block values [1,2,3], zero baseline -> MSE = (1+4+9)/3
-    loss = TensorMapMSELoss(
-        name=key, gradient="positions", weight=1.0, reduction="mean"
-    )
-    sched = EMAScheduler(sliding_factor=0.5)
-    init_w = sched.initialize(loss, {key: tm})
-
-    assert init_w == pytest.approx((1 + 4 + 9) / 3)
-
-
 def test_tmap_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
     """Test that the loss is computed correctly when only a subset
     of the possible targets is present both in outputs and targets."""
@@ -426,13 +387,11 @@ def test_tmap_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
             "type": "mse",
             "weight": 1.0,
             "reduction": "sum",
-            "sliding_factor": None,
             "gradients": {
                 "positions": {
                     "type": "mse",
                     "weight": 0.5,
                     "reduction": "sum",
-                    "sliding_factor": None,
                 },
             },
         },
@@ -440,13 +399,11 @@ def test_tmap_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
             "type": "mse",
             "weight": 1.0,
             "reduction": "sum",
-            "sliding_factor": None,
             "gradients": {
                 "positions": {
                     "type": "mse",
                     "weight": 0.5,
                     "reduction": "sum",
-                    "sliding_factor": None,
                 },
             },
         },
@@ -535,19 +492,16 @@ def test_tmap_loss_multiple_datasets_same_target_different_gradients(
             "type": "mse",
             "weight": 1.0,
             "reduction": "sum",
-            "sliding_factor": None,
             "gradients": {
                 "positions": {
                     "type": "mse",
                     "weight": 0.5,
                     "reduction": "sum",
-                    "sliding_factor": None,
                 },
                 "strain": {
                     "type": "mse",
                     "weight": 0.3,
                     "reduction": "sum",
-                    "sliding_factor": None,
                 },
             },
         },

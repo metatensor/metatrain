@@ -34,17 +34,21 @@ from metatrain.utils.logging import MetricLogger
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
-    get_system_with_neighbor_lists,
+    get_system_with_neighbor_lists_transform,
 )
 from metatrain.utils.omegaconf import expand_dataset_config
 from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.transfer import batch_to
 
 
 logger = logging.getLogger(__name__)
 
 
 def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
-    """Add the `eval_model` paramaters to an argparse (sub)-parser"""
+    """Add the `eval_model` paramaters to an argparse (sub)-parser
+
+    :param subparser: The argparse (sub)-parser to add the parameters to.
+    """
 
     if eval_model.__doc__ is not None:
         description = eval_model.__doc__.split(r":param")[0]
@@ -108,7 +112,10 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 
 def _prepare_eval_model_args(args: argparse.Namespace) -> None:
-    """Prepare arguments for eval_model."""
+    """Prepare arguments for eval_model.
+
+    :param args: The argparse.Namespace containing the arguments.
+    """
     args.options = OmegaConf.load(args.options)
     # models for evaluation are already exported. Don't have to pass the `name` argument
     args.model = load_model(
@@ -128,15 +135,17 @@ def _eval_targets(
     """
     Evaluate `model` on `dataset`, accumulate RMSE/MAE, and (if `writer` is provided)
     stream or buffer out per-sample writes.
+
+    :param model: The model to evaluate.
+    :param dataset: The dataset to evaluate the model on.
+    :param options: Dictionary containing the target information.
+    :param batch_size: Batch size for evaluation.
+    :param check_consistency: Whether to run consistency checks during model evaluation.
+    :param writer: Optional writer to write out per-sample predictions.
     """
     if len(dataset) == 0:
         logging.info("This dataset is empty. No evaluation will be performed.")
         return None
-
-    # Attach neighbor-lists
-    for sample in dataset:
-        system = sample["system"]
-        get_system_with_neighbor_lists(system, get_requested_neighbor_lists(model))
 
     # Infer device/dtype
     model_tensor = next(itertools.chain(model.parameters(), model.buffers()))
@@ -160,7 +169,11 @@ def _eval_targets(
 
     # Create a dataloader
     target_keys = list(model.capabilities().outputs.keys())
-    collate_fn = CollateFn(target_keys)
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    collate_fn = CollateFn(
+        target_keys,
+        callables=[get_system_with_neighbor_lists_transform(requested_neighbor_lists)],
+    )
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, collate_fn=collate_fn, shuffle=False
     )
@@ -185,11 +198,10 @@ def _eval_targets(
 
     # Main evaluation loop
     for batch in tqdm.tqdm(dataloader, ncols=100):
-        systems, batch_targets, _ = unpack_batch(batch)
-        systems = [system.to(dtype=dtype, device=device) for system in systems]
-        batch_targets = {
-            k: v.to(device=device, dtype=dtype) for k, v in batch_targets.items()
-        }
+        systems, batch_targets, batch_extra_data = unpack_batch(batch)
+        systems, batch_targets, batch_extra_data = batch_to(
+            systems, batch_targets, batch_extra_data, dtype=dtype, device=device
+        )
 
         start_time = time.time()
         batch_predictions = evaluate_model(
@@ -210,8 +222,8 @@ def _eval_targets(
         targ_per_atom = average_by_num_atoms(
             batch_targets, systems, per_structure_keys=[]
         )
-        rmse_acc.update(preds_per_atom, targ_per_atom)
-        mae_acc.update(preds_per_atom, targ_per_atom)
+        rmse_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
+        mae_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
 
         # Write out each sample if a writer is configured
         if writer:
@@ -264,6 +276,7 @@ def eval_model(
     :param model: Saved model to be evaluated.
     :param options: DictConfig to define a test dataset taken for the evaluation.
     :param output: Path to save the predicted values.
+    :param batch_size: Batch size for evaluation.
     :param check_consistency: Whether to run consistency checks during model evaluation.
     :param append: If ``True``, open the output file in append mode.
     """
@@ -329,7 +342,7 @@ def eval_model(
                 writer=writer,
             )
         except Exception as e:
-            raise ArchitectureError(f"Evaluation failed: {e}") from e
+            raise ArchitectureError(e)
 
         # no post-call write_predictions necessary anymore-writer did it all
 

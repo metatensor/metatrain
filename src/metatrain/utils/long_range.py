@@ -1,7 +1,7 @@
-from typing import List
-
 import torch
 from metatomic.torch import System
+
+from metatrain.utils.neighbor_lists import NeighborListOptions
 
 
 class LongRangeFeaturizer(torch.nn.Module):
@@ -15,16 +15,25 @@ class LongRangeFeaturizer(torch.nn.Module):
         the neighbor list information for the short-range model.
     """
 
-    def __init__(self, hypers, feature_dim, neighbor_list_options):
+    def __init__(
+        self,
+        hypers: dict,
+        feature_dim: int,
+        neighbor_list_options: NeighborListOptions,
+    ) -> None:
         super(LongRangeFeaturizer, self).__init__()
 
         try:
-            from torchpme import CoulombPotential
-            from torchpme.calculators import Calculator, EwaldCalculator, P3MCalculator
+            from torchpme import (
+                Calculator,
+                CoulombPotential,
+                EwaldCalculator,
+                P3MCalculator,
+            )
         except ImportError:
             raise ImportError(
                 "`torch-pme` is required for long-range models. "
-                "Please install it with `pip install torch-pme`."
+                "Please install it with `pip install 'torch-pme>=0.3.2'`."
             )
 
         self.ewald_calculator = EwaldCalculator(
@@ -35,6 +44,9 @@ class LongRangeFeaturizer(torch.nn.Module):
             full_neighbor_list=neighbor_list_options.full_list,
             lr_wavelength=float(hypers["kspace_resolution"]),
         )
+        """Calculator to compute the long-range electrostatic potential using the Ewald
+        summation method."""
+
         self.p3m_calculator = P3MCalculator(
             potential=CoulombPotential(
                 smearing=float(hypers["smearing"]),
@@ -44,7 +56,13 @@ class LongRangeFeaturizer(torch.nn.Module):
             full_neighbor_list=neighbor_list_options.full_list,
             mesh_spacing=float(hypers["kspace_resolution"]),
         )
+        """Calculator to compute the long-range electrostatic potential using the P3M
+        method."""
+
         self.use_ewald = hypers["use_ewald"]
+        """If ``True``, use the Ewald summation method instead of the P3M method for
+        periodic systems during training."""
+
         self.direct_calculator = Calculator(
             potential=CoulombPotential(
                 smearing=None,
@@ -52,13 +70,23 @@ class LongRangeFeaturizer(torch.nn.Module):
             ),
             full_neighbor_list=False,  # see docs of torch.combinations
         )
+        """Calculator for the electrostatic potential in non-periodic systems."""
 
         self.neighbor_list_options = neighbor_list_options
+        """Neighbor list information for the short-range model."""
+
         self.charges_map = torch.nn.Linear(feature_dim, feature_dim)
+        """Map the short-range features to atomic charges."""
+
+        self.out_projection = torch.nn.Sequential(
+            torch.nn.Linear(feature_dim, feature_dim),
+            torch.nn.SiLU(),
+            torch.nn.Linear(feature_dim, feature_dim),
+        )
 
     def forward(
         self,
-        systems: List[System],
+        systems: list[System],
         features: torch.Tensor,
         neighbor_distances: torch.Tensor,
     ) -> torch.Tensor:
@@ -71,6 +99,7 @@ class LongRangeFeaturizer(torch.nn.Module):
         :param neighbor_distances: A tensor of neighbor distances for the systems,
             which must be consistent with the neighbor list options used to create the
             class.
+        :return: A tensor of long-range features for the systems.
         """
         charges = self.charges_map(features)
 
@@ -91,13 +120,11 @@ class LongRangeFeaturizer(torch.nn.Module):
             ]
             last_len_edges += len(neighbor_indices_system)
 
-            if system.pbc.any() and not system.pbc.all():
-                raise NotImplementedError(
-                    "Long-range features are not currently supported for systems "
-                    "with mixed periodic and non-periodic boundary conditions."
-                )
-
-            if system.pbc.all():  # periodic
+            if system.pbc.any():
+                if system.pbc.sum() == 1:
+                    raise NotImplementedError(
+                        "Long-range featurizer does not support 1D systems."
+                    )
                 if self.use_ewald and self.training:  # use Ewald for training only
                     potential = self.ewald_calculator.forward(
                         charges=system_charges,
@@ -105,6 +132,7 @@ class LongRangeFeaturizer(torch.nn.Module):
                         positions=system.positions,
                         neighbor_indices=neighbor_indices_system,
                         neighbor_distances=neighbor_distances_system,
+                        periodic=system.pbc,
                     )
                 else:
                     potential = self.p3m_calculator.forward(
@@ -113,6 +141,7 @@ class LongRangeFeaturizer(torch.nn.Module):
                         positions=system.positions,
                         neighbor_indices=neighbor_indices_system,
                         neighbor_distances=neighbor_distances_system,
+                        periodic=system.pbc,
                     )
             else:  # non-periodic
                 # compute the distance between all pairs of atoms
@@ -136,19 +165,20 @@ class LongRangeFeaturizer(torch.nn.Module):
                     neighbor_indices=neighbor_indices_system,
                     neighbor_distances=neighbor_distances_system,
                 )
-            long_range_features.append(potential * system_charges)
+            long_range_features.append(self.out_projection(potential))
+
         return torch.concatenate(long_range_features)
 
 
 class DummyLongRangeFeaturizer(torch.nn.Module):
     # a dummy class for torchscript
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.use_ewald = True
 
     def forward(
         self,
-        systems: List[System],
+        systems: list[System],
         features: torch.Tensor,
         neighbor_distances: torch.Tensor,
     ) -> torch.Tensor:

@@ -1,0 +1,19 @@
+seed: 42
+
+architecture:
+  name: soap_bpnn
+  training:
+    batch_size: 2  # higher would be better in practice
+    num_epochs: 1  # would have to be larger to train a good model
+
+training_set:
+  systems:
+    read_from: mixed_structures.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: energy
+      unit: eV
+
+validation_set: 0.2
+test_set: 0.0

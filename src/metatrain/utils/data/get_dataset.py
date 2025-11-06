@@ -1,9 +1,10 @@
+from pathlib import Path
 from typing import Dict, List, Tuple
 
 from metatensor.torch import TensorMap
 from omegaconf import DictConfig
 
-from .dataset import Dataset, DiskDataset
+from .dataset import Dataset, DiskDataset, MemmapDataset
 from .readers import read_extra_data, read_systems, read_targets
 from .target_info import TargetInfo
 
@@ -21,7 +22,7 @@ def get_dataset(
         This configuration dictionary must contain keys for both the
         systems and targets in the dataset.
 
-    :returns: A tuple containing a ``Dataset`` object and a
+    :return: A tuple containing a ``Dataset`` object and a
         ``Dict[str, TargetInfo]`` containing additional information (units,
         physical quantities, ...) on the targets in the dataset
     """
@@ -36,6 +37,9 @@ def get_dataset(
         target_info_dictionary = dataset.get_target_info(options["targets"])
         if "extra_data" in options:
             extra_data_info_dictionary = dataset.get_target_info(options["extra_data"])
+    elif Path(options["systems"]["read_from"]).is_dir():  # memmap dataset
+        dataset = MemmapDataset(options["systems"]["read_from"], options["targets"])
+        target_info_dictionary = dataset.get_target_info()
     else:
         systems = read_systems(
             filename=options["systems"]["read_from"],

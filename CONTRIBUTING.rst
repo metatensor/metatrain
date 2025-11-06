@@ -66,6 +66,13 @@ supported tox environments please use
 
   tox list
 
+.. note::
+
+    Within the ``tox`` environments, ``pip`` does not exist by default,
+    we recommend that users use ``uv pip``. Alternatively
+    ``python -m ensurepip`` within the environment will setup ``pip``.
+
+
 Running the tests
 -----------------
 The testsuite is implemented using `pytest`_ framework and should be set-up

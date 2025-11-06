@@ -36,8 +36,20 @@ jobs:
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v6
       with:
+        python-version:
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: "0.9.0"
         python-version: ${{ matrix.python-version }}
-    - run: pip install tox coverage[toml]
+        enable-cache: true
+        activate-environment: true
+
+    - name: Set tox and coverage
+      run: |
+        uv pip install coverage[toml]
+        uv tool install tox --with tox-uv
 
     - name: run Python tests
       run: tox -e tests

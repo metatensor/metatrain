@@ -110,13 +110,7 @@
         "learning_rate": {
           "type": "number"
         },
-        "early_stopping_patience": {
-          "type": "integer"
-        },
-        "scheduler_patience": {
-          "type": "integer"
-        },
-        "scheduler_factor": {
+        "warmup_fraction": {
           "type": "number"
         },
         "log_interval": {
@@ -124,6 +118,9 @@
         },
         "checkpoint_interval": {
           "type": "integer"
+        },
+        "remove_composition_contribution": {
+          "type": "boolean"
         },
         "scale_targets": {
           "type": "boolean"
@@ -142,6 +139,27 @@
             }
           },
           "additionalProperties": false
+        },
+        "fixed_scaling_weights": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[0-9]+$"
+                  },
+                  "additionalProperties": {
+                    "type": "number"
+                  }
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          }
         },
         "per_structure_targets": {
           "type": "array",
@@ -212,13 +230,6 @@
             "mean",
             "sum"
           ]
-        },
-        "sliding_factor": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0.0
         },
         "gradients": {
           "type": [

@@ -62,8 +62,7 @@ hyperparameters to tune are (in decreasing order of importance):
   neural network. Depending on the dataset, increasing this hyperparameter might lead to
   better accuracy, at the cost of increased training and evaluation time.
 - ``loss``: This section describes the loss function to be used. See the
-  :doc:`dedicated documentation page <../advanced-concepts/loss-functions>` for more
-  details.
+  :ref:`loss-functions` for more details.
 - ``long_range``: In some systems and datasets, enabling long-range Coulomb interactions
   might be beneficial for the accuracy of the model and/or its physical correctness.
   See below for a breakdown of the long-range section of the model hyperparameters.
@@ -112,6 +111,9 @@ The hyperparameters for training are
 :param scheduler_factor: Factor to reduce the learning rate by
 :param log_interval: Interval at which to log training metrics
 :param checkpoint_interval: Interval at which to save model checkpoints
+:param remove_composition_contribution: Whether to remove the atomic composition
+  contribution from the targets by fitting a linear model to the training data before
+  training the neural network.
 :param scale_targets: Whether to scale the targets to have unit standard deviation
   across the training set during training.
 :param fixed_composition_weights: Weights for fixed atomic contributions to scalar

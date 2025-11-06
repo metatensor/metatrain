@@ -98,6 +98,9 @@
         "checkpoint_interval": {
           "type": "integer"
         },
+        "remove_composition_contribution": {
+          "type": "boolean"
+        },
         "scale_targets": {
           "type": "boolean"
         },
@@ -112,6 +115,28 @@
               "additionalProperties": {
                 "type": "number"
               }
+            }
+          },
+          "additionalProperties": false
+        },
+        "fixed_scaling_weights": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[0-9]+$"
+                  },
+                  "additionalProperties": {
+                    "type": "number"
+                  }
+                },
+                {
+                  "type": "number"
+                }
+              ]
             }
           },
           "additionalProperties": false
@@ -188,13 +213,6 @@
             "mean",
             "sum"
           ]
-        },
-        "sliding_factor": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0.0
         },
         "gradients": {
           "type": "object",

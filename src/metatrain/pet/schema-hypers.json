@@ -23,6 +23,9 @@
         "d_head": {
           "type": "integer"
         },
+        "d_node": {
+          "type": "integer"
+        },
         "d_feedforward": {
           "type": "integer"
         },
@@ -34,6 +37,34 @@
         },
         "num_gnn_layers": {
           "type": "integer"
+        },
+        "normalization": {
+          "type": "string",
+          "enum": [
+            "LayerNorm",
+            "RMSNorm"
+          ]
+        },
+        "transformer_type": {
+          "type": "string",
+          "enum": [
+            "PreLN",
+            "PostLN"
+          ]
+        },
+        "featurizer_type": {
+          "type": "string",
+          "enum": [
+            "residual",
+            "feedforward"
+          ]
+        },
+        "activation": {
+          "type": "string",
+          "enum": [
+            "SiLU",
+            "SwiGLU"
+          ]
         },
         "zbl": {
           "type": "boolean"
@@ -94,6 +125,9 @@
         "checkpoint_interval": {
           "type": "integer"
         },
+        "remove_composition_contribution": {
+          "type": "boolean"
+        },
         "scale_targets": {
           "type": "boolean"
         },
@@ -108,6 +142,28 @@
               "additionalProperties": {
                 "type": "number"
               }
+            }
+          },
+          "additionalProperties": false
+        },
+        "fixed_scaling_weights": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[0-9]+$"
+                  },
+                  "additionalProperties": {
+                    "type": "number"
+                  }
+                },
+                {
+                  "type": "number"
+                }
+              ]
             }
           },
           "additionalProperties": false
@@ -142,8 +198,10 @@
           "type": "object",
           "properties": {
             "read_from": {
-              "type": "string",
-              "format": "uri"
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "method": {
               "type": "string",
@@ -155,50 +213,16 @@
             },
             "config": {
               "type": "object",
-              "oneOf": [
-                {
-                  "properties": {
-                    "alpha": {
-                      "type": "number"
-                    },
-                    "rank": {
-                      "type": "integer"
-                    }
-                  },
-                  "required": [
-                    "alpha",
-                    "rank"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "properties": {
-                    "head_modules": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "last_layer_modules": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  },
-                  "required": [
-                    "head_modules",
-                    "last_layer_modules"
-                  ],
-                  "additionalProperties": false
-                }
-              ]
+              "additionalProperties": true
+            },
+            "inherit_heads": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
             }
           },
-          "additionalProperties": false,
-          "required": [
-            "method"
-          ]
+          "additionalProperties": false
         },
         "grad_clip_norm": {
           "type": "number"
@@ -249,13 +273,6 @@
             "mean",
             "sum"
           ]
-        },
-        "sliding_factor": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0.0
         },
         "gradients": {
           "type": "object",
