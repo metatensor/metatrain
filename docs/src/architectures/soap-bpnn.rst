@@ -3,7 +3,8 @@
 SOAP-BPNN
 =========
 
-[![SOAP-BPNN coverage](https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?flag=coverage_soap_bpnn)](https://codecov.io/gh/metatensor/metatrain/tree/main/src/metatrain/soap_bpnn)
+.. image:: https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?flag=coverage_soap_bpnn
+   :target: https://codecov.io/gh/metatensor/metatrain/tree/main/src/metatrain/soap_bpnn
 
 This is a Behler-Parrinello type neural network :footcite:p:`behler_generalized_2007`,
 which, instead of their original atom-centered symmetry functions, we use the Smooth

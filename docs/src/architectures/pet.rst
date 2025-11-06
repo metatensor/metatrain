@@ -3,7 +3,8 @@
 PET
 ===
 
-[![PET coverage](https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?flag=coverage_pet)](https://codecov.io/gh/metatensor/metatrain/tree/main/src/metatrain/pet)
+.. image:: https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?flag=coverage_pet
+   :target: https://codecov.io/gh/metatensor/metatrain/tree/main/src/metatrain/pet
 
 PET is a cleaner, more user-friendly reimplementation of the original
 PET model :footcite:p:`pozdnyakov_smooth_2023`. It is designed for better

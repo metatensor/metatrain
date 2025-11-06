@@ -3,7 +3,8 @@
 GAP
 ===
 
-[![GAP coverage](https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?flag=coverage_gap)](https://codecov.io/gh/metatensor/metatrain/tree/main/src/metatrain/gap)
+.. image:: https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?flag=coverage_gap
+   :target: https://codecov.io/gh/metatensor/metatrain/tree/main/src/metatrain/gap
 
 This is an implementation of the sparse Gaussian Approximation Potential
 (GAP) :footcite:p:`bartok_representing_2013` using Smooth Overlap of Atomic Positions

@@ -3,7 +3,8 @@
 LLPR
 ====
 
-[![LLPR coverage](https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?flag=coverage_llpr)](https://codecov.io/gh/metatensor/metatrain/tree/main/src/metatrain/llpr)
+.. image:: https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?flag=coverage_llpr
+   :target: https://codecov.io/gh/metatensor/metatrain/tree/main/src/metatrain/llpr
 
 The LLPR architecture is a "wrapper" architecture that enables cheap uncertainty
 quantification (UQ) via the last-layer prediction rigidity (LLPR) approach proposed

@@ -3,7 +3,8 @@
 NanoPET (deprecated)
 ======================
 
-[![NanoPET coverage](https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?flag=coverage_nanopet)](https://codecov.io/gh/metatensor/metatrain/tree/main/src/metatrain/deprecated/nanopet)
+.. image:: https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?flag=coverage_nanopet
+   :target: https://codecov.io/gh/metatensor/metatrain/tree/main/src/metatrain/deprecated/nanopet
 
 .. warning::
 
