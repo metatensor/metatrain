@@ -6,50 +6,92 @@ Training YAML Reference
 Overview
 ========
 
-``metatrain`` uses a YAML file to specify the parameters for model training, accessed
-via ``mtt train options.yaml``. In this section, we provide a complete reference for the
-parameters provided by the training YAML input. For a minimal example of a YAML input
-file, suitable to start a first training, we refer the viewer to the sample YAML file in
-the :ref:`Quickstart <label_quickstart>` section.
+``metatrain`` uses a YAML file to configure model training. YAML is a human-readable text
+format for configuration - think of it as a more user-friendly alternative to JSON or XML.
+You run training with ``mtt train options.yaml``.
 
-The YAML input file can be divided into five sections:
+**New to YAML?** Don't worry! It's straightforward:
+- Use indentation (spaces) to show structure
+- Use ``key: value`` pairs to specify settings
+- Use ``#`` for comments
 
-- :ref:`computational-parameters-section`
-- :ref:`architecture-section`
-- :ref:`loss-section`
-- :ref:`data-section`
-- :ref:`wandb-integration-section`
+This page provides a complete reference for all available parameters. **For your first
+training**, start with the minimal example in the :ref:`Quickstart <label_quickstart>`
+section, then come back here to understand what each option does.
+
+The YAML file has five main sections:
+
+- :ref:`computational-parameters-section` - Where and how to run computations
+- :ref:`architecture-section` - Which machine learning model to use
+- :ref:`loss-section` - What to optimize during training
+- :ref:`data-section` - Your training data and targets
+- :ref:`wandb-integration-section` - Optional logging to Weights & Biases
 
 .. _computational-parameters-section:
 
 Computational Parameters
 ========================
 
-The computational parameters define the computational ``device``, ``precision`` and
-``seed``. These parameters are optional.
+These parameters control **where and how** your model is trained. All are **optional** -
+metatrain will choose sensible defaults if you don't specify them.
 
 .. code-block:: yaml
 
-    device: cuda
-    precision: 32
-    seed: 0
+    device: cuda      # Use GPU (optional - auto-detected by default)
+    precision: 32     # Use 32-bit floating point numbers (optional - default is 32)
+    seed: 0           # Random seed for reproducibility (optional)
 
-:param device [optional]: The computational device used for model training. The
-    metatrain automatically chooses the best option by default. The possible devices
-    that can be used, and the best device option, depend on the model architecture. The
-    easiest way to use this parameter is to use either either ``cpu``, ``gpu``,
-    ``multi-gpu``. Internally, under the choice ``gpu``, the script will automatically
-    choose between ``cuda`` or ``mps``.
-:param precision [optional]: The base precision for all floats in model training. This
-    impacts the datatype used. Possible options are the integers ``64``, ``32``, and
-    ``16``, resulting in the datatype used to be ``float64``, ``float32`` and
-    ``float16`` respectively. The datatypes that can be supported also depends on the
-    model architecture used.
-:param seed [optional]: The seed used for non-deterministic operations and is used to
-    set the seed for ``numpy.random``, ``random``, ``torch``, and ``torch.cuda``. The
-    input must be a non-negative integer. This parameter is important for ensuring
-    reproducibility. If not specified, the seed is generated randomly and reported in
-    the log.
+Device (where to run training)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+:param device [optional]: Controls whether to use CPU or GPU for training.
+
+**Recommended values:**
+
+- ``cpu`` - Use the CPU (slower but works everywhere)
+- ``gpu`` - Use GPU if available (much faster, especially for large models like PET)
+- ``multi-gpu`` - Use multiple GPUs (for advanced users with large datasets)
+
+If not specified, metatrain automatically detects and uses the best available option.
+
+.. note::
+   GPU training is **much faster** (often 10-100x) than CPU for large models. If you have
+   a CUDA-compatible NVIDIA GPU or Apple Silicon Mac, the ``gpu`` option will
+   automatically use it.
+
+Precision (numerical accuracy)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+:param precision [optional]: Controls the numerical precision used during training.
+
+**Options:**
+
+- ``64`` - Double precision (``float64``) - most accurate but slowest
+- ``32`` - Single precision (``float32``) - good balance (default and recommended)
+- ``16`` - Half precision (``float16``) - fastest but less accurate
+
+**Recommendation:** Keep the default (32-bit). Only change if you have specific reasons:
+
+- Use ``64`` if you encounter numerical stability issues
+- Use ``16`` only if you're experienced and need maximum speed with large models
+
+Seed (reproducibility)
+^^^^^^^^^^^^^^^^^^^^^^
+
+:param seed [optional]: A number that controls random operations, ensuring reproducible
+    results.
+
+Setting the seed means you'll get the **same results every time** you run training with
+the same data and options. This is useful for:
+
+- Comparing different hyperparameters fairly
+- Reproducing results from papers
+- Debugging
+
+**Example:** ``seed: 42`` (any non-negative integer works)
+
+If not specified, a random seed is generated and saved in your log files, so you can still
+reproduce the training later if needed.
 
 .. _architecture-section:
 
@@ -75,19 +117,42 @@ page on :ref:`loss functions <loss-functions>` page for further details.
 Data
 ====
 
-The final section of the YAML file focuses on options regarding the data used in model
-training. This secion can be broken down into three subsections:
+This is where you tell metatrain about your **training data** - the atomic structures and
+properties that the model will learn from.
 
-- ``training_set``
-- ``validation_set``
-- ``test_set``
+Understanding the Three Data Splits
+------------------------------------
 
-The training set is the data that will be used for model training, the validation set is
-the data that will be used to track the generalizability of the model during training
-and is used to decide on the best model. The test set is only used after training and it
-is used to evaluate the model's performance on an unseen dataset after training. Each
-subsection has the same parameter configuration. As an example, the configuration of the
-training set is as follows:
+Your data is divided into three parts, each with a specific purpose:
+
+- **Training set**: Examples the model learns from (typically 70-80% of your data). The
+  model adjusts itself to match these examples.
+
+- **Validation set**: Used during training to check if the model is improving or
+  overfitting (typically 10-15%). Think of this as a "practice test" - the model doesn't
+  learn from it directly, but we use it to monitor progress.
+
+- **Test set**: Used **only after training** to evaluate final performance on completely
+  unseen data (typically 10-15%). This is the "final exam" that tells you how well your
+  model really works.
+
+.. tip::
+   **Easy splitting:** You can let metatrain automatically split your data! Just provide
+   your full dataset as ``training_set`` and specify fractions for the other sets:
+   
+   .. code-block:: yaml
+   
+       training_set: "my_data.xyz"
+       validation_set: 0.1  # Use 10% of data for validation
+       test_set: 0.1        # Use 10% of data for testing
+   
+   Metatrain will randomly select structures for each set and save the indices.
+
+Configuring Your Training Data
+-------------------------------
+
+Each data split (training, validation, test) uses the same configuration format. Here's a
+detailed example for the training set:
 
 .. code-block:: yaml
 
@@ -145,112 +210,176 @@ training set is as follows:
                 type: scalar
                 num_subtargets: 4000
 
-The options for ``training set`` is divided into two categories, ``systems``,
-``targets`` and ``extra_data``. ``systems`` refer to the molecular/crystal structures,
-which are the inputs to the model. ``targets`` refer to the output that is predicted by
-the model. ``extra_data`` refer to any additional data that is required by the loss
-function during training. One can also get ``metatrain`` to automatically split the
-training data into training and validation sets by providing a float between 0 and 1 for
-the ``validation_set`` and ``test_set`` parameters. This float indicates the fraction of
-the training data to be used for validation and testing respectively. See the
-:ref:`Validation and Test Systems <validation-and-test-systems>` section for more
-details.
+A training dataset consists of three components:
 
-Systems YAML
-------------
+- **systems**: The atomic structures (positions, elements, cell) - the "inputs"
+- **targets**: The properties to predict (energies, forces, etc.) - the "outputs"
+- **extra_data**: Additional information needed by some advanced loss functions (optional)
 
-For the ``systems`` category:
+Systems YAML (Atomic Structures)
+---------------------------------
 
-:param read_from: The path to the file containing system data
-:param reader [optional]: The reader library to use for parsing, currently supports
-    ``ase`` and ``metatensor``. If ``null`` or not provided, the reader will be guessed
-    from the file extension, ``.xyz`` and ``.extxyz`` will be read by ``ase`` and
-    ``.mts`` will be read by ``metatensor``.
-:param length_unit  [optional]: The unit of lengths in the system file, optional but
-    highly recommended for running simulations.
-
-A single string in this section automatically expands, using the string as the
-``read_from`` parameter. This means that
+The ``systems`` section tells metatrain where to find your atomic structures.
 
 .. code-block:: yaml
 
-        systems:
-            read_from: dataset.xyz
-            reader: null
-            length_unit: null
+    systems:
+        read_from: "my_structures.xyz"  # Path to your file
+        reader: ase                     # How to read it (optional)
+        length_unit: angstrom           # Unit of atomic positions (optional but recommended)
 
-can be condensed into
+Parameters:
+
+:param read_from: **Required.** Path to the file containing atomic structures. Can be:
+    
+    - XYZ file (``structures.xyz``) - most common
+    - Extended XYZ file (``structures.extxyz``)
+    - ASE database (``database.db``)
+    - Metatensor file (``data.mts``)
+
+:param reader [optional]: Which library to use for reading the file. Options:
+    
+    - ``ase`` - For XYZ, extended XYZ, and ASE databases (recommended for beginners)
+    - ``metatensor`` - For metatensor files (``.mts``)
+    
+    If not specified, metatrain guesses based on file extension (.xyz → ase, .mts →
+    metatensor).
+
+:param length_unit [optional]: The unit of atomic positions in your file. Common values:
+    
+    - ``angstrom`` - Most common (Ångströms)
+    - ``bohr`` - Atomic units
+    
+    **Highly recommended** to specify this, especially if you'll run molecular dynamics
+    simulations!
+
+**Shorthand notation:** If you only need to specify the filename, you can write:
 
 .. code-block:: yaml
 
-        systems: dataset.xyz
+    systems: "my_structures.xyz"
 
-Targets YAML
-------------
+This is equivalent to the full form above with defaults.
 
-In the ``targets`` category, one can define any number of target sections, each with a
-unique name. The name of the target should either be a standard output of ``metatomic``
-(see https://docs.metatensor.org/metatomic/latest/outputs/index.html) or begin with
-``mtt::``, for instance ``mtt::dos`` for the electronic density of states in the full
-example above.
+Targets YAML (Properties to Predict)
+-------------------------------------
 
-The parameters for each target section are as follows:
+The ``targets`` section defines what properties you want the model to predict. Each target
+has a name and configuration. The most common target is ``energy``.
 
-:param quantity [optional]: The quantity the target represents(e.g., ``energy``,
-    ``dipole``). Currently only ``energy`` is supported. Defaults to ``""``.
-:param read_from [optional]: The path to the file containing the target data, defaults
-    to ``systems.read_from`` path if not provided.
-:param reader [optional]: The reader library to use for parsing, behaves the same way as
-    ``systems.reader``
-:param key [optional]: The key for reading from the file, defaulting to the target
-    section's name if not provided.
-:param unit [optional]: The unit of the target, optional but highly recommended for
-    running simulations. Defaults to ``""``.
-:param per_atom [optional]: Whether the target is extensive (i.e., scales with the
-    number of atoms). If ``true``, the target value will be divided by the number of
-    atoms in the system. Defaults to ``false``.
-:param type [optional]: This field specifies the type of the target. Possible values are
-    ``scalar``, ``cartesian``, and ``spherical``. For detailed information on the
-    ``type`` field, see the following page on :ref:`Fitting Generic Targets
-    <fitting-generic-targets>`.
-:param num_subtargets [optional]: This field specifies the number of sub-targets that
-    need to be learned as part of this target. They are treated as entirely equivalent
-    by models in metatrain and will often be represented as outputs of the same neural
-    network layer. A common use case for this field is when you are learning a
-    discretization of a continuous target, such as the grid points of a function. In the
-    example above, there are 4000 sub-targets for the density of states (DOS). In
-    metatensor, these correspond to the number of properties of the target. Defaults to
-    1
-:param forces: Gradient subsections. See the following :ref:`gradient-subsection` for
-    parameters.
-:param stress: Gradient subsections. See the following :ref:`gradient-subsection` for
-    parameters.
-:param virial: Gradient subsections. See the following :ref:`gradient-subsection` for
-    parameters.
+.. code-block:: yaml
 
-A single string in a target section automatically expands, using the string as the
-``read_from`` parameter.
+    targets:
+        energy:                         # Standard target name
+            quantity: energy            # What physical quantity this is
+            read_from: "my_data.xyz"    # Where to find the values (optional if same as systems)
+            key: "U0"                   # Column/key name in the file
+            unit: "eV"                  # Energy unit
+            forces: on                  # Also train on forces (optional)
+            stress: on                  # Also train on stress (optional)
+
+**Target names:** Use standard names (``energy``, ``dipole``) or custom names starting
+with ``mtt::`` (e.g., ``mtt::dos`` for density of states). See
+https://docs.metatensor.org/metatomic/latest/outputs/index.html for standard names.
+
+Parameters for each target:
+
+:param quantity [optional]: The physical quantity (``energy`` is most common and best
+    supported). Tells the model how to handle the target.
+
+:param read_from [optional]: File containing target values. If not specified, uses the
+    same file as ``systems``. This is convenient when all your data is in one XYZ file.
+
+:param reader [optional]: How to read the file (``ase`` or ``metatensor``). Auto-detected
+    from file extension if not provided.
+
+:param key [optional]: The name of the property in your data file. For XYZ files, this is
+    the name in the ``info`` dictionary (for scalars) or ``arrays`` dictionary (for
+    per-atom properties). If not specified, uses the target name (e.g., ``energy``).
+
+:param unit [optional]: The unit of your target values. Common values:
+    
+    - For energy: ``eV``, ``kcal/mol``, ``hartree``
+    - For forces: ``eV/angstrom``, ``kcal/mol/angstrom``
+    - For stress: ``eV/angstrom^3``, ``GPa``
+    
+    **Highly recommended** to specify! Critical for using models in simulations.
+
+:param per_atom [optional]: Set to ``true`` if the target is **extensive** (scales with
+    system size). 
+    
+    - ``true``: Total energy divided by number of atoms (common for ML)
+    - ``false``: Total energy (default)
+    
+    Example: If your data has total energies but you want to predict energy per atom, set
+    ``per_atom: true``.
+
+:param type [optional]: The mathematical type of target (``scalar``, ``cartesian``, or
+    ``spherical``). Usually you don't need to specify this. See :ref:`Fitting Generic
+    Targets <fitting-generic-targets>` for advanced usage.
+
+:param num_subtargets [optional]: Number of related properties to predict together
+    (advanced). Example: 4000 energy grid points for density of states. Defaults to 1.
+
+:param forces: Include force training (see :ref:`gradient-subsection` below)
+:param stress: Include stress training (see :ref:`gradient-subsection` below)
+:param virial: Include virial training (see :ref:`gradient-subsection` below)
+
+**Shorthand notation:** For simple cases, just specify the file:
+
+.. code-block:: yaml
+
+    targets:
+        energy: "my_data.xyz"
+
+This reads the ``energy`` key from the file with default settings.
 
 .. _gradient-subsection:
 
-Gradient Subsection
-^^^^^^^^^^^^^^^^^^^
+Gradient Subsection (Forces, Stress, Virial)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Each gradient subsection (like ``forces`` or ``stress``) has similar parameters:
+**What are gradients?** Forces are the negative gradient of energy with respect to atomic
+positions. Stress is related to gradients with respect to cell dimensions. Training on
+gradients usually improves model accuracy significantly!
 
-:param read_from [optional]: The path to the file for gradient data. Defaults to
-    ``targets.read_from`` if not provided.
-:param reader [optional]: The reader library to use for parsing, behaves the same way as
-    ``systems.reader``.
-:param key [optional]: The key for reading from the file, defaulting to the subsection's
-    name if not provided.
+Each gradient subsection (``forces``, ``stress``, ``virial``) has the same parameters:
 
-A single string in a gradient section automatically expands, using the string as the
-``read_from`` parameter.
+:param read_from [optional]: File containing gradient data. If not specified, uses the
+    same file as the target (usually your XYZ file).
 
-Sections set to ``true`` or ``on`` automatically expand with default parameters. A
-warning is raised if requisite data for a gradient is missing, but training proceeds
-without them. For instance,
+:param reader [optional]: How to read the file (``ase`` or ``metatensor``). Auto-detected
+    if not specified.
+
+:param key [optional]: Property name in your file. Defaults to the gradient name
+    (``forces``, ``stress``, or ``virial``).
+
+**Shorthand notations:**
+
+1. **Enable with default settings** (most common):
+
+   .. code-block:: yaml
+
+       energy:
+           forces: on    # or 'true'
+           stress: on
+
+   This tells metatrain to look for forces and stress in your data file using standard
+   names.
+
+2. **Specify file explicitly** (if in a different file):
+
+   .. code-block:: yaml
+
+       energy:
+           forces: "my_forces.xyz"
+           stress: "my_stress.xyz"
+
+**What happens if data is missing?** If you specify ``forces: on`` but metatrain doesn't
+find force data, it will show a warning and continue training without forces. This lets
+you use the same configuration file for different datasets.
+
+Example of common usage:
 
 .. code-block:: yaml
 

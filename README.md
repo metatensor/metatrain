@@ -11,21 +11,42 @@
 
 <!-- marker-introduction -->
 
-`metatrain` is a command line interface (CLI) to **train** and **evaluate** atomistic
-models of various architectures. It features a common `yaml` option inputs to configure
-training and evaluation. Trained models are exported as standalone files that can be
-used directly in various molecular dynamics (MD) engines (e.g. `LAMMPS`, `i-PI`, `ASE`
-...) using the [metatomic](https://docs.metatensor.org/metatomic) interface.
+## What is metatrain?
 
-The idea behind `metatrain` is to have a general hub that provides a homogeneous
-environment and user interface, transforming every ML architecture into an end-to-end
-model that can be connected to an MD engine. Any custom architecture compatible with
-[TorchScript](https://pytorch.org/docs/stable/jit.html) can be integrated into
-`metatrain`, gaining automatic access to a training and evaluation interface, as well as
-compatibility with various MD engines.
+`metatrain` is a user-friendly command line tool that helps you **train machine learning
+models for atomistic systems**. In simple terms, it lets you create models that can
+predict properties of molecules and materials (like energy and forces) by learning from
+examples.
 
-> **Note**: `metatrain` does not provide mathematical functionalities *per se*, but
-> relies on external models that implement the various architectures.
+### Why use machine learning for atomistic systems?
+
+Traditional quantum mechanical calculations (like DFT) can be very accurate but extremely
+slow, especially for large systems or long simulations. Machine learning models can learn
+from these accurate calculations and then make predictions thousands of times faster,
+while maintaining good accuracy. This enables simulations that would otherwise be
+impossible.
+
+### What does metatrain do?
+
+- **Training**: Teaches machine learning models using your data (atomic structures and
+  their properties)
+- **Evaluation**: Tests how well your trained model performs
+- **Export**: Saves models that can be used directly in molecular dynamics simulations
+  with engines like LAMMPS, i-PI, or ASE
+
+Everything is configured through simple text files (YAML format), so you don't need to
+write code to use it. Once trained, your models work seamlessly with various simulation
+engines through the [metatomic](https://docs.metatensor.org/metatomic) interface.
+
+### Do I need to know machine learning?
+
+**No!** This documentation will guide you through the process step by step. We'll explain
+concepts as we go, assuming you have basic familiarity with ASE (Atomic Simulation
+Environment) for working with atomic structures.
+
+> **Note**: `metatrain` focuses on making training and evaluation easy. The actual
+> machine learning algorithms come from separate architecture packages that plug into
+> metatrain.
 
 <!-- marker-architectures -->
 
@@ -53,60 +74,87 @@ For details, tutorials, and examples, please visit our
 
 # Installation
 
-Install `metatrain` with pip:
+## Quick install (recommended for beginners)
+
+The easiest way to get started is with pip:
 
 ```bash
 pip install metatrain
 ```
 
-Install specific models by specifying the model name. For example, to install the SOAP-BPNN model:
+This installs the core `metatrain` package. You'll also need to install at least one
+machine learning architecture. For beginners, we recommend starting with SOAP-BPNN:
 
 ```bash
 pip install metatrain[soap-bpnn]
 ```
 
-We also offer a conda installation:
+**Why SOAP-BPNN?** It's fast to train, works well for many systems, and doesn't require
+GPU acceleration (though it can use one if available).
+
+## Alternative: conda installation
+
+If you prefer conda:
 
 ```bash
 conda install -c conda-forge metatrain
 ```
 
-> ⚠️ The conda installation does not install model-specific dependencies and will only
-> work for architectures without optional dependencies such as PET.
+> ⚠️ **Note**: The conda installation includes only basic architectures like PET. For
+> other architectures, you may need additional pip installations.
 
-After installation, you can use mtt from the command line to train your models!
+## Verify installation
+
+After installation, verify everything works:
+
+```bash
+mtt --help
+```
+
+You should see a list of available commands. You're now ready to train models!
 
 <!-- marker-quickstart -->
 
 # Quickstart
 
-To train a model, use the following command:
+Once installed, you can train a machine learning model with a single command:
 
 ```bash
 mtt train options.yaml
 ```
 
-Where options.yaml is a configuration file specifying training options. For example, the
-following configuration trains a *SOAP-BPNN* model on the QM9 dataset:
+The `options.yaml` file tells metatrain what to do. Here's a simple example that trains
+a model to predict energies:
 
 ```yaml
-# architecture used to train the model
+# Choose which machine learning architecture to use
 architecture:
-  name: soap_bpnn
+  name: soap_bpnn  # A neural network with SOAP descriptors - good for beginners
+  
 training:
-  num_epochs: 5  # a very short training run
+  num_epochs: 5  # How many times to go through the training data
+                 # (5 is very short - just for testing; typically use 50-200)
 
-# Mandatory section defining the parameters for system and target data of the training set
+# Where is your training data?
 training_set:
-  systems: "qm9_reduced_100.xyz"  # file where the positions are stored
+  systems: "qm9_reduced_100.xyz"  # File with atomic structures (positions, elements, cell)
   targets:
-    energy:
-      key: "U0"      # name of the target value
-      unit: "eV"     # unit of the target value
+    energy:                        # We want to predict energy
+      key: "U0"                    # Name of energy column in your data file
+      unit: "eV"                   # Energy units in your data
 
-test_set: 0.1        # 10% of the training_set are randomly split for test
-validation_set: 0.1  # 10% of the training_set are randomly split for validation
+# Automatically split data for validation and testing
+validation_set: 0.1  # Hold out 10% to monitor training progress
+test_set: 0.1        # Hold out 10% to evaluate final performance
 ```
+
+**What's happening here?**
+- **Training set**: Examples the model learns from (80% of data)
+- **Validation set**: Used during training to check if model is improving (10% of data)
+- **Test set**: Used after training to see how well the model performs on unseen data (10% of data)
+- **Epochs**: One epoch = the model sees all training examples once. More epochs = more learning (but too many can cause overfitting)
+
+After running this, you'll have a trained model file (`model.pt`) ready to use!
 
 <!-- marker-shell -->
 
