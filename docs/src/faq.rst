@@ -167,7 +167,7 @@ cutoff don't interact in the model.
 
 **Q: In what format should I provide my data?**
 
-**A:** The easiest format is **extended XYZ files** (`.xyz` or `.extxyz`), which ASE can
+**A:** The easiest format is **extended XYZ files** (``.xyz`` or ``.extxyz``), which ASE can
 read and write.
 
 Your XYZ file should contain:
