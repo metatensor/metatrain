@@ -42,7 +42,7 @@ metatrain will choose sensible defaults if you don't specify them.
     seed: 0           # Random seed for reproducibility (optional)
 
 Device (where to run training)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 :param device [optional]: Controls whether to use CPU or GPU for training.
 
@@ -60,7 +60,7 @@ If not specified, metatrain automatically detects and uses the best available op
    automatically use it.
 
 Precision (numerical accuracy)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 :param precision [optional]: Controls the numerical precision used during training.
 
@@ -121,7 +121,7 @@ This is where you tell metatrain about your **training data** - the atomic struc
 properties that the model will learn from.
 
 Understanding the Three Data Splits
-------------------------------------
+-----------------------------------
 
 Your data is divided into three parts, each with a specific purpose:
 
@@ -139,17 +139,17 @@ Your data is divided into three parts, each with a specific purpose:
 .. tip::
    **Easy splitting:** You can let metatrain automatically split your data! Just provide
    your full dataset as ``training_set`` and specify fractions for the other sets:
-   
+
    .. code-block:: yaml
-   
+
        training_set: "my_data.xyz"
        validation_set: 0.1  # Use 10% of data for validation
        test_set: 0.1        # Use 10% of data for testing
-   
+
    Metatrain will randomly select structures for each set and save the indices.
 
 Configuring Your Training Data
--------------------------------
+------------------------------
 
 Each data split (training, validation, test) uses the same configuration format. Here's a
 detailed example for the training set:
@@ -217,7 +217,7 @@ A training dataset consists of three components:
 - **extra_data**: Additional information needed by some advanced loss functions (optional)
 
 Systems YAML (Atomic Structures)
----------------------------------
+--------------------------------
 
 The ``systems`` section tells metatrain where to find your atomic structures.
 
@@ -231,25 +231,25 @@ The ``systems`` section tells metatrain where to find your atomic structures.
 Parameters:
 
 :param read_from: **Required.** Path to the file containing atomic structures. Can be:
-    
+
     - XYZ file (``structures.xyz``) - most common
     - Extended XYZ file (``structures.extxyz``)
     - ASE database (``database.db``)
     - Metatensor file (``data.mts``)
 
 :param reader [optional]: Which library to use for reading the file. Options:
-    
+
     - ``ase`` - For XYZ, extended XYZ, and ASE databases (recommended for beginners)
     - ``metatensor`` - For metatensor files (``.mts``)
-    
+
     If not specified, metatrain guesses based on file extension (.xyz → ase, .mts →
     metatensor).
 
 :param length_unit [optional]: The unit of atomic positions in your file. Common values:
-    
+
     - ``angstrom`` - Most common (Ångströms)
     - ``bohr`` - Atomic units
-    
+
     **Highly recommended** to specify this, especially if you'll run molecular dynamics
     simulations!
 
@@ -262,7 +262,7 @@ Parameters:
 This is equivalent to the full form above with defaults.
 
 Targets YAML (Properties to Predict)
--------------------------------------
+------------------------------------
 
 The ``targets`` section defines what properties you want the model to predict. Each target
 has a name and configuration. The most common target is ``energy``.
@@ -298,19 +298,19 @@ Parameters for each target:
     per-atom properties). If not specified, uses the target name (e.g., ``energy``).
 
 :param unit [optional]: The unit of your target values. Common values:
-    
+
     - For energy: ``eV``, ``kcal/mol``, ``hartree``
     - For forces: ``eV/angstrom``, ``kcal/mol/angstrom``
     - For stress: ``eV/angstrom^3``, ``GPa``
-    
+
     **Highly recommended** to specify! Critical for using models in simulations.
 
 :param per_atom [optional]: Set to ``true`` if the target is **extensive** (scales with
-    system size). 
-    
+    system size).
+
     - ``true``: Total energy divided by number of atoms (common for ML)
     - ``false``: Total energy (default)
-    
+
     Example: If your data has total energies but you want to predict energy per atom, set
     ``per_atom: true``.
 
@@ -337,7 +337,7 @@ This reads the ``energy`` key from the file with default settings.
 .. _gradient-subsection:
 
 Gradient Subsection (Forces, Stress, Virial)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 **What are gradients?** Forces are the negative gradient of energy with respect to atomic
 positions. Stress is related to gradients with respect to cell dimensions. Training on

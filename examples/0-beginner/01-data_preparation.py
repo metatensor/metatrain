@@ -2,8 +2,8 @@
 How to prepare data for training
 ================================
 
-This tutorial shows you how to organize your atomic structures and properties for training
-machine learning models with metatrain.
+This tutorial shows you how to organize your atomic structures and properties
+for training machine learning models with metatrain.
 
 .. attention::
 
@@ -130,8 +130,8 @@ ase.io.write("data.xyz", frames)
 
 # %%
 #
-# **That's it!** You now have a ``data.xyz`` file that metatrain can use directly. In your
-# ``options.yaml``, reference the properties by their names:
+# **That's it!** You now have a ``data.xyz`` file that metatrain can use
+# directly. In your ``options.yaml``, reference the properties by their names:
 #
 # .. code-block:: yaml
 #

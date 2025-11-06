@@ -1,14 +1,14 @@
 .. _beginner_guide:
 
 Beginner's Guide to Machine Learning for Atomistic Systems
-===========================================================
+==========================================================
 
 This guide explains the key concepts you need to understand when training machine
 learning models for atomistic systems. **No prior machine learning experience is
 required!**
 
 What is Machine Learning for Atoms and Molecules?
---------------------------------------------------
+-------------------------------------------------
 
 Traditional quantum mechanical calculations (like Density Functional Theory or DFT) can
 accurately calculate properties of molecules and materials, but they're very slow. Machine
@@ -32,7 +32,7 @@ Key Concepts Explained
 ----------------------
 
 Training, Validation, and Test Sets
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 When training a machine learning model, we split our data into three parts:
 
@@ -52,7 +52,7 @@ the examples rather than learning general patterns. The validation and test sets
 verify that the model has learned generalizable knowledge.
 
 Epochs and Training Iterations
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 - **Epoch**: One complete pass through all training data. If you have 1000 structures and
   train for 100 epochs, the model sees each structure 100 times.
@@ -65,20 +65,20 @@ model hasn't learned enough. Too many, and it might "overfit" (memorize training
 instead of learning patterns).
 
 Overfitting vs Underfitting
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 - **Underfitting**: The model is too simple and hasn't learned enough. Like trying to fit
   a curve through complex data with just a straight line.
-  
+
   *Signs*: High errors on both training and validation sets.
-  
+
   *Solution*: Train longer (more epochs) or use a more complex model.
 
 - **Overfitting**: The model has memorized the training data but doesn't generalize. Like
   memorizing answers to practice problems without understanding the concepts.
-  
+
   *Signs*: Low training error but high validation error.
-  
+
   *Solution*: Train for fewer epochs, use more training data, or simplify the model.
 
 Loss Functions
@@ -116,7 +116,7 @@ An **architecture** is the specific type of machine learning model you're using.
 architectures have different strengths:
 
 SOAP-BPNN (Good for beginners)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 - **What it is**: A neural network that uses SOAP (Smooth Overlap of Atomic Positions)
   descriptors to represent atomic environments
@@ -126,7 +126,7 @@ SOAP-BPNN (Good for beginners)
   interactions
 
 PET (Point Edge Transformer)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 - **What it is**: A modern graph neural network using message passing
 - **Pros**: State-of-the-art accuracy, handles complex systems well
@@ -134,7 +134,7 @@ PET (Point Edge Transformer)
 - **Best for**: Systems requiring high accuracy, larger datasets, users with GPU access
 
 GAP (Gaussian Approximation Potential)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 - **What it is**: A kernel-based method using SOAP descriptors
 - **Pros**: Very accurate, provides uncertainty estimates
@@ -198,7 +198,7 @@ Practical Training Tips
 -----------------------
 
 Starting Your First Training
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 1. **Start simple**: Use default hyperparameters for your chosen architecture
 2. **Use a small dataset first**: Test with 100-1000 structures to verify everything works
@@ -221,7 +221,7 @@ During training, metatrain outputs metrics that tell you how well training is go
 - Validation loss flat: → Model has finished learning or needs different hyperparameters
 
 Common Problems and Solutions
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 **Problem: "Out of memory" error**
 

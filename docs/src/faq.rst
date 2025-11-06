@@ -47,7 +47,7 @@ details on preparing your data.
 **A:** It depends on system complexity:
 
 - **Simple systems** (small molecules, one element): 1,000-5,000 structures
-- **Moderately complex** (multiple elements): 10,000-50,000 structures  
+- **Moderately complex** (multiple elements): 10,000-50,000 structures
 - **Very complex** (many elements, phase transitions): 100,000+ structures
 
 Start small to test your setup, then expand!
@@ -73,7 +73,7 @@ Training troubleshooting
 **A:** This means your GPU or RAM doesn't have enough memory. Try these solutions in order:
 
 1. **Reduce batch size**: In your options.yaml, add or decrease:
-   
+
    .. code-block:: yaml
 
        training:
@@ -182,11 +182,11 @@ Your XYZ file should contain:
 .. code-block:: python
 
     from ase.io import write
-    
+
     # atoms is your ASE Atoms object
     atoms.info['energy'] = -100.5  # in eV
     atoms.arrays['forces'] = forces_array  # shape (n_atoms, 3)
-    
+
     write('my_data.xyz', atoms, append=True)
 
 See :ref:`sphx_glr_generated_examples_0-beginner_01-data_preparation.py` for more
@@ -210,14 +210,14 @@ gradients).
 
 1. Start with short runs (1-10 ps)
 2. Check for unphysical behavior:
-   
+
    - Atoms flying apart (explosion)
    - Atoms collapsing (implosion)
    - Unreasonable temperatures or energies
    - Weird structural changes
 
 3. If MD is unstable:
-   
+
    - Add more diverse training data
    - Train longer
    - Check data quality

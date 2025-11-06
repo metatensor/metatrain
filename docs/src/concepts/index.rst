@@ -1,7 +1,7 @@
 Concepts and Design
 ===================
 
-This section covers important concepts for understanding how ``metatrain`` works. 
+This section covers important concepts for understanding how ``metatrain`` works.
 
 **For beginners**: Start with the :ref:`beginner_guide` to learn machine learning basics
 before diving into these technical details. The pages here explain the "how" and "why"
