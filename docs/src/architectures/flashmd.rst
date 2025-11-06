@@ -3,6 +3,9 @@
 FlashMD
 =======
 
+.. image:: https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?flag=coverage_flashmd
+   :target: https://codecov.io/gh/metatensor/metatrain/tree/main/src/metatrain/flashmd
+
 FlashMD is a method for the direct prediction of positions and momenta in a molecular
 dynamics simulation, presented in :footcite:p:`bigi_flashmd_2025`. When compared to
 traditional molecular dynamics methods, it predicts the positions and momenta of atoms
