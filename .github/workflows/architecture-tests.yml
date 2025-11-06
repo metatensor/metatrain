@@ -32,9 +32,8 @@ jobs:
 
     - name: run architecture tests and generate coverage
       run: |
-        coverage erase
-        coverage run --source src/metatrain \
-          $(which tox) -e ${{ matrix.architecture-name }}-tests
+        tox -e ${{ matrix.architecture-name }}-tests
+        coverage xml -o coverage.xml
       env:
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
@@ -43,6 +42,6 @@ jobs:
       uses: codecov/codecov-action@v5
       with:
         fail_ci_if_error: false
-        files: .coverage
+        files: coverage.xml
         flags: coverage_${{ matrix.architecture-name }}
         token: ${{ secrets.CODECOV_TOKEN }}

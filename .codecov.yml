@@ -7,21 +7,33 @@ coverage:
         paths:
           - "src/metatrain/utils/.*"
           - "src/metatrain/cli/.*"
+        flags:
+          - coverage_tests
       coverage_gap:
         paths:
           - "src/metatrain/gap/.*"
+        flags:
+          - coverage_gap
       coverage_pet:
         paths:
           - "src/metatrain/pet/.*"
+        flags:
+          - coverage_pet
       coverage_soap_bpnn:
         paths:
           - "src/metatrain/soap_bpnn/.*"
+        flags:
+          - coverage_soap_bpnn
       coverage_llpr:
         paths:
           - "src/metatrain/llpr/.*"
+        flags:
+          - coverage_llpr
       coverage_nanopet:
         paths:
           - "src/metatrain/deprecated/nanopet/.*"
+        flags:
+          - coverage_nanopet
     patch:
       default:
         informational: true
