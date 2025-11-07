@@ -289,28 +289,12 @@ class BaseScaler(torch.nn.Module):
                     N_values_type = N_values[type_index].unsqueeze(0)
                     Y2_values_type = Y2_values[type_index].unsqueeze(0)
 
-                    # Compute std
-                    scale_vals_type = torch.sqrt(
-                        Y2_values_type / N_values_type
-                    )  # (do not use Bessel's correction)
+                    # Compute std without Bessel's correction
+                    scale_vals_type = torch.sqrt(Y2_values_type / N_values_type)
 
-                    # Provide a warning for scales that cannot be computed. These will
-                    # be NaN as N_values_type for this property will be zero.
-                    if torch.isnan(
-                        scale_vals_type
-                    ).any():  # this can only happen for per-atom targets
-                        assert self.sample_kinds[target_name] == "per_atom"
-                        logging.info(
-                            f"Per-atom target {target_name} has not enough samples in "
-                            f"block {key} for atomic type"
-                            f"{self.atomic_types[type_index]} to compute statistics. "
-                            "The scales of one or more property cannot be computed."
-                        )
-                        scale_vals_type[torch.isnan(scale_vals_type)] = 1.0
-
-                    # If any scales are zero, set them to 1.0
-                    if torch.any(scale_vals_type == 0):
-                        scale_vals_type[scale_vals_type == 0] = 1.0
+                    # If any scales are zero or NaN, set them to 1.0
+                    scale_vals_type[scale_vals_type == 0] = 1.0
+                    scale_vals_type[torch.isnan(scale_vals_type)] = 1.0
 
                     scale_vals_type = scale_vals_type.contiguous()
                     block.values[type_index][:] = scale_vals_type
