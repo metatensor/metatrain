@@ -29,7 +29,6 @@ from . import checkpoints
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
-from .modules.utilities import cutoff_func
 
 
 AVAILABLE_FEATURIZERS = ["feedforward", "residual"]
@@ -47,7 +46,7 @@ class PET(ModelInterface):
         targets.
     """
 
-    __checkpoint_version__ = 8
+    __checkpoint_version__ = 9
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -62,6 +61,11 @@ class PET(ModelInterface):
         # Cache frequently accessed hyperparameters
         self.cutoff = float(self.hypers["cutoff"])
         self.cutoff_width = float(self.hypers["cutoff_width"])
+        self.max_num_neighbors = (
+            float(self.hypers["max_num_neighbors"])
+            if self.hypers["max_num_neighbors"] is not None
+            else None
+        )
         self.d_pet = self.hypers["d_pet"]
         self.d_node = self.hypers["d_node"]
         self.d_head = self.hypers["d_head"]
@@ -399,8 +403,10 @@ class PET(ModelInterface):
             element_indices_nodes,
             element_indices_neighbors,
             edge_vectors,
+            edge_distances,
             padding_mask,
             reverse_neighbor_index,
+            cutoff_factors,
             system_indices,
             sample_labels,
         ) = systems_to_batch(
@@ -408,6 +414,8 @@ class PET(ModelInterface):
             nl_options,
             self.atomic_types,
             self.species_to_species_index,
+            self.cutoff_width,
+            self.max_num_neighbors,
             selected_atoms,
         )
 
@@ -415,18 +423,14 @@ class PET(ModelInterface):
         # double backward, so we will use manual attention if needed
         use_manual_attention = edge_vectors.requires_grad and self.training
 
-        edge_distances = torch.sqrt(torch.sum(edge_vectors**2, dim=2) + 1e-15)
-        cutoff_factors = cutoff_func(edge_distances, self.cutoff, self.cutoff_width)
-        cutoff_factors[~padding_mask] = 0.0
-
         # **Stage 1: Feature Computation via GNN Layers**
         featurizer_inputs: Dict[str, torch.Tensor] = dict(
             element_indices_nodes=element_indices_nodes,
             element_indices_neighbors=element_indices_neighbors,
             edge_vectors=edge_vectors,
+            edge_distances=edge_distances,
             reverse_neighbor_index=reverse_neighbor_index,
             padding_mask=padding_mask,
-            edge_distances=edge_distances,
             cutoff_factors=cutoff_factors,
         )
         node_features_list, edge_features_list = self._calculate_features(

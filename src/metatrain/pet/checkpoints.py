@@ -226,6 +226,17 @@ def model_update_v7_v8(checkpoint: dict) -> None:
                 checkpoint[key] = new_state_dict
 
 
+def model_update_v8_v9(checkpoint: dict) -> None:
+    """
+    Update a v8 checkpoint to v9.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Adding the max_num_neighbors hyperparameter if not present
+    if "max_num_neighbors" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["max_num_neighbors"] = None
+
+
 ###########################
 # TRAINER #################
 ###########################

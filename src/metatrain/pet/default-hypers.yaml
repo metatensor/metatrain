@@ -3,6 +3,7 @@ architecture:
   model:
     cutoff: 4.5
     cutoff_width: 0.2
+    max_num_neighbors: null
     d_pet: 128
     d_head: 128
     d_node: 256

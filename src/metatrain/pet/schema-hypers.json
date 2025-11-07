@@ -17,6 +17,12 @@
         "cutoff_width": {
           "type": "number"
         },
+        "max_num_neighbors": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "d_pet": {
           "type": "integer"
         },

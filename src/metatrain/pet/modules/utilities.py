@@ -1,12 +1,12 @@
 import torch
 
 
-def cutoff_func(grid: torch.Tensor, r_cut: float, delta: float) -> torch.Tensor:
+def cutoff_func(grid: torch.Tensor, r_cut: torch.Tensor, delta: float) -> torch.Tensor:
     """
     Cosine cutoff function.
 
     :param grid: Distances at which to evaluate the cutoff function.
-    :param r_cut: Cutoff radius.
+    :param r_cut: Cutoff radius for each node.
     :param delta: Width of the cutoff region.
     :return: Values of the cutoff function at the specified distances.
     """
