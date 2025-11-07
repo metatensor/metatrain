@@ -2,6 +2,8 @@ coverage:
   status:
     project:
       default: false
+
+      # core package
       coverage:
         target: 88%
         paths:
@@ -9,6 +11,8 @@ coverage:
           - "src/metatrain/cli/.*"
         flags:
           - coverage_tests
+
+      # stable architectures
       coverage_gap:
         paths:
           - "src/metatrain/gap/.*"
@@ -29,24 +33,26 @@ coverage:
           - "src/metatrain/llpr/.*"
         flags:
           - coverage_llpr
+
+      # deprecated architectures
       coverage_nanopet:
         paths:
           - "src/metatrain/deprecated/nanopet/.*"
         flags:
           - coverage_nanopet
+
+      # experimental architectures
       coverage_flashmd:
         paths:
           - "src/metatrain/experimental/flashmd/.*"
         flags:
           - coverage_flashmd
+
     patch:
       default:
         informational: true
+
   ignore:
-    # no need to report coverage of the test code themself
-    - "tests/.*"
-    - "examples/.*"
-    - "src/metatrain/utils/testing/.*"
     # we don't currently run distributed tests on CI
     - "src/metatrain/utils/distributed/.*"
 
