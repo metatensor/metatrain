@@ -11,14 +11,14 @@
 
 <!-- marker-introduction -->
 
-## What is metatrain?
+# What is metatrain?
 
 `metatrain` is a user-friendly command line tool that helps you **train machine learning
 models for atomistic systems**. In simple terms, it lets you create models that can
 predict properties of molecules and materials (like energy and forces) by learning from
 examples.
 
-### Why use machine learning for atomistic systems?
+## Why use machine learning for atomistic systems?
 
 Traditional quantum mechanical calculations (like DFT) can be very accurate but extremely
 slow, especially for large systems or long simulations. Machine learning models can learn
@@ -26,7 +26,7 @@ from these accurate calculations and then make predictions thousands of times fa
 while maintaining good accuracy. This enables simulations that would otherwise be
 impossible.
 
-### What does metatrain do?
+## What does metatrain do?
 
 - **Training**: Teaches machine learning models using your data (atomic structures and
   their properties)
@@ -38,7 +38,7 @@ Everything is configured through simple text files (YAML format), so you don't n
 write code to use it. Once trained, your models work seamlessly with various simulation
 engines through the [metatomic](https://docs.metatensor.org/metatomic) interface.
 
-### Do I need to know machine learning?
+## Do I need to know machine learning?
 
 **No!** This documentation will guide you through the process step by step. We'll explain
 concepts as we go, assuming you have basic familiarity with ASE (Atomic Simulation
@@ -50,7 +50,7 @@ Environment) for working with atomic structures.
 
 <!-- marker-architectures -->
 
-# List of Implemented Architectures
+## List of Implemented Architectures
 
 Currently `metatrain` supports the following architectures for building an atomistic
 model:
