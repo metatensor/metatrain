@@ -31,10 +31,11 @@ class ZBL(torch.nn.Module):
         super().__init__()
 
         # `hypers` should be an empty dictionary
-        assert isinstance(hypers, dict) and len(hypers) == 0, (
-            f"{self.__class__.__name__} takes an empty dictionary of hyperparameters."
-            f"Got: {hypers}."
-        )
+        if not (isinstance(hypers, dict) and len(hypers) == 0):
+            raise ValueError(
+                f"{self.__class__.__name__} hypers takes an empty dictionary"
+                f"Got: {hypers}."
+            )
 
         # Check dataset length units
         if dataset_info.length_unit != "angstrom":
