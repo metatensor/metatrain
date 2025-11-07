@@ -1,3 +1,6 @@
+# mypy: disable-error-code=misc
+# We ignore misc errors in this file because TypedDict
+# with default values is not allowed by mypy.
 import logging
 import warnings
 from math import prod
@@ -52,6 +55,7 @@ class FlashMD(ModelInterface[ModelHypers]):
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2505.19350"]}
     )
+    __hypers_cls__ = FlashMDHypers
     component_labels: Dict[str, List[List[Labels]]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 

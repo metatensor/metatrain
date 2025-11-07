@@ -1,3 +1,6 @@
+# mypy: disable-error-code=misc
+# We ignore misc errors in this file because TypedDict
+# with default values is not allowed by mypy.
 import copy
 import logging
 import math
