@@ -78,6 +78,7 @@ def get_scheduler(
 
 class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 8
+    __hypers_cls__ = SOAPBPNNTrainerHypers
 
     def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)
