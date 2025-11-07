@@ -155,3 +155,12 @@ def trainer_update_v4_v5(checkpoint: dict) -> None:
         }
 
     checkpoint["train_hypers"]["loss"] = new_loss_hypers
+
+
+def trainer_update_v5_v6(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 7 to version 8.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"]["remove_composition_contribution"] = True

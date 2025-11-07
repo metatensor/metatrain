@@ -117,6 +117,9 @@ training
 :param learning_rate: Learning rate
 :param log_interval: Interval to log metrics
 :param checkpoint_interval: Interval to save checkpoints
+:param remove_composition_contribution: Whether to remove the atomic composition
+  contribution from the targets by fitting a linear model to the training data before
+  training the neural network.
 :param scale_targets: Normalize targets to unit std during training
 :param fixed_composition_weights: Weights for atomic contributions
 :param per_structure_targets: Targets to calculate per-structure losses

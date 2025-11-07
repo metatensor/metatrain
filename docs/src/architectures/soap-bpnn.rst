@@ -104,6 +104,9 @@ briefly explained below.
   saving.
 - ``scale_targets``: this boolean determines whether or not to scale the targets
   with the internal scalers before the targets are exposed to the models for learning.
+- ``remove_composition_contribution``: this boolean determines whether to remove the
+  atomic composition contribution from the targets by fitting a linear model to the
+  training data before training the neural network.
 - ``fixed_composition_weights``: this nested dictionary allows one to set fixed
   composition values in the composition model being used as a baseline for the model.
   These are per target name and per (integer) atom type. For example,
