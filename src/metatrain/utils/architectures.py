@@ -1,16 +1,15 @@
 import difflib
 import importlib
-import json
-import logging
 from importlib.util import find_spec
 from pathlib import Path
 from types import ModuleType
 from typing import Dict, List, Union
 
-from omegaconf import OmegaConf
+import yaml
 
 from .. import PACKAGE_ROOT
-from .jsonschema import validate
+from .hypers import get_hypers_cls, init_with_defaults
+from .pydantic import validate_architecture_options
 
 
 def check_architecture_name(name: str) -> None:
@@ -69,14 +68,16 @@ def check_architecture_options(
     :param name: name of the architecture
     :param options: architecture options to check
     """
-    schema_path = get_architecture_path(name) / "schema-hypers.json"
-    if schema_path.exists():
-        with open(schema_path, "r") as f:
-            schema = json.load(f)
+    architecture = import_architecture(name)
 
-        validate(instance=options, schema=schema)
-    else:
-        logging.debug("No schema found for {name!r} architecture. Skipping validation.")
+    Model = architecture.__model__
+    Trainer = architecture.__trainer__
+
+    validate_architecture_options(
+        options,
+        Model,
+        Trainer,
+    )
 
 
 def get_architecture_name(path: Union[str, Path]) -> str:
@@ -159,18 +160,36 @@ def get_architecture_path(name: str) -> Path:
 def find_all_architectures() -> List[str]:
     """Find all currently available architectures.
 
-    To find the architectures the function searches for the mandatory
-    ``default-hypers.yaml`` file in each architecture directory.
+    To find the architectures the function searches for directories
+    that are not part of the shared code of metatrain.
 
     :return: List of architectures names
     """
-    options_files_path = PACKAGE_ROOT.rglob("default-hypers.yaml")
 
-    architecture_names = []
-    for option_file_path in options_files_path:
-        architecture_names.append(get_architecture_name(option_file_path))
+    exclude_dirs = ["cli", "experimental", "deprecated", "utils", "share"]
 
-    return architecture_names
+    all_architectures = []
+
+    # Find stable architectures
+    for directory in PACKAGE_ROOT.iterdir():
+        if (
+            not directory.name.startswith("_")
+            and directory.name not in exclude_dirs
+            and (directory / "__init__.py").exists()
+        ):
+            all_architectures.append(get_architecture_name(directory))
+
+    # Also include experimental and deprecated architectures
+    for special_dir in ["experimental", "deprecated"]:
+        special_path = PACKAGE_ROOT / special_dir
+        for directory in special_path.iterdir():
+            if (
+                not directory.name.startswith("_")
+                and (directory / "__init__.py").exists()
+            ):
+                all_architectures.append(get_architecture_name(directory))
+
+    return all_architectures
 
 
 def get_default_hypers(name: str) -> Dict:
@@ -181,8 +200,33 @@ def get_default_hypers(name: str) -> Dict:
     :return: Default hyperparameters of the architectures
     """
     check_architecture_name(name)
-    default_hypers = OmegaConf.load(get_architecture_path(name) / "default-hypers.yaml")
-    # We present the `default-hypers.yaml` file inside the documentation. For a better
-    # user experience we store these yaml files with an additional level of indentation
-    # (`"architecture"`), which we have to remove here to get the raw default hypers.
-    return OmegaConf.to_container(default_hypers)["architecture"]
+    architecture = import_architecture(name)
+
+    model_hypers = get_hypers_cls(architecture.__model__)
+    trainer_hypers = get_hypers_cls(architecture.__trainer__)
+
+    return {
+        "name": name,
+        "model": init_with_defaults(model_hypers),
+        "training": init_with_defaults(trainer_hypers),
+    }
+
+
+def write_hypers_yaml(name: str, output_path: Path | str) -> None:
+    """Write YAML file with defaults for a given architecture.
+
+    Given a model name, this function imports the corresponding
+    module, finds out what the hyperparameters are for the model
+    and its trainer, and generates a YAML file with the default
+    hyperparameters.
+
+    :param name: The model to generate the files for.
+    :param output_path: The path to write the YAML file to.
+    """
+    from .architectures import get_default_hypers
+
+    # Create the dictionary with all default hyperparameters
+    yaml_defaults = {"architecture": get_default_hypers(name)}
+    # And write them to a YAML file
+    with open(output_path, "w") as f:
+        yaml.dump(yaml_defaults, f, sort_keys=False)

@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 
 import tomli  # Replace by tomllib from std library once docs are build with Python 3.11
 
@@ -14,6 +15,12 @@ os.environ["PYTORCH_JIT"] = "0"
 os.environ["METATENSOR_DEBUG_EXTENSIONS_LOADING"] = "1"
 
 import metatrain  # noqa: E402
+from metatrain.utils.architectures import (
+    find_all_architectures,
+    import_architecture,
+    write_hypers_yaml,
+)  # noqa: E402
+from metatrain.utils.hypers import get_hypers_cls  # noqa: E402
 
 
 ROOT = os.path.abspath(os.path.join("..", ".."))
@@ -64,7 +71,67 @@ def generate_examples():
     os.environ["PYTORCH_JIT"] = "0"
 
 
+def setup_architectures_docs():
+    """Generate the architecture documentation files.
+
+    This function goes through all available architectures, and for each of them
+    generates a yaml file with the default hyperparameters (so that it can be
+    easily included in the documentation). Also, if there is no documentation
+    rst file for a given architecture, this function auto-generates one based
+    on a template.
+    """
+    # Get paths to directories
+    architectures_dir = Path(__file__).parent / "architectures"
+    templates_dir = architectures_dir / "templates"
+    generated_dir = architectures_dir / "generated"
+    hypers_dir = architectures_dir / "default_hypers"
+
+    # If the default_hypers directory does not exist, create it
+    hypers_dir.mkdir(exist_ok=True)
+    # Same for the generated directory
+    generated_dir.mkdir(exist_ok=True)
+
+    for architecture_name in find_all_architectures():
+        architecture_real_name = architecture_name.replace("experimental.", "").replace(
+            "deprecated.", ""
+        )
+
+        # Write default hypers file
+        yaml_path = hypers_dir / f"{architecture_real_name}-default-hypers.yaml"
+        write_hypers_yaml(architecture_name, yaml_path)
+
+        # Generate the architecture rst file with its documentation
+        architecture = import_architecture(architecture_name)
+        model_hypers = get_hypers_cls(architecture.__model__)
+        trainer_hypers = get_hypers_cls(architecture.__trainer__)
+
+        # Get the template to use, first try an architecture-specific one,
+        # then fall back to the generic one
+        for template_name in [f"{architecture_real_name}.rst", "generic.rst"]:
+            template_path = templates_dir / template_name
+            if template_path.exists():
+                template = template_path.read_text()
+                break
+
+        # Fill template and write file
+        with open(generated_dir / f"{architecture_real_name}.rst", "w") as f:
+            f.write(
+                template.format(
+                    architecture=architecture_real_name,
+                    architecture_path="metatrain." + architecture_name,
+                    default_hypers_path=".." / yaml_path.relative_to(architectures_dir),
+                    model_hypers_path=model_hypers.__module__
+                    + "."
+                    + model_hypers.__name__,
+                    trainer_hypers_path=trainer_hypers.__module__
+                    + "."
+                    + trainer_hypers.__name__,
+                )
+            )
+
+
 def setup(app):
+    setup_architectures_docs()
     generate_examples()
 
 
@@ -93,6 +160,8 @@ exclude_patterns = [
     "examples/sg_execution_times.rst",
     "examples/ase/index.rst",
     "sg_execution_times.rst",
+    "architectures/templates/*",
+    "architectures/README.md",
 ]
 
 
@@ -102,6 +171,9 @@ autoclass_content = "both"
 autodoc_member_order = "bysource"
 autodoc_typehints = "both"
 autodoc_typehints_format = "short"
+autodoc_type_aliases = {
+    "SomeType": "int",
+}
 
 intersphinx_mapping = {
     "ase": ("https://ase-lib.org/", None),
@@ -110,6 +182,7 @@ intersphinx_mapping = {
     "metatensor": ("https://docs.metatensor.org/latest/", None),
     "metatomic": ("https://docs.metatensor.org/metatomic/latest/", None),
     "omegaconf": ("https://omegaconf.readthedocs.io/en/latest/", None),
+    "pydantic": ("https://docs.pydantic.dev/latest", None),
 }
 
 # The path to the bibtex file
@@ -154,4 +227,5 @@ html_css_files = [
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/fontawesome.min.css",
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/solid.min.css",
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/brands.min.css",
+    "styles.css",
 ]

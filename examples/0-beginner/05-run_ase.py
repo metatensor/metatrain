@@ -4,7 +4,7 @@ Running molecular dynamics with ASE
 
 This tutorial demonstrates how to use an already trained and exported model to run an
 ASE simulation of a single ethanol molecule in vacuum. We use a model that was trained
-using the :ref:`architecture-soap-bpnn` architecture on 100 ethanol systems
+using the :ref:`architecture-soap_bpnn` architecture on 100 ethanol systems
 containing energies and forces. You can obtain the :download:`dataset file
 <ethanol_reduced_100.xyz>` used in this example from our website. The dataset is a
 subset of the `rMD17 dataset

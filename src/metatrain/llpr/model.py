@@ -1,3 +1,6 @@
+# mypy: disable-error-code=misc
+# We ignore misc errors in this file because TypedDict
+# with default values is not allowed by mypy.
 from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
@@ -12,17 +15,54 @@ from metatomic.torch import (
     System,
 )
 from torch.utils.data import DataLoader
+from typing_extensions import TypedDict
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo, unpack_batch
 from metatrain.utils.data.target_info import is_auxiliary_output
+from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 
 from . import checkpoints
 
 
-class LLPRUncertaintyModel(ModelInterface):
+class EnsemblesHypers(TypedDict):
+    """Configuration of ensembles in LLPR."""
+
+    means: Dict[str, List[str]] = {}
+    """This accepts a dictionary of targets and the names of their corresponding
+    last-layer weights. For example, in the case of energy trained with the default
+    ``energy`` key in a PET model, the following could be the set of weights to provide:
+
+    .. code-block:: yaml
+
+      means:
+        energy:
+          - node_last_layers.energy.0.energy___0.weight
+          - node_last_layers.energy.1.energy___0.weight
+          - edge_last_layers.energy.0.energy___0.weight
+          - edge_last_layers.energy.1.energy___0.weight
+    """
+
+    num_members: Dict[str, int] = {}
+    """This is a dictionary of targets and the corresponding number of ensemble
+    members to sample. Note that a sufficiently large number of members (more than 16)
+    are required for robust uncertainty propagation.
+    (e.g. ``num_members: {energy: 128}``)
+    """
+
+
+class LLPRHypers(TypedDict):
+    """Hyperparameters for the LLPR model."""
+
+    ensembles: EnsemblesHypers = init_with_defaults(EnsemblesHypers)
+    """To perform uncertainty propagation, one can generate an ensemble of weights
+    from the calibrated inverse covariance matrix from the LLPR formalism.
+    """
+
+
+class LLPRUncertaintyModel(ModelInterface[LLPRHypers]):
     __checkpoint_version__ = 2
 
     # all torch devices and dtypes are supported, if they are supported by the wrapped
@@ -39,6 +79,7 @@ class LLPRUncertaintyModel(ModelInterface):
             ],
         }
     )
+    __hypers_cls__ = LLPRHypers
 
     """A wrapper that adds LLPR uncertainties to a model.
 
@@ -58,7 +99,7 @@ class LLPRUncertaintyModel(ModelInterface):
         internally when reloading checkpoints.
     """
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: LLPRHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.hypers = hypers

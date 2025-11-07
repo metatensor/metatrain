@@ -44,8 +44,8 @@ Transitioning from an experimental to a stable model requires additional criteri
 satisfied:
 
 1. Provision of regression prediction tests with a small (not exported) checkpoint file.
-2. Comprehensive architecture documentation including a schema for verifying the
-   architecture's hyperparameters.
+2. Comprehensive architecture documentation including the type hinting of the
+   architecture's hyperparameters so that they can be validated by the CLI.
 3. If an architecture has external dependencies, all must be publicly available on PyPI.
 4. Adherence to the standard output infrastructure of ``metatrain``, including
    logging and model save locations.

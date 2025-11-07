@@ -1,9 +1,13 @@
+# mypy: disable-error-code=misc
+# We ignore misc errors in this file because TypedDict
+# with default values is not allowed by mypy.
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import torch
 from torch.utils.data import DataLoader
+from typing_extensions import TypedDict
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.data import (
@@ -22,8 +26,38 @@ from . import checkpoints
 from .model import LLPRUncertaintyModel
 
 
-class Trainer(TrainerInterface):
+class LLPRTrainerHypers(TypedDict):
+    """Hyperparameters for the LLPR trainer."""
+
+    batch_size: int = 12
+    """This defines the batch size used in the computation of last-layer
+    features, covariance matrix, etc."""
+
+    regularizer: Optional[float] = None
+    r"""This is the regularizer value :math:`\varsigma` that is used in
+    applying Eq. 24 of Bigi et al :footcite:p:`bigi_mlst_2024`:
+
+    .. math::
+
+        \sigma^2_\star = \alpha^2 \boldsymbol{\mathrm{f}}^{\mathrm{T}}_\star
+        (\boldsymbol{\mathrm{F}}^{\mathrm{T}} \boldsymbol{\mathrm{F}} + \varsigma^2
+        \boldsymbol{\mathrm{I}})^{-1} \boldsymbol{\mathrm{f}}_\star
+
+    If set to ``null``, the internal routine will determine the smallest regularizer
+    value that guarantees numerical stability in matrix inversion. Having exposed the
+    formula here, we also note to the user that the training routine of the LLPR
+    wrapper model finds the ideal global calibration factor :math:`\alpha`."""
+
+    model_checkpoint: Optional[str] = None
+    """This should provide the checkpoint to the model for which the
+    user wants to perform UQ based on the LLPR approach. Note that the model
+    architecture must comply with the requirement that the last-layer features are
+    exposed under the convention defined by metatrain."""
+
+
+class Trainer(TrainerInterface[LLPRTrainerHypers]):
     __checkpoint_version__ = 1
+    __hypers_cls__ = LLPRTrainerHypers
 
     def train(
         self,
@@ -154,7 +188,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: LLPRTrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "LLPRUncertaintyModel":
         raise ValueError("LLPR does not allow restarting training")

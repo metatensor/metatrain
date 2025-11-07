@@ -28,6 +28,7 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
+from .hypers import SOAPBPNNHypers
 from .spherical import TensorBasis
 
 
@@ -181,7 +182,7 @@ def concatenate_structures(
     )
 
 
-class SoapBpnn(ModelInterface):
+class SoapBpnn(ModelInterface[SOAPBPNNHypers]):
     __checkpoint_version__ = 4
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
@@ -196,10 +197,11 @@ class SoapBpnn(ModelInterface):
             ],
         }
     )
+    __hypers_cls__ = SOAPBPNNHypers
 
     component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: SOAPBPNNHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.atomic_types = dataset_info.atomic_types
@@ -226,15 +228,16 @@ class SoapBpnn(ModelInterface):
         self.soap_calculator = SoapPowerSpectrum(**spex_soap_hypers)
         soap_size = self.soap_calculator.shape
 
-        hypers_bpnn = {**self.hypers["bpnn"]}
-        hypers_bpnn["input_size"] = soap_size
+        hypers_bpnn = self.hypers["bpnn"]
 
         if hypers_bpnn["layernorm"]:
             self.layernorm = LayerNormMap(self.atomic_types, soap_size)
         else:
             self.layernorm = Identity()
 
-        self.bpnn = MLPMap(self.atomic_types, hypers_bpnn)
+        self.bpnn = MLPMap(
+            self.atomic_types, {**self.hypers["bpnn"], "input_size": soap_size}
+        )
 
         self.neighbors_species_labels = Labels(
             names=["neighbor_1_type", "neighbor_2_type"],
@@ -249,7 +252,7 @@ class SoapBpnn(ModelInterface):
         )
 
         if hypers_bpnn["num_hidden_layers"] == 0:
-            self.n_inputs_last_layer = hypers_bpnn["input_size"]
+            self.n_inputs_last_layer = soap_size
         else:
             self.n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
 

@@ -1,0 +1,8 @@
+/* For the most important hyperparameters, we use ".. autoattribute:"
+but this adds automatically the name of the class as a prefix. I.e.
+we want to show "cutoff" but "PETHypers.cutoff" is shown. With this
+we hide "PETHypers" whenever the autoattribute is inside a div with
+the class "mtt-hypers-remove-classname" */
+.mtt-hypers-remove-classname span.sig-prename.descclassname {
+    display: none;
+}

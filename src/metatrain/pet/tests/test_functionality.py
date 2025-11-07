@@ -3,6 +3,7 @@ import pytest
 import torch
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
+from pydantic import ValidationError
 
 from metatrain.pet import PET
 from metatrain.pet.modules.transformer import AttentionBlock
@@ -373,7 +374,7 @@ def test_fixed_composition_weights_error():
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["fixed_composition_weights"] = {"energy": {"H": 300.0}}
     hypers = OmegaConf.create(hypers)
-    with pytest.raises(ValueError, match=r"'H' does not match '\^\[0-9\]\+\$'"):
+    with pytest.raises(ValidationError, match=r"Input should be a valid integer"):
         check_architecture_options(name="pet", options=OmegaConf.to_container(hypers))
 
 

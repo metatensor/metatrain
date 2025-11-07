@@ -39,11 +39,14 @@ from metatrain.utils.transfer import (
 )
 
 from . import checkpoints
+from .hypers import SOAPBPNNTrainerHypers
 from .model import SoapBpnn
 
 
 def get_scheduler(
-    optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
+    optimizer: torch.optim.Optimizer,
+    train_hypers: SOAPBPNNTrainerHypers,
+    steps_per_epoch: int,
 ) -> LambdaLR:
     """
     Get a CosineAnnealing learning-rate scheduler with warmup
@@ -73,10 +76,11 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface):
+class Trainer(TrainerInterface[SOAPBPNNTrainerHypers]):
     __checkpoint_version__ = 8
+    __hypers_cls__ = SOAPBPNNTrainerHypers
 
-    def __init__(self, hypers: Dict[str, Any]):
+    def __init__(self, hypers: SOAPBPNNTrainerHypers):
         super().__init__(hypers)
 
         self.optimizer_state_dict: Optional[Dict[str, Any]] = None
@@ -283,6 +287,7 @@ class Trainer(TrainerInterface):
 
         # Create a loss function:
         loss_hypers = self.hypers["loss"]
+        assert not isinstance(loss_hypers, str)  # for mypy
         loss_fn = LossAggregator(
             targets=train_targets,
             config=loss_hypers,
@@ -541,7 +546,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: SOAPBPNNTrainerHypers,
         context: Literal["restart", "finetune"],  # not used at the moment
     ) -> "Trainer":
         trainer = cls(hypers)
