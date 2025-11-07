@@ -197,6 +197,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             ],
         }
     )
+    __hypers_cls__ = SOAPBPNNHypers
 
     component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
     cartesian_targets: List[str]  # torchscript needs this
