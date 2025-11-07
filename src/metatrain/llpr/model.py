@@ -13,10 +13,12 @@ from metatomic.torch import (
     System,
 )
 from torch.utils.data import DataLoader
+from typing_extensions import TypedDict
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo, unpack_batch
 from metatrain.utils.data.target_info import is_auxiliary_output
+from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 
@@ -41,6 +43,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             ],
         }
     )
+    __hypers_cls__ = LLPRHypers
 
     """A wrapper that adds LLPR uncertainties to a model.
 
