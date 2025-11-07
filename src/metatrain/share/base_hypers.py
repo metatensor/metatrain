@@ -16,6 +16,9 @@ class ArchitectureBaseHypers(TypedDict):
     """List of atomic types present in the dataset.
 
     If not provided, it will be inferred from the training dataset.
+    This hyperparameter is useful if you envision that in the future
+    your model will need to be trained/finetuned on datasets with
+    additional atomic types.
     """
     model: NotRequired[dict]
     """Model-specific hyperparameters.
