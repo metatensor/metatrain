@@ -178,17 +178,18 @@ class BaseCompositionModel(torch.nn.Module):
             blocks=[
                 TensorBlock(
                     values=torch.zeros(
-                        len(self.atomic_types),
-                        len(self.atomic_types),
+                        len(self.atomic_types) ** 2,
+                        len(block.properties),
                         dtype=torch.float64,
                     ),
-                    samples=Labels(["center_type"], self.atomic_types.reshape(-1, 1)),
-                    components=[],
-                    properties=Labels(
-                        ["center_type"], self.atomic_types.reshape(-1, 1)
+                    samples=Labels(
+                        ["first_atom_type", "second_atom_type"],
+                        torch.cartesian_prod(self.atomic_types, self.atomic_types),
                     ),
+                    components=[],
+                    properties=block.properties,
                 )
-                for _ in layout
+                for block in layout
             ],
         )
         self.XTY[target_name] = TensorMap(
@@ -230,6 +231,7 @@ class BaseCompositionModel(torch.nn.Module):
         self,
         systems: List[System],
         targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
     ) -> None:
         """
         Takes a batch of systems and targets, and for each target accumulates the
@@ -239,6 +241,9 @@ class BaseCompositionModel(torch.nn.Module):
         :param targets: Dict of target names to :py:class:`TensorMap` containing
             the target values for each system in the batch.
         """
+
+        if extra_data is None:
+            extra_data = {}
 
         device = systems[0].positions.device
         dtype = systems[0].positions.dtype
@@ -255,13 +260,17 @@ class BaseCompositionModel(torch.nn.Module):
 
         # accumulate
         for target_name, target in targets.items():
+            mask = None
+
+            if target_name + "_mask" in extra_data:
+                mask = extra_data[target_name + "_mask"]
+
             for key, block in target.items():
                 if not _include_key(key):
                     continue
 
                 # Get the target block values
                 Y = block.values
-                mask = ~torch.isnan(Y).any(dim=tuple(range(1, Y.ndim)))
 
                 if self.sample_kinds[target_name] == "per_structure":
                     X = self._compute_X_per_structure(systems)
@@ -276,14 +285,52 @@ class BaseCompositionModel(torch.nn.Module):
                     )
                 X = X.to(device=device, dtype=dtype)
 
-                # Compute "XTX", i.e. X.T @ X
-                # TODO: store XTX by sample kind instead, saving memory
-                self.XTX[target_name][key].values[:] += X[mask].T @ X[mask]
+                if mask is None:
+                    # Compute "XTX", i.e. X.T @ X
+                    # TODO: store XTX by sample kind instead, saving memory
+                    self.XTX[target_name][key].values[:] += (
+                        (X.T @ X)
+                        .reshape(-1, 1)
+                        .repeat_interleave(
+                            len(self.XTX[target_name][key].properties),
+                            1,
+                        )
+                    )
 
-                # Compute "XTY", i.e. X.T @ Y
-                self.XTY[target_name][key].values[:] += torch.tensordot(
-                    X[mask], Y[mask], dims=([0], [0])
-                )
+                    # Compute "XTY", i.e. X.T @ Y
+                    self.XTY[target_name][key].values[:] += torch.tensordot(
+                        X, Y, dims=([0], [0])
+                    )
+
+                else:
+                    # If there is a mask, we need to compute X separately for each
+                    # property, slicing to keep only atomic samples that are not masked
+                    # for that property.
+
+                    mask_block = mask[key]
+
+                    for property_i in range(len(block.properties)):
+                        # Build a boolean mask for the samples that are not masked for
+                        # this property
+                        mask_vals_property = mask_block.values[..., property_i]
+                        sample_mask = torch.all(
+                            mask_vals_property == 1.0,
+                            dim=tuple(range(1, mask_vals_property.ndim)),
+                        )
+
+                        # Compute "XTX", i.e. X.T @ X
+                        self.XTX[target_name][key].values[:, property_i] += (
+                            X[sample_mask].T @ X[sample_mask]
+                        ).reshape(-1)
+
+                        # Compute "XTY", i.e. X.T @ Y
+                        self.XTY[target_name][key].values[..., property_i] += (
+                            torch.tensordot(
+                                X[sample_mask],
+                                Y[sample_mask, ..., property_i],
+                                dims=([0], [0]),
+                            )
+                        )
 
     def fit(
         self,
@@ -313,32 +360,45 @@ class BaseCompositionModel(torch.nn.Module):
             for key in self.XTX[target_name].keys:
                 XTX_block = self.XTX[target_name][key]
                 XTY_block = self.XTY[target_name][key]
+                weight_vals = torch.zeros_like(self.weights[target_name][key].values)
 
-                XTX_values = XTX_block.values
-                XTY_values = XTY_block.values
+                for property_i in range(len(self.XTY[target_name][key].properties)):
+                    XTX_values = XTX_block.values.reshape(
+                        len(self.atomic_types), len(self.atomic_types), -1
+                    )[..., property_i]
+                    XTY_values = XTY_block.values[..., property_i]
 
-                if target_name in fixed_weights:
-                    weight_vals = torch.vstack(
-                        [
-                            torch.full(
-                                (
-                                    1,
-                                    *[len(c) for c in XTY_block.components],
-                                    len(XTY_block.properties),
-                                ),
-                                fixed_weights[target_name][int(atomic_type)],
-                                dtype=XTY_values.dtype,
-                                device=XTY_values.device,
-                            )
-                            for atomic_type in self.atomic_types
-                        ]
+                    if target_name in fixed_weights:
+                        weight_vals[..., property_i] = torch.vstack(
+                            [
+                                torch.full(
+                                    (
+                                        1,
+                                        *[len(c) for c in XTY_block.components],
+                                        1,
+                                    ),
+                                    fixed_weights[target_name][int(atomic_type)],
+                                    dtype=XTY_values.dtype,
+                                    device=XTY_values.device,
+                                )
+                                for atomic_type in self.atomic_types
+                            ]
+                        )
+                    else:
+                        XTY_shape = XTY_values.shape
+                        if len(XTY_values.shape) != 2:
+                            XTY_values = XTY_values.reshape(XTY_values.shape[0], -1)
+                        weight_vals[..., property_i] = _solve_linear_system(
+                            XTX_values, XTY_values
+                        ).reshape(*XTY_shape)
+
+                if torch.isnan(weight_vals).any():
+                    raise ValueError(
+                        f"composition weights for target {target_name} and key"
+                        f" {key} contain NaNs. This may be due to accumulation"
+                        " of NaN-padded target data - please ensure that a mask"
+                        " if being provided during accumulation."
                     )
-                else:
-                    XTY_shape = XTY_values.shape
-                    if len(XTY_values.shape) != 2:
-                        XTY_values = XTY_values.reshape(XTY_values.shape[0], -1)
-                    weight_vals = _solve_linear_system(XTX_values, XTY_values)
-                    weight_vals = weight_vals.reshape(*XTY_shape)
 
                 blocks.append(
                     TensorBlock(

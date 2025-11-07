@@ -158,26 +158,10 @@ class Trainer(TrainerInterface):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
-        # Extract additive models and scaler and move them to CPU/float64 so they
-        # can be used in the collate function
-        model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
-        additive_models = copy.deepcopy(
-            model.additive_models.to(dtype=torch.float64, device="cpu")
-        )
-        model.additive_models.to(device)
-        model.additive_models[0].weights_to(device=device, dtype=torch.float64)
-        model.scaler.scales_to(device="cpu", dtype=torch.float64)
-        scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
-        model.scaler.to(device)
-        model.scaler.scales_to(device=device, dtype=torch.float64)
-
-        # Create collate functions:
+        # Train composition model and scaler
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
         extra_data_info = dataset_info.extra_data
-        rotational_augmenter = RotationalAugmenter(
-            target_info_dict=train_targets, extra_data_info_dict=extra_data_info
-        )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         spherical_per_atom_targets = [
             name
@@ -189,112 +173,44 @@ class Trainer(TrainerInterface):
             for name, hypers in self.hypers["loss"].items()
             if "masked_" in hypers["type"]
         ]
-        collate_fn_train = CollateFn(
-            target_keys=list(train_targets.keys()),
-            callables=[
-                get_reindex_system_to_batch_id_transform(),
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_pad_samples_transform(
-                    spherical_per_atom_targets,
-                    requested_neighbor_lists[0],
-                ),
-                rotational_augmenter.apply_random_augmentations,
-                get_create_dynamic_target_mask_transform(dynamic_mask_targets),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
-            ],
-        )
-        collate_fn_val = CollateFn(
-            target_keys=list(train_targets.keys()),
-            callables=[  # no augmentation for validation
-                get_reindex_system_to_batch_id_transform(),
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_pad_samples_transform(
-                    spherical_per_atom_targets,
-                    requested_neighbor_lists[0],
-                ),
-                get_create_dynamic_target_mask_transform(dynamic_mask_targets),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
-            ],
-        )
 
-        # Extract additive models and scaler and move them to CPU/float64 so they
-        # can be used in the collate function
-        model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
-        additive_models = copy.deepcopy(
-            model.additive_models.to(dtype=torch.float64, device="cpu")
+        # if self.hypers["remove_composition_contribution"]:
+        logging.info("Calculating composition weights")
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            CollateFn(
+                target_keys=list(train_targets.keys()),
+                callables=[
+                    get_reindex_system_to_batch_id_transform(),
+                    get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                    get_create_dynamic_target_mask_transform(dynamic_mask_targets),
+                ],
+            ),
+            self.hypers["batch_size"],
+            is_distributed,
+            self.hypers["fixed_composition_weights"],
         )
-        model.additive_models.to(device)
-        model.additive_models[0].weights_to(device=device, dtype=torch.float64)
-        model.scaler.scales_to(device="cpu", dtype=torch.float64)
-        scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
-        model.scaler.to(device)
-        model.scaler.scales_to(device=device, dtype=torch.float64)
-
-        # Create collate functions:
-        dataset_info = model.dataset_info
-        train_targets = dataset_info.targets
-        extra_data_info = dataset_info.extra_data
-        rotational_augmenter = RotationalAugmenter(
-            target_info_dict=train_targets, extra_data_info_dict=extra_data_info
-        )
-        requested_neighbor_lists = get_requested_neighbor_lists(model)
-        spherical_per_atom_targets = [
-            name
-            for name, target in train_targets.items()
-            if target.is_spherical and target.per_atom
-        ]
-        dynamic_mask_targets = [
-            name
-            for name, hypers in self.hypers["loss"].items()
-            if "masked_" in hypers["type"]
-        ]
-        collate_fn_train = CollateFn(
-            target_keys=list(train_targets.keys()),
-            callables=[
-                get_reindex_system_to_batch_id_transform(),
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_pad_samples_transform(
-                    spherical_per_atom_targets,
-                    requested_neighbor_lists[0],
-                ),
-                rotational_augmenter.apply_random_augmentations,
-                get_create_dynamic_target_mask_transform(dynamic_mask_targets),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
-            ],
-        )
-        collate_fn_val = CollateFn(
-            target_keys=list(train_targets.keys()),
-            callables=[  # no augmentation for validation
-                get_reindex_system_to_batch_id_transform(),
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_pad_samples_transform(
-                    spherical_per_atom_targets,
-                    requested_neighbor_lists[0],
-                ),
-                get_create_dynamic_target_mask_transform(dynamic_mask_targets),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
-            ],
-        )
-
-        if self.hypers["remove_composition_contribution"]:
-            logging.info("Calculating composition weights")
-            model.additive_models[0].train_model(  # this is the composition model
-                train_datasets,
-                model.additive_models[1:],
-                self.hypers["batch_size"],
-                is_distributed,
-                self.hypers["fixed_composition_weights"],
-            )
 
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
             model.scaler.train_model(
                 train_datasets,
-                collate_fn_val,  # we don't need the augmenter here
+                model.additive_models,
+                CollateFn(
+                    target_keys=list(train_targets.keys()),
+                    callables=[
+                        get_reindex_system_to_batch_id_transform(),
+                        get_system_with_neighbor_lists_transform(
+                            requested_neighbor_lists
+                        ),
+                        get_pad_samples_transform(
+                            spherical_per_atom_targets,
+                            requested_neighbor_lists[0],
+                        ),
+                        get_create_dynamic_target_mask_transform(dynamic_mask_targets),
+                    ],
+                ),
                 self.hypers["batch_size"],
                 is_distributed,
                 self.hypers["fixed_scaling_weights"],
@@ -327,6 +243,53 @@ class Trainer(TrainerInterface):
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
 
+        # Extract additive models and scaler and move them to CPU/float64 so they
+        # can be used in the collate function
+        model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
+        additive_models = copy.deepcopy(
+            model.additive_models.to(dtype=torch.float64, device="cpu")
+        )
+        model.additive_models.to(device)
+        model.additive_models[0].weights_to(device=device, dtype=torch.float64)
+        model.scaler.scales_to(device="cpu", dtype=torch.float64)
+        scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
+        model.scaler.to(device)
+        model.scaler.scales_to(device=device, dtype=torch.float64)
+
+        # Create collate functions:
+        rotational_augmenter = RotationalAugmenter(
+            target_info_dict=train_targets, extra_data_info_dict=extra_data_info
+        )
+        collate_fn_train = CollateFn(
+            target_keys=list(train_targets.keys()),
+            callables=[
+                get_reindex_system_to_batch_id_transform(),
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                get_pad_samples_transform(
+                    spherical_per_atom_targets,
+                    requested_neighbor_lists[0],
+                ),
+                # rotational_augmenter.apply_random_augmentations,
+                get_create_dynamic_target_mask_transform(dynamic_mask_targets),
+                get_remove_additive_transform(additive_models, train_targets),
+                get_remove_scale_transform(scaler),
+            ],
+        )
+        collate_fn_val = CollateFn(
+            target_keys=list(train_targets.keys()),
+            callables=[  # no augmentation for validation
+                get_reindex_system_to_batch_id_transform(),
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                get_pad_samples_transform(
+                    spherical_per_atom_targets,
+                    requested_neighbor_lists[0],
+                ),
+                get_create_dynamic_target_mask_transform(dynamic_mask_targets),
+                get_remove_additive_transform(additive_models, train_targets),
+                get_remove_scale_transform(scaler),
+            ],
+        )
+
         # Create dataloader for the training datasets:
         if self.hypers["num_workers"] is None:
             num_workers = get_num_workers()
@@ -356,13 +319,11 @@ class Trainer(TrainerInterface):
                     sampler=train_sampler,
                     shuffle=(
                         # the sampler takes care of this (if present)
-                        train_sampler
-                        is None
+                        train_sampler is None
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        train_sampler
-                        is None
+                        train_sampler is None
                     ),
                     collate_fn=collate_fn_train,
                     num_workers=num_workers,

@@ -37,7 +37,7 @@ def transpose_tensormap(tensor: TensorMap) -> TensorMap:
         properties_vals = block.properties.permute((1, 0, 3, 2)).values
         properties_perm = Labels(block.properties.names, properties_vals)
         property_idxs = properties_perm.select(block.properties)
-        vals_T = vals_T[:, :, property_idxs]
+        vals_T = vals_T[:, :, property_idxs] * key["o3_sigma"]
         blocks_T.append(
             TensorBlock(
                 samples=block.samples,

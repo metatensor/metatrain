@@ -21,14 +21,18 @@ from . import (
 
 def get_frames():
     """
-    Returns 3 physically equivalent CH4 systems with different atom orderings.
+    Returns 3 physically equivalent C2H3 systems with different atom orderings.
 
-    The second is the same as the first but with atoms 3 (H) and 4 (H) swapped.
-    The third is the same as the first but with atoms 1 (C) and 2 (H) swapped.
+    This is based on the geometry of a methane molecule, but with a C-for-H
+    substitution. Having a C-C interaction is important for this test due to the
+    inversion parity under transpose of p-p interactions.
+
+    The second is the same as the first but with atoms 3 (H) and 4 (H) swapped. The
+    third is the same as the first but with atoms 1 (C) and 2 (H) swapped.
     """
     return [
         ase.Atoms(
-            numbers=[6, 1, 1, 1, 1],
+            numbers=[6, 1, 6, 1, 1],
             positions=[
                 [0.99826, -0.00246, -0.00436],
                 [2.09021, -0.00243, 0.00414],
@@ -38,7 +42,7 @@ def get_frames():
             ],
         ),
         ase.Atoms(
-            numbers=[6, 1, 1, 1, 1],
+            numbers=[6, 1, 6, 1, 1],
             positions=[
                 [0.99826, -0.00246, -0.00436],
                 [2.09021, -0.00243, 0.00414],
@@ -48,7 +52,7 @@ def get_frames():
             ],
         ),
         ase.Atoms(
-            numbers=[1, 6, 1, 1, 1],
+            numbers=[1, 6, 6, 1, 1],
             positions=[
                 [2.09021, -0.00243, 0.00414],  # swapped
                 [0.99826, -0.00246, -0.00436],  # swapped
@@ -103,8 +107,7 @@ def test_matrix_hermitian(dtype):
         tensor=output,
     )
     for mat in output_matrices:
-        assert torch.allclose(mat[(0, 0, 0)], mat[(0, 0, 0)].conj().T)
-        print((mat[(0, 0, 0)] - mat[(0, 0, 0)].conj().T).abs().mean())
+        assert torch.allclose(mat["0_0_0"], mat["0_0_0"].conj().T)
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
@@ -151,21 +154,19 @@ def test_matrix_atom_swapping(dtype):
     )
 
     # Check H H permutation
-    mat1 = output_matrices[0][0, 0, 0].detach().numpy()
+    mat1 = output_matrices[0]["0_0_0"].detach().numpy()
     mat2 = _permute_atomic_subblocks(
-        output_matrices[1][0, 0, 0].detach().numpy(),
+        output_matrices[1]["0_0_0"].detach().numpy(),
         frames[1],
         basis_set,
         [0, 1, 2, 4, 3],
     )
     mat3 = _permute_atomic_subblocks(
-        output_matrices[2][0, 0, 0].detach().numpy(),
+        output_matrices[2]["0_0_0"].detach().numpy(),
         frames[2],
         basis_set,
         [1, 0, 2, 3, 4],
     )
-    print("H H swap diff mean:", np.abs(mat1 - mat2).mean())
-    print("C H swap diff mean:", np.abs(mat1 - mat3).mean())
 
     if dtype == torch.float32:
         rtol = 1e-5

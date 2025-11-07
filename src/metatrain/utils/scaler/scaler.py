@@ -13,6 +13,7 @@ from metatrain.utils.data import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 
+from ..additive import remove_additive
 from ..data import (
     DatasetInfo,
     TargetInfo,
@@ -20,7 +21,7 @@ from ..data import (
 )
 from ..jsonschema import validate
 from ..transfer import batch_to
-from ._base_scaler import BaseScaler, _include_key
+from ._base_scaler import BaseScaler
 
 
 class Scaler(torch.nn.Module):
@@ -137,6 +138,7 @@ class Scaler(torch.nn.Module):
     def train_model(
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        additive_models: List[torch.nn.Module],
         collate_fn: CollateFn,
         batch_size: int,
         is_distributed: bool,
@@ -178,6 +180,17 @@ class Scaler(torch.nn.Module):
             if len(targets) == 0:
                 break
 
+            # remove additive contributions from these targets
+            for additive_model in additive_models:
+                targets = remove_additive(
+                    systems,
+                    targets,
+                    additive_model,
+                    {
+                        target_name: self.target_infos[target_name]
+                        for target_name in targets
+                    },
+                )
             targets = average_by_num_atoms(targets, systems, [])
             self.model.accumulate(systems, targets, extra_data)
 
@@ -299,7 +312,11 @@ class Scaler(torch.nn.Module):
 
         elif layout.sample_names == valid_sample_names[2]:
             samples = Labels(
-                ["atomic_type"], torch.arange(len(self.atomic_types)).reshape(-1, 1)
+                ["first_atom_type", "second_atom_type"],
+                torch.cartesian_prod(
+                    torch.arange(len(self.atomic_types)),
+                    torch.arange(len(self.atomic_types)),
+                ),
             )
 
         else:
@@ -308,14 +325,6 @@ class Scaler(torch.nn.Module):
                 f" {layout.sample_names} but expected one of "
                 f"{valid_sample_names}."
             )
-
-        layout = mts.filter_blocks(
-            layout,
-            Labels(
-                layout.keys.names,
-                torch.vstack([key.values for key in layout.keys if _include_key(key)]),
-            ),
-        )
 
         fake_scales = TensorMap(
             keys=layout.keys,

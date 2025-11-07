@@ -17,7 +17,9 @@ from metatrain.utils.data import (
     CollateFn,
     Dataset,
     TargetInfo,
+    get_create_dynamic_target_mask_transform,
     get_dataset,
+    get_pad_samples_transform,
     read_systems,
     unpack_batch,
 )
@@ -172,7 +174,16 @@ def _eval_targets(
     requested_neighbor_lists = get_requested_neighbor_lists(model)
     collate_fn = CollateFn(
         target_keys,
-        callables=[get_system_with_neighbor_lists_transform(requested_neighbor_lists)],
+        callables=[
+            get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+            get_pad_samples_transform(
+                target_keys,  # TODO: for spherical per-atom only
+                requested_neighbor_lists[0],
+            ),
+            get_create_dynamic_target_mask_transform(
+                target_keys,  # TODO: for spherical per-atom only
+            ),
+        ],
     )
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, collate_fn=collate_fn, shuffle=False
