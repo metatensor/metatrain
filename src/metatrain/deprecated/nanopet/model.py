@@ -61,6 +61,7 @@ class NanoPET(ModelInterface[ModelHypers]):
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
+    __hypers_cls__ = NanoPETHypers
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)

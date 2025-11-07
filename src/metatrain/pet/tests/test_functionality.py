@@ -3,6 +3,7 @@ import pytest
 import torch
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
+from pydantic import ValidationError
 
 from metatrain.pet import PET
 from metatrain.pet.modules.transformer import AttentionBlock

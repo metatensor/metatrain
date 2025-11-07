@@ -42,6 +42,7 @@ from .model import NanoPET
 
 class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 6
+    __hypers_cls__ = NanoPETTrainerHypers
 
     def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)
