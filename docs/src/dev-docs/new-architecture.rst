@@ -7,6 +7,9 @@ This page describes the required classes and files necessary for adding a new
 architecture to ``metatrain`` as experimental or stable architecture as
 described on the :ref:`architecture-life-cycle` page.
 
+What is a ``metatrain`` architecture?
+-------------------------------------
+
 To work with ``metatrain`` any architecture has to follow the same public API to
 be called correctly within the :py:func:`metatrain.cli.train` function to
 process the user's options. In brief, the core of the ``train`` function looks
@@ -50,11 +53,13 @@ similar to these lines
     mts_atomistic_model = model.export()
     mts_atomistic_model.export("model.pt", collect_extensions="extensions/")
 
+General code structure
+----------------------
 
 To follow this, a new architecture has to define two classes
 
 - a ``Model`` class, defining the core of the architecture. This class must
-  implement the interface documented below in
+  implement the interface documented in
   :py:class:`metatrain.utils.abc.ModelInterface`
 - a ``Trainer`` class, used to train an architecture and produce a model that
   can be evaluated and exported. This class must implement the interface
@@ -79,16 +84,9 @@ architecture looks as
 .. code-block:: text
 
     myarchitecture
-        ├── model.py
-        ├── trainer.py
         ├── __init__.py
-        ├── default-hypers.yaml
-        └── schema-hypers.json
-
-.. note::
-    A new architecture doesn't have to be registered somewhere in the file tree
-    of ``metatrain``. Once a new architecture folder with the required files is
-    created ``metatrain`` will include the architecture automatically.
+        ├── model.py
+        └── trainer.py
 
 .. note::
     Because achitectures can live in either ``src/metatrain/<architecture>``,
@@ -107,74 +105,40 @@ architecture looks as
 Model class (``model.py``)
 --------------------------
 
-.. autoclass:: metatrain.utils.abc.ModelInterface
-    :members:
-
-Defining a new model can then be done as follow;
-
-.. code-block:: python
-
-    from metatomic.torch import ModelMetadata
-    from metatrain.utils.abc import ModelInterface
-
-    class MyModel(ModelInterface):
-
-        __checkpoint_version__ = 1
-        __supported_devices__ = ["cuda", "cpu"]
-        __supported_dtypes__ = [torch.float64, torch.float32]
-        __default_metadata__ = ModelMetadata(
-            references = {"implementation": ["ref1"], "architecture": ["ref2"]}
-        )
-
-        def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
-            super().__init__(hypers, dataset_info)
-            ...
-
-        ... # implementation of all the functions from ModelInterface
+A model class has to follow the interface defined in
+:py:class:`~metatrain.utils.abc.ModelInterface`. That is, all the
+methods that are marked as abstract in the interface must be implemented
+with the indicated API (same arguments and same return). At first sight,
+the interface might feel overwhelming, therefore here is a summary of the
+steps to take to implement a new model class:
 
 
-In addition to subclassing ``ModelInterface``, the model class should have the
-following class attributes:
+- Implement the ``__init__`` method, which takes as input the model hyperparameters
+  and the dataset information. This should initialize your model.
+- Implement the ``forward`` method, which defines the forward pass of the model.
+- Add some class attributes with ``__names_like_this__`` that will help metatrain
+  understand how to treat your model. They are listed and described in the
+  :py:class:`~metatrain.utils.abc.ModelInterface` documentation.
+- Implement the rest of abstract methods, which in general deal with handling
+  checkpoints, exporting the model, and restarting training from a checkpoint.
 
-- ``__supported_devices__`` list of the suported torch devices for running the
-  model;
-- ``__supported_dtypes__`` list of the supported dtype for this model;
-- ``__default_metadata__`` can be used to provide references that will be
-  stored in the exported model. The references are stored in a dictionary with
-  keys ``implementation`` and ``architecture``. The ``implementation`` key
-  should contain references to the software used in the implementation of the
-  architecture, while the ``architecture`` key should contain references about
-  the general architecture.
-- ``__checkpoint_version__`` stores the current version of the checkpoint, used
-  to upgrade checkpoints produced with earlier versions of the code. See
-  :ref:`ckpt_version` for more information.
+Here is an incomplete example of what a model implementation looks like:
 
-Both ``__supported_devices__`` and ``__supported_dtypes__`` should be sorted in
-order of preference since ``metatrain`` will use these to determine, based on
-the user request and machines' availability, the optimal ``dtype`` and
-``device`` for training.
+.. literalinclude:: ./dummy_model.py
+    :language: python
 
 Trainer class (``trainer.py``)
 ------------------------------
 
-.. autoclass:: metatrain.utils.abc.TrainerInterface
-    :members:
+A trainer class has to follow the interface defined in
+:py:class:`~metatrain.utils.abc.TrainerInterface`. That is, all the
+methods that are marked as abstract in the interface must be implemented
+with the indicated API (same arguments and same return). We recommend
+looking at existing implementations of trainers for inspiration. They
+will look something like this:
 
-Defining a new trainer can then be done as like this;
-
-.. code-block:: python
-
-
-    from metatrain.utils.abc import TrainerInterface
-
-    class MyTrainer(TrainerInterface):
-
-        __checkpoint_version__ = 1
-
-        def __init__(self, train_hypers):
-            ...
-
-        ... # implementation of all the functions from TrainerInterface
+.. literalinclude:: ./dummy_trainer.py
+    :language: python
 
 Init file (``__init__.py``)
 ---------------------------
@@ -208,69 +172,91 @@ and current ``__maintainers__`` of the architecture.
     # style as ``__authors__``
     __maintainers__ = [("Joe Bloggs <joe.bloggs@sotacompany.com>", "@joebloggs")]
 
-Default Hyperparamers (``default-hypers.yaml``)
------------------------------------------------
+Hyperparameters documentation
+-----------------------------
 
-The default hyperparameters for each architecture should be stored in a YAML
-file ``default-hypers.yaml`` inside the architecture directory. Reasonable
-default hypers are required to improve usability. The default hypers must follow
-the structure
+In the previous sections we mentioned that both the ``Model`` and ``Trainer``
+need their hyperparameters to be indicated in their ``__hypers_cls__`` class
+attribute. At the beginning, a simple class specifying default values for
+each hyperparameter is sufficient, i.e.:
 
-.. code-block:: yaml
+.. code-block:: python
 
-    name: myarchitecture
+    class ModelHypers:
+        alpha = 1.2
+        mode = "strict"
 
-    model:
-        ...
+    class Model(ModelInterface):
+        __hypers_cls__ = ModelHypers
 
-    training:
-        ...
+However, for an architecture to be considered stable, the hyperparameters
+must be:
 
-``metatrain`` will parse this file and overwrite these default hypers with the
-user-provided parameters and pass the merged ``model`` section as a Python
-dictionary to the ``ModelInterface`` and the ``training`` section to the
-``TrainerInterface``.
+- Documented using docstrings.
+- Type hinted using Python's type hinting system.
 
-Finetuning
-^^^^^^^^^^
+This will allow ``metatrain`` to:
 
-If your architecture is supporting finetuning you have to add a ``finetune`` subsection
-in the ``training`` section. The subsection must contain a ``read_from`` key that points
-to the checkpoint file the finetuning is started from. Any additional hyperparameters
-can be architecture specific.
+- Automatically generate documentation pages for the architecture
+  (see :ref:`newarchitecture-documentation`).
+- Validate the inputs provided by the user through the CLI. This is
+  done through ``pydantic``.
 
-.. code-block:: yaml
+For this, ``metatrain``'s convention is to use ``TypedDict`` classes to
+define the hyperparameters. You can take inspiration from existing
+architectures for complex examples of type hinting, but here is how
+it would look like for the simple example above:
 
-    training:
-        finetune:
-            read_from: path/to/checkpoint.ckpt
-            # other architecture finetune hyperparameters
+.. code-block:: python
 
-JSON schema (``schema-hypers.yaml``)
-------------------------------------
+    from typing import Literal
+    from typing_extensions import TypedDict
+    from metatrain.torch import DatasetInfo
 
-To validate the user's input hyperparameters we are using `JSON schemas
-<https://json-schema.org/>`_ stored in a schema file called
-``schema-hypers.json``. For an :ref:`experimental architecture
-<architecture-life-cycle>` it is not required to provide such a schema along
-with its default hypers but it is highly recommended to reduce possible errors
-of user input like typos in parameter names or wrong sections. If no
-``schema-hypers.json`` is provided no validation is performed and user hypers
-are passed to the architecture model and trainer as is.
+    class ModelHypers(TypedDict):
+        """Hyperparameters for the Model architecture."""
 
-To create such a schema you can try using `online tools
-<https://jsonformatter.org>`_ that convert the ``default-hypers.yaml`` into a
-JSON schema. Besides online tools, we also had success using ChatGPT/LLM for
-this for conversion.
+        alpha: float = 1.2
+        """Scaling factor for the model predictions."""
+        mode: Literal["strict", "lenient"] = "strict"
+        """Mode of operation for the model."""
+
+    class Model(ModelInterface):
+        __hypers_cls__ = ModelHypers
+
+        def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo):
+            super().__init__(hypers, dataset_info)
+            ...
+
+Note that we also added the hypers class as type hint for the ``hypers``
+argument of the ``__init__`` method of the model. This is not required
+by ``metatrain`` to work, but it will help static type checkers to catch
+bugs in your code, as well as improving the development experience in
+IDE's like VSCode or PyCharm. So we strongly recommend it!
+
+.. _newarchitecture-documentation:
 
 Documentation
 -------------
 
-Each new architecture should be added to ``metatrain``'s documentation. A short
-page describing the architecture and its default hyperparameters will be
-sufficient. You can take inspiration from existing architectures. The various
-targets that the architecture can fit should be added to the table in the
-"Fitting generic targets" section.
+By following the guidelines for documenting hyperparameters, ``metatrain``
+**will automatically generate a documentation page for the new architecture**.
+This documentation page will contain information about how to install your
+architecture, the default hyperparameters, and the descriptions of all
+the hyperparameters for both the model and the trainer.
+
+However, **you are always welcome to add more information to the documentation
+page**, such as a description of the architecture, references to relevant
+papers, or examples of usage. To do this, you just have to create a file
+called ``<your_architecture_name>.rst`` in the
+``docs/src/architectures/templates`` folder. This folder is called ``templates``
+because the files here are preprocessed to generate the final documentation
+``.rst`` files. This is done by simply reading the file as a python string
+and calling ``template_string.format(...)`` with some variables passed that
+you can use in your template. However, you are completely free to not use
+any of the variables and just write a static ``.rst`` file if you prefer.
+It will be treated as a template, but the effect will be simply that your
+file will get copied to the final documentation folder without any changes.
 
 .. _ckpt_version:
 

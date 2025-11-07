@@ -8,7 +8,6 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, NeighborListOptions, System
 
 from ..data import DatasetInfo, TargetInfo
-from ..jsonschema import validate
 from ..sum_over_atoms import sum_over_atoms
 
 
@@ -32,9 +31,9 @@ class ZBL(torch.nn.Module):
         super().__init__()
 
         # `hypers` should be an empty dictionary
-        validate(
-            instance=hypers,
-            schema={"type": "object", "additionalProperties": False},
+        assert isinstance(hypers, dict) and len(hypers) == 0, (
+            f"{self.__class__.__name__} takes an empty dictionary of hyperparameters."
+            f"Got: {hypers}."
         )
 
         # Check dataset length units

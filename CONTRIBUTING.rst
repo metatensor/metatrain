@@ -102,7 +102,7 @@ If you want to test a specific archicture you can also do it. For example
 
       tox -e soap-bpnn-tests
 
-Will run the unit and regression tests for the :ref:`SOAP-BPNN <architecture-soap-bpnn>`
+Will run the unit and regression tests for the :ref:`SOAP-BPNN <architecture-soap_bpnn>`
 model. Note that architecture tests are not run by default if you just type ``tox``.
 
 .. _pytest: https://pytest.org

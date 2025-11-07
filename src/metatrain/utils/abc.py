@@ -1,6 +1,16 @@
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import (
+    Any,
+    Dict,
+    Generic,
+    List,
+    Literal,
+    Optional,
+    Type,
+    TypeVar,
+    Union,
+)
 
 import torch
 from metatensor.torch import Labels, TensorMap
@@ -14,7 +24,10 @@ from metatomic.torch import (
 from metatrain.utils.data.dataset import Dataset, DatasetInfo
 
 
-class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
+HypersType = TypeVar("HypersType")
+
+
+class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
     """
     Abstract base class for a machine learning model in metatrain.
 
@@ -28,8 +41,39 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
         references.
     """
 
+    __checkpoint_version__: int
+    """The current version of the model's checkpoint.
+
+    This is used to upgrade checkpoints produced with earlier versions of the code.
+    See :ref:`ckpt_version` for more information."""
+    __supported_devices__: List[torch.device]
+    """List of torch devices supported by this model architecture.
+
+    They should be sorted in order of preference since ``metatrain``  will use
+    this and ``__supported_dtypes__`` to determine, based on the user request
+    and machines’ availability, the optimal ``dtype`` and ``device`` for training.
+    """
+    __supported_dtypes__: List[torch.dtype]
+    """List of torch dtypes supported by this model architecture.
+
+    They should be sorted in order of preference since ``metatrain``  will use
+    this and ``__supported_devices__`` to determine, based on the user request
+    and machines’ availability, the optimal ``dtype`` and ``device`` for training.
+    """
+    __default_metadata__: ModelMetadata
+    """Default metadata for this model architecture.
+
+    Can be used to provide references that will be stored in the exported model.
+    The references are stored in a dictionary with keys ``implementation`` and
+    ``architecture``. The ``implementation`` key should contain references to the
+    software used in the implementation of the architecture, while the
+    ``architecture`` key should contain references about the general architecture.
+    """
+    __hypers_cls__: Type[HypersType]
+    """The class defining the hyper-parameters for this model architecture."""
+
     def __init__(
-        self, hypers: Dict, dataset_info: DatasetInfo, metadata: ModelMetadata
+        self, hypers: HypersType, dataset_info: DatasetInfo, metadata: ModelMetadata
     ) -> None:
         """"""
         super().__init__()
@@ -172,7 +216,7 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
         """
 
 
-class TrainerInterface(metaclass=ABCMeta):
+class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
     """
     Abstract base class for a model trainer in metatrain.
 
@@ -183,9 +227,18 @@ class TrainerInterface(metaclass=ABCMeta):
     :param hypers: A dictionary with the trainer's hyper-parameters.
     """
 
-    def __init__(self, hypers: Dict[str, Any]):
+    __checkpoint_version__: int
+    """The current version of the trainer's checkpoint.
+
+    This is used to upgrade checkpoints produced with earlier versions of the code.
+    See :ref:`ckpt_version` for more information."""
+    __hypers_cls__: Type[HypersType]
+    """The class defining the hyper-parameters for this model architecture."""
+
+    def __init__(self, hypers: HypersType):
         required_attributes = [
             "__checkpoint_version__",
+            "__hypers_cls__",
         ]
         for attribute in required_attributes:
             if not hasattr(self.__class__, attribute):
@@ -258,7 +311,7 @@ class TrainerInterface(metaclass=ABCMeta):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: HypersType,
         context: Literal["restart", "finetune"],
     ) -> "TrainerInterface":
         """

@@ -14,12 +14,14 @@ from metatrain.utils.neighbor_lists import (
 )
 
 from . import GAP
+from .hypers import GAPTrainerHypers
 
 
-class Trainer(TrainerInterface):
+class Trainer(TrainerInterface[GAPTrainerHypers]):
     __checkpoint_version__ = 1
+    __hypers_cls__ = GAPTrainerHypers
 
-    def __init__(self, hypers: Dict[str, Any]):
+    def __init__(self, hypers: GAPTrainerHypers):
         super().__init__(hypers)
 
     def train(
@@ -152,7 +154,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: GAPTrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "GAP":
         raise ValueError("GAP does not allow restarting training")

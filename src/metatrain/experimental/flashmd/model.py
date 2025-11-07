@@ -1,3 +1,6 @@
+# mypy: disable-error-code=misc
+# We ignore misc errors in this file because TypedDict
+# with default values is not allowed by mypy.
 import logging
 import warnings
 from math import prod
@@ -30,6 +33,7 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
+from .hypers import FlashMDHypers
 from .modules.additive import PositionAdditive
 from .modules.encoder import NodeEncoder
 from .modules.structures import systems_to_batch
@@ -38,7 +42,7 @@ from .modules.structures import systems_to_batch
 AVAILABLE_FEATURIZERS = ["feedforward", "residual"]
 
 
-class FlashMD(ModelInterface):
+class FlashMD(ModelInterface[FlashMDHypers]):
     """
     Implementation of the FlashMD architecture.
 
@@ -51,10 +55,11 @@ class FlashMD(ModelInterface):
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2505.19350"]}
     )
+    __hypers_cls__ = FlashMDHypers
     component_labels: Dict[str, List[List[Labels]]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: FlashMDHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         # Cache frequently accessed hyperparameters

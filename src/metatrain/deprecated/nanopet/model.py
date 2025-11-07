@@ -25,6 +25,7 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
+from .hypers import NanoPETHypers
 from .modules.encoder import Encoder
 from .modules.nef import (
     edge_array_to_nef,
@@ -37,7 +38,7 @@ from .modules.structures import concatenate_structures
 from .modules.transformer import Transformer
 
 
-class NanoPET(ModelInterface):
+class NanoPET(ModelInterface[NanoPETHypers]):
     """
     Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302).
 
@@ -60,8 +61,9 @@ class NanoPET(ModelInterface):
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
+    __hypers_cls__ = NanoPETHypers
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: NanoPETHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.new_outputs = list(dataset_info.targets.keys())

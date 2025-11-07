@@ -1,6 +1,5 @@
 import argparse
 import itertools
-import json
 import logging
 import os
 import random
@@ -15,7 +14,6 @@ from omegaconf import DictConfig, OmegaConf
 
 from metatrain.utils.data import Dataset
 
-from .. import PACKAGE_ROOT
 from ..utils.abc import ModelInterface, TrainerInterface
 from ..utils.architectures import (
     check_architecture_options,
@@ -39,7 +37,6 @@ from ..utils.io import (
     model_from_checkpoint,
     trainer_from_checkpoint,
 )
-from ..utils.jsonschema import validate
 from ..utils.logging import ROOT_LOGGER, WandbHandler, human_readable
 from ..utils.omegaconf import (
     BASE_OPTIONS,
@@ -47,6 +44,7 @@ from ..utils.omegaconf import (
     expand_dataset_config,
     expand_loss_config,
 )
+from ..utils.pydantic import validate_base_options
 from .eval import _eval_targets
 from .export import _has_extensions
 from .formatter import CustomHelpFormatter
@@ -179,19 +177,13 @@ def train_model(
     # Training, test and validation set options are verified within the
     # `expand_dataset_config()` function.
 
-    with open(PACKAGE_ROOT / "share/schema-base.json", "r") as f:
-        schema_base = json.load(f)
-
-    validate(instance=OmegaConf.to_container(options), schema=schema_base)
+    validate_base_options(OmegaConf.to_container(options))
 
     ###########################
     # LOAD ARCHITECTURE #######
     ###########################
 
     architecture_name = options["architecture"]["name"]
-    check_architecture_options(
-        name=architecture_name, options=OmegaConf.to_container(options["architecture"])
-    )
     architecture = import_architecture(architecture_name)
 
     logging.info(f"Running training for {architecture_name!r} architecture")
@@ -218,6 +210,10 @@ def train_model(
         BASE_OPTIONS,
         {"architecture": get_default_hypers(architecture_name)},
         options,
+    )
+
+    check_architecture_options(
+        name=architecture_name, options=OmegaConf.to_container(options["architecture"])
     )
 
     ###########################

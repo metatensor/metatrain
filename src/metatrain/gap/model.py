@@ -21,8 +21,10 @@ from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.metadata import merge_metadata
 
+from .hypers import GAPHypers
 
-class GAP(ModelInterface):
+
+class GAP(ModelInterface[GAPHypers]):
     __checkpoint_version__ = 1
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
@@ -37,8 +39,9 @@ class GAP(ModelInterface):
             ],
         }
     )
+    __hypers_cls__ = GAPHypers
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: GAPHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         if len(dataset_info.targets) > 1:
