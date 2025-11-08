@@ -6,7 +6,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Dict, List, Union
 
-import yaml
+from omegaconf import OmegaConf
 
 from .. import PACKAGE_ROOT
 from .hypers import init_with_defaults
