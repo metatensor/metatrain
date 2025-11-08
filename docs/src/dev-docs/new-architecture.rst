@@ -251,12 +251,15 @@ papers, or examples of usage. To do this, you just have to create a file
 called ``<your_architecture_name>.rst`` in the
 ``docs/src/architectures/templates`` folder. This folder is called ``templates``
 because the files here are preprocessed to generate the final documentation
-``.rst`` files. This is done by simply reading the file as a python string
-and calling ``template_string.format(...)`` with some variables passed that
-you can use in your template. However, you are completely free to not use
-any of the variables and just write a static ``.rst`` file if you prefer.
-It will be treated as a template, but the effect will be simply that your
-file will get copied to the final documentation folder without any changes.
+``.rst`` files. However, you are completely free to just write a static
+``.rst`` file if you prefer, it will just be used as it is. In case you choose
+to use the variables in your ``.rst`` file (which can make your docs more robust
+to codebase changes), here is the reference for the variables you can use:
+
+.. autoclass:: src.architectures.generate.ArchitectureTemplateVariables
+   :no-index:
+   :members:
+   :undoc-members:
 
 .. _ckpt_version:
 
