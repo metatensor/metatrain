@@ -5,7 +5,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Dict, List, Union
 
-import yaml
+from omegaconf import OmegaConf
 
 from .. import PACKAGE_ROOT
 from .hypers import get_hypers_cls, init_with_defaults
@@ -223,10 +223,10 @@ def write_hypers_yaml(name: str, output_path: Path | str) -> None:
     :param name: The model to generate the files for.
     :param output_path: The path to write the YAML file to.
     """
-    from .architectures import get_default_hypers
-
     # Create the dictionary with all default hyperparameters
     yaml_defaults = {"architecture": get_default_hypers(name)}
+
+    conf = OmegaConf.create(yaml_defaults)
     # And write them to a YAML file
     with open(output_path, "w") as f:
-        yaml.dump(yaml_defaults, f, sort_keys=False)
+        OmegaConf.save(config=conf, f=f)

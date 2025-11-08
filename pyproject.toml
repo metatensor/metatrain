@@ -18,7 +18,6 @@ dependencies = [
     "metatomic-torch >=0.1.5,<0.2",
     "jsonschema",
     "pydantic",
-    "pyyaml",
     "typing_extensions", # For python < 3.12 typing.TypedDict has limited functionality
     "omegaconf >= 2.3.0",
     "python-hostlist",
