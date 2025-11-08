@@ -221,7 +221,7 @@ it would look like for the simple example above:
         mode: Literal["strict", "lenient"] = "strict"
         """Mode of operation for the model."""
 
-    class Model(ModelInterface):
+    class Model(ModelInterface[ModelHypers]):
         __hypers_cls__ = ModelHypers
 
         def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo):
@@ -229,10 +229,11 @@ it would look like for the simple example above:
             ...
 
 Note that we also added the hypers class as type hint for the ``hypers``
-argument of the ``__init__`` method of the model. This is not required
-by ``metatrain`` to work, but it will help static type checkers to catch
-bugs in your code, as well as improving the development experience in
-IDE's like VSCode or PyCharm. So we strongly recommend it!
+argument of the ``__init__`` method of the model and also used it as
+``ModelInterface[ModelHypers]``. This is not required by ``metatrain`` to
+work, but it will help static type checkers to catch bugs in your code,
+as well as improving the development experience in IDE's like VSCode or
+PyCharm. So we strongly recommend it!
 
 .. _newarchitecture-documentation:
 
