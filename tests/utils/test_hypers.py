@@ -4,7 +4,7 @@
 import pytest
 from typing_extensions import TypedDict
 
-from metatrain.utils.hypers import RemoveDefault, init_with_defaults, overwrite_defaults
+from metatrain.utils.hypers import init_with_defaults, overwrite_defaults
 
 
 @pytest.fixture(params=["custom_class", "typed_dict"])
@@ -72,11 +72,3 @@ def test_default_hypers_inheritance_overwrite(simple_hypers_class: type):
 
     parent_hypers = init_with_defaults(simple_hypers_class)
     assert parent_hypers == {"a": 2.0}
-
-
-def test_overwrite_nodefault(simple_hypers_class: type):
-    class Hypers(simple_hypers_class):
-        a: int = RemoveDefault
-
-    hypers = init_with_defaults(Hypers)
-    assert hypers == {}
