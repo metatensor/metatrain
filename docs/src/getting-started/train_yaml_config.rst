@@ -57,7 +57,6 @@ The main skeleton is as follows:
 
     architecture:
         name: architecture_name
-        atomic_types: [1, 6, 8] # Not really required, metatrain can infer from the dataset
         model:
             ...
         training:
