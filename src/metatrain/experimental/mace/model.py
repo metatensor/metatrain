@@ -78,6 +78,13 @@ class MetaMACE(ModelInterface):
                 self.mace_model, "scale_shift"
             ):
                 self.mace_model.scale_shift = FakeScaleShift()
+
+            # Reinitialize parameters at random
+            if self.hypers.get("mace_model_reinit", False):
+                logging.info("Reinitializing MACE model parameters")
+                for param in self.mace_model.parameters():
+                    if param.requires_grad:
+                        torch.nn.init.uniform_(param, -0.1, 0.1)
         else:
             self.mace_model = MACE(
                 r_max=self.cutoff,
