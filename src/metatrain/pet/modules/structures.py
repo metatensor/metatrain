@@ -205,7 +205,7 @@ def systems_to_batch(
         # Enabling the adaptive cutoff scheme to approximately select
         # `max_num_neighbors` neighbors for each atom
         probe_cutoffs = torch.arange(
-            3.0,
+            1.0,
             options.cutoff,
             0.5,
             device=edge_distances.device,

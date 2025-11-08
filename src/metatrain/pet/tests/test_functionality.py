@@ -5,6 +5,7 @@ from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
 from metatrain.pet import PET
+from metatrain.pet.modules.structures import systems_to_batch
 from metatrain.pet.modules.transformer import AttentionBlock
 from metatrain.utils.architectures import check_architecture_options
 from metatrain.utils.data import DatasetInfo
@@ -577,3 +578,72 @@ def test_nc_stress(per_atom):
     outputs = {"non_conservative_stress": ModelOutput(per_atom=per_atom)}
     stress = model([system], outputs)["non_conservative_stress"].block().values
     assert torch.allclose(stress, stress.transpose(1, 2))
+
+
+@pytest.mark.parametrize("max_num_neighbors", [8, 16, 32, 64, None])
+def test_adaptive_cutoff(monkeypatch, tmp_path, max_num_neighbors):
+    """Tests the adaptive cutoff functionality."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+
+    model_hypers = MODEL_HYPERS.copy()
+    model_hypers["cutoff"] = 7.0
+    model_hypers["max_num_neighbors"] = max_num_neighbors
+    model = PET(model_hypers, dataset_info)
+
+    # Building a grid of carbon atoms with a step size of 1.0 Angstrom
+    system = System(
+        types=torch.tensor([6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0]]),
+        cell=torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]]),
+        pbc=torch.tensor([True, True, False]),
+    )
+
+    # monkeypatch.chdir(tmp_path)
+    # dataset = [bulk("C", "diamond", a=3.57, cubic=True) for _ in range(5)]
+    # for atoms in dataset:
+    #     atoms.rattle(0.5)
+
+    # write("dataset.xyz", dataset)
+    # systems = read_systems("dataset.xyz")
+
+    options = model.requested_neighbor_lists()[0]
+    system = get_system_with_neighbor_lists(system, [options]).to(torch.float32)
+    nl = system.get_neighbor_list(options)
+    original_centers = nl.samples.values[:, 0]
+    original_num_neighbors = torch.bincount(original_centers)
+    print("Original num neighbors:", original_num_neighbors)
+
+    (
+        element_indices_nodes,
+        element_indices_neighbors,
+        edge_vectors,
+        edge_distances,
+        padding_mask,
+        reverse_neighbor_index,
+        cutoff_factors,
+        system_indices,
+        sample_labels,
+    ) = systems_to_batch(
+        [system],
+        options,
+        model.atomic_types,
+        model.species_to_species_index,
+        model.cutoff_width,
+        max_num_neighbors=max_num_neighbors,
+    )
+
+    if max_num_neighbors is None:
+        assert edge_vectors.shape[1] == original_num_neighbors.max().item()
+    else:
+        assert abs(edge_vectors.shape[1] - max_num_neighbors) < 10
+
+    # raise RuntimeError("DEBUG")
