@@ -44,23 +44,7 @@ def init_with_defaults(hypers_cls: Type[HypersType]) -> dict:
         if k in defaults_dict:
             defaults_dict[k] = to_overwrite[k]
 
-    # If the value is set to RemoveDefault, remove that from the defaults.
-    # This covers the case in which a hypers class inherits from another
-    # hypers class but wants to remove the default for some hyperparameter.
-    defaults_keys = set(defaults_dict.keys())
-    for k in defaults_keys:
-        if defaults_dict[k] is RemoveDefault or isinstance(
-            defaults_dict[k], RemoveDefault
-        ):
-            defaults_dict.pop(k)
-
     return defaults_dict
-
-
-class RemoveDefault:
-    """Marker class to indicate that a hyperparameter has no default value."""
-
-    pass
 
 
 def get_hypers_cls(cls: ModelInterface | TrainerInterface) -> Type:
