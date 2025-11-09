@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional, Type
 
 import metatensor.torch as mts
 import torch
-from metatensor.torch import TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from torch.nn.modules.loss import _Loss
 
 from metatrain.utils.data import TargetInfo
@@ -516,12 +516,15 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         """
 
         ens_name = "mtt::aux::" + self.target.replace("mtt::", "") + "_ensemble"
-        tsm_pred_orig = predictions[name]
+        if ens_name == "mtt::aux::energy_ensemble":
+            ens_name = "energy_ensemble"
+ 
+        tsm_pred_orig = predictions[self.target]
         tsm_pred_ens = predictions[ens_name]
         tsm_targ = targets[self.target]
 
         # number of ensembles extracted from TensorMaps
-        n_ens = tsm_pred_ens.block(0).values.shape[0] / tsm_pred_orig.block(0).values.shape[0]
+        n_ens = tsm_pred_ens.block(0).values.shape[1] // tsm_pred_orig.block(0).values.shape[1]
 
         # Check gradients are present in the target TensorMap
         if self.gradient is not None:
@@ -535,7 +538,7 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         ens_pred_values = tsm_pred_ens.block().values  # shape: samples, properties
         ens_pred_props = tsm_pred_ens.block().properties
 
-        ens_pred_values = ens_pred_values.reshape(ens_pre_values.shape[0], n_ens, -1)
+        ens_pred_values = ens_pred_values.reshape(ens_pred_values.shape[0], n_ens, -1)
         ens_pred_mean = ens_pred_values.mean(dim=1)
         ens_pred_var = ens_pred_values.var(dim=1, unbiased=True)
 

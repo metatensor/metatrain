@@ -27,6 +27,7 @@ def evaluate_model(
     systems: List[System],
     targets: Dict[str, TargetInfo],
     is_training: bool,
+    is_llpr_ens: bool = False,
     check_consistency: bool = False,
 ) -> Dict[str, TensorMap]:
     """
@@ -84,7 +85,7 @@ def evaluate_model(
     systems = new_systems
 
     # Based on the keys of the targets, get the outputs of the model:
-    model_outputs = _get_model_outputs(model, systems, targets, check_consistency)
+    model_outputs = _get_model_outputs(model, systems, targets, is_llpr_ens, check_consistency)
 
     energy_targets_with_gradients = list(
         set(
@@ -258,6 +259,7 @@ def _get_model_outputs(
     ],
     systems: List[System],
     targets: Dict[str, TargetInfo],
+    is_llpr_ens: bool,
     check_consistency: bool,
 ) -> Dict[str, TensorMap]:
     if is_atomistic_model(model):
@@ -272,6 +274,19 @@ def _get_model_outputs(
             },
         )
         return model(systems, options, check_consistency=check_consistency)
+    elif is_llpr_ens:
+        outputs = {}
+        for key, value in targets.items():
+            outputs[key] = ModelOutput(
+                quantity=value.quantity, unit=value.unit, per_atom=value.per_atom
+            )
+            ensemble_name = "mtt::aux::" + key.replace("mtt::", "") + "_ensemble"
+            if ensemble_name == "mtt::aux::energy_ensemble":
+                ensemble_name = "energy_ensemble"
+            outputs[ensemble_name] = ModelOutput(
+                quantity=value.quantity, unit=value.unit, per_atom=value.per_atom
+            )
+        return model(systems, outputs)    
     else:
         return model(
             systems,

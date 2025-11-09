@@ -13,7 +13,9 @@ from metatrain.utils.data import (
     CombinedDataLoader,
     Dataset,
     _is_disk_dataset,
+    unpack_batch,
 )
+from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension, model_from_checkpoint
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator
@@ -275,7 +277,7 @@ class Trainer(TrainerInterface):
 
                 optimizer.zero_grad()
 
-                systems, targets, extra_data = batch
+                systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
@@ -290,6 +292,7 @@ class Trainer(TrainerInterface):
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=True,
+                    is_llpr_ens=True,
                 )
                 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)

@@ -344,23 +344,23 @@ class LLPRUncertaintyModel(ModelInterface):
             if name.endswith("_ensemble"):
                 requested_ensembles.append(name)
 
-        for name in requested_ensembles:
+        for ens_name in requested_ensembles:
 
             original_name = (
-                name.replace("_ensemble", "").replace("aux::", "")
-                if name.replace("_ensemble", "").replace("aux::", "") in outputs
-                else name.replace("_ensemble", "").replace("mtt::aux::", "")
+                ens_name.replace("_ensemble", "").replace("aux::", "")
+                if ens_name.replace("_ensemble", "").replace("aux::", "") in outputs
+                else ens_name.replace("_ensemble", "").replace("mtt::aux::", "")
             )
 
-            ll_features_name = name.replace("_ensemble", "_last_layer_features")
+            ll_features_name = ens_name.replace("_ensemble", "_last_layer_features")
             if ll_features_name == "energy_last_layer_features":
                 # special case for energy_ensemble
                 ll_features_name = "mtt::aux::energy_last_layer_features"
             ll_features = return_dict[ll_features_name]
 
             ensemble_values = torch.tensor([0])
-            for name, module in self.llpr_ensemble_layers.items():
-                if name == original_name:
+            for lin_layer_name, module in self.llpr_ensemble_layers.items():
+                if lin_layer_name == original_name:
                     module.to(ll_features.block().values.device)
                     # raw ens output shape is (samples, (num_ens * num_prop))
                     ensemble_values = module(ll_features.block().values)
@@ -375,7 +375,7 @@ class LLPRUncertaintyModel(ModelInterface):
                 ensemble_values.shape[0],
                 -1,  # num_ens
                 num_prop,
-                )  # shape: samples, num_ens, num_prop
+            )  # shape: samples, num_ens, num_prop
 
             # since we know the exact mean of the ensemble from the model's prediction,
             # it should be mathematically correct to use it to re-center the ensemble.
@@ -387,8 +387,13 @@ class LLPRUncertaintyModel(ModelInterface):
             ensemble_values = (
                 ensemble_values
                 - ensemble_values.mean(dim=1, keepdim=True)
-                + return_dict[original_name].block().values
+                + return_dict[original_name].block().values.unsqueeze(1)  # ens_dim
             )
+
+            ensemble_values = ensemble_values.reshape(
+                ensemble_values.shape[0],
+                -1,
+            )  # shape: (samples, (num_ens * num_prop))
 
             # prepare the properties Labels object for ensemble output, i.e. account
             # for the num_ens dimension
@@ -424,7 +429,10 @@ class LLPRUncertaintyModel(ModelInterface):
                     ),
                 ],
             )
-            return_dict[name] = ensemble
+
+            return_dict[ens_name] = ensemble
+
+
 
         # remove the last-layer features from return_dict if they were not requested
         for key in list(return_dict.keys()):
@@ -799,7 +807,8 @@ class LLPRUncertaintyModel(ModelInterface):
         return checkpoint
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
-        raise ValueError("supported_outputs is not implemented for LLPR")
+        return self.model.outputs
+        # raise ValueError("supported_outputs is not implemented for LLPR")
 
 
 def _get_uncertainty_name(name: str) -> str:
