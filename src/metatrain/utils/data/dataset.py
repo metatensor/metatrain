@@ -23,7 +23,7 @@ from metatomic.torch import System, load_system, load_system_buffer
 from metatomic.torch import save_buffer as save_system_buffer
 from omegaconf import DictConfig
 from torch.utils.data import Dataset as TorchDataset
-from torch.utils.data import Subset, get_worker_info
+from torch.utils.data import Subset
 
 from metatrain.utils.data.readers.metatensor import (
     _check_tensor_map_metadata,
@@ -628,24 +628,21 @@ class DiskDataset(torch.utils.data.Dataset):
         self._sample_class = namedtuple("Sample", self._fields_to_read)
 
         # Do not open file in the main process and start sub-processes with None
-        self.zip_file = None
-        self.zip_file_pid = None
+        self.zip_file = zipfile.ZipFile(self.zip_file_path, "r")
+        self._root_pid = os.getpid()
+        self._zip_file_pid = self._root_pid
 
     def _open_zip_once(self) -> None:
-        pid = os.getpid()
-        if self.zip_file is None and self.zip_file_pid != pid:
+        self._zip_file_pid = os.getpid()
+        if self._zip_file_pid != self._root_pid:
             if self.zip_file is not None:
                 self.zip_file.close()
-
             self.zip_file = zipfile.ZipFile(self.zip_file_path, "r")
-            self.zip_file_pid = pid
 
     def __len__(self) -> int:
         return self._len
 
     def __getitem__(self, index: int) -> Any:
-        _ = get_worker_info()
-
         self._open_zip_once()
 
         system_and_targets = []
