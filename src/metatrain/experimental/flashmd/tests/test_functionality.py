@@ -2,15 +2,24 @@ import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
+from omegaconf import OmegaConf
 
 from metatrain.experimental.flashmd.model import FlashMD
-from metatrain.utils.architectures import get_default_hypers
+from metatrain.utils.architectures import check_architecture_options, get_default_hypers
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import TargetInfo
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+
+
+def test_valid_defaults():
+    """Tests that the default hypers pass the architecture options check."""
+    hypers = OmegaConf.create(get_default_hypers("experimental.flashmd"))
+    check_architecture_options(
+        name="experimental.flashmd", options=OmegaConf.to_container(hypers)
+    )
 
 
 @pytest.mark.filterwarnings("ignore:custom data:UserWarning")
