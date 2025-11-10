@@ -630,10 +630,14 @@ class DiskDataset(torch.utils.data.Dataset):
         # Do not open file in the main process and start sub-processes with None
         self.zip_file = zipfile.ZipFile(self.zip_file_path, "r")
         self._root_pid = os.getpid()
-        self._zip_file_pid = self._root_pid
+        self._zip_file_pid = None
 
     def _open_zip_once(self) -> None:
+        if self.zip_file_pid is not None:
+            return
+
         self._zip_file_pid = os.getpid()
+
         if self._zip_file_pid != self._root_pid:
             if self.zip_file is not None:
                 self.zip_file.close()
