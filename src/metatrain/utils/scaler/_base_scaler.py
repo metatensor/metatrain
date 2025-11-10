@@ -358,8 +358,6 @@ class BaseScaler(torch.nn.Module):
                     f"for key {key}."
                 )
 
-                # Scale each atomic type separately
-                output_block_types = torch.cat([system.types for system in systems])
                 scaled_vals = output_block.values
 
                 # unsqueeze scales_block.values to make broadcasting work
@@ -411,6 +409,19 @@ class BaseScaler(torch.nn.Module):
 
                 else:
                     assert self.sample_kinds[output_name] == "per_atom"
+
+                    # Scale each atomic type separately, also handling selected atoms
+                    # and/or potential reordering
+                    output_block_types = torch.cat([system.types for system in systems])
+                    system_indices = output_block.samples.values[:, 0]
+                    atom_indices = output_block.samples.values[:, 1]
+                    offset = torch.empty(len(systems), dtype=torch.long, device=device)
+                    offset[0] = 0
+                    for i in range(1, len(systems)):
+                        offset[i] = offset[i - 1] + len(systems[i - 1].types)
+                    output_block_types = output_block_types[
+                        offset[system_indices] + atom_indices
+                    ]
 
                     # TODO: gradients of per-atom targets are not supported
                     if len(output_block.gradients_list()) > 0:
