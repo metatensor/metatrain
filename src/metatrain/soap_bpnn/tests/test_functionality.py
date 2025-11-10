@@ -5,7 +5,6 @@ import pytest
 import torch
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
-from pydantic import ValidationError
 
 from metatrain.soap_bpnn import SoapBpnn
 from metatrain.utils.architectures import check_architecture_options
@@ -18,6 +17,7 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from metatrain.utils.pydantic import MetatrainValidationError
 
 from . import DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -286,7 +286,9 @@ def test_fixed_composition_weights_error():
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["fixed_composition_weights"] = {"energy": {"H": 300.0}}
     hypers = OmegaConf.create(hypers)
-    with pytest.raises(ValidationError, match=r"Input should be a valid integer"):
+    with pytest.raises(
+        MetatrainValidationError, match=r"Input should be a valid integer"
+    ):
         check_architecture_options(
             name="soap_bpnn", options=OmegaConf.to_container(hypers)
         )
