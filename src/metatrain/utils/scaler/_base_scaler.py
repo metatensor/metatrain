@@ -279,19 +279,19 @@ class BaseScaler(torch.nn.Module):
                             [systems[A].types[i], systems[A].types[j]]
                             for A, i, j in Y_block.samples.values[:, :3]
                         ]
-                    )
+                    ).to(device=device)
 
                     for first_atom_type in self.atomic_types:
                         for second_atom_type in self.atomic_types:
-                            # Slice the block to only include samples of the current atomic
-                            # type
+                            # Slice the block to only include samples of the current
+                            # atomic type
                             samples_type_mask = (
                                 Y_block_types[:, 0] == first_atom_type
                             ) & (Y_block_types[:, 1] == second_atom_type)
                             Y = Y_block.values[samples_type_mask]
 
-                            # Compute the number of samples and components in this block,
-                            # account for the mask if available
+                            # Compute the number of samples and components in this
+                            # block, account for the mask if available
                             if mask is None:
                                 N = Y.numel() // Y.shape[-1]
                             else:
@@ -303,15 +303,16 @@ class BaseScaler(torch.nn.Module):
                                     mask_values, dim=list(range(0, Y.dim() - 1))
                                 )
 
-                                # To ensure that Y^2 isn't accumulated on masked entries,
-                                # mutliply Y by the mask (either 1 for real data or 0 for
-                                # padded data).
+                                # To ensure that Y^2 isn't accumulated on masked
+                                # entries, mutliply Y by the mask (either 1 for real
+                                # data or 0 for padded data).
                                 Y = Y * mask_values.to(Y.dtype)
 
                             # Compute the Y2 values and sum over samples and components
                             Y2_values = torch.sum(Y**2, dim=list(range(0, Y.dim() - 1)))
 
-                            # Repeat the along the component axes (if any) and accumulate
+                            # Repeat the along the component axes (if any) and
+                            # accumulate
                             self.N[target_name][key].values[
                                 self.pair_type_to_index[
                                     first_atom_type, second_atom_type
@@ -640,6 +641,7 @@ class BaseScaler(torch.nn.Module):
 
         self.atomic_types = self.atomic_types.to(device=device)
         self.type_to_index = self.type_to_index.to(device=device)
+        self.pair_type_to_index = self.pair_type_to_index.to(device=device)
         self.N = {
             target_name: tm.to(device=device, dtype=dtype)
             for target_name, tm in self.N.items()

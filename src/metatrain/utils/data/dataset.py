@@ -276,9 +276,13 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
                     block.gradient(gradient_name).values
                     for block in sample[original_key].blocks()
                 ]
-            sums[key] += sum(tensor.sum() for tensor in tensors)
-            sums_of_squares[key] += sum((tensor**2).sum() for tensor in tensors)
-            n_elements[key] += sum(tensor.numel() for tensor in tensors)
+            sums[key] += sum(tensor[~tensor.isnan()].sum() for tensor in tensors)
+            sums_of_squares[key] += sum(
+                (tensor[~tensor.isnan()] ** 2).sum() for tensor in tensors
+            )
+            n_elements[key] += sum(
+                tensor[~tensor.isnan()].numel() for tensor in tensors
+            )
     means = {key: sums[key] / n_elements[key] for key in target_names}
     means_of_squares = {
         key: sums_of_squares[key] / n_elements[key] for key in target_names
@@ -1213,9 +1217,11 @@ class MemmapDataset(TorchDataset):
 
             target_block = TensorBlock(
                 values=torch.tensor(
-                    target_array[None, i]
-                    if not is_per_atom
-                    else target_array[self.na[i] : self.na[i + 1]],
+                    (
+                        target_array[None, i]
+                        if not is_per_atom
+                        else target_array[self.na[i] : self.na[i + 1]]
+                    ),
                     dtype=torch.float64,
                 ),
                 samples=samples,

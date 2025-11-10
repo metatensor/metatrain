@@ -269,7 +269,7 @@ class Trainer(TrainerInterface):
                     spherical_per_atom_targets,
                     requested_neighbor_lists[0],
                 ),
-                # rotational_augmenter.apply_random_augmentations,
+                rotational_augmenter.apply_random_augmentations,
                 get_create_dynamic_target_mask_transform(dynamic_mask_targets),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
