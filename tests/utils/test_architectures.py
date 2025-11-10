@@ -36,12 +36,15 @@ def test_get_architecture_path():
     assert get_architecture_path("soap_bpnn") == PACKAGE_ROOT / "soap_bpnn"
 
 
-@pytest.mark.parametrize("name", find_all_architectures())
-def test_get_default_hypers(name):
-    """Test that architecture hypers for all arches can be loaded."""
-    if name == "llpr":
-        # Skip this architecture as it is not a valid architecture but a wrapper
-        return
+def test_get_default_hypers():
+    """Test that architecture default hypers can be loaded.
+
+    We use soap_bpnn as the test architecture to see if the function works.
+    Other architectures might have dependencies, and therefore loading their
+    default hypers could fail. The loading of default hypers should be
+    tested in the tests of each architecture.
+    """
+    name = "soap_bpnn"
     default_hypers = get_default_hypers(name)
     assert type(default_hypers) is dict
     assert default_hypers["name"] == name
@@ -79,7 +82,6 @@ def test_check_architecture_name_deprecated():
     [
         PACKAGE_ROOT / "soap_bpnn",
         PACKAGE_ROOT / "soap_bpnn" / "__init__.py",
-        PACKAGE_ROOT / "soap_bpnn" / "default-hypers.yaml",
     ],
 )
 def test_get_architecture_name(path_type, path):
@@ -100,12 +102,15 @@ def test_get_architecture_name_err_no_such_arch():
         get_architecture_name(path)
 
 
-@pytest.mark.parametrize("name", find_all_architectures())
-def test_check_valid_default_architecture_options(name):
-    """Test that all default hypers are according to the provided schema."""
-    if name == "llpr":
-        # Skip this architecture as it is not a valid architecture but a wrapper
-        return
+def test_check_valid_default_architecture_options():
+    """Test that validating architecture options works.
+
+    We use soap_bpnn as the test architecture to see if the function works.
+    Other architectures might have dependencies, and therefore loading their
+    default hypers could fail. The loading of default hypers should be
+    tested in the tests of each architecture.
+    """
+    name = "soap_bpnn"
     options = get_default_hypers(name)
     check_architecture_options(name=name, options=options)
 

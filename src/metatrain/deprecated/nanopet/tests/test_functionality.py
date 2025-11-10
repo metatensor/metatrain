@@ -17,6 +17,14 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from . import DEFAULT_HYPERS, MODEL_HYPERS
 
 
+def test_valid_defaults():
+    """Tests that the default hypers pass the architecture options check."""
+    hypers = OmegaConf.create(DEFAULT_HYPERS)
+    check_architecture_options(
+        name="deprecated.nanopet", options=OmegaConf.to_container(hypers)
+    )
+
+
 def test_nanopet_padding():
     """Tests that the model predicts the same energy independently of the
     padding size."""
