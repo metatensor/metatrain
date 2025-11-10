@@ -30,7 +30,7 @@ class MetatrainValidationError(Exception):
 
         # This is a field that was not expected
         if error["type"] == "extra_forbidden":
-            extra_field = {".".join(error["loc"])}
+            extra_field = ".".join(error["loc"])
             return f"Unrecognized option '{extra_field}'."
 
         # If it doesn't match any special case, use the default Pydantic formatting

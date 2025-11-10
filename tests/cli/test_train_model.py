@@ -227,15 +227,15 @@ def test_train_unknown_arch_options(monkeypatch, tmp_path):
             length_unit: angstrom
         targets:
             energy:
-            key: U0
-            unit: eV
+                key: U0
+                unit: eV
 
     test_set: 0.5
     validation_set: 0.1
     """
     options = OmegaConf.create(options_str)
 
-    match = r"Unrecognized option 'training.num_epoch'."
+    match = r"Unrecognized option 'training\.num_epoch'"
     with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
 

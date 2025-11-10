@@ -123,7 +123,7 @@ def test_check_architecture_options_error_raise():
     # Add an unknown parameter
     options["training"]["num_epochxxx"] = 10
 
-    match = r"Unrecognized option 'training.num_epochxxx'."
+    match = r"Unrecognized option 'training\.num_epochxxx'"
     with pytest.raises(MetatrainValidationError, match=match):
         check_architecture_options(name=name, options=options)
 
