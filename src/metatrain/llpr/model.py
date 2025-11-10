@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from collections import defaultdict
 from typing import Any, DefaultDict, Dict, List, Literal, Optional, Union
@@ -207,8 +208,37 @@ class LLPRUncertaintyModel(ModelInterface):
 
         self.llpr_ensemble_layers = torch.nn.ModuleDict()
 
-    def restart(self, dataset_info: DatasetInfo) -> "ModelInterface":
-        raise ValueError("Restarting from a LLPR model is not supported.")
+    def restart(self, dataset_info: DatasetInfo) -> "LLPRUncertaintyModel":
+        # merge old and new dataset info
+        merged_info = self.dataset_info.union(dataset_info)
+        new_atomic_types = [
+            at for at in merged_info.atomic_types if at not in self.model.atomic_types
+        ]
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in self.dataset_info.targets
+        }
+        self.has_new_targets = len(new_targets) > 0
+
+        if self.has_new_targets:
+            raise ValueError(
+                f"New targets found in the dataset: {new_targets}. "
+                "The LLPR ensemble calibration does not support adding new targets."
+            )
+        if len(new_atomic_types) > 0:
+            raise ValueError(
+                f"New atomic types found in the dataset: {new_atomic_types}. "
+                "The LLPR ensemble calibration does not support adding new atomic "
+                "types."
+            )
+
+        self.dataset_info = merged_info
+
+        # invoke restart routine for the wrapped model
+        self.model.restart(dataset_info)
+
+        return self
 
     def forward(
         self,
@@ -704,14 +734,18 @@ class LLPRUncertaintyModel(ModelInterface):
             k: v for k, v in self.state_dict().items() if not k.startswith("model.")
         }
         checkpoint = {
+            "architecture_name": "llpr",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.metadata,
             "model_data": {
                 "hypers": self.hypers,
                 "dataset_info": self.dataset_info,
             },
-            "architecture_name": "llpr",
-            "model_ckpt_version": self.__checkpoint_version__,
+            "epoch": None,
+            "best_epoch": None,
+            "model_state_dict": state_dict,
+            "best_model_state_dict": state_dict,
             "wrapped_model_checkpoint": wrapped_model_checkpoint,
-            "state_dict": state_dict,
         }
         return checkpoint
 
@@ -723,19 +757,34 @@ class LLPRUncertaintyModel(ModelInterface):
     ) -> "LLPRUncertaintyModel":
         model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], context)
         if context == "finetune":
-            return model
-        elif context == "restart":
             raise NotImplementedError(
-                "Restarting from the LLPR checkpoint is not supported. "
-                "Please consider finetuning the model, or just export it "
-                "in the TorchScript format for final usage."
+                "Finetuning directly from the LLPR checkpoint is not supported. "
+                "You can instead extract the wrapped model, perform finetuning, "
+                "then re-wrap the model with LLPRUncertaintyModel afterwards."
             )
+        elif context == "restart":
+            logging.info(
+                f"Restart for LLPRUncertaintyModel will attempt continuation of "
+                f"ensemble calibration"
+            )
+            logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
+            model_state_dict = checkpoint["model_state_dict"]
         elif context == "export":
-            llpr_model = cls(**checkpoint["model_data"])
-            llpr_model.set_wrapped_model(model)
-            dtype = next(model.parameters()).dtype
-            llpr_model.to(dtype).load_state_dict(checkpoint["state_dict"], strict=False)
-            return llpr_model
+            logging.info(
+                f"Export using best model from epoch {checkpoint['best_epoch']}"
+            )
+            model_state_dict = checkpoint["best_model_state_dict"]
+        else:
+            raise ValueError("Unknown context tag for checkpoint loading!")
+
+        llpr_model = cls(**checkpoint["model_data"])
+        llpr_model.set_wrapped_model(model)
+        state_dict_iter = iter(model_state_dict.values())
+        next(state_dict_iter)  # skip the species_to_species_index
+        dtype = next(state_dict_iter).dtype    
+        llpr_model.to(dtype).load_state_dict(model_state_dict, strict=False)
+
+        return llpr_model
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype

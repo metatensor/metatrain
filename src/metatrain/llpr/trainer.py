@@ -247,7 +247,39 @@ class Trainer(TrainerInterface):
                 model.parameters(), lr=self.hypers["learning_rate"]
             )
 
-        if self.optimizer_state_dict is not None and not is_finetune:
+
+
+        if self.optimizer_state_dict is not None:
+            loaded_groups = self.optimizer_state_dict["param_groups"]
+            current_groups = optimizer.param_groups
+
+            print("Number of param groups in checkpoint:", len(loaded_groups))
+            print("Number of param groups in current optimizer:", len(current_groups))
+
+            # Compare each group
+            for i, (lg, cg) in enumerate(zip(loaded_groups, current_groups)):
+                print(f"\n=== Group {i} ===")
+                print("Checkpoint group length:", len(lg["params"]))
+                print("Current group length   :", len(cg["params"]))
+
+                # Compare parameter IDs
+                loaded_ids = lg["params"]
+                current_ids = [id(p) for p in cg["params"]]
+                for j, (lid, cid) in enumerate(zip(loaded_ids, current_ids)):
+                    print(lid, cid)
+
+                mismatch = [j for j, (lid, cid) in enumerate(zip(loaded_ids, current_ids)) if lid != cid]
+
+                if mismatch:
+                    print(f"Parameter ID mismatch at positions: {mismatch}")
+                else:
+                    print("All parameter IDs match in this group.")
+
+            # If there are more current groups than loaded groups
+            if len(current_groups) > len(loaded_groups):
+                print("\nWarning: More current groups than checkpoint groups!")
+            elif len(loaded_groups) > len(current_groups):
+                print("\nWarning: More checkpoint groups than current groups!")
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
             if not (model.module if is_distributed else model).has_new_targets:
@@ -256,7 +288,7 @@ class Trainer(TrainerInterface):
         # Create a learning rate scheduler
         lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
 
-        if self.scheduler_state_dict is not None and not is_finetune:
+        if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
             if not (model.module if is_distributed else model).has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
@@ -316,6 +348,11 @@ class Trainer(TrainerInterface):
 
                 train_loss += train_loss_batch.item()
 
+                predictions = average_by_num_atoms(
+                    predictions, systems, per_structure_targets
+                )
+                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+
                 train_rmse_calculator.update(predictions, targets)
                 if self.hypers["log_mae"]:
                     train_mae_calculator.update(predictions, targets)
@@ -353,6 +390,12 @@ class Trainer(TrainerInterface):
                 )
                 val_loss_batch = loss_fn(predictions, targets, extra_data)
                 val_loss += val_loss_batch.item()
+
+                predictions = average_by_num_atoms(
+                    predictions, systems, per_structure_targets
+                )
+                targets = average_by_num_atoms(targets, systems, per_structure_targets)                
+
                 val_rmse_calculator.update(predictions, targets)
                 if self.hypers["log_mae"]:
                     val_mae_calculator.update(predictions, targets)
@@ -426,9 +469,21 @@ class Trainer(TrainerInterface):
         self.optimizer_state_dict = optimizer.state_dict()
         self.scheduler_state_dict = lr_scheduler.state_dict()
 
-
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
+        checkpoint.update(
+            {
+                "trainer_ckpt_version": self.__checkpoint_version__,
+                "train_hypers": self.hypers,
+                "epoch": self.epoch,
+                "optimizer_state_dict": self.optimizer_state_dict,
+                "scheduler_state_dict": self.scheduler_state_dict,
+                "best_epoch": self.best_epoch,
+                "best_metric": self.best_metric,
+                "best_model_state_dict": self.best_model_state_dict,
+                "best_optimizer_state_dict": self.best_optimizer_state_dict,
+            }
+        )
         torch.save(
             checkpoint,
             check_file_extension(path, ".ckpt"),
@@ -440,8 +495,16 @@ class Trainer(TrainerInterface):
         checkpoint: Dict[str, Any],
         hypers: Dict[str, Any],
         context: Literal["restart", "finetune"],
-    ) -> "LLPRUncertaintyModel":
-        raise ValueError("LLPR does not allow restarting training")
+    ) -> "Trainer":
+        trainer = cls(hypers)
+        trainer.optimizer_state_dict = checkpoint["optimizer_state_dict"]
+        trainer.scheduler_state_dict = checkpoint["scheduler_state_dict"]
+        trainer.epoch = checkpoint["epoch"]
+        trainer.best_epoch = checkpoint["best_epoch"]
+        trainer.best_metric = checkpoint["best_metric"]
+        trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
+        trainer.best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
+        return trainer
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
