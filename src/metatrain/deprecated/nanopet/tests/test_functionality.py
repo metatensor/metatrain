@@ -3,7 +3,6 @@ import pytest
 import torch
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
-from pydantic import ValidationError
 
 from metatrain.deprecated.nanopet.model import NanoPET
 from metatrain.utils.architectures import check_architecture_options
