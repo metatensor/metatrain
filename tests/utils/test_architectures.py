@@ -13,6 +13,7 @@ from metatrain.utils.architectures import (
     get_default_hypers,
     import_architecture,
 )
+from metatrain.utils.pydantic import MetatrainValidationError
 
 
 def is_None(*args, **kwargs) -> None:
@@ -122,8 +123,8 @@ def test_check_architecture_options_error_raise():
     # Add an unknown parameter
     options["training"]["num_epochxxx"] = 10
 
-    match = r"Unrecognized options \('num_epochxxx' was unexpected\)"
-    with pytest.raises(ValueError, match=match):
+    match = r"Unrecognized option 'training.num_epochxxx'."
+    with pytest.raises(MetatrainValidationError, match=match):
         check_architecture_options(name=name, options=options)
 
 
