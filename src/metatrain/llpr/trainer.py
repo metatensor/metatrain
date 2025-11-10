@@ -1,3 +1,4 @@
+import copy
 import logging
 import math
 from pathlib import Path
@@ -90,6 +91,9 @@ class Trainer(TrainerInterface):
         wrapped_model = model_from_checkpoint(checkpoint, "export")
         model.set_wrapped_model(wrapped_model)
 
+        # TODO: support distributed calibration for LLPR models
+        is_distributed = False
+        rank = 0
         device = devices[0]  # this trainer doesn't support multi-GPU training
         # check device and dtype against wrapped model class
         if device.type not in wrapped_model.__class__.__supported_devices__:
@@ -178,8 +182,10 @@ class Trainer(TrainerInterface):
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
-        # TODO: account for restart of calibration, if restart ..., else below
-        if not self.hypers["mode"] == "restart_ens_calib":
+        # we sort out start epoch here to indirectly determine if restarting or not
+        start_epoch = 0 if self.epoch is None else self.epoch + 1
+
+        if start_epoch == 0:
             logging.info("Starting LLPR preparation and calibration")            
             model.compute_covariance(train_dataloader)
             model.compute_inverse_covariance(self.hypers["regularizer"])
@@ -191,7 +197,7 @@ class Trainer(TrainerInterface):
             logging.info("LLPR-only mode was invoked, skipping to model export")
             return
 
-        logging.info("Starting training for LLPR ensemble calibration")
+        logging.info("Starting epoch-based training for LLPR ensemble calibration")
 
         train_targets = model.dataset_info.targets
         extra_data_info = model.dataset_info.extra_data
@@ -200,6 +206,17 @@ class Trainer(TrainerInterface):
             outputs_list.append(target_name)
             for gradient_name in target_info.gradients:
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
+
+        logging.info(
+            f'Applying "{self.hypers["calib_options"]["strategy"]}" '
+            f'as the calibration strategy'
+        )
+        for target_name, target_info in train_targets.items():
+            model = apply_recalibration_strategy(
+                model,
+                target_name,
+                self.hypers["calib_options"]
+            )
 
         loss_hypers = self.hypers["ens_calib_loss"]
         loss_fn = LossAggregator(
@@ -249,8 +266,6 @@ class Trainer(TrainerInterface):
         # Log the initial learning rate:
         logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
 
-        start_epoch = 0 if self.epoch is None else self.epoch + 1
-
         # Train the model:
         if self.best_metric is None:
             self.best_metric = float("inf")
@@ -258,9 +273,9 @@ class Trainer(TrainerInterface):
         epoch = start_epoch
         
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
-            # if is_distributed:
-            #     for train_sampler in train_samplers:
-            #         train_sampler.set_epoch(epoch)
+            if is_distributed:
+                for train_sampler in train_samplers:
+                    train_sampler.set_epoch(epoch)
 
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
@@ -284,9 +299,7 @@ class Trainer(TrainerInterface):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
                 )
-                ## no additive removal and scaling for now
 
-                ## TODO: make evaluate_model compatible with LLPRUncertaintyModel
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -297,9 +310,7 @@ class Trainer(TrainerInterface):
                 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
                 train_loss_batch.backward()
-                # torch.nn.utils.clip_grad_norm_(
-                #     model.parameters(), self.hypers["grad_clip_norm"]
-                # )
+
                 optimizer.step()
                 lr_scheduler.step()
 
@@ -326,7 +337,7 @@ class Trainer(TrainerInterface):
 
             val_loss = 0.0
             for batch in val_dataloader:
-                systems, targets, extra_data = batch
+                systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
@@ -338,6 +349,7 @@ class Trainer(TrainerInterface):
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
+                    is_llpr_ens=True,
                 )
                 val_loss_batch = loss_fn(predictions, targets, extra_data)
                 val_loss += val_loss_batch.item()
@@ -377,7 +389,6 @@ class Trainer(TrainerInterface):
                     ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
-                    scales={key: 1.0 for key in finalized_train_info.keys()},
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(

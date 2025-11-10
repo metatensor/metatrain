@@ -120,7 +120,29 @@
             }
           },
           "additionalProperties": false
-        }
+        },
+        "calib_options": {
+          "type": "object",
+          "properties": {
+            "strategy": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "full",
+                "tagged_only",
+                "ens_only"
+              ]
+            },
+            "tagged_only_weights": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }  
       },
       "additionalProperties": false
     },

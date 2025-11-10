@@ -447,8 +447,8 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
     def compute_flattened(
         self,
         pred_mean: TensorMap,
+        target:TensorMap,        
         pred_var:TensorMap,        
-        target: TensorMap,
     ) -> torch.Tensor:
         """
         Flatten prediction and target blocks (and optional mask), then
@@ -575,7 +575,6 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
                 ),
             ],
         )
-
         return self.compute_flattened(tsm_pred_mean, tsm_targ, tsm_pred_var)
 
 

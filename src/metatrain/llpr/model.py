@@ -636,9 +636,6 @@ class LLPRUncertaintyModel(ModelInterface):
 
             uncertainty_name = _get_uncertainty_name(name)
             cur_multiplier = self._get_multiplier(uncertainty_name)
-#            if weights.shape[0] == 1:
-#                cur_multiplier = cur_multiplier.unsqueeze(0)
-
             cur_inv_covariance = self._get_inv_covariance(
                 uncertainty_name
             ).clone().detach().cpu().numpy()
@@ -673,6 +670,8 @@ class LLPRUncertaintyModel(ModelInterface):
                 self.ll_feat_size,
                 ensemble_weights.shape[1],
                 bias=False,
+                device=device,
+                dtype=dtype,
             )
             # assign the generated weights
             with torch.no_grad():
