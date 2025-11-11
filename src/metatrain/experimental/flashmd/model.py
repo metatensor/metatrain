@@ -23,6 +23,7 @@ from metatrain.pet.modules.utilities import cutoff_func
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
@@ -152,6 +153,11 @@ class FlashMD(ModelInterface):
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
 
+        self._add_output(
+            "mtt::S3",
+            get_energy_target_info("mtt::S3", {"quantity": "energy", "unit": ""}),
+        )
+
         self.register_buffer(
             "species_to_species_index",
             torch.full((max(self.atomic_types) + 1,), -1),
@@ -206,7 +212,8 @@ class FlashMD(ModelInterface):
                 },
             ),
         )
-        additive_models = [composition_model, position_additive]
+        # additive_models = [composition_model, position_additive]
+        additive_models = [composition_model]
 
         self.additive_models = torch.nn.ModuleList(additive_models)
 
@@ -253,6 +260,9 @@ class FlashMD(ModelInterface):
 
         # register new outputs as new last layers
         for target_name, target in new_targets.items():
+            if "mtt::delta_" in target_name:
+                # delta learning targets are not directly predicted by the model
+                continue
             self.target_names.append(target_name)
             self._add_output(target_name, target)
 
@@ -402,6 +412,16 @@ class FlashMD(ModelInterface):
             predictions (depending on the ModelOutput configuration) with appropriate
             metatensor metadata (samples, components, properties).
         """
+        if "mtt::S3" not in outputs:
+            outputs["mtt::S3"] = ModelOutput()
+            positions_output = outputs.pop("mtt::delta_q")
+            momenta_output = outputs.pop("mtt::delta_p")
+            was_s3_added = True
+        else:
+            positions_output = ModelOutput()
+            momenta_output = ModelOutput()
+            was_s3_added = False
+
         device = systems[0].device
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
@@ -411,6 +431,16 @@ class FlashMD(ModelInterface):
 
         # Here, we verify that all systems have masses attached.
         verify_masses(systems, self.masses)
+
+        positions_for_diff = torch.concatenate(
+            [system.positions for system in systems], dim=0
+        )
+        positions_for_diff.requires_grad_(True)
+        system_positions = torch.split(
+            positions_for_diff, [len(system) for system in systems]
+        )
+        for system, pos in zip(systems, system_positions, strict=True):
+            system.positions = pos
 
         # **Stage 0: Input Preparation**
         with record_function("FlashMD::systems_to_batch"):
@@ -430,6 +460,9 @@ class FlashMD(ModelInterface):
                 self.species_to_species_index,
                 selected_atoms,
             )
+        momenta_for_diff = momenta.clone()
+        momenta_for_diff.requires_grad_(True)
+        momenta = momenta_for_diff * 2.5
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
@@ -518,6 +551,7 @@ class FlashMD(ModelInterface):
                     outputs,
                 )
             )
+
         with record_function("FlashMD::_get_output_atomic_predictions"):
             atomic_predictions_dict = self._get_output_atomic_predictions(
                 systems,
@@ -532,6 +566,63 @@ class FlashMD(ModelInterface):
 
             for k, v in atomic_predictions_dict.items():
                 return_dict[k] = v
+
+        generating_function_sum = return_dict["mtt::S3"].block().values.sum() * 15.0
+        dSdq_opt, dSdp_opt = torch.autograd.grad(
+            [generating_function_sum],
+            [positions_for_diff, momenta_for_diff],
+            retain_graph=self.training,
+            create_graph=self.training,
+        )
+        if dSdq_opt is not None:
+            dSdq = dSdq_opt
+        else:
+            raise ValueError("Error dSdq :(")
+        if dSdp_opt is not None:
+            dSdp = dSdp_opt
+        else:
+            raise ValueError("Error dSdp :(")
+        return_dict["mtt::delta_q"] = TensorMap(
+            keys=self.single_label,
+            blocks=[
+                TensorBlock(
+                    values=dSdp.unsqueeze(-1),
+                    samples=sample_labels,
+                    components=[
+                        Labels(
+                            names="xyz",
+                            values=torch.tensor([[0], [1], [2]], device=device),
+                        )
+                    ],
+                    properties=Labels(
+                        names="delta_q", values=torch.tensor([[0]], device=device)
+                    ),
+                )
+            ],
+        )
+        return_dict["mtt::delta_p"] = TensorMap(
+            keys=self.single_label,
+            blocks=[
+                TensorBlock(
+                    values=-dSdq.unsqueeze(-1),
+                    samples=sample_labels,
+                    components=[
+                        Labels(
+                            names="xyz",
+                            values=torch.tensor([[0], [1], [2]], device=device),
+                        )
+                    ],
+                    properties=Labels(
+                        names="delta_p", values=torch.tensor([[0]], device=device)
+                    ),
+                )
+            ],
+        )
+        if was_s3_added:
+            outputs["mtt::delta_positions"] = positions_output
+            outputs["mtt::delta_p"] = momenta_output
+            outputs.pop("mtt::S3")
+            return_dict.pop("mtt::S3")
 
         # **Post-processing (Evaluation Only)**
 
@@ -577,6 +668,12 @@ class FlashMD(ModelInterface):
                         return_dict[name] = TensorMap(
                             return_dict[name].keys, output_blocks
                         )
+
+        # torch.set_printoptions(precision=12)
+        # print("p", return_dict["mtt::delta_p"].block().values.flatten().std())
+        # print("q", return_dict["mtt::delta_q"].block().values.flatten().std())
+        # print()
+        # exit()
 
         return return_dict
 
@@ -1057,7 +1154,7 @@ class FlashMD(ModelInterface):
             predictions, either per-atom or summed over atoms.
         """
         atomic_predictions_tmap_dict: Dict[str, TensorMap] = {}
-        for output_name in self.target_names:
+        for output_name in self.target_names + ["mtt::S3"]:
             if output_name in outputs:
                 atomic_predictions_by_block = {
                     key: torch.zeros(

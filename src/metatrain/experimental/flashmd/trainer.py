@@ -423,6 +423,13 @@ class Trainer(TrainerInterface):
                     is_training=True,
                 )
 
+                # print(predictions["mtt::delta_q"].block().values.std())
+                # print(predictions["mtt::delta_p"].block().values.std())
+                # print()
+                # print(targets["mtt::delta_q"].block().values.std())
+                # print(targets["mtt::delta_p"].block().values.std())
+                # print("----")
+
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
                     predictions, systems, per_structure_targets
