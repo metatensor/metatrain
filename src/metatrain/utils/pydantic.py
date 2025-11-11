@@ -64,7 +64,7 @@ class MetatrainValidationError(Exception):
 
 
 def validate(model_cls: Any, data: dict, **kwargs: Any) -> None:
-    """Validate with pydantic, raising custom metatrain errors.
+    r"""Validate with pydantic, raising custom metatrain errors.
 
     :param model_cls: The Pydantic model class to use for validation.
       If it is not a pydantic model, it will be adapted to pydantic
