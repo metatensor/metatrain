@@ -628,8 +628,8 @@ class DiskDataset(torch.utils.data.Dataset):
         self._sample_class = namedtuple("Sample", self._fields_to_read)
 
         # Do not open file in the main process and start sub-processes with None
-        self.zip_file = None
-        self._zip_file_pid = None
+        self.zip_file: Optional[zipfile.ZipFile] = None
+        self._zip_file_pid: Optional[int] = None
 
     def _open_zip_once(self) -> None:
         pid = os.getpid()
@@ -644,6 +644,7 @@ class DiskDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index: int) -> Any:
         self._open_zip_once()
+        assert self.zip_file is not None
 
         system_and_targets = []
         for field_name in self._fields_to_read:
