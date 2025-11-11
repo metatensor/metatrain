@@ -148,7 +148,7 @@ def validate(model_cls: Any, data: dict, **kwargs: Any) -> None:
       If it is not a pydantic model, it will be adapted to pydantic
       using ``pydantic.TypeAdapter``.
     :param data: The data to validate.
-    :param **kwargs: Additional keyword arguments to pass to the validation method.
+    :param \*\*kwargs: Additional keyword arguments to pass to the validation method.
 
     :raises MetatrainValidationError: If validation fails.
     """
