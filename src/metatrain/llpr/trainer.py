@@ -77,8 +77,11 @@ class Trainer(TrainerInterface):
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ) -> None:
-        # Load the wrapped model from checkpoint and set it as the wrapped model of the
-        # LLPR model:
+
+        # we begin by loading start_epoch to determine if restarting or not
+        start_epoch = 0 if self.epoch is None else self.epoch + 1
+
+        # If LLPR training from scratch, load the wrapped model from checkpoint
         if self.hypers["model_checkpoint"] is None:
             raise ValueError(
                 "A model checkpoint must be provided to train the LLPR "
@@ -89,7 +92,8 @@ class Trainer(TrainerInterface):
             wrapped_model_checkpoint_path, weights_only=False, map_location="cpu"
         )
         wrapped_model = model_from_checkpoint(checkpoint, "export")
-        model.set_wrapped_model(wrapped_model)
+        if start_epoch == 0:
+            model.set_wrapped_model(wrapped_model)
 
         # TODO: support distributed calibration for LLPR models
         is_distributed = False
@@ -182,9 +186,6 @@ class Trainer(TrainerInterface):
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
-        # we sort out start epoch here to indirectly determine if restarting or not
-        start_epoch = 0 if self.epoch is None else self.epoch + 1
-
         if start_epoch == 0:
             logging.info("Starting LLPR preparation and calibration")            
             model.compute_covariance(train_dataloader)
@@ -247,39 +248,7 @@ class Trainer(TrainerInterface):
                 model.parameters(), lr=self.hypers["learning_rate"]
             )
 
-
-
         if self.optimizer_state_dict is not None:
-            loaded_groups = self.optimizer_state_dict["param_groups"]
-            current_groups = optimizer.param_groups
-
-            print("Number of param groups in checkpoint:", len(loaded_groups))
-            print("Number of param groups in current optimizer:", len(current_groups))
-
-            # Compare each group
-            for i, (lg, cg) in enumerate(zip(loaded_groups, current_groups)):
-                print(f"\n=== Group {i} ===")
-                print("Checkpoint group length:", len(lg["params"]))
-                print("Current group length   :", len(cg["params"]))
-
-                # Compare parameter IDs
-                loaded_ids = lg["params"]
-                current_ids = [id(p) for p in cg["params"]]
-                for j, (lid, cid) in enumerate(zip(loaded_ids, current_ids)):
-                    print(lid, cid)
-
-                mismatch = [j for j, (lid, cid) in enumerate(zip(loaded_ids, current_ids)) if lid != cid]
-
-                if mismatch:
-                    print(f"Parameter ID mismatch at positions: {mismatch}")
-                else:
-                    print("All parameter IDs match in this group.")
-
-            # If there are more current groups than loaded groups
-            if len(current_groups) > len(loaded_groups):
-                print("\nWarning: More current groups than checkpoint groups!")
-            elif len(loaded_groups) > len(current_groups):
-                print("\nWarning: More checkpoint groups than current groups!")
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
             if not (model.module if is_distributed else model).has_new_targets:

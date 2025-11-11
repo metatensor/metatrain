@@ -779,10 +779,24 @@ class LLPRUncertaintyModel(ModelInterface):
 
         llpr_model = cls(**checkpoint["model_data"])
         llpr_model.set_wrapped_model(model)
-        state_dict_iter = iter(model_state_dict.values())
-        next(state_dict_iter)  # skip the species_to_species_index
-        dtype = next(state_dict_iter).dtype    
-        llpr_model.to(dtype).load_state_dict(model_state_dict, strict=False)
+
+        if context == "restart":
+            state_dict_iter = iter(model_state_dict.values())
+            next(state_dict_iter)
+            dtype = next(state_dict_iter).dtype
+            device = next(state_dict_iter).device
+            # llpr ensemble linear layers must be manually initialized
+            for name, val in model_state_dict.items():
+                if "llpr_ensemble_layers" in name:
+                    target_name = name.split(".")[1]
+                    llpr_model.llpr_ensemble_layers[target_name] = torch.nn.Linear(
+                    val.shape[1],
+                    val.shape[0],
+                    bias=False,
+                    device=device,
+                    dtype=dtype,
+                )
+            llpr_model.to(dtype).load_state_dict(model_state_dict, strict=False)
 
         return llpr_model
 
