@@ -21,3 +21,12 @@ def model_update_v1_v2(checkpoint: dict) -> None:
     checkpoint["model_data"]["dataset_info"] = checkpoint["wrapped_model_checkpoint"][
         "model_data"
     ]["dataset_info"]
+
+
+def model_update_v2_v3(checkpoint: dict) -> None:
+    """
+    Update a v2 checkpoint to v3.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    return  # YOLO
