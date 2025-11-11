@@ -18,7 +18,11 @@ architecture:
         type: ensemble_nll
         weight: 1.0
         reduction: sum
-        gradients: None
+        gradients:
+          positions:
+            type: ensemble_nll
+            weight: 1.0
+            reduction: sum
     calib_options:
       strategy: tagged_only
       tagged_only_weights:
@@ -28,12 +32,14 @@ architecture:
 
 training_set:
   systems:
-    read_from: qm9_reduced_100.xyz
+    read_from: hydrogen.xyz
     length_unit: angstrom
   targets:
     energy:
-      key: U0
+      key: DFT_energy
       unit: eV
+      forces:
+        key: DFT_forces
 
 validation_set: 0.1
 test_set: 0.1

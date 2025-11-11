@@ -308,7 +308,7 @@ class Trainer(TrainerInterface):
                     is_training=True,
                     is_llpr_ens=True,
                 )
-                
+
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
                 train_loss_batch.backward()
 

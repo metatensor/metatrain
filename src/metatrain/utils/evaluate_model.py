@@ -137,6 +137,40 @@ def evaluate_model(
                 blocks=[new_block],
             )
             model_outputs[energy_target] = new_energy_tensor_map
+
+            if is_llpr_ens:
+                if energy_target == "energy":
+                    ens_name = "energy_ensemble"
+                else:
+                    # TODO: double-check multi-energy formalism here
+                    ens_name = energy_target.replace("mtt::", "mtt::aux") + "_ensemble"
+                    
+                ens_preds = model_outputs[ens_name].block().values  # n_samples, n_ens
+                n_ens = model_outputs[ens_name].block().properties.values.shape[0]
+                all_ens_grads = []                
+                for ens_i in range(n_ens):
+                    cur_ens_grad = compute_gradient(
+                        ens_preds[:, ens_i],
+                        [system.positions for system in systems],
+                        is_training=is_training,
+                        destroy_graph=(
+                            index == len(energy_targets_with_gradients) - 1
+                        ),
+                    )
+                    all_ens_grads.append(cur_ens_grad)
+                    # list of ``shape'' (n_samples * n_atoms, 3) tensors
+                old_energy_ens_tensor_map = model_outputs[ens_name]
+                new_block = old_energy_ens_tensor_map.block().copy()
+                new_block.add_gradient(
+                    "positions",
+                    _position_gradients_to_block_llpr_ens(all_ens_grads, n_ens),
+                )
+                new_energy_ens_tensor_map = TensorMap(
+                    keys=old_energy_ens_tensor_map.keys,
+                    blocks=[new_block],
+                )
+                model_outputs[ens_name] = new_energy_ens_tensor_map
+
         elif target_requires_strain_gradients:
             gradients = compute_gradient(
                 model_outputs[energy_target].block().values,
@@ -204,6 +238,65 @@ def _position_gradients_to_block(gradients_list: List[torch.Tensor]) -> TensorBl
         properties=Labels("energy", torch.tensor([[0]])).to(gradients.device),
     )
 
+def _position_gradients_to_block_llpr_ens(
+    gradients_list: List[torch.Tensor],
+    n_ens: int,
+) -> TensorBlock:
+    """
+    Convert a list of position gradients to a `TensorBlock`
+    which can act as a gradient block to an energy block.
+
+    :param gradients_list: List of position gradient tensors.
+    :return: A TensorBlock with the position gradients.
+    """
+    # gradient list is a list (ens) of list (sample) of tensors
+    # save reference list
+    sample_list = [list for list in gradients_list[0]]    
+    # collect gradient tensors into shape (n_sample, component, n_ens)
+    ens_gradients = torch.stack(
+        [torch.cat(list, dim=0) for list in gradients_list],
+        dim=-1,
+    )
+    
+    samples = Labels(
+        names=["sample", "atom"],
+        values=torch.stack(
+            [
+                torch.concatenate(
+                    [
+                        torch.tensor([i] * len(system))
+                        for i, system in enumerate(sample_list)
+                    ]
+                ),
+                torch.concatenate(
+                    [torch.arange(len(system)) for system in sample_list]
+                ),
+            ],
+            dim=1,
+        ),
+        assume_unique=True,
+    )
+
+    components = [
+        Labels(
+            names=["xyz"],
+            values=torch.tensor([[0], [1], [2]]),
+        )
+    ]
+
+    device = ens_gradients.device
+    vals = torch.stack([torch.arange(n_ens), torch.tensor([0] * n_ens)], dim=1)
+    ens_prop = Labels(
+                names=["ensemble_member", "energy"],
+                values=vals,
+            )
+
+    return TensorBlock(
+        values=ens_gradients,
+        samples=samples.to(device),
+        components=[c.to(device) for c in components],
+        properties=ens_prop.to(device),
+    )
 
 def _strain_gradients_to_block(gradients_list: List[torch.Tensor]) -> TensorBlock:
     """
@@ -274,6 +367,7 @@ def _get_model_outputs(
             },
         )
         return model(systems, options, check_consistency=check_consistency)
+    # TODO: account for case where the llpr model is an atomistic model of metatomic
     elif is_llpr_ens:
         outputs = {}
         for key, value in targets.items():
