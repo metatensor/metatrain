@@ -33,8 +33,10 @@ from .utils.mts import (
     get_system_indices_and_labels,
 )
 
+#from .documentation import ModelHypers
+ModelHypers = int
 
-class MetaMACE(ModelInterface):
+class MetaMACE(ModelInterface[ModelHypers]):
     """Interface of MACE for metatrain."""
 
     __checkpoint_version__ = 1
@@ -49,7 +51,7 @@ class MetaMACE(ModelInterface):
         }
     )
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.requested_nl = NeighborListOptions(
