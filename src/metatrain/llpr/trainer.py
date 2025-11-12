@@ -3,11 +3,10 @@
 # with default values is not allowed by mypy.
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Union
 
 import torch
 from torch.utils.data import DataLoader
-from typing_extensions import TypedDict
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.data import (
@@ -29,7 +28,7 @@ from .model import LLPRUncertaintyModel
 
 class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 1
-    __hypers_cls__ = LLPRTrainerHypers
+    __hypers_cls__ = TrainerHypers
 
     def train(
         self,
