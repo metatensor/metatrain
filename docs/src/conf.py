@@ -106,9 +106,6 @@ autoclass_content = "both"
 autodoc_member_order = "bysource"
 autodoc_typehints = "both"
 autodoc_typehints_format = "short"
-autodoc_type_aliases = {
-    "SomeType": "int",
-}
 
 intersphinx_mapping = {
     "ase": ("https://ase-lib.org/", None),
