@@ -369,7 +369,7 @@ class Trainer(TrainerInterface):
         logging.info("Starting training")
         epoch = start_epoch
 
-        for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
+        for epoch in range(start_epoch, self.hypers["num_epochs"]):
             if is_distributed:
                 for train_sampler in train_samplers:
                     train_sampler.set_epoch(epoch)
@@ -592,7 +592,11 @@ class Trainer(TrainerInterface):
         trainer = cls(hypers)
         trainer.optimizer_state_dict = checkpoint["optimizer_state_dict"]
         trainer.scheduler_state_dict = checkpoint["scheduler_state_dict"]
-        trainer.epoch = checkpoint["epoch"]
+        if context == "restart":
+            trainer.epoch = checkpoint["epoch"]
+        else:
+            assert context == "finetune"
+            trainer.epoch = None
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
         trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
