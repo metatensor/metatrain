@@ -125,8 +125,8 @@ def import_architecture(name: str) -> ModuleType:
     """
     check_architecture_name(name)
     try:
-        return importlib.import_module(f"metatrain.{name}")
-    except ImportError as err:
+        module = importlib.import_module(f"metatrain.{name}")
+    except ModuleNotFoundError as err:
         # consistent name with pyproject.toml's `optional-dependencies` section
         name_for_deps = name
         if "experimental." in name or "deprecated." in name:
@@ -134,11 +134,36 @@ def import_architecture(name: str) -> ModuleType:
 
         name_for_deps = name_for_deps.replace("_", "-")
 
-        raise ImportError(
-            f"Trying to import '{name}' but architecture dependencies "
-            f"seem not be installed. \n"
-            f"Try to install them with `pip install metatrain[{name_for_deps}]`"
-        ) from err
+        if err.name and not err.name.startswith(f"metatrain.{name}"):
+            raise ModuleNotFoundError(
+                f"Trying to import '{name}' but architecture dependencies "
+                f"seem not be installed. \n"
+                f"Try to install them with `pip install metatrain[{name_for_deps}]`"
+            ) from err
+        else:
+            raise err
+
+    # Import documentation module and set the hypers class for model and trainer
+    try:
+        documentation = importlib.import_module(f"metatrain.{name}.documentation")
+    except ModuleNotFoundError as err:
+        if err.name == f"metatrain.{name}.documentation":
+            raise ModuleNotFoundError(
+                f"Documentation module for architecture '{name}' not found. "
+                "Make sure the architecture has a documentation.py file."
+            ) from err
+
+    for cls in ["ModelHypers", "TrainerHypers"]:
+        if not hasattr(documentation, cls):
+            raise ImportError(
+                f"Documentation module for architecture '{name}' does not "
+                f"contain a '{cls}' class."
+            )
+
+    module.__model__.__hypers_cls__ = documentation.ModelHypers
+    module.__trainer__.__hypers_cls__ = documentation.TrainerHypers
+
+    return module
 
 
 def get_architecture_path(name: str) -> Path:
@@ -173,7 +198,7 @@ def find_all_architectures() -> List[str]:
     # Find stable architectures
     for directory in PACKAGE_ROOT.iterdir():
         if (
-            not directory.name.startswith("_")
+            (not directory.name.startswith("_"))
             and directory.name not in exclude_dirs
             and (directory / "__init__.py").exists()
         ):
@@ -183,10 +208,9 @@ def find_all_architectures() -> List[str]:
     for special_dir in ["experimental", "deprecated"]:
         special_path = PACKAGE_ROOT / special_dir
         for directory in special_path.iterdir():
-            if (
-                not directory.name.startswith("_")
-                and (directory / "__init__.py").exists()
-            ):
+            if (not directory.name.startswith("_")) and (
+                directory / "__init__.py"
+            ).exists():
                 all_architectures.append(get_architecture_name(directory))
 
     return all_architectures

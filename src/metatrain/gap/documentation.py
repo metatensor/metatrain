@@ -1,6 +1,58 @@
-# mypy: disable-error-code=misc
-# We ignore misc errors in this file because TypedDict
-# with default values is not allowed by mypy.
+"""
+GAP
+===
+
+This is an implementation of the sparse Gaussian Approximation Potential
+(GAP) :footcite:p:`bartok_representing_2013` using Smooth Overlap of Atomic Positions
+(SOAP) :footcite:p:`bartok_gaussian_2010` implemented in `featomic <FEATOMIC_>`_.
+
+.. _FEATOMIC: https://github.com/Luthaf/featomic
+
+The GAP model in metatrain can only train on CPU, but evaluation
+is also supported on GPU.
+
+{SECTION_INSTALLATION}
+
+{SECTION_DEFAULT_HYPERS}
+
+{SECTION_MODEL_HYPERS}
+
+with the following definitions needed to fully understand some of the parameters:
+
+.. autoclass:: {architecture_path}.documentation.KRRHypers
+    :members:
+    :undoc-members:
+
+.. autoclass:: {architecture_path}.documentation.SOAPHypers
+    :members:
+    :undoc-members:
+
+.. autoclass:: {architecture_path}.documentation.SOAPCutoffHypers
+    :members:
+    :undoc-members:
+
+.. autoclass:: {architecture_path}.documentation.SOAPCutoffSmoothingHypers
+    :members:
+    :undoc-members:
+
+.. autoclass:: {architecture_path}.documentation.SOAPDensityHypers
+    :members:
+    :undoc-members:
+
+.. autoclass:: {architecture_path}.documentation.SOAPDensityScalingHypers
+    :members:
+    :undoc-members:
+
+.. autoclass:: {architecture_path}.documentation.SOAPBasisHypers
+    :members:
+    :undoc-members:
+
+.. autoclass:: {architecture_path}.documentation.SOAPBasisRadialHypers
+    :members:
+    :undoc-members:
+
+"""
+
 from typing import Literal, Optional
 
 from typing_extensions import TypedDict
@@ -122,7 +174,7 @@ class KRRHypers(TypedDict):
     memory and time required for training."""
 
 
-class GAPHypers(TypedDict):
+class ModelHypers(TypedDict):
     """Hyperparameters for the GAP model."""
 
     soap: SOAPHypers = init_with_defaults(SOAPHypers)
@@ -132,7 +184,7 @@ class GAPHypers(TypedDict):
     zbl: bool = False
 
 
-class GAPTrainerHypers(TypedDict):
+class TrainerHypers(TypedDict):
     """Hyperparameters for the GAP trainer."""
 
     regularizer: float = 1e-3

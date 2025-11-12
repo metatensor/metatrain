@@ -1,6 +1,14 @@
-# mypy: disable-error-code=misc
-# We ignore misc errors in this file because TypedDict
-# with default values is not allowed by mypy.
+"""
+NanoPET (deprecated)
+======================
+
+.. warning::
+
+  This is a **deprecated model**. You should not use it for anything important, and
+  support for it will be removed in future versions of metatrain. Please use the
+  :ref:`PET model <architecture-pet>` instead.
+"""
+
 from typing import Literal, Optional
 
 from typing_extensions import TypedDict
@@ -12,12 +20,7 @@ from metatrain.utils.loss import LossSpecification
 from metatrain.utils.scaler import FixedScalerWeights
 
 
-###########################
-#  MODEL HYPERPARAMETERS  #
-###########################
-
-
-class NanoPETHypers(TypedDict):
+class ModelHypers(TypedDict):
     """Hyperparameters for the NanoPET model."""
 
     cutoff: float = 5.0
@@ -61,12 +64,7 @@ class NanoPETHypers(TypedDict):
     """Long-range Coulomb interactions parameters."""
 
 
-##############################
-#  TRAINER HYPERPARAMETERS   #
-##############################
-
-
-class NanoPETTrainerHypers(TypedDict):
+class TrainerHypers(TypedDict):
     """Hyperparameters for training NanoPET models."""
 
     distributed: bool = False

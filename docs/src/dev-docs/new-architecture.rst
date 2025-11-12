@@ -58,10 +58,10 @@ General code structure
 
 To follow this, a new architecture has to define two classes
 
-- a ``Model`` class, defining the core of the architecture. This class must
+- A ``Model`` class, defining the core of the architecture. This class must
   implement the interface documented in
   :py:class:`metatrain.utils.abc.ModelInterface`
-- a ``Trainer`` class, used to train an architecture and produce a model that
+- A ``Trainer`` class, used to train an architecture and produce a model that
   can be evaluated and exported. This class must implement the interface
   documented below in :py:class:`metatrain.utils.abc.TrainerInterface`.
 
@@ -75,7 +75,10 @@ To follow this, a new architecture has to define two classes
     provided train_datasets and val_datasets passed to the Trainer, as well as
     the dataset_info passed to the model.
 
-To comply with this design each architecture has to implement a couple of files
+The architecture must also define a documentation file which contains the
+default hyperparameters, along with their types and descriptions.
+
+To comply with this design each architecture has to implement four files
 inside a new architecture directory, either inside the ``experimental``
 subdirectory or in the ``root`` of the Python source if the new architecture
 already complies with all requirements to be stable. The usual structure of
@@ -85,6 +88,7 @@ architecture looks as
 
     myarchitecture
         ├── __init__.py
+        ├── documentation.py
         ├── model.py
         └── trainer.py
 
@@ -124,8 +128,30 @@ steps to take to implement a new model class:
 
 Here is an incomplete example of what a model implementation looks like:
 
-.. literalinclude:: ./dummy_model.py
-    :language: python
+.. code-block:: python
+
+    import torch
+    from metatomic.torch import DatasetInfo, ModelMetadata
+
+    from metatrain.utils.abc import ModelInterface
+
+    class MyModel(ModelInterface):
+        __checkpoint_version__ = 1
+        __supported_devices__ = ["cuda", "cpu"]
+        __supported_dtypes__ = [torch.float64, torch.float32]
+        __default_metadata__ = ModelMetadata(
+            references={"implementation": ["ref1"], "architecture": ["ref2"]}
+        )
+
+        def __init__(self, hypers: dict, dataset_info: DatasetInfo):
+            super().__init__(hypers, dataset_info)
+
+            # To access hyperparameters, one can use self.hypers, whose
+            # defaults are defined in the documentation.py file.
+            self.hypers["size"]
+            ...
+
+        # Here one would implement the rest of the abstract methods
 
 Trainer class (``trainer.py``)
 ------------------------------
@@ -137,8 +163,21 @@ with the indicated API (same arguments and same return). We recommend
 looking at existing implementations of trainers for inspiration. They
 will look something like this:
 
-.. literalinclude:: ./dummy_trainer.py
-    :language: python
+.. code-block:: python
+
+    from metatrain.utils.abc import TrainerInterface
+
+    class MyTrainer(TrainerInterface):
+        __checkpoint_version__ = 1
+
+        def __init__(self, hypers: dict):
+            super().__init__(hypers)
+            # To access hyperparameters, one can use self.hypers, whose
+            # defaults are defined in the documentation.py file.
+            self.hypers["learning_rate"]
+            ...
+
+        # Here one would implement the rest of the abstract methods
 
 Init file (``__init__.py``)
 ---------------------------
@@ -172,73 +211,176 @@ and current ``__maintainers__`` of the architecture.
     # style as ``__authors__``
     __maintainers__ = [("Joe Bloggs <joe.bloggs@sotacompany.com>", "@joebloggs")]
 
-Hyperparameters documentation
------------------------------
+.. _newarchitecture-documentation:
 
-In the previous sections we mentioned that both the ``Model`` and ``Trainer``
-need their hyperparameters to be indicated in their ``__hypers_cls__`` class
-attribute. At the beginning, a simple class specifying default values for
-each hyperparameter is sufficient, i.e.:
+Documentation (``documentation.py``)
+------------------------------------
+
+The documentation file is used to define:
+
+- The hyperparameters for the model class.
+- The hyperparameters for the trainer class.
+- The text that will go to the online documentation for the architecture.
+
+Bare minimum
+^^^^^^^^^^^^
+We understand that during development of a new architecture expecting full
+documentation for all hyperparameters is unreasonable. Therefore, ``metatrain``
+will work with a very minimal ``documentation.py`` file containing only the
+default hyperparameters for both the model and the trainer. For this, one just
+needs to define a ``ModelHypers`` and a ``TrainerHypers``, for the hypers of the
+model and the trainer respectively.
 
 .. code-block:: python
 
+    # This is the most minimal documentation.py file possible.
+    # Something like this should only be used during development.
+
+    # Default hyperparameters for the model
     class ModelHypers:
-        alpha = 1.2
+        size = 150
         mode = "strict"
 
-    class Model(ModelInterface):
-        __hypers_cls__ = ModelHypers
+    # Default hyperparameters for the trainer
+    class TrainerHypers:
+        learning_rate = 1e-3
+        lr_scheduler = "CosineAnnealing"
 
-However, for an architecture to be considered stable, the hyperparameters
-must be:
+.. note::
 
-- Documented using docstrings.
-- Type hinted using Python's type hinting system.
+    The name of these classes (``ModelHypers`` and ``TrainerHypers``), as well
+    as the file they are in (``documentation.py``) are **mandatory**.
+    ``metatrain`` will look for these specific names when loading the
+    architecture.
 
-This will allow ``metatrain`` to:
+    This rigidity allows ``metatrain`` to easily generate documentation pages
+    and maintain a consistent experience across all architectures.
 
-- Automatically generate documentation pages for the architecture
-  (see :ref:`newarchitecture-documentation`).
-- Validate the inputs provided by the user through the CLI. This is
-  done through ``pydantic``.
+For an experimental architecture
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-For this, ``metatrain``'s convention is to use ``TypedDict`` classes to
-define the hyperparameters. You can take inspiration from existing
-architectures for complex examples of type hinting, but here is how
-it would look like for the simple example above:
+For an architecture to be considered accepted as "experimental" into the
+main ``metatrain`` distribution, ``documentation.py`` should at least contain:
+
+- A minimal docstring at the top of the file with at least a short description
+  of the architecture. It should contain as a title the name of the architecture,
+  underlined with equal signs (``=``).
+- Some documentation for each hyperparameter.
+
+For example, this would be a valid ``documentation.py`` file for an
+experimental architecture:
 
 .. code-block:: python
 
-    from typing import Literal
+    """
+    My architecture
+    ===============
+
+    This is an architecture that does amazing things.
+    """
+
+    class ModelHypers:
+
+        size = 150
+        """Size of the model's hidden layers."""
+        mode = "strict"
+        """Mode of operation for the model."""
+
+    class TrainerHypers:
+        learning_rate = 1e-3
+        """Initial learning rate for the optimizer."""
+        lr_scheduler = "CosineAnnealing"
+        """Type of learning rate scheduler to use."""
+
+You can check :ref:`this section <newarchitecture-documentation-page>` to
+understand how the module docstring will be used to generate the documentation
+page for the architecture.
+
+For a stable architecture
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The step from experimental to stable architecture requires one last step:
+documentation of the hyperparameters types. This is done using ``TypedDict``
+and Python's type hinting system, and it allows ``metatrain`` to automatically
+validate user inputs. By doing validation, ``metatrain`` can provide meaningful
+error messages when the provided hyperparameters are invalid, avoiding errors
+deep inside the architecture that would be harder to understand.
+
+Here is the example of the previous ``documentation.py`` file, now ready for
+the architecture to be considered stable:
+
+.. code-block:: python
+
+    """
+    My architecture
+    ===============
+
+    This is an architecture that does amazing things.
+    """
     from typing_extensions import TypedDict
-    from metatrain.torch import DatasetInfo
+    from typing import Literal
 
     class ModelHypers(TypedDict):
-        """Hyperparameters for the Model architecture."""
 
-        alpha: float = 1.2
-        """Scaling factor for the model predictions."""
+        size: int = 150
+        """Size of the model's hidden layers."""
         mode: Literal["strict", "lenient"] = "strict"
         """Mode of operation for the model."""
 
-    class Model(ModelInterface[ModelHypers]):
-        __hypers_cls__ = ModelHypers
+    class TrainerHypers(TypedDict):
+        learning_rate: float = 1e-3
+        """Initial learning rate for the optimizer."""
+        lr_scheduler: Literal["CosineAnnealing", "StepLR"] = "CosineAnnealing"
+        """Type of learning rate scheduler to use."""
 
+.. note::
+
+    It is important to use ``typing_extensions.TypedDict`` instead of
+    ``typing.TypedDict`` for compatibility with ``python <= 3.12>`` in pydantic's
+    validation system.
+
+With this, you will be almost ready to have your architecture accepted as stable.
+The last step is to update the ``Model`` and ``Trainer`` classes so that they are
+aware of the hyperparameter types. This will help static type checkers like mypy
+catch bugs in your code, as well as improving the development experience in IDE's
+like VSCode or PyCharm. To do this, you just have to:
+
+- Make your model and trainer classes inherit from ``ModelInterface[ModelHypers]``
+  and ``TrainerInterface[TrainerHypers]`` respectively, instead of just
+  ``ModelInterface`` and ``TrainerInterface``.
+- Add the hypers type annotation to the ``hypers`` argument of the ``__init__``
+  method of both classes, as well as any other method that takes hyperparameters
+  as input (like ``Trainer.load_checkpoint``).
+
+For example, for the model:
+
+.. code-block:: python
+
+    import torch
+    from metatomic.torch import DatasetInfo, ModelMetadata
+
+    from metatrain.utils.abc import ModelInterface
+
+    # New import to get the ModelHypers type
+    from .documentation import ModelHypers
+
+    class MyModel(ModelInterface[ModelHypers]): # Add the hypers type here
+        __checkpoint_version__ = 1
+        __supported_devices__ = ["cuda", "cpu"]
+        __supported_dtypes__ = [torch.float64, torch.float32]
+        __default_metadata__ = ModelMetadata(
+            references={"implementation": ["ref1"], "architecture": ["ref2"]}
+        )
+
+        # Type hint the hypers argument of __init__
         def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo):
             super().__init__(hypers, dataset_info)
             ...
 
-Note that we also added the hypers class as type hint for the ``hypers``
-argument of the ``__init__`` method of the model and also used it as
-``ModelInterface[ModelHypers]``. This is not required by ``metatrain`` to
-work, but it will help static type checkers to catch bugs in your code,
-as well as improving the development experience in IDE's like VSCode or
-PyCharm. So we strongly recommend it!
+.. _newarchitecture-documentation-page:
 
-.. _newarchitecture-documentation:
-
-Documentation
--------------
+Documentation page
+^^^^^^^^^^^^^^^^^^
 
 By following the guidelines for documenting hyperparameters, ``metatrain``
 **will automatically generate a documentation page for the new architecture**.
@@ -246,18 +388,12 @@ This documentation page will contain information about how to install your
 architecture, the default hyperparameters, and the descriptions of all
 the hyperparameters for both the model and the trainer.
 
-However, **you are always welcome to add more information to the documentation
-page**, such as a description of the architecture, references to relevant
-papers, or examples of usage. To do this, you just have to create a file
-called ``<your_architecture_name>.rst`` in the
-``docs/src/architectures/templates`` folder. This folder is called ``templates``
-because the files here are preprocessed to generate the final documentation
-``.rst`` files. However, you are completely free to just write a static
-``.rst`` file if you prefer, it will just be used as it is. In case you choose
-to use the variables in your ``.rst`` file (which can make your docs more robust
-to codebase changes), here is the reference for the variables you can use:
+The documentation page will be generated from the docstring at the top of the
+``documentation.py`` file, as well as the ``ModelHypers`` and ``TrainerHypers``
+classes defined there. Here is the description of how the docstring will
+be generated:
 
-.. autoclass:: src.architectures.generate.ArchitectureTemplateVariables
+.. autoclass:: src.architectures.generate.ArchitectureDocVariables
    :no-index:
    :members:
    :undoc-members:

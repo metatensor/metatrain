@@ -1,6 +1,34 @@
-# mypy: disable-error-code=misc
-# We ignore misc errors in this file because TypedDict
-# with default values is not allowed by mypy.
+"""
+SOAP-BPNN
+=========
+
+This is a Behler-Parrinello type neural network :footcite:p:`behler_generalized_2007`,
+which, instead of their original atom-centered symmetry functions, we use the Smooth
+overlap of atomic positions (SOAP) :footcite:p:`bartok_representing_2013` as the atomic
+descriptors, computed with `torch-spex <https://github.com/lab-cosmo/torch-spex>`_.
+
+{SECTION_INSTALLATION}
+
+{SECTION_DEFAULT_HYPERS}
+
+{SECTION_MODEL_HYPERS}
+
+with the following definitions needed to fully understand some of the parameters:
+
+.. autoclass:: {architecture_path}.documentation.SOAPConfig
+    :members:
+    :undoc-members:
+
+.. autoclass:: {architecture_path}.documentation.SOAPCutoffConfig
+    :members:
+    :undoc-members:
+
+.. autoclass:: {architecture_path}.documentation.BPNNConfig
+    :members:
+    :undoc-members:
+
+"""
+
 from typing import Literal, Optional
 
 from typing_extensions import TypedDict
@@ -58,7 +86,7 @@ class BPNNConfig(TypedDict):
     """
 
 
-class SOAPBPNNHypers(TypedDict):
+class ModelHypers(TypedDict):
     """Hyperparameters for the SOAP + BPNN architecture."""
 
     soap: SOAPConfig = init_with_defaults(SOAPConfig)
@@ -91,7 +119,7 @@ class SOAPBPNNHypers(TypedDict):
     the short-range SOAP-BPNN model"""
 
 
-class SOAPBPNNTrainerHypers(TypedDict):
+class TrainerHypers(TypedDict):
     """Hyperparameters for training SOAP BPNN models."""
 
     distributed: bool = False

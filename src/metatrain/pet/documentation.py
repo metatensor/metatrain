@@ -1,6 +1,59 @@
-# mypy: disable-error-code=misc
-# We ignore misc errors in this file because TypedDict
-# with default values is not allowed by mypy.
+"""
+PET
+===
+
+PET is a cleaner, more user-friendly reimplementation of the original
+PET model :footcite:p:`pozdnyakov_smooth_2023`. It is designed for better
+modularity and maintainability, while preseving compatibility with the original
+PET implementation in ``metatrain``. It also adds new features like long-range
+features, better fine-tuning implementation, a possibility to train on
+arbitrarty targets, and a faster inference due to the ``fast attention``.
+
+{SECTION_INSTALLATION}
+
+{SECTION_DEFAULT_HYPERS}
+
+Tuning hyperparameters
+----------------------
+
+The default hyperparameters above will work well in most cases, but they
+may not be optimal for your specific dataset. There is good number of
+parameters to tune, both for the :ref:`model <architecture-pet_model_hypers>`
+and the :ref:`trainer <architecture-pet_trainer_hypers>`. Since seeing them
+for the first time might be overwhelming, here we provide a **list of the
+parameters that are in general the most important** (in decreasing order
+of importance):
+
+.. container:: mtt-hypers-remove-classname
+
+  .. autoattribute:: {model_hypers_path}.cutoff
+      :no-index:
+
+  .. autoattribute:: {trainer_hypers_path}.learning_rate
+      :no-index:
+
+  .. autoattribute:: {trainer_hypers_path}.batch_size
+      :no-index:
+
+  .. autoattribute:: {model_hypers_path}.d_pet
+      :no-index:
+
+  .. autoattribute:: {model_hypers_path}.d_node
+      :no-index:
+
+  .. autoattribute:: {model_hypers_path}.num_gnn_layers
+      :no-index:
+
+  .. autoattribute:: {model_hypers_path}.num_attention_layers
+      :no-index:
+
+  .. autoattribute:: {trainer_hypers_path}.loss
+      :no-index:
+
+  .. autoattribute:: {model_hypers_path}.long_range
+      :no-index:
+"""
+
 from typing import Literal, Optional
 
 from typing_extensions import TypedDict
@@ -14,12 +67,7 @@ from metatrain.utils.scaler import FixedScalerWeights
 from .modules.finetuning import FinetuneHypers, NoFinetuneHypers
 
 
-###########################
-#  MODEL HYPERPARAMETERS  #
-###########################
-
-
-class PETHypers(TypedDict):
+class ModelHypers(TypedDict):
     """Hyperparameters for the PET model."""
 
     cutoff: float = 4.5
@@ -84,12 +132,7 @@ class PETHypers(TypedDict):
     """Long-range Coulomb interactions parameters."""
 
 
-##############################
-#  TRAINER HYPERPARAMETERS   #
-##############################
-
-
-class PETTrainerHypers(TypedDict):
+class TrainerHypers(TypedDict):
     """Hyperparameters for training PET models."""
 
     distributed: bool = False

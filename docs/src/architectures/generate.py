@@ -1,20 +1,32 @@
+import ast
 from pathlib import Path
 from typing import TypedDict
 
 from metatrain.utils.architectures import (
     find_all_architectures,
-    import_architecture,
+    get_architecture_path,
     write_hypers_yaml,
 )
-from metatrain.utils.hypers import get_hypers_cls
 
 
-class ArchitectureTemplateVariables(TypedDict):
-    """Variables to use inside the architecture documentation templates.
+SECTIONS = [
+    "installation",
+    "default_hypers",
+    "model_hypers",
+    "trainer_hypers",
+    "references",
+]
 
-    These are applied using python's built-in :meth:`str.format` method,
-    therefore in the text one should use ``{variable_1}`` to refer to
-    ``variable_1``. For example, a file with the following content:
+
+class ArchitectureDocVariables(TypedDict):
+    """Variables to use inside the architecture documentation.
+
+    The docstring of the architecture will be processed using python's
+    built-in :meth:`str.format` method, therefore in the text one can use
+    ``{variable_1}`` as a placeholder for ``variable_1``, and the
+    documentation build will replace it with the corresponding value.
+
+    For example, a file with the following content:
 
     .. code-block:: rst
 
@@ -26,7 +38,49 @@ class ArchitectureTemplateVariables(TypedDict):
 
         This is the documentation for pet.
 
+    There are some special variables that start with ``SECTION_``. These contain
+    the content of different sections of the documentation, and they will be
+    appended to the docstring if they are not already present. For example, given
+    the docstring:
+
+    .. code-block:: python
+
+        \"""
+        My architecture
+        ===============
+
+        This is my architecture.
+
+        {SECTION_DEFAULT_HYPERS}
+
+        Some important section
+        ======================
+
+        Explain something important here.
+        \"""
+
+    The final documentation will append to the docstring all the sections except
+    ``SECTION_DEFAULT_HYPERS``, since it is already present.
+
+    Following you can find a description of all the available variables. The
+    sections are appended in the order documented here.
     """
+
+    SECTION_INSTALLATION: str
+    """Section containing installation instructions for this architecture."""
+    SECTION_DEFAULT_HYPERS: str
+    """Section containing a yaml file with the default hyperparameters for
+    this architecture."""
+    SECTION_MODEL_HYPERS: str
+    """Section containing the description of the model hyperparameters for
+    this architecture."""
+    SECTION_TRAINER_HYPERS: str
+    """Section containing the description of the trainer hyperparameters for
+    this architecture."""
+    SECTION_REFERENCES: str
+    """Section containing references for this architecture. It will render the
+    references that have been used as ``:footcite:p:`` during the architecture
+    documentation."""
 
     architecture: str
     """The name of the architecture.
@@ -48,13 +102,13 @@ class ArchitectureTemplateVariables(TypedDict):
     """The full python import path to the model's hypers class of this
     architecture.
 
-    E.g.: ``"metatrain.pet.hypers.PETHypers"``
+    E.g.: ``"metatrain.pet.documentation.ModelHypers"``
     """
     trainer_hypers_path: str
     """The full python import path to the trainer's hypers class of this
     architecture.
 
-    E.g.: ``"metatrain.pet.hypers.PETTrainerHypers"``
+    E.g.: ``"metatrain.pet.documentation.TrainerHypers"``
     """
 
 
@@ -63,15 +117,12 @@ def setup_architectures_docs():
 
     This function goes through all available architectures, and for each of them
     generates a yaml file with the default hyperparameters (so that it can be
-    easily included in the documentation). Also, it takes the files
-    ``<architecture_name>.rst`` from the ``templates`` directory, processes them,
-    and writes the resulting documentation files to the ``generated`` directory.
-    If no architecture-specific template is found, it falls back to using
-    ``generic.rst`` as the template.
+    easily included in the documentation) and their rst documentation file.
+
+    See :ref:`newarchitecture-documentation-page` for more information.
     """
     # Get paths to directories
     architectures_dir = Path(__file__).parent
-    templates_dir = architectures_dir / "templates"
     generated_dir = architectures_dir / "generated"
     hypers_dir = architectures_dir / "default_hypers"
 
@@ -81,6 +132,9 @@ def setup_architectures_docs():
     generated_dir.mkdir(exist_ok=True)
 
     for architecture_name in find_all_architectures():
+        if architecture_name == "experimental.mace":
+            # Skip the example architecture
+            continue
         architecture_real_name = architecture_name.replace("experimental.", "").replace(
             "deprecated.", ""
         )
@@ -89,29 +143,81 @@ def setup_architectures_docs():
         yaml_path = hypers_dir / f"{architecture_real_name}-default-hypers.yaml"
         write_hypers_yaml(architecture_name, yaml_path)
 
-        # Generate the architecture rst file with its documentation
-        architecture = import_architecture(architecture_name)
-        model_hypers = get_hypers_cls(architecture.__model__)
-        trainer_hypers = get_hypers_cls(architecture.__trainer__)
+        generate_rst(architecture_name, yaml_path=yaml_path)
 
-        # Get the template to use, first try an architecture-specific one,
-        # then fall back to the generic one
-        for template_name in [f"{architecture_real_name}.rst", "generic.rst"]:
-            template_path = templates_dir / template_name
-            if template_path.exists():
-                template = template_path.read_text()
-                break
 
-        template_variables: ArchitectureTemplateVariables = dict(
-            architecture=architecture_real_name,
-            architecture_path="metatrain." + architecture_name,
-            default_hypers_path=".." / yaml_path.relative_to(architectures_dir),
-            model_hypers_path=f"{model_hypers.__module__}.{model_hypers.__name__}",
-            trainer_hypers_path=f"{trainer_hypers.__module__}.{trainer_hypers.__name__}",
-        )
+def generate_rst(
+    architecture_name: str,
+    yaml_path: Path,
+):
+    """Generate the rst documentation file for a given architecture.
 
-        docs_content = template.format(**template_variables)
+    :param architecture_name: The name of the architecture to generate the
+        documentation for.
+    :param yaml_path: Path to the yaml file with the default hyperparameters
+        for this architecture.
+    """
+    # Get paths to directories
+    architectures_dir = Path(__file__).parent
+    templates_dir = architectures_dir / "templates"
+    generated_dir = architectures_dir / "generated"
 
-        # Fill template and write file
-        with open(generated_dir / f"{architecture_real_name}.rst", "w") as f:
-            f.write(docs_content)
+    # Get the name of the architecture without any prefix.
+    architecture_real_name = architecture_name.replace("experimental.", "").replace(
+        "deprecated.", ""
+    )
+
+    # Get the full python import path to the architecture
+    arch_path = f"metatrain.{architecture_name}"
+
+    # Get the docstring from the documentation.py file
+    doc_file = get_architecture_path(architecture_name) / "documentation.py"
+    with open(doc_file, "r") as f:
+        module = ast.parse(f.read(), filename=str(doc_file))
+        docstring = ast.get_docstring(module)
+        if docstring is None:
+            raise ValueError(
+                f"The documentation.py file for architecture "
+                f"'{architecture_name}' does not have a module docstring."
+            )
+
+    # Prepare template variables
+    template_variables = dict(
+        architecture=architecture_real_name,
+        architecture_path=arch_path,
+        default_hypers_path=".." / yaml_path.relative_to(architectures_dir),
+        model_hypers_path=f"{arch_path}.documentation.ModelHypers",
+        trainer_hypers_path=f"{arch_path}.documentation.TrainerHypers",
+    )
+
+    # Read sections and fill them
+    for section in SECTIONS:
+        template_file = templates_dir / f"{section}.rst"
+
+        with open(template_file, "r") as f:
+            section_content = f.read()
+
+        section_content = section_content.format(**template_variables)
+
+        template_variables[f"SECTION_{section.upper()}"] = section_content
+
+    # Check which sections are missing in the docstring
+    missing_sections = [
+        section
+        for section in SECTIONS
+        if f"{{SECTION_{section.upper()}}}" not in docstring
+    ]
+
+    # Prepend docstring with reference and append missing sections
+    docstring = (
+        f".. _architecture-{template_variables['architecture']}:" + "\n\n" + docstring
+    )
+    for section in missing_sections:
+        docstring += f"\n\n{{SECTION_{section.upper()}}}"
+
+    # "Render" docstring with template variables
+    docstring = docstring.format(**template_variables)
+
+    # Write to file
+    with open(generated_dir / f"{architecture_real_name}.rst", "w") as f:
+        f.write(docstring)

@@ -12,7 +12,7 @@ from metatensor.torch import Labels, TensorMap
 from metatensor.torch.learn.nn import Linear as LinearMap
 from spex.metatensor import SphericalExpansion
 
-from .hypers import SOAPConfig
+from .documentation import SOAPConfig
 
 
 class VectorBasis(torch.nn.Module):

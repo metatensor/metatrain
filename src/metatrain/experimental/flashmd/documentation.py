@@ -1,6 +1,41 @@
-# mypy: disable-error-code=misc
-# We ignore misc errors in this file because TypedDict
-# with default values is not allowed by mypy.
+"""
+FlashMD
+=======
+
+FlashMD is a method for the direct prediction of positions and momenta in a molecular
+dynamics simulation, presented in :footcite:p:`bigi_flashmd_2025`. When compared to
+traditional molecular dynamics methods, it predicts the positions and momenta of atoms
+after a long time interval, allowing the use of much larger time steps. Therefore, it
+achieves a significant speedup (10-30x) compared to molecular dynamics using MLIPs.
+The FlashMD architecture implemented in metatrain is based on the
+:ref:`PET architecture <architecture-pet>`.
+
+{SECTION_INSTALLATION}
+
+{SECTION_DEFAULT_HYPERS}
+
+Tuning hyperparameters
+----------------------
+
+Most of the parameters of FlashMD are inherited from the PET architecure, although
+they might have different default values.
+
+.. container:: mtt-hypers-remove-classname
+
+    - FlashMD-specific parameters for the model:
+
+        .. autoattribute:: {model_hypers_path}.predict_momenta_as_difference
+            :no-index:
+
+    - FlashMD-specific parameters for the trainer:
+
+        .. autoattribute:: {trainer_hypers_path}.timestep
+            :no-index:
+
+        .. autoattribute:: {trainer_hypers_path}.masses
+            :no-index:
+"""
+
 from typing import Literal, Optional
 
 from typing_extensions import NotRequired, TypedDict
@@ -18,7 +53,7 @@ from metatrain.utils.scaler import FixedScalerWeights
 ###########################
 
 
-class FlashMDHypers(TypedDict):
+class ModelHypers(TypedDict):
     """Hyperparameters for the FlashMD model."""
 
     predict_momenta_as_difference: bool = False
@@ -94,7 +129,7 @@ class FlashMDHypers(TypedDict):
 ##############################
 
 
-class FlashMDTrainerHypers(TypedDict):
+class TrainerHypers(TypedDict):
     """Hyperparameters for training FlashMD models."""
 
     timestep: Optional[float] = None
