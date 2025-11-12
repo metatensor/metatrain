@@ -132,9 +132,6 @@ def setup_architectures_docs():
     generated_dir.mkdir(exist_ok=True)
 
     for architecture_name in find_all_architectures():
-        if architecture_name == "experimental.mace":
-            # Skip the example architecture
-            continue
         architecture_real_name = architecture_name.replace("experimental.", "").replace(
             "deprecated.", ""
         )
