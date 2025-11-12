@@ -133,7 +133,8 @@ Since often one wants to train on gradients, like forces and stress/virial, the 
 functions can be specified without explicitly defining the gradients subsection,
 by using the shorthand names ``forces`` and ``stress`` or ``virial`` at the top level
 of the loss configuration. For example, the following configuration is equivalent to the
-one above for the ``energy`` target:
+one above for the ``energy`` target (the same applies if the energy target has a custom
+name):
 
 .. code-block:: yaml
 
