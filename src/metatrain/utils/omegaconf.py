@@ -316,7 +316,7 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
 
                 # for special case "energy" we enable sections for `forces` and `stress`
                 # gradients by default
-                if target_key == "energy":
+                if target_key == "energy" or target.get("quantity") == "energy":
                     target = OmegaConf.merge(CONF_ENERGY, target)
                 else:
                     target = OmegaConf.merge(CONF_TARGET, target)
@@ -356,7 +356,7 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
                 base_stress_gradient_conf["key"] = "stress"
 
                 if (
-                    target_key == "energy"
+                    (target_key == "energy" or target.get("quantity") == "energy")
                     and conf_element["targets"][target_key]["virial"]
                     and conf_element["targets"][target_key]["stress"]
                     == base_stress_gradient_conf
