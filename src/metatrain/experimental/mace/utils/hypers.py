@@ -39,3 +39,57 @@ def get_mace_defaults():
     }
 
     return mace_defaults
+
+def get_mace_hypers_spec():
+    """Get the MACE hyperparameter specification.
+
+    :return: A dictionary with the MACE hyperparameter specification.
+    """
+
+    def _get_type(action: argparse.Action) -> str:
+        
+        if action.dest == "radial_MLP":
+            assert action.default == "[64, 64, 64]"
+            return "list[int]"
+        elif action.choices is not None:
+            choices = action.choices.copy()
+            optional = False
+            if "None" in choices:
+                optional = True
+                choices.remove("None")
+            
+            literal_str = "Literal[" + ", ".join(repr(choice) for choice in choices) + "]"
+            if optional:
+                return f"Optional[{literal_str}]"
+
+            return literal_str
+        
+
+        optional = False
+        if action.default is None:
+            optional = True
+
+        if action.type is None:
+            annotation = "str"
+        elif action.type.__name__ == "str2bool" or action.__class__.__name__.endswith("StoreTrueAction") or action.__class__.__name__.endswith("StoreFalseAction"):
+            annotation = "bool"
+        else:
+            annotation = action.type.__name__
+
+        if optional:
+            annotation = f"Optional[{annotation}]"
+
+        return annotation
+
+    parser = build_default_arg_parser()
+    hypers_spec = {
+        action.dest: {
+            "type": _get_type(action),
+            "help": action.help,
+            "default": action.default,
+        }
+        for action in parser._actions
+        if action.dest != "help"
+    }
+
+    return hypers_spec
