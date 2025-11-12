@@ -43,9 +43,11 @@ from . import checkpoints
 from .model import MetaMACE
 from .modules.finetuning import apply_finetuning_strategy
 
+MACETrainerHypers = Dict[str, Any]
+
 
 def get_optimizer_and_scheduler(
-    trainer_hypers: dict[str, Any],
+    trainer_hypers: MACETrainerHypers,
     model: MetaMACE,
     optimizer_state_dict: Optional[dict[str, Any]] = None,
     scheduler_state_dict: Optional[dict[str, Any]] = None,
@@ -128,8 +130,9 @@ def get_optimizer_and_scheduler(
 
 class Trainer(TrainerInterface):
     __checkpoint_version__ = 1
+    __hypers_cls__ = MACETrainerHypers
 
-    def __init__(self, hypers: Dict[str, Any]) -> None:
+    def __init__(self, hypers: MACETrainerHypers) -> None:
         super().__init__(hypers)
 
         self.optimizer_state_dict: Optional[Dict[str, Any]] = None
@@ -612,7 +615,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: MACETrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
         trainer = cls(hypers)
