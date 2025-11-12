@@ -28,7 +28,7 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
-from .hypers import SOAPBPNNHypers
+from .documentation import ModelHypers
 from .spherical import TensorBasis
 
 
@@ -182,7 +182,7 @@ def concatenate_structures(
     )
 
 
-class SoapBpnn(ModelInterface[SOAPBPNNHypers]):
+class SoapBpnn(ModelInterface[ModelHypers]):
     __checkpoint_version__ = 4
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
@@ -197,11 +197,11 @@ class SoapBpnn(ModelInterface[SOAPBPNNHypers]):
             ],
         }
     )
-    __hypers_cls__ = SOAPBPNNHypers
+    __hypers_cls__ = ModelHypers
 
     component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
 
-    def __init__(self, hypers: SOAPBPNNHypers, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.atomic_types = dataset_info.atomic_types

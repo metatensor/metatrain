@@ -36,15 +36,15 @@ from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
-from .hypers import NanoPETTrainerHypers
+from .documentation import TrainerHypers
 from .model import NanoPET
 
 
-class Trainer(TrainerInterface[NanoPETTrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 6
-    __hypers_cls__ = NanoPETTrainerHypers
+    __hypers_cls__ = TrainerHypers
 
-    def __init__(self, hypers: NanoPETTrainerHypers):
+    def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)
 
         self.optimizer_state_dict = None
@@ -542,7 +542,7 @@ class Trainer(TrainerInterface[NanoPETTrainerHypers]):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: NanoPETTrainerHypers,
+        hypers: TrainerHypers,
         context: Literal["restart", "finetune"],  # not used at the moment
     ) -> "Trainer":
         epoch = checkpoint["epoch"]

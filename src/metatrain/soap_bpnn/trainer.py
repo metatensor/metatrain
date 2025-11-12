@@ -39,13 +39,13 @@ from metatrain.utils.transfer import (
 )
 
 from . import checkpoints
-from .hypers import SOAPBPNNTrainerHypers
+from .documentation import TrainerHypers
 from .model import SoapBpnn
 
 
 def get_scheduler(
     optimizer: torch.optim.Optimizer,
-    train_hypers: SOAPBPNNTrainerHypers,
+    train_hypers: TrainerHypers,
     steps_per_epoch: int,
 ) -> LambdaLR:
     """
@@ -76,11 +76,11 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface[SOAPBPNNTrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 8
-    __hypers_cls__ = SOAPBPNNTrainerHypers
+    __hypers_cls__ = TrainerHypers
 
-    def __init__(self, hypers: SOAPBPNNTrainerHypers):
+    def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)
 
         self.optimizer_state_dict: Optional[Dict[str, Any]] = None
@@ -546,7 +546,7 @@ class Trainer(TrainerInterface[SOAPBPNNTrainerHypers]):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: SOAPBPNNTrainerHypers,
+        hypers: TrainerHypers,
         context: Literal["restart", "finetune"],  # not used at the moment
     ) -> "Trainer":
         trainer = cls(hypers)

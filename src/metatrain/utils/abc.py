@@ -69,8 +69,6 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
     software used in the implementation of the architecture, while the
     ``architecture`` key should contain references about the general architecture.
     """
-    __hypers_cls__: Type[HypersType]
-    """The class defining the hyper-parameters for this model architecture."""
 
     def __init__(
         self, hypers: HypersType, dataset_info: DatasetInfo, metadata: ModelMetadata

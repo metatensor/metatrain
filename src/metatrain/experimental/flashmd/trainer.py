@@ -42,13 +42,13 @@ from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
-from .hypers import FlashMDTrainerHypers
+from .documentation import TrainerHypers
 from .model import FlashMD
 
 
 def get_scheduler(
     optimizer: torch.optim.Optimizer,
-    train_hypers: FlashMDTrainerHypers,
+    train_hypers: TrainerHypers,
     steps_per_epoch: int,
 ) -> LambdaLR:
     """
@@ -79,11 +79,11 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface[FlashMDTrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 2
-    __hypers_cls__ = FlashMDTrainerHypers
+    __hypers_cls__ = TrainerHypers
 
-    def __init__(self, hypers: FlashMDTrainerHypers) -> None:
+    def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
 
         self.optimizer_state_dict: Optional[Dict[str, Any]] = None
@@ -614,7 +614,7 @@ class Trainer(TrainerInterface[FlashMDTrainerHypers]):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: FlashMDTrainerHypers,
+        hypers: TrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
         trainer = cls(hypers)

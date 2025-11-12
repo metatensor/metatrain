@@ -37,14 +37,14 @@ from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
-from .hypers import PETTrainerHypers
+from .documentation import TrainerHypers
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
 
 def get_scheduler(
     optimizer: torch.optim.Optimizer,
-    train_hypers: PETTrainerHypers,
+    train_hypers: TrainerHypers,
     steps_per_epoch: int,
 ) -> LambdaLR:
     """
@@ -75,11 +75,11 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface[PETTrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 10
-    __hypers_cls__ = PETTrainerHypers
+    __hypers_cls__ = TrainerHypers
 
-    def __init__(self, hypers: PETTrainerHypers) -> None:
+    def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
 
         self.optimizer_state_dict: Optional[Dict[str, Any]] = None
@@ -592,7 +592,7 @@ class Trainer(TrainerInterface[PETTrainerHypers]):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: PETTrainerHypers,
+        hypers: TrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
         trainer = cls(hypers)
