@@ -67,6 +67,7 @@ class PET(ModelInterface):
         self.d_head = self.hypers["d_head"]
         self.d_feedforward = self.hypers["d_feedforward"]
         self.num_heads = self.hypers["num_heads"]
+        self.head_types = self.hypers["head_types"]
         self.num_gnn_layers = self.hypers["num_gnn_layers"]
         self.num_attention_layers = self.hypers["num_attention_layers"]
         self.normalization = self.hypers["normalization"]
@@ -1202,61 +1203,117 @@ class PET(ModelInterface):
             per_atom=True,
         )
 
-        self.node_heads[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.Sequential(
-                    torch.nn.Linear(self.d_node, self.d_head),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(self.d_head, self.d_head),
-                    torch.nn.SiLU(),
-                )
-                for _ in range(self.num_readout_layers)
-            ]
-        )
+        # Build the heads, either MLP or linear
+        if (
+            target_name not in self.head_types  # default to MLP
+            or self.head_types[target_name] == "mlp"
+        ):
+            self.node_heads[target_name] = torch.nn.ModuleList(
+                [
+                    torch.nn.Sequential(
+                        torch.nn.Linear(self.d_node, self.d_head),
+                        torch.nn.SiLU(),
+                        torch.nn.Linear(self.d_head, self.d_head),
+                        torch.nn.SiLU(),
+                    )
+                    for _ in range(self.num_readout_layers)
+                ]
+            )
 
-        self.edge_heads[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.Sequential(
-                    torch.nn.Linear(self.d_pet, self.d_head),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(self.d_head, self.d_head),
-                    torch.nn.SiLU(),
-                )
-                for _ in range(self.num_readout_layers)
-            ]
-        )
+            self.edge_heads[target_name] = torch.nn.ModuleList(
+                [
+                    torch.nn.Sequential(
+                        torch.nn.Linear(self.d_pet, self.d_head),
+                        torch.nn.SiLU(),
+                        torch.nn.Linear(self.d_head, self.d_head),
+                        torch.nn.SiLU(),
+                    )
+                    for _ in range(self.num_readout_layers)
+                ]
+            )
 
-        self.node_last_layers[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.ModuleDict(
-                    {
-                        key: torch.nn.Linear(
-                            self.d_head,
-                            prod(shape),
-                            bias=True,
-                        )
-                        for key, shape in self.output_shapes[target_name].items()
-                    }
-                )
-                for _ in range(self.num_readout_layers)
-            ]
-        )
+            self.node_last_layers[target_name] = torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            key: torch.nn.Linear(
+                                self.d_head,
+                                prod(shape),
+                                bias=True,
+                            )
+                            for key, shape in self.output_shapes[target_name].items()
+                        }
+                    )
+                    for _ in range(self.num_readout_layers)
+                ]
+            )
 
-        self.edge_last_layers[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.ModuleDict(
-                    {
-                        key: torch.nn.Linear(
-                            self.d_head,
-                            prod(shape),
-                            bias=True,
-                        )
-                        for key, shape in self.output_shapes[target_name].items()
-                    }
-                )
-                for _ in range(self.num_readout_layers)
-            ]
-        )
+            self.edge_last_layers[target_name] = torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            key: torch.nn.Linear(
+                                self.d_head,
+                                prod(shape),
+                                bias=True,
+                            )
+                            for key, shape in self.output_shapes[target_name].items()
+                        }
+                    )
+                    for _ in range(self.num_readout_layers)
+                ]
+            )
+        elif self.head_types[target_name] == "linear":
+            self.node_heads[target_name] = torch.nn.ModuleList(
+                [
+                    torch.nn.Sequential()
+                    for _ in range(self.num_readout_layers)
+                ]
+            )
+
+            self.edge_heads[target_name] = torch.nn.ModuleList(
+                [
+                    torch.nn.Sequential()
+                    for _ in range(self.num_readout_layers)
+                ]
+            )
+
+            self.node_last_layers[target_name] = torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            key: torch.nn.Linear(
+                                self.d_node,
+                                prod(shape),
+                                bias=True,
+                            )
+                            for key, shape in self.output_shapes[target_name].items()
+                        }
+                    )
+                    for _ in range(self.num_readout_layers)
+                ]
+            )
+
+            self.edge_last_layers[target_name] = torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            key: torch.nn.Linear(
+                                self.d_pet,
+                                prod(shape),
+                                bias=True,
+                            )
+                            for key, shape in self.output_shapes[target_name].items()
+                        }
+                    )
+                    for _ in range(self.num_readout_layers)
+                ]
+            )
+        else:
+            raise ValueError(
+                f"Unsupported head type {self.head_types[target_name]} "
+                f"for target {target_name}"
+            )
 
         ll_features_name = get_last_layer_features_name(target_name)
         self.outputs[ll_features_name] = ModelOutput(per_atom=True)

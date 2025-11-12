@@ -10,6 +10,7 @@ architecture:
     num_heads: 8
     num_attention_layers: 2
     num_gnn_layers: 2
+    head_types: {}
     normalization: RMSNorm
     activation: SwiGLU
     transformer_type: PreLN

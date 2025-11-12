@@ -38,6 +38,19 @@
         "num_gnn_layers": {
           "type": "integer"
         },
+        "head_types": {
+          "type": "object",
+          "patternProperties": {
+            ".*": {
+              "type": "string",
+              "enum": [
+                "linear",
+                "mlp"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
         "normalization": {
           "type": "string",
           "enum": [
@@ -125,9 +138,6 @@
         "checkpoint_interval": {
           "type": "integer"
         },
-        "remove_composition_contribution": {
-          "type": "boolean"
-        },
         "scale_targets": {
           "type": "boolean"
         },
@@ -198,10 +208,8 @@
           "type": "object",
           "properties": {
             "read_from": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string",
+              "format": "uri"
             },
             "method": {
               "type": "string",
@@ -213,16 +221,50 @@
             },
             "config": {
               "type": "object",
-              "additionalProperties": true
-            },
-            "inherit_heads": {
-              "type": "object",
-              "additionalProperties": {
-                "type": "string"
-              }
+              "oneOf": [
+                {
+                  "properties": {
+                    "alpha": {
+                      "type": "number"
+                    },
+                    "rank": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "alpha",
+                    "rank"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "properties": {
+                    "head_modules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "last_layer_modules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "head_modules",
+                    "last_layer_modules"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "required": [
+            "method"
+          ]
         },
         "grad_clip_norm": {
           "type": "number"
@@ -273,6 +315,13 @@
             "mean",
             "sum"
           ]
+        },
+        "sliding_factor": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0.0
         },
         "gradients": {
           "type": "object",
