@@ -227,7 +227,7 @@ Bare minimum
 We understand that during development of a new architecture expecting full
 documentation for all hyperparameters is unreasonable. Therefore, ``metatrain``
 will work with a very minimal ``documentation.py`` file containing only the
-default hyperparameters for both the model and the trainer. For this, one just
+default hyperparameters for both the model and the trainer. One just
 needs to define a ``ModelHypers`` and a ``TrainerHypers``, for the hypers of the
 model and the trainer respectively.
 
@@ -299,12 +299,12 @@ page for the architecture.
 For a stable architecture
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The step from experimental to stable architecture requires one last step:
+Going from experimental to stable architecture requires one last step:
 documentation of the hyperparameters types. This is done using ``TypedDict``
 and Python's type hinting system, and it allows ``metatrain`` to automatically
-validate user inputs. By doing validation, ``metatrain`` can provide meaningful
-error messages when the provided hyperparameters are invalid, avoiding errors
-deep inside the architecture that would be harder to understand.
+validate user inputs. By doing validation, ``metatrain`` can give users
+meaningful error messages when the provided hyperparameters are invalid,
+avoiding errors deep inside the architecture that would be harder to understand.
 
 Here is the example of the previous ``documentation.py`` file, now ready for
 the architecture to be considered stable:
@@ -336,7 +336,7 @@ the architecture to be considered stable:
 .. note::
 
     It is important to use ``typing_extensions.TypedDict`` instead of
-    ``typing.TypedDict`` for compatibility with ``python <= 3.12>`` in pydantic's
+    ``typing.TypedDict`` for compatibility with ``python <= 3.12`` in pydantic's
     validation system.
 
 With this, you will be almost ready to have your architecture accepted as stable.
