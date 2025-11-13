@@ -368,6 +368,9 @@ class BaseCompositionModel(torch.nn.Module):
                     )[..., property_i]
                     XTY_values = XTY_block.values[..., property_i]
 
+                    if torch.all(XTX_values == 0):
+                        continue
+
                     if target_name in fixed_weights:
                         weight_vals[..., property_i] = torch.vstack(
                             [
