@@ -7,7 +7,8 @@ import logging
 from typing import Dict, List, Optional, Union
 
 import torch
-from metatensor.torch import Labels, TensorBlock, TensorMap
+import metatensor.torch as mts
+from metatensor.torch import LabelsEntry, Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
 
@@ -96,6 +97,14 @@ class BaseScaler(torch.nn.Module):
                 "cell_shift_c",
             ],
         ]
+
+        layout = mts.filter_blocks(
+            layout,
+            Labels(
+                layout.keys.names,
+                torch.vstack([key.values for key in layout.keys if _include_key(key)]),
+            ),
+        )
 
         if layout.sample_names == valid_sample_names[0]:
             self.sample_kinds[target_name] = "per_structure"
@@ -206,6 +215,10 @@ class BaseScaler(torch.nn.Module):
                 mask = extra_data[target_name + "_mask"]
 
             for key, block in target.items():
+
+                if not _include_key(key):
+                    continue
+
                 if self.sample_kinds[target_name] == "per_structure":
                     if mask is not None:
                         raise NotImplementedError(
@@ -433,6 +446,12 @@ class BaseScaler(torch.nn.Module):
 
             prediction_blocks: List[TensorBlock] = []
             for key, output_block in output_tmap.items():
+
+                if not _include_key(key):
+                    # no scaling to be applied, just copy the block
+                    prediction_blocks.append(output_block)
+                    continue
+
                 # Find the scales block and check metadata
                 scales_block = self.scales[output_name].block(key)
                 assert scales_block.properties == output_block.properties, (
@@ -652,3 +671,47 @@ class BaseScaler(torch.nn.Module):
             target_name: tm.to(device=device, dtype=dtype)
             for target_name, tm in self.scales.items()
         }
+
+def _include_key(key: LabelsEntry) -> bool:
+    """
+    Determines whether a block indexed by the input ``key`` should be included in the
+    composition model.
+
+    The rules are as follows:
+        - If the key has a single name "_" (indicating a scalar), it is included.
+        - If the key has names ["o3_lambda", "o3_sigma"] it is included if values are 0
+          and 1 respectively (indicating an invariant block of a spherical target).
+        - If the key has names ["o3_lambda", "o3_sigma", "n_centers"], it is included if
+          values are 0, 1, 1 respectively (indicating an invariant block of a per-atom
+          spherical target).
+
+    :param key: The key to check.
+
+    :return: Whether the key should be included in the composition model.
+    """
+    valid_key_names = [
+        ["_"],  # scalar
+        ["o3_lambda", "o3_sigma"],  # spherical
+        ["o3_lambda", "o3_sigma", "n_centers"],  # spherical per-atom
+    ]
+    include_key = False
+
+    if key.names == valid_key_names[0]:
+        include_key = True
+
+    elif key.names == valid_key_names[1]:
+        include_key = True
+
+    elif key.names == valid_key_names[2]:
+        if key["n_centers"] == 1:
+            include_key = True
+        else:
+            assert key["n_centers"] == 2
+            include_key = False
+
+    else:
+        raise ValueError(
+            f"key names {key.names} not in valid key names {valid_key_names}"
+        )
+
+    return include_key

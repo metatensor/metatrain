@@ -15,7 +15,6 @@ architecture:
     transformer_type: PreLN
     featurizer_type: feedforward
     zbl: false
-    rescale_train_predictions: false
     long_range:
       enable: false
       use_ewald: false
@@ -39,6 +38,7 @@ architecture:
     checkpoint_interval: 100
     remove_composition_contribution: true
     scale_targets: true
+    rescale_predictions: false
     fixed_composition_weights: {}
     fixed_scaling_weights: {}
     per_structure_targets: []

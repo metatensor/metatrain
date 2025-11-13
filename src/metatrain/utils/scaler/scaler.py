@@ -21,7 +21,7 @@ from ..data import (
 )
 from ..jsonschema import validate
 from ..transfer import batch_to
-from ._base_scaler import BaseScaler
+from ._base_scaler import BaseScaler, _include_key
 
 
 class Scaler(torch.nn.Module):
@@ -325,6 +325,14 @@ class Scaler(torch.nn.Module):
                 f" {layout.sample_names} but expected one of "
                 f"{valid_sample_names}."
             )
+
+        layout = mts.filter_blocks(
+            layout,
+            Labels(
+                layout.keys.names,
+                torch.vstack([key.values for key in layout.keys if _include_key(key)]),
+            ),
+        )
 
         fake_scales = TensorMap(
             keys=layout.keys,
