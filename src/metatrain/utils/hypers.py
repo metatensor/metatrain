@@ -6,6 +6,39 @@ from typing_extensions import TypedDict as TE_TypedDict
 HypersType = TypeVar("HypersType")
 
 
+def get_hypers_list(hypers_cls: Type[HypersType]) -> list[str]:
+    """Get the list of hyperparameter names defined in a TypedDict hypers class.
+
+    Inheritance of parameters is allowed from parent classes, but make
+    sure that the parent classes only contain hyperparameters as
+    attributes! (i.e., no methods allowed). Private attributes (starting
+    with "_") are not considered as hyperparameters, so one can have
+    arbitrary private methods or attributes in the class and its parents,
+    although this is not recommended.
+
+    :param hypers_cls: The class defining the hyperparameters.
+
+    :return: A list with the names of the hyperparameters.
+    """
+    hypers_list = []
+
+    # First find hypers from parent classes
+    parent_classes = [*hypers_cls.mro()[1:], *getattr(hypers_cls, "__orig_bases__", [])]
+    for base in parent_classes:
+        if base not in (TE_TypedDict, TypedDict, dict, object):
+            parent_hypers = get_hypers_list(base)
+            hypers_list.extend(parent_hypers)
+
+    this_class_vars = vars(hypers_cls)
+    # Now get hypers from this class
+    for key in this_class_vars.keys():
+        # Skip private attributes
+        if not key.startswith("_"):
+            hypers_list.append(key)
+
+    return hypers_list
+
+
 def init_with_defaults(hypers_cls: Type[HypersType]) -> dict:
     """Initialize a TypedDict hypers class with its default values.
 

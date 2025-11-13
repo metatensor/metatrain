@@ -1,4 +1,4 @@
-.. _architecture-{architecture}_model_hypers:
+.. _architecture-{{architecture}}_model_hypers:
 
 Model hyperparameters
 ------------------------
@@ -6,9 +6,11 @@ Model hyperparameters
 The parameters that go under the ``architecture.model`` section of the config file
 are the following:
 
-.. container:: mtt-hypers-no-class-sig
+.. container:: mtt-hypers-remove-classname
 
-    .. autoclass:: {model_hypers_path}
-        :no-index-entry:
-        :members:
-        :undoc-members:
+    ..
+
+    {% for hyper in model_hypers %}
+        .. autoattribute:: {{model_hypers_path}}.{{hyper}}
+
+    {% endfor %}

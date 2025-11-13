@@ -2,11 +2,28 @@ import ast
 from pathlib import Path
 from typing import TypedDict
 
+from jinja2 import Environment, FileSystemLoader
+
 from metatrain.utils.architectures import (
     find_all_architectures,
     get_architecture_path,
+    get_hypers_classes,
     preload_documentation_module,
     write_hypers_yaml,
+)
+from metatrain.utils.hypers import get_hypers_list
+
+
+ARCHITECTURES_DIR = Path(__file__).parent
+TEMPLATES_DIR = ARCHITECTURES_DIR / "templates"
+DEFAULT_HYPERS_DIR = ARCHITECTURES_DIR / "default_hypers"
+GENERATED_DIR = ARCHITECTURES_DIR / "generated"
+
+
+JINJA_ENV = Environment(
+    loader=FileSystemLoader(TEMPLATES_DIR),
+    trim_blocks=True,
+    lstrip_blocks=True,
 )
 
 
@@ -22,16 +39,18 @@ SECTIONS = [
 class ArchitectureDocVariables(TypedDict):
     """Variables to use inside the architecture documentation.
 
-    The docstring of the architecture will be processed using python's
-    built-in :meth:`str.format` method, therefore in the text one can use
-    ``{variable_1}`` as a placeholder for ``variable_1``, and the
-    documentation build will replace it with the corresponding value.
+    The docstring of the architecture will be processed as a
+    ``jinja`` template. You can find documentation about them
+    `here <https://jinja.palletsprojects.com/en/stable/templates>`_ , but
+    the simplest functionality consists of using variables enclosed in
+    double curly braces ``{{variable_name}}``, which will be replaced by
+    their corresponding value.
 
     For example, a file with the following content:
 
     .. code-block:: rst
 
-        This is the documentation for {architecture}.
+        This is the documentation for {{architecture}}.
 
     generates a documentation file that for the architecture ``pet`` would be:
 
@@ -52,7 +71,7 @@ class ArchitectureDocVariables(TypedDict):
 
         This is my architecture.
 
-        {SECTION_DEFAULT_HYPERS}
+        {{SECTION_DEFAULT_HYPERS}}
 
         Some important section
         ======================
@@ -111,6 +130,10 @@ class ArchitectureDocVariables(TypedDict):
 
     E.g.: ``"metatrain.pet.documentation.TrainerHypers"``
     """
+    model_hypers: list[str]
+    """List of model hyperparameter names for this architecture."""
+    trainer_hypers: list[str]
+    """List of trainer hyperparameter names for this architecture."""
 
 
 def setup_architectures_docs():
@@ -122,15 +145,10 @@ def setup_architectures_docs():
 
     See :ref:`newarchitecture-documentation-page` for more information.
     """
-    # Get paths to directories
-    architectures_dir = Path(__file__).parent
-    generated_dir = architectures_dir / "generated"
-    hypers_dir = architectures_dir / "default_hypers"
-
     # If the default_hypers directory does not exist, create it
-    hypers_dir.mkdir(exist_ok=True)
+    DEFAULT_HYPERS_DIR.mkdir(exist_ok=True)
     # Same for the generated directory
-    generated_dir.mkdir(exist_ok=True)
+    GENERATED_DIR.mkdir(exist_ok=True)
 
     for architecture_name in find_all_architectures():
         # Load documentation module in an isolated way to avoid
@@ -142,7 +160,7 @@ def setup_architectures_docs():
         )
 
         # Write default hypers file
-        yaml_path = hypers_dir / f"{architecture_real_name}-default-hypers.yaml"
+        yaml_path = DEFAULT_HYPERS_DIR / f"{architecture_real_name}-default-hypers.yaml"
         write_hypers_yaml(architecture_name, yaml_path)
 
         generate_rst(architecture_name, yaml_path=yaml_path)
@@ -159,11 +177,6 @@ def generate_rst(
     :param yaml_path: Path to the yaml file with the default hyperparameters
         for this architecture.
     """
-    # Get paths to directories
-    architectures_dir = Path(__file__).parent
-    templates_dir = architectures_dir / "templates"
-    generated_dir = architectures_dir / "generated"
-
     # Get the name of the architecture without any prefix.
     architecture_real_name = architecture_name.replace("experimental.", "").replace(
         "deprecated.", ""
@@ -183,43 +196,39 @@ def generate_rst(
                 f"'{architecture_name}' does not have a module docstring."
             )
 
+    hypers_classes = get_hypers_classes(architecture_name)
+
     # Prepare template variables
     template_variables = dict(
         architecture=architecture_real_name,
         architecture_path=arch_path,
-        default_hypers_path=".." / yaml_path.relative_to(architectures_dir),
+        default_hypers_path=".." / yaml_path.relative_to(ARCHITECTURES_DIR),
         model_hypers_path=f"{arch_path}.documentation.ModelHypers",
         trainer_hypers_path=f"{arch_path}.documentation.TrainerHypers",
+        model_hypers=get_hypers_list(hypers_classes["model"]),
+        trainer_hypers=get_hypers_list(hypers_classes["trainer"]),
     )
 
-    # Read sections and fill them
+    # Read section templates and render them
     for section in SECTIONS:
-        template_file = templates_dir / f"{section}.rst"
-
-        with open(template_file, "r") as f:
-            section_content = f.read()
-
-        section_content = section_content.format(**template_variables)
-
-        template_variables[f"SECTION_{section.upper()}"] = section_content
-
-    # Check which sections are missing in the docstring
-    missing_sections = [
-        section
-        for section in SECTIONS
-        if f"{{SECTION_{section.upper()}}}" not in docstring
-    ]
+        template = JINJA_ENV.get_template(f"{section}.rst")
+        template_variables[f"SECTION_{section.upper()}"] = template.render(
+            **template_variables
+        )
 
     # Prepend docstring with reference and append missing sections
     docstring = (
         f".. _architecture-{template_variables['architecture']}:" + "\n\n" + docstring
     )
-    for section in missing_sections:
-        docstring += f"\n\n{{SECTION_{section.upper()}}}"
+    # Check for missing sections and add them to the end of the docstring
+    for section in SECTIONS:
+        section_var = "{{SECTION_" + section.upper() + "}}"
+        if section_var not in docstring:
+            docstring += f"\n\n{section_var}"
 
-    # "Render" docstring with template variables
-    docstring = docstring.format(**template_variables)
+    # Render docstring template
+    docstring = JINJA_ENV.from_string(docstring).render(**template_variables)
 
     # Write to file
-    with open(generated_dir / f"{architecture_real_name}.rst", "w") as f:
-        f.write(docstring)
+    with open(GENERATED_DIR / f"{architecture_real_name}.rst", "w") as f:
+        f.write(docstring + "\n")

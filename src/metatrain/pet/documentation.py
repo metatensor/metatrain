@@ -9,48 +9,49 @@ PET implementation in ``metatrain``. It also adds new features like long-range
 features, better fine-tuning implementation, a possibility to train on
 arbitrarty targets, and a faster inference due to the ``fast attention``.
 
-{SECTION_INSTALLATION}
+{{SECTION_INSTALLATION}}
 
-{SECTION_DEFAULT_HYPERS}
+{{SECTION_DEFAULT_HYPERS}}
 
 Tuning hyperparameters
 ----------------------
 
 The default hyperparameters above will work well in most cases, but they
 may not be optimal for your specific dataset. There is good number of
-parameters to tune, both for the :ref:`model <architecture-pet_model_hypers>`
-and the :ref:`trainer <architecture-pet_trainer_hypers>`. Since seeing them
+parameters to tune, both for the
+:ref:`model <architecture-{{architecture}}_model_hypers>` and the
+:ref:`trainer <architecture-{{architecture}}_trainer_hypers>`. Since seeing them
 for the first time might be overwhelming, here we provide a **list of the
 parameters that are in general the most important** (in decreasing order
 of importance):
 
 .. container:: mtt-hypers-remove-classname
 
-  .. autoattribute:: {model_hypers_path}.cutoff
+  .. autoattribute:: {{model_hypers_path}}.cutoff
       :no-index:
 
-  .. autoattribute:: {trainer_hypers_path}.learning_rate
+  .. autoattribute:: {{trainer_hypers_path}}.learning_rate
       :no-index:
 
-  .. autoattribute:: {trainer_hypers_path}.batch_size
+  .. autoattribute:: {{trainer_hypers_path}}.batch_size
       :no-index:
 
-  .. autoattribute:: {model_hypers_path}.d_pet
+  .. autoattribute:: {{model_hypers_path}}.d_pet
       :no-index:
 
-  .. autoattribute:: {model_hypers_path}.d_node
+  .. autoattribute:: {{model_hypers_path}}.d_node
       :no-index:
 
-  .. autoattribute:: {model_hypers_path}.num_gnn_layers
+  .. autoattribute:: {{model_hypers_path}}.num_gnn_layers
       :no-index:
 
-  .. autoattribute:: {model_hypers_path}.num_attention_layers
+  .. autoattribute:: {{model_hypers_path}}.num_attention_layers
       :no-index:
 
-  .. autoattribute:: {trainer_hypers_path}.loss
+  .. autoattribute:: {{trainer_hypers_path}}.loss
       :no-index:
 
-  .. autoattribute:: {model_hypers_path}.long_range
+  .. autoattribute:: {{model_hypers_path}}.long_range
       :no-index:
 """
 

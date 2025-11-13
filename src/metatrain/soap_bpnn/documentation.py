@@ -7,23 +7,23 @@ which, instead of their original atom-centered symmetry functions, we use the Sm
 overlap of atomic positions (SOAP) :footcite:p:`bartok_representing_2013` as the atomic
 descriptors, computed with `torch-spex <https://github.com/lab-cosmo/torch-spex>`_.
 
-{SECTION_INSTALLATION}
+{{SECTION_INSTALLATION}}
 
-{SECTION_DEFAULT_HYPERS}
+{{SECTION_DEFAULT_HYPERS}}
 
-{SECTION_MODEL_HYPERS}
+{{SECTION_MODEL_HYPERS}}
 
 with the following definitions needed to fully understand some of the parameters:
 
-.. autoclass:: {architecture_path}.documentation.SOAPConfig
+.. autoclass:: {{architecture_path}}.documentation.SOAPConfig
     :members:
     :undoc-members:
 
-.. autoclass:: {architecture_path}.documentation.SOAPCutoffConfig
+.. autoclass:: {{architecture_path}}.documentation.SOAPCutoffConfig
     :members:
     :undoc-members:
 
-.. autoclass:: {architecture_path}.documentation.BPNNConfig
+.. autoclass:: {{architecture_path}}.documentation.BPNNConfig
     :members:
     :undoc-members:
 
