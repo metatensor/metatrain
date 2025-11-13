@@ -120,7 +120,7 @@ def import_architecture(name: str) -> ModuleType:
     """
     check_architecture_name(name)
     try:
-        module = importlib.import_module(f"metatrain.{name}")
+        return importlib.import_module(f"metatrain.{name}")
     except ModuleNotFoundError as err:
         # consistent name with pyproject.toml's `optional-dependencies` section
         name_for_deps = name
