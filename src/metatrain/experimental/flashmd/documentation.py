@@ -10,9 +10,9 @@ achieves a significant speedup (10-30x) compared to molecular dynamics using MLI
 The FlashMD architecture implemented in metatrain is based on the
 :ref:`PET architecture <architecture-pet>`.
 
-{SECTION_INSTALLATION}
+{{SECTION_INSTALLATION}}
 
-{SECTION_DEFAULT_HYPERS}
+{{SECTION_DEFAULT_HYPERS}}
 
 Tuning hyperparameters
 ----------------------
@@ -24,15 +24,15 @@ they might have different default values.
 
     - FlashMD-specific parameters for the model:
 
-        .. autoattribute:: {model_hypers_path}.predict_momenta_as_difference
+        .. autoattribute:: {{model_hypers_path}}.predict_momenta_as_difference
             :no-index:
 
     - FlashMD-specific parameters for the trainer:
 
-        .. autoattribute:: {trainer_hypers_path}.timestep
+        .. autoattribute:: {{trainer_hypers_path}}.timestep
             :no-index:
 
-        .. autoattribute:: {trainer_hypers_path}.masses
+        .. autoattribute:: {{trainer_hypers_path}}.masses
             :no-index:
 """
 

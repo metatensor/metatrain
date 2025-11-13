@@ -10,15 +10,15 @@ The implementation of the LLPR as a separate architecture within ``metatrain``
 allows the users to compute the uncertainties without dealing with the fine details
 of the LLPR implementation.
 
-{SECTION_INSTALLATION}
+{{SECTION_INSTALLATION}}
 
-{SECTION_DEFAULT_HYPERS}
+{{SECTION_DEFAULT_HYPERS}}
 
-{SECTION_MODEL_HYPERS}
+{{SECTION_MODEL_HYPERS}}
 
 where the ensemble hyperparameters should adhere to the following structure:
 
-.. autoclass:: metatrain.llpr.documentation.EnsemblesHypers
+.. autoclass:: {{architecture_path}}.documentation.EnsemblesHypers
     :members:
     :undoc-members:
 

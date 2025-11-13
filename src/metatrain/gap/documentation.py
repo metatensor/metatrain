@@ -11,43 +11,43 @@ This is an implementation of the sparse Gaussian Approximation Potential
 The GAP model in metatrain can only train on CPU, but evaluation
 is also supported on GPU.
 
-{SECTION_INSTALLATION}
+{{SECTION_INSTALLATION}}
 
-{SECTION_DEFAULT_HYPERS}
+{{SECTION_DEFAULT_HYPERS}}
 
-{SECTION_MODEL_HYPERS}
+{{SECTION_MODEL_HYPERS}}
 
 with the following definitions needed to fully understand some of the parameters:
 
-.. autoclass:: {architecture_path}.documentation.KRRHypers
+.. autoclass:: {{architecture_path}}.documentation.KRRHypers
     :members:
     :undoc-members:
 
-.. autoclass:: {architecture_path}.documentation.SOAPHypers
+.. autoclass:: {{architecture_path}}.documentation.SOAPHypers
     :members:
     :undoc-members:
 
-.. autoclass:: {architecture_path}.documentation.SOAPCutoffHypers
+.. autoclass:: {{architecture_path}}.documentation.SOAPCutoffHypers
     :members:
     :undoc-members:
 
-.. autoclass:: {architecture_path}.documentation.SOAPCutoffSmoothingHypers
+.. autoclass:: {{architecture_path}}.documentation.SOAPCutoffSmoothingHypers
     :members:
     :undoc-members:
 
-.. autoclass:: {architecture_path}.documentation.SOAPDensityHypers
+.. autoclass:: {{architecture_path}}.documentation.SOAPDensityHypers
     :members:
     :undoc-members:
 
-.. autoclass:: {architecture_path}.documentation.SOAPDensityScalingHypers
+.. autoclass:: {{architecture_path}}.documentation.SOAPDensityScalingHypers
     :members:
     :undoc-members:
 
-.. autoclass:: {architecture_path}.documentation.SOAPBasisHypers
+.. autoclass:: {{architecture_path}}.documentation.SOAPBasisHypers
     :members:
     :undoc-members:
 
-.. autoclass:: {architecture_path}.documentation.SOAPBasisRadialHypers
+.. autoclass:: {{architecture_path}}.documentation.SOAPBasisRadialHypers
     :members:
     :undoc-members:
 

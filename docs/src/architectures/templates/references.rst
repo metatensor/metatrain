@@ -1,4 +1,4 @@
-.. _architecture-{architecture}_references:
+.. _architecture-{{architecture}}_references:
 
 References
 ----------

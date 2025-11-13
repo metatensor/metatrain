@@ -6,3 +6,15 @@ the class "mtt-hypers-remove-classname" */
 .mtt-hypers-remove-classname span.sig-prename.descclassname {
     display: none;
 }
+
+/* Some background colors for the blockquotes of the model and
+trainer hyperparameters, so that they can be easily distinguished */
+section#model-hyperparameters blockquote {
+  background-color: aliceblue;
+  border-color: rgb(209, 234, 255);
+}
+
+section#trainer-hyperparameters blockquote {
+    background-color: #e6ffed;
+    border-color: #b3ffcc;
+}
