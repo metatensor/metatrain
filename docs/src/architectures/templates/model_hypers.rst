@@ -6,6 +6,9 @@ Model hyperparameters
 The parameters that go under the ``architecture.model`` section of the config file
 are the following:
 
-.. autoclass:: {model_hypers_path}
-    :members:
-    :undoc-members:
+.. container:: mtt-hypers-no-class-sig
+
+    .. autoclass:: {model_hypers_path}
+        :no-index-entry:
+        :members:
+        :undoc-members:

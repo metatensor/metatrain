@@ -27,21 +27,6 @@ def simple_hypers_class(request: pytest.FixtureRequest):
     return Hypers
 
 
-@pytest.fixture
-def dummy_model(simple_hypers_class: type) -> type:
-    """Create a dummy model class with the given hypers class.
-
-    :param simple_hypers_class: A simple hypers class, either a TypedDict
-    or Pydantic model.
-    :return: A dummy model class with the given hypers class.
-    """
-
-    class DummyModel:
-        __hypers_cls__ = simple_hypers_class
-
-    return DummyModel
-
-
 def test_validate_success(simple_hypers_class: type):
     """Test that valid data passes validation.
 
@@ -64,7 +49,7 @@ def test_validate_failure(simple_hypers_class: type):
         validate(simple_hypers_class, data)
 
 
-def test_validate_architecture_options(dummy_model):
+def test_validate_architecture_options(simple_hypers_class: type):
     """Test that architecture options validation works."""
 
     options = {
@@ -73,10 +58,12 @@ def test_validate_architecture_options(dummy_model):
         "training": {"a": 2.0},
     }
 
-    validate_architecture_options(options, model=dummy_model, trainer=dummy_model)
+    validate_architecture_options(
+        options, model_hypers=simple_hypers_class, trainer_hypers=simple_hypers_class
+    )
 
 
-def test_validate_architecture_options_error(dummy_model):
+def test_validate_architecture_options_error(simple_hypers_class: type):
     """Test that architecture options validation returns error on wrong hypers."""
 
     options = {
@@ -86,7 +73,11 @@ def test_validate_architecture_options_error(dummy_model):
     }
 
     with pytest.raises(MetatrainValidationError):
-        validate_architecture_options(options, model=dummy_model, trainer=dummy_model)
+        validate_architecture_options(
+            options,
+            model_hypers=simple_hypers_class,
+            trainer_hypers=simple_hypers_class,
+        )
 
 
 def test_validate_architecture_options_warning(caplog):
@@ -98,17 +89,12 @@ def test_validate_architecture_options_warning(caplog):
     class Hypers:
         a = 2.0
 
-    class DummyModelNonValidatable:
-        __hypers_cls__ = Hypers
-
     options = {
         "name": "dummy_architecture",
         "model": {"a": False},
         "training": {"a": 2.0},
     }
 
-    validate_architecture_options(
-        options, model=DummyModelNonValidatable, trainer=DummyModelNonValidatable
-    )
+    validate_architecture_options(options, model_hypers=Hypers, trainer_hypers=Hypers)
 
     assert "Architecture does not provide validation of hyperparameters" in caplog.text
