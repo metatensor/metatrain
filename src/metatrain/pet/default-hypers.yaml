@@ -15,6 +15,7 @@ architecture:
     transformer_type: PreLN
     featurizer_type: feedforward
     zbl: false
+    rescale_train_predictions: false
     long_range:
       enable: false
       use_ewald: false

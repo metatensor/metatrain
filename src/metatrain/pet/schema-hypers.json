@@ -69,6 +69,9 @@
         "zbl": {
           "type": "boolean"
         },
+        "rescale_train_predictions": {
+            "type": "boolean"
+        },
         "long_range": {
           "type": "object",
           "properties": {
