@@ -74,6 +74,7 @@ class PET(ModelInterface):
         self.activation = self.hypers["activation"]
         self.transformer_type = self.hypers["transformer_type"]
         self.featurizer_type = self.hypers["featurizer_type"]
+        self.rescale_train_predictions = self.hypers["rescale_train_predictions"]
 
         self.atomic_types = dataset_info.atomic_types
         self.requested_nl = NeighborListOptions(
@@ -505,6 +506,11 @@ class PET(ModelInterface):
 
         for k, v in atomic_predictions_dict.items():
             return_dict[k] = v
+
+        # predictions can be rescaled at training time for computing the loss in
+        # physical units
+        if self.training and self.rescale_train_predictions:
+            return_dict = self.scaler(systems, return_dict)
 
         # **Post-processing (Evaluation Only)**
 

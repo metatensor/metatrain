@@ -223,22 +223,26 @@ class Trainer(TrainerInterface):
             target_info_dict=train_targets, extra_data_info_dict=extra_data_info
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
+        if model.hypers["rescale_train_predictions"]:
+            logging.info("Training with rescaled predictions (physical units)")
+            remove_scale_transform = [get_remove_scale_transform(scaler)]
+        else:
+            logging.info("Training with scaled predictions (scaled units)")
+            remove_scale_transform = []
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
                 rotational_augmenter.apply_random_augmentations,
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
-            ],
+            ] + remove_scale_transform,
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[  # no augmentation for validation
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
-            ],
+            ] + remove_scale_transform,
         )
 
         # Create dataloader for the training datasets:
@@ -421,12 +425,21 @@ class Trainer(TrainerInterface):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                scaled_predictions = (model.module if is_distributed else model).scaler(
-                    systems, predictions
-                )
-                scaled_targets = (model.module if is_distributed else model).scaler(
-                    systems, targets
-                )
+                if (model.module if is_distributed else model).hypers["rescale_train_predictions"]:
+                    # the loss was computed in physical units with the predictions and
+                    # targets already rescaled. No rescaling needs to happen here for
+                    # reporting metrics
+                    scaled_predictions = predictions
+                    scaled_targets = targets
+                else:
+                    # the loss was computed in scaled units. Rescaling needs to happen here for
+                    # reporting metrics in physical units
+                    scaled_predictions = (model.module if is_distributed else model).scaler(
+                        systems, predictions
+                    )
+                    scaled_targets = (model.module if is_distributed else model).scaler(
+                        systems, targets
+                    )
                 train_rmse_calculator.update(
                     scaled_predictions, scaled_targets, extra_data
                 )
@@ -474,12 +487,21 @@ class Trainer(TrainerInterface):
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
 
-                scaled_predictions = (model.module if is_distributed else model).scaler(
-                    systems, predictions
-                )
-                scaled_targets = (model.module if is_distributed else model).scaler(
-                    systems, targets
-                )
+                if (model.module if is_distributed else model).hypers["rescale_train_predictions"]:
+                    # the loss was computed in physical units with the predictions and
+                    # targets already rescaled. No rescaling needs to happen here for
+                    # reporting metrics
+                    scaled_predictions = predictions
+                    scaled_targets = targets
+                else:
+                    # the loss was computed in scaled units. Rescaling needs to happen here for
+                    # reporting metrics in physical units
+                    scaled_predictions = (model.module if is_distributed else model).scaler(
+                        systems, predictions
+                    )
+                    scaled_targets = (model.module if is_distributed else model).scaler(
+                        systems, targets
+                    )
                 val_rmse_calculator.update(
                     scaled_predictions, scaled_targets, extra_data
                 )
