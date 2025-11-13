@@ -15,7 +15,6 @@ jobs:
         architecture-name:
           - gap
           - soap-bpnn
-          - llpr
           - pet
           - nanopet
           - flashmd
