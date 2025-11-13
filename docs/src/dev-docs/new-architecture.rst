@@ -222,6 +222,16 @@ The documentation file is used to define:
 - The hyperparameters for the trainer class.
 - The text that will go to the online documentation for the architecture.
 
+.. warning::
+
+    This file is meant to be imported separately to generate the
+    documentation page for the architecture without needing the
+    extra dependencies that the architecture might require.
+
+    Therefore, all imports in this file should be absolute and this
+    file should not import the rest of the architecture code unless
+    the architecture has no extra dependencies.
+
 Bare minimum
 ^^^^^^^^^^^^
 We understand that during development of a new architecture expecting full

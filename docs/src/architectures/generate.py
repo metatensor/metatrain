@@ -5,6 +5,7 @@ from typing import TypedDict
 from metatrain.utils.architectures import (
     find_all_architectures,
     get_architecture_path,
+    preload_documentation_module,
     write_hypers_yaml,
 )
 
@@ -132,6 +133,10 @@ def setup_architectures_docs():
     generated_dir.mkdir(exist_ok=True)
 
     for architecture_name in find_all_architectures():
+        # Load documentation module in an isolated way to avoid
+        # requiring dependencies for every architecture.
+        preload_documentation_module(architecture_name)
+
         architecture_real_name = architecture_name.replace("experimental.", "").replace(
             "deprecated.", ""
         )

@@ -2,8 +2,6 @@ from typing import Type, TypedDict, TypeVar
 
 from typing_extensions import TypedDict as TE_TypedDict
 
-from .abc import ModelInterface, TrainerInterface
-
 
 HypersType = TypeVar("HypersType")
 
@@ -45,16 +43,6 @@ def init_with_defaults(hypers_cls: Type[HypersType]) -> dict:
             defaults_dict[k] = to_overwrite[k]
 
     return defaults_dict
-
-
-def get_hypers_cls(cls: ModelInterface | TrainerInterface) -> Type:
-    """Get the hypers specification from a model or trainer.
-
-    :param cls: The class to inspect.
-
-    :return: The TypedDict annotation of the 'hypers' parameter.
-    """
-    return cls.__hypers_cls__
 
 
 # Private global dictionary to store overwritten defaults

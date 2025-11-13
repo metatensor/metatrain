@@ -4,8 +4,6 @@ from typing import Any
 from pydantic import BaseModel, TypeAdapter, ValidationError, create_model
 
 from ..share.base_hypers import BaseHypers
-from .abc import ModelInterface, TrainerInterface
-from .hypers import get_hypers_cls
 
 
 class MetatrainValidationError(Exception):
@@ -89,16 +87,14 @@ def validate(model_cls: Any, data: dict, **kwargs: Any) -> None:
 
 
 def validate_architecture_options(
-    options: dict, model: ModelInterface, trainer: TrainerInterface
+    options: dict, model_hypers: type, trainer_hypers: type
 ) -> None:
     """Validate architecture-specific options using Pydantic.
 
     :param options: The architecture options to validate.
-    :param model: The model class of the architecture.
-    :param trainer: The trainer class of the architecture.
+    :param model_hypers: The ModelHypers class of the architecture.
+    :param trainer_hypers: The TrainerHypers class of the architecture.
     """
-    model_hypers = get_hypers_cls(model)
-    trainer_hypers = get_hypers_cls(trainer)
 
     def _is_validatable(cls: Any) -> bool:
         return issubclass(cls, (BaseModel, dict))

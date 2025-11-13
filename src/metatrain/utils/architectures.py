@@ -1,5 +1,6 @@
 import difflib
 import importlib
+import sys
 from importlib.util import find_spec
 from pathlib import Path
 from types import ModuleType
@@ -8,7 +9,7 @@ from typing import Dict, List, Union
 from omegaconf import OmegaConf
 
 from .. import PACKAGE_ROOT
-from .hypers import get_hypers_cls, init_with_defaults
+from .hypers import init_with_defaults
 from .pydantic import validate_architecture_options
 
 
@@ -68,15 +69,9 @@ def check_architecture_options(
     :param name: name of the architecture
     :param options: architecture options to check
     """
-    architecture = import_architecture(name)
-
-    Model = architecture.__model__
-    Trainer = architecture.__trainer__
-
+    hypers_classes = get_hypers_classes(name)
     validate_architecture_options(
-        options,
-        Model,
-        Trainer,
+        options, hypers_classes["model"], hypers_classes["trainer"]
     )
 
 
@@ -125,7 +120,7 @@ def import_architecture(name: str) -> ModuleType:
     """
     check_architecture_name(name)
     try:
-        module = importlib.import_module(f"metatrain.{name}")
+        return importlib.import_module(f"metatrain.{name}")
     except ModuleNotFoundError as err:
         # consistent name with pyproject.toml's `optional-dependencies` section
         name_for_deps = name
@@ -142,28 +137,6 @@ def import_architecture(name: str) -> ModuleType:
             ) from err
         else:
             raise err
-
-    # Import documentation module and set the hypers class for model and trainer
-    try:
-        documentation = importlib.import_module(f"metatrain.{name}.documentation")
-    except ModuleNotFoundError as err:
-        if err.name == f"metatrain.{name}.documentation":
-            raise ModuleNotFoundError(
-                f"Documentation module for architecture '{name}' not found. "
-                "Make sure the architecture has a documentation.py file."
-            ) from err
-
-    for cls in ["ModelHypers", "TrainerHypers"]:
-        if not hasattr(documentation, cls):
-            raise ImportError(
-                f"Documentation module for architecture '{name}' does not "
-                f"contain a '{cls}' class."
-            )
-
-    module.__model__.__hypers_cls__ = documentation.ModelHypers
-    module.__trainer__.__hypers_cls__ = documentation.TrainerHypers
-
-    return module
 
 
 def get_architecture_path(name: str) -> Path:
@@ -216,23 +189,84 @@ def find_all_architectures() -> List[str]:
     return all_architectures
 
 
-def get_default_hypers(name: str) -> Dict:
+def preload_documentation_module(name: str) -> ModuleType:
+    """This preloads the documentation module for a given architecture.
+
+    It imports the `documentation.py` file in an isolated manner and
+    adds it to `sys.modules`.
+
+    The reason one might do this is because the documentation module
+    does not have extra dependencies, so importing it separately is
+    always possible, while if we didn't preload it, importing the
+    documentation would trigger the architecture's `__init__.py`
+    which might have extra dependencies that are not installed.
+
+    Doing this preloading is useful especially in the context of
+    generating the documentation, where we want to be able to
+    document architectures even if their dependencies are not
+    installed.
+
+    :param name: Name of the architecture
+    :return: The documentation module for the architecture.
     """
-    Dictionary of the default architecture hyperparameters.
+    file_path = get_architecture_path(name) / "documentation.py"
+    if not file_path.exists():
+        raise FileNotFoundError(
+            f"The documentation.py file for architecture '{name}' was not found. "
+            "Cannot load the architecture's hyperparameter specification."
+        )
+    spec = importlib.util.spec_from_file_location(
+        f"metatrain.{name}.documentation", file_path
+    )
+    assert spec is not None  # for mypy
+    documentation = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None  # for mypy
+    spec.loader.exec_module(documentation)
+    sys.modules[f"metatrain.{name}.documentation"] = documentation
+    return documentation
+
+
+def get_hypers_classes(name: str) -> Dict[str, type]:
+    """
+    Returns the default architecture hyperparameters.
 
     :param name: Name of the architecture
     :return: Default hyperparameters of the architectures
     """
     check_architecture_name(name)
-    architecture = import_architecture(name)
 
-    model_hypers = get_hypers_cls(architecture.__model__)
-    trainer_hypers = get_hypers_cls(architecture.__trainer__)
+    try:
+        documentation = importlib.import_module(f"metatrain.{name}.documentation")
+    except ModuleNotFoundError as err:
+        if err.name == f"metatrain.{name}.documentation":
+            raise ModuleNotFoundError(
+                f"Documentation module for architecture '{name}' not found. "
+                "Make sure the architecture has a documentation.py file."
+            ) from err
+
+    documentation = importlib.import_module(f"metatrain.{name}.documentation")
+
+    return {
+        "model": documentation.ModelHypers,
+        "trainer": documentation.TrainerHypers,
+    }
+
+
+def get_default_hypers(name: str) -> Dict:
+    """
+    Returns the default architecture hyperparameters.
+
+    :param name: Name of the architecture
+    :return: Default hyperparameters of the architectures
+    """
+    check_architecture_name(name)
+
+    hypers_classes = get_hypers_classes(name)
 
     return {
         "name": name,
-        "model": init_with_defaults(model_hypers),
-        "training": init_with_defaults(trainer_hypers),
+        "model": init_with_defaults(hypers_classes["model"]),
+        "training": init_with_defaults(hypers_classes["trainer"]),
     }
 
 
