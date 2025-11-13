@@ -379,10 +379,8 @@ class BaseScaler(torch.nn.Module):
                     N_values_type = N_values[type_index].unsqueeze(0)
                     Y2_values_type = Y2_values[type_index].unsqueeze(0)
 
-                    # Compute std
-                    scale_vals_type = torch.sqrt(
-                        Y2_values_type / N_values_type
-                    )  # (do not use Bessel's correction)
+                    # Compute std without Bessel's correction
+                    scale_vals_type = torch.sqrt(Y2_values_type / N_values_type)
 
                     # If any scales are zero or NaN, set them to 1.0
                     scale_vals_type[scale_vals_type == 0] = 1.0
