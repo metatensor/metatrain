@@ -184,7 +184,10 @@ def train_model(
     ###########################
 
     architecture_name = options["architecture"]["name"]
-    architecture = import_architecture(architecture_name)
+    try:
+        architecture = import_architecture(architecture_name)
+    except ImportError as e:
+        raise ArchitectureError(e) from e
 
     logging.info(f"Running training for {architecture_name!r} architecture")
 
