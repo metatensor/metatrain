@@ -121,7 +121,7 @@ def import_architecture(name: str) -> ModuleType:
     check_architecture_name(name)
     try:
         return importlib.import_module(f"metatrain.{name}")
-    except ModuleNotFoundError as err:
+    except ImportError as err:
         # consistent name with pyproject.toml's `optional-dependencies` section
         name_for_deps = name
         if "experimental." in name or "deprecated." in name:
@@ -129,14 +129,23 @@ def import_architecture(name: str) -> ModuleType:
 
         name_for_deps = name_for_deps.replace("_", "-")
 
-        if err.name and not err.name.startswith(f"metatrain.{name}"):
+        if (
+            isinstance(err, ModuleNotFoundError)
+            and err.name
+            and not err.name.startswith(f"metatrain.{name}")
+        ):
             raise ModuleNotFoundError(
                 f"Trying to import '{name}' but architecture dependencies "
                 f"seem not be installed. \n"
                 f"Try to install them with `pip install metatrain[{name_for_deps}]`"
             ) from err
         else:
-            raise err
+            raise ImportError(
+                f"An error occurred while importing the architecture '{name}'. "
+                "This is likely due to a broken installation. Reinstalling metatrain "
+                "and its dependencies might help: "
+                f"`pip install metatrain[{name_for_deps}]`"
+            ) from err
 
 
 def get_architecture_path(name: str) -> Path:
