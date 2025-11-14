@@ -254,6 +254,7 @@ class Scaler(torch.nn.Module):
         systems: List[System],
         outputs: Dict[str, TensorMap],
         remove: bool = False,
+        selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         """Scales the outputs based on the stored standard deviations.
 
@@ -261,6 +262,7 @@ class Scaler(torch.nn.Module):
         :param outputs: Dictionary containing the output TensorMaps.
         :param remove: If True, removes the scaling (i.e., divides by the scales). If
             False, applies the scaling (i.e., multiplies by the scales).
+        :param selected_atoms: Optional labels for selected atoms.
         :returns: A dictionary with the scaled outputs.
 
         :raises ValueError: If no scales have been computed or if `outputs` keys
@@ -271,7 +273,7 @@ class Scaler(torch.nn.Module):
 
         self.scales_to(device, dtype)
 
-        scaled_outputs = self.model.forward(systems, outputs, remove)
+        scaled_outputs = self.model.forward(systems, outputs, remove, selected_atoms)
 
         return scaled_outputs
 

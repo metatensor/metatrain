@@ -318,6 +318,7 @@ class BaseScaler(torch.nn.Module):
         systems: List[System],
         outputs: Dict[str, TensorMap],
         remove: bool,
+        selected_atoms: Optional[Labels],
     ) -> Dict[str, TensorMap]:
         """
         Scales the targets based on the stored standard deviations.
@@ -328,6 +329,7 @@ class BaseScaler(torch.nn.Module):
             subset of the target names used during fitting.
         :param remove: If True, removes the scaling (i.e., divides by the scales). If
             False, applies the scaling (i.e., multiplies by the scales).
+        :param selected_atoms: Optional labels for selected atoms.
         :returns: A dictionary with the scaled outputs for each system.
 
         :raises ValueError: If no scales have been computed or if `outputs` keys
@@ -410,12 +412,10 @@ class BaseScaler(torch.nn.Module):
                 else:
                     assert self.sample_kinds[output_name] == "per_atom"
 
-                    if not remove:
+                    output_block_types = torch.cat([system.types for system in systems])
+                    if selected_atoms is not None:
                         # Scale each atomic type separately, also handling selected
                         # atoms and/or potential reordering
-                        output_block_types = torch.cat(
-                            [system.types for system in systems]
-                        )
                         system_indices = output_block.samples.values[:, 0]
                         atom_indices = output_block.samples.values[:, 1]
                         system_lengths = torch.tensor(

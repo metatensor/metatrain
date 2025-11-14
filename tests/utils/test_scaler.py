@@ -499,15 +499,18 @@ def test_scaler_cartesian_per_atom(batch_size, fixed_scaling_weights):
     )
 
     # IMPORTANT: also test selected atoms (see pull request #903)
+    selected_atoms = Labels(
+        names=["system", "atom"],
+        values=torch.tensor([[1, 2], [1, 0]]),
+    )
     fake_output["forces"] = metatensor.torch.slice(
         fake_output["forces"],
         "samples",
-        Labels(
-            names=["system", "atom"],
-            values=torch.tensor([[1, 2], [1, 0]]),
-        ),
+        selected_atoms,
     )
-    fake_output_after_scaling = scaler(systems, fake_output)
+    fake_output_after_scaling = scaler(
+        systems, fake_output, selected_atoms=selected_atoms
+    )
     scales = (
         fake_output_after_scaling["forces"].block().values
         / fake_output["forces"].block().values
