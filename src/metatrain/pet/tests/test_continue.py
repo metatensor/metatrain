@@ -120,3 +120,161 @@ def test_continue(monkeypatch, tmp_path):
     forces_after = [s.positions.grad for s in systems]
 
     assert torch.allclose(torch.vstack(forces_before), torch.vstack(forces_after))
+
+
+def test_continue_restart_num_epochs(monkeypatch, tmp_path):
+    """Tests that a training restart runs the correct
+    number of epochs"""
+
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+
+    systems = read_systems(DATASET_PATH)
+
+    target_info_dict = {}
+    target_info_dict["mtt::U0"] = get_energy_target_info(
+        "mtt::U0", {"quantity": "energy", "unit": "eV"}
+    )
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
+    )
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    conf = {
+        "mtt::U0": {
+            "quantity": "energy",
+            "read_from": DATASET_PATH,
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets, _ = read_targets(OmegaConf.create(conf))
+
+    # systems in float64 are required for training
+    systems = [system.to(torch.float64) for system in systems]
+
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
+
+    hypers = DEFAULT_HYPERS.copy()
+    hypers["training"]["num_epochs"] = 2  # run 2 epochs
+    loss_conf = OmegaConf.create({"mtt::U0": CONF_LOSS.copy()})
+    OmegaConf.resolve(loss_conf)
+    hypers["training"]["loss"] = loss_conf
+
+    trainer = Trainer(hypers["training"])
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
+    assert trainer.epoch == 1  # zero-indexed, so 2 completed
+
+    trainer.save_checkpoint(model, "tmp.ckpt")
+
+    checkpoint = torch.load("tmp.ckpt", weights_only=False, map_location="cpu")
+    model_after = model_from_checkpoint(checkpoint, context="restart")
+    assert isinstance(model_after, PET)
+    model_after.restart(dataset_info)
+
+    hypers["training"]["num_epochs"] = 4  # modify max num epochs to 4
+    trainer = Trainer.load_checkpoint(checkpoint, hypers["training"], context="restart")
+    trainer.train(
+        model=model_after,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
+    assert trainer.epoch == 3  # zero-indexed, so 4 epochs total completed
+
+
+def test_continue_finetune_num_epochs(monkeypatch, tmp_path):
+    """Tests that a training finetune runs the correct
+    number of epochs"""
+
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+
+    systems = read_systems(DATASET_PATH)
+
+    target_info_dict = {}
+    target_info_dict["mtt::U0"] = get_energy_target_info(
+        "mtt::U0", {"quantity": "energy", "unit": "eV"}
+    )
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
+    )
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    conf = {
+        "mtt::U0": {
+            "quantity": "energy",
+            "read_from": DATASET_PATH,
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets, _ = read_targets(OmegaConf.create(conf))
+
+    # systems in float64 are required for training
+    systems = [system.to(torch.float64) for system in systems]
+
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
+
+    hypers = DEFAULT_HYPERS.copy()
+    hypers["training"]["num_epochs"] = 2  # run 2 epochs
+    loss_conf = OmegaConf.create({"mtt::U0": CONF_LOSS.copy()})
+    OmegaConf.resolve(loss_conf)
+    hypers["training"]["loss"] = loss_conf
+
+    trainer = Trainer(hypers["training"])
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
+    assert trainer.epoch == 1  # zero-indexed, so 2 completed
+
+    trainer.save_checkpoint(model, "tmp.ckpt")
+
+    checkpoint = torch.load("tmp.ckpt", weights_only=False, map_location="cpu")
+    model_after = model_from_checkpoint(checkpoint, context="finetune")
+    assert isinstance(model_after, PET)
+    model_after.restart(dataset_info)
+
+    hypers["training"]["num_epochs"] = 1  # modify max num epochs to 1
+    trainer = Trainer.load_checkpoint(
+        checkpoint, hypers["training"], context="finetune"
+    )
+    trainer.train(
+        model=model_after,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
+    assert trainer.epoch == 0  # zero-indexed, so 1 finetuning epoch completed
