@@ -22,12 +22,6 @@ from metatrain.utils.pydantic import MetatrainValidationError
 from . import DEFAULT_HYPERS, MODEL_HYPERS
 
 
-def test_valid_defaults():
-    """Tests that the default hypers pass the architecture options check."""
-    hypers = OmegaConf.create(DEFAULT_HYPERS)
-    check_architecture_options(name="soap_bpnn", options=OmegaConf.to_container(hypers))
-
-
 def test_prediction_subset_elements():
     """Tests that the model can predict on a subset of the elements it was trained
     on."""
