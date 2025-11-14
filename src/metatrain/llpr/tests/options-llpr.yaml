@@ -7,9 +7,7 @@ architecture:
       means:
         energy:
           - node_last_layers.energy.0.energy___0.weight
-          - node_last_layers.energy.1.energy___0.weight
           - edge_last_layers.energy.0.energy___0.weight
-          - edge_last_layers.energy.1.energy___0.weight
       num_members: {energy: 100000}  # needed to converge the std in the tests
   training:
     model_checkpoint: model.ckpt
