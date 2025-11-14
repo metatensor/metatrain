@@ -415,10 +415,17 @@ class BaseScaler(torch.nn.Module):
                     output_block_types = torch.cat([system.types for system in systems])
                     system_indices = output_block.samples.values[:, 0]
                     atom_indices = output_block.samples.values[:, 1]
-                    offset = torch.empty(len(systems), dtype=torch.long, device=device)
-                    offset[0] = 0
-                    for i in range(1, len(systems)):
-                        offset[i] = offset[i - 1] + len(systems[i - 1].types)
+                    system_lengths = torch.tensor(
+                        [len(s.types) for s in systems],
+                        dtype=torch.long,
+                        device=device,
+                    )
+                    offset = torch.cat(
+                        [
+                            torch.zeros(1, dtype=torch.long, device=device),
+                            torch.cumsum(system_lengths[:-1], dim=0),
+                        ]
+                    )
                     output_block_types = output_block_types[
                         offset[system_indices] + atom_indices
                     ]
