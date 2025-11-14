@@ -3,138 +3,16 @@
 Loss functions
 ==============
 
-``metatrain`` supports a variety of loss functions, which can be configured
-in the ``loss`` subsection of the ``training`` section for each ``architecture``
-in the options file. The loss functions are designed to be flexible and can be
-tailored to the specific needs of the dataset and the targets being predicted.
-
-The ``loss`` subsection describes the loss functions to be used. The most basic
-configuration is
-
-.. code-block:: yaml
-
-  loss: mse
-
-which sets the loss function to mean squared error (MSE) for all targets and, if
-present, their gradients. When training a potential energy surface on energy,
-forces, and stress, for example, this configuration is internally expanded to
-
-.. code-block:: yaml
-
-  loss:
-    energy:
-      type: mse
-      weight: 1.0
-      reduction: mean
-      gradients:
-        positions:
-          type: mse
-          weight: 1.0
-          reduction: mean
-        strain:
-          type: mse
-          weight: 1.0
-          reduction: mean
-
-This example assumes the training set contains a target named ``energy``, which has
-both forces and stress/virial gradients requested. In case the energy target has a
-custom name (say, ``mtt::etot``), the configuration would instead be
-
-.. code-block:: yaml
-
-  loss:
-    mtt::etot:
-      type: mse
-      weight: 1.0
-      reduction: mean
-      gradients:
-        positions:
-          type: mse
-          weight: 1.0
-          reduction: mean
-        strain:
-          type: mse
-          weight: 1.0
-          reduction: mean
-  ...
-  training_set:
-    systems:
-    ...
-    targets:
-      mtt::etot:
-        quantity: energy
-        forces: true # or some other allowed configuration
-        stress: true # or some other allowed configuration
-    ...
-
-The internal, more detailed configuration can be used in the options file
-to specify different loss functions for each target, or to override default
-values for the parameters. The parameters accepted by each loss function term
-are
-
-1. ``type``. This controls the type of loss to be used. The default value is ``mse``,
-   and other standard options are ``mae`` and ``huber``, which implement the equivalent
-   PyTorch loss functions
-   `MSELoss <https://docs.pytorch.org/docs/stable/generated/torch.nn.MSELoss.html>`_,
-   `L1Loss <https://docs.pytorch.org/docs/stable/generated/torch.nn.L1Loss.html>`_,
-   and
-   `HuberLoss <https://docs.pytorch.org/docs/stable/generated/torch.nn.HuberLoss.html>`_,
-   respectively.
-   There are also "masked" versions of these losses, which are useful when using
-   padded targets with values that should be masked before computing the loss. The
-   masked losses are named ``masked_mse``, ``masked_mae``, and ``masked_huber``.
-
-2. ``weight``. This controls the weighting of different contributions to the loss
-   (e.g., energy, forces, virial, etc.). The default value of 1.0 for all targets
-   works well for most datasets, but can be adjusted if required.
-
-3. ``reduction``. This controls how the overall loss is computed across batches.
-   The default for this is to use the ``mean`` of the batch losses. The ``sum``
-   function is also supported.
-
-Some losses, like ``huber``, require additional parameters to be specified. Below is
-a table summarizing losses that require or allow additional parameters:
-
-.. list-table:: Loss Functions and Parameters
-    :header-rows: 1
-    :widths: 20 30 50
-
-    * - Loss Type
-      - Description
-      - Additional Parameters
-    * - ``mse``
-      - Mean squared error
-      - N/A
-    * - ``mae``
-      - Mean absolute error
-      - N/A
-    * - ``huber``
-      - Huber loss
-      - ``delta``: Threshold at which to switch from squared error to absolute error.
-    * - ``masked_mse``
-      - Masked mean squared error
-      - N/A
-    * - ``masked_mae``
-      - Masked mean absolute error
-      - N/A
-    * - ``masked_huber``
-      - Masked Huber loss
-      - ``delta``: Threshold at which to switch from squared error to absolute error.
+``metatrain`` supports a variety of loss functions, which can be configured in the ``loss`` subsection of the ``training`` section for each ``architecture`` in the options file.
+The loss functions are designed to be flexible and can be tailored to the specific needs of the dataset and of the predicted targets.
 
 
-Simplified configurations
--------------------------
+Loss function configurations in the ``options.yaml`` file
+---------------------------------------------------------
 
-The internal specification of loss functions can be cumbersome for common use cases.
-There are then shortcuts to simplify the configuration for standard scenarios.
+A common use case is the training of machine-learning interatomic potentials (MLIPs), where the training targets include energies, forces, and stress/virial.
 
-The first example is that of machine-learning interatomic potentials (MLIPs).
-Since often one wants to train on gradients, like forces and stress/virial, the loss
-functions can be specified without explicitly defining the gradients subsection,
-by using the shorthand names ``forces`` and ``stress`` or ``virial`` at the top level
-of the loss configuration. For example, the following configuration is equivalent to the
-one above for the ``energy`` target (the same applies if the energy target has a custom
-name):
+The loss terms for energy, forces, and stress can be specified as:
 
 .. code-block:: yaml
 
@@ -152,8 +30,9 @@ name):
       weight: 1.0
       reduction: mean
 
-Another common scenario is when only the loss function type is to be specified.
-In this case, it is possible to use the following shorthand notation:
+Here, ``forces`` and ``stress`` refer to the gradients of the ``energy`` target with respect to atomic positions and strain, respectively, assuming these gradients have been requested in the training set configuration.
+
+Another common scenario is when only the loss function type needs to be specified, while default values are acceptable for the other parameters. In that case, the configuration can be further simplified to:
 
 .. code-block:: yaml
 
@@ -165,7 +44,8 @@ In this case, it is possible to use the following shorthand notation:
     stress:
       type: huber
 
-which is equivalent to the more detailed configuration:
+where, for example, different types of losses are requested for different targets.
+This is equivalent to the more detailed configuration:
 
 .. code-block:: yaml
 
@@ -184,20 +64,92 @@ which is equivalent to the more detailed configuration:
       reduction: mean
       delta: 1.0
 
+When all targets and their gradients should use the same loss function, it is also possible to use the global shorthand
 
+.. code-block:: yaml
+
+  loss: mse
+
+which sets the loss type to mean squared error (MSE) for all targets and, if present, for all their gradients.
+
+This example assumes that the training set contains a target named ``energy``, and that gradients with respect to both atomic positions (forces) and strain (stress/virial) have been requested.
+If the energy target has a custom name (e.g., ``mtt::etot``), the loss configuration should use that name instead:
+
+.. code-block:: yaml
+
+  loss:
+    mtt::etot:
+      type: mse
+      weight: 1.0
+      reduction: mean
+    forces:
+      type: mse
+      weight: 1.0
+      reduction: mean
+    stress:
+      type: mse
+      weight: 1.0
+      reduction: mean
+  ...
+  training_set:
+    systems:
+    ...
+    targets:
+      mtt::etot:
+        quantity: energy
+        forces: true  # or some other allowed configuration
+        stress: true  # or some other allowed configuration
+    ...
+
+Mind that, in the case the target name is not ``energy``, the key ``quantity: energy`` in the target definition must be present to specify that this target corresponds to energies.
+This allows ``metatrain`` to associate the correct gradients (forces and stress/virial) when requested.
+Both the explicit MLIP configuration (with separate ``energy``, ``forces``, and ``stress`` entries) and the global shorthand ``loss: mse`` are thus mapped to the same internal representation, where loss terms are specified explicitly per target and per gradient.
+
+
+Internal configuration format
+-----------------------------
+
+The internal configuration used by ``metatrain`` during training is a more detailed version of the examples shown above, where each target has its own loss configuration and an optional ``gradients`` subsection.
+
+The example above where the loss function is MSE for energy, forces, and stress is thus represented internally as:
+
+.. code-block:: yaml
+
+  loss:
+    energy:
+      type: mse
+      weight: 1.0
+      reduction: mean
+      gradients:
+        positions:
+          type: mse
+          weight: 1.0
+          reduction: mean
+        strain:
+          type: mse
+          weight: 1.0
+          reduction: mean
+
+This internal format is also available to users in the options file. It can be used to handle general targets and their "non-standard" gradients, those that are not simply forces or stress (for example, custom derivatives with respect to user-defined quantities).
+
+Generally, each loss-function term accepts the following parameters:
+
+:param type: This controls the type of loss to be used. The default value is ``mse``, and other standard options are ``mae`` and ``huber``, which implement the equivalent PyTorch loss functions `MSELoss <https://docs.pytorch.org/docs/stable/generated/torch.nn.MSELoss.html>`_, `L1Loss <https://docs.pytorch.org/docs/stable/generated/torch.nn.L1Loss.html>`_, and `HuberLoss <https://docs.pytorch.org/docs/stable/generated/torch.nn.HuberLoss.html>`_, respectively.
+   There are also "masked" versions of these losses, which are useful when using padded targets with values that should be masked before computing the loss. The masked losses are named ``masked_mse``, ``masked_mae``, and ``masked_huber``.
+:param ``weight``: This controls the weighting of different contributions to the loss (e.g., energy, forces, virial, etc.). The default value of 1.0 for all targets works well for most datasets, but can be adjusted if required.
+:param ``reduction``: This controls how the overall loss is computed across batches. The default for this is to use the ``mean`` of the batch losses. The ``sum`` function is also supported.
+
+Some losses, like ``huber``, require additional parameters to be specified:
+
+:param delta: This parameter is specific to the Huber loss functions (``huber`` and ``masked_huber``) and defines the threshold at which the loss function transitions from quadratic to linear behavior. The default value is 1.0.
 
 
 Masked loss functions
 ---------------------
 
-Masked loss functions are particularly useful when dealing with datasets that contain
-padded targets. In such cases, the loss function can be configured to ignore the padded
-values during the loss computation. This is done by using the ``masked_`` prefix in
-the loss type. For example, if the target contains padded values, you can use
-``masked_mse`` or ``masked_mae`` to ensure that the loss is computed only on the
-valid (non-padded) values. The values of the masks must be passed as ``extra_data``
-in the training set, and the loss function will automatically apply the mask to
-the target values. An example configuration for a masked loss is as follows:
+Masked loss functions are particularly useful when dealing with datasets that contain padded targets. In such cases, the loss function can be configured to ignore the padded values during the loss computation.
+This is done by using the ``masked_`` prefix in the loss type. For example, if the target contains padded values, you can use ``masked_mse`` or ``masked_mae`` to ensure that the loss is computed only on the valid (non-padded) values.
+The values of the masks must be passed as ``extra_data`` in the training set, and the loss function will automatically apply the mask to the target values. An example configuration for a masked loss is as follows:
 
  .. code-block:: yaml
 
@@ -226,14 +178,13 @@ the target values. An example configuration for a masked loss is as follows:
 
 .. _dos-loss:
 
-Masked DOS Loss Function
-------------------------
-The masked DOS loss function is a specialized loss function designed to support model training on the electronic density of states (DOS) projected on an energy grid where the structures in the dataset
-have eigenvalues that span different energy ranges, while accounting for the lack of absolute energy reference in DOS calculations. This loss function allows for effective training
-by focusing the loss computation on the relevant energy ranges for each structure, thereby providing a unified approach to handling DOS data with varying eigenvalue distributions.
-The loss function accounts for the lack of absolute energy reference by allowing the user to specify a number of extra targets that the model predicts beyond the actual DOS values in the target.
-Within the loss function, these extra targets are used to dynamically shift the energy grid for each structure during training, aligning the predicted DOS with the target DOS in a way that minimizes the loss.
-After the alignment step, the loss function is comprised of three components:
+DOS Loss Function
+^^^^^^^^^^^^^^^^^
+
+The masked DOS loss function is a specialized loss designed for training on the electronic density of states (DOS), typically represented on an energy grid. Structures in a dataset can (and usually do) have eigenvalues spanning different energy ranges, and DOS calculations do not share a common absolute energy reference.
+To handle this, the loss uses a user-specified number of extra predicted targets to dynamically shift the energy grid for each structure, aligning the predicted DOS with the reference DOS before computing the loss.
+
+After this alignment step, the loss function consists of three components:
 
 - an integrated loss on the masked DOS values
 
