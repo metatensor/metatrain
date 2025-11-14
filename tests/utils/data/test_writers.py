@@ -7,7 +7,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelCapabilities, ModelOutput, System
 
 from metatrain.utils.data.readers.ase import read
-from metatrain.utils.data.writers import ASEWriter, get_writer
+from metatrain.utils.data.writers import ASEWriter, DiskDatasetWriter, get_writer
 
 
 def systems_capabilities_predictions(
@@ -252,3 +252,31 @@ def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
 def test_write_predictions_unknown_fileformat():
     with pytest.raises(ValueError, match="fileformat '.bar' is not supported"):
         get_writer("foo.bar", capabilities=None)
+
+
+def test_write_disk_dataset_non_contiguous(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    systems, _, _ = systems_capabilities_predictions(cell=None)
+
+    # create a non-contiguous TensorMap
+    vals = torch.rand(100, 2, 3)
+    non_contig_vals = vals.permute(1, 2, 0)
+    assert not non_contig_vals.is_contiguous()
+    block = TensorBlock(
+        values=non_contig_vals,
+        samples=Labels(["system"], torch.tensor([[0], [1]])),
+        components=[
+            Labels.range("xyz", 3),
+        ],
+        properties=Labels(
+            ["property"],
+            torch.arange(100, dtype=torch.int32).reshape(-1, 1),
+        ),
+    )
+    predictions = {"dos": TensorMap(keys=Labels.single(), blocks=[block])}
+    assert not mts.is_contiguous(predictions["dos"])
+
+    # write to DiskDatasetWriter
+    new_dataset = DiskDatasetWriter("test_output.zip")
+    new_dataset.write(systems, predictions)
+    new_dataset.finish()
