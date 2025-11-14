@@ -7,6 +7,13 @@ This page describes the required classes and files necessary for adding a new
 architecture to ``metatrain`` as experimental or stable architecture as
 described on the :ref:`architecture-life-cycle` page.
 
+.. note::
+
+    For MLIP-only architectures (that only predict energies and forces),
+    ``metatrain`` provides base classes that implement most of the boilerplate
+    code. See :doc:`new-mlip` for a complete guide on adding MLIP-only
+    architectures.
+
 To work with ``metatrain`` any architecture has to follow the same public API to
 be called correctly within the :py:func:`metatrain.cli.train` function to
 process the user's options. In brief, the core of the ``train`` function looks

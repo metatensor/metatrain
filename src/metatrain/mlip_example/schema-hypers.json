@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "enum": [
+        "mlip_example"
+      ]
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "cutoff": {
+          "type": "number",
+          "description": "Cutoff radius for neighbor list (in Angstrom)"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "cutoff"
+      ]
+    },
+    "training": {
+      "type": "object",
+      "properties": {
+        "distributed": {
+          "type": "boolean"
+        },
+        "distributed_port": {
+          "type": "integer"
+        },
+        "batch_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "num_epochs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "warmup_fraction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "learning_rate": {
+          "type": "number",
+          "minimum": 0
+        },
+        "log_interval": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "checkpoint_interval": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "scale_targets": {
+          "type": "boolean"
+        },
+        "fixed_composition_weights": {
+          "type": "object"
+        },
+        "fixed_scaling_weights": {
+          "type": "object"
+        },
+        "per_structure_targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "num_workers": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "log_mae": {
+          "type": "boolean"
+        },
+        "log_separate_blocks": {
+          "type": "boolean"
+        },
+        "best_model_metric": {
+          "type": "string"
+        },
+        "loss": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "name",
+    "model",
+    "training"
+  ],
+  "additionalProperties": false
+}

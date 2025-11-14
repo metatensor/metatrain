@@ -1454,3 +1454,47 @@ def _write_dataset_to_memmap(structures, filename):
     e_mm.flush()
     f_mm.flush()
     s_mm.flush()
+
+
+def test_mlip_example_train(monkeypatch, tmp_path):
+    """Test that training works for the mlip_example architecture."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    # Create options for the mlip_example architecture
+    options = OmegaConf.create(
+        {
+            "seed": 42,
+            "architecture": {
+                "name": "mlip_example",
+                "model": {
+                    "cutoff": 5.0,
+                },
+                "training": {
+                    "batch_size": 5,
+                    "num_epochs": 1,
+                    "num_workers": 0,
+                },
+            },
+            "training_set": {
+                "systems": {
+                    "read_from": "qm9_reduced_100.xyz",
+                    "length_unit": "angstrom",
+                },
+                "targets": {
+                    "energy": {
+                        "key": "U0",
+                        "unit": "eV",
+                    },
+                },
+            },
+            "test_set": 0.5,
+            "validation_set": 0.1,
+        }
+    )
+
+    train_model(options, output="model.pt")
+
+    # Check that the model was trained and saved
+    assert Path("model.pt").is_file()
+    assert Path("model.ckpt").is_file()
