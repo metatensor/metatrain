@@ -509,7 +509,9 @@ class PET(ModelInterface):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(systems, return_dict)
+            return_dict = self.scaler(
+                systems, return_dict, selected_atoms=selected_atoms
+            )
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
                 for name, output in outputs.items():
