@@ -75,7 +75,7 @@ def setup(app):
 # ones.
 extensions = [
     "myst_parser",
-    "sphinx.ext.viewcode",  #
+    "sphinx.ext.viewcode",
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
     "sphinx_sitemap",
