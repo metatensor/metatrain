@@ -12,6 +12,7 @@ from metatrain.utils.architectures import (
     get_architecture_path,
     get_default_hypers,
     import_architecture,
+    preload_documentation_module,
 )
 from metatrain.utils.pydantic import MetatrainValidationError
 
@@ -103,15 +104,10 @@ def test_get_architecture_name_err_no_such_arch():
         get_architecture_name(path)
 
 
-def test_check_valid_default_architecture_options():
-    """Test that validating architecture options works.
-
-    We use soap_bpnn as the test architecture to see if the function works.
-    Other architectures might have dependencies, and therefore loading their
-    default hypers could fail. The loading of default hypers should be
-    tested in the tests of each architecture.
-    """
-    name = "soap_bpnn"
+@pytest.mark.parametrize("name", find_all_architectures())
+def test_check_valid_default_architecture_options(name):
+    """Test that all default hypers are according to the provided schema."""
+    preload_documentation_module(name)
     options = get_default_hypers(name)
     check_architecture_options(name=name, options=options)
 
@@ -132,3 +128,23 @@ def test_import_architecture():
     name = "soap_bpnn"
     architecture_ref = importlib.import_module(f"metatrain.{name}")
     assert import_architecture(name) == architecture_ref
+
+
+def test_import_architecture_erro(monkeypatch):
+    # `check_architecture_name` is called inside `import_architecture` and we have to
+    # disble the check to allow passing our "unknown" fancy-model below.
+    monkeypatch.setattr(
+        "metatrain.utils.architectures.check_architecture_name", is_None
+    )
+
+    name = "experimental.fancy_model"
+    name_for_deps = "fancy-model"
+
+    match = (
+        rf"An error occurred while importing the architecture '{name}'. "
+        r"This is likely due to a broken installation. Reinstalling metatrain "
+        r"and its dependencies might help: "
+        rf"`pip install metatrain\[{name_for_deps}\]`"
+    )
+    with pytest.raises(ImportError, match=match):
+        import_architecture(name)
