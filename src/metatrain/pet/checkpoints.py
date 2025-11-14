@@ -226,6 +226,17 @@ def model_update_v7_v8(checkpoint: dict) -> None:
                 checkpoint[key] = new_state_dict
 
 
+def model_update_v8_v9(checkpoint: dict) -> None:
+    """
+    Update a v8 checkpoint to v9.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            state_dict["finetune_config"]["inherit_heads"] = {}
+
+
 ###########################
 # TRAINER #################
 ###########################
