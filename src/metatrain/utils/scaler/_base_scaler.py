@@ -410,25 +410,28 @@ class BaseScaler(torch.nn.Module):
                 else:
                     assert self.sample_kinds[output_name] == "per_atom"
 
-                    # Scale each atomic type separately, also handling selected atoms
-                    # and/or potential reordering
-                    output_block_types = torch.cat([system.types for system in systems])
-                    system_indices = output_block.samples.values[:, 0]
-                    atom_indices = output_block.samples.values[:, 1]
-                    system_lengths = torch.tensor(
-                        [len(s.types) for s in systems],
-                        dtype=torch.long,
-                        device=device,
-                    )
-                    offset = torch.cat(
-                        [
-                            torch.zeros(1, dtype=torch.long, device=device),
-                            torch.cumsum(system_lengths[:-1], dim=0),
+                    if not remove:
+                        # Scale each atomic type separately, also handling selected
+                        # atoms and/or potential reordering
+                        output_block_types = torch.cat(
+                            [system.types for system in systems]
+                        )
+                        system_indices = output_block.samples.values[:, 0]
+                        atom_indices = output_block.samples.values[:, 1]
+                        system_lengths = torch.tensor(
+                            [len(s.types) for s in systems],
+                            dtype=torch.long,
+                            device=device,
+                        )
+                        offset = torch.cat(
+                            [
+                                torch.zeros(1, dtype=torch.long, device=device),
+                                torch.cumsum(system_lengths[:-1], dim=0),
+                            ]
+                        )
+                        output_block_types = output_block_types[
+                            offset[system_indices] + atom_indices
                         ]
-                    )
-                    output_block_types = output_block_types[
-                        offset[system_indices] + atom_indices
-                    ]
 
                     # TODO: gradients of per-atom targets are not supported
                     if len(output_block.gradients_list()) > 0:

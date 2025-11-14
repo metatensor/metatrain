@@ -2,6 +2,7 @@ import copy
 import math
 from pathlib import Path
 
+import metatensor.torch
 import metatensor.torch as mts
 import pytest
 import torch
@@ -496,6 +497,22 @@ def test_scaler_cartesian_per_atom(batch_size, fixed_scaling_weights):
         removed_output["forces"].block().values,
         fake_output["forces"].block().values / expected_scales,
     )
+
+    # IMPORTANT: also test selected atoms (see pull request #903)
+    fake_output["forces"] = metatensor.torch.slice(
+        fake_output["forces"],
+        "samples",
+        Labels(
+            names=["system", "atom"],
+            values=torch.tensor([[1, 2], [1, 0]]),
+        ),
+    )
+    fake_output_after_scaling = scaler(systems, fake_output)
+    scales = (
+        fake_output_after_scaling["forces"].block().values
+        / fake_output["forces"].block().values
+    )
+    torch.testing.assert_close(scales, expected_scales[[3, 1]])
 
 
 @pytest.mark.parametrize("batch_size", [1, 2])
