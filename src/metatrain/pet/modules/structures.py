@@ -10,7 +10,7 @@ from .nef import (
     get_corresponding_edges,
     get_nef_indices,
 )
-from .utilities import cutoff_func
+from .utilities import cutoff_func, smooth_delta_function, step_characteristic_function
 
 
 def concatenate_structures(
@@ -67,7 +67,7 @@ def concatenate_structures(
             # calculate the mapping from the ghost atoms to the real atoms
             ghost_to_real_index = torch.full(
                 [
-                    int(unique_centers.max()) + 1,
+                    int(unique_centers.max()) + 1 if len(unique_centers) > 0 else 0,
                 ],
                 -1,
                 device=centers_values.device,
@@ -139,6 +139,8 @@ def systems_to_batch(
     cutoff_width: float,
     max_num_neighbors: Optional[float] = None,
     selected_atoms: Optional[Labels] = None,
+    w1: Optional[float] = None,
+    w2: Optional[float] = None,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -201,29 +203,45 @@ def systems_to_batch(
         )
     edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
     edge_distances = torch.norm(edge_vectors, dim=-1) + 1e-15
+
+    if selected_atoms is not None:
+        num_nodes = int(centers.max()) + 1
+    else:
+        num_nodes = len(positions)
+
+    atomic_cutoffs = options.cutoff * torch.ones(
+        num_nodes, device=positions.device, dtype=positions.dtype
+    )
+
     if max_num_neighbors is not None:
         # Enabling the adaptive cutoff scheme to approximately select
         # `max_num_neighbors` neighbors for each atom
         probe_cutoffs = torch.arange(
-            1.0,
-            options.cutoff,
             0.5,
+            options.cutoff,
+            0.1,
             device=edge_distances.device,
             dtype=edge_distances.dtype,
         )
-        weights = step_characteristic_function(
-            edge_distances.unsqueeze(0), threshold=probe_cutoffs.unsqueeze(1), width=0.5
+        effective_num_neighbors = get_effective_num_neighbors(
+            edge_distances,
+            probe_cutoffs,
+            centers,
+            num_nodes,
+            width=w1 if w1 is not None else 0.5,
         )
-        probe_num_neighbors = []
-        for w in weights:
-            probe_num_neighbors.append(torch.bincount(centers, weights=w))
-        probe_num_neighbors = torch.stack(probe_num_neighbors, dim=0).T
-        window_weights = smooth_delta_function(
-            probe_num_neighbors, float(max_num_neighbors), 10.0
+        cutoffs_weights = get_probe_cutoffs_weights(
+            effective_num_neighbors,
+            probe_cutoffs,
+            max_num_neighbors,
+            num_nodes,
+            width=w2 if w2 is not None else 0.5,
         )
-        window_weights = window_weights / window_weights.sum(dim=1, keepdim=True)
-        atomic_cutoffs = probe_cutoffs @ window_weights.T
-        cutoff_mask = edge_distances <= atomic_cutoffs[centers]
+        adapted_atomic_cutoffs = probe_cutoffs @ cutoffs_weights.T
+
+        cutoff_mask = edge_distances <= adapted_atomic_cutoffs[centers]
+        unique_centers = torch.unique(centers)
+        atomic_cutoffs[unique_centers] = adapted_atomic_cutoffs[unique_centers]
         centers = centers[cutoff_mask]
         neighbors = neighbors[cutoff_mask]
         edge_vectors = edge_vectors[cutoff_mask]
@@ -240,11 +258,6 @@ def systems_to_batch(
     else:
         max_edges_per_node = int(torch.max(num_neighbors))
 
-    if selected_atoms is not None:
-        num_nodes = int(centers.max()) + 1
-    else:
-        num_nodes = len(positions)
-
     # Convert to NEF (Node-Edge-Feature) format:
     nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
         centers, num_nodes, max_edges_per_node
@@ -256,7 +269,7 @@ def systems_to_batch(
 
     # Send everything to NEF:
     edge_vectors = edge_array_to_nef(edge_vectors, nef_indices)
-    edge_distances = edge_array_to_nef(edge_distances, nef_indices)
+    edge_distances = torch.sqrt(torch.sum(edge_vectors**2, dim=2) + 1e-15)
     element_indices_neighbors = edge_array_to_nef(
         element_indices_neighbors, nef_indices
     )
@@ -288,9 +301,8 @@ def systems_to_batch(
     reverse_neighbor_index[~nef_mask] = torch.arange(
         int(torch.sum(~nef_mask)), device=reverse_neighbor_index.device
     )
-
     cutoff_factors = cutoff_func(
-        edge_distances, atomic_cutoffs.unsqueeze(1), cutoff_width
+        edge_distances, atomic_cutoffs.unsqueeze(1) + cutoff_width, cutoff_width
     )
     cutoff_factors[~nef_mask] = 0.0
 
@@ -307,29 +319,55 @@ def systems_to_batch(
     )
 
 
-def step_characteristic_function(
-    values: torch.Tensor, threshold: float, width: float
+def get_effective_num_neighbors(
+    edge_distances: torch.Tensor,
+    probe_cutoffs: torch.Tensor,
+    centers: torch.Tensor,
+    num_centers: int,
+    width: float = 0.5,
 ) -> torch.Tensor:
-    """Compute the step characteristic function values.
-    :param values: Input values (torch.Tensor).
-    :param threshold: Threshold value (float).
-    :param width: Width parameter (float).
-
-    :return: Step characteristic function values (torch.Tensor).
     """
-    x = (values - threshold) / width
-    return 0.5 * (1.0 - torch.tanh(x))
+    Computes the effective number of neighbors for each probe cutoff.
+    """
+    weights = step_characteristic_function(
+        edge_distances.unsqueeze(0), probe_cutoffs.unsqueeze(1), width
+    )
+    probe_num_neighbors = torch.zeros(
+        (len(probe_cutoffs), num_centers),
+        dtype=edge_distances.dtype,
+        device=edge_distances.device,
+    )
+    for i, w in enumerate(weights):
+        num_neighbors = torch.bincount(centers, weights=w)
+        if len(num_neighbors) > 0:
+            probe_num_neighbors[i, : max(centers) + 1] = num_neighbors
+    probe_num_neighbors = probe_num_neighbors.T.contiguous()
+    return probe_num_neighbors
 
 
-def smooth_delta_function(
-    values: torch.Tensor, center: float, width: float
+def get_probe_cutoffs_weights(
+    effective_num_neighbors: torch.Tensor,
+    probe_cutoffs: torch.Tensor,
+    max_num_neighbors: float,
+    num_nodes: int,
+    width: float = 0.5,
 ) -> torch.Tensor:
-    """Compute the smooth delta function values.
-    :param values: Input values (torch.Tensor).
-    :param center: Center value (float).
-    :param width: Width parameter (float).
-
-    :return: Smooth delta function values (torch.Tensor).
     """
-    x = (values - center) / width
-    return torch.exp(-(x**2)) / (width * torch.sqrt(torch.tensor(torch.pi)))
+    Computes the weights for each probe cutoff based on
+    the effective number of neighbors.
+    """
+    num_neighbors_threshold = (
+        max_num_neighbors
+        * torch.ones(num_nodes, 1, device=effective_num_neighbors.device)
+        - 5e-2
+    )  # eps
+    cutoffs_threshold_idx = torch.searchsorted(
+        effective_num_neighbors, num_neighbors_threshold, right=False
+    ).clamp(max=len(probe_cutoffs) - 1)
+    cutoffs_thresholds = probe_cutoffs[cutoffs_threshold_idx]
+
+    cutoffs_weights = smooth_delta_function(
+        probe_cutoffs.unsqueeze(0), cutoffs_thresholds, width=width
+    )
+    cutoffs_weights = cutoffs_weights / cutoffs_weights.sum(dim=1, keepdim=True)
+    return cutoffs_weights
