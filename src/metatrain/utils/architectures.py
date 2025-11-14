@@ -121,7 +121,7 @@ def import_architecture(name: str) -> ModuleType:
     check_architecture_name(name)
     try:
         return importlib.import_module(f"metatrain.{name}")
-    except ModuleNotFoundError as err:
+    except ImportError as err:
         # consistent name with pyproject.toml's `optional-dependencies` section
         name_for_deps = name
         if "experimental." in name or "deprecated." in name:
