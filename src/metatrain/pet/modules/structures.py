@@ -302,7 +302,7 @@ def systems_to_batch(
         int(torch.sum(~nef_mask)), device=reverse_neighbor_index.device
     )
     cutoff_factors = cutoff_func(
-        edge_distances, atomic_cutoffs.unsqueeze(1) + cutoff_width, cutoff_width
+        edge_distances, atomic_cutoffs.unsqueeze(1), cutoff_width
     )
     cutoff_factors[~nef_mask] = 0.0
 
