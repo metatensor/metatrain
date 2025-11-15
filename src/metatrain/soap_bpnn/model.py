@@ -643,15 +643,16 @@ class SoapBpnn(ModelInterface):
                                     basis_calculator,
                                 ) in basis_calculators_by_block.items():
                                     if basis_calculator_key == layer_key:
-                                        tensor_basis = basis_calculator(
-                                            interatomic_vectors,
-                                            centers,
-                                            neighbors,
-                                            species,
-                                            sample_values[:, 0],
-                                            sample_values[:, 1],
-                                            selected_atoms,
-                                        )
+                                        with record_function("tensor_basis"):
+                                            tensor_basis = basis_calculator(
+                                                interatomic_vectors,
+                                                centers,
+                                                neighbors,
+                                                species,
+                                                sample_values[:, 0],
+                                                sample_values[:, 1],
+                                                selected_atoms,
+                                            )
                         # multiply the invariant coefficients by the elements of the
                         # tensor basis
                         invariant_coefficients_tensor = (
