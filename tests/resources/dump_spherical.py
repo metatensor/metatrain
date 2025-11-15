@@ -1,6 +1,6 @@
-from metatensor.torch import TensorBlock, TensorMap, Labels
-import torch
 import ase.io
+import torch
+from metatensor.torch import Labels, TensorBlock, TensorMap
 
 
 structures = ase.io.read("train_atoms_bmim_nod3.extxyz", ":")
@@ -21,7 +21,14 @@ tensor_map = TensorMap(
             values=all_forces.unsqueeze(-1),
             samples=Labels(
                 names=["system", "atom"],
-                values=torch.tensor([[i, j] for i, atoms in enumerate(structures) for j in range(len(atoms))], dtype=torch.long),
+                values=torch.tensor(
+                    [
+                        [i, j]
+                        for i, atoms in enumerate(structures)
+                        for j in range(len(atoms))
+                    ],
+                    dtype=torch.long,
+                ),
             ),
             components=[
                 Labels(

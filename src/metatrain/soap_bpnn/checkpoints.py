@@ -102,6 +102,22 @@ def model_update_v3_v4(checkpoint: dict) -> None:
                 )
 
 
+def model_update_v4_v5(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 4 to version 5.
+
+    :param checkpoint: The checkpoint to be updated.
+    """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            for key in list(state_dict.keys()):
+                if "soap_calculator.calculator." in key:
+                    new_key = key.replace(
+                        "soap_calculator.calculator.", "soap_calculator."
+                    )
+                    state_dict[new_key] = state_dict.pop(key)
+
+
 ###########################
 # TRAINER #################
 ###########################

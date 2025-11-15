@@ -8,7 +8,7 @@ import numpy as np
 import sphericart.torch
 import torch
 import wigners
-from metatensor.torch import Labels, TensorMap, TensorBlock
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.learn.nn import Linear as LinearMap
 from spex import SphericalExpansion
 from torch.profiler import record_function
@@ -119,7 +119,6 @@ class VectorBasis(torch.nn.Module):
         )  # [center, o3_mu, features]
 
         with record_function("conversion"):
-
             unique_center_species = torch.unique(species)
             blocks: list[TensorBlock] = []
             for s in unique_center_species:
@@ -145,14 +144,19 @@ class VectorBasis(torch.nn.Module):
                     ],
                     properties=Labels(
                         names=["property"],
-                        values=torch.arange(l1_spherical_expansion.shape[2], device=l1_spherical_expansion.device).unsqueeze(1),
-                    )
+                        values=torch.arange(
+                            l1_spherical_expansion.shape[2],
+                            device=l1_spherical_expansion.device,
+                        ).unsqueeze(1),
+                    ),
                 )
                 blocks.append(block)
             l1_spherical_expansion_as_tensor_map = TensorMap(
                 keys=Labels(
                     names=["o3_lambda", "o3_sigma", "center_type"],
-                    values=torch.tensor([[1, 1, int(s)] for s in unique_center_species], device=device),
+                    values=torch.tensor(
+                        [[1, 1, int(s)] for s in unique_center_species], device=device
+                    ),
                 ),
                 blocks=blocks,
             )
@@ -176,7 +180,9 @@ class VectorBasis(torch.nn.Module):
         )
         # however, we need to sort them according to the order of the
         # atoms in the systems
-        system_sizes = torch.bincount(structures, minlength=len(torch.unique(structures)))
+        system_sizes = torch.bincount(
+            structures, minlength=len(torch.unique(structures))
+        )
         system_offsets = torch.cat(
             [
                 torch.tensor([0], device=device),
@@ -184,24 +190,14 @@ class VectorBasis(torch.nn.Module):
             ]
         )
         all_system_indices = torch.concatenate(
-            [
-                b.samples.values[:, 0]
-                for b in basis_vectors.blocks()
-            ]
+            [b.samples.values[:, 0] for b in basis_vectors.blocks()]
         )
         all_atom_indices = torch.concatenate(
-            [
-                b.samples.values[:, 1]
-                for b in basis_vectors.blocks()
-            ]
+            [b.samples.values[:, 1] for b in basis_vectors.blocks()]
         )
-        overall_atom_indices = (
-            system_offsets[all_system_indices] + all_atom_indices
-        )
+        overall_atom_indices = system_offsets[all_system_indices] + all_atom_indices
         sorting_indices = torch.argsort(overall_atom_indices)
-        basis_vectors_as_tensor = all_basis_vectors[
-            sorting_indices
-        ]
+        basis_vectors_as_tensor = all_basis_vectors[sorting_indices]
         return basis_vectors_as_tensor  # [n_atoms, 3(yzx), 3]
 
 
