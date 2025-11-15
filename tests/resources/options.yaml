@@ -1,23 +1,26 @@
 seed: 42
+device: cuda
+base_precision: 32
 
 architecture:
   name: soap_bpnn
-  training:
-    batch_size: 5
-    num_epochs: 1
   model:
     soap:
       max_radial: 4
       max_angular: 2
+  training:
+    log_interval: 1
+    batch_size: 8
+    num_epochs: 10
 
 training_set:
   systems:
-    read_from: qm9_reduced_100.xyz
+    read_from: train_atoms_bmim_nod3.extxyz
     length_unit: angstrom
   targets:
     energy:
-      key: U0
+      key: energy
       unit: eV
 
-test_set: 0.5
-validation_set: 0.1
+test_set: 0.90
+validation_set: 0.01
