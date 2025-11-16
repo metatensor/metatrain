@@ -27,7 +27,7 @@ architecture:
     batch_size: 8
     num_epochs: 100
     warmup_fraction: 0.01
-    learning_rate: 0.001
+    learning_rate: 0.003
     log_interval: 5
     checkpoint_interval: 25
     remove_composition_contribution: true

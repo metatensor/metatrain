@@ -29,7 +29,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .modules.power_spectrum import SoapPowerSpectrum
-from .spherical import TensorBasis
+from .modules.tensor_basis import TensorBasis
 
 
 class Identity(torch.nn.Module):
@@ -969,6 +969,7 @@ class SoapBpnn(ModelInterface):
                     o3_lambda=0,
                     o3_sigma=1,
                     add_lambda_basis=self.hypers["add_lambda_basis"],
+                    modern=self.modern,
                 )
         elif target.is_spherical:
             for key, block in target.layout.items():
@@ -986,6 +987,7 @@ class SoapBpnn(ModelInterface):
                     o3_lambda,
                     o3_sigma,
                     self.hypers["add_lambda_basis"],
+                    self.modern,
                 )
         else:
             raise ValueError("SOAP-BPNN only supports scalar and spherical targets.")
