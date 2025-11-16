@@ -19,6 +19,7 @@ jobs:
           - pet
           - nanopet
           - flashmd
+          - mace
 
     runs-on: ubuntu-22.04
 

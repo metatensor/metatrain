@@ -13,6 +13,7 @@ from metatrain.utils.data.target_info import (
     get_generic_target_info,
 )
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.pydantic import MetatrainValidationError
 
 from . import DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -373,7 +374,9 @@ def test_fixed_composition_weights_error():
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["fixed_composition_weights"] = {"energy": {"H": 300.0}}
     hypers = OmegaConf.create(hypers)
-    with pytest.raises(ValueError, match=r"'H' does not match '\^\[0-9\]\+\$'"):
+    with pytest.raises(
+        MetatrainValidationError, match=r"Input should be a valid integer"
+    ):
         check_architecture_options(name="pet", options=OmegaConf.to_container(hypers))
 
 
