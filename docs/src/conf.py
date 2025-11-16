@@ -27,6 +27,7 @@ ROOT = os.path.abspath(os.path.join("..", ".."))
 # We register and use the same sphinx gallery configuration as in the pseudo project.
 sys.path.append(os.path.join(ROOT, "docs"))
 from generate_examples.conf import sphinx_gallery_conf  # noqa
+from src.architectures.generate import setup_architectures_docs  # noqa
 
 
 # -- Project information -----------------------------------------------------
@@ -66,6 +67,7 @@ def generate_examples():
 
 def setup(app):
     generate_examples()
+    setup_architectures_docs()
 
 
 # Add any Sphinx extension module names here, as strings. They can be
@@ -93,6 +95,8 @@ exclude_patterns = [
     "examples/sg_execution_times.rst",
     "examples/ase/index.rst",
     "sg_execution_times.rst",
+    "architectures/templates/*",
+    "architectures/README.md",
 ]
 
 
@@ -110,6 +114,7 @@ intersphinx_mapping = {
     "metatensor": ("https://docs.metatensor.org/latest/", None),
     "metatomic": ("https://docs.metatensor.org/metatomic/latest/", None),
     "omegaconf": ("https://omegaconf.readthedocs.io/en/latest/", None),
+    "pydantic": ("https://docs.pydantic.dev/latest", None),
 }
 
 # The path to the bibtex file
@@ -154,4 +159,5 @@ html_css_files = [
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/fontawesome.min.css",
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/solid.min.css",
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/brands.min.css",
+    "styles.css",
 ]

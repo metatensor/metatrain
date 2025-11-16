@@ -4,9 +4,14 @@ import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, NeighborListOptions, System
+from pydantic import TypeAdapter
+from typing_extensions import TypedDict
 
 from metatrain.utils.data import DatasetInfo, TargetInfo
-from metatrain.utils.jsonschema import validate
+
+
+class PositionAdditiveHypers(TypedDict):
+    also_momenta: bool
 
 
 class PositionAdditive(torch.nn.Module):
@@ -17,19 +22,11 @@ class PositionAdditive(torch.nn.Module):
     Optionally, it can also do the same with momenta.
     """
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
+    def __init__(self, hypers: PositionAdditiveHypers, dataset_info: DatasetInfo):
         super().__init__()
 
-        validate(
-            instance=hypers,
-            schema={
-                "type": "object",
-                "properties": {
-                    "also_momenta": {"type": "boolean"},
-                },
-                "required": ["also_momenta"],
-                "additionalProperties": False,
-            },
+        TypeAdapter(PositionAdditiveHypers).validate_python(
+            hypers, strict=True, extra="forbid"
         )
         self.do_momenta = hypers["also_momenta"]
 

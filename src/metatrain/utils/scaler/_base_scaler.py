@@ -11,6 +11,9 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
 
+FixedScalerWeights = dict[str, Union[float, dict[int, float]]]
+
+
 class BaseScaler(torch.nn.Module):
     """
     Fits a scaler for a dict of targets. Scales are computed as the per-property (and
@@ -243,7 +246,7 @@ class BaseScaler(torch.nn.Module):
 
     def fit(
         self,
-        fixed_weights: Optional[Dict[str, Union[float, Dict[int, float]]]] = None,
+        fixed_weights: Optional[FixedScalerWeights] = None,
         targets_to_fit: Optional[List[str]] = None,
     ) -> None:
         """

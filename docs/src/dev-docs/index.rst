@@ -16,4 +16,5 @@ module.
    new-loss
    cli/index
    utils/index
+   base-hypers
    changelog
