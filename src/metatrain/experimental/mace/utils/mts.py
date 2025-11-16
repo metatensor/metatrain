@@ -114,8 +114,10 @@ def e3nn_to_tensormap(
 
 
 def get_system_indices_and_labels(
-    systems: List[System], device: torch.device
+    systems: List[System]
 ) -> tuple[torch.Tensor, Labels]:
+    device = systems[0].device
+
     system_indices = torch.concatenate(
         [
             torch.full(
