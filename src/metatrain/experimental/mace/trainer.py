@@ -47,7 +47,7 @@ from .documentation import TrainerHypers
 
 
 def get_optimizer_and_scheduler(
-    trainer_hypers: MACETrainerHypers,
+    trainer_hypers: TrainerHypers,
     model: MetaMACE,
     optimizer_state_dict: Optional[dict[str, Any]] = None,
     scheduler_state_dict: Optional[dict[str, Any]] = None,
@@ -130,9 +130,9 @@ def get_optimizer_and_scheduler(
 
 class Trainer(TrainerInterface):
     __checkpoint_version__ = 1
-    __hypers_cls__ = MACETrainerHypers
+    __hypers_cls__ = TrainerHypers
 
-    def __init__(self, hypers: MACETrainerHypers) -> None:
+    def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
 
         self.optimizer_state_dict: Optional[Dict[str, Any]] = None
@@ -615,7 +615,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: MACETrainerHypers,
+        hypers: TrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
         trainer = cls(hypers)
