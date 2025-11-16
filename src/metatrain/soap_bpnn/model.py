@@ -272,6 +272,7 @@ class SoapBpnn(ModelInterface):
 
         if self.modern:
             module_list: List[torch.nn.Module] = []
+            print(["input_size", hypers_bpnn["input_size"]])
             if self.hypers["bpnn"]["num_hidden_layers"] > 0:
                 module_list.append(
                     torch.nn.Linear(
@@ -499,7 +500,7 @@ class SoapBpnn(ModelInterface):
             cell_contributions = torch.einsum(
                 "ab, abc -> ac",
                 cell_shifts.to(cells.dtype),
-                cells[system_indices[centers]],
+                cells[system_indices][centers],
             )
 
         interatomic_vectors = (

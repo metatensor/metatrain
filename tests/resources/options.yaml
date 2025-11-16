@@ -6,8 +6,8 @@ architecture:
   name: soap_bpnn
   model:
     soap:
-      max_radial: 4
-      max_angular: 2
+      max_radial: 3
+      max_angular: 3
   training:
     log_interval: 1
     batch_size: 8
