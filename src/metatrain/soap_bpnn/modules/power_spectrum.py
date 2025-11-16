@@ -49,6 +49,7 @@ class SoapPowerSpectrum(Module):
             else len(species["Orthogonal"]["species"])
         )
         self.shape = sum(self.n_per_l[ell] ** 2 * n_species**2 for ell in l_to_treat)
+        self.modern = "Alchemical" in species
 
     def forward(
         self,
@@ -119,22 +120,18 @@ class SoapPowerSpectrum(Module):
                     tensor.shape[0], n_prop
                 )
                 blocks_from_single_l.append(values)
-        with record_function("keys_to_properties_final"):
-            output_tensor = torch.concatenate(blocks_from_single_l, dim=1)
 
-            unique_center_species = torch.unique(species)
-            blocks: list[TensorBlock] = []
-            for s in unique_center_species:
-                mask = species == s
-                output_tensor_filtered = output_tensor[mask]
-                structures_filtered = structures[mask]
-                centers_filtered = centers[mask]
-                block = TensorBlock(
-                    values=output_tensor_filtered,
+        if self.modern:
+            # only one center species, which will be encoded outside of this module
+            output_tensor = torch.concatenate(blocks_from_single_l, dim=1)
+            output_tensor_map = TensorMap(
+                keys=Labels(names=["_"], values=torch.tensor([[0]], dtype=torch.int32, device=R_ij.device)),
+                blocks=[TensorBlock(
+                    values=output_tensor,
                     samples=Labels(
                         names=["system", "atom"],
                         values=torch.stack(
-                            [structures_filtered, centers_filtered], dim=1
+                            [structures, centers], dim=1
                         ),
                     ),
                     components=[],
@@ -144,13 +141,41 @@ class SoapPowerSpectrum(Module):
                             output_tensor.shape[1], device=output_tensor.device
                         ).unsqueeze(1),
                     ),
-                )
-                blocks.append(block)
-            output_tensor_map = TensorMap(
-                keys=Labels(
-                    names=["center_type"],
-                    values=unique_center_species.unsqueeze(1),
-                ),
-                blocks=blocks,
+                )]
             )
+        else:
+            with record_function("keys_to_properties_final"):
+                output_tensor = torch.concatenate(blocks_from_single_l, dim=1)
+
+                unique_center_species = torch.unique(species)
+                blocks: list[TensorBlock] = []
+                for s in unique_center_species:
+                    mask = species == s
+                    output_tensor_filtered = output_tensor[mask]
+                    structures_filtered = structures[mask]
+                    centers_filtered = centers[mask]
+                    block = TensorBlock(
+                        values=output_tensor_filtered,
+                        samples=Labels(
+                            names=["system", "atom"],
+                            values=torch.stack(
+                                [structures_filtered, centers_filtered], dim=1
+                            ),
+                        ),
+                        components=[],
+                        properties=Labels(
+                            names=["property"],
+                            values=torch.arange(
+                                output_tensor.shape[1], device=output_tensor.device
+                            ).unsqueeze(1),
+                        ),
+                    )
+                    blocks.append(block)
+                output_tensor_map = TensorMap(
+                    keys=Labels(
+                        names=["center_type"],
+                        values=unique_center_species.unsqueeze(1),
+                    ),
+                    blocks=blocks,
+                )
         return output_tensor_map

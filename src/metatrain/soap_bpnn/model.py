@@ -183,9 +183,9 @@ def concatenate_structures(
 
 
 class SoapBpnn(ModelInterface):
-    __checkpoint_version__ = 5
+    __checkpoint_version__ = 6
     __supported_devices__ = ["cuda", "cpu"]
-    __supported_dtypes__ = [torch.float64, torch.float32]
+    __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
         references={
             "implementation": [
@@ -203,12 +203,27 @@ class SoapBpnn(ModelInterface):
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
+        # The following hyperparameter toggles between the "modern" and "legacy"
+        # implementations of SOAP-BPNN. While the latter uses uses orthogonal spaces
+        # to represent chemical species (both center and neighbor species), the former
+        # uses embeddings.
+        self.modern = self.hypers["modern"]
+
         self.atomic_types = dataset_info.atomic_types
         self.requested_nl = NeighborListOptions(
             cutoff=self.hypers["soap"]["cutoff"]["radius"],
             full_list=True,
             strict=True,
         )
+
+        if self.modern:
+            species_to_species_index = torch.empty(
+                max(self.atomic_types) + 1, dtype=torch.long
+            )
+            species_to_species_index[self.atomic_types] = torch.arange(len(self.atomic_types))
+            self.register_buffer(
+                "species_to_species_index", species_to_species_index
+            )
 
         spex_soap_hypers = {
             "cutoff": self.hypers["soap"]["cutoff"]["radius"],
@@ -222,20 +237,64 @@ class SoapBpnn(ModelInterface):
             "cutoff_function": {
                 "ShiftedCosine": {"width": self.hypers["soap"]["cutoff"]["width"]}
             },
-            "species": {"Orthogonal": {"species": self.atomic_types}},
+            "species": (
+                # hardcoded to 4 (the literature would suggest 4 is enough)
+                {"Alchemical": {"pseudo_species": 4, "total_species": len(self.atomic_types)}} if self.modern else
+                {"Orthogonal": {"species": self.atomic_types}}
+            )
         }
         self.soap_calculator = SoapPowerSpectrum(**spex_soap_hypers)
         soap_size = self.soap_calculator.shape
 
+        if self.modern:
+            # register center encoding
+            self.center_encoding = torch.nn.Embedding(
+                num_embeddings=len(self.atomic_types),
+                embedding_dim=soap_size,
+            )
+        else:
+            self.center_encoding = Identity()
+
         hypers_bpnn = {**self.hypers["bpnn"]}
         hypers_bpnn["input_size"] = soap_size
 
+        # define one layernorm for tensors and one for tensormaps (for torchscript)
         if hypers_bpnn["layernorm"]:
-            self.layernorm = LayerNormMap(self.atomic_types, soap_size)
+            if self.modern:
+                self.layernorm_for_tensors = torch.nn.LayerNorm(soap_size)
+                self.layernorm = Identity()
+            else:
+                self.layernorm_for_tensors = torch.nn.Identity()
+                self.layernorm = LayerNormMap(self.atomic_types, soap_size)
         else:
+            self.layernorm_for_tensors = torch.nn.Identity()
             self.layernorm = Identity()
 
-        self.bpnn = MLPMap(self.atomic_types, hypers_bpnn)
+        if self.modern:
+            module_list: List[torch.nn.Module] = []
+            if self.hypers["bpnn"]["num_hidden_layers"] > 0:
+                module_list.append(
+                    torch.nn.Linear(
+                        hypers_bpnn["input_size"],
+                        hypers_bpnn["num_neurons_per_layer"],
+                        bias=False,
+                    )
+                )
+                module_list.append(torch.nn.SiLU())
+                for _ in range(hypers_bpnn["num_hidden_layers"] - 1):
+                    module_list.append(
+                        torch.nn.Linear(
+                            hypers_bpnn["num_neurons_per_layer"],
+                            hypers_bpnn["num_neurons_per_layer"],
+                            bias=False,
+                        )
+                    )
+                    module_list.append(torch.nn.SiLU())
+            self.bpnn_for_tensors = torch.nn.Sequential(*module_list)
+            self.bpnn = Identity()
+        else:
+            self.bpnn_for_tensors = torch.nn.Identity()
+            self.bpnn = MLPMap(self.atomic_types, hypers_bpnn)
 
         self.neighbors_species_labels = Labels(
             names=["neighbor_1_type", "neighbor_2_type"],
@@ -266,7 +325,7 @@ class SoapBpnn(ModelInterface):
             self.long_range = False
             self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
 
-        self.last_layer_feature_size = self.n_inputs_last_layer * len(self.atomic_types)
+        self.last_layer_feature_size = self.n_inputs_last_layer if self.modern else self.n_inputs_last_layer * len(self.atomic_types)
 
         self.outputs = {
             "features": ModelOutput(unit="", per_atom=True)
@@ -446,6 +505,10 @@ class SoapBpnn(ModelInterface):
         interatomic_vectors = (
             positions[neighbors] - positions[centers] + cell_contributions
         )
+
+        if self.modern:
+            species = self.species_to_species_index[species]
+
         soap_features = self.soap_calculator(
             interatomic_vectors,
             centers,
@@ -454,59 +517,122 @@ class SoapBpnn(ModelInterface):
             sample_values[:, 0],
             sample_values[:, 1],
         )
+
+        if self.modern:
+            # encode center types
+            soap_features = TensorMap(
+                keys=soap_features.keys,
+                blocks=[
+                    TensorBlock(
+                        values=block.values * self.center_encoding(species),
+                        samples=block.samples,
+                        components=block.components,
+                        properties=block.properties,
+                    )
+                    for block in soap_features.blocks()
+                ],
+            )
+
         if selected_atoms is not None:
             soap_features = mts.slice(soap_features, "samples", selected_atoms)
 
         device = soap_features.block(0).values.device
 
-        soap_features = self.layernorm(soap_features)
+        if self.modern:
+            soap_features_tensor = soap_features.block(0).values
+            soap_features_tensor = self.layernorm_for_tensors(soap_features_tensor)
+        else:
+            soap_features_tensor = torch.tensor([])  # for torchscript
+            soap_features = self.layernorm(soap_features)
 
-        with record_function("bpnn"):
+        if self.modern:
+            values = self.bpnn_for_tensors(soap_features_tensor)
+            features = TensorMap(
+                keys=soap_features.keys,
+                blocks=[
+                    TensorBlock(
+                        values=values,
+                        samples=soap_features.block().samples,
+                        components=soap_features.block().components,
+                        properties=Labels(
+                            names=["feature"],
+                            values=torch.arange(
+                                self.n_inputs_last_layer,
+                                device=device,
+                            ).unsqueeze(1),
+                        )
+                    )
+                ],
+            )
+        else:
             features = self.bpnn(soap_features)
 
         if self.long_range:
-            # slightly painful because:
-            # - the features are split per center type
-            # - we have to recompute the edge vectors again outside of featomic
-            #   (TODO: this is not true anymore due to torch-spex, to be optimized)
+            if self.modern:
+                distances = torch.sqrt(torch.sum(interatomic_vectors**2, dim=-1))
+                long_range_features_tensor = self.long_range_featurizer(
+                    systems, features.block().values, distances
+                )
+                long_range_features = TensorMap(
+                    keys=features.keys,
+                    blocks=[
+                        TensorBlock(
+                            values=long_range_features_tensor,
+                            samples=features.block().samples,
+                            components=features.block().components,
+                            properties=Labels(
+                                names=["feature"],
+                                values=torch.arange(
+                                    self.n_inputs_last_layer,
+                                    device=device,
+                                ).unsqueeze(1),
+                            )
+                        )
+                    ],
+                )
+            else:
+                # slightly painful because:
+                # - the features are split per center type
+                # - we have to recompute the edge vectors again outside of featomic
+                #   (TODO: this is not true anymore due to torch-spex, to be optimized)
 
-            # first, send center_type to the samples dimension and make sure the
-            # ordering is the same as in the systems
-            merged_features = (
-                mts.sort(features.keys_to_samples("center_type"), axes="samples")
-                .block()
-                .values
-            )
+                # first, send center_type to the samples dimension and make sure the
+                # ordering is the same as in the systems
+                merged_features = (
+                    mts.sort(features.keys_to_samples("center_type"), axes="samples")
+                    .block()
+                    .values
+                )
 
-            distances = torch.sqrt(torch.sum(interatomic_vectors**2, dim=-1))
+                distances = torch.sqrt(torch.sum(interatomic_vectors**2, dim=-1))
 
-            long_range_features_tensor = self.long_range_featurizer(
-                systems, merged_features, distances
-            )
+                long_range_features_tensor = self.long_range_featurizer(
+                    systems, merged_features, distances
+                )
 
-            # also sort the original features to avoid problems
-            features = mts.sort(features, axes="samples")
+                # also sort the original features to avoid problems
+                features = mts.sort(features, axes="samples")
 
-            # split the long-range features back to center types
-            center_types = torch.concatenate([system.types for system in systems])
-            long_range_features = TensorMap(
-                keys=features.keys,
-                blocks=[
-                    TensorBlock(
-                        values=long_range_features_tensor[center_types == center_type],
-                        samples=features.block(
-                            {"center_type": int(center_type)}
-                        ).samples,
-                        components=features.block(
-                            {"center_type": int(center_type)}
-                        ).components,
-                        properties=features.block(
-                            {"center_type": int(center_type)}
-                        ).properties,
-                    )
-                    for center_type in features.keys.column("center_type")
-                ],
-            )
+                # split the long-range features back to center types
+                center_types = torch.concatenate([system.types for system in systems])
+                long_range_features = TensorMap(
+                    keys=features.keys,
+                    blocks=[
+                        TensorBlock(
+                            values=long_range_features_tensor[center_types == center_type],
+                            samples=features.block(
+                                {"center_type": int(center_type)}
+                            ).samples,
+                            components=features.block(
+                                {"center_type": int(center_type)}
+                            ).components,
+                            properties=features.block(
+                                {"center_type": int(center_type)}
+                            ).properties,
+                        )
+                        for center_type in features.keys.column("center_type")
+                    ],
+                )
 
             # combine short- and long-range features
             features = mts.add(features, long_range_features)
@@ -515,12 +641,18 @@ class SoapBpnn(ModelInterface):
             # output the hidden features, if requested:
             if "features" in outputs:
                 features_options = outputs["features"]
-                out_features = features.keys_to_properties(self.center_type_labels)
+                if not self.modern:
+                    out_features = features.keys_to_properties(self.center_type_labels)
+                else:
+                    out_features = features
                 if not features_options.per_atom:
                     out_features = sum_over_atoms(out_features)
-                return_dict["features"] = _remove_center_type_from_properties(
-                    out_features
-                )
+                if self.modern:
+                    return_dict["features"] = out_features
+                else:
+                    return_dict["features"] = _remove_center_type_from_properties(
+                        out_features
+                    )
 
             features_by_output: Dict[str, TensorMap] = {}
             for output_name, head in self.heads.items():
@@ -548,15 +680,21 @@ class SoapBpnn(ModelInterface):
                 if f"mtt::{base_name}" in features_by_output:
                     base_name = f"mtt::{base_name}"
                 features_options = outputs[output_name]
-                out_features = features_by_output[base_name].keys_to_properties(
-                    self.center_type_labels
-                )
+                if not self.modern:
+                    out_features = features_by_output[base_name].keys_to_properties(
+                        self.center_type_labels
+                    )
+                else:
+                    out_features = features_by_output[base_name]
                 if not features_options.per_atom:
                     out_features = sum_over_atoms(out_features)
-                return_dict[output_name] = _remove_center_type_from_properties(
-                    out_features
-                )
-
+                if self.modern:
+                    return_dict[output_name] = out_features
+                else:
+                    return_dict[output_name] = _remove_center_type_from_properties(
+                        out_features
+                    )
+                    
         with record_function("atomic_properties"):
             atomic_properties: Dict[str, TensorMap] = {}
             for output_name, output_layers in self.last_layers.items():
@@ -570,67 +708,68 @@ class SoapBpnn(ModelInterface):
                         invariant_coefficients = output_layer(
                             features_by_output[output_name]
                         )
-                        ######## optimized keys_to_samples #############################
-                        # This is equivalent to
-                        # invariant_coefficients = (
-                        #     invariant_coefficients.keys_to_samples("center_type")
-                        # )
-                        # but faster
-                        all_invariant_coefficients = torch.concatenate(
-                            [b.values for b in invariant_coefficients.blocks()]
-                        )
-                        # however, we need to sort them according to the order of the
-                        # atoms in the systems
-                        system_sizes = torch.tensor(
-                            [len(system) for system in systems], device=device
-                        )
-                        system_offsets = torch.cat(
-                            [
-                                torch.tensor([0], device=device),
-                                torch.cumsum(system_sizes, dim=0)[:-1],
+                        if not self.modern:
+                            ######## optimized keys_to_samples #############################
+                            # This is equivalent to
+                            # invariant_coefficients = (
+                            #     invariant_coefficients.keys_to_samples("center_type")
+                            # )
+                            # but faster
+                            all_invariant_coefficients = torch.concatenate(
+                                [b.values for b in invariant_coefficients.blocks()]
+                            )
+                            # however, we need to sort them according to the order of the
+                            # atoms in the systems
+                            system_sizes = torch.tensor(
+                                [len(system) for system in systems], device=device
+                            )
+                            system_offsets = torch.cat(
+                                [
+                                    torch.tensor([0], device=device),
+                                    torch.cumsum(system_sizes, dim=0)[:-1],
+                                ]
+                            )
+                            all_system_indices = torch.concatenate(
+                                [
+                                    b.samples.values[:, 0]
+                                    for b in invariant_coefficients.blocks()
+                                ]
+                            )
+                            all_atom_indices = torch.concatenate(
+                                [
+                                    b.samples.values[:, 1]
+                                    for b in invariant_coefficients.blocks()
+                                ]
+                            )
+                            overall_atom_indices = (
+                                system_offsets[all_system_indices] + all_atom_indices
+                            )
+                            sorting_indices = torch.argsort(overall_atom_indices)
+                            all_invariant_coefficients = all_invariant_coefficients[
+                                sorting_indices
                             ]
-                        )
-                        all_system_indices = torch.concatenate(
-                            [
-                                b.samples.values[:, 0]
-                                for b in invariant_coefficients.blocks()
-                            ]
-                        )
-                        all_atom_indices = torch.concatenate(
-                            [
-                                b.samples.values[:, 1]
-                                for b in invariant_coefficients.blocks()
-                            ]
-                        )
-                        overall_atom_indices = (
-                            system_offsets[all_system_indices] + all_atom_indices
-                        )
-                        sorting_indices = torch.argsort(overall_atom_indices)
-                        all_invariant_coefficients = all_invariant_coefficients[
-                            sorting_indices
-                        ]
-                        all_system_indices = all_system_indices[sorting_indices]
-                        all_atom_indices = all_atom_indices[sorting_indices]
-                        invariant_coefficients = TensorMap(
-                            keys=self.single_label,
-                            blocks=[
-                                TensorBlock(
-                                    values=all_invariant_coefficients,
-                                    samples=Labels(
-                                        names=["system", "atom"],
-                                        values=torch.stack(
-                                            [all_system_indices, all_atom_indices],
-                                            dim=1,
+                            all_system_indices = all_system_indices[sorting_indices]
+                            all_atom_indices = all_atom_indices[sorting_indices]
+                            invariant_coefficients = TensorMap(
+                                keys=self.single_label,
+                                blocks=[
+                                    TensorBlock(
+                                        values=all_invariant_coefficients,
+                                        samples=Labels(
+                                            names=["system", "atom"],
+                                            values=torch.stack(
+                                                [all_system_indices, all_atom_indices],
+                                                dim=1,
+                                            ),
                                         ),
-                                    ),
-                                    components=[],
-                                    properties=invariant_coefficients.block(
-                                        0
-                                    ).properties,
-                                )
-                            ],
-                        )
-                        ######## end of optimized keys_to_samples ######################
+                                        components=[],
+                                        properties=invariant_coefficients.block(
+                                            0
+                                        ).properties,
+                                    )
+                                ],
+                            )
+                            ######## end of optimized keys_to_samples ######################
                         tensor_basis = torch.tensor(0)
                         for (
                             output_name_basis,
@@ -764,7 +903,9 @@ class SoapBpnn(ModelInterface):
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
         )
-        dtype = next(iter(model_state_dict.values())).dtype
+        iterator = iter(model_state_dict.values())
+        next(iterator)  # skip types buffer (int dtype)
+        dtype = next(iterator).dtype
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
         model.scaler.sync_tensor_maps()
@@ -905,20 +1046,33 @@ class SoapBpnn(ModelInterface):
                     )
                 )
             )
-            out_properties = Labels.range(
-                "property",
-                len(block.properties.values) * basis_size,
-            )
-            last_layer_arguments = {
-                "in_keys": Labels(
-                    "center_type",
-                    values=torch.tensor(self.atomic_types).reshape(-1, 1),
-                ),
-                "in_features": self.n_inputs_last_layer,
-                "out_features": len(block.properties.values) * basis_size,
-                "bias": False,
-                "out_properties": [out_properties for _ in self.atomic_types],
-            }
+            if self.modern:
+                out_properties = Labels.range(
+                    "property",
+                    len(block.properties.values) * basis_size,
+                )
+                last_layer_arguments = {
+                    "in_keys": Labels.single(),
+                    "in_features": self.n_inputs_last_layer,
+                    "out_features": len(block.properties.values) * basis_size,
+                    "bias": False,
+                    "out_properties": [out_properties],
+                }
+            else:
+                out_properties = Labels.range(
+                    "property",
+                    len(block.properties.values) * basis_size,
+                )
+                last_layer_arguments = {
+                    "in_keys": Labels(
+                        "center_type",
+                        values=torch.tensor(self.atomic_types).reshape(-1, 1),
+                    ),
+                    "in_features": self.n_inputs_last_layer,
+                    "out_features": len(block.properties.values) * basis_size,
+                    "bias": False,
+                    "out_properties": [out_properties for _ in self.atomic_types],
+                }
             self.last_layers[target_name][dict_key] = LinearMap(**last_layer_arguments)
 
         self.key_labels[target_name] = target.layout.keys
