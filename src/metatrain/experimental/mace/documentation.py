@@ -48,7 +48,7 @@ class ModelHypers(TypedDict):
     """apply cutoff to the radial basis functions before MLP""" 
     avg_num_neighbors: float = 1
     """normalization factor for the message""" 
-    pair_repulsion: str = False
+    pair_repulsion: bool = False
     """use pair repulsion term with ZBL potential""" 
     distance_transform: Optional[Literal['Agnesi', 'Soft']] = None
     """use distance transform for radial basis functions""" 
@@ -81,7 +81,7 @@ class TrainerHypers(TypedDict):
     """Learning rate of optimizer"""
     weight_decay: float = 5e-07
     """weight decay (L2 penalty)"""
-    amsgrad: str = True
+    amsgrad: bool = True
     """use amsgrad variant of optimizer"""
     beta: float = 0.9
     """Beta parameter for the optimizer"""
@@ -112,7 +112,7 @@ class TrainerHypers(TypedDict):
     """Fraction of training steps used for learning rate warmup."""
     learning_rate: float = 1e-4
     """Learning rate."""
-    weight_decay: Optional[float] = None
+    weight_decay: float = 0.1
 
     log_interval: int = 1
     """Interval to log metrics."""

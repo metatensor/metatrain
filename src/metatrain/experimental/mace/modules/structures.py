@@ -9,7 +9,6 @@ def create_batch(
     neighbor_list_options: NeighborListOptions,
     atomic_types_to_species_index: torch.Tensor,
     n_types: int,  # Mapping from atomic types to species index
-    device: torch.device,
 ) -> dict[str, torch.Tensor]:
     unit_shifts = []
     cell_shifts = []
@@ -19,6 +18,7 @@ def create_batch(
     system_start_index = [0]
 
     dtype = systems[0].positions.dtype
+    device = systems[0].device
 
     for system_i, system in enumerate(systems):
         neighbors = system.get_neighbor_list(neighbor_list_options)
