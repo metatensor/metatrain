@@ -43,7 +43,7 @@ from . import checkpoints
 from .model import MetaMACE
 from .modules.finetuning import apply_finetuning_strategy
 
-MACETrainerHypers = Dict[str, Any]
+from .documentation import TrainerHypers
 
 
 def get_optimizer_and_scheduler(

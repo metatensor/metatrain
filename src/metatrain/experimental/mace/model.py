@@ -33,8 +33,7 @@ from .utils.mts import (
     get_system_indices_and_labels,
 )
 
-#from .documentation import ModelHypers
-ModelHypers = int
+from .documentation import ModelHypers
 
 class MetaMACE(ModelInterface[ModelHypers]):
     """Interface of MACE for metatrain."""
@@ -61,8 +60,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
         )
 
         self.cutoff = float(self.hypers["cutoff"])
+        self.loaded_mace = self.hypers["mace_model"] is not None
 
-        if self.hypers["mace_model"] is not None:
+        if self.loaded_mace:
             # MACE model provided, load it in case it's a path or use it directly
             if isinstance(self.hypers["mace_model"], str):
                 self.mace_model = torch.load(
@@ -76,17 +76,11 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 )
 
             # Remove scale and shift if present
-            if self.hypers.get("mace_model_remove_scale_shift", True) and hasattr(
+            if self.hypers["mace_model_remove_scale_shift"] and hasattr(
                 self.mace_model, "scale_shift"
             ):
                 self.mace_model.scale_shift = FakeScaleShift()
 
-            # Reinitialize parameters at random
-            if self.hypers.get("mace_model_reinit", False):
-                logging.info("Reinitializing MACE model parameters")
-                for param in self.mace_model.parameters():
-                    if param.requires_grad:
-                        torch.nn.init.uniform_(param, -0.1, 0.1)
         else:
             self.mace_model = MACE(
                 r_max=self.cutoff,
@@ -206,6 +200,20 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         return self
 
+    def to(self, *args: Any, **kwargs: Any) -> "MetaMACE":
+        super().to(*args, **kwargs)
+        device = next(self.parameters()).device
+        dtype = next(self.parameters()).dtype
+        # Move dataset info to the correct device
+        self.dataset_info = self.dataset_info.to(device=device)
+        # If the MACE model was loaded as part of the hypers, it is probably
+        # a RecursiveScriptModule, which seems to not get moved by super().to()
+        # So we move it here manually.
+        if self.loaded_mace:
+            self.mace_model = self.mace_model.to(device=device, dtype=dtype)
+
+        return self
+
     def forward(
         self,
         systems: List[System],
@@ -217,10 +225,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 "selected_atoms is not supported in MetaMACE for now. "
             )
 
-        # Move everything to the same device
-        device = systems[0].device
-        self.dataset_info = self.dataset_info.to(device=device)
-
         # Create the batch to pass as input for MACE.
         # THIS PROBABLY SHOULD BE MOVED OUTSIDE THE MODEL!!
         # (But I don't know if this would affect the interfaces e.g. with
@@ -230,7 +234,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
             neighbor_list_options=self.requested_nl,
             atomic_types_to_species_index=self.atomic_types_to_species_index,
             n_types=len(self.atomic_types),
-            device=device,
         )
 
         # Change coordinates to YZX
@@ -242,7 +245,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         assert node_features is not None  # For torchscript
 
         # Get the labels for the samples (system and atom of each value)
-        _, sample_labels = get_system_indices_and_labels(systems, device)
+        _, sample_labels = get_system_indices_and_labels(systems)
 
         # Run all heads and collect outputs as TensorMaps
         return_dict: Dict[str, TensorMap] = {}
