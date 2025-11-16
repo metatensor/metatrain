@@ -118,6 +118,15 @@ def model_update_v4_v5(checkpoint: dict) -> None:
                     state_dict[new_key] = state_dict.pop(key)
 
 
+def model_update_v4_v5(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 4 to version 5.
+
+    :param checkpoint: The checkpoint to be updated.
+    """
+    checkpoint["train_hypers"]["modern"] = False
+
+
 ###########################
 # TRAINER #################
 ###########################

@@ -24,8 +24,10 @@ class VectorBasis(torch.nn.Module):
     :param soap_hypers: dictionary with the SOAP hyper-parameters.
     """
 
-    def __init__(self, atomic_types: List[int], soap_hypers: Dict[str, Any]) -> None:
+    def __init__(self, atomic_types: List[int], soap_hypers: Dict[str, Any], modern: bool) -> None:
         super().__init__()
+
+        self.modern = modern
         self.atomic_types = atomic_types
         # Define a new hyper-parameter for the basis part of the expansion
         soap_hypers = copy.deepcopy(soap_hypers)
@@ -42,7 +44,11 @@ class VectorBasis(torch.nn.Module):
             "cutoff_function": {
                 "ShiftedCosine": {"width": soap_hypers["cutoff"]["width"]}
             },
-            "species": {"Orthogonal": {"species": self.atomic_types}},
+            "species": (
+                # hardcoded to 4 (the literature would suggest 4 is enough)
+                {"Alchemical": {"pseudo_species": 4, "total_species": len(self.atomic_types)}} if self.modern else
+                {"Orthogonal": {"species": self.atomic_types}}
+            )
         }
 
         self.soap_calculator = SphericalExpansion(**spex_soap_hypers)
@@ -52,25 +58,42 @@ class VectorBasis(torch.nn.Module):
             values=torch.tensor(self.atomic_types).reshape(-1, 1),
         )
 
-        self.contraction = LinearMap(
-            in_keys=Labels(
-                names=["o3_lambda", "o3_sigma", "center_type"],
-                values=torch.stack(
-                    [
-                        torch.tensor([1] * len(self.atomic_types)),
-                        torch.tensor([1] * len(self.atomic_types)),
-                        torch.tensor(self.atomic_types),
-                    ],
-                    dim=1,
+        if self.modern:
+            self.center_encoding = torch.nn.Embedding(
+                num_embeddings=len(self.atomic_types),
+                embedding_dim=(self.soap_calculator.radial.n_per_l[1] * 4),
+            )
+        else:
+            self.center_encoding = torch.nn.Identity()
+
+        # here, an optimizable basis seems to work much better than a fixed one
+        if self.modern:
+            self.contraction_for_tensors = torch.nn.Linear(
+                in_features=(self.soap_calculator.radial.n_per_l[1] * 4),
+                out_features=3,
+                bias=False,
+            )
+            self.contraction = FakeLinearMap()
+        else:
+            self.contraction_for_tensors = torch.nn.Identity()
+            self.contraction = LinearMap(
+                in_keys=Labels(
+                    names=["o3_lambda", "o3_sigma", "center_type"],
+                    values=torch.stack(
+                        [
+                            torch.tensor([1] * len(self.atomic_types)),
+                            torch.tensor([1] * len(self.atomic_types)),
+                            torch.tensor(self.atomic_types),
+                        ],
+                        dim=1,
+                    ),
                 ),
-            ),
-            in_features=(self.soap_calculator.radial.n_per_l[1])
-            * len(self.atomic_types),
-            out_features=3,
-            bias=False,
-            out_properties=[Labels.range("basis", 3) for _ in self.atomic_types],
-        )
-        # this optimizable basis seems to work much better than a fixed one
+                in_features=(self.soap_calculator.radial.n_per_l[1])
+                * len(self.atomic_types),
+                out_features=3,
+                bias=False,
+                out_properties=[Labels.range("basis", 3) for _ in self.atomic_types],
+            )
 
     def forward(
         self,
@@ -118,7 +141,40 @@ class VectorBasis(torch.nn.Module):
             l1_spherical_expansion.shape[2] * l1_spherical_expansion.shape[3],
         )  # [center, o3_mu, features]
 
-        with record_function("conversion"):
+        if self.modern:
+            l1_spherical_expansion = l1_spherical_expansion * (
+                self.center_encoding(species).unsqueeze(1)
+            )
+            l1_spherical_expansion_as_tensor_map = TensorMap(
+                keys=Labels(["o3_lambda", "o3_sigma"], torch.tensor([[1, 1]], device=device)),
+                blocks=[
+                    TensorBlock(
+                        values=l1_spherical_expansion,
+                        samples=Labels(
+                            names=["system", "atom"],
+                            values=torch.stack(
+                                [structures, atom_index_in_structure], dim=1
+                            ),
+                        ),
+                        components=[
+                            Labels(
+                                names=["o3_mu"],
+                                values=torch.tensor(
+                                    [-1, 0, 1], dtype=torch.long, device=device
+                                ).unsqueeze(1),
+                            )
+                        ],
+                        properties=Labels(
+                            names=["property"],
+                            values=torch.arange(
+                                l1_spherical_expansion.shape[2],
+                                device=l1_spherical_expansion.device,
+                            ).unsqueeze(1),
+                        ),
+                    )
+                ],
+            )
+        else:
             unique_center_species = torch.unique(species)
             blocks: list[TensorBlock] = []
             for s in unique_center_species:
@@ -165,39 +221,44 @@ class VectorBasis(torch.nn.Module):
             l1_spherical_expansion_as_tensor_map = mts.slice(
                 l1_spherical_expansion_as_tensor_map, "samples", selected_atoms
             )
-
-        with record_function("contraction"):
+        
+        if self.modern:
+            basis_vectors_as_tensor = self.contraction_for_tensors(
+                l1_spherical_expansion_as_tensor_map.block().values,
+            )
+        else:
             basis_vectors = self.contraction(l1_spherical_expansion_as_tensor_map)
 
-        # The following (until the end of the function) is equivalent to
-        # basis_vectors_as_tensor = (
-        #     basis_vectors.keys_to_samples("center_type")
-        # ).block()
-        # but faster
+            # The following (until the end of the function) is equivalent to
+            # basis_vectors_as_tensor = (
+            #     basis_vectors.keys_to_samples("center_type")
+            # ).block()
+            # but faster
 
-        all_basis_vectors = torch.concatenate(
-            [b.values for b in basis_vectors.blocks()]
-        )
-        # however, we need to sort them according to the order of the
-        # atoms in the systems
-        system_sizes = torch.bincount(
-            structures, minlength=len(torch.unique(structures))
-        )
-        system_offsets = torch.cat(
-            [
-                torch.tensor([0], device=device),
-                torch.cumsum(system_sizes, dim=0)[:-1],
-            ]
-        )
-        all_system_indices = torch.concatenate(
-            [b.samples.values[:, 0] for b in basis_vectors.blocks()]
-        )
-        all_atom_indices = torch.concatenate(
-            [b.samples.values[:, 1] for b in basis_vectors.blocks()]
-        )
-        overall_atom_indices = system_offsets[all_system_indices] + all_atom_indices
-        sorting_indices = torch.argsort(overall_atom_indices)
-        basis_vectors_as_tensor = all_basis_vectors[sorting_indices]
+            all_basis_vectors = torch.concatenate(
+                [b.values for b in basis_vectors.blocks()]
+            )
+            # however, we need to sort them according to the order of the
+            # atoms in the systems
+            system_sizes = torch.bincount(
+                structures, minlength=len(torch.unique(structures))
+            )
+            system_offsets = torch.cat(
+                [
+                    torch.tensor([0], device=device),
+                    torch.cumsum(system_sizes, dim=0)[:-1],
+                ]
+            )
+            all_system_indices = torch.concatenate(
+                [b.samples.values[:, 0] for b in basis_vectors.blocks()]
+            )
+            all_atom_indices = torch.concatenate(
+                [b.samples.values[:, 1] for b in basis_vectors.blocks()]
+            )
+            overall_atom_indices = system_offsets[all_system_indices] + all_atom_indices
+            sorting_indices = torch.argsort(overall_atom_indices)
+            basis_vectors_as_tensor = all_basis_vectors[sorting_indices]
+        
         return basis_vectors_as_tensor  # [n_atoms, 3(yzx), 3]
 
 
@@ -227,17 +288,18 @@ class TensorBasis(torch.nn.Module):
         o3_lambda: int,
         o3_sigma: int,
         add_lambda_basis: bool,
+        modern: bool,
     ) -> None:
         super().__init__()
 
         self.o3_lambda = o3_lambda
         self.o3_sigma = o3_sigma
         if self.o3_lambda > 0:
-            self.vector_basis = VectorBasis(atomic_types, soap_hypers)
+            self.vector_basis = VectorBasis(atomic_types, soap_hypers, modern)
         else:
             self.vector_basis = FakeVectorBasis()  # needed to make torchscript work
         if self.o3_sigma == -1:
-            self.vector_basis_pseudotensor = VectorBasis(atomic_types, soap_hypers)
+            self.vector_basis_pseudotensor = VectorBasis(atomic_types, soap_hypers, modern)
         else:
             self.vector_basis_pseudotensor = FakeVectorBasis()  # make torchscript work
 

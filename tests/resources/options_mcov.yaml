@@ -6,12 +6,12 @@ architecture:
   name: soap_bpnn
   model:
     soap:
-      max_radial: 4
-      max_angular: 2
+      max_radial: 3
+      max_angular: 3
   training:
     log_interval: 1
-    batch_size: 8
-    num_epochs: 10
+    batch_size: 16
+    num_epochs: 1000
 
 training_set:
   systems:
@@ -29,5 +29,5 @@ training_set:
             - o3_lambda: 1
               o3_sigma: 1
 
-test_set: 0.90
-validation_set: 0.01
+test_set: 0.1
+validation_set: 0.1
