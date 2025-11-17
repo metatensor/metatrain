@@ -1,4 +1,4 @@
-Additive models
+Scaler models
 ===============
 
 API for handling scaler models in ``metatrain``. This is a type of model that
