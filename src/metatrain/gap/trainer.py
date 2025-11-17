@@ -19,7 +19,6 @@ from .documentation import TrainerHypers
 
 class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 1
-    __hypers_cls__ = TrainerHypers
 
     def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)

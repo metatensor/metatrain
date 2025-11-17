@@ -25,7 +25,6 @@ from .model import LLPRUncertaintyModel
 
 class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 1
-    __hypers_cls__ = TrainerHypers
 
     def train(
         self,

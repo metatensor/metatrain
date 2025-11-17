@@ -40,7 +40,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             ],
         }
     )
-    __hypers_cls__ = ModelHypers
 
     """A wrapper that adds LLPR uncertainties to a model.
 

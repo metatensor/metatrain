@@ -7,7 +7,6 @@ from typing import (
     List,
     Literal,
     Optional,
-    Type,
     TypeVar,
     Union,
 )
@@ -230,13 +229,10 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
 
     This is used to upgrade checkpoints produced with earlier versions of the code.
     See :ref:`ckpt_version` for more information."""
-    __hypers_cls__: Type[HypersType]
-    """The class defining the hyper-parameters for this model architecture."""
 
     def __init__(self, hypers: HypersType):
         required_attributes = [
             "__checkpoint_version__",
-            "__hypers_cls__",
         ]
         for attribute in required_attributes:
             if not hasattr(self.__class__, attribute):
