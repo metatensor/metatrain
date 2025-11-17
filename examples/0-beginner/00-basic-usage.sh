@@ -3,123 +3,182 @@
 # Basic Usage
 # ===========
 #
-# ``metatrain`` is designed for a direct usage from the command line (cli). The program
-# is registered via the abbreviation ``mtt`` to your command line. The general help of
-# ``metatrain`` can be accessed using
+# This tutorial shows you how to train and evaluate a machine learning model using
+# ``metatrain``. **No Python coding required** - everything is done from the command line!
+#
+# ``metatrain`` is accessed through the ``mtt`` command. Let's start by checking that
+# everything is installed correctly:
 #
 
 mtt --help
 
 # %%
 #
-# We now demonstrate how to ``train`` and ``evaluate`` a model from the command line.
-# For this example we use the :ref:`architecture-soap-bpnn` architecture and a subset of
-# the `QM9 dataset <https://www.nature.com/articles/sdata201422>`_. You can obtain the
-# dataset for this example here: :download:`qm9_reduced_100.xyz <qm9_reduced_100.xyz>`.
+# Training Your First Model
+# --------------------------
 #
+# Now we'll train a machine learning model to predict molecular energies. We'll use:
 #
-# Training
-# --------
+# - **Architecture**: SOAP-BPNN (a good beginner-friendly choice)
+# - **Dataset**: A subset of the QM9 dataset with 100 molecules
 #
-# To train models, ``metatrain`` uses a dynamic override strategy for your training
-# options. We allow a dynamical composition and override of the default architecture
-# with either your custom ``options.yaml`` and even command line override grammar. For
-# reference and reproducibility purposes ``metatrain`` always writes the fully expanded,
-# including the overwritten option to ``options_restart.yaml``. The restart options file
-# is written into a subfolder named with the current *date* and *time* inside the
-# ``output`` directory of your current training run.
+# You can download the dataset here: :download:`qm9_reduced_100.xyz <qm9_reduced_100.xyz>`
 #
-# The sub-command to start a model training is
+# What is the QM9 dataset?
+# ^^^^^^^^^^^^^^^^^^^^^^^^
 #
-# .. code-block:: bash
+# QM9 is a well-known dataset of small organic molecules (up to 9 heavy atoms) with
+# accurate quantum chemistry calculations. It's great for learning because:
 #
-#     mtt train
+# - Small molecules train quickly
+# - Well-studied, so we know what to expect
+# - Diverse enough to demonstrate model capabilities
 #
-# To train a model you have to define your options. This includes the specific
-# architecture you want to use and the data including the training systems and target
-# values
+# Reference: `Ramakrishnan et al., Scientific Data 2014
+# <https://www.nature.com/articles/sdata201422>`_
 #
-# The default model and training hyperparameter for each model are listed in their
-# corresponding documentation page. We will use these minimal options to run an example
-# training using the default hyperparameters of an SOAP BPNN model
+# Creating the Configuration File
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#
+# Training is controlled by a YAML configuration file. Here's a minimal example that uses
+# default settings for most parameters:
 #
 # .. literalinclude:: options-basic.yaml
 #    :language: yaml
 #
-# For each training run a new output directory in the format
-# ``outputs/YYYY-MM-DD/HH-MM-SS`` based on the current *date* and *time* is created. We
-# use this output directory to store checkpoints, the restart ``options_restart.yaml``
-# file as well as the log files. To start the training, create an ``options.yaml`` file
-# in the current directory and type
+# **What's in this file?**
+#
+# - ``architecture: name: soap_bpnn`` - Use the SOAP-BPNN neural network
+# - ``training: num_epochs: 5`` - Train for 5 epochs (very short, just for demo)
+# - ``training_set`` - Points to our data file and tells metatrain we're predicting U0
+#   energy in eV units
+# - ``test_set: 0.1`` - Hold out 10% of data for final testing
+# - ``validation_set: 0.1`` - Hold out 10% to monitor training progress
+#
+# Starting the Training
+# ^^^^^^^^^^^^^^^^^^^^^
+#
+# Create the ``options-basic.yaml`` file in your current directory and run:
 
 
 mtt train options-basic.yaml
 
 # %%
 #
-# The functions saves the final model `model.pt` to the current output folder for later
-# evaluation. An `extensions/` folder, which contains the compiled extensions for the
-# model, might also be saved depending on the architecture. All command line flags of
-# the train sub-command can be listed via
+# What Happens During Training?
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#
+# As the model trains, you'll see:
+#
+# - **Loss values**: Should generally decrease (means the model is learning)
+# - **RMSE/MAE**: Error metrics for energy and force predictions
+# - **Epoch numbers**: Progress through the training data (1 epoch = seeing all data once)
+#
+# The training creates several outputs:
+#
+# - ``outputs/YYYY-MM-DD/HH-MM-SS/`` - A timestamped folder with all results
+# - ``model.pt`` - Your trained model (this is what you'll use for predictions!)
+# - ``model.ckpt`` - A checkpoint file (for resuming training if needed)
+# - ``train.log`` - Human-readable log of what happened
+# - ``train.csv`` - Structured data for plotting training curves
+# - ``options_restart.yaml`` - Complete configuration with all defaults expanded
+# - ``extensions/`` - Compiled code needed by some architectures (if applicable)
+#
+# For more training options, run:
 #
 
 mtt train --help
 
 # %%
 #
-# After the training has finished, the ``mtt train`` command generates the
-# ``model.ckpt`` (final checkpoint) and ``model.pt`` (exported model) files in the
-# current directory, as well as in the ``output/YYYY-MM-DD/HH-MM-SS`` directory.
+# After training finishes, you'll have ``model.pt`` and ``model.ckpt`` files both in your
+# current directory and in the timestamped output folder.
 #
-# Evaluation
-# ----------
+# Evaluating Your Model
+# ---------------------
 #
-# The sub-command to evaluate an already trained model is
+# Now let's test how well our trained model performs! Evaluation means using the model to
+# make predictions on structures and comparing them to the true values (if available).
 #
-# .. code-block:: bash
+# Creating the Evaluation Configuration
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 #
-#     mtt eval
-#
-# Besides the trained ``model``, you will also have to provide a file containing the
-# system and possible target values for evaluation. The system section of this
-# ``eval.yaml`` is exactly the same as for a dataset in the ``options.yaml`` file.
+# Create an ``eval-basic.yaml`` file. This is simpler than the training config:
 #
 # .. literalinclude:: eval-basic.yaml
 #    :language: yaml
 #
-# Note that the ``targets`` section is optional. If the ``targets`` section is present,
-# the function will calculate and report RMSE values of the predictions with respect to
-# the real values as loaded from the ``targets`` section. You can run an evaluation by
-# typing
+# **What's in this file?**
 #
-# We now evaluate the model on the training dataset, where the first arguments specifies
-# trained model and the second an option file containing the path of the dataset for
-# evaulation. The extensions of the model, if any, can be specified via the ``-e`` flag.
+# - ``systems`` - The structures you want to predict for
+# - ``targets`` - (Optional) The true values to compare against. If included, metatrain
+#   will calculate error metrics (RMSE, MAE)
+#
+# If you omit ``targets``, the model will just make predictions without error reporting.
+#
+# Running the Evaluation
+# ^^^^^^^^^^^^^^^^^^^^^^
+#
+# Evaluate the model on our dataset. The first argument is the trained model, the second
+# is the evaluation configuration. The ``-e extensions/`` flag includes any compiled model
+# extensions if needed:
 
 mtt eval model.pt eval-basic.yaml -e extensions/
 
 # %%
 #
-# The evaluation command predicts those properties the model was trained against; here
-# ``"U0"``. The predictions together with the systems have been written in a file named
-# ``output.xyz`` in the current directory. The written file starts with the following
-# lines
+# Understanding the Evaluation Output
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#
+# The evaluation does two things:
+#
+# 1. **Prints error metrics** to the terminal (RMSE, MAE) comparing predictions to true
+#    values
+# 2. **Creates output.xyz** - a file with structures and predicted properties
+#
+# Let's look at the beginning of the output file:
 
 head -n 20 output.xyz
 
 # %%
 #
-# All command line flags of the eval sub-command can be listed via
+# The ``output.xyz`` file contains all the input structures with added predicted
+# properties. You can use this with visualization tools or for further analysis.
+#
+# More Evaluation Options
+# ^^^^^^^^^^^^^^^^^^^^^^^
+#
+# See all available evaluation options:
 
 mtt eval --help
 
 # %%
 #
-# An important parameter of ``mtt eval`` is the ``-b`` (or ``--batch-size``) option,
-# which allows you to specify the batch size for the evaluation.
+# **Useful options:**
 #
-# Molecular simulations
-# ---------------------
+# - ``-b`` or ``--batch-size``: Process multiple structures at once (faster for large
+#   datasets)
+# - ``-o`` or ``--output``: Specify a different output filename
 #
-# The trained model can also be used to run molecular simulations.
-# You can find how in the :ref:`tutorials` section.
+# Next Steps
+# ----------
+#
+# Congratulations! You've trained and evaluated your first atomistic machine learning
+# model. Here's what you can do next:
+#
+# 1. **Run molecular dynamics**: Use your model in simulations. See
+#    :ref:`sphx_glr_generated_examples_0-beginner_05-run_ase.py` for how to run MD with
+#    ASE.
+#
+# 2. **Analyze your model**: Create parity plots to visualize prediction quality. See
+#    :ref:`sphx_glr_generated_examples_0-beginner_04-parity_plot.py`.
+#
+# 3. **Train on your own data**: Prepare your structures and energies in XYZ format
+#    (see :ref:`sphx_glr_generated_examples_0-beginner_01-data_preparation.py`) and follow
+#    this same process.
+#
+# 4. **Improve your model**: Try different architectures, adjust hyperparameters, or add
+#    more training data.
+#
+# 5. **Learn advanced features**: Explore :ref:`Fine-tuning <sphx_glr_generated_examples_0-beginner_02-fine-tuning.py>`
+#    or other tutorials in the documentation.
