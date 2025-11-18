@@ -100,6 +100,7 @@ subprocess.run(
 # by PET-MAD to classify our carbon allotropes.
 #
 # The key hyperparameters are:
+#
 # - ``hidden_sizes``: The dimensions of the MLP layers. The last dimension (2 in this
 #   case) acts as a bottleneck that can be used to extract collective variables. If
 #   collective variables are not needed, this should be set to a larger value.
