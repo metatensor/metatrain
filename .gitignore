@@ -175,8 +175,12 @@ examples/basic_usage/*.xyz
 extensions/
 
 # sphinx gallery
-docs/src/examples
+docs/src/generated_examples/
 *execution_times*
+
+# Sphinx architecture docs
+docs/src/architectures/generated/*
+docs/src/architectures/default_hypers/*
 
 # JavaScript
 node_modules/

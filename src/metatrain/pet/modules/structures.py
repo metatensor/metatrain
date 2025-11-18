@@ -64,9 +64,13 @@ def concatenate_structures(
                 torch.cat([system_selected_atoms, unique_centers])
             )
             # calculate the mapping from the ghost atoms to the real atoms
+            if torch.numel(unique_centers) == 0:
+                max_center_index = -1
+            else:
+                max_center_index = int(unique_centers.max())
             ghost_to_real_index = torch.full(
                 [
-                    int(unique_centers.max()) + 1,
+                    max_center_index + 1,
                 ],
                 -1,
                 device=centers_values.device,
@@ -143,7 +147,6 @@ def systems_to_batch(
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
-    torch.Tensor,
     Labels,
 ]:
     """
@@ -196,7 +199,10 @@ def systems_to_batch(
         max_edges_per_node = int(torch.max(num_neghbors))
 
     if selected_atoms is not None:
-        num_nodes = int(centers.max()) + 1
+        if torch.numel(centers) == 0:
+            num_nodes = 0
+        else:
+            num_nodes = int(centers.max()) + 1
     else:
         num_nodes = len(positions)
 
@@ -222,17 +228,33 @@ def systems_to_batch(
         )
     )
 
+    # These are the two arrays we need for message passing with edge reversals,
+    # if indexing happens in a two-dimensional way:
+    # edges_ji = edges_ij[reversed_neighbor_list, neighbors_index]
     reversed_neighbor_list = compute_reversed_neighbor_list(
         nef_indices, corresponding_edges, nef_mask
     )
     neighbors_index = edge_array_to_nef(neighbors, nef_indices).to(torch.int64)
+
+    # Here, we compute the array that allows indexing into a flattened
+    # version of the edge array (where the first two dimensions are merged):
+    reverse_neighbor_index = (
+        neighbors_index * neighbors_index.shape[1] + reversed_neighbor_list
+    )
+    # At this point, we have `reverse_neighbor_index[~nef_mask] = 0`, which however
+    # creates too many of the same index which slows down backward enormously.
+    # (See see https://github.com/pytorch/pytorch/issues/41162)
+    # We therefore replace the padded indices with a sequence of unique indices.
+    reverse_neighbor_index[~nef_mask] = torch.arange(
+        int(torch.sum(~nef_mask)), device=reverse_neighbor_index.device
+    )
+
     return (
         element_indices_nodes,
         element_indices_neighbors,
         edge_vectors,
         nef_mask,
-        neighbors_index,
-        reversed_neighbor_list,
+        reverse_neighbor_index,
         system_indices,
         sample_labels,
     )

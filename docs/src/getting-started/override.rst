@@ -4,7 +4,7 @@ Override Architecture's Default Parameters
 In our initial tutorial, we used default parameters to train a model employing the
 SOAP-BPNN architecture, as shown in the following config:
 
-.. literalinclude:: ../../../examples/basic_usage/options.yaml
+.. literalinclude:: ../../../examples/0-beginner/options-basic.yaml
    :language: yaml
 
 While default parameters often serve as a good starting point, depending on your
@@ -14,7 +14,7 @@ parameters.
 First, familiarize yourself with the specific parameters of the architecture you intend
 to use. We provide a list of all architectures and their parameters in the
 :ref:`available-architectures` section. For example, the parameters of the SOAP-BPNN
-models are detailed at :ref:`architecture-soap-bpnn`.
+models are detailed at :ref:`architecture-soap_bpnn`.
 
 Modifying Parameters (yaml)
 ---------------------------

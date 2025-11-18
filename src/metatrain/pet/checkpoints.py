@@ -30,8 +30,8 @@ def model_update_v2_v3(checkpoint: dict) -> None:
     """
     for key in ["model_state_dict", "best_model_state_dict"]:
         if (state_dict := checkpoint.get(key)) is not None:
-            if "train_hypers" in state_dict:
-                finetune_config = state_dict["train_hypers"].get("finetune", {})
+            if "train_hypers" in checkpoint:
+                finetune_config = checkpoint["train_hypers"].get("finetune", {})
             else:
                 finetune_config = {}
             state_dict["finetune_config"] = finetune_config
@@ -301,3 +301,51 @@ def trainer_update_v6_v7(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     checkpoint["train_hypers"]["fixed_scaling_weights"] = {}
+
+
+def trainer_update_v7_v8(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 7 to version 8.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # remove all entries in the loss `sliding_factor`
+    old_loss_hypers = checkpoint["train_hypers"]["loss"].copy()
+    dataset_info = checkpoint["model_data"]["dataset_info"]
+    new_loss_hypers = {}
+
+    for target_name in dataset_info.targets.keys():
+        # retain everything except sliding_factor for each target
+        new_loss_hypers[target_name] = {
+            k: v
+            for k, v in old_loss_hypers[target_name].items()
+            if k != "sliding_factor"
+        }
+
+    checkpoint["train_hypers"]["loss"] = new_loss_hypers
+
+
+def trainer_update_v8_v9(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 7 to version 8.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Adding the empty finetune config if not present
+    if "finetune" not in checkpoint["train_hypers"]:
+        checkpoint["train_hypers"]["finetune"] = {
+            "read_from": None,
+            "method": "full",
+            "config": {},
+            "inherit_heads": {},
+        }
+
+
+def trainer_update_v9_v10(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 9 to version 10.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Ensuring that the finetune read_from is None if not specified
+    checkpoint["train_hypers"]["remove_composition_contribution"] = True

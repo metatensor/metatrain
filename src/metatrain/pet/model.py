@@ -1,4 +1,5 @@
 import logging
+import typing
 import warnings
 from math import prod
 from typing import Any, Dict, List, Literal, Optional, Tuple
@@ -26,16 +27,17 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
+from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func
 
 
-AVAILABLE_FEATURIZERS = ["feedforward", "residual"]
+AVAILABLE_FEATURIZERS = typing.get_args(ModelHypers.__annotations__["featurizer_type"])
 
 
-class PET(ModelInterface):
+class PET(ModelInterface[ModelHypers]):
     """
     Metatrain-native implementation of the PET architecture.
 
@@ -56,7 +58,7 @@ class PET(ModelInterface):
     component_labels: Dict[str, List[List[Labels]]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         # Cache frequently accessed hyperparameters
@@ -289,16 +291,15 @@ class PET(ModelInterface):
         The input systems are first converted into a batched representation containing:
 
         - `element_indices_nodes` [n_atoms]: Atomic species of the central atoms
-        - `element_indices_neighbors` [n_edges]: Atomic species of neighboring atoms
+        - `element_indices_neighbors` [n_atoms, max_num_neighbors]: Atomic species of
+          neighboring atoms
         - `edge_vectors` [n_atoms, max_num_neighbors, 3]: Cartesian edge vectors
           between central atoms and their neighbors
         - `padding_mask` [n_atoms, max_num_neighbors]: Mask indicating real vs padded
           neighbors
-        - `neighbors_index` [n_atoms, max_num_neighbors]: Indices of neighboring atoms
-          for each central atom
-        - `reversed_neighbor_list` [n_atoms, max_num_neighbors]: For each center atom
-          `i` and its neighbor `j`, the position of atom `i` in the neighbor list of
-          atom `j`
+        - `reverse_neighbor_index` [n_atoms * max_num_neighbors]: Index of the ji edge
+          for each ij edge, once the edges are flattened into an array whose first
+          dimension is n_atoms * max_num_neighbors
         - `system_indices` [n_atoms]: System index for each central atom
         - `sample_labels` [n_atoms, 2]: Metatensor Labels containing indices of each
           atom in each system
@@ -401,8 +402,7 @@ class PET(ModelInterface):
             element_indices_neighbors,
             edge_vectors,
             padding_mask,
-            neighbors_index,
-            reversed_neighbor_list,
+            reverse_neighbor_index,
             system_indices,
             sample_labels,
         ) = systems_to_batch(
@@ -426,8 +426,7 @@ class PET(ModelInterface):
             element_indices_nodes=element_indices_nodes,
             element_indices_neighbors=element_indices_neighbors,
             edge_vectors=edge_vectors,
-            neighbors_index=neighbors_index,
-            reversed_neighbor_list=reversed_neighbor_list,
+            reverse_neighbor_index=reverse_neighbor_index,
             padding_mask=padding_mask,
             edge_distances=edge_distances,
             cutoff_factors=cutoff_factors,
@@ -512,7 +511,9 @@ class PET(ModelInterface):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(systems, return_dict)
+            return_dict = self.scaler(
+                systems, return_dict, selected_atoms=selected_atoms
+            )
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
                 for name, output in outputs.items():
@@ -564,8 +565,11 @@ class PET(ModelInterface):
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
         :return: Tuple of two lists:
-            - List of node feature tensors from each GNN layer
-            - List of edge feature tensors from each GNN layer
+            - List of node feature tensors
+            - List of edge feature tensors
+            In the case of feedforward featurization, each list contains a single tensor
+            from the final GNN layer. In the case of residual featurization, each list
+            contains tensors from all GNN layers.
         """
         if self.featurizer_type == "feedforward":
             return self._feedforward_featurization_impl(inputs, use_manual_attention)
@@ -612,9 +616,14 @@ class PET(ModelInterface):
             # from atom `j` to atom `i` in on the GNN layer N+1 is a
             # reversed message from atom `i` to atom `j` on the GNN layer N.
             input_node_embeddings = output_node_embeddings
-            new_input_edge_embeddings = output_edge_embeddings[
-                inputs["neighbors_index"], inputs["reversed_neighbor_list"]
-            ]
+            new_input_edge_embeddings = output_edge_embeddings.reshape(
+                output_edge_embeddings.shape[0] * output_edge_embeddings.shape[1],
+                output_edge_embeddings.shape[2],
+            )[inputs["reverse_neighbor_index"]].reshape(
+                output_edge_embeddings.shape[0],
+                output_edge_embeddings.shape[1],
+                output_edge_embeddings.shape[2],
+            )
             # input_messages = 0.5 * (output_edge_embeddings + new_input_messages)
             concatenated = torch.cat(
                 [output_edge_embeddings, new_input_edge_embeddings], dim=-1
@@ -641,8 +650,8 @@ class PET(ModelInterface):
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
         :return: Tuple of two lists:
-            - List of node feature tensors from the final GNN layer
-            - List of edge feature tensors from the final GNN layer
+            - List of node feature tensors from all GNN layers
+            - List of edge feature tensors from all GNN layers
         """
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
@@ -668,9 +677,15 @@ class PET(ModelInterface):
             # using a reversed neighbor list, so the new input message
             # from atom `j` to atom `i` in on the GNN layer N+1 is a
             # reversed message from atom `i` to atom `j` on the GNN layer N.
-            new_input_messages = output_edge_embeddings[
-                inputs["neighbors_index"], inputs["reversed_neighbor_list"]
-            ]
+            # (Flatten, index, and reshape to the original shape)
+            new_input_messages = output_edge_embeddings.reshape(
+                output_edge_embeddings.shape[0] * output_edge_embeddings.shape[1],
+                output_edge_embeddings.shape[2],
+            )[inputs["reverse_neighbor_index"]].reshape(
+                output_edge_embeddings.shape[0],
+                output_edge_embeddings.shape[1],
+                output_edge_embeddings.shape[2],
+            )
             input_edge_embeddings = 0.5 * (input_edge_embeddings + new_input_messages)
         return node_features_list, edge_features_list
 
@@ -1333,6 +1348,9 @@ def process_non_conservative_stress(
 
     # Normalize by cell volume
     volumes = torch.stack([torch.abs(torch.det(system.cell)) for system in systems])
+    # Zero volume can happen due to metatomic's convention of zero cell
+    # vectors for non-periodic directions. The actual volume is +inf
+    volumes[volumes == 0.0] = torch.inf
     volumes_by_atom = volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
     tensor_as_three_by_three = tensor_as_three_by_three / volumes_by_atom
 

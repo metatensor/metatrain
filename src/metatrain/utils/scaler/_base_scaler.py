@@ -11,6 +11,9 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
 
+FixedScalerWeights = dict[str, Union[float, dict[int, float]]]
+
+
 class BaseScaler(torch.nn.Module):
     """
     Fits a scaler for a dict of targets. Scales are computed as the per-property (and
@@ -185,8 +188,15 @@ class BaseScaler(torch.nn.Module):
                     Y_block = block.to(device=device, dtype=dtype)
                     Y = Y_block.values
 
+                    if "non_conservative_stress" in target_name:
+                        # For non-conservative stresses, we need to take into account
+                        # the fact that we allow the user to define NaN stresses for
+                        # non-fully-periodic systems.
+                        valid_mask = ~torch.isnan(Y)
+                        Y = Y[valid_mask]
+
                     # Compute sum over all axes except the property axis
-                    N = Y.numel() // Y.shape[-1]
+                    N = Y.numel() // Y.shape[-1] if Y.numel() > 0 else 0
                     Y2_values = torch.sum(Y**2, dim=list(range(0, Y.dim() - 1)))
 
                     self.N[target_name][key].values[0] += N
@@ -236,7 +246,7 @@ class BaseScaler(torch.nn.Module):
 
     def fit(
         self,
-        fixed_weights: Optional[Dict[str, Union[float, Dict[int, float]]]] = None,
+        fixed_weights: Optional[FixedScalerWeights] = None,
         targets_to_fit: Optional[List[str]] = None,
     ) -> None:
         """
@@ -289,28 +299,12 @@ class BaseScaler(torch.nn.Module):
                     N_values_type = N_values[type_index].unsqueeze(0)
                     Y2_values_type = Y2_values[type_index].unsqueeze(0)
 
-                    # Compute std
-                    scale_vals_type = torch.sqrt(
-                        Y2_values_type / N_values_type
-                    )  # (do not use Bessel's correction)
+                    # Compute std without Bessel's correction
+                    scale_vals_type = torch.sqrt(Y2_values_type / N_values_type)
 
-                    # Provide a warning for scales that cannot be computed. These will
-                    # be NaN as N_values_type for this property will be zero.
-                    if torch.isnan(
-                        scale_vals_type
-                    ).any():  # this can only happen for per-atom targets
-                        assert self.sample_kinds[target_name] == "per_atom"
-                        logging.info(
-                            f"Per-atom target {target_name} has not enough samples in "
-                            f"block {key} for atomic type"
-                            f"{self.atomic_types[type_index]} to compute statistics. "
-                            "The scales of one or more property cannot be computed."
-                        )
-                        scale_vals_type[torch.isnan(scale_vals_type)] = 1.0
-
-                    # If any scales are zero, set them to 1.0
-                    if torch.any(scale_vals_type == 0):
-                        scale_vals_type[scale_vals_type == 0] = 1.0
+                    # If any scales are zero or NaN, set them to 1.0
+                    scale_vals_type[scale_vals_type == 0] = 1.0
+                    scale_vals_type[torch.isnan(scale_vals_type)] = 1.0
 
                     scale_vals_type = scale_vals_type.contiguous()
                     block.values[type_index][:] = scale_vals_type
@@ -327,6 +321,7 @@ class BaseScaler(torch.nn.Module):
         systems: List[System],
         outputs: Dict[str, TensorMap],
         remove: bool,
+        selected_atoms: Optional[Labels],
     ) -> Dict[str, TensorMap]:
         """
         Scales the targets based on the stored standard deviations.
@@ -337,6 +332,7 @@ class BaseScaler(torch.nn.Module):
             subset of the target names used during fitting.
         :param remove: If True, removes the scaling (i.e., divides by the scales). If
             False, applies the scaling (i.e., multiplies by the scales).
+        :param selected_atoms: Optional labels for selected atoms.
         :returns: A dictionary with the scaled outputs for each system.
 
         :raises ValueError: If no scales have been computed or if `outputs` keys
@@ -367,8 +363,6 @@ class BaseScaler(torch.nn.Module):
                     f"for key {key}."
                 )
 
-                # Scale each atomic type separately
-                output_block_types = torch.cat([system.types for system in systems])
                 scaled_vals = output_block.values
 
                 # unsqueeze scales_block.values to make broadcasting work
@@ -420,6 +414,27 @@ class BaseScaler(torch.nn.Module):
 
                 else:
                     assert self.sample_kinds[output_name] == "per_atom"
+
+                    output_block_types = torch.cat([system.types for system in systems])
+                    if selected_atoms is not None:
+                        # Scale each atomic type separately, also handling selected
+                        # atoms and/or potential reordering
+                        system_indices = output_block.samples.values[:, 0]
+                        atom_indices = output_block.samples.values[:, 1]
+                        system_lengths = torch.tensor(
+                            [len(s.types) for s in systems],
+                            dtype=torch.long,
+                            device=device,
+                        )
+                        offset = torch.cat(
+                            [
+                                torch.zeros(1, dtype=torch.long, device=device),
+                                torch.cumsum(system_lengths[:-1], dim=0),
+                            ]
+                        )
+                        output_block_types = output_block_types[
+                            offset[system_indices] + atom_indices
+                        ]
 
                     # TODO: gradients of per-atom targets are not supported
                     if len(output_block.gradients_list()) > 0:
