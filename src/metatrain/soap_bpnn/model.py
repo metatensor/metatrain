@@ -225,7 +225,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             },
             "species": {"Orthogonal": {"species": self.atomic_types}},
         }
-        self.soap_calculator = SoapPowerSpectrum(**spex_soap_hypers)
+        self.soap_calculator = SoapPowerSpectrum(**spex_soap_hypers)  # type: ignore
         soap_size = self.soap_calculator.shape
 
         hypers_bpnn = self.hypers["bpnn"]

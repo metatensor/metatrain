@@ -6,6 +6,20 @@ from torch.profiler import record_function
 
 
 class SoapPowerSpectrum(Module):
+    """Class for the SOAP power spectrum.
+
+    Arguments are expected in the form of ``specable``-style dictionaries, i.e.,
+    ``{ClassName: {key1: value1, key2: value2, ...}}``.
+
+    :param cutoff: Cutoff radius.
+    :param max_angular: Maximum angular momentum to consider.
+    :param radial: Radial expansion specification.
+    :param angular: Type of angular expansion
+        (supported: "SphericalHarmonics", "SolidHarmonics").
+    :param species: Species embedding specification.
+    :param cutoff_function: Cutoff function specification.
+    """
+
     def __init__(
         self,
         cutoff: float,
@@ -15,18 +29,6 @@ class SoapPowerSpectrum(Module):
         species: dict,
         cutoff_function: dict,
     ) -> None:
-        """Initialise SoapPowerSpectrum.
-
-        Arguments are expected in the form of ``specable``-style dictionaries, i.e.,
-        ``{ClassName: {key1: value1, key2: value2, ...}}``.
-
-        Args:
-            radial (dict): Radial expansion specification.
-            angular (str): Type of angular expansion
-                ("SphericalHarmonics", "SolidHarmonics" are supported).
-            species (dict): Species embedding specification.
-
-        """
         super().__init__()
 
         self.spec = {
@@ -82,22 +84,18 @@ class SoapPowerSpectrum(Module):
         a given graph doesn't contain a given center species, it will also not appear in
         the output.
 
-        Args:
-            R_ij (Tensor): Interatomic displacements of shape ``[pair, 3]``,
-                using the convention ``R_ij = R_j - R_i``.
-            i (Tensor): Center atom indices of shape ``[pair]``.
-            j (Tensor): Neighbour atom indices of shape ``[pair]``.
-            species (Tensor): Atomic species of shape ``[center]``, indicating the
-                species of the atoms indexed by ``i`` and ``j``.
-            structures (Tensor): Structure indices of shape ``[center]``, indicating
-                which structure each atom belongs to.
-            centers (Tensor): Center atom indices of shape ``[center]``, indicating
-                which atom in each structure a given node in the graph is supposed to
-                be.
+        :param R_ij: Interatomic displacements of shape ``[pair, 3]``, using the
+            convention ``R_ij = R_j - R_i``.
+        :param i: Center atom indices of shape ``[pair]``.
+        :param j: Neighbour atom indices of shape ``[pair]``.
+        :param species: Atomic species of shape ``[center]``, indicating the species of
+            the atoms indexed by ``i`` and ``j``.
+        :param structures: Structure indices of shape ``[center]``, indicating which
+            structure each atom belongs to.
+        :param centers: Center atom indices of shape ``[center]``, indicating which atom
+            in each structure a given node in the graph is supposed to be.
 
-        Returns:
-            SOAP power spectrum, a ``TensorMap``.
-
+        :return: SOAP power spectrum, a ``TensorMap``.
         """
         # R_ij: [pair, 3]
         # i: [pair]
