@@ -54,7 +54,6 @@ class PET(ModelInterface[ModelHypers]):
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
-    __hypers_cls__ = ModelHypers
     component_labels: Dict[str, List[List[Labels]]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
