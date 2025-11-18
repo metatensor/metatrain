@@ -172,8 +172,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
             weight_decay=self.hypers["weight_decay"],
         )
 
-        # Loss function
-        loss_fn = torch.nn.CrossEntropyLoss()
+        # Note: Loss is computed inline as cross-entropy with soft targets
+        # This allows for both one-hot and fractional target distributions
 
         # Log the initial learning rate:
         logging.info(f"Learning rate: {self.hypers['learning_rate']}")
@@ -211,25 +211,25 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
 
                 probabilities = outputs[target_name].block().values
-                # Convert one-hot encoded targets to class labels for loss calculation
-                one_hot_targets = targets[target_name].block().values
-                labels = torch.argmax(one_hot_targets, dim=-1).long()
+                # Get target probabilities (supports both one-hot and soft targets)
+                target_probs = targets[target_name].block().values
                 
-                # Convert probabilities back to logits for CrossEntropyLoss
+                # Compute cross-entropy loss with soft targets
+                # CE = -sum(target_probs * log(predicted_probs))
                 # Add small epsilon to avoid log(0)
-                logits = torch.log(probabilities + 1e-10)
-
-                # Compute loss
-                loss = loss_fn(logits, labels)
+                log_probs = torch.log(probabilities + 1e-10)
+                loss = -torch.sum(target_probs * log_probs, dim=-1).mean()
 
                 # Backward pass
                 loss.backward()
                 optimizer.step()
 
                 train_loss += loss.item()
+                # For accuracy, compare predicted class with target's most likely class
                 _, predicted = torch.max(probabilities, 1)
-                train_total += labels.size(0)
-                train_correct += (predicted == labels).sum().item()
+                _, target_class = torch.max(target_probs, 1)
+                train_total += target_class.size(0)
+                train_correct += (predicted == target_class).sum().item()
 
             train_loss /= len(train_dataloader)
             train_acc = train_correct / train_total
@@ -263,20 +263,20 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
 
                     probabilities = outputs[target_name].block().values
-                    # Convert one-hot encoded targets to class labels
-                    one_hot_targets = targets[target_name].block().values
-                    labels = torch.argmax(one_hot_targets, dim=-1).long()
+                    # Get target probabilities (supports both one-hot and soft targets)
+                    target_probs = targets[target_name].block().values
                     
-                    # Convert probabilities back to logits for CrossEntropyLoss
-                    logits = torch.log(probabilities + 1e-10)
-
-                    # Compute loss
-                    loss = loss_fn(logits, labels)
+                    # Compute cross-entropy loss with soft targets
+                    # CE = -sum(target_probs * log(predicted_probs))
+                    log_probs = torch.log(probabilities + 1e-10)
+                    loss = -torch.sum(target_probs * log_probs, dim=-1).mean()
 
                     val_loss += loss.item()
+                    # For accuracy, compare predicted with target's most likely class
                     _, predicted = torch.max(probabilities, 1)
-                    val_total += labels.size(0)
-                    val_correct += (predicted == labels).sum().item()
+                    _, target_class = torch.max(target_probs, 1)
+                    val_total += target_class.size(0)
+                    val_correct += (predicted == target_class).sum().item()
 
             val_loss /= len(val_dataloader)
             val_acc = val_correct / val_total

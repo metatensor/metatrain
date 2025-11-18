@@ -9,10 +9,10 @@ top of the features extracted from the backbone.
 
 The model extracts per-atom features from the frozen backbone, averages them to get
 system-level representations, and then passes them through the MLP for classification.
-The targets should be class labels specified as single floats that are actually
-integers (0.0, 1.0, 2.0, etc.), so that we can re-use the metatrain infrastructure.
-The loss function is a negative log-likelihood (NLL) classification loss
-(CrossEntropyLoss in PyTorch).
+The targets should be class probabilities as vectors, supporting both one-hot encodings
+(e.g., [1.0, 0.0, 0.0]) and soft/fractional targets (e.g., [0.7, 0.2, 0.1]), so that
+we can handle both hard and soft classification tasks. The loss function is a 
+cross-entropy loss that supports soft target distributions.
 
 The last layer in `hidden_sizes` acts as a bottleneck that can be used to extract
 features/collective variables for downstream analysis.

@@ -14,8 +14,9 @@ Creating the Dataset
 --------------------
 
 First, we need to create a dataset with different carbon structures. We'll generate
-simple structures for diamond, graphite, and graphene, and label them with class
-identifiers (0, 1, 2).
+simple structures for diamond, graphite, and graphene, and label them with one-hot
+encoded class labels. The classifier also supports soft/fractional targets for cases
+where the class membership is uncertain.
 
 """
 
