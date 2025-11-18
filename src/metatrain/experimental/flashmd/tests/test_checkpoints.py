@@ -48,7 +48,7 @@ def model_trainer():
         "read_from": "data/flashmd.xyz",
         "reader": "ase",
         "key": "future_momenta",
-        "unit": "(eV*u)^1/2",
+        "unit": "(eV*u)^(1/2)",
         "type": {
             "cartesian": {
                 "rank": 1,
