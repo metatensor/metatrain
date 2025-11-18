@@ -63,6 +63,13 @@ which is used for the original training is the same, or at least similar to the 
 for the new dataset. However, since this is not always the case, we also provide more
 advanced fine-tuning strategies described below.
 
+Here is the specification for the inputs to pass to the
+``architecture.training.finetune`` parameter in case of the basic fine-tuning:
+
+.. autoclass:: metatrain.pet.modules.finetuning.FullFinetuneHypers
+    :members:
+    :undoc-members:
+
 
 Fine-tuning model Heads
 -----------------------
@@ -100,6 +107,17 @@ edge heads and last layers to be fine-tuned.
 We recommend to first start the fine-tuning including all the modules listed above and
 experiment with their different combinations if needed. You might also consider using a
 lower learning rate, e.g. ``1e-5`` or even lower, to stabilize the training process.
+
+Here is the specification for the inputs to pass to the
+``architecture.training.finetune`` parameter in case of ``"heads"`` fine-tuning:
+
+.. autoclass:: metatrain.pet.modules.finetuning.HeadsFinetuneHypers
+    :members:
+    :undoc-members:
+
+.. autoclass:: metatrain.pet.modules.finetuning.HeadsFinetuneConfig
+    :members:
+    :undoc-members:
 
 
 LoRA Fine-tuning
@@ -157,6 +175,16 @@ We recommend to start with the LoRA parameters listed above and experiment with
 different values if needed. You might also consider using a lower learning rate,
 e.g. ``1e-5`` or even lower, to stabilize the training process.
 
+Here is the specification for the inputs to pass to the
+``architecture.training.finetune`` parameter in case of ``"lora"`` fine-tuning:
+
+.. autoclass:: metatrain.pet.modules.finetuning.LoRaFinetuneHypers
+    :members:
+    :undoc-members:
+
+.. autoclass:: metatrain.pet.modules.finetuning.LoRaFinetuneConfig
+    :members:
+    :undoc-members:
 
 Fine-tuning on a new level of theory
 ------------------------------------

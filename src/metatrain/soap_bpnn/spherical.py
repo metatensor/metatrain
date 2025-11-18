@@ -1,7 +1,7 @@
 """Modules to allow SOAP-BPNN to fit arbitrary spherical tensor targets."""
 
 import copy
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import metatensor.torch as mts
 import numpy as np
@@ -12,6 +12,8 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.learn.nn import Linear as LinearMap
 from spex import SphericalExpansion
 from torch.profiler import record_function
+
+from .documentation import SOAPConfig
 
 
 class VectorBasis(torch.nn.Module):
@@ -24,7 +26,7 @@ class VectorBasis(torch.nn.Module):
     :param soap_hypers: dictionary with the SOAP hyper-parameters.
     """
 
-    def __init__(self, atomic_types: List[int], soap_hypers: Dict[str, Any]) -> None:
+    def __init__(self, atomic_types: List[int], soap_hypers: SOAPConfig) -> None:
         super().__init__()
         self.atomic_types = atomic_types
         # Define a new hyper-parameter for the basis part of the expansion
@@ -223,7 +225,7 @@ class TensorBasis(torch.nn.Module):
     def __init__(
         self,
         atomic_types: List[int],
-        soap_hypers: Dict[str, Any],
+        soap_hypers: SOAPConfig,
         o3_lambda: int,
         o3_sigma: int,
         add_lambda_basis: bool,

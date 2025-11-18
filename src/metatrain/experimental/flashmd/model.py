@@ -30,6 +30,7 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
+from .documentation import ModelHypers
 from .modules.additive import PositionAdditive
 from .modules.encoder import NodeEncoder
 from .modules.structures import systems_to_batch
@@ -38,7 +39,7 @@ from .modules.structures import systems_to_batch
 AVAILABLE_FEATURIZERS = ["feedforward", "residual"]
 
 
-class FlashMD(ModelInterface):
+class FlashMD(ModelInterface[ModelHypers]):
     """
     Implementation of the FlashMD architecture.
 
@@ -54,7 +55,7 @@ class FlashMD(ModelInterface):
     component_labels: Dict[str, List[List[Labels]]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         # Cache frequently accessed hyperparameters

@@ -19,10 +19,11 @@ from metatrain.utils.neighbor_lists import (
 )
 
 from . import checkpoints
+from .documentation import TrainerHypers
 from .model import LLPRUncertaintyModel
 
 
-class Trainer(TrainerInterface):
+class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 1
 
     def train(
@@ -154,7 +155,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: TrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "LLPRUncertaintyModel":
         raise ValueError("LLPR does not allow restarting training")
