@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Literal, Optional
 
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import (
@@ -14,8 +15,6 @@ from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.per_atom import divide_by_num_atoms
-from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .documentation import ModelHypers
@@ -155,13 +154,10 @@ class Classifier(ModelInterface[ModelHypers]):
             systems, {"features": features_output}, selected_atoms
         )
 
-        # Sum over atoms first, then average to get system-level features
-        system_features = sum_over_atoms(features_dict["features"])
-        num_atoms = torch.tensor(
-            [len(s) for s in systems],
-            device=system_features.block().values.device,
+        # Average over atoms to get system-level features
+        averaged_features = mts.mean_over_samples(
+            features_dict["features"], sample_names=["atom"]
         )
-        averaged_features = divide_by_num_atoms(system_features, num_atoms)
         features = averaged_features.block().values
 
         # Build MLP if not already built
@@ -188,7 +184,7 @@ class Classifier(ModelInterface[ModelHypers]):
                 blocks=[
                     TensorBlock(
                         values=logits,
-                        samples=system_features.block().samples,
+                        samples=averaged_features.block().samples,
                         components=[],
                         properties=Labels(
                             names=["class"],

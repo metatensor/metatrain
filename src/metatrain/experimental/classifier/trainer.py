@@ -1,3 +1,4 @@
+import copy
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
@@ -13,6 +14,7 @@ from metatrain.utils.data import (
     unpack_batch,
 )
 from metatrain.utils.io import check_file_extension, model_from_checkpoint
+from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
@@ -90,10 +92,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
         logging.info(f"Number of classes detected: {num_classes}")
 
         # Get feature size by doing a forward pass on one sample
+        import metatensor.torch as mts
         from metatomic.torch import ModelOutput
-
-        from metatrain.utils.per_atom import divide_by_num_atoms
-        from metatrain.utils.sum_over_atoms import sum_over_atoms
 
         sample = train_datasets[0][0]
         system = sample["system"].to(device=device, dtype=dtype)
@@ -103,11 +103,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 {"features": ModelOutput(quantity="", unit="", per_atom=True)},
                 None,
             )
-            system_features = sum_over_atoms(features_dict["features"])
-            num_atoms = torch.tensor(
-                [len(system)], device=system_features.block().values.device
+            averaged_features = mts.mean_over_samples(
+                features_dict["features"], sample_names=["atom"]
             )
-            averaged_features = divide_by_num_atoms(system_features, num_atoms)
             feature_size = averaged_features.block().values.shape[-1]
 
         logging.info(f"Feature size: {feature_size}")
@@ -174,12 +172,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Loss function
         loss_fn = torch.nn.CrossEntropyLoss()
 
+        # Log the initial learning rate:
+        logging.info(f"Learning rate: {self.hypers['learning_rate']}")
+
         # Train the model:
         logging.info("Starting training")
         target_name = list(model.dataset_info.targets.keys())[0]
 
         best_val_loss = float("inf")
         best_epoch = 0
+        best_model_state_dict = None
 
         for epoch in range(self.hypers["num_epochs"]):
             # Training
@@ -189,6 +191,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
             train_total = 0
 
             for batch in train_dataloader:
+                optimizer.zero_grad()
+
                 systems, targets, _ = unpack_batch(batch)
                 systems = [system.to(device=device, dtype=dtype) for system in systems]
                 targets = {
@@ -214,7 +218,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 loss = loss_fn(logits, labels)
 
                 # Backward pass
-                optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
@@ -268,29 +271,50 @@ class Trainer(TrainerInterface[TrainerHypers]):
             val_loss /= len(val_dataloader)
             val_acc = val_correct / val_total
 
+            # Prepare metrics for logging
+            finalized_train_info = {
+                "loss": train_loss,
+                "accuracy": train_acc,
+            }
+            finalized_val_info = {
+                "loss": val_loss,
+                "accuracy": val_acc,
+            }
+
+            # Initialize metric logger on first epoch
+            if epoch == 0:
+                metric_logger = MetricLogger(
+                    log_obj=ROOT_LOGGER,
+                    dataset_info=model.dataset_info,
+                    initial_metrics=[finalized_train_info, finalized_val_info],
+                    names=["training", "validation"],
+                )
+
             # Log progress
-            if (epoch + 1) % self.hypers["log_interval"] == 0:
-                logging.info(
-                    f"Epoch {epoch + 1}/{self.hypers['num_epochs']}: "
-                    f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, "
-                    f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}"
+            if epoch % self.hypers["log_interval"] == 0:
+                metric_logger.log(
+                    metrics=[finalized_train_info, finalized_val_info],
+                    epoch=epoch,
                 )
 
             # Save checkpoint
-            if (epoch + 1) % self.hypers["checkpoint_interval"] == 0:
-                checkpoint_path = Path(checkpoint_dir) / f"checkpoint_{epoch + 1}.ckpt"
+            if epoch % self.hypers["checkpoint_interval"] == 0:
+                checkpoint_path = Path(checkpoint_dir) / f"checkpoint_{epoch}.ckpt"
                 self.save_checkpoint(model, checkpoint_path)
-                logging.info(f"Saved checkpoint to {checkpoint_path}")
 
             # Track best model
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                best_epoch = epoch + 1
+                best_epoch = epoch
+                best_model_state_dict = copy.deepcopy(model.state_dict())
 
-        logging.info(
-            f"Training complete. Best validation loss: {best_val_loss:.4f} "
-            f"at epoch {best_epoch}"
-        )
+        # Load best model
+        if best_model_state_dict is not None:
+            model.load_state_dict(best_model_state_dict)
+            logging.info(
+                f"Best model loaded from epoch {best_epoch} "
+                f"with validation loss: {best_val_loss:.6f}"
+            )
 
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
