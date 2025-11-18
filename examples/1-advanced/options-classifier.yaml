@@ -1,7 +1,7 @@
 architecture:
   name: experimental.classifier
   model:
-    hidden_sizes: [32, 16, 2]
+    hidden_sizes: [64, 32, 2]
   training:
     model_checkpoint: pet-mad-v1.0.2.ckpt
     num_epochs: 100

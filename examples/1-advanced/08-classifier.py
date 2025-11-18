@@ -121,7 +121,7 @@ subprocess.run(
 # The training options for the classifier are:
 print("\nTraining the classifier...")
 subprocess.run(
-    ["mtt", "train", "options-classifier.yaml", "-o", "classifier.ckpt"], check=True
+    ["mtt", "train", "options-classifier.yaml", "-o", "classifier.pt"], check=True
 )
 
 # %%
@@ -136,104 +136,52 @@ subprocess.run(
 # Let's test the classifier on some structures:
 
 # Load the model
-calc = MetatomicCalculator("classifier.ckpt", extensions_directory="extensions/")
+calc = MetatomicCalculator("classifier.pt")
 
 # Create test structures
 test_diamond = bulk("C", "diamond", a=3.57) * (2, 2, 2)
 test_graphene = graphene(formula="C2", size=(3, 3, 1), a=2.46, vacuum=10.0)
 
-test_structures = [test_diamond, test_graphene]
+structures = ase.io.read("carbon_allotropes.xyz")
 
 # Get predictions
-predictions = calc.run_model(
-    test_structures,
-    {"class": ModelOutput(per_atom=False)},
-)
+correct_count = 0
+for structure in structures:
+    prediction = calc.run_model(
+        structure,
+        {"mtt::class": ModelOutput(per_atom=False)},
+    )["mtt::class"].block().values.cpu().squeeze(0).numpy()
+    predicted_class = np.argmax(prediction)
+    actual_class = int(structure.info["class"])
+    if predicted_class == actual_class:
+        correct_count += 1
+print(f"Classifier accuracy: {(correct_count/len(structures))*100:.2f}% correct")
 
-# The output is logits (unnormalized probabilities)
-logits = predictions["class"].block().values.numpy()
-probabilities = np.exp(logits) / np.exp(logits).sum(axis=1, keepdims=True)
 
-print("\nClassification Results:")
-print("=" * 50)
-for i, (structure, probs) in enumerate(
-    zip(test_structures, probabilities, strict=True)
-):
-    predicted_class = np.argmax(probs)
-    confidence = probs[predicted_class]
-    print(f"\nStructure {i+1}:")
-    print(f"  Formula: {structure.get_chemical_formula()}")
-    print(f"  Predicted class: {predicted_class}")
-    print(f"  Confidence: {confidence:.2%}")
-    print("  Class probabilities:")
-    print(f"    Diamond (0): {probs[0]:.2%}")
-    print(f"    Graphite (1): {probs[1]:.2%}")
-    print(f"    Graphene (2): {probs[2]:.2%}")
-
-# %%
-#
-# Extracting Bottleneck Features
-# ------------------------------
-#
-# The bottleneck layer (with 2 neurons in this case) can be used as collective
-# variables for further analysis. These features represent a low-dimensional
-# embedding of the structures that captures the most relevant information for
-# classification.
-#
-# To extract these features, you would need to modify the model to output the
-# bottleneck activations. This can be done as post-processing by accessing the
-# intermediate layer outputs.
-#
-# In practice, you could:
-# 1. Extract bottleneck features for many structures
-# 2. Plot them in 2D to visualize the decision boundaries
-# 3. Use them as collective variables in enhanced sampling simulations
-#
-# Here's a conceptual example of how the feature space might look:
-
-# Create a synthetic visualization
-fig, ax = plt.subplots(figsize=(8, 6))
-
-# Generate synthetic 2D embeddings for illustration
-np.random.seed(42)
-diamond_features = np.random.multivariate_normal([-1, -1], [[0.1, 0], [0, 0.1]], 20)
-graphite_features = np.random.multivariate_normal([1, 0], [[0.1, 0], [0, 0.1]], 20)
-graphene_features = np.random.multivariate_normal([0, 1.5], [[0.1, 0], [0, 0.1]], 20)
-
-ax.scatter(diamond_features[:, 0], diamond_features[:, 1], 
-           label="Diamond", alpha=0.6, s=100, c="blue")
-ax.scatter(graphite_features[:, 0], graphite_features[:, 1], 
-           label="Graphite", alpha=0.6, s=100, c="green")
-ax.scatter(graphene_features[:, 0], graphene_features[:, 1], 
-           label="Graphene", alpha=0.6, s=100, c="red")
-
-ax.set_xlabel("Bottleneck Feature 1", fontsize=12)
-ax.set_ylabel("Bottleneck Feature 2", fontsize=12)
-ax.set_title("Collective Variable Space (Bottleneck Features)", fontsize=14)
-ax.legend(fontsize=11)
-ax.grid(alpha=0.3)
-plt.tight_layout()
-plt.show()
-
-# %%
-#
-# Conclusion
-# ----------
-#
-# This tutorial demonstrated:
-#
-# 1. How to create a labeled dataset for classification
-# 2. Training a backbone model for feature extraction
-# 3. Training a classifier on top of the frozen backbone
-# 4. Using the classifier for predictions
-# 5. Understanding the bottleneck features as collective variables
-#
-# The classifier model is particularly useful for:
-#
-# - **Transfer learning**: Reusing features from expensive pre-trained models
-# - **Phase classification**: Identifying different phases or structures
-# - **Reaction coordinate discovery**: The bottleneck features can serve as
-#   collective variables for free energy calculations
-# - **Active learning**: Identifying uncertain structures for labeling
-#
-# For more information on the classifier architecture, see the documentation.
+# 2D map using the bottleneck features
+bottleneck_features = []
+labels = []
+for structure in structures:
+    features = calc.run_model(
+        structure,
+        {"features": ModelOutput(per_atom=False)},
+    )["features"].block().values.cpu().squeeze(0).numpy()
+    bottleneck_features.append(features)
+    labels.append(int(structure.info["class"]))
+bottleneck_features = np.array(bottleneck_features)
+labels = np.array(labels)
+plt.figure(figsize=(8, 6))
+for class_id in np.unique(labels):
+    mask = labels == class_id
+    plt.scatter(
+        bottleneck_features[mask, 0],
+        bottleneck_features[mask, 1],
+        label=f"Class {class_id}",
+        alpha=0.7,
+    )
+plt.xlabel("Bottleneck Feature 1")
+plt.ylabel("Bottleneck Feature 2")
+plt.title("2D Bottleneck Features from Classifier")
+plt.legend()
+plt.grid()
+plt.savefig("bottleneck_features.png")

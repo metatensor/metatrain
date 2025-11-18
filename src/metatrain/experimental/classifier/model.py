@@ -121,7 +121,7 @@ class Classifier(ModelInterface[ModelHypers]):
         # Hidden layers (the last one acts as a bottleneck for feature extraction)
         for hidden_size in self.hypers["hidden_sizes"]:
             layers.append(torch.nn.Linear(current_size, hidden_size, dtype=dtype))
-            layers.append(torch.nn.ReLU())
+            layers.append(torch.nn.SiLU())
             current_size = hidden_size
 
         # Final classification layer
