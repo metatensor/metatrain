@@ -40,10 +40,9 @@ from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
+from .documentation import TrainerHypers
 from .model import MetaMACE
 from .modules.finetuning import apply_finetuning_strategy
-
-from .documentation import TrainerHypers
 
 
 def get_optimizer_and_scheduler(

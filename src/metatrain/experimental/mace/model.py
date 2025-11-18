@@ -23,6 +23,7 @@ from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 
+from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.heads import NonLinearHead
 from .modules.scale_shift import FakeScaleShift
@@ -33,7 +34,6 @@ from .utils.mts import (
     get_system_indices_and_labels,
 )
 
-from .documentation import ModelHypers
 
 class MetaMACE(ModelInterface[ModelHypers]):
     """Interface of MACE for metatrain."""
@@ -242,6 +242,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # Run MACE and extract the node features.
         mace_output = self.mace_model(data, training=self.training, compute_force=False)
         node_features = mace_output["node_feats"]
+
         assert node_features is not None  # For torchscript
 
         # Get the labels for the samples (system and atom of each value)
