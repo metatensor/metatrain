@@ -106,16 +106,6 @@ def validate_architecture_options(
         )
         return
 
-    def _is_validatable(cls: Any) -> bool:
-        return issubclass(cls, (BaseModel, dict))
-
-    if not _is_validatable(model_hypers) or not _is_validatable(trainer_hypers):
-        logging.warning(
-            "Architecture does not provide validation of hyperparameters. "
-            "Continuing without validation."
-        )
-        return
-
     ArchitectureOptions = create_model(
         "ArchitectureOptions",
         name=str,

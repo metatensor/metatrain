@@ -233,7 +233,6 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
     def __init__(self, hypers: HypersType):
         required_attributes = [
             "__checkpoint_version__",
-            "__hypers_cls__",
         ]
         for attribute in required_attributes:
             if not hasattr(self.__class__, attribute):
