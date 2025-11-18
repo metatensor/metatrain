@@ -369,10 +369,7 @@ class CollateFn:
     ):
         self.target_keys: Set[str] = set(target_keys)
         self.callables: List[Callable] = callables if callables is not None else []
-        self.join_kwargs: Dict[str, Any] = join_kwargs or {
-            "remove_tensor_name": True,
-            "different_keys": "union",
-        }
+        self.join_kwargs: Dict[str, Any] = join_kwargs or {"different_keys": "union"}
 
     def __call__(
         self,

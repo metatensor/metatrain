@@ -70,9 +70,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
         train_dataset = train_datasets[0]
         train_y = mts.join(
-            [sample[output_name] for sample in train_dataset],
-            axis="samples",
-            remove_tensor_name=True,
+            [sample[output_name] for sample in train_dataset], axis="samples"
         )
         model._keys = train_y.keys
         train_structures = [sample["system"] for sample in train_dataset]
