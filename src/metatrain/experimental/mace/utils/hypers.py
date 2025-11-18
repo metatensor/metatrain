@@ -40,6 +40,7 @@ def get_mace_defaults():
 
     return mace_defaults
 
+
 def get_mace_hypers_spec():
     """Get the MACE hyperparameter specification.
 
@@ -47,7 +48,6 @@ def get_mace_hypers_spec():
     """
 
     def _get_type(action: argparse.Action) -> str:
-        
         if action.dest == "radial_MLP":
             assert action.default == "[64, 64, 64]"
             return "list[int]"
@@ -57,21 +57,24 @@ def get_mace_hypers_spec():
             if "None" in choices:
                 optional = True
                 choices.remove("None")
-            
-            literal_str = "Literal[" + ", ".join(repr(choice) for choice in choices) + "]"
+
+            literal_str = (
+                "Literal[" + ", ".join(repr(choice) for choice in choices) + "]"
+            )
             if optional:
                 return f"Optional[{literal_str}]"
 
             return literal_str
-        
 
         optional = False
         if action.default is None:
             optional = True
 
-        if action.type is None:
+        if isinstance(action, (argparse._StoreTrueAction, argparse._StoreFalseAction)):
+            annotation = "bool"
+        elif action.type is None:
             annotation = "str"
-        elif action.type.__name__ == "str2bool" or action.__class__.__name__.endswith("StoreTrueAction") or action.__class__.__name__.endswith("StoreFalseAction"):
+        elif action.type.__name__ == "str2bool":
             annotation = "bool"
         else:
             annotation = action.type.__name__

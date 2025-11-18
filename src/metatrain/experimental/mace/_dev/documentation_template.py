@@ -3,7 +3,7 @@ MACE
 ====
 
 This architecture is a very thin wrapper around the official
-MACE implementation, which is 
+MACE implementation, which is
 `hosted here <https://github.com/ACEsuit/mace>`_. Arbitrary heads
 are added on top of MACE to predict an arbitrary number of targets
 with arbitrary symmetry properties. These heads take as input the
@@ -13,23 +13,62 @@ output node features of MACE and pass them through a linear layer
 One important feature is that the architecture is ready to take
 a pretrained MACE model file as input. The heads required to
 predict the targets will be added on top of the MACE model, so
-one can continue training for arbitrary targets. 
+one can continue training for arbitrary targets.
 See :data:`ModelHypers.mace_model` for more details.
 """
-from typing_extensions import TypedDict, NotRequired
-from typing import Optional, Literal
 
+from typing import Literal, Optional
+
+from typing_extensions import NotRequired, TypedDict
+
+from metatrain.pet.modules.finetuning import FullFinetuneHypers
 from metatrain.utils.additive import FixedCompositionWeights
 from metatrain.utils.loss import LossSpecification
 from metatrain.utils.scaler import FixedScalerWeights
 
-from metatrain.pet.modules.finetuning import FullFinetuneHypers
 
 class ModelHypers(TypedDict):
     mace_model: Optional[str] = None
+    """Path to a pretrained MACE model file.
+    
+    For example, this can be `a foundation MACE model 
+    <https://github.com/ACEsuit/mace-foundations>`_. If not provided,
+    a new MACE model will be initialized from scratch using the rest
+    of hyperparameters of the architecture.
+    """
     mace_model_remove_scale_shift: bool = True
+    """Whether to remove the scale and shift block from the
+    pretrained MACE model (if provided).
+
+    If the loaded model is a ``ScaleShiftMACE``, it contains a block
+    that scales and shifts the outputs of MACE. In metatrain, these
+    things are handled by the ``Scaler`` and ``CompositionModels`` class, 
+    so it is probably more natural to continue training without this block.
+
+    However, one might be using ``mtt train`` with 0 epochs simply to
+    be able to export a MACE model, in which case it probably makes more
+    sense to keep the scale and shift block.
+    """
     mace_head_target: str = "energy"
+    """Target to which the MACE head is related.
+
+    ``metatrain`` adds arbitrary heads on top of MACE to predict
+    arbitrary targets. However, MACE models have themselves a head.
+    This hyperparameter specifies which metatrain target corresponds
+    to the MACE head. For this target, no new head will be added, and
+    the output of MACE's head will be used directly.
+    """
     cutoff: float = 5.0
+    """Cutoff radius for neighbor search.
+
+    This should be set to a value after which most of the interactions
+    between atoms is expected to be negligible. A lower cutoff will lead
+    to faster models.
+
+    This is passed to MACE's ``r_max`` argument.
+    """
+
+
 {mace_hypers}
 
 
@@ -37,7 +76,7 @@ class TrainerHypers(TypedDict):
     # Optimizer hypers (directly using MACE's scripts)
     optimizer: {mace_param_optimizer}
     """{mace_help_optimizer}"""
-    learning_rate: {mace_param_lr} # Named "lr" in MACE
+    learning_rate: {mace_param_lr}  # Named "lr" in MACE
     """{mace_help_lr}"""
     weight_decay: {mace_param_weight_decay}
     """{mace_help_weight_decay}"""
@@ -47,13 +86,15 @@ class TrainerHypers(TypedDict):
     """{mace_help_beta}"""
 
     # Scheduler hypers (directly using MACE's scripts)
-    lr_scheduler: {mace_param_scheduler} # Named "scheduler" in MACE
+    lr_scheduler: {mace_param_scheduler}  # Named "scheduler" in MACE
     """{mace_help_scheduler}"""
     lr_scheduler_gamma: {mace_param_lr_scheduler_gamma}
     """{mace_help_lr_scheduler_gamma}"""
     lr_factor: {mace_param_lr_factor}
     """{mace_help_lr_factor}"""
-    lr_scheduler_patience: {mace_param_scheduler_patience} # Named "scheduler_patience" in MACE
+    lr_scheduler_patience: {
+        mace_param_scheduler_patience
+    }  # Named "scheduler_patience" in MACE
     """{mace_help_scheduler_patience}"""
 
     # General training parameters that are shared across architectures
@@ -68,11 +109,6 @@ class TrainerHypers(TypedDict):
     memory."""
     num_epochs: int = 1000
     """Number of epochs."""
-    warmup_fraction: float = 0.01
-    """Fraction of training steps used for learning rate warmup."""
-    learning_rate: float = 1e-4
-    """Learning rate."""
-    weight_decay: Optional[float] = None
 
     log_interval: int = 1
     """Interval to log metrics."""
