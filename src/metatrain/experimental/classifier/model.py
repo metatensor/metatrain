@@ -91,16 +91,11 @@ class Classifier(ModelInterface[ModelHypers]):
         # We'll determine this during the first forward pass
         self.feature_size: Optional[int] = None
 
-        # Build the MLP classifier
-        # We'll build this after we know the feature size
-        self.mlp: Optional[torch.nn.Module] = None
-
         # Store capabilities
+        outputs = {name: ModelOutput() for name in self.dataset_info.targets.keys()}
+        outputs["features"] = ModelOutput(quantity="", unit="", per_atom=False)
         self.capabilities = ModelCapabilities(
-            outputs={
-                name: ModelOutput()
-                for name in self.dataset_info.targets.keys()
-            },
+            outputs=outputs,
             atomic_types=old_capabilities.atomic_types,
             interaction_range=old_capabilities.interaction_range,
             length_unit=old_capabilities.length_unit,
@@ -108,29 +103,22 @@ class Classifier(ModelInterface[ModelHypers]):
             dtype=old_capabilities.dtype,
         )
 
-    def _build_mlp(self, input_size: int, num_classes: int, dtype: torch.dtype) -> None:
-        """Build the MLP classifier.
-
-        :param input_size: Size of the input features
-        :param num_classes: Number of output classes
-        :param dtype: Data type for the MLP parameters
-        """
+    def build_mlp(self, feature_size: int, num_classes: int) -> None:
+        """Build the MLP classifier based on the feature size."""
         layers = []
-        current_size = input_size
-
+        current_size = feature_size
         # Hidden layers (the last one acts as a bottleneck for feature extraction)
-        for hidden_size in self.hypers["hidden_sizes"]:
-            layers.append(torch.nn.Linear(current_size, hidden_size, dtype=dtype))
+        for i, hidden_size in enumerate(self.hypers["hidden_sizes"]):
+            if i != len(self.hypers["hidden_sizes"]) - 1:
+                layers.append(torch.nn.LayerNorm(current_size))
+            layers.append(torch.nn.Linear(current_size, hidden_size))
             layers.append(torch.nn.SiLU())
             current_size = hidden_size
-
-        # Final classification layer
-        layers.append(torch.nn.Linear(current_size, num_classes, dtype=dtype))
-
         self.mlp = torch.nn.Sequential(*layers)
-        self.feature_size = input_size
+        # Final classification layer
+        self.linear = torch.nn.Linear(current_size, num_classes, bias=False)
 
-    def restart(self, dataset_info: DatasetInfo) -> "ModelInterface":
+    def restart(self, dataset_info: DatasetInfo) -> "Classifier":
         raise ValueError("Restarting from a Classifier model is not supported.")
 
     def forward(
@@ -143,6 +131,8 @@ class Classifier(ModelInterface[ModelHypers]):
             raise ValueError(
                 "Wrapped model not set. Call set_wrapped_model() before forward()."
             )
+
+        return_dict: Dict[str, TensorMap] = {}
 
         # Request features from the wrapped model (per-atom features)
         features_output = ModelOutput(
@@ -160,20 +150,41 @@ class Classifier(ModelInterface[ModelHypers]):
         )
         features = averaged_features.block().values
 
-        # Build MLP if not already built
-        if self.mlp is None:
-            feature_size = features.shape[-1]
-            self.feature_size = feature_size
-            # MLP not built yet, return empty dict
-            # This will happen during training initialization
-            return {}
-
         # Forward through MLP
-        logits = self.mlp(features)
+        features_after_mlp = self.mlp(features)
+
+        if "features" in outputs:
+            # Store the features after MLP as output
+            output_tmap = TensorMap(
+                keys=Labels(
+                    names=["_"],
+                    values=torch.tensor([[0]], device=features_after_mlp.device),
+                ),
+                blocks=[
+                    TensorBlock(
+                        values=features_after_mlp,
+                        samples=averaged_features.block().samples,
+                        components=[],
+                        properties=Labels(
+                            names=["feature"],
+                            values=torch.arange(
+                                features_after_mlp.shape[-1],
+                                device=features_after_mlp.device,
+                            ).reshape(-1, 1),
+                            assume_unique=True,
+                        ),
+                    )
+                ],
+            )
+            return_dict["features"] = output_tmap
+
+        logits = self.linear(features_after_mlp)
 
         # Create output TensorMap
-        return_dict = {}
+
         for name in outputs:
+            if name == "features":
+                continue  # Skip features output
             # Create TensorMap with logits
             # For classification, we output logits for each class
             output_tmap = TensorMap(
@@ -229,7 +240,11 @@ class Classifier(ModelInterface[ModelHypers]):
     ) -> "Classifier":
         model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], context)
         if context == "finetune":
-            return model
+            raise NotImplementedError(
+                "Finetuning from the Classifier checkpoint is not supported. "
+                "Please consider restarting from the backbone model checkpoint, "
+                "and then training the Classifier on top of it."
+            )
         elif context == "restart":
             raise NotImplementedError(
                 "Restarting from the Classifier checkpoint is not supported. "
@@ -239,6 +254,11 @@ class Classifier(ModelInterface[ModelHypers]):
         elif context == "export":
             classifier_model = cls(**checkpoint["model_data"])
             classifier_model.set_wrapped_model(model)
+            print(checkpoint.keys())
+            classifier_model.build_mlp(
+                checkpoint["state_dict"]["mlp.1.weight"].shape[1],
+                checkpoint["state_dict"]["linear.weight"].shape[0],
+            )
             dtype = next(model.parameters()).dtype
             classifier_model.to(dtype).load_state_dict(
                 checkpoint["state_dict"], strict=False

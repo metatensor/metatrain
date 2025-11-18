@@ -1,11 +1,13 @@
+seed: 42
+
 architecture:
   name: experimental.classifier
   model:
-    hidden_sizes: [64, 32, 2]
+    hidden_sizes: [128, 128, 128, 2]
   training:
     model_checkpoint: pet-mad-v1.0.2.ckpt
-    num_epochs: 100
-    learning_rate: 5e-4
+    num_epochs: 10
+    learning_rate: 3e-3
     batch_size: 10
     log_interval: 1
 
@@ -16,6 +18,6 @@ training_set:
   targets:
     mtt::class:
       key: class
-      
+
 validation_set: 0.1
 test_set: 0.1
