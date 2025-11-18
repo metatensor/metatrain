@@ -87,7 +87,6 @@ def test_consistency():
 
     assert torch.allclose(attention_output_torch, attention_output_manual, atol=1e-6)
 
-
 @pytest.mark.parametrize("per_atom", [True, False])
 def test_nc_stress(per_atom):
     """Tests that the model can predict a symmetric rank-2 tensor as the NC stress."""
