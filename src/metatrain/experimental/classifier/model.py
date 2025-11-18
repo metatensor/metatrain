@@ -15,6 +15,7 @@ from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .documentation import ModelHypers
@@ -149,31 +150,26 @@ class Classifier(ModelInterface[ModelHypers]):
                 "Wrapped model not set. Call set_wrapped_model() before forward()."
             )
 
-        # Request features from the wrapped model
+        # Request features from the wrapped model (per-atom features)
         features_output = ModelOutput(
             quantity="",
             unit="",
-            per_atom=False,  # We want system-level features
+            per_atom=True,  # Request per-atom features
         )
         features_dict = self.model(
             systems, {"features": features_output}, selected_atoms
         )
 
-        # Extract features
-        features = features_dict["features"].block().values
+        # Sum over atoms to get system-level features
+        system_features = sum_over_atoms(features_dict["features"])
+        features = system_features.block().values
 
         # Build MLP if not already built
         if self.mlp is None:
             feature_size = features.shape[-1]
-            # Determine number of classes from dataset_info
-            # We assume there's only one target for classification
-            target_name = list(self.dataset_info.targets.keys())[0]
-            # We'll set num_classes during training when we see the data
-            # For now, we'll defer MLP construction
             self.feature_size = feature_size
-
-        if self.mlp is None:
-            # MLP not built yet, this happens during training initialization
+            # MLP not built yet, return empty dict
+            # This will happen during training initialization
             return {}
 
         # Forward through MLP
@@ -183,6 +179,7 @@ class Classifier(ModelInterface[ModelHypers]):
         return_dict = {}
         for name in outputs:
             # Create TensorMap with logits
+            # For classification, we output logits for each class
             output_tmap = TensorMap(
                 keys=Labels(
                     names=["_"],
@@ -191,7 +188,7 @@ class Classifier(ModelInterface[ModelHypers]):
                 blocks=[
                     TensorBlock(
                         values=logits,
-                        samples=features_dict["features"].block().samples,
+                        samples=system_features.block().samples,
                         components=[],
                         properties=Labels(
                             names=["class"],

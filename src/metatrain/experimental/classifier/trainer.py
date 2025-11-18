@@ -94,19 +94,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
         sample = train_datasets[0][0]
         system = sample["system"].to(device=device, dtype=dtype)
         with torch.no_grad():
-            features_output = torch.nn.Module.__call__(
-                model.model,
-                [system],
-                {"features": torch.nn.Module.__call__(model.model.export(), [system], {})["features"]},
-                None,
-            )
-            # Actually, let's just request features directly
             from metatomic.torch import ModelOutput
+            from metatrain.utils.sum_over_atoms import sum_over_atoms
 
             features_dict = model.model(
-                [system], {"features": ModelOutput(quantity="", unit="", per_atom=False)}, None
+                [system], {"features": ModelOutput(quantity="", unit="", per_atom=True)}, None
             )
-            feature_size = features_dict["features"].block().values.shape[-1]
+            system_features = sum_over_atoms(features_dict["features"])
+            feature_size = system_features.block().values.shape[-1]
 
         logging.info(f"Feature size: {feature_size}")
 
