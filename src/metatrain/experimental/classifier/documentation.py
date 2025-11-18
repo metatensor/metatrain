@@ -51,6 +51,11 @@ class TrainerHypers(TypedDict):
     learning_rate: float = 0.001
     """Learning rate for the optimizer."""
 
+    warmup_fraction: float = 0.1
+    """Fraction of total training steps used for learning rate warmup.
+    The learning rate increases linearly from 0 to the base learning rate
+    during this period, then follows a cosine annealing schedule."""
+
     model_checkpoint: Optional[str] = None
     """Path to the pre-trained model checkpoint. This checkpoint's backbone
     will be frozen and used for feature extraction."""
