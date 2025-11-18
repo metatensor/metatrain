@@ -61,28 +61,28 @@ def read_systems(filename: str) -> List[System]:
     ase_atoms = read(filename, ":")
     systems = systems_to_torch(ase_atoms, dtype=torch.float64)
 
-    # # Add momenta (for FlashMD) if available
-    # if "momenta" in ase_atoms[0].arrays:
-    #     for system, atoms in zip(systems, ase_atoms, strict=False):
-    #         momenta = TensorMap(
-    #             keys=Labels(["_"], torch.tensor([[0]])),
-    #             blocks=[
-    #                 TensorBlock(
-    #                     values=torch.tensor(
-    #                         atoms.arrays["momenta"], dtype=torch.float64
-    #                     ).unsqueeze(-1),
-    #                     samples=Labels(
-    #                         ["system", "atom"],
-    #                         torch.tensor(
-    #                             [[0, a] for a in range(len(atoms.arrays["momenta"]))]
-    #                         ),
-    #                     ),
-    #                     components=[Labels(["xyz"], torch.arange(3).reshape(-1, 1))],
-    #                     properties=Labels("momenta", torch.tensor([[0]])),
-    #                 )
-    #             ],
-    #         )
-    #         system.add_data("momenta", momenta)
+    # Add momenta (for FlashMD) if available
+    if "momenta" in ase_atoms[0].arrays:
+        for system, atoms in zip(systems, ase_atoms, strict=False):
+            momenta = TensorMap(
+                keys=Labels(["_"], torch.tensor([[0]])),
+                blocks=[
+                    TensorBlock(
+                        values=torch.tensor(
+                            atoms.arrays["momenta"], dtype=torch.float64
+                        ).unsqueeze(-1),
+                        samples=Labels(
+                            ["system", "atom"],
+                            torch.tensor(
+                                [[0, a] for a in range(len(atoms.arrays["momenta"]))]
+                            ),
+                        ),
+                        components=[Labels(["xyz"], torch.arange(3).reshape(-1, 1))],
+                        properties=Labels("momenta", torch.tensor([[0]])),
+                    )
+                ],
+            )
+            system.add_data("momenta", momenta)
 
     return systems
 
