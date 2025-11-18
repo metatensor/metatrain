@@ -5,10 +5,18 @@ Classifier
 The Classifier architecture is an experimental "wrapper" architecture that enables
 classification tasks on top of pre-trained atomistic models. It takes a pre-trained
 checkpoint, freezes its backbone, and trains a small multi-layer perceptron (MLP) on
-top of the features extracted from the backbone. The targets should be class labels
-specified as single floats that are actually integers (0.0, 1.0, 2.0, etc.), so that
-we can re-use the metatrain infrastructure. The loss function is a negative
-log-likelihood (NLL) classification loss.
+top of the features extracted from the backbone.
+
+The model extracts per-atom features from the frozen backbone, sums them to get
+system-level representations, and then passes them through the MLP for classification.
+The targets should be class labels specified as single floats that are actually
+integers (0.0, 1.0, 2.0, etc.), so that we can re-use the metatrain infrastructure.
+The loss function is a negative log-likelihood (NLL) classification loss
+(CrossEntropyLoss in PyTorch).
+
+An optional bottleneck layer can be added before the final classification layer,
+which can be useful for extracting features/collective variables for downstream
+analysis.
 
 {{SECTION_INSTALLATION}}
 
