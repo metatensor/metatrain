@@ -39,7 +39,6 @@ class GAP(ModelInterface[ModelHypers]):
             ],
         }
     )
-    __hypers_cls__ = ModelHypers
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
