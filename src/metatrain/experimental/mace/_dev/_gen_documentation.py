@@ -37,12 +37,15 @@ def write_mace_hypers_spec():
     mace_hypers_str = ""
     for key in MACE_MODEL_ARG_KEYS:
         spec = hypers_spec[key]
-        mace_hypers_str += f'    {key}: {spec["type"]} = {_get_default(key, spec)}\n    r"""{spec["help"]}""" \n'
+        mace_hypers_str += f"    {key}: {spec['type']} = {_get_default(key, spec)}\n"
+        mace_hypers_str += f'r"""{spec["help"]}""" \n'
 
     template_content = template_content.format(
         mace_hypers=mace_hypers_str,
         **{
-            f"mace_param_{key}": f"{hypers_spec[key]['type']} = {_get_default(key, hypers_spec[key])}"
+            f"mace_param_{key}": (
+                f"{hypers_spec[key]['type']} = {_get_default(key, hypers_spec[key])}"
+            )
             for key in hypers_spec
         },
         **{f"mace_help_{key}": hypers_spec[key]["help"] for key in hypers_spec},

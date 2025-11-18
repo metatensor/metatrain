@@ -2,19 +2,16 @@
 MACE
 ====
 
-This architecture is a very thin wrapper around the official
-MACE implementation, which is
-`hosted here <https://github.com/ACEsuit/mace>`_. Arbitrary heads
-are added on top of MACE to predict an arbitrary number of targets
-with arbitrary symmetry properties. These heads take as input the
-output node features of MACE and pass them through a linear layer
-(or MLP for invariant targets) to obtain the final predictions.
+This architecture is a very thin wrapper around the official MACE implementation, which
+is `hosted here <https://github.com/ACEsuit/mace>`_. Arbitrary heads are added on top of
+MACE to predict an arbitrary number of targets with arbitrary symmetry properties. These
+heads take as input the output node features of MACE and pass them through a linear
+layer (or MLP for invariant targets) to obtain the final predictions.
 
-One important feature is that the architecture is ready to take
-a pretrained MACE model file as input. The heads required to
-predict the targets will be added on top of the MACE model, so
-one can continue training for arbitrary targets.
-See :data:`ModelHypers.mace_model` for more details.
+One important feature is that the architecture is ready to take a pretrained MACE model
+file as input. The heads required to predict the targets will be added on top of the
+MACE model, so one can continue training for arbitrary targets. See
+:data:`ModelHypers.mace_model` for more details.
 """
 
 from typing import Literal, Optional
@@ -30,40 +27,38 @@ from metatrain.utils.scaler import FixedScalerWeights
 class ModelHypers(TypedDict):
     mace_model: Optional[str] = None
     """Path to a pretrained MACE model file.
-    
-    For example, this can be `a foundation MACE model 
-    <https://github.com/ACEsuit/mace-foundations>`_. If not provided,
-    a new MACE model will be initialized from scratch using the rest
-    of hyperparameters of the architecture.
+
+    For example, this can be `a foundation MACE model
+    <https://github.com/ACEsuit/mace-foundations>`_. If not provided, a new MACE model
+    will be initialized from scratch using the rest of hyperparameters of the
+    architecture.
     """
     mace_model_remove_scale_shift: bool = True
     """Whether to remove the scale and shift block from the
     pretrained MACE model (if provided).
 
-    If the loaded model is a ``ScaleShiftMACE``, it contains a block
-    that scales and shifts the outputs of MACE. In metatrain, these
-    things are handled by the ``Scaler`` and ``CompositionModels`` class, 
-    so it is probably more natural to continue training without this block.
+    If the loaded model is a ``ScaleShiftMACE``, it contains a block that scales and
+    shifts the outputs of MACE. In metatrain, these things are handled by the ``Scaler``
+    and ``CompositionModels`` class, so it is probably more natural to continue training
+    without this block.
 
-    However, one might be using ``mtt train`` with 0 epochs simply to
-    be able to export a MACE model, in which case it probably makes more
-    sense to keep the scale and shift block.
+    However, one might be using ``mtt train`` with 0 epochs simply to be able to export
+    a MACE model, in which case it probably makes more sense to keep the scale and shift
+    block.
     """
     mace_head_target: str = "energy"
     """Target to which the MACE head is related.
 
-    ``metatrain`` adds arbitrary heads on top of MACE to predict
-    arbitrary targets. However, MACE models have themselves a head.
-    This hyperparameter specifies which metatrain target corresponds
-    to the MACE head. For this target, no new head will be added, and
-    the output of MACE's head will be used directly.
+    ``metatrain`` adds arbitrary heads on top of MACE to predict arbitrary targets.
+    However, MACE models have themselves a head. This hyperparameter specifies which
+    metatrain target corresponds to the MACE head. For this target, no new head will be
+    added, and the output of MACE's head will be used directly.
     """
     cutoff: float = 5.0
     """Cutoff radius for neighbor search.
 
-    This should be set to a value after which most of the interactions
-    between atoms is expected to be negligible. A lower cutoff will lead
-    to faster models.
+    This should be set to a value after which most of the interactions between atoms is
+    expected to be negligible. A lower cutoff will lead to faster models.
 
     This is passed to MACE's ``r_max`` argument.
     """
@@ -169,25 +164,24 @@ class TrainerHypers(TypedDict):
 
     This is passed to the ``fixed_weights`` argument of
     :meth:`CompositionModel.train_model
-    <metatrain.utils.additive.composition.CompositionModel.train_model>`,
-    see its documentation to understand exactly what to pass here.
+    <metatrain.utils.additive.composition.CompositionModel.train_model>`, see its
+    documentation to understand exactly what to pass here.
     """
     remove_composition_contribution: bool = True
     """Whether to remove the atomic composition contribution from the
-    targets by fitting a linear model to the training data before
-    training the neural network."""
+    targets by fitting a linear model to the training data before training the neural
+    network."""
     fixed_scaling_weights: FixedScalerWeights = {}
     """Weights for target scaling.
 
-    This is passed to the ``fixed_weights`` argument of
-    :meth:`Scaler.train_model <metatrain.utils.scaler.scaler.Scaler.train_model>`,
-    see its documentation to understand exactly what to pass here.
+    This is passed to the ``fixed_weights`` argument of :meth:`Scaler.train_model
+    <metatrain.utils.scaler.scaler.Scaler.train_model>`, see its documentation to
+    understand exactly what to pass here.
     """
     per_structure_targets: list[str] = []
     """Targets to calculate per-structure losses."""
     num_workers: Optional[int] = None
-    """Number of workers for data loading. If not provided, it is set
-    automatically."""
+    """Number of workers for data loading. If not provided, it is set automatically."""
     log_mae: bool = True
     """Log MAE alongside RMSE"""
     log_separate_blocks: bool = False
