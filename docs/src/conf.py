@@ -66,7 +66,7 @@ def generate_examples():
 
 
 def setup(app):
-    # generate_examples()
+    generate_examples()
     setup_architectures_docs()
 
 
