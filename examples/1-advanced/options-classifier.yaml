@@ -1,0 +1,21 @@
+architecture:
+  name: experimental.classifier
+  model:
+    hidden_sizes: [32, 16, 2]
+  training:
+    model_checkpoint: pet-mad-v1.0.2.ckpt
+    num_epochs: 100
+    learning_rate: 5e-4
+    batch_size: 10
+    log_interval: 1
+
+training_set:
+  systems:
+    read_from: carbon_allotropes.xyz
+    length_unit: angstrom
+  targets:
+    mtt::class:
+      key: class
+      
+validation_set: 0.1
+test_set: 0.1

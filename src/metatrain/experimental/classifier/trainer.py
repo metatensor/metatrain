@@ -80,12 +80,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
         all_classes = set()
         for dataset in train_datasets:
             for sample in dataset:
-                targets = sample["targets"]
                 target_name = list(model.dataset_info.targets.keys())[0]
-                target_values = targets[target_name].block().values
-                # Convert float labels to int classes
-                classes = target_values.long().unique()
-                all_classes.update(classes.cpu().numpy())
+                sample_as_dict = sample._asdict()
+                target = sample_as_dict[target_name]
+                target_value = int(target.block().values.item())
+                all_classes.add(target_value)
 
         num_classes = len(all_classes)
         logging.info(f"Number of classes detected: {num_classes}")

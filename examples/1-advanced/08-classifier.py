@@ -51,15 +51,15 @@ np.random.seed(42)
 structures = []
 
 # Generate 20 diamond structures with small random perturbations
-for _ in range(20):
+for i in range(50):
     diamond = bulk("C", "diamond", a=3.57)
     diamond = diamond * (2, 2, 2)  # Make it bigger
-    diamond.rattle(stdev=0.05)  # Add random perturbations
+    diamond.rattle(stdev=0.1, seed=i)  # Add random perturbations
     diamond.info["class"] = 0.0  # Label as diamond
     structures.append(diamond)
 
 # Generate 20 graphite structures (using layered graphene-like structures)
-for _ in range(20):
+for i in range(50):
     # Create a graphite-like structure
     graphite = graphene(formula="C2", size=(3, 3, 1), a=2.46, vacuum=None)
     # Stack two layers
@@ -67,14 +67,14 @@ for _ in range(20):
     layer2.translate([0, 0, 3.35])
     graphite.extend(layer2)
     graphite.set_cell([graphite.cell[0], graphite.cell[1], [0, 0, 6.7]])
-    graphite.rattle(stdev=0.05)
+    graphite.rattle(stdev=0.1, seed=i)
     graphite.info["class"] = 1.0  # Label as graphite
     structures.append(graphite)
 
 # Generate 20 graphene structures (single layer)
-for _ in range(20):
+for i in range(50):
     graphene_struct = graphene(formula="C2", size=(3, 3, 1), a=2.46, vacuum=10.0)
-    graphene_struct.rattle(stdev=0.05)
+    graphene_struct.rattle(stdev=0.1, seed=i)
     graphene_struct.info["class"] = 2.0  # Label as graphene
     structures.append(graphene_struct)
 
@@ -85,9 +85,9 @@ np.random.shuffle(structures)
 ase.io.write("carbon_allotropes.xyz", structures)
 
 print(f"Generated {len(structures)} structures:")
-print("  - Diamond: 20 structures (class 0.0)")
-print("  - Graphite: 20 structures (class 1.0)")
-print("  - Graphene: 20 structures (class 2.0)")
+print("  - Diamond: 50 structures (class 0.0)")
+print("  - Graphite: 50 structures (class 1.0)")
+print("  - Graphene: 50 structures (class 2.0)")
 
 # %%
 #
@@ -101,55 +101,8 @@ print("  - Graphene: 20 structures (class 2.0)")
 #
 # The training options for the backbone model are as follows:
 
-backbone_options = """
-architecture:
-  name: soap_bpnn
-  model:
-    soap:
-      cutoff: 5.0
-      max_radial: 6
-      max_angular: 4
-      atomic_gaussian_width: 0.3
-      center_atom_weight: 1.0
-      radial_basis:
-        type: gto
-      cutoff_function:
-        type: shifted_cosine
-    bpnn:
-      num_hidden_layers: 2
-      num_neurons_per_layer: 64
-      activation_function: tanh
-  training:
-    num_epochs: 50
-    learning_rate: 0.01
-    batch_size: 8
-
-training_set:
-  systems:
-    read_from: carbon_allotropes.xyz
-    reader: ase
-  targets:
-    energy:
-      key: energy
-      
-validation_set: 0.1
-
-"""
-
-with open("options-backbone.yaml", "w") as f:
-    f.write(backbone_options)
-
-# For this example, we'll just add dummy energies to make the training work
-# In practice, you would have real energies from DFT calculations
-for structure in structures:
-    # Add a simple dummy energy (just for demonstration)
-    structure.info["energy"] = -5.0 * len(structure) + np.random.normal(0, 0.5)
-
-ase.io.write("carbon_allotropes.xyz", structures)
-
-print("\nTraining the backbone model...")
 subprocess.run(
-    ["mtt", "train", "options-backbone.yaml", "-o", "backbone.ckpt"], check=True
+    ["wget","https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.0.2/models/pet-mad-v1.0.2.ckpt"], check=True
 )
 
 # %%
@@ -166,35 +119,6 @@ subprocess.run(
 # - ``model_checkpoint``: Path to the pre-trained backbone model.
 #
 # The training options for the classifier are:
-
-classifier_options = """
-architecture:
-  name: experimental.classifier
-  model:
-    hidden_sizes: [32, 16, 2]  # Last layer (2) is the bottleneck
-  training:
-    model_checkpoint: backbone.ckpt
-    num_epochs: 100
-    learning_rate: 0.001
-    batch_size: 10
-    log_interval: 10
-    checkpoint_interval: 50
-
-training_set:
-  systems:
-    read_from: carbon_allotropes.xyz
-    reader: ase
-  targets:
-    class:
-      key: class
-      
-validation_set: 0.2
-
-"""
-
-with open("options-classifier.yaml", "w") as f:
-    f.write(classifier_options)
-
 print("\nTraining the classifier...")
 subprocess.run(
     ["mtt", "train", "options-classifier.yaml", "-o", "classifier.ckpt"], check=True

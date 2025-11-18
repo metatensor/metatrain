@@ -98,7 +98,10 @@ class Classifier(ModelInterface[ModelHypers]):
 
         # Store capabilities
         self.capabilities = ModelCapabilities(
-            outputs=self.dataset_info.targets,
+            outputs={
+                name: ModelOutput()
+                for name in self.dataset_info.targets.keys()
+            },
             atomic_types=old_capabilities.atomic_types,
             interaction_range=old_capabilities.interaction_range,
             length_unit=old_capabilities.length_unit,
