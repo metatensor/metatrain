@@ -39,11 +39,14 @@ from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
+from .documentation import TrainerHypers
 from .model import FlashMD
 
 
 def get_scheduler(
-    optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
+    optimizer: torch.optim.Optimizer,
+    train_hypers: TrainerHypers,
+    steps_per_epoch: int,
 ) -> LambdaLR:
     """
     Get a CosineAnnealing learning-rate scheduler with warmup
@@ -73,10 +76,10 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface):
+class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 2
 
-    def __init__(self, hypers: Dict[str, Any]) -> None:
+    def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
 
         self.optimizer_state_dict: Optional[Dict[str, Any]] = None
@@ -342,6 +345,7 @@ class Trainer(TrainerInterface):
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
         # Create a loss function:
+        assert not isinstance(self.hypers["loss"], str)  # for mypy
         loss_hypers = self.hypers["loss"]
         loss_fn = LossAggregator(
             targets=train_targets,
@@ -606,7 +610,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: TrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
         trainer = cls(hypers)

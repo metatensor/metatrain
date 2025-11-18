@@ -12,6 +12,9 @@ from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 
 
+FixedCompositionWeights = dict[str, dict[int, float]]
+
+
 class BaseCompositionModel(torch.nn.Module):
     """
     Fits a composition model for a dict of targets.
@@ -270,7 +273,7 @@ class BaseCompositionModel(torch.nn.Module):
 
     def fit(
         self,
-        fixed_weights: Optional[Dict[str, Dict[int, float]]] = None,
+        fixed_weights: Optional[FixedCompositionWeights] = None,
         targets_to_fit: Optional[List[str]] = None,
     ) -> None:
         """

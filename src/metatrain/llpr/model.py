@@ -20,9 +20,10 @@ from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 
 from . import checkpoints
+from .documentation import ModelHypers
 
 
-class LLPRUncertaintyModel(ModelInterface):
+class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
     __checkpoint_version__ = 2
 
     # all torch devices and dtypes are supported, if they are supported by the wrapped
@@ -58,7 +59,7 @@ class LLPRUncertaintyModel(ModelInterface):
         internally when reloading checkpoints.
     """
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.hypers = hypers
