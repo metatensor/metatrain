@@ -20,12 +20,14 @@ section#trainer-hyperparameters blockquote {
 }
 
 /* Dark mode adjustments */
-body[data-theme="dark"]   section#model-hyperparameters blockquote {
+body[data-theme="dark"] section#model-hyperparameters blockquote,
+body:not([data-theme="light"]) section#model-hyperparameters blockquote {
     background-color: #0b1a26;
     border-color: #214a66;
 }
 
-body[data-theme="dark"] section#trainer-hyperparameters blockquote {
+body[data-theme="dark"] section#trainer-hyperparameters blockquote,
+body:not([data-theme="light"]) section#trainer-hyperparameters blockquote {
     background-color: #0b2614;
     border-color: #216633;
 }
