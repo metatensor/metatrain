@@ -7,16 +7,15 @@ classification tasks on top of pre-trained atomistic models. It takes a pre-trai
 checkpoint, freezes its backbone, and trains a small multi-layer perceptron (MLP) on
 top of the features extracted from the backbone.
 
-The model extracts per-atom features from the frozen backbone, sums them to get
+The model extracts per-atom features from the frozen backbone, averages them to get
 system-level representations, and then passes them through the MLP for classification.
 The targets should be class labels specified as single floats that are actually
 integers (0.0, 1.0, 2.0, etc.), so that we can re-use the metatrain infrastructure.
 The loss function is a negative log-likelihood (NLL) classification loss
 (CrossEntropyLoss in PyTorch).
 
-An optional bottleneck layer can be added before the final classification layer,
-which can be useful for extracting features/collective variables for downstream
-analysis.
+The last layer in `hidden_sizes` acts as a bottleneck that can be used to extract
+features/collective variables for downstream analysis.
 
 {{SECTION_INSTALLATION}}
 
@@ -36,12 +35,8 @@ class ModelHypers(TypedDict):
 
     hidden_sizes: list[int]
     """List of hidden layer sizes for the MLP. For example, [64, 32] creates
-    a 2-layer MLP with 64 and 32 neurons respectively."""
-
-    bottleneck_size: Optional[int]
-    """Optional bottleneck layer size before the final classification layer.
-    This layer can be used to extract features/collective variables.
-    If None, no bottleneck is used."""
+    a 2-layer MLP with 64 and 32 neurons respectively. The last layer acts as
+    a bottleneck that can be used to extract features/collective variables."""
 
 
 class TrainerHypers(TypedDict):

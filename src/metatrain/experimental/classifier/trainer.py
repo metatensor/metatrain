@@ -93,6 +93,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Get feature size by doing a forward pass on one sample
         from metatomic.torch import ModelOutput
 
+        from metatrain.utils.per_atom import divide_by_num_atoms
         from metatrain.utils.sum_over_atoms import sum_over_atoms
 
         sample = train_datasets[0][0]
@@ -104,7 +105,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 None,
             )
             system_features = sum_over_atoms(features_dict["features"])
-            feature_size = system_features.block().values.shape[-1]
+            num_atoms = torch.tensor(
+                [len(system)], device=system_features.block().values.device
+            )
+            averaged_features = divide_by_num_atoms(system_features, num_atoms)
+            feature_size = averaged_features.block().values.shape[-1]
 
         logging.info(f"Feature size: {feature_size}")
 

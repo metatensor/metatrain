@@ -14,6 +14,7 @@ from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.per_atom import divide_by_num_atoms
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
@@ -115,18 +116,11 @@ class Classifier(ModelInterface[ModelHypers]):
         layers = []
         current_size = input_size
 
-        # Hidden layers
+        # Hidden layers (the last one acts as a bottleneck for feature extraction)
         for hidden_size in self.hypers["hidden_sizes"]:
             layers.append(torch.nn.Linear(current_size, hidden_size, dtype=dtype))
             layers.append(torch.nn.ReLU())
             current_size = hidden_size
-
-        # Bottleneck layer (optional)
-        bottleneck_size = self.hypers.get("bottleneck_size", None)
-        if bottleneck_size is not None:
-            layers.append(torch.nn.Linear(current_size, bottleneck_size, dtype=dtype))
-            layers.append(torch.nn.ReLU())
-            current_size = bottleneck_size
 
         # Final classification layer
         layers.append(torch.nn.Linear(current_size, num_classes, dtype=dtype))
@@ -158,9 +152,14 @@ class Classifier(ModelInterface[ModelHypers]):
             systems, {"features": features_output}, selected_atoms
         )
 
-        # Sum over atoms to get system-level features
+        # Sum over atoms first, then average to get system-level features
         system_features = sum_over_atoms(features_dict["features"])
-        features = system_features.block().values
+        num_atoms = torch.tensor(
+            [len(s) for s in systems],
+            device=system_features.block().values.device,
+        )
+        averaged_features = divide_by_num_atoms(system_features, num_atoms)
+        features = averaged_features.block().values
 
         # Build MLP if not already built
         if self.mlp is None:

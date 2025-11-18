@@ -6,7 +6,6 @@ def test_classifier_initialization():
     """Test that the Classifier model can be initialized."""
     hypers = {
         "hidden_sizes": [64, 32],
-        "bottleneck_size": None,
     }
 
     dataset_info = DatasetInfo(
@@ -27,10 +26,9 @@ def test_classifier_initialization():
 
 
 def test_classifier_with_bottleneck():
-    """Test that the Classifier model can be initialized with a bottleneck."""
+    """Test that the last hidden layer acts as bottleneck."""
     hypers = {
-        "hidden_sizes": [64, 32],
-        "bottleneck_size": 16,
+        "hidden_sizes": [64, 32, 16],
     }
 
     dataset_info = DatasetInfo(
@@ -46,4 +44,4 @@ def test_classifier_with_bottleneck():
 
     model = Classifier(hypers, dataset_info)
     assert model is not None
-    assert model.hypers["bottleneck_size"] == 16
+    assert model.hypers["hidden_sizes"][-1] == 16
