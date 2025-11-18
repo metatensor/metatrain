@@ -78,6 +78,7 @@ gap = [
 llpr = []
 mace = [
     "mace-torch",
+    "e3nn"
 ]
 
 [tool.check-manifest]
