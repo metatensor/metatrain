@@ -59,8 +59,8 @@ def test_regression_init():
     )
 
     # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["mtt::U0"].block().values)
+    torch.set_printoptions(precision=12)
+    print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
 
@@ -143,8 +143,8 @@ def test_regression_train(device):
     )
 
     # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["mtt::U0"].block().values)
+    torch.set_printoptions(precision=12)
+    print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(
         output["mtt::U0"].block().values, expected_output, rtol=5e-5, atol=1e-5
@@ -260,8 +260,8 @@ def test_regression_train_spherical(device):
     )
 
     # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["mtt::electron_density_basis"][1].values[2])
+    torch.set_printoptions(precision=12)
+    print(output["mtt::electron_density_basis"][1].values[2])
 
     torch.testing.assert_close(
         output["mtt::electron_density_basis"][1].values[2], expected_output
