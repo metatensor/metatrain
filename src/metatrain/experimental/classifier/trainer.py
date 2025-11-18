@@ -172,9 +172,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             weight_decay=self.hypers["weight_decay"],
         )
 
-        # Loss function - CrossEntropyLoss supports both hard and soft targets
-        # For soft targets, pass probabilities directly (no need for class indices)
-        loss_fn = torch.nn.CrossEntropyLoss()
+
 
         # Log the initial learning rate:
         logging.info(f"Learning rate: {self.hypers['learning_rate']}")
@@ -215,13 +213,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # Get target probabilities (supports both one-hot and soft targets)
                 target_probs = targets[target_name].block().values
                 
-                # Convert probabilities back to logits for CrossEntropyLoss
-                # CrossEntropyLoss expects logits and applies log_softmax internally
-                logits = torch.log(probabilities + 1e-10)
-                
-                # Compute loss using PyTorch's CrossEntropyLoss
-                # Supports both hard (class indices) and soft (probabilities) targets
-                loss = loss_fn(logits, target_probs)
+                # Compute cross-entropy loss with soft targets
+                # CE = -sum(target_probs * log(predicted_probs))
+                # Add small epsilon to avoid log(0)
+                log_probs = torch.log(probabilities + 1e-10)
+                loss = -torch.sum(target_probs * log_probs, dim=-1).mean()
 
                 # Backward pass
                 loss.backward()
@@ -269,11 +265,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     # Get target probabilities (supports both one-hot and soft targets)
                     target_probs = targets[target_name].block().values
                     
-                    # Convert probabilities back to logits for CrossEntropyLoss
-                    logits = torch.log(probabilities + 1e-10)
-                    
-                    # Compute loss using PyTorch's CrossEntropyLoss
-                    loss = loss_fn(logits, target_probs)
+                    # Compute cross-entropy loss with soft targets
+                    # CE = -sum(target_probs * log(predicted_probs))
+                    log_probs = torch.log(probabilities + 1e-10)
+                    loss = -torch.sum(target_probs * log_probs, dim=-1).mean()
 
                     val_loss += loss.item()
                     # For accuracy, compare predicted with target's most likely class
