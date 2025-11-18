@@ -1,7 +1,7 @@
 """.. _classifierexample:
 
 Training a Classifier Model
-============================
+===========================
 
 This tutorial demonstrates how to train a classifier model using metatrain.
 The classifier model is a transfer learning architecture that takes a pre-trained
@@ -104,7 +104,7 @@ subprocess.run(
 # - ``hidden_sizes``: The dimensions of the MLP layers. The last dimension (2 in this
 #   case) acts as a bottleneck that can be used to extract collective variables. If
 #   collective variables are not needed, this should be set to a larger value.
-# - ``model_checkpoint``: Path to the the pre-trained model (here PET-MAD).
+# - ``model_checkpoint``: Path to the pre-trained model (here PET-MAD).
 #
 # .. literalinclude:: options-classifier.yaml
 #    :language: yaml
