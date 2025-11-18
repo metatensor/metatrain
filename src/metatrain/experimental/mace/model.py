@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict, List, Literal, Optional
 
 import mace.modules as mace_modules
+import metatensor.torch as mts
 import torch
 from e3nn import o3
 from e3nn.util import jit
@@ -22,6 +23,7 @@ from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
+from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
@@ -220,11 +222,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        if selected_atoms is not None:
-            raise NotImplementedError(
-                "selected_atoms is not supported in MetaMACE for now. "
-            )
-
         # Create the batch to pass as input for MACE.
         # THIS PROBABLY SHOULD BE MOVED OUTSIDE THE MODEL!!
         # (But I don't know if this would affect the interfaces e.g. with
@@ -246,7 +243,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         assert node_features is not None  # For torchscript
 
         # Get the labels for the samples (system and atom of each value)
-        _, sample_labels = get_system_indices_and_labels(systems)
+        _, samples = get_system_indices_and_labels(systems)
 
         # Run all heads and collect outputs as TensorMaps
         return_dict: Dict[str, TensorMap] = {}
@@ -261,12 +258,21 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 node_target = head.forward(node_features)
 
             # Convert to TensorMap and store
-            return_dict[output_name] = e3nn_to_tensormap(
+            per_atom_output = e3nn_to_tensormap(
                 node_target,
-                sample_labels=sample_labels,
+                samples=samples,
                 target_info=self.dataset_info.targets[output_name],
-                output_name=output_name,
-                outputs=outputs,
+            )
+
+            if selected_atoms is not None:
+                per_atom_output = mts.slice(
+                    per_atom_output, axis="samples", selection=selected_atoms
+                )
+
+            return_dict[output_name] = (
+                per_atom_output
+                if outputs[output_name].per_atom
+                else sum_over_atoms(per_atom_output)
             )
 
         if not self.training:
@@ -364,8 +370,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # be registered correctly with Pytorch. This function moves them:
         self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
-        interaction_ranges = [self.hypers["num_interactions"] * self.hypers["cutoff"]]
-        interaction_range = max(interaction_ranges)
+        interaction_range = self.hypers["num_interactions"] * self.hypers["cutoff"]
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
