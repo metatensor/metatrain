@@ -1,0 +1,41 @@
+seed: 4332
+
+architecture:
+  name: llpr
+  model:
+    ensembles:
+      means:
+        energy:
+          - node_last_layers.energy.0.energy___0.weight
+          - edge_last_layers.energy.0.energy___0.weight
+      num_members: {energy: 32}  # needed to converge the std in the tests
+  training:
+    model_checkpoint: model_pet.ckpt
+    batch_size: 4
+    mode: llpr_ens_calib
+    ens_calib_loss:
+      energy:
+        type: ensemble_nll
+        weight: 1.0
+        reduction: sum
+        gradients: {}
+    calib_options:
+      strategy: tagged_only
+      tagged_only_weights:
+          - node_last_layers.energy.0.energy___0.weight
+          - edge_last_layers.energy.0.energy___0.weight
+    num_epochs: 10
+
+training_set:
+  systems:
+    read_from: hydrogen.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: DFT_energy
+      unit: eV
+        #      forces:
+        #        key: DFT_forces
+
+validation_set: 0.1
+test_set: 0.1
