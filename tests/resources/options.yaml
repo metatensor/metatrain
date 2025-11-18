@@ -5,7 +5,7 @@ architecture:
   name: experimental.phace
   model:
     num_message_passing_layers: 2
-    num_element_channels: 32
+    num_element_channels: 128
     radial_basis:
       max_eigenvalue: 30.0
   training:
