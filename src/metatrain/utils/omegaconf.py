@@ -339,9 +339,9 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
                             if gradient_conf["key"] is None:
                                 gradient_conf["key"] = gradient_key
 
-                            conf_element["targets"][target_key][
-                                gradient_key
-                            ] = gradient_conf
+                            conf_element["targets"][target_key][gradient_key] = (
+                                gradient_conf
+                            )
 
                 # If user sets the virial gradient and leaves the stress gradient
                 # untouched, we disable the by default enabled stress gradient section.
@@ -503,9 +503,9 @@ def expand_loss_config(conf: DictConfig) -> DictConfig:
 
                 # If not dict, they must be False (no gradient)
                 if not fflag:
-                    assert (
-                        forces_val is False
-                    ), f"'forces' must be a dict or False for energy target '{tname}'"
+                    assert forces_val is False, (
+                        f"'forces' must be a dict or False for energy target '{tname}'"
+                    )
                 if not sflag:
                     assert (stress_val is False) and (virial_val is False), (
                         "'stress' and 'virial' must be dict or False "
