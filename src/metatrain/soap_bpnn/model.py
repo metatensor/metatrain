@@ -198,8 +198,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             ],
         }
     )
-    __hypers_cls__ = ModelHypers
-
     component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
