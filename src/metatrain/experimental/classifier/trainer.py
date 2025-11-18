@@ -91,14 +91,17 @@ class Trainer(TrainerInterface[TrainerHypers]):
         logging.info(f"Number of classes detected: {num_classes}")
 
         # Get feature size by doing a forward pass on one sample
+        from metatomic.torch import ModelOutput
+
+        from metatrain.utils.sum_over_atoms import sum_over_atoms
+
         sample = train_datasets[0][0]
         system = sample["system"].to(device=device, dtype=dtype)
         with torch.no_grad():
-            from metatomic.torch import ModelOutput
-            from metatrain.utils.sum_over_atoms import sum_over_atoms
-
             features_dict = model.model(
-                [system], {"features": ModelOutput(quantity="", unit="", per_atom=True)}, None
+                [system],
+                {"features": ModelOutput(quantity="", unit="", per_atom=True)},
+                None,
             )
             system_features = sum_over_atoms(features_dict["features"])
             feature_size = system_features.block().values.shape[-1]
@@ -190,11 +193,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 }
 
                 # Forward pass
-                from metatomic.torch import ModelOutput
-
                 outputs = model(
                     systems,
-                    {target_name: ModelOutput(quantity="", unit="", per_atom=False)},
+                    {
+                        target_name: ModelOutput(
+                            quantity="", unit="", per_atom=False
+                        )
+                    },
                     None,
                 )
 
@@ -235,11 +240,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     }
 
                     # Forward pass
-                    from metatomic.torch import ModelOutput
-
                     outputs = model(
                         systems,
-                        {target_name: ModelOutput(quantity="", unit="", per_atom=False)},
+                        {
+                            target_name: ModelOutput(
+                                quantity="", unit="", per_atom=False
+                            )
+                        },
                         None,
                     )
 

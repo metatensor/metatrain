@@ -1,6 +1,3 @@
-import pytest
-import torch
-
 from metatrain.experimental.classifier import Classifier
 from metatrain.utils.data import DatasetInfo, TargetInfo
 

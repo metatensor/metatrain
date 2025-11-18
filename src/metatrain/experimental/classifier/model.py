@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Literal, Optional
 
-import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import (
@@ -66,9 +65,8 @@ class Classifier(ModelInterface[ModelHypers]):
         for param in self.model.parameters():
             param.requires_grad = False
 
-        # Get the dtype from the wrapped model
+        # Get the capabilities from the wrapped model
         old_capabilities = self.model.export().capabilities()
-        dtype = getattr(torch, old_capabilities.dtype)
 
         # Check compatibility between dataset_info and model outputs
         if self.dataset_info.length_unit != old_capabilities.length_unit:

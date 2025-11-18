@@ -22,8 +22,6 @@ from typing import Optional
 
 from typing_extensions import TypedDict
 
-from metatrain.utils.hypers import init_with_defaults
-
 
 class ModelHypers(TypedDict):
     """Hyperparameters for the Classifier model."""
