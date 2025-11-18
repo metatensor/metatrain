@@ -179,28 +179,31 @@ class Classifier(ModelInterface[ModelHypers]):
             return_dict["features"] = output_tmap
 
         logits = self.linear(features_after_mlp)
+        
+        # Apply softmax to get probabilities
+        probabilities = torch.nn.functional.softmax(logits, dim=-1)
 
         # Create output TensorMap
 
         for name in outputs:
             if name == "features":
                 continue  # Skip features output
-            # Create TensorMap with logits
-            # For classification, we output logits for each class
+            # Create TensorMap with probabilities
+            # For classification, we output probabilities for each class
             output_tmap = TensorMap(
                 keys=Labels(
                     names=["_"],
-                    values=torch.tensor([[0]], device=logits.device),
+                    values=torch.tensor([[0]], device=probabilities.device),
                 ),
                 blocks=[
                     TensorBlock(
-                        values=logits,
+                        values=probabilities,
                         samples=averaged_features.block().samples,
                         components=[],
                         properties=Labels(
                             names=["class"],
                             values=torch.arange(
-                                logits.shape[-1], device=logits.device
+                                probabilities.shape[-1], device=probabilities.device
                             ).reshape(-1, 1),
                             assume_unique=True,
                         ),

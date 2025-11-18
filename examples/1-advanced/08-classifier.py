@@ -25,6 +25,7 @@ import subprocess
 
 import ase
 import ase.io
+import chemiscope
 import matplotlib.pyplot as plt
 import numpy as np
 from ase.build import bulk, graphene
@@ -48,7 +49,8 @@ for i in range(100):
     diamond = bulk("C", "diamond", a=3.57)
     diamond = diamond * (2, 2, 2)  # Make it bigger
     diamond.rattle(stdev=0.5, seed=i)  # Add random perturbations
-    diamond.info["class"] = 0.0  # Label as diamond
+    # One-hot encoding for diamond (class 0): [1.0, 0.0, 0.0]
+    diamond.info["class"] = [1.0, 0.0, 0.0]
     structures.append(diamond)
 
 # Generate 100 graphite structures (using layered graphene-like structures)
@@ -61,14 +63,16 @@ for i in range(100):
     graphite.extend(layer2)
     graphite.set_cell([graphite.cell[0], graphite.cell[1], [0, 0, 6.7]])
     graphite.rattle(stdev=0.5, seed=i)
-    graphite.info["class"] = 1.0  # Label as graphite
+    # One-hot encoding for graphite (class 1): [0.0, 1.0, 0.0]
+    graphite.info["class"] = [0.0, 1.0, 0.0]
     structures.append(graphite)
 
 # Generate 100 graphene structures (single layer)
 for i in range(100):
     graphene_struct = graphene(formula="C2", size=(3, 3, 1), a=2.46, vacuum=10.0)
     graphene_struct.rattle(stdev=0.5, seed=i)
-    graphene_struct.info["class"] = 2.0  # Label as graphene
+    # One-hot encoding for graphene (class 2): [0.0, 0.0, 1.0]
+    graphene_struct.info["class"] = [0.0, 0.0, 1.0]
     structures.append(graphene_struct)
 
 # Save the structures to a file (these will be used for training)
@@ -132,10 +136,10 @@ calc = MetatomicCalculator("classifier.pt")
 
 structures = ase.io.read("carbon_allotropes.xyz", index=":")
 
-# Get predictions
+# Get predictions (now returns probabilities)
 correct_count = 0
 for structure in structures:
-    prediction = (
+    probabilities = (
         calc.run_model(
             structure,
             {"mtt::class": ModelOutput(per_atom=False)},
@@ -145,8 +149,9 @@ for structure in structures:
         .squeeze(0)
         .numpy()
     )
-    predicted_class = np.argmax(prediction)
-    actual_class = int(structure.info["class"])
+    predicted_class = np.argmax(probabilities)
+    # Get actual class from one-hot encoding
+    actual_class = np.argmax(structure.info["class"])
     if predicted_class == actual_class:
         correct_count += 1
 
@@ -162,6 +167,7 @@ print(f"Classifier accuracy: {(correct_count / len(structures)) * 100:.2f}% corr
 # Extract features
 bottleneck_features = []
 labels = []
+probabilities_list = []
 for structure in structures:
     features = (
         calc.run_model(
@@ -173,8 +179,20 @@ for structure in structures:
         .squeeze(0)
         .numpy()
     )
+    probs = (
+        calc.run_model(
+            structure,
+            {"mtt::class": ModelOutput(per_atom=False)},
+        )["mtt::class"]
+        .block()
+        .values.cpu()
+        .squeeze(0)
+        .numpy()
+    )
     bottleneck_features.append(features)
-    labels.append(int(structure.info["class"]))
+    # Get class from one-hot encoding
+    labels.append(np.argmax(structure.info["class"]))
+    probabilities_list.append(probs)
 bottleneck_features = np.array(bottleneck_features)
 labels = np.array(labels)
 
@@ -200,3 +218,42 @@ plt.title("Features from Classifier")
 plt.legend()
 plt.grid()
 plt.show()
+
+# %%
+#
+# Interactive Visualization with Chemiscope
+# -----------------------------------------
+#
+# We can also create an interactive visualization using chemiscope, which allows
+# us to explore the relationship between the structures and their bottleneck features.
+
+# Prepare class labels as strings for visualization
+class_names = ["Diamond", "Graphite", "Graphene"]
+class_labels = [class_names[label] for label in labels]
+
+# Prepare probabilities for all classes
+probabilities_array = np.array(probabilities_list)
+
+# Create properties dictionary for chemiscope
+properties = {
+    "Feature 1": bottleneck_features[:, 0],
+    "Feature 2": bottleneck_features[:, 1],
+    "Class": class_labels,
+    "Probability Diamond": probabilities_array[:, 0],
+    "Probability Graphite": probabilities_array[:, 1],
+    "Probability Graphene": probabilities_array[:, 2],
+}
+
+# Create the chemiscope visualization
+chemiscope.show(
+    structures,
+    properties=properties,
+    settings={
+        "map": {
+            "x": {"property": "Feature 1"},
+            "y": {"property": "Feature 2"},
+            "color": {"property": "Class"},
+        },
+        "structure": [{"unitCell": True}],
+    },
+)

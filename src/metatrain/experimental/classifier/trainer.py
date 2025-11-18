@@ -78,17 +78,20 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
 
-        # Determine number of classes from the training data
-        all_classes = set()
+        # Determine number of classes from the training data (one-hot encoded)
+        num_classes = None
         for dataset in train_datasets:
             for sample in dataset:
                 target_name = list(model.dataset_info.targets.keys())[0]
                 sample_as_dict = sample._asdict()
                 target = sample_as_dict[target_name]
-                target_value = int(target.block().values.item())
-                all_classes.add(target_value)
+                target_value = target.block().values
+                if num_classes is None:
+                    num_classes = target_value.shape[-1]
+                break
+            if num_classes is not None:
+                break
 
-        num_classes = len(all_classes)
         logging.info(f"Number of classes detected: {num_classes}")
 
         # Get feature size by doing a forward pass on one sample
@@ -207,8 +210,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     None,
                 )
 
-                logits = outputs[target_name].block().values
-                labels = targets[target_name].block().values.long().squeeze()
+                probabilities = outputs[target_name].block().values
+                # Convert one-hot encoded targets to class labels for loss calculation
+                one_hot_targets = targets[target_name].block().values
+                labels = torch.argmax(one_hot_targets, dim=-1).long()
+                
+                # Convert probabilities back to logits for CrossEntropyLoss
+                # Add small epsilon to avoid log(0)
+                logits = torch.log(probabilities + 1e-10)
 
                 # Compute loss
                 loss = loss_fn(logits, labels)
@@ -218,7 +227,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 optimizer.step()
 
                 train_loss += loss.item()
-                _, predicted = torch.max(logits, 1)
+                _, predicted = torch.max(probabilities, 1)
                 train_total += labels.size(0)
                 train_correct += (predicted == labels).sum().item()
 
@@ -253,14 +262,19 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         None,
                     )
 
-                    logits = outputs[target_name].block().values
-                    labels = targets[target_name].block().values.long().squeeze()
+                    probabilities = outputs[target_name].block().values
+                    # Convert one-hot encoded targets to class labels
+                    one_hot_targets = targets[target_name].block().values
+                    labels = torch.argmax(one_hot_targets, dim=-1).long()
+                    
+                    # Convert probabilities back to logits for CrossEntropyLoss
+                    logits = torch.log(probabilities + 1e-10)
 
                     # Compute loss
                     loss = loss_fn(logits, labels)
 
                     val_loss += loss.item()
-                    _, predicted = torch.max(logits, 1)
+                    _, predicted = torch.max(probabilities, 1)
                     val_total += labels.size(0)
                     val_correct += (predicted == labels).sum().item()
 
