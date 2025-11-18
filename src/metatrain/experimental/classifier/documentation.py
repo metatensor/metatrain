@@ -34,9 +34,12 @@ class ModelHypers(TypedDict):
     """Hyperparameters for the Classifier model."""
 
     hidden_sizes: list[int]
-    """List of hidden layer sizes for the MLP. For example, [64, 32] creates
-    a 2-layer MLP with 64 and 32 neurons respectively. The last layer acts as
-    a bottleneck that can be used to extract features/collective variables."""
+    """List of hidden layer sizes for the MLP.
+    
+    For example, [64, 32] creates a 2-layer MLP with 64 and 32 neurons
+    respectively. The last layer acts as a bottleneck that can be used to
+    extract features/collective variables.
+    """
 
 
 class TrainerHypers(TypedDict):
@@ -44,27 +47,24 @@ class TrainerHypers(TypedDict):
 
     batch_size: int = 32
     """Batch size for training."""
-
     num_epochs: int = 100
     """Number of training epochs."""
-
     learning_rate: float = 0.001
     """Learning rate for the optimizer."""
-
     warmup_fraction: float = 0.1
     """Fraction of total training steps used for learning rate warmup.
+    
     The learning rate increases linearly from 0 to the base learning rate
-    during this period, then follows a cosine annealing schedule."""
-
+    during this period, then follows a cosine annealing schedule.
+    """
     model_checkpoint: Optional[str] = None
-    """Path to the pre-trained model checkpoint. This checkpoint's backbone
-    will be frozen and used for feature extraction."""
-
+    """Path to the pre-trained model checkpoint.
+    
+    This checkpoint's backbone will be frozen and used for feature extraction.
+    """
     weight_decay: float = 0.0
     """Weight decay (L2 regularization) for the optimizer."""
-
     log_interval: int = 10
     """Interval for logging training progress (in epochs)."""
-
     checkpoint_interval: int = 10
     """Interval for saving checkpoints during training (in epochs)."""
