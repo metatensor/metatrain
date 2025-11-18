@@ -12,6 +12,7 @@ authors = [{name = "metatrain developers"}]
 dependencies = [
     "ase",
     "huggingface_hub",
+    "numpy",
     "metatensor-learn >=0.3.2,<0.4",
     "metatensor-operations >=0.3.4,<0.4",
     "metatensor-torch >=0.8.1,<0.9",
