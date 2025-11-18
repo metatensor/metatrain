@@ -9,7 +9,6 @@ from metatomic.torch import ModelOutput, System
 
 from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import TargetInfo
-from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 
 def add_contribution(
@@ -59,10 +58,8 @@ def add_contribution(
 
 def e3nn_to_tensormap(
     target_values: torch.Tensor,
-    sample_labels: Labels,
+    samples: Labels,
     target_info: TargetInfo,
-    output_name: str,
-    outputs: Dict[str, ModelOutput],
 ) -> TensorMap:
     blocks: list[TensorBlock] = []
     pointer = 0
@@ -97,20 +94,14 @@ def e3nn_to_tensormap(
         blocks.append(
             TensorBlock(
                 values=values,
-                samples=sample_labels,
+                samples=samples,
                 components=components,
                 properties=properties,
             )
         )
         pointer = end
 
-    atom_target = TensorMap(keys=target_info.layout.keys, blocks=blocks)
-
-    return (
-        sum_over_atoms(atom_target)
-        if not outputs[output_name].per_atom
-        else atom_target
-    )
+    return TensorMap(keys=target_info.layout.keys, blocks=blocks)
 
 
 def get_system_indices_and_labels(systems: List[System]) -> tuple[torch.Tensor, Labels]:
