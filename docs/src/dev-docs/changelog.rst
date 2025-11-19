@@ -9,11 +9,16 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 
 .. Possible sections for each release:
 
-.. Fixed
-.. #####
+Fixed
+#####
 
-.. Added
-.. #####
+- Longe-range featurizer now also works with 2D periodic boundary conditions.
+
+Added
+#####
+
+- A method to train on mixed-stress datasets by setting stresses in non-periodic
+  structures to NaN.
 
 .. Changed
 .. #######

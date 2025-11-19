@@ -39,11 +39,14 @@ from metatrain.utils.transfer import (
 )
 
 from . import checkpoints
+from .documentation import TrainerHypers
 from .model import SoapBpnn
 
 
 def get_scheduler(
-    optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
+    optimizer: torch.optim.Optimizer,
+    train_hypers: TrainerHypers,
+    steps_per_epoch: int,
 ) -> LambdaLR:
     """
     Get a CosineAnnealing learning-rate scheduler with warmup
@@ -73,10 +76,10 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface):
-    __checkpoint_version__ = 6
+class Trainer(TrainerInterface[TrainerHypers]):
+    __checkpoint_version__ = 8
 
-    def __init__(self, hypers: Dict[str, Any]):
+    def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)
 
         self.optimizer_state_dict: Optional[Dict[str, Any]] = None
@@ -133,14 +136,15 @@ class Trainer(TrainerInterface):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
-            is_distributed,
-            self.hypers["fixed_composition_weights"],
-        )
+        if self.hypers["remove_composition_contribution"]:
+            logging.info("Calculating composition weights")
+            model.additive_models[0].train_model(  # this is the composition model
+                train_datasets,
+                model.additive_models[1:],
+                self.hypers["batch_size"],
+                is_distributed,
+                self.hypers["fixed_composition_weights"],
+            )
 
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
@@ -282,6 +286,7 @@ class Trainer(TrainerInterface):
 
         # Create a loss function:
         loss_hypers = self.hypers["loss"]
+        assert not isinstance(loss_hypers, str)  # for mypy
         loss_fn = LossAggregator(
             targets=train_targets,
             config=loss_hypers,
@@ -540,7 +545,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: TrainerHypers,
         context: Literal["restart", "finetune"],  # not used at the moment
     ) -> "Trainer":
         trainer = cls(hypers)

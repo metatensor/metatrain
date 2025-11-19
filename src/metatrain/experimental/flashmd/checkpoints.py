@@ -31,3 +31,25 @@ def model_update_v1_v2(checkpoint: dict) -> None:
                     k = k.replace(".mlp.3", ".mlp.w_out")
                 new_state_dict[k] = v
             checkpoint[key] = new_state_dict
+
+
+def trainer_update_v1_v2(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 1 to version 2.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # remove all entries in the loss `sliding_factor`
+    old_loss_hypers = checkpoint["train_hypers"]["loss"].copy()
+    dataset_info = checkpoint["model_data"]["dataset_info"]
+    new_loss_hypers = {}
+
+    for target_name in dataset_info.targets.keys():
+        # retain everything except sliding_factor for each target
+        new_loss_hypers[target_name] = {
+            k: v
+            for k, v in old_loss_hypers[target_name].items()
+            if k != "sliding_factor"
+        }
+
+    checkpoint["train_hypers"]["loss"] = new_loss_hypers

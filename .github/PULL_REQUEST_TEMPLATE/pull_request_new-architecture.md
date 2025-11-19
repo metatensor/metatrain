@@ -7,8 +7,7 @@
 - [ ] Add your architecture to the `experimental` or `stable` folder. See the
   [docs/src/dev-docs/architecture-life-cycle.rst](Architecture life cycle)
   document for requirements. `src/metatrain/experimental/<architecture_name>`
-- [ ] Add default hyperparameter file to
-  `src/metatrain/experimental/<architecture_name>/default-hypers.yml`
+- [ ] Document and provide defaults for the hyperparameters of your model.
 - [ ] Add your architecture to the CI in `.github/workflow/architecture-tests.yml`
 - [ ] Add a new dependencies entry in the `optional-dependencies` section in the
   `pyproject.toml`

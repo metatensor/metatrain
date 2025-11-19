@@ -25,6 +25,7 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
+from .documentation import ModelHypers
 from .modules.encoder import Encoder
 from .modules.nef import (
     edge_array_to_nef,
@@ -37,7 +38,7 @@ from .modules.structures import concatenate_structures
 from .modules.transformer import Transformer
 
 
-class NanoPET(ModelInterface):
+class NanoPET(ModelInterface[ModelHypers]):
     """
     Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302).
 
@@ -61,7 +62,7 @@ class NanoPET(ModelInterface):
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.new_outputs = list(dataset_info.targets.keys())
@@ -470,6 +471,9 @@ class NanoPET(ModelInterface):
                     volumes = torch.stack(
                         [torch.abs(torch.det(system.cell)) for system in systems]
                     )
+                    # Zero volume can happen due to metatomic's convention of zero cell
+                    # vectors for non-periodic directions. The actual volume is +inf
+                    volumes[volumes == 0.0] = torch.inf
                     volumes_by_atom = (
                         volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
                     )
@@ -516,7 +520,9 @@ class NanoPET(ModelInterface):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(systems, return_dict)
+            return_dict = self.scaler(
+                systems, return_dict, selected_atoms=selected_atoms
+            )
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
                 for name, output in outputs.items():

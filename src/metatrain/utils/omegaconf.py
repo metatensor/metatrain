@@ -1,14 +1,12 @@
-import json
 from typing import Any, Union
 
 import torch
 from omegaconf import DictConfig, ListConfig, OmegaConf
 from omegaconf.basecontainer import BaseContainer
 
-from .. import PACKAGE_ROOT, RANDOM_SEED
+from .. import RANDOM_SEED
 from .architectures import import_architecture
 from .devices import pick_devices
-from .jsonschema import validate
 
 
 def _get_architecture_model(conf: BaseContainer) -> Any:
@@ -82,7 +80,6 @@ OmegaConf.register_new_resolver("default_precision", default_precision)
 OmegaConf.register_new_resolver("default_random_seed", lambda: RANDOM_SEED)
 OmegaConf.register_new_resolver("default_loss_type", lambda: "mse")
 OmegaConf.register_new_resolver("default_loss_reduction", lambda: "mean")
-OmegaConf.register_new_resolver("default_loss_sliding_factor", lambda: None)
 OmegaConf.register_new_resolver("default_loss_weight", lambda: 1.0)
 
 
@@ -148,7 +145,6 @@ CONF_LOSS = OmegaConf.create(
         "type": "${default_loss_type:}",
         "weight": "${default_loss_weight:}",
         "reduction": "${default_loss_reduction:}",
-        "sliding_factor": "${default_loss_sliding_factor:}",
         "gradients": {},
     }
 )
@@ -161,10 +157,6 @@ CONF_ENERGY = CONF_TARGET.copy()
 CONF_ENERGY["forces"] = CONF_GRADIENT.copy()
 CONF_ENERGY["stress"] = CONF_GRADIENT.copy()
 CONF_EXTRA_DATA = CONF_EXTRA_FIELDS.copy()
-
-# Schema with the dataset options
-with open(PACKAGE_ROOT / "share/schema-dataset.json") as f:
-    SCHEMA_DATASET = json.load(f)
 
 
 def check_dataset_options(dataset_config: ListConfig) -> None:
@@ -302,7 +294,6 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
 
     # Perform expansion per config inside the ListConfig
     for conf_element in conf:
-        validate(instance=OmegaConf.to_container(conf_element), schema=SCHEMA_DATASET)
         if hasattr(conf_element, "systems"):
             if type(conf_element["systems"]) is str:
                 conf_element["systems"] = _resolve_single_str(conf_element["systems"])

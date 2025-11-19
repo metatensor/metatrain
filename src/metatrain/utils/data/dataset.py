@@ -627,23 +627,37 @@ class DiskDataset(torch.utils.data.Dataset):
 
         self._sample_class = namedtuple("Sample", self._fields_to_read)
 
+        # Do not open file in the main process and start sub-processes with None
+        self.zip_file: Optional[zipfile.ZipFile] = None
+        self._zip_file_pid: Optional[int] = None
+
+    def _open_zip_once(self) -> None:
+        pid = os.getpid()
+        if self._zip_file_pid != pid:
+            if self.zip_file is not None:
+                self.zip_file.close()
+            self.zip_file = zipfile.ZipFile(self.zip_file_path, "r")
+            self._zip_file_pid = pid
+
     def __len__(self) -> int:
         return self._len
 
     def __getitem__(self, index: int) -> Any:
+        self._open_zip_once()
+        assert self.zip_file is not None
+
         system_and_targets = []
-        with zipfile.ZipFile(self.zip_file_path, "r") as zip_file:
-            for field_name in self._fields_to_read:
-                if field_name == "system":
-                    with zip_file.open(f"{index}/system.mta", "r") as file:
-                        system = load_system(file)
-                        system_and_targets.append(system)
-                else:
-                    with zip_file.open(f"{index}/{field_name}.mts", "r") as file:
-                        numpy_buffer = np.load(file)
-                        tensor_buffer = torch.from_numpy(numpy_buffer)
-                        tensor_map = load_buffer(tensor_buffer)
-                        system_and_targets.append(tensor_map)
+        for field_name in self._fields_to_read:
+            if field_name == "system":
+                with self.zip_file.open(f"{index}/system.mta", "r") as file:
+                    system = load_system(file)
+                    system_and_targets.append(system)
+            else:
+                with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
+                    numpy_buffer = np.load(file)
+                    tensor_buffer = torch.from_numpy(numpy_buffer)
+                    tensor_map = load_buffer(tensor_buffer)
+                    system_and_targets.append(tensor_map)
         return self._sample_class(*system_and_targets)
 
     def __iter__(self) -> Any:
@@ -685,6 +699,10 @@ class DiskDataset(torch.utils.data.Dataset):
                 target_info.layout = _empty_tensor_map_like(tensor_map)
                 target_info_dict[target_key] = target_info
         return target_info_dict
+
+    def __del__(self) -> None:
+        if self.zip_file is not None:
+            self.zip_file.close()
 
 
 def _is_disk_dataset(dataset: Any) -> bool:

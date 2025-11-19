@@ -37,12 +37,15 @@ from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
+from .documentation import TrainerHypers
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
 
 def get_scheduler(
-    optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
+    optimizer: torch.optim.Optimizer,
+    train_hypers: TrainerHypers,
+    steps_per_epoch: int,
 ) -> LambdaLR:
     """
     Get a CosineAnnealing learning-rate scheduler with warmup
@@ -72,10 +75,10 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface):
-    __checkpoint_version__ = 7
+class Trainer(TrainerInterface[TrainerHypers]):
+    __checkpoint_version__ = 10
 
-    def __init__(self, hypers: Dict[str, Any]) -> None:
+    def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
 
         self.optimizer_state_dict: Optional[Dict[str, Any]] = None
@@ -98,7 +101,7 @@ class Trainer(TrainerInterface):
         assert dtype in PET.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
-        is_finetune = "finetune" in self.hypers
+        is_finetune = self.hypers["finetune"]["read_from"] is not None
 
         if is_distributed:
             if len(devices) > 1:
@@ -127,6 +130,7 @@ class Trainer(TrainerInterface):
 
         # Apply fine-tuning strategy if provided
         if is_finetune:
+            assert self.hypers["finetune"]["read_from"] is not None  # for mypy
             model = apply_finetuning_strategy(model, self.hypers["finetune"])
             method = self.hypers["finetune"]["method"]
             num_params = sum(p.numel() for p in model.parameters())
@@ -139,6 +143,13 @@ class Trainer(TrainerInterface):
                 f"Number of trainable parameters: {num_trainable_params} "
                 f"[{num_trainable_params / num_params:.2%} %]"
             )
+            inherit_heads = self.hypers["finetune"]["inherit_heads"]
+            if inherit_heads:
+                logging.info(
+                    "Inheriting initial weights for heads and last layers for targets: "
+                    f"from {list(inherit_heads.values())} to "
+                    f"{list(inherit_heads.keys())}"
+                )
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
@@ -148,15 +159,15 @@ class Trainer(TrainerInterface):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
-        logging.info("Calculating composition weights")
-
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
-            is_distributed,
-            self.hypers["fixed_composition_weights"],
-        )
+        if self.hypers["remove_composition_contribution"]:
+            logging.info("Calculating composition weights")
+            model.additive_models[0].train_model(  # this is the composition model
+                train_datasets,
+                model.additive_models[1:],
+                self.hypers["batch_size"],
+                is_distributed,
+                self.hypers["fixed_composition_weights"],
+            )
 
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
@@ -309,6 +320,7 @@ class Trainer(TrainerInterface):
 
         # Create a loss function:
         loss_hypers = self.hypers["loss"]
+        assert not isinstance(loss_hypers, str)  # For mypy type checking
         loss_fn = LossAggregator(
             targets=train_targets,
             config=loss_hypers,
@@ -579,7 +591,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: TrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
         trainer = cls(hypers)

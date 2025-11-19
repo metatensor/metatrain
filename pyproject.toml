@@ -12,11 +12,14 @@ authors = [{name = "metatrain developers"}]
 dependencies = [
     "ase",
     "huggingface_hub",
+    "numpy",
     "metatensor-learn >=0.3.2,<0.4",
     "metatensor-operations >=0.3.4,<0.4",
     "metatensor-torch >=0.8.1,<0.9",
     "metatomic-torch >=0.1.5,<0.2",
     "jsonschema",
+    "pydantic >= 2.12", # Because of passing arguments to validator functions
+    "typing_extensions", # For python < 3.12 typing.TypedDict has limited functionality
     "omegaconf >= 2.3.0",
     "python-hostlist",
     "tqdm",
@@ -126,10 +129,15 @@ docstring-code-format = true
 
 [tool.mypy]
 exclude = [
-    "docs/src/examples"
+    "docs/src/generated_examples"
 ]
 follow_imports = 'skip'
 ignore_missing_imports = true
+# Ignore mypy misc errors in documentation.py files, which come from
+# TypedDict not supporting defaults.
+[[tool.mypy.overrides]]
+module = "metatrain.*.documentation"
+disable_error_code = ["misc"]
 
 [tool.pytest.ini_options]
 # ignore" a bunch of internal warnings with Python 3.13 and PyTorch

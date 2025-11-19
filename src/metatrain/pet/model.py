@@ -1,4 +1,5 @@
 import logging
+import typing
 import warnings
 from math import prod
 from typing import Any, Dict, List, Literal, Optional, Tuple
@@ -26,16 +27,17 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
+from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func
 
 
-AVAILABLE_FEATURIZERS = ["feedforward", "residual"]
+AVAILABLE_FEATURIZERS = typing.get_args(ModelHypers.__annotations__["featurizer_type"])
 
 
-class PET(ModelInterface):
+class PET(ModelInterface[ModelHypers]):
     """
     Metatrain-native implementation of the PET architecture.
 
@@ -56,7 +58,7 @@ class PET(ModelInterface):
     component_labels: Dict[str, List[List[Labels]]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         # Cache frequently accessed hyperparameters
@@ -509,7 +511,9 @@ class PET(ModelInterface):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(systems, return_dict)
+            return_dict = self.scaler(
+                systems, return_dict, selected_atoms=selected_atoms
+            )
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
                 for name, output in outputs.items():
@@ -561,8 +565,11 @@ class PET(ModelInterface):
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
         :return: Tuple of two lists:
-            - List of node feature tensors from each GNN layer
-            - List of edge feature tensors from each GNN layer
+            - List of node feature tensors
+            - List of edge feature tensors
+            In the case of feedforward featurization, each list contains a single tensor
+            from the final GNN layer. In the case of residual featurization, each list
+            contains tensors from all GNN layers.
         """
         if self.featurizer_type == "feedforward":
             return self._feedforward_featurization_impl(inputs, use_manual_attention)
@@ -643,8 +650,8 @@ class PET(ModelInterface):
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
         :return: Tuple of two lists:
-            - List of node feature tensors from the final GNN layer
-            - List of edge feature tensors from the final GNN layer
+            - List of node feature tensors from all GNN layers
+            - List of edge feature tensors from all GNN layers
         """
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
@@ -1341,6 +1348,9 @@ def process_non_conservative_stress(
 
     # Normalize by cell volume
     volumes = torch.stack([torch.abs(torch.det(system.cell)) for system in systems])
+    # Zero volume can happen due to metatomic's convention of zero cell
+    # vectors for non-periodic directions. The actual volume is +inf
+    volumes[volumes == 0.0] = torch.inf
     volumes_by_atom = volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
     tensor_as_three_by_three = tensor_as_three_by_three / volumes_by_atom
 
