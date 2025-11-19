@@ -33,7 +33,9 @@ from .modules.structures import create_batch
 from .utils.mts import (
     add_contribution,
     e3nn_to_tensormap,
+    get_e3nn_target_info,
     get_system_indices_and_labels,
+    target_info_to_e3nn_irreps,
 )
 
 
@@ -134,10 +136,13 @@ class MetaMACE(ModelInterface[ModelHypers]):
         for i, atomic_type in enumerate(self.atomic_types):
             self.atomic_types_to_species_index[atomic_type] = i
 
-        self.outputs = {"features": ModelOutput(unit="", per_atom=True)}
         self.heads = torch.nn.ModuleDict()
+        self.target_infos: Dict[str, TargetInfo] = {}
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
+        self.target_infos["features"] = get_e3nn_target_info(
+            "features", {"irreps": self.features_irreps, "per_atom": True}
+        )
 
         composition_model = CompositionModel(
             hypers={},
@@ -239,29 +244,58 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # Run MACE and extract the node features.
         mace_output = self.mace_model(data, training=self.training, compute_force=False)
         node_features = mace_output["node_feats"]
-
         assert node_features is not None  # For torchscript
+
+        # We have ran MACE, now we will simply collect the requested outputs
+        model_outputs: dict[str, torch.Tensor] = {}
+
+        # Add features if requested
+        if "features" in outputs:
+            model_outputs["features"] = node_features
+
+        # Run heads
+        for output_name, head in self.heads.items():
+            ll_features_name = self._llf_name(output_name)
+            requested_target = output_name in outputs
+            requested_llf = ll_features_name in outputs
+
+            # Only use this head if its output or its last layer features were requested
+            if requested_target or requested_llf:
+                # Get the per-atom target, as well as the per-atom last layer features
+                if output_name == self.mace_head_target:
+                    # Use the internal MACE head
+                    node_energy = mace_output["node_energy"]
+                    assert node_energy is not None  # For torchscript
+                    node_target = node_energy.to(dtype=node_features.dtype).reshape(
+                        -1, 1
+                    )
+                    ll_features = torch.empty(0)
+                    if requested_llf:
+                        raise NotImplementedError(
+                            "LL features for MACE internal head not implemented yet"
+                        )
+                else:
+                    node_target = head.forward(node_features)
+                    ll_features = head.last_layer_features
+
+                # Store whatever was requested by the user
+                if requested_target:
+                    model_outputs[output_name] = node_target
+                if requested_llf:
+                    model_outputs[ll_features_name] = ll_features
+
+        # At this point, we have a dictionary of all outputs as normal torch tensors.
+        # Now, we simply convert to TensorMaps.
 
         # Get the labels for the samples (system and atom of each value)
         _, samples = get_system_indices_and_labels(systems)
 
-        # Run all heads and collect outputs as TensorMaps
         return_dict: Dict[str, TensorMap] = {}
-        for output_name, head in self.heads.items():
-            # Get the per node target values
-            if output_name == self.mace_head_target:
-                # Use the internal MACE head
-                node_energy = mace_output["node_energy"]
-                assert node_energy is not None  # For torchscript
-                node_target = node_energy.to(dtype=node_features.dtype).reshape(-1, 1)
-            else:
-                node_target = head.forward(node_features)
-
-            # Convert to TensorMap and store
+        for output_name, model_output in model_outputs.items():
             per_atom_output = e3nn_to_tensormap(
-                node_target,
+                model_output,
                 samples=samples,
-                target_info=self.dataset_info.targets[output_name],
+                target_info=self.target_infos[output_name],
             )
 
             if selected_atoms is not None:
@@ -275,8 +309,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 else sum_over_atoms(per_atom_output)
             )
 
+        # At evaluation, we also introduce the scaler and additive contributions
         if not self.training:
-            # at evaluation, we also introduce the scaler and additive contributions
             return_dict = self.scaler(systems, return_dict)
             for additive_model in self.additive_models:
                 add_contribution(
@@ -284,6 +318,17 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 )
 
         return return_dict
+
+    @property
+    def outputs(self) -> Dict[str, ModelOutput]:
+        return {
+            k: ModelOutput(
+                quantity=target_info.quantity,
+                unit=target_info.unit,
+                per_atom=True,
+            )
+            for k, target_info in self.target_infos.items()
+        }
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -399,45 +444,39 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     "MetaMACE does not support Cartesian tensors with rank > 1."
                 )
 
+        self.target_infos[target_name] = target_info
         # Get the multiplicity and irrep for each target block
-        irreps = []
-        for key, block in target_info.layout.items():
-            multiplicity = len(block.properties.values)
-
-            if target_info.is_scalar:
-                irreps.append((multiplicity, (0, 1)))
-            elif target_info.is_spherical:
-                ell = int(key["o3_lambda"])
-                irreps.append((multiplicity, (ell, (-1) ** ell)))
-            elif target_info.is_cartesian:
-                ell = 1
-                irreps.append((multiplicity, (ell, (-1) ** ell)))
-
-        self.outputs[target_name] = ModelOutput(
-            quantity=target_info.quantity,
-            unit=target_info.unit,
-            per_atom=True,
-        )
+        target_irreps = target_info_to_e3nn_irreps(target_info)
 
         if target_name == self.mace_head_target:
             # Dummy head so that torchscript loops through this target_name
             # when doing self.heads.items(). In reality we use the internal
             # MACE head for this target
             self.heads[target_name] = torch.nn.Identity()
+            llf_irreps = o3.Irreps("")
         else:
-            self.heads[target_name] = NonLinearHead(
+            head = NonLinearHead(
                 irreps_in=self.features_irreps,
-                irreps_out=o3.Irreps(irreps),
+                irreps_out=target_irreps,
                 MLP_irreps=o3.Irreps(self.hypers["MLP_irreps"]),
                 gate=mace_modules.gate_dict.get(self.hypers["gate"], None),
             )
 
-            self.heads[target_name].to(torch.float64)
+            self.heads[target_name] = head.to(torch.float64)
+            llf_irreps = head.last_layer_features_irreps
 
-        ll_features_name = (
-            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
+        self.target_infos[self._llf_name(target_name)] = get_e3nn_target_info(
+            f"{target_name}_last_layer_features",
+            {"irreps": llf_irreps, "per_atom": True},
         )
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+
+    def _llf_name(self, target_name: str) -> str:
+        """Get the name of the last layer features corresponding to a target.
+
+        :param target_name: Name of the target.
+        :return: Name of the last layer features corresponding to the target.
+        """
+        return f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:

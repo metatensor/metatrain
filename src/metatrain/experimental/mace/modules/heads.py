@@ -48,9 +48,13 @@ class NonLinearHead(torch.nn.Module):
             irreps_in=self.hidden_irreps, irreps_out=irreps_out, cueq_config=cueq_config
         )
 
+        self.last_layer_features_irreps = self.hidden_irreps
+        self.last_layer_features = torch.empty(0)  # To be replaced at forward pass
+
     def forward(
         self,
         x: torch.Tensor,
     ) -> torch.Tensor:
         x = self.non_linearity(self.linear_1(x))
+        self.last_layer_features = x
         return self.linear_2(x)
