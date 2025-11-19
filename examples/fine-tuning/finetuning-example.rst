@@ -1,4 +1,4 @@
-.. _fine-tuning-example:
+.. _label_fine_tuning_concept:
 
 Finetuning example
 ==================
@@ -105,6 +105,18 @@ Further information on specifying targets can be found in the :ref:`data section
 After setting up your ``options.yaml`` file, finetuning can then simply be run
 via ``mtt train options.yaml``.
 
+
+For evaluation, we can compare performance of our fine-tuned model and the base model PET-MAD.
+Using ``mtt eval`` we can simply do this for both models:
+.. code-block:: bash
+  mtt eval model.pt options-eval.yaml -o output-ft.xyz 
+  mtt eval pet-mad-v1.1.0.pt options-eval.yaml -o output-petmad.xyz  
+
+Remark: One can also evaluate models directly in python by loading them as MetatomicCalculators and evaluating 
+them with ASE. 
+
+Now, we can use parity plots to assess that finetuning leaves us with a more accurate model.
+.. code-block:: python
 
 Further fine-tuning examples can be found in the
 `AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`_
