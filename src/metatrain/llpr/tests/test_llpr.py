@@ -134,8 +134,6 @@ def check_exported_model_predictions(
     )
     # require lower precision for PET-MAD which only has 128 ensemble members
     required_precision = 3e-2 if ensemble.shape[1] < 1000 else 1e-2
-    print(uncertainty)
-    print(ensemble.std(dim=1, keepdim=True))
     assert torch.allclose(
         uncertainty,
         ensemble.std(dim=1, keepdim=True),

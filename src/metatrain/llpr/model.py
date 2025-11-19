@@ -191,8 +191,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             dtype=self.capabilities.dtype,
         )
 
-        self.llpr_ensemble_layers = torch.nn.ModuleDict()
-
     def restart(self, dataset_info: DatasetInfo) -> "LLPRUncertaintyModel":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
@@ -302,8 +300,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             cur_prop = return_dict[original_name].block().properties
             num_prop = len(cur_prop.values)
 
-            # uncertainty tsm (values expanded into shape (num_samples, num_prop),
+            # uncertainty TensorMap (values expanded into shape (num_samples, num_prop),
             # with expansion targeting num_prop
+            # Note that we take the square root here (just below) to convert variance to
+            # standard deviation
             uncertainty = TensorMap(
                 keys=Labels(
                     names=["_"],
@@ -313,7 +313,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ),
                 blocks=[
                     TensorBlock(
-                        values=one_over_pr_values.expand((-1, num_prop)),
+                        values=torch.sqrt(one_over_pr_values.expand((-1, num_prop))),
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
                         properties=cur_prop,
@@ -321,9 +321,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ],
             )
 
-            # calibrated multiplier tsm (values expanded into shape (num_samples,
+            # calibrated multiplier TensorMaps (values expanded into shape (num_samples,
             # num_prop), with expansion targeting num_samples
-            tsm_multiplier = TensorMap(
+            multipliers = TensorMap(
                 keys=Labels(
                     names=["_"],
                     values=torch.tensor(
@@ -342,8 +342,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ],
             )
 
-            # two tsms of same shape in values are multiplied together
-            return_dict[uncertainty_name] = mts.multiply(uncertainty, tsm_multiplier)
+            # two TensorMaps of same shape in values are multiplied together here
+            return_dict[uncertainty_name] = mts.multiply(uncertainty, multipliers)
 
         # now deal with potential ensembles (see generate_ensemble method)
         requested_ensembles: List[str] = []
@@ -751,26 +751,23 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             raise ValueError("Unknown context tag for checkpoint loading!")
 
         llpr_model = cls(**checkpoint["model_data"])
+
+        state_dict_iter = iter(model_state_dict.values())
+        next(state_dict_iter)
+        dtype = next(state_dict_iter).dtype
+        # llpr ensemble linear layers must be manually initialized
+        llpr_model.llpr_ensemble_layers = torch.nn.ModuleDict()
+        for name, val in model_state_dict.items():
+            if "llpr_ensemble_layers" in name:
+                target_name = name.split(".")[1]
+                llpr_model.llpr_ensemble_layers[target_name] = torch.nn.Linear(
+                    val.shape[1],
+                    val.shape[0],
+                    bias=False,
+                    dtype=dtype,
+                )
         llpr_model.set_wrapped_model(model)
-
-        if context == "restart" or context == "export":
-            state_dict_iter = iter(model_state_dict.values())
-            next(state_dict_iter)
-            dtype = next(state_dict_iter).dtype
-            device = next(state_dict_iter).device
-            # llpr ensemble linear layers must be manually initialized
-            for name, val in model_state_dict.items():
-                if "llpr_ensemble_layers" in name:
-                    target_name = name.split(".")[1]
-                    llpr_model.llpr_ensemble_layers[target_name] = torch.nn.Linear(
-                        val.shape[1],
-                        val.shape[0],
-                        bias=False,
-                        device=device,
-                        dtype=dtype,
-                    )
-            llpr_model.to(dtype).load_state_dict(model_state_dict, strict=False)
-
+        llpr_model.load_state_dict(model_state_dict, strict=False)
         return llpr_model
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:

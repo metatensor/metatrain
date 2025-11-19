@@ -34,6 +34,9 @@ def model_update_v2_v3(checkpoint: dict) -> None:
     checkpoint["model_state_dict"] = checkpoint.pop("state_dict")
     checkpoint["best_model_state_dict"] = None
     # changed format for ensemble weights (only do energy for simplicity)
-    checkpoint["model_state_dict"]["llpr_ensemble_layers.energy.weight"] = (
-        checkpoint["model_state_dict"].pop("energy_ensemble_weights").T
-    )
+    t = checkpoint["model_state_dict"].pop("energy_ensemble_weights").T
+    # s = t.shape
+    # print(s)
+    # t = t.flatten()
+    # t = t.reshape(s[1], s[0])
+    checkpoint["model_state_dict"]["llpr_ensemble_layers.energy.weight"] = t

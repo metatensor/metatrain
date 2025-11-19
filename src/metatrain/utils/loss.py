@@ -693,54 +693,54 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         if ens_name == "mtt::aux::energy_ensemble":
             ens_name = "energy_ensemble"
 
-        tsm_pred_orig = predictions[self.target]
-        tsm_pred_ens = predictions[ens_name]
-        tsm_targ = targets[self.target]
+        tmap_pred_orig = predictions[self.target]
+        tmap_pred_ens = predictions[ens_name]
+        tmap_targ = targets[self.target]
 
         # number of ensembles extracted from TensorMaps
         n_ens = (
-            tsm_pred_ens.block(0).values.shape[1]
-            // tsm_pred_orig.block(0).values.shape[1]
+            tmap_pred_ens.block(0).values.shape[1]
+            // tmap_pred_orig.block(0).values.shape[1]
         )
 
-        ens_pred_values = tsm_pred_ens.block().values  # shape: samples, properties
+        ens_pred_values = tmap_pred_ens.block().values  # shape: samples, properties
 
         ens_pred_values = ens_pred_values.reshape(ens_pred_values.shape[0], n_ens, -1)
         ens_pred_mean = ens_pred_values.mean(dim=1)
         ens_pred_var = ens_pred_values.var(dim=1, unbiased=True)
 
-        tsm_pred_mean = TensorMap(
+        tmap_pred_mean = TensorMap(
             keys=Labels(
                 names=["_"],
-                values=torch.tensor([[0]], device=tsm_targ.block().values.device),
+                values=torch.tensor([[0]], device=tmap_targ.block().values.device),
             ),
             blocks=[
                 TensorBlock(
                     values=ens_pred_mean,
-                    samples=tsm_targ.block().samples,
-                    components=tsm_targ.block().components,
-                    properties=tsm_targ.block().properties,
+                    samples=tmap_targ.block().samples,
+                    components=tmap_targ.block().components,
+                    properties=tmap_targ.block().properties,
                 ),
             ],
         )
 
-        tsm_pred_var = TensorMap(
+        tmap_pred_var = TensorMap(
             keys=Labels(
                 names=["_"],
-                values=torch.tensor([[0]], device=tsm_targ.block().values.device),
+                values=torch.tensor([[0]], device=tmap_targ.block().values.device),
             ),
             blocks=[
                 TensorBlock(
                     values=ens_pred_var,
-                    samples=tsm_targ.block().samples,
-                    components=tsm_targ.block().components,
-                    properties=tsm_targ.block().properties,
+                    samples=tmap_targ.block().samples,
+                    components=tmap_targ.block().components,
+                    properties=tmap_targ.block().properties,
                 ),
             ],
         )
 
         # Note that we're ignoring all gradients for now. This can be extended later.
-        return self.compute_flattened(tsm_pred_mean, tsm_targ, tsm_pred_var)
+        return self.compute_flattened(tmap_pred_mean, tmap_targ, tmap_pred_var)
 
 
 # --- aggregator -----------------------------------------------------------------------

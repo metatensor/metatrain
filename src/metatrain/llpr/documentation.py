@@ -114,6 +114,7 @@ class TrainerHypers(TypedDict):
     :ref:`loss-functions` for more details of the rest of the hypers."""
 
     calib_options: dict = {}
+    """TODO: MISSING DOCS!!"""
 
     num_epochs: Optional[int] = 0
     """Number of epochs for which the LLPR ensemble weight calibration should 
