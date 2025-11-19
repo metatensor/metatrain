@@ -691,9 +691,10 @@ def test_expand_loss_config_huber_gradient_only_gets_delta(monkeypatch):
     assert gpos["delta"] == 0.5
 
 
-def test_expand_loss_config_user_only_target_preserved():
+def test_expand_loss_config_user_only_target_is_now_invalid():
     """
-    A target defined only in loss (not in training_set) is still preserved.
+    A target defined only in loss (not in training_set) is no longer allowed:
+    any loss key that does not correspond to an existing target must raise.
     """
     conf = OmegaConf.create(
         {
@@ -701,10 +702,54 @@ def test_expand_loss_config_user_only_target_preserved():
             "architecture": {"training": {"loss": {"foo": "mae"}}},
         }
     )
-    expanded = expand_loss_config(conf)
-    loss = expanded["architecture"]["training"]["loss"]
-    assert set(loss.keys()) == {"dipole", "foo"}
-    assert loss["foo"]["type"] == "mae"
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            (
+                "Invalid top-level loss entry 'foo'. "
+                "Allowed keys are: ['dipole'] or a single string."
+            )
+        ),
+    ):
+        expand_loss_config(conf)
+
+
+@pytest.mark.parametrize("bad_key", ["forces", "stress", "virial", "foo"])
+def test_expand_loss_config_invalid_top_level_keys_raise(bad_key):
+    """
+    Top-level loss entries must either be:
+      - a single string, e.g. loss: "mse"
+      - a mapping whose keys are existing target names.
+
+    Any other top-level key (including old shorthands like 'forces', 'stress',
+    'virial', or arbitrary names not present in training_set.targets) must raise.
+    """
+    conf = OmegaConf.create(
+        {
+            "training_set": {
+                "targets": {
+                    "energy": {
+                        "forces": {},
+                        "stress": False,
+                        "virial": False,
+                    }
+                }
+            },
+            "architecture": {
+                "training": {
+                    "loss": {
+                        bad_key: "mae",
+                    }
+                }
+            },
+        }
+    )
+
+    with pytest.raises(
+        ValueError, match=re.escape(f"Invalid top-level loss entry '{bad_key}'")
+    ):
+        expand_loss_config(conf)
 
 
 def test_check_units():

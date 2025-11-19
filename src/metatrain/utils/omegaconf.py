@@ -4,6 +4,9 @@ import torch
 from omegaconf import DictConfig, ListConfig, OmegaConf
 from omegaconf.basecontainer import BaseContainer
 
+from metatrain.utils.hypers import init_with_defaults
+from metatrain.utils.loss import LossParams, LossSpecification
+
 from .. import RANDOM_SEED
 from .architectures import import_architecture
 from .devices import pick_devices
@@ -78,9 +81,6 @@ def default_huber_loss_delta() -> float:
 OmegaConf.register_new_resolver("default_device", default_device)
 OmegaConf.register_new_resolver("default_precision", default_precision)
 OmegaConf.register_new_resolver("default_random_seed", lambda: RANDOM_SEED)
-OmegaConf.register_new_resolver("default_loss_type", lambda: "mse")
-OmegaConf.register_new_resolver("default_loss_reduction", lambda: "mean")
-OmegaConf.register_new_resolver("default_loss_weight", lambda: 1.0)
 
 
 def _resolve_single_str(config: str) -> DictConfig:
@@ -137,15 +137,6 @@ CONF_GRADIENT = OmegaConf.create(
         "read_from": "${..read_from}",
         "reader": None,
         "key": None,
-    }
-)
-
-CONF_LOSS = OmegaConf.create(
-    {
-        "type": "${default_loss_type:}",
-        "weight": "${default_loss_weight:}",
-        "reduction": "${default_loss_reduction:}",
-        "gradients": {},
     }
 )
 
@@ -458,13 +449,21 @@ def expand_loss_config(conf: DictConfig) -> DictConfig:
     """
 
     # Helpers
-    def _new_defaults() -> DictConfig:
+    def _new_defaults_spec() -> DictConfig:
         """
         Create a new loss config with default values.
 
         :return: A new loss config with default values.
         """
-        return OmegaConf.create(CONF_LOSS)
+        return OmegaConf.create(init_with_defaults(LossSpecification))
+
+    def _new_defaults_params() -> DictConfig:
+        """
+        Create a new loss config with default values.
+
+        :return: A new loss config with default values.
+        """
+        return OmegaConf.create(init_with_defaults(LossParams))
 
     def _add_defaults_in_place(node: DictConfig) -> None:
         """
@@ -472,7 +471,7 @@ def expand_loss_config(conf: DictConfig) -> DictConfig:
 
         :param node: The loss config node to fill in place.
         """
-        d = CONF_LOSS
+        d = _new_defaults_params()
         if "type" not in node:
             node["type"] = d["type"]
         if "weight" not in node:
@@ -508,17 +507,31 @@ def expand_loss_config(conf: DictConfig) -> DictConfig:
     # 2) Create default loss entries per target
     defaults_map: dict[str, DictConfig] = {}
     for tname, flags in per_target_flags.items():
-        base = _new_defaults()
-        g = base.setdefault("gradients", OmegaConf.create({}))
+        base = _new_defaults_spec()
+        g = base["gradients"]
         if flags["is_energy"]:
             if flags["forces"]:
-                g["positions"] = _new_defaults()
+                g["positions"] = _new_defaults_params()
             if flags["stress"]:
-                g["strain"] = _new_defaults()
+                g["strain"] = _new_defaults_params()
         defaults_map[tname] = base
 
     # 3) Parse user-provided loss configuration
     train_loss = conf["architecture"]["training"].get("loss", None)
+
+    # Reject top-level entries that are not target names
+    if isinstance(train_loss, (dict, DictConfig)):
+        # Allowed top-level entries: only target names present in the dataset.
+        allowed_targets = set(per_target_flags.keys())
+
+        for key in train_loss.keys():
+            val = train_loss[key]
+
+            if key not in allowed_targets:
+                raise ValueError(
+                    f"Invalid top-level loss entry '{key}'. "
+                    f"Allowed keys are: {sorted(allowed_targets)} or a single string."
+                )
 
     global_loss_type: str | None = None
     per_target_raw: dict[str, DictConfig] = {}
@@ -554,10 +567,9 @@ def expand_loss_config(conf: DictConfig) -> DictConfig:
                 OmegaConf.to_container(defaults_map[tname], resolve=False)
             )
         else:
-            base = _new_defaults()
-            base.setdefault("gradients", OmegaConf.create({}))
+            base = _new_defaults_spec()
 
-        gradients = base.setdefault("gradients", OmegaConf.create({}))
+        gradients = base["gradients"]
 
         raw = per_target_raw.get(tname)
 

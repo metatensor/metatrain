@@ -10,12 +10,13 @@ from omegaconf import OmegaConf
 from metatrain.experimental.flashmd import FlashMD, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
+from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import model_from_checkpoint
+from metatrain.utils.loss import LossSpecification
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from metatrain.utils.omegaconf import CONF_LOSS
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -122,7 +123,10 @@ def test_continue(monkeypatch, tmp_path):
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 0
     loss_conf = OmegaConf.create(
-        {"positions": CONF_LOSS.copy(), "momenta": CONF_LOSS.copy()}
+        {
+            "positions": init_with_defaults(LossSpecification),
+            "momenta": init_with_defaults(LossSpecification),
+        }
     )
     OmegaConf.resolve(loss_conf)
     hypers["training"]["loss"] = loss_conf
