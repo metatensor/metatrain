@@ -194,8 +194,8 @@ for structure in structures:
     # Get class from one-hot encoding
     labels.append(np.argmax(structure.info["class"]))
     probabilities_list.append(probs)
-bottleneck_features = np.array(bottleneck_features)
-labels = np.array(labels)
+bottleneck_features = np.array(bottleneck_features, dtype=np.float64)
+labels = np.array(labels, dtype=np.int64)
 
 # Plot the features for the three classes
 plt.figure(figsize=(5, 3))
@@ -233,7 +233,7 @@ class_names = ["Diamond", "Graphite", "Graphene"]
 class_labels = [class_names[label] for label in labels]
 
 # Prepare probabilities for all classes
-probabilities_array = np.array(probabilities_list)
+probabilities_array = np.array(probabilities_list, dtype=np.float64)
 
 # Create properties dictionary for chemiscope
 properties = {
