@@ -1,4 +1,4 @@
-from typing import Any, Dict, Union
+from typing import Any, Union
 
 import torch
 from omegaconf import DictConfig, ListConfig, OmegaConf
@@ -385,301 +385,248 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
 
 def expand_loss_config(conf: DictConfig) -> DictConfig:
     """
-    Expand the loss configuration to fully specify loss terms for different targets
-    and their gradients.
+    Expand the loss configuration to fully specify loss terms for different targets and
+    their gradients.
 
-    This function applies this precedence order when expanding the loss configuration:
+    Supported user forms:
 
-      Per-target user loss  >  top-level shorthands  >  defaults (as in CONF_LOSS)
+      1) loss: <loss_type>
+         - Set the default type of all targets and gradient losses.
 
-    For energy targets, these shorthands are allowed at the top level of the loss
-    configuration, and expanded into the per-target loss as follows:
+      2) loss:
+           <target>: <loss_type>
+           ...
+         - Any gradient for this target keep defaults.
 
-      - forces         -> gradients.positions
-      - stress/virial  -> gradients.strain
+      3) loss:
+           <energy_target>:
+             type: <loss_type>
+             forces: <loss_type_for_forces>      # or dict with loss fields
+             stress: <loss_type_for_stress>      # or dict
+             (or)
+             virial: <loss_type_for_virial>      # or dict
 
-    The same shorthands are also supported inside the per-target loss sections for
-    energy targets.
 
-    For non-energy targets, there are no top-level shorthands, and the loss must be
-    fully specified in the per-target loss section.
+         - Only allowed for energy-like targets.
+         - `forces` config expands to gradients.positions
+         - `stress`/`virial` config expands to gradients.strain
+
+      4) loss:
+           <target>:
+             type: <loss_type>
+             gradients:
+               positions: <loss_type_for_grad>   # or dict with loss fields
+               strain:
+                 type: ...
+                 weight: ...
+                 ...
+
+         - Fully explicit gradient specification for any target.
+
+    All of these are expanded to a full specification:
+    - Every target or gradient loss block has {type, weight, reduction}
+      and a delta if type == "huber".
+    - Unspecified entries keep default values from CONF_LOSS.
+    - Specified entries override defaults.
 
     :param conf: The loss configuration to expand.
-    :return: The expanded loss configuration.
+    :return: A list of expanded loss configurations.
     """
 
-    # Small helpers
-    def _finalize_huber(node: DictConfig) -> None:
+    # Helpers
+    def _new_defaults() -> DictConfig:
         """
-        Ensure Huber losses have a delta on the target node and its immediate gradients.
-        :param node: A DictConfig node representing a loss configuration.
-        """
+        Create a new loss config with default values.
 
-        def _apply(n: DictConfig) -> None:
-            if (
-                isinstance(n, (dict, DictConfig))
-                and n.get("type") == "huber"
-                and "delta" not in n
-            ):
-                try:
-                    n["delta"] = default_huber_loss_delta()
-                except Exception:
-                    # extremely defensive fallback
-                    n["delta"] = 1.0
-
-        _apply(node)
-        g = node.get("gradients")
-        if isinstance(g, (dict, DictConfig)):
-            for gv in g.values():
-                if isinstance(gv, (dict, DictConfig)):
-                    _apply(gv)
-
-    def _inherit_parent_into_gradients(parent: DictConfig) -> None:
-        """
-        Copy missing (type, weight, reduction, delta-if-present) from parent into
-        existing gradient sections.
-
-        :param parent: A DictConfig node representing a loss configuration.
-        """
-        if not isinstance(parent, (dict, DictConfig)):
-            return
-        g = parent.get("gradients")
-        if not isinstance(g, (dict, DictConfig)):
-            return
-
-        keys = ["type", "weight", "reduction"]
-        if "delta" in parent:
-            keys.append("delta")
-
-        for gv in g.values():
-            if isinstance(gv, (dict, DictConfig)):
-                for k in keys:
-                    if k in parent and k not in gv:
-                        gv[k] = parent[k]
-
-    def _force_all_gradient_types(node: DictConfig, loss_type: str) -> None:
-        """
-        Force all existing gradient sections to have the specified loss type.
-
-        :param node: A DictConfig node representing a loss configuration.
-        :param loss_type: The loss type to set for all gradient sections.
-        """
-        g = node.get("gradients")
-        if isinstance(g, (dict, DictConfig)):
-            for gv in g.values():
-                if isinstance(gv, (dict, DictConfig)):
-                    gv["type"] = loss_type
-
-    def _new_loss_defaults() -> DictConfig:
-        """
-        Create a new loss defaults configuration based on CONF_LOSS.
-
-        :return: A DictConfig node representing the loss defaults.
+        :return: A new loss config with default values.
         """
         return OmegaConf.create(CONF_LOSS)
 
-    # 1) Collect per-target flags from training_set
+    def _add_defaults_in_place(node: DictConfig) -> None:
+        """
+        Fill missing fields {type, weight, reduction, delta(if huber)}.
+
+        :param node: The loss config node to fill in place.
+        """
+        d = CONF_LOSS
+        if "type" not in node:
+            node["type"] = d["type"]
+        if "weight" not in node:
+            node["weight"] = d["weight"]
+        if "reduction" not in node:
+            node["reduction"] = d["reduction"]
+        if node.get("type") == "huber" and "delta" not in node:
+            node["delta"] = default_huber_loss_delta()
+
+    # 1) Collect target / gradient info from training_set
     training_confs = conf["training_set"]
     if not isinstance(training_confs, ListConfig):
         training_confs = OmegaConf.create([training_confs])
 
-    per_target_flags: Dict[str, Dict[str, bool]] = {}
-    for tc in training_confs:
-        targets = tc.get("targets", {}) or {}
-        for tname, opts in targets.items():
-            is_energy = (tname == "energy") or (opts.get("quantity") == "energy")
-
-            if is_energy:
-                # For energy-like targets, these keys will exist in the dataset config
-                # after dataset expansion
-                forces_val = opts["forces"]
-                stress_val = opts["stress"]
-                virial_val = opts["virial"]
-
-                fflag = isinstance(forces_val, (dict, DictConfig))
-                sflag = isinstance(stress_val, (dict, DictConfig)) or isinstance(
-                    virial_val, (dict, DictConfig)
-                )
-
-                # If not dict, they must be False (no gradient)
-                if not fflag:
-                    assert forces_val is False, (
-                        f"'forces' must be a dict or False for energy target '{tname}'"
-                    )
-                if not sflag:
-                    assert (stress_val is False) and (virial_val is False), (
-                        "'stress' and 'virial' must be dict or False "
-                        f"for energy target '{tname}'"
-                    )
-            else:
-                # Non-energy targets: we ignore any stray gradient-like keys here
-                fflag = False
-                sflag = False
+    per_target_flags: dict[str, dict[str, bool]] = {}
+    for ds in training_confs:
+        targets = ds.get("targets") or {}
+        for tname, tinfo in targets.items():
+            is_energy = (tname == "energy") or (tinfo.get("quantity") == "energy")
+            forces_flag = isinstance(tinfo.get("forces"), (dict, DictConfig))
+            stress_flag = any(
+                isinstance(tinfo.get(k), (dict, DictConfig))
+                for k in ("stress", "virial")
+            )
 
             entry = per_target_flags.setdefault(
                 tname, {"is_energy": False, "forces": False, "stress": False}
             )
             entry["is_energy"] |= is_energy
-            entry["forces"] |= fflag
-            entry["stress"] |= sflag
+            entry["forces"] |= forces_flag
+            entry["stress"] |= stress_flag
 
-    if not per_target_flags:
-        # no targets, nothing to do
-        return conf
-
-    # 2) Build default loss per target, with stubs for gradients when requested
-    defaults_map: Dict[str, DictConfig] = {}
-    for tname, flg in per_target_flags.items():
-        base = _new_loss_defaults()
-        if flg["is_energy"]:
-            base.setdefault("gradients", OmegaConf.create({}))
-            if flg["forces"]:
-                base["gradients"].setdefault("positions", OmegaConf.create({}))
-            if flg["stress"]:
-                base["gradients"].setdefault("strain", OmegaConf.create({}))
-            # Inherit parent defaults into those stubs
-            _inherit_parent_into_gradients(base)
+    # 2) Create default loss entries per target
+    defaults_map: dict[str, DictConfig] = {}
+    for tname, flags in per_target_flags.items():
+        base = _new_defaults()
+        g = base.setdefault("gradients", OmegaConf.create({}))
+        if flags["is_energy"]:
+            if flags["forces"]:
+                g["positions"] = _new_defaults()
+            if flags["stress"]:
+                g["strain"] = _new_defaults()
         defaults_map[tname] = base
 
-    # 3) Normalize user-provided loss into:
-    #    - string_loss_type: global type if loss: "<string>"
-    #    - user_loss_map: per-target specs (already migrated forces/stress/virial)
-    train_hypers = conf["architecture"]["training"]
-    user_loss = train_hypers.get("loss", None)
+    # 3) Parse user-provided loss configuration
+    train_loss = conf["architecture"]["training"].get("loss", None)
 
-    string_loss_type: str | None = None
-    user_loss_map: DictConfig = OmegaConf.create({})
+    global_loss_type: str | None = None
+    per_target_raw: dict[str, DictConfig] = {}
 
-    if isinstance(user_loss, str):
-        # single string: apply to all targets later
-        string_loss_type = user_loss
+    # Global string
+    if isinstance(train_loss, str):
+        global_loss_type = train_loss
 
-    elif isinstance(user_loss, (dict, DictConfig)):
-        for key, val in user_loss.items():
-            # keep legacy top-level out of this map; they are handled separately
-            if key in ("energy", "forces", "stress", "virial"):
-                continue
-
-            # Normalize to dict
+    # Per-target dict
+    elif isinstance(train_loss, (dict, DictConfig)):
+        for tname, val in train_loss.items():
             if isinstance(val, str):
+                # type-only shorthand on target
                 node = OmegaConf.create({"type": val})
             else:
-                node = val
+                node = OmegaConf.create(val)
 
-            # Per-target shorthands -> gradients.*
-            if "forces" in node:
-                g = node.setdefault("gradients", OmegaConf.create({}))
-                gpos = g.setdefault("positions", OmegaConf.create({}))
-                fval = node.pop("forces")
-                g["positions"] = OmegaConf.merge(
-                    {"type": fval} if isinstance(fval, str) else fval,
-                    gpos,
+            per_target_raw[tname] = node
+
+    # 4) Assemble final loss per target
+    final_loss = OmegaConf.create({})
+    all_targets = set(per_target_flags.keys()) | set(per_target_raw.keys())
+
+    for tname in all_targets:
+        flags = per_target_flags.get(
+            tname, {"is_energy": False, "forces": False, "stress": False}
+        )
+        is_energy = flags["is_energy"]
+
+        # Start from defaults for known targets, otherwise from bare defaults
+        if tname in defaults_map:
+            base = OmegaConf.create(
+                OmegaConf.to_container(defaults_map[tname], resolve=False)
+            )
+        else:
+            base = _new_defaults()
+            base.setdefault("gradients", OmegaConf.create({}))
+
+        gradients = base.setdefault("gradients", OmegaConf.create({}))
+
+        raw = per_target_raw.get(tname)
+
+        # Override target fields from per-target config
+        if raw is not None:
+            target_overrides = {
+                k: v
+                for k, v in raw.items()
+                if k not in ("forces", "stress", "virial", "gradients")
+            }
+            if target_overrides:
+                base.merge_with(target_overrides)
+
+        # Apply global loss type to targets and any existing default gradients
+        if global_loss_type is not None:
+            base["type"] = global_loss_type
+            for g_cfg in gradients.values():
+                g_cfg["type"] = global_loss_type
+
+        # Gradient overrides from per-target config
+        gradient_overrides: dict[str, dict] = {}
+
+        if raw is not None:
+            # Energy shorthands: forces, stress or virial
+            has_forces_key = "forces" in raw
+            has_stress_key = "stress" in raw
+            has_virial_key = "virial" in raw
+
+            if (has_forces_key or has_stress_key or has_virial_key) and not is_energy:
+                raise ValueError(
+                    f"'forces', 'stress', 'virial' loss entries are only allowed "
+                    f"for energy-like targets, but target '{tname}' is not energy-like."
                 )
 
-            for k_legacy in ("stress", "virial"):
-                if k_legacy in node:
-                    g = node.setdefault("gradients", OmegaConf.create({}))
-                    gstr = g.setdefault("strain", OmegaConf.create({}))
-                    sval = node.pop(k_legacy)
-                    g["strain"] = OmegaConf.merge(
-                        {"type": sval} if isinstance(sval, str) else sval,
-                        gstr,
+            if has_stress_key and has_virial_key:
+                raise ValueError(
+                    f"Both 'stress' and 'virial' provided for target '{tname}'. "
+                    "Use only one of them."
+                )
+
+            if is_energy:
+                # forces -> positions
+                if has_forces_key:
+                    fval = raw["forces"]
+                    cfg = (
+                        {"type": fval}
+                        if isinstance(fval, str)
+                        else OmegaConf.to_container(fval, resolve=False)
+                    )
+                    gradient_overrides["positions"] = cfg
+
+                # stress/virial -> strain
+                if has_stress_key or has_virial_key:
+                    sval = raw["stress"] if has_stress_key else raw["virial"]
+                    cfg = (
+                        {"type": sval}
+                        if isinstance(sval, str)
+                        else OmegaConf.to_container(sval, resolve=False)
+                    )
+                    gradient_overrides["strain"] = cfg
+
+            # Explicit gradients section
+            gnode = raw.get("gradients")
+            if isinstance(gnode, (dict, DictConfig)):
+                for gname, gval in gnode.items():
+                    cfg = (
+                        {"type": gval}
+                        if isinstance(gval, str)
+                        else OmegaConf.to_container(gval, resolve=False)
+                    )
+                    cur = gradient_overrides.get(gname, {})
+                    cur_dc = OmegaConf.create(cur)
+                    cfg_dc = OmegaConf.create(cfg)
+                    merged = OmegaConf.merge(cur_dc, cfg_dc)
+                    gradient_overrides[gname] = OmegaConf.to_container(
+                        merged, resolve=False
                     )
 
-            user_loss_map[key] = node
+        # Merge gradient overrides into base.gradients
+        for gname, gcfg in gradient_overrides.items():
+            if gname not in gradients:
+                gradients[gname] = OmegaConf.create({})
+            gradients[gname].merge_with(gcfg)
 
-    # 4) Top-level template (lowest-precedence defaults for energy targets)
-    legacy_template: DictConfig = OmegaConf.create({})
-    if isinstance(user_loss, (dict, DictConfig)):
-        if "energy" in user_loss:
-            legacy_template["energy"] = (
-                OmegaConf.create({"type": user_loss["energy"]})
-                if isinstance(user_loss["energy"], str)
-                else user_loss["energy"]
-            )
-        if "forces" in user_loss:
-            legacy_template["forces"] = (
-                OmegaConf.create({"type": user_loss["forces"]})
-                if isinstance(user_loss["forces"], str)
-                else user_loss["forces"]
-            )
-        if "stress" in user_loss:
-            legacy_template["stress"] = (
-                OmegaConf.create({"type": user_loss["stress"]})
-                if isinstance(user_loss["stress"], str)
-                else user_loss["stress"]
-            )
-        elif "virial" in user_loss:
-            # 'virial' at the top level is treated as an alias for stress
-            legacy_template["stress"] = (
-                OmegaConf.create({"type": user_loss["virial"]})
-                if isinstance(user_loss["virial"], str)
-                else user_loss["virial"]
-            )
+        # Fill in missing defaults for target
+        _add_defaults_in_place(base)
 
-    # 5) Assemble final per-target loss with the desired precedence
-    final_loss: DictConfig = OmegaConf.create({})
-    target_names = set(defaults_map.keys()) | set(user_loss_map.keys())
+        # Fill in missing defaults for each gradient
+        for gcfg in gradients.values():
+            _add_defaults_in_place(gcfg)
 
-    for tname in target_names:
-        # Start from defaults (lowest precedence)
-        base = defaults_map.get(tname, _new_loss_defaults())
-        layered = base
+        final_loss[tname] = base
 
-        flg = per_target_flags.get(
-            tname,
-            {"is_energy": False, "forces": False, "stress": False},
-        )
-
-        # (a) Root-level energy template applies to all energy-like targets as default
-        if flg["is_energy"] and "energy" in legacy_template:
-            layered = OmegaConf.merge(layered, legacy_template["energy"])
-
-        # (b) Per-target user config has higher precedence
-        if tname in user_loss_map:
-            layered = OmegaConf.merge(layered, user_loss_map[tname])
-
-        # (c) Top-level forces/stress act as defaults for gradients.
-        #     Only if:
-        #       - target is an energy,
-        #       - dataset requested that gradient,
-        #       - and target does not have a non-empty config for that gradient.
-        if flg["is_energy"] and isinstance(legacy_template, (dict, DictConfig)):
-            g = layered.get("gradients")
-            if not isinstance(g, (dict, DictConfig)):
-                g = layered["gradients"] = OmegaConf.create({})
-
-            # forces -> gradients.positions
-            if flg["forces"] and "forces" in legacy_template:
-                pos = g.get("positions")
-                if not isinstance(pos, (dict, DictConfig)) or len(pos) == 0:
-                    g["positions"] = OmegaConf.merge(
-                        OmegaConf.create({}),
-                        legacy_template["forces"],
-                    )
-
-            # stress/virial (already mapped to "stress" in legacy_template)
-            if flg["stress"] and "stress" in legacy_template:
-                strain = g.get("strain")
-                if not isinstance(strain, (dict, DictConfig)) or len(strain) == 0:
-                    g["strain"] = OmegaConf.merge(
-                        OmegaConf.create({}),
-                        legacy_template["stress"],
-                    )
-
-        # (d) If there is a global string loss, force parent + all gradients to that
-        # type
-        if string_loss_type is not None:
-            layered["type"] = string_loss_type
-            _force_all_gradient_types(layered, string_loss_type)
-
-        # (e) Inherit parent hyperparams into gradients, then finalize Huber deltas
-        _inherit_parent_into_gradients(layered)
-        _finalize_huber(layered)
-
-        final_loss[tname] = layered
-
-    # Write back
     conf["architecture"]["training"]["loss"] = final_loss
     return conf
 
