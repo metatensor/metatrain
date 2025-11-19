@@ -12,7 +12,8 @@ from metatrain.utils.data import (
     get_dataset,
 )
 from metatrain.utils.data.target_info import get_energy_target_info
-from metatrain.utils.omegaconf import CONF_LOSS
+from metatrain.utils.hypers import init_with_defaults
+from metatrain.utils.loss import LossSpecification
 from metatrain.utils.testing.checkpoints import (
     checkpoint_did_not_change,
     make_checkpoint_load_tests,
@@ -92,7 +93,10 @@ def model_trainer():
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 1
     loss_hypers = OmegaConf.create(
-        {"positions": CONF_LOSS.copy(), "momenta": CONF_LOSS.copy()}
+        {
+            "positions": init_with_defaults(LossSpecification),
+            "momenta": init_with_defaults(LossSpecification),
+        }
     )
     loss_hypers = OmegaConf.to_container(loss_hypers, resolve=True)
     hypers["training"]["loss"] = loss_hypers
