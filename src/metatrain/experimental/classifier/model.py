@@ -134,18 +134,10 @@ class Classifier(ModelInterface[ModelHypers]):
         return_dict: Dict[str, TensorMap] = {}
 
         # Request features from the wrapped model (per-atom features)
-        features_output = ModelOutput(
-            quantity="",
-            unit="",
-            per_atom=True,  # Request per-atom features
-        )
+        features_output = ModelOutput(per_atom=True)
         features_dict = self.model(
             systems, {"features": features_output}, selected_atoms
         )
-
-        print(features_dict["features"])
-        print(features_dict["features"].block().samples)
-        print(features_dict["features"].block().values.shape)
 
         # Average over atoms to get system-level features
         averaged_features = mts.mean_over_samples(
@@ -187,7 +179,6 @@ class Classifier(ModelInterface[ModelHypers]):
         probabilities = torch.nn.functional.softmax(logits, dim=-1)
 
         # Create output TensorMap
-
         for name in outputs:
             if name == "features":
                 continue  # Skip features output

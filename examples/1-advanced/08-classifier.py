@@ -194,8 +194,8 @@ for structure in structures:
     # Get class from one-hot encoding
     labels.append(np.argmax(structure.info["class"]))
     probabilities_list.append(probs)
-bottleneck_features = np.array(bottleneck_features, dtype=np.float64)
-labels = np.array(labels, dtype=np.int64)
+bottleneck_features = np.array(bottleneck_features)
+labels = np.array(labels)
 
 # Plot the features for the three classes
 plt.figure(figsize=(5, 3))
@@ -211,7 +211,7 @@ for class_id in np.unique(labels):
         bottleneck_features[mask, 0],
         bottleneck_features[mask, 1],
         label=label,
-        alpha=0.7,
+        alpha=0.3,
     )
 plt.xlabel("Feature 1")
 plt.ylabel("Feature 2")
