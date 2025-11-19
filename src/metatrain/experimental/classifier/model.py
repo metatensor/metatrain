@@ -143,6 +143,10 @@ class Classifier(ModelInterface[ModelHypers]):
             systems, {"features": features_output}, selected_atoms
         )
 
+        print(features_dict["features"])
+        print(features_dict["features"].block().samples)
+        print(features_dict["features"].block().values.shape)
+
         # Average over atoms to get system-level features
         averaged_features = mts.mean_over_samples(
             features_dict["features"], sample_names=["atom"]
