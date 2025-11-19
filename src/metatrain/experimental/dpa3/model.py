@@ -22,6 +22,8 @@ from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
+from .documentation import ModelHypers
+
 
 # Data processing
 def concatenate_structures(systems: List[System]):
@@ -67,7 +69,7 @@ def concatenate_structures(systems: List[System]):
 
 
 # Model definition
-class DPA3(ModelInterface):
+class DPA3(ModelInterface[ModelHypers]):
     __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
@@ -84,7 +86,7 @@ class DPA3(ModelInterface):
 
     component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
         self.atomic_types = dataset_info.atomic_types
         self.dtype = self.hypers["descriptor"]["precision"]
@@ -274,7 +276,7 @@ class DPA3(ModelInterface):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(return_dict)
+            return_dict = self.scaler(systems, return_dict)
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
                 for name, output in outputs.items():

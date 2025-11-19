@@ -14,6 +14,7 @@ from metatrain.utils.data import (
     CombinedDataLoader,
     Dataset,
     _is_disk_dataset,
+    unpack_batch,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
@@ -34,13 +35,14 @@ from metatrain.utils.transfer import (
     batch_to,
 )
 
+from .documentation import TrainerHypers
 from .model import DPA3
 
 
-class Trainer(TrainerInterface):
+class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 1
 
-    def __init__(self, hypers):
+    def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)
 
         self.optimizer_state_dict = None
@@ -137,7 +139,11 @@ class Trainer(TrainerInterface):
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
             model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
+                train_datasets,
+                model.additive_models,
+                self.hypers["batch_size"],
+                is_distributed,
+                # TODO: fixed_scaling_weights
             )
 
         if is_distributed:
@@ -178,7 +184,9 @@ class Trainer(TrainerInterface):
 
         # Create dataloader for the training datasets:
         train_dataloaders = []
-        for train_dataset, train_sampler in zip(train_datasets, train_samplers):
+        for train_dataset, train_sampler in zip(
+            train_datasets, train_samplers, strict=True
+        ):
             if len(train_dataset) < self.hypers["batch_size"]:
                 raise ValueError(
                     f"A training dataset has fewer samples "
@@ -206,7 +214,7 @@ class Trainer(TrainerInterface):
 
         # Create dataloader for the validation datasets:
         val_dataloaders = []
-        for val_dataset, val_sampler in zip(val_datasets, val_samplers):
+        for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
             if len(val_dataset) < self.hypers["batch_size"]:
                 raise ValueError(
                     f"A validation dataset has fewer samples "
@@ -306,7 +314,7 @@ class Trainer(TrainerInterface):
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
-                systems, targets, extra_data = batch
+                systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
@@ -317,7 +325,7 @@ class Trainer(TrainerInterface):
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                    systems, targets, (model.module if is_distributed else model).scaler
                 )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
@@ -365,7 +373,7 @@ class Trainer(TrainerInterface):
 
             val_loss = 0.0
             for batch in val_dataloader:
-                systems, targets, extra_data = batch
+                systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
@@ -376,7 +384,7 @@ class Trainer(TrainerInterface):
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                    systems, targets, (model.module if is_distributed else model).scaler
                 )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
@@ -424,9 +432,6 @@ class Trainer(TrainerInterface):
             finalized_val_info = {"loss": val_loss, **finalized_val_info}
 
             if epoch == start_epoch:
-                scaler_scales = (
-                    model.module if is_distributed else model
-                ).scaler.get_scales_dict()
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
                     dataset_info=(
@@ -434,14 +439,6 @@ class Trainer(TrainerInterface):
                     ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
-                    scales={
-                        key: (
-                            scaler_scales[key.split(" ")[0]]
-                            if ("MAE" in key or "RMSE" in key)
-                            else 1.0
-                        )
-                        for key in finalized_train_info.keys()
-                    },
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(
