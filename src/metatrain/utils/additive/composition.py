@@ -14,9 +14,12 @@ from metatrain.utils.data import (
 )
 
 from ..data import DatasetInfo, TargetInfo, unpack_batch
-from ..jsonschema import validate
 from ..transfer import batch_to
-from ._base_composition import BaseCompositionModel, _include_key
+from ._base_composition import (
+    BaseCompositionModel,
+    FixedCompositionWeights,
+    _include_key,
+)
 from .remove import remove_additive
 
 
@@ -38,10 +41,11 @@ class CompositionModel(torch.nn.Module):
         super().__init__()
 
         # `hypers` should be an empty dictionary
-        validate(
-            instance=hypers,
-            schema={"type": "object", "additionalProperties": False},
-        )
+        if not (isinstance(hypers, dict) and len(hypers) == 0):
+            raise ValueError(
+                f"{self.__class__.__name__} hypers takes an empty dictionary. "
+                f"Got: {hypers}."
+            )
 
         self.dataset_info = dataset_info
         """An :py:class:`DatasetInfo` containing information about the dataset,
@@ -164,7 +168,7 @@ class CompositionModel(torch.nn.Module):
         collate_fn: CollateFn,
         batch_size: int,
         is_distributed: bool,
-        fixed_weights: Optional[Dict[str, Dict[int, float]]] = None,
+        fixed_weights: Optional[FixedCompositionWeights] = None,
     ) -> None:
         """
         Train the composition model on the provided training data in the ``datasets``.

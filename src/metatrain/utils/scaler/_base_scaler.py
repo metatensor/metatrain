@@ -12,6 +12,9 @@ from metatensor.torch import LabelsEntry, Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
 
+FixedScalerWeights = dict[str, Union[float, dict[int, float]]]
+
+
 class BaseScaler(torch.nn.Module):
     """
     Fits a scaler for a dict of targets. Scales are computed as the per-property (and
@@ -339,7 +342,7 @@ class BaseScaler(torch.nn.Module):
 
     def fit(
         self,
-        fixed_weights: Optional[Dict[str, Union[float, Dict[int, float]]]] = None,
+        fixed_weights: Optional[FixedScalerWeights] = None,
         targets_to_fit: Optional[List[str]] = None,
     ) -> None:
         """
@@ -414,6 +417,7 @@ class BaseScaler(torch.nn.Module):
         systems: List[System],
         outputs: Dict[str, TensorMap],
         remove: bool,
+        selected_atoms: Optional[Labels],
     ) -> Dict[str, TensorMap]:
         """
         Scales the targets based on the stored standard deviations.
@@ -424,6 +428,7 @@ class BaseScaler(torch.nn.Module):
             subset of the target names used during fitting.
         :param remove: If True, removes the scaling (i.e., divides by the scales). If
             False, applies the scaling (i.e., multiplies by the scales).
+        :param selected_atoms: Optional labels for selected atoms.
         :returns: A dictionary with the scaled outputs for each system.
 
         :raises ValueError: If no scales have been computed or if `outputs` keys
@@ -512,6 +517,27 @@ class BaseScaler(torch.nn.Module):
 
                 elif self.sample_kinds[output_name] == "per_atom":
                     output_block_types = torch.cat([system.types for system in systems])
+
+                    output_block_types = torch.cat([system.types for system in systems])
+                    if selected_atoms is not None:
+                        # Scale each atomic type separately, also handling selected
+                        # atoms and/or potential reordering
+                        system_indices = output_block.samples.values[:, 0]
+                        atom_indices = output_block.samples.values[:, 1]
+                        system_lengths = torch.tensor(
+                            [len(s.types) for s in systems],
+                            dtype=torch.long,
+                            device=device,
+                        )
+                        offset = torch.cat(
+                            [
+                                torch.zeros(1, dtype=torch.long, device=device),
+                                torch.cumsum(system_lengths[:-1], dim=0),
+                            ]
+                        )
+                        output_block_types = output_block_types[
+                            offset[system_indices] + atom_indices
+                        ]
 
                     # TODO: gradients of per-atom targets are not supported
                     if len(output_block.gradients_list()) > 0:
@@ -671,6 +697,7 @@ class BaseScaler(torch.nn.Module):
             target_name: tm.to(device=device, dtype=dtype)
             for target_name, tm in self.scales.items()
         }
+
 
 def _include_key(key: LabelsEntry) -> bool:
     """

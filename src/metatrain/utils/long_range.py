@@ -1,7 +1,28 @@
+# mypy: disable-error-code=misc
+# We ignore misc errors in this file because TypedDict
+# with default values is not allowed by mypy.
 import torch
 from metatomic.torch import System
+from typing_extensions import TypedDict
 
 from metatrain.utils.neighbor_lists import NeighborListOptions
+
+
+class LongRangeHypers(TypedDict):
+    """In some systems and datasets, enabling long-range Coulomb interactions
+    might be beneficial for the accuracy of the model and/or
+    its physical correctness."""
+
+    enable: bool = False
+    """Toggle for enabling long-range interactions"""
+    use_ewald: bool = False
+    """Use Ewald summation. If False, P3M is used"""
+    smearing: float = 1.4
+    """Smearing width in Fourier space"""
+    kspace_resolution: float = 1.33
+    """Resolution of the reciprocal space grid"""
+    interpolation_nodes: int = 5
+    """Number of grid points for interpolation (for PME only)"""
 
 
 class LongRangeFeaturizer(torch.nn.Module):
@@ -17,7 +38,7 @@ class LongRangeFeaturizer(torch.nn.Module):
 
     def __init__(
         self,
-        hypers: dict,
+        hypers: LongRangeHypers,
         feature_dim: int,
         neighbor_list_options: NeighborListOptions,
     ) -> None:
