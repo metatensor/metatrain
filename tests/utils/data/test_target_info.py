@@ -52,14 +52,15 @@ def cartesian_target_config() -> DictConfig:
     )
 
 
-@pytest.fixture
-def spherical_target_config() -> DictConfig:
+@pytest.fixture(params=["int_num_subtargets", "list_num_subtargets"])
+def spherical_target_config(request) -> DictConfig:
+    num_subtargets = 1 if request.param == "int_num_subtargets" else [1, 2]
     return DictConfig(
         {
             "quantity": "spherical",
             "unit": "",
             "per_atom": False,
-            "num_subtargets": 1,
+            "num_subtargets": num_subtargets,
             "type": {
                 "spherical": {
                     "irreps": [
@@ -162,11 +163,15 @@ def test_is_compatible_with(energy_target_config, spherical_target_config):
         "energy_target_config",
         "scalar_target_config",
         "cartesian_target_config",
-        "spherical_target_config",
     ],
 )
 def test_instance_torchscript_compatible(target_config, request):
     target_info = get_generic_target_info(
         "target_name", request.getfixturevalue(target_config)
     )
+    torch.jit.script(target_info)
+
+
+def test_instance_torchscript_compatible_spherical(spherical_target_config):
+    target_info = get_generic_target_info("target_name", spherical_target_config)
     torch.jit.script(target_info)
