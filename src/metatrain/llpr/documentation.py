@@ -10,6 +10,11 @@ The implementation of the LLPR as a separate architecture within ``metatrain``
 allows the users to compute the uncertainties without dealing with the fine details
 of the LLPR implementation.
 
+This implementation further allows the user to perform gradient-based tuning of
+the ensemble weights sampled from the LLPR formalism, which can lead to improved
+uncertainty estimates. Gradients (e.g. forces and stresses) are not yet used in this
+implementation of the LLPR.
+
 {{SECTION_INSTALLATION}}
 
 {{SECTION_DEFAULT_HYPERS}}

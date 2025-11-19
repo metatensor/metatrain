@@ -729,11 +729,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
     ) -> "LLPRUncertaintyModel":
         model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], context)
         if context == "finetune":
-            raise NotImplementedError(
-                "Finetuning directly from the LLPR checkpoint is not supported. "
-                "You can instead extract the wrapped model, perform finetuning, "
-                "then re-wrap the model with LLPRUncertaintyModel afterwards."
-            )
+            # In this case, we want to allow fine-tuning of the underlying model by
+            # extracting it and returning it directly
+            return model
         elif context == "restart":
             logging.info(
                 "Restart for LLPRUncertaintyModel will attempt continuation of "

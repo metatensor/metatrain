@@ -88,9 +88,7 @@ def test_with_old_llpr_checkpoint(monkeypatch, tmp_path):
     structure.calc = calculator
     dyn = VelocityVerlet(structure, 0.5 * ase.units.fs)
     dyn.run(10)
-    calculator.run_model(
-        structure, {"energy_ensemble": ModelOutput(per_atom=True)}
-    )
+    calculator.run_model(structure, {"energy_ensemble": ModelOutput(per_atom=True)})
 
     # 4. Fine-tune the PET-MAD model through the LLPR wrapper:
     command = ["mtt", "train", "options-pet-ft.yaml"]
