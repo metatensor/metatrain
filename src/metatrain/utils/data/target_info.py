@@ -489,9 +489,12 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
         sample_names.append("atom")
 
     irreps = target["type"]["spherical"]["irreps"]
+    num_subtargets = target["num_subtargets"]
+    if isinstance(num_subtargets, int):
+        num_subtargets = [num_subtargets] * len(irreps)
     keys = []
     blocks = []
-    for irrep in irreps:
+    for irrep, num_properties in zip(irreps, num_subtargets, strict=True):
         components = [
             Labels(
                 names=["o3_mu"],
@@ -505,7 +508,7 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
             values=torch.empty(
                 0,
                 2 * irrep["o3_lambda"] + 1,
-                target["num_subtargets"],
+                num_properties,
                 dtype=torch.float64,
             ),
             samples=Labels(
@@ -513,9 +516,7 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
                 values=torch.empty((0, len(sample_names)), dtype=torch.int32),
             ),
             components=components,
-            properties=Labels.range(
-                target_name.replace("mtt::", ""), target["num_subtargets"]
-            ),
+            properties=Labels.range(target_name.replace("mtt::", ""), num_properties),
         )
         keys.append([irrep["o3_lambda"], irrep["o3_sigma"]])
         blocks.append(block)

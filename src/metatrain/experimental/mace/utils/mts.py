@@ -3,12 +3,14 @@
 from typing import Dict, List, Optional
 
 import torch
+from e3nn import o3
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import ModelOutput, System
 
 from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import TargetInfo
+from metatrain.utils.data.target_info import get_generic_target_info
 
 
 def add_contribution(
@@ -102,6 +104,54 @@ def e3nn_to_tensormap(
         pointer = end
 
     return TensorMap(keys=target_info.layout.keys, blocks=blocks)
+
+
+def get_e3nn_target_info(target_name: str, target: dict) -> TargetInfo:
+    """Get the target info corresponding to some e3nn irreps.
+    
+    :param target_name: Name of the target.
+    :param target: Target dictionary containing the irreps and other info.
+    :return: The corresponding TargetInfo object.
+    """
+    irreps = o3.Irreps(target["irreps"])
+    return get_generic_target_info(
+        target_name,
+        {
+            "quantity": target.get("quantity", ""),
+            "unit": target.get("unit", ""),
+            "type": {
+                "spherical": {
+                    "irreps": [
+                        {"o3_lambda": ir.ir.l, "o3_sigma": ir.ir.p * ((-1) ** ir.ir.l)}
+                        for ir in irreps
+                    ]
+                }
+            },
+            "num_subtargets": [ir.mul for ir in irreps],
+            "per_atom": target["per_atom"],
+        },
+    )
+
+
+def target_info_to_e3nn_irreps(target_info: TargetInfo) -> o3.Irreps:
+    """Convert a TargetInfo to e3nn Irreps.
+    
+    :param target_info: TargetInfo object.
+    :return: e3nn Irreps corresponding to the TargetInfo.
+    """
+    irreps = []
+    for key, block in target_info.layout.items():
+        multiplicity = len(block.properties.values)
+
+        if target_info.is_scalar:
+            irreps.append((multiplicity, (0, 1)))
+        elif target_info.is_spherical:
+            ell = int(key["o3_lambda"])
+            irreps.append((multiplicity, (ell, (-1) ** ell)))
+        elif target_info.is_cartesian:
+            ell = 1
+            irreps.append((multiplicity, (ell, (-1) ** ell)))
+    return o3.Irreps(irreps)
 
 
 def get_system_indices_and_labels(systems: List[System]) -> tuple[torch.Tensor, Labels]:
