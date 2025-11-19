@@ -79,18 +79,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.to(device=device, dtype=dtype)
 
         # Determine number of classes from the training data (one-hot encoded)
-        num_classes = None
-        for dataset in train_datasets:
-            for sample in dataset:
-                target_name = list(model.dataset_info.targets.keys())[0]
-                sample_as_dict = sample._asdict()
-                target = sample_as_dict[target_name]
-                target_value = target.block().values
-                if num_classes is None:
-                    num_classes = target_value.shape[-1]
-                break
-            if num_classes is not None:
-                break
+        num_classes = (
+            train_datasets[0][0]
+            ._asdict()[list(model.dataset_info.targets.keys())[0]]
+            .block()
+            .values.shape[-1]
+        )
 
         logging.info(f"Number of classes detected: {num_classes}")
 
@@ -103,8 +97,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         with torch.no_grad():
             features_dict = model.model(
                 [system],
-                {"features": ModelOutput(quantity="", unit="", per_atom=True)},
-                None,
+                {"features": ModelOutput()},
             )
             averaged_features = mts.mean_over_samples(
                 features_dict["features"], sample_names=["atom"]
@@ -172,8 +165,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
             weight_decay=self.hypers["weight_decay"],
         )
 
-
-
         # Log the initial learning rate:
         logging.info(f"Learning rate: {self.hypers['learning_rate']}")
 
@@ -212,7 +203,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 probabilities = outputs[target_name].block().values
                 # Get target probabilities (supports both one-hot and soft targets)
                 target_probs = targets[target_name].block().values
-                
+
                 # Compute cross-entropy loss with soft targets
                 # CE = -sum(target_probs * log(predicted_probs))
                 # Add small epsilon to avoid log(0)
@@ -264,7 +255,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     probabilities = outputs[target_name].block().values
                     # Get target probabilities (supports both one-hot and soft targets)
                     target_probs = targets[target_name].block().values
-                    
+
                     # Compute cross-entropy loss with soft targets
                     # CE = -sum(target_probs * log(predicted_probs))
                     log_probs = torch.log(probabilities + 1e-10)

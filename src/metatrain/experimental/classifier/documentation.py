@@ -11,7 +11,7 @@ The model extracts per-atom features from the frozen backbone, averages them to 
 system-level representations, and then passes them through the MLP for classification.
 The targets should be class probabilities as vectors, supporting both one-hot encodings
 (e.g., [1.0, 0.0, 0.0]) and soft/fractional targets (e.g., [0.7, 0.2, 0.1]), so that
-we can handle both hard and soft classification tasks. The loss function is a 
+we can handle both hard and soft classification tasks. The loss function is a
 cross-entropy loss that supports soft target distributions.
 
 The last layer in `hidden_sizes` acts as a bottleneck that can be used to extract
@@ -35,10 +35,9 @@ class ModelHypers(TypedDict):
 
     hidden_sizes: list[int]
     """List of hidden layer sizes for the MLP.
-    
     For example, [64, 32] creates a 2-layer MLP with 64 and 32 neurons
-    respectively. The last layer acts as a bottleneck that can be used to
-    extract features/collective variables.
+    respectively. The last layer should be set to a small number (generally one or two)
+    if the goal is to extract collective variables.
     """
 
 
@@ -53,13 +52,11 @@ class TrainerHypers(TypedDict):
     """Learning rate for the optimizer."""
     warmup_fraction: float = 0.1
     """Fraction of total training steps used for learning rate warmup.
-    
     The learning rate increases linearly from 0 to the base learning rate
     during this period, then follows a cosine annealing schedule.
     """
     model_checkpoint: Optional[str] = None
     """Path to the pre-trained model checkpoint.
-    
     This checkpoint's backbone will be frozen and used for feature extraction.
     """
     weight_decay: float = 0.0

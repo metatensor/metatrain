@@ -52,7 +52,6 @@ class Classifier(ModelInterface[ModelHypers]):
 
         self.hypers = hypers
         self.dataset_info = dataset_info
-        self.model: Optional[ModelInterface] = None
 
     def set_wrapped_model(self, model: ModelInterface) -> None:
         """Set and freeze the wrapped pre-trained model.
@@ -179,7 +178,7 @@ class Classifier(ModelInterface[ModelHypers]):
             return_dict["features"] = output_tmap
 
         logits = self.linear(features_after_mlp)
-        
+
         # Apply softmax to get probabilities
         probabilities = torch.nn.functional.softmax(logits, dim=-1)
 

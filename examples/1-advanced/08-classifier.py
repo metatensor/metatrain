@@ -45,8 +45,8 @@ np.random.seed(42)
 
 structures = []
 
-# Generate 100 diamond structures with small random perturbations
-for i in range(100):
+# Generate 10 diamond structures with small random perturbations
+for i in range(10):
     diamond = bulk("C", "diamond", a=3.57)
     diamond = diamond * (2, 2, 2)  # Make it bigger
     diamond.rattle(stdev=0.5, seed=i)  # Add random perturbations
@@ -54,8 +54,8 @@ for i in range(100):
     diamond.info["class"] = [1.0, 0.0, 0.0]
     structures.append(diamond)
 
-# Generate 100 graphite structures (using layered graphene-like structures)
-for i in range(100):
+# Generate 10 graphite structures (using layered graphene-like structures)
+for i in range(10):
     # Create a graphite-like structure
     graphite = graphene(formula="C2", size=(3, 3, 1), a=2.46, vacuum=None)
     # Stack two layers
@@ -68,8 +68,8 @@ for i in range(100):
     graphite.info["class"] = [0.0, 1.0, 0.0]
     structures.append(graphite)
 
-# Generate 100 graphene structures (single layer)
-for i in range(100):
+# Generate 10 graphene structures (single layer)
+for i in range(10):
     graphene_struct = graphene(formula="C2", size=(3, 3, 1), a=2.46, vacuum=10.0)
     graphene_struct.rattle(stdev=0.5, seed=i)
     # One-hot encoding for graphene (class 2): [0.0, 0.0, 1.0]
