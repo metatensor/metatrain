@@ -15,10 +15,10 @@ jobs:
         architecture-name:
           - gap
           - soap-bpnn
+          - llpr
           - pet
           - nanopet
           - flashmd
-          - llpr
 
     runs-on: ubuntu-22.04
 
@@ -52,4 +52,3 @@ jobs:
         fail_ci_if_error: false
         files: coverage.xml
         flags: coverage_${{ matrix.architecture-name }}
-        token: ${{ secrets.CODECOV_TOKEN }}

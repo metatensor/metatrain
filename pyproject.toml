@@ -96,6 +96,7 @@ omit = [
     "*/site-packages/*",
     "*/metatrain/utils/testing/*",
     "tests/*",
+    "*/tests/*",
     "examples/*"
 ]
 
