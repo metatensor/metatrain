@@ -97,6 +97,14 @@ def make_checkpoint_load_tests(
     *,
     incompatible_trainer_checkpoints: Optional[List[str]] = None,
 ) -> Callable:
+    """
+    Factory function that creates a test function to check loading of old checkpoints.
+
+    :param DEFAULT_HYPERS: The default hypers to be used for the trainer.
+    :param incompatible_trainer_checkpoints: A list of checkpoint paths that are known
+        to be incompatible with the current trainer version when restarting.
+    :return: A test function that checks loading of old checkpoints.
+    """
     if incompatible_trainer_checkpoints is None:
         incompatible_trainer_checkpoints = []
 

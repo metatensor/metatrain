@@ -17,6 +17,7 @@ def concatenate_structures(
     neighbor_list_options: NeighborListOptions,
     selected_atoms: Optional[Labels] = None,
 ):
+    """Concatenate a list of systems into a single batch."""
     positions: list[torch.Tensor] = []
     momenta: list[torch.Tensor] = []
     centers: list[torch.Tensor] = []

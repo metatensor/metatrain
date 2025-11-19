@@ -13,10 +13,10 @@ dependencies = [
     "ase",
     "huggingface_hub",
     "numpy",
-    "metatensor-learn >=0.3.2,<0.4",
-    "metatensor-operations >=0.3.4,<0.4",
-    "metatensor-torch >=0.8.1,<0.9",
-    "metatomic-torch >=0.1.5,<0.2",
+    "metatensor-learn >=0.4.0,<0.5",
+    "metatensor-operations >=0.4.0,<0.5",
+    "metatensor-torch >=0.8.2,<0.9",
+    "metatomic-torch >=0.1.6,<0.2",
     "jsonschema",
     "pydantic >= 2.12", # Because of passing arguments to validator functions
     "typing_extensions", # For python < 3.12 typing.TypedDict has limited functionality
@@ -116,8 +116,11 @@ exclude = ["docs/src/examples/**", "src/metatrain/_version.py"]
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "B", "I"]
+select = ["E", "F", "B", "I", "D103"]
 ignore = ["B018", "B904"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/{docs,deprecated,examples,experimental,tests}/*" = ["D"]
 
 [tool.ruff.lint.isort]
 lines-after-imports = 2
@@ -138,6 +141,15 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "metatrain.*.documentation"
 disable_error_code = ["misc"]
+
+[tool.pydoclint]
+quiet = true
+style = "sphinx"
+check_return_types = false
+arg_type_hints_in_docstring = false
+skip_checking_raises = true
+check_class_attributes = false
+skip_checking_short_docstrings = false
 
 [tool.pytest.ini_options]
 # ignore" a bunch of internal warnings with Python 3.13 and PyTorch
