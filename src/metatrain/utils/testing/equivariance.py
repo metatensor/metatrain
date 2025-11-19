@@ -6,6 +6,10 @@ from scipy.spatial.transform import Rotation
 
 
 def get_random_rotation() -> Rotation:
+    """Generate a random 3D rotation.
+
+    :return: A scipy.spatial.transform.Rotation object representing the random rotation.
+    """
     return Rotation.random()
 
 
