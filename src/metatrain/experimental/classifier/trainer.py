@@ -162,7 +162,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         optimizer = torch.optim.Adam(
             model.mlp.parameters(),
             lr=self.hypers["learning_rate"],
-            weight_decay=self.hypers["weight_decay"],
         )
 
         # Log the initial learning rate:

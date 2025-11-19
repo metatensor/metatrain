@@ -10,12 +10,11 @@ top of the features extracted from the backbone.
 The model extracts per-atom features from the frozen backbone, averages them to get
 system-level representations, and then passes them through the MLP for classification.
 The targets should be class probabilities as vectors, supporting both one-hot encodings
-(e.g., [1.0, 0.0, 0.0]) and soft/fractional targets (e.g., [0.7, 0.2, 0.1]), so that
-we can handle both hard and soft classification tasks. The loss function is a
-cross-entropy loss that supports soft target distributions.
+(e.g., [1.0, 0.0, 0.0]) and soft/fractional targets (e.g., [0.7, 0.2, 0.1]). The loss
+function is a standard cross-entropy loss for classification.
 
-The last layer in `hidden_sizes` acts as a bottleneck that can be used to extract
-features/collective variables for downstream analysis.
+The last layer in `hidden_sizes` can be set to a small value if the goal is to use it to
+extract features for low-dimensional visualization and/or collective variables.
 
 {{SECTION_INSTALLATION}}
 
@@ -59,9 +58,7 @@ class TrainerHypers(TypedDict):
     """Path to the pre-trained model checkpoint.
     This checkpoint's backbone will be frozen and used for feature extraction.
     """
-    weight_decay: float = 0.0
-    """Weight decay (L2 regularization) for the optimizer."""
-    log_interval: int = 10
+    log_interval: int = 1
     """Interval for logging training progress (in epochs)."""
-    checkpoint_interval: int = 10
+    checkpoint_interval: int = 100
     """Interval for saving checkpoints during training (in epochs)."""
