@@ -388,49 +388,73 @@ def expand_loss_config(conf: DictConfig) -> DictConfig:
     Expand the loss configuration to fully specify loss terms for different targets and
     their gradients.
 
-    Supported user forms:
+    Supported user forms
+    --------------------
 
-      1) loss: <loss_type>
-         - Set the default type of all targets and gradient losses.
+    1. Global type
 
-      2) loss:
-           <target>: <loss_type>
-           ...
-         - Any gradient for this target keep defaults.
+       .. code-block:: yaml
 
-      3) loss:
-           <energy_target>:
-             type: <loss_type>
-             forces: <loss_type_for_forces>      # or dict with loss fields
-             stress: <loss_type_for_stress>      # or dict
-             (or)
-             virial: <loss_type_for_virial>      # or dict
+          loss: <loss_type>
 
+       Sets the default loss ``type`` for all targets **and** their gradients.
 
-         - Only allowed for energy-like targets.
-         - `forces` config expands to gradients.positions
-         - `stress`/`virial` config expands to gradients.strain
+    2. Per-target types
 
-      4) loss:
-           <target>:
-             type: <loss_type>
-             gradients:
-               positions: <loss_type_for_grad>   # or dict with loss fields
-               strain:
-                 type: ...
-                 weight: ...
-                 ...
+       .. code-block:: yaml
 
-         - Fully explicit gradient specification for any target.
+          loss:
+            <target_1>: <loss_type_1>
+            <target_2>: <loss_type_2>
 
-    All of these are expanded to a full specification:
-    - Every target or gradient loss block has {type, weight, reduction}
-      and a delta if type == "huber".
-    - Unspecified entries keep default values from CONF_LOSS.
-    - Specified entries override defaults.
+       Sets the loss type for the listed targets.
+       Gradients for these targets keep their default configuration.
 
-    :param conf: The loss configuration to expand.
-    :return: A list of expanded loss configurations.
+    3. Energy shorthands (forces / stress / virial)
+
+       .. code-block:: yaml
+
+          loss:
+            <energy_target>:
+              type: <loss_type>
+              forces: <loss_type_for_forces>      # or mapping with loss fields
+              stress: <loss_type_for_stress>      # or mapping
+
+       or
+
+       .. code-block:: yaml
+
+          loss:
+            <energy_target>:
+              type: <loss_type>
+              virial: <loss_type_for_virial>      # or mapping
+
+       These are only allowed for energy-like targets (``quantity: energy`` or
+       target name ``"energy"``):
+
+       * ``forces`` expands to ``gradients.positions``
+       * ``stress`` and ``virial`` expand to ``gradients.strain``
+
+    4. Explicit gradient configuration
+
+       .. code-block:: yaml
+
+          loss:
+            <target>:
+              type: <loss_type>
+              gradients:
+                positions: <loss_type_for_grad>   # or mapping with loss fields
+                strain:
+                  type: ...
+                  weight: ...
+                  reduction: ...
+                  ...
+
+       This gives a fully explicit gradient specification for any target.
+
+    :param conf: The (possibly shorthand) loss configuration to expand.
+    :return: The expanded loss configuration with fully specified targets
+             and gradients.
     """
 
     # Helpers
