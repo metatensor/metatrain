@@ -56,7 +56,7 @@ def get_scheduler(optimizer, train_hypers, steps_per_epoch):
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 5
+    __checkpoint_version__ = 2
 
     def __init__(self, hypers):
         super().__init__(hypers)

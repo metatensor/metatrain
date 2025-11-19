@@ -21,3 +21,22 @@ def model_update_v1_v2(checkpoint: dict) -> None:
     checkpoint["model_data"]["dataset_info"] = checkpoint["wrapped_model_checkpoint"][
         "model_data"
     ]["dataset_info"]
+
+
+def model_update_v2_v3(checkpoint: dict) -> None:
+    """
+    Update a v2 checkpoint to v3.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # no changes needed for model between v2 and v3
+    raise NotImplementedError()
+
+
+def trainer_update_v1_v2(checkpoint: dict) -> None:
+    """
+    Update a v1 trainer checkpoint to v2.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    raise NotImplementedError()
