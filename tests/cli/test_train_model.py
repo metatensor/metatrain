@@ -26,6 +26,7 @@ from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.pydantic import MetatrainValidationError
 from metatrain.utils.testing._utils import WANDB_AVAILABLE
 
 from . import (
@@ -226,19 +227,16 @@ def test_train_unknown_arch_options(monkeypatch, tmp_path):
             length_unit: angstrom
         targets:
             energy:
-            key: U0
-            unit: eV
+                key: U0
+                unit: eV
 
     test_set: 0.5
     validation_set: 0.1
     """
     options = OmegaConf.create(options_str)
 
-    match = (
-        r"Unrecognized options \('num_epoch' was unexpected\). "
-        r"Did you mean 'num_epochs'?"
-    )
-    with pytest.raises(ValueError, match=match):
+    match = r"Unrecognized option 'training\.num_epoch'"
+    with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
 
 
@@ -396,11 +394,11 @@ def test_wrong_test_split_size(split, monkeypatch, tmp_path, options):
     options["test_set"] = split
 
     if split > 1:
-        match = rf"{split} is greater than or equal to the maximum of 1"
+        match = r"Input should be less than 1"
     if split < 0:
-        match = rf"{split} is less than the minimum of 0"
+        match = r"Input should be greater than or equal to 0"
 
-    with pytest.raises(ValueError, match=match):
+    with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
 
 
@@ -415,11 +413,11 @@ def test_wrong_validation_split_size(split, monkeypatch, tmp_path, options):
     options["test_set"] = 0.1
 
     if split > 1:
-        match = rf"{split} is greater than or equal to the maximum of 1"
+        match = r"Input should be less than 1"
     if split <= 0:
-        match = rf"{split} is less than or equal to the minimum of 0"
+        match = r"Input should be greater than 0"
 
-    with pytest.raises(ValueError, match=match):
+    with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
 
 
@@ -890,17 +888,25 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     for tensor_name in m1["model_state_dict"]:
         if "type_to_index" in tensor_name or "spliner" in tensor_name:
             continue  # these are always the same for both models
+
         if "buffer" in tensor_name and (
             "additive" in tensor_name or "scaler" in tensor_name
         ):
             continue  # these are not comparable in general
+
+        if "_mts_helper" in tensor_name:
+            # empty tensor
+            continue
+
         tensor1 = m1["model_state_dict"][tensor_name]
         tensor2 = m2["model_state_dict"][tensor_name]
 
-        if seed is None:
-            assert not torch.allclose(tensor1, tensor2)
-        else:
-            torch.testing.assert_close(tensor1, tensor2)
+        # only compare tensors
+        if isinstance(tensor1, torch.Tensor) and isinstance(tensor2, torch.Tensor):
+            if seed is None:
+                assert not torch.allclose(tensor1, tensor2)
+            else:
+                torch.testing.assert_close(tensor1, tensor2)
 
 
 def test_base_validation(options, monkeypatch, tmp_path):
@@ -909,8 +915,8 @@ def test_base_validation(options, monkeypatch, tmp_path):
 
     options["base_precision"] = 67
 
-    match = r"67 is not one of \[16, 32, 64\]"
-    with pytest.raises(ValueError, match=match):
+    match = r"Input should be 16, 32 or 64"
+    with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
 
 
