@@ -15,7 +15,11 @@ def apply_recalibration_strategy(
        are retrained during calibration (useful for head-only calibration)
     - ens-only: only the ensemble linear layer weights are trained
     input model should be the LLPRUncertaintyModel object.
-    strategy
+
+    :param model: LLPR-wrapped model to be recalibrated.
+    :param target: target property for which recalibration is performed.
+    :param strategy: dictionary specifying the recalibration strategy.
+    :return: the model with updated trainable parameters.
     """
 
     method = strategy.get("strategy", "ens_only").lower()

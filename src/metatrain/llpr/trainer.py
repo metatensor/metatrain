@@ -2,7 +2,7 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Union
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
@@ -21,7 +21,7 @@ from metatrain.utils.data import (
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension, model_from_checkpoint
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import LossAggregator
+from metatrain.utils.loss import LossAggregator, LossSpecification
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -36,12 +36,25 @@ from .model import LLPRUncertaintyModel
 from .modules.recalib import apply_recalibration_strategy
 
 
-def get_scheduler(optimizer, train_hypers, steps_per_epoch):
+def get_scheduler(
+    optimizer: torch.optim.Optimizer,
+    train_hypers: TrainerHypers,
+    steps_per_epoch: int,
+) -> LambdaLR:
+    """
+    Get a CosineAnnealing learning-rate scheduler with warmup
+
+    :param optimizer: The optimizer for which to create the scheduler.
+    :param train_hypers: The training hyperparameters.
+    :param steps_per_epoch: The number of steps per epoch.
+    :return: The learning rate scheduler.
+    """
+    assert train_hypers["num_epochs"] is not None
     total_steps = train_hypers["num_epochs"] * steps_per_epoch
-    warmup_steps = 0  # TODO: no warmup for llp training
+    warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
     min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
 
-    def lr_lambda(current_step: int):
+    def lr_lambda(current_step: int) -> float:
         if current_step < warmup_steps:
             # Linear warmup
             return float(current_step) / float(max(1, warmup_steps))
@@ -60,16 +73,16 @@ def get_scheduler(optimizer, train_hypers, steps_per_epoch):
 class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 1
 
-    def __init__(self, hypers):
+    def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
 
-        self.optimizer_state_dict = None
-        self.scheduler_state_dict = None
-        self.epoch = None
-        self.best_epoch = None
-        self.best_metric = None
-        self.best_model_state_dict = None
-        self.best_optimizer_state_dict = None
+        self.optimizer_state_dict: Optional[Dict[str, Any]] = None
+        self.scheduler_state_dict: Optional[Dict[str, Any]] = None
+        self.epoch: Optional[int] = None
+        self.best_epoch: Optional[int] = None
+        self.best_metric: Optional[float] = None
+        self.best_model_state_dict: Optional[Dict[str, Any]] = None
+        self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
 
     def train(
         self,
@@ -291,10 +304,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
 
         loss_hypers = self.hypers["ens_calib_loss"]
-        loss_fn = LossAggregator(
-            targets=train_targets,
-            config=loss_hypers,
-        )
+        loss_hypers = cast(Dict[str, LossSpecification], loss_hypers)  # mypy
+        loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
 
         logging.info("Using the following loss functions:")
         for name, info in loss_fn.metadata.items():
@@ -353,8 +364,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
             requested_outputs[ensemble_name] = model.capabilities.outputs[ensemble_name]
             requested_outputs[ensemble_name].per_atom = value.per_atom
 
-        epoch = start_epoch
         assert self.hypers["num_epochs"] is not None
+        epoch = start_epoch
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])

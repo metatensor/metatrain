@@ -599,6 +599,11 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
     Gaussian NLL Loss for ensembles based on :py:class:`TensorMap` entries.
     Assumes that ensemble is the outermost dimension of :py:class:`TensorBlock`
     properties.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for torch loss.
     """
 
     def __init__(
@@ -629,8 +634,8 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         apply the torch loss.
 
         :param pred_mean: mean of ensemble predictions :py:class:`TensorMap`.
-        :param pred_var: variance of ensemble predictions :py:class:`TensorMap`.
         :param target: target :py:class:`TensorMap`.
+        :param pred_var: variance of ensemble predictions :py:class:`TensorMap`.
         :return: scalar torch.Tensor of the computed loss.
         """
         list_pred_mean_segments = []
@@ -642,6 +647,9 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         ) -> torch.Tensor:
             """
             Extract values or gradients from a block, flatten to 1D.
+
+            :param tensor_block: input :py:class:`TensorBlock`.
+            :return: flattened torch.Tensor.
             """
             if self.gradient is not None:
                 values = tensor_block.gradient(self.gradient).values
@@ -686,6 +694,7 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         :param predictions: Mapping from target names to TensorMaps, must contain
             ensemble as the outer-most property dimension.
         :param targets: Mapping from target names to their ref value TensorMaps.
+        :param extra_data: Ignored for this loss.
         :return: Scalar loss tensor.
         """
 

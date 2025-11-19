@@ -117,7 +117,7 @@ class TrainerHypers(TypedDict):
     """TODO: MISSING DOCS!!"""
 
     num_epochs: Optional[int] = 0
-    """Number of epochs for which the LLPR ensemble weight calibration should 
+    """Number of epochs for which the LLPR ensemble weight calibration should
     take place. Ignored when mode is set to "llpr_only"."""
 
     warmup_fraction: float = 0.01

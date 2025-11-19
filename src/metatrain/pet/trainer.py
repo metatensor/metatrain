@@ -320,10 +320,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Create a loss function:
         loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
-        loss_fn = LossAggregator(
-            targets=train_targets,
-            config=loss_hypers,
-        )
+        loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
         logging.info("Using the following loss functions:")
         for name, info in loss_fn.metadata.items():
             logging.info(f"{name}:")
