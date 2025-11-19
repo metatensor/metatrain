@@ -269,8 +269,18 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.best_metric is None:
             self.best_metric = float("inf")
 
-        epoch = start_epoch
+        requested_outputs = {}
+        for key, value in model.dataset_info.targets.items():
+            requested_outputs[key] = model.capabilities.outputs[key]
+            requested_outputs[key].per_atom = value.per_atom
+            if key == "energy":
+                ensemble_name = "energy_ensemble"
+            else:
+                ensemble_name = f"mtt::aux::{key.replace('mtt::', '')}_ensemble"
+            requested_outputs[ensemble_name] = model.capabilities.outputs[ensemble_name]
+            requested_outputs[ensemble_name].per_atom = value.per_atom
 
+        epoch = start_epoch
         assert self.hypers["num_epochs"] is not None
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
@@ -298,7 +308,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: train_targets[key] for key in targets.keys()},
+                    requested_outputs,
                     is_training=True,
                 )
 
@@ -346,7 +356,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: train_targets[key] for key in targets.keys()},
+                    requested_outputs,
                     is_training=False,
                 )
                 val_loss_batch = loss_fn(predictions, targets, extra_data)

@@ -190,6 +190,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             supported_devices=self.capabilities.supported_devices,
             dtype=self.capabilities.dtype,
         )
+        self.llpr_ensemble_layers = torch.nn.ModuleDict()
 
     def restart(self, dataset_info: DatasetInfo) -> "LLPRUncertaintyModel":
         # merge old and new dataset info
@@ -751,12 +752,12 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             raise ValueError("Unknown context tag for checkpoint loading!")
 
         llpr_model = cls(**checkpoint["model_data"])
+        llpr_model.set_wrapped_model(model)
 
         state_dict_iter = iter(model_state_dict.values())
         next(state_dict_iter)
         dtype = next(state_dict_iter).dtype
         # llpr ensemble linear layers must be manually initialized
-        llpr_model.llpr_ensemble_layers = torch.nn.ModuleDict()
         for name, val in model_state_dict.items():
             if "llpr_ensemble_layers" in name:
                 target_name = name.split(".")[1]
@@ -766,7 +767,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     bias=False,
                     dtype=dtype,
                 )
-        llpr_model.set_wrapped_model(model)
         llpr_model.load_state_dict(model_state_dict, strict=False)
         return llpr_model
 
@@ -857,7 +857,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         return checkpoint
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
-        return self.model.outputs
+        return self.capabilities.outputs
 
 
 def _get_uncertainty_name(name: str) -> str:

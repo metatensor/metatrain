@@ -10,7 +10,7 @@ architecture:
           - edge_last_layers.energy.0.energy___0.weight
       num_members: {energy: 32}  # needed to converge the std in the tests
   training:
-    model_checkpoint: model_pet.ckpt
+    model_checkpoint: model.ckpt
     batch_size: 4
     mode: llpr_ens_calib
     ens_calib_loss:
@@ -28,14 +28,12 @@ architecture:
 
 training_set:
   systems:
-    read_from: hydrogen.xyz
+    read_from: qm9_reduced_100.xyz
     length_unit: angstrom
   targets:
     energy:
-      key: DFT_energy
+      key: U0
       unit: eV
-        #      forces:
-        #        key: DFT_forces
 
 validation_set: 0.1
 test_set: 0.1
