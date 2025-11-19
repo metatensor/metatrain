@@ -259,17 +259,12 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                         per_atom=output.per_atom,
                     )
                 )
-                # for the ensemble, we also need the original output
-                if name.endswith("_ensemble"):
-                    if (
-                        name.replace("_ensemble", "") not in outputs
-                        and name.replace("mtt::aux::", "").replace("_ensemble", "")
-                        not in outputs
-                    ):
-                        raise ValueError(
-                            f"Ensemble output {name} can only be requested if the "
-                            "corresponding raw output is also requested"
-                        )
+                # for both uncertainties and ensembles, we need the original output,
+                # so we request it as well
+                if name.endswith("_ensemble") or name.endswith("_uncertainty"):
+                    original_name = self._get_original_name(name)
+                    outputs_for_model[original_name] = output
+                # (will be removed at the end if not requested by the user)
 
         for name, output in outputs.items():
             # remove uncertainties and ensembles from the requested outputs for the
@@ -307,10 +302,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ll_features.block().values,
             ).unsqueeze(1)
 
-            original_name = uncertainty_name.replace(
-                "_uncertainty",
-                "",
-            ).replace("aux::", "")
+            original_name = self._get_original_name(uncertainty_name)
 
             # create labels for properties
             cur_prop = return_dict[original_name].block().properties
@@ -366,11 +358,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 requested_ensembles.append(name)
 
         for ens_name in requested_ensembles:
-            original_name = (
-                ens_name.replace("_ensemble", "").replace("aux::", "")
-                if ens_name.replace("_ensemble", "").replace("aux::", "") in outputs
-                else ens_name.replace("_ensemble", "").replace("mtt::aux::", "")
-            )
+            original_name = self._get_original_name(ens_name)
 
             ll_features_name = ens_name.replace("_ensemble", "_last_layer_features")
             if ll_features_name == "energy_last_layer_features":
@@ -378,13 +366,12 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ll_features_name = "mtt::aux::energy_last_layer_features"
             ll_features = return_dict[ll_features_name]
 
+            # Loop needed due to torchscript limitations
             ensemble_values = torch.tensor([0])
             for lin_layer_name, module in self.llpr_ensemble_layers.items():
                 if lin_layer_name == original_name:
-                    module.to(ll_features.block().values.device)
                     # raw ens output shape is (samples, (num_ens * num_prop))
                     ensemble_values = module(ll_features.block().values)
-                    break
 
             # extract property labels and shape
             cur_prop = return_dict[original_name].block().properties
@@ -453,11 +440,12 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
             return_dict[ens_name] = ensemble
 
-        # remove the last-layer features from return_dict if they were not requested
+        # Remove any keys if they were not requested. This can happen for last-layer
+        # features needed for uncertainty/ensemble calculation as well as for
+        # the original outputs when only uncertainties/ensembles were requested
         for key in list(return_dict.keys()):
-            if key.endswith("_last_layer_features"):
-                if key not in outputs:
-                    return_dict.pop(key)
+            if key not in outputs:
+                return_dict.pop(key)
 
         return return_dict
 
@@ -763,14 +751,19 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             logging.info(
                 f"Export using best model from epoch {checkpoint['best_epoch']}"
             )
+            # Here, it depends on whether we are exporting a model whose ensemble was
+            # also trained by backpropagation or not
             model_state_dict = checkpoint["best_model_state_dict"]
+            # this is None if the ensemble was not trained by backpropagation
+            if model_state_dict is None:
+                model_state_dict = checkpoint["model_state_dict"]
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
         llpr_model = cls(**checkpoint["model_data"])
         llpr_model.set_wrapped_model(model)
 
-        if context == "restart":
+        if context == "restart" or context == "export":
             state_dict_iter = iter(model_state_dict.values())
             next(state_dict_iter)
             dtype = next(state_dict_iter).dtype
@@ -840,6 +833,24 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             if n == name:
                 requested_buffer = buffer
         return requested_buffer
+    
+    def _get_original_name(self, name: str) -> str:
+        # hopefully a bulletproof way to get the original output name from an
+        # uncertainty or ensemble name
+        if name.endswith("_uncertainty"):
+            original_name = name.replace("_uncertainty", "")
+        elif name.endswith("_ensemble"):
+            original_name = name.replace("_ensemble", "")
+        else:
+            raise ValueError(f"Output name {name} is neither uncertainty nor ensemble.")
+        if original_name.startswith("mtt::aux::"):
+            # original name could be either mtt::output or output
+            # try the former, return the latter if not found
+            # TODO: not sure what happens if both mtt::output and output are there
+            original_name = original_name.replace("aux::", "")
+            if original_name not in self.capabilities.outputs:
+                original_name = original_name.replace("mtt::", "")
+        return original_name
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:

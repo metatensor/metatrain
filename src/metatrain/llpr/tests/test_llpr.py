@@ -68,15 +68,15 @@ def test_with_old_llpr_checkpoint(monkeypatch, tmp_path):
 
     # 1. Get the PET-MAD model checkpoint (v1.0.2):
     url = "https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.0.2/models/pet-mad-v1.0.2.ckpt"
-    urllib.request.urlretrieve(url, "model-llpr.ckpt")
+    urllib.request.urlretrieve(url, "pet-mad-v1.0.2.ckpt")
 
     # 2. Check that the LLPR model exported from the checkpoint works as intended
-    command = ["mtt", "export", "model-llpr.ckpt"]
+    command = ["mtt", "export", "pet-mad.ckpt"]
     subprocess.check_call(command)
     for individual_outputs in [True, False]:
         for per_atom in [True, False]:
             check_exported_model_predictions(
-                "model-llpr.pt", individual_outputs, per_atom
+                "pet-mad-v1.0.2.pt", individual_outputs, per_atom
             )
 
     # 3. Fine-tune the PET-MAD model through the LLPR wrapper:
@@ -101,7 +101,6 @@ def check_exported_model_predictions(
             structures,
             {
                 "energy_ensemble": ModelOutput(per_atom=per_atom),
-                "energy": ModelOutput(per_atom=per_atom),
             },
         )
         predictions = {
