@@ -9,12 +9,14 @@ from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
+from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
-    _is_disk_dataset,
+    get_num_workers,
     unpack_batch,
+    validate_num_workers,
 )
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension, model_from_checkpoint
@@ -23,7 +25,7 @@ from metatrain.utils.loss import LossAggregator
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
-    get_system_with_neighbor_lists,
+    get_system_with_neighbor_lists_transform,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.transfer import batch_to
@@ -112,29 +114,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
         logging.info(f"Training on device {device} with dtype {dtype}")
 
-        logging.info("Calculating neighbor lists for the datasets")
-        # Calculate the neighbor lists in advance, if needed
-        requested_neighbor_lists = get_requested_neighbor_lists(model)
-        for dataset in train_datasets + val_datasets:
-            # If the dataset is a disk dataset, the NLs are already attached, we will
-            # just check the first system
-            if _is_disk_dataset(dataset):
-                system = dataset[0]["system"]
-                for options in requested_neighbor_lists:
-                    if options not in system.known_neighbor_lists():
-                        raise ValueError(
-                            "The requested neighbor lists are not attached to the "
-                            f"system. Neighbor list {options} is missing from the "
-                            "first system in the disk dataset. Make sure you save "
-                            "the neighbor lists in the systems when saving the dataset."
-                        )
-            else:
-                for sample in dataset:
-                    system = sample["system"]
-                    # The following line attaches the neighbors lists to the system,
-                    # and doesn't require to reassign the system to the dataset:
-                    get_system_with_neighbor_lists(system, requested_neighbor_lists)
-
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
 
@@ -142,7 +121,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Create a collate function:
         targets_keys = list(model.dataset_info.targets.keys())
-        collate_fn = CollateFn(target_keys=targets_keys)
+        collate_fn = CollateFn(
+            target_keys=targets_keys,
+            callables=[
+                get_system_with_neighbor_lists_transform(
+                    get_requested_neighbor_lists(model)
+                ),
+            ],
+        )
 
         # Create dataloader for the training datasets:
         train_dataloaders = []
@@ -201,7 +187,94 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         logging.info("Starting epoch-based training for LLPR ensemble calibration")
 
+        # Re-create the dataloaders to make them shuffle and augment the data
         train_targets = model.dataset_info.targets
+        extra_data_info = model.dataset_info.extra_data
+        rotational_augmenter = RotationalAugmenter(
+            target_info_dict=train_targets, extra_data_info_dict=extra_data_info
+        )
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
+        collate_fn_train = CollateFn(
+            target_keys=list(train_targets.keys()),
+            callables=[
+                rotational_augmenter.apply_random_augmentations,
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+            ],
+        )
+        collate_fn_val = CollateFn(
+            target_keys=list(train_targets.keys()),
+            callables=[  # no augmentation for validation
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+            ],
+        )
+
+        # Create dataloader for the training datasets:
+        if self.hypers["num_workers"] is None:
+            num_workers = get_num_workers()
+            logging.info(
+                "Number of workers for data-loading not provided and chosen "
+                f"automatically. Using {num_workers} workers."
+            )
+        else:
+            num_workers = self.hypers["num_workers"]
+            validate_num_workers(num_workers)
+
+        train_samplers = [None] * len(train_datasets)
+        val_samplers = [None] * len(val_datasets)
+
+        train_dataloaders = []
+        for train_dataset, train_sampler in zip(
+            train_datasets, train_samplers, strict=True
+        ):
+            if len(train_dataset) < self.hypers["batch_size"]:
+                raise ValueError(
+                    f"A training dataset has fewer samples "
+                    f"({len(train_dataset)}) than the batch size "
+                    f"({self.hypers['batch_size']}). "
+                    "Please reduce the batch size."
+                )
+            train_dataloaders.append(
+                DataLoader(
+                    dataset=train_dataset,
+                    batch_size=self.hypers["batch_size"],
+                    sampler=train_sampler,
+                    shuffle=(
+                        # the sampler takes care of this (if present)
+                        train_sampler is None
+                    ),
+                    drop_last=(
+                        # the sampler takes care of this (if present)
+                        train_sampler is None
+                    ),
+                    collate_fn=collate_fn_train,
+                    num_workers=num_workers,
+                )
+            )
+        train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
+
+        # Create dataloader for the validation datasets:
+        val_dataloaders = []
+        for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
+            if len(val_dataset) < self.hypers["batch_size"]:
+                raise ValueError(
+                    f"A validation dataset has fewer samples "
+                    f"({len(val_dataset)}) than the batch size "
+                    f"({self.hypers['batch_size']}). "
+                    "Please reduce the batch size."
+                )
+            val_dataloaders.append(
+                DataLoader(
+                    dataset=val_dataset,
+                    batch_size=self.hypers["batch_size"],
+                    sampler=val_sampler,
+                    shuffle=False,
+                    drop_last=False,
+                    collate_fn=collate_fn_val,
+                    num_workers=num_workers,
+                )
+            )
+        val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
+
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
