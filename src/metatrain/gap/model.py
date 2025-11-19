@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-import featomic
 import featomic.torch
 import metatensor.torch as mts
 import numpy as np
