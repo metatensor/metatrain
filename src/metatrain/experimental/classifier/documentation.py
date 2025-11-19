@@ -32,11 +32,11 @@ from typing_extensions import TypedDict
 class ModelHypers(TypedDict):
     """Hyperparameters for the Classifier model."""
 
-    hidden_sizes: list[int]
+    hidden_sizes: list[int] = [64, 64]
     """List of hidden layer sizes for the MLP.
     For example, [64, 32] creates a 2-layer MLP with 64 and 32 neurons
-    respectively. The last layer should be set to a small number (generally one or two)
-    if the goal is to extract collective variables.
+    respectively. The last hidden size should be set to a small number
+    (generally one or two) if the goal is to extract collective variables.
     """
 
 
