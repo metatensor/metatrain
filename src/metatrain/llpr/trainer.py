@@ -56,7 +56,7 @@ def get_scheduler(optimizer, train_hypers, steps_per_epoch):
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 1
 
     def __init__(self, hypers):
         super().__init__(hypers)
@@ -192,6 +192,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             model.compute_inverse_covariance(self.hypers["regularizer"])
             model.calibrate(val_dataloader)
             model.generate_ensemble()
+            model.to(device=device, dtype=dtype)  # for the new ensemble layers
             logging.info("LLPR calibration complete")
 
         if self.hypers["mode"] == "llpr_only":

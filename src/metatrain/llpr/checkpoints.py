@@ -29,14 +29,11 @@ def model_update_v2_v3(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to update.
     """
-    # no changes needed for model between v2 and v3
-    raise NotImplementedError()
-
-
-def trainer_update_v1_v2(checkpoint: dict) -> None:
-    """
-    Update a v1 trainer checkpoint to v2.
-
-    :param checkpoint: The checkpoint to update.
-    """
-    raise NotImplementedError()
+    # state_dict renamed to model_state_dict, best_model_state_dict added with the
+    # new training procedure for the ensemble by backpropagation
+    checkpoint["model_state_dict"] = checkpoint.pop("state_dict")
+    checkpoint["best_model_state_dict"] = None
+    # changed format for ensemble weights (only do energy for simplicity)
+    checkpoint["model_state_dict"]["llpr_ensemble_layers.energy.weight"] = (
+        checkpoint["model_state_dict"].pop("energy_ensemble_weights").T
+    )

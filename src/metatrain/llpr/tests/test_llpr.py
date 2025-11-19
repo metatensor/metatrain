@@ -4,7 +4,9 @@ import urllib.request
 from pathlib import Path
 
 import ase.io
+import ase.units
 import torch
+from ase.md import VelocityVerlet
 from metatomic.torch import ModelOutput
 from metatomic.torch.ase_calculator import MetatomicCalculator
 
@@ -71,7 +73,7 @@ def test_with_old_llpr_checkpoint(monkeypatch, tmp_path):
     urllib.request.urlretrieve(url, "pet-mad-v1.0.2.ckpt")
 
     # 2. Check that the LLPR model exported from the checkpoint works as intended
-    command = ["mtt", "export", "pet-mad.ckpt"]
+    command = ["mtt", "export", "pet-mad-v1.0.2.ckpt"]
     subprocess.check_call(command)
     for individual_outputs in [True, False]:
         for per_atom in [True, False]:
@@ -79,7 +81,18 @@ def test_with_old_llpr_checkpoint(monkeypatch, tmp_path):
                 "pet-mad-v1.0.2.pt", individual_outputs, per_atom
             )
 
-    # 3. Fine-tune the PET-MAD model through the LLPR wrapper:
+    # 3. Check that the ASE calculator with the exported model works:
+    # (automatically checks LLPR uncertainties)
+    calculator = MetatomicCalculator("pet-mad-v1.0.2.pt")
+    structure = ase.io.read("qm9_reduced_100.xyz")
+    structure.calc = calculator
+    dyn = VelocityVerlet(structure, 0.5 * ase.units.fs)
+    dyn.run(10)
+    calculator.run_model(
+        structure, {"energy_ensemble": ModelOutput(per_atom=True)}
+    )
+
+    # 4. Fine-tune the PET-MAD model through the LLPR wrapper:
     command = ["mtt", "train", "options-pet-ft.yaml"]
     subprocess.check_call(command)
 
@@ -123,6 +136,8 @@ def check_exported_model_predictions(
     )
     # require lower precision for PET-MAD which only has 128 ensemble members
     required_precision = 3e-2 if ensemble.shape[1] < 1000 else 1e-2
+    print(uncertainty)
+    print(ensemble.std(dim=1, keepdim=True))
     assert torch.allclose(
         uncertainty,
         ensemble.std(dim=1, keepdim=True),

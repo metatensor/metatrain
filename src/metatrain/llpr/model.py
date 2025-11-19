@@ -172,12 +172,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             )
             if ensemble_weights_name == "mtt::aux::energy_ensemble_weights":
                 ensemble_weights_name = "energy_ensemble_weights"
-            self.register_buffer(
-                ensemble_weights_name,
-                torch.zeros(
-                    (self.ll_feat_size, self.ensemble_weight_sizes[name]), dtype=dtype
-                ),
-            )
             ensemble_output_name = (
                 "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
             )
@@ -748,9 +742,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
         elif context == "export":
-            logging.info(
-                f"Export using best model from epoch {checkpoint['best_epoch']}"
-            )
+            # TODO: other models print the best epoch here; consider doing the same
             # Here, it depends on whether we are exporting a model whose ensemble was
             # also trained by backpropagation or not
             model_state_dict = checkpoint["best_model_state_dict"]
@@ -833,7 +825,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             if n == name:
                 requested_buffer = buffer
         return requested_buffer
-    
+
     def _get_original_name(self, name: str) -> str:
         # hopefully a bulletproof way to get the original output name from an
         # uncertainty or ensemble name
