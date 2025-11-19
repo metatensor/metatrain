@@ -17,16 +17,18 @@ from metatrain.utils.data import TargetInfo
 
 @with_config(ConfigDict(extra="allow"))
 class LossParams(TypedDict):
-    type: str
-    weight: float = 1.0
-    reduction: Literal["none", "mean", "sum"] = "mean"
+    type: NotRequired[str]
+    weight: NotRequired[float] = 1.0
+    reduction: NotRequired[Literal["none", "mean", "sum"]] = "mean"
+    delta: NotRequired[float]
 
 
 @with_config(ConfigDict(extra="allow"))
 class LossSpecification(TypedDict):
-    type: str
-    weight: float = 1.0
-    reduction: Literal["none", "mean", "sum"] = "mean"
+    type: NotRequired[str]
+    weight: NotRequired[float] = 1.0
+    reduction: NotRequired[Literal["none", "mean", "sum"]] = "mean"
+    delta: NotRequired[float]
     gradients: NotRequired[dict[str, LossParams]]
 
 
