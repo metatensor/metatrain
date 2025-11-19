@@ -21,14 +21,14 @@ The loss terms for energy, forces, and stress can be specified as:
       type: mse
       weight: 1.0
       reduction: mean
-    forces:
-      type: mse
-      weight: 1.0
-      reduction: mean
-    stress:
-      type: mse
-      weight: 1.0
-      reduction: mean
+      forces:
+        type: mse
+        weight: 1.0
+        reduction: mean
+      stress:
+        type: mse
+        weight: 1.0
+        reduction: mean
 
 Here, ``forces`` and ``stress`` refer to the gradients of the ``energy`` target with respect to atomic positions and strain, respectively, assuming these gradients have been requested in the training set configuration.
 
@@ -39,10 +39,8 @@ Another common scenario is when only the loss function type needs to be specifie
   loss:
     energy:
       type: mse
-    forces:
-      type: mae
-    stress:
-      type: huber
+      forces: mae
+      stress: huber
 
 where, for example, different types of losses are requested for different targets.
 This is equivalent to the more detailed configuration:
@@ -54,17 +52,17 @@ This is equivalent to the more detailed configuration:
       type: mse
       weight: 1.0
       reduction: mean
-    forces:
-      type: mae
-      weight: 1.0
-      reduction: mean
-    stress:
-      type: huber
-      weight: 1.0
-      reduction: mean
-      delta: 1.0
+      forces:
+        type: mae
+        weight: 1.0
+        reduction: mean
+      stress:
+        type: huber
+        weight: 1.0
+        reduction: mean
+        delta: 1.0
 
-When all targets and their gradients should use the same loss function, it is also possible to use the global shorthand
+When all targets and their gradients should use the same loss function with equal weights and reductions, it is also possible to use the global shorthand
 
 .. code-block:: yaml
 
@@ -82,14 +80,14 @@ If the energy target has a custom name (e.g., ``mtt::etot``), the loss configura
       type: mse
       weight: 1.0
       reduction: mean
-    forces:
-      type: mse
-      weight: 1.0
-      reduction: mean
-    stress:
-      type: mse
-      weight: 1.0
-      reduction: mean
+      forces:
+        type: mse
+        weight: 1.0
+        reduction: mean
+      stress:
+        type: mse
+        weight: 1.0
+        reduction: mean
   ...
   training_set:
     systems:
@@ -158,10 +156,10 @@ The values of the masks must be passed as ``extra_data`` in the training set, an
       type: masked_mse
       weight: 1.0
       reduction: sum
-    forces:
-      type: masked_mae
-      weight: 0.1
-      reduction: sum
+      forces:
+        type: masked_mae
+        weight: 0.1
+        reduction: sum
   ...
 
   training_set:
