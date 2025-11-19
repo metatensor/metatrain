@@ -12,7 +12,7 @@ architecture:
         weight: 1.0
         reduction: mean
         gradients: {}
- 
+
 training_set:
   systems:
     read_from: hydrogen.xyz
@@ -23,7 +23,7 @@ training_set:
       unit: eV
       forces: {}
         #      forces:
-        #key: DFT_forces
+        # key: DFT_forces
 
 validation_set: 0.1
 test_set: 0.1

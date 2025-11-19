@@ -108,7 +108,7 @@ class TrainerHypers(TypedDict):
     weight calibration. We strongly suggest only using "ensemble_nll" loss. see
     :ref:`loss-functions` for more details of the rest of the hypers."""
 
-    calib_options: Optional[dict] = {}
+    calib_options: dict = {}
 
     num_epochs: Optional[int] = 0
     """Number of epochs for which the LLPR ensemble weight calibration should 
@@ -120,7 +120,7 @@ class TrainerHypers(TypedDict):
     learning_rate: float = 1e-4
     """Learning rate."""
 
-    weight_decay: Optional[float] = None    
+    weight_decay: Optional[float] = None
 
     log_interval: int = 1
     """Interval to log metrics."""

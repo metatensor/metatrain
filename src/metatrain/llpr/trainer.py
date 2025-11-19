@@ -16,7 +16,6 @@ from metatrain.utils.data import (
     _is_disk_dataset,
     unpack_batch,
 )
-
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension, model_from_checkpoint
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
@@ -26,9 +25,7 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-
 from metatrain.utils.per_atom import average_by_num_atoms
-from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
@@ -36,9 +33,10 @@ from .documentation import TrainerHypers
 from .model import LLPRUncertaintyModel
 from .modules.recalib import apply_recalibration_strategy
 
+
 def get_scheduler(optimizer, train_hypers, steps_per_epoch):
     total_steps = train_hypers["num_epochs"] * steps_per_epoch
-    warmup_steps = 0 # TODO: no warmup for llp training
+    warmup_steps = 0  # TODO: no warmup for llp training
     min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
 
     def lr_lambda(current_step: int):
@@ -55,6 +53,7 @@ def get_scheduler(optimizer, train_hypers, steps_per_epoch):
 
     scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
     return scheduler
+
 
 class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 5
@@ -79,7 +78,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ) -> None:
-
         # we begin by loading start_epoch to determine if restarting or not
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
@@ -189,13 +187,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         if start_epoch == 0:
-            logging.info("Starting LLPR preparation and calibration")            
+            logging.info("Starting LLPR preparation and calibration")
             model.compute_covariance(train_dataloader)
             model.compute_inverse_covariance(self.hypers["regularizer"])
             model.calibrate(val_dataloader)
             model.generate_ensemble()
             logging.info("LLPR calibration complete")
-        
+
         if self.hypers["mode"] == "llpr_only":
             logging.info("LLPR-only mode was invoked, skipping to model export")
             return
@@ -203,7 +201,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         logging.info("Starting epoch-based training for LLPR ensemble calibration")
 
         train_targets = model.dataset_info.targets
-        extra_data_info = model.dataset_info.extra_data
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -212,13 +209,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         logging.info(
             f'Applying "{self.hypers["calib_options"]["strategy"]}" '
-            f'as the calibration strategy'
+            f"as the calibration strategy"
         )
-        for target_name, target_info in train_targets.items():
+        for target_name in train_targets.keys():
             model = apply_recalibration_strategy(
-                model,
-                target_name,
-                self.hypers["calib_options"]
+                model, target_name, self.hypers["calib_options"]
             )
 
         loss_hypers = self.hypers["ens_calib_loss"]
@@ -274,12 +269,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
             self.best_metric = float("inf")
 
         epoch = start_epoch
-        
-        for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
-            if is_distributed:
-                for train_sampler in train_samplers:
-                    train_sampler.set_epoch(epoch)
 
+        assert self.hypers["num_epochs"] is not None
+        for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
 
@@ -292,7 +284,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
             train_loss = 0.0
 
             for batch in train_dataloader:
-
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = unpack_batch(batch)
@@ -308,7 +299,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=True,
-                    is_llpr_ens=True,
                 )
 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
@@ -357,7 +347,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
-                    is_llpr_ens=True,
                 )
                 val_loss_batch = loss_fn(predictions, targets, extra_data)
                 val_loss += val_loss_batch.item()
@@ -365,7 +354,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 predictions = average_by_num_atoms(
                     predictions, systems, per_structure_targets
                 )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)                
+                targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 val_rmse_calculator.update(predictions, targets)
                 if self.hypers["log_mae"]:
@@ -464,8 +453,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
-        context: Literal["restart", "finetune"],
+        hypers: TrainerHypers,
+        context: Literal["restart", "finetune"],  # not used at the moment
     ) -> "Trainer":
         trainer = cls(hypers)
         trainer.optimizer_state_dict = checkpoint["optimizer_state_dict"]

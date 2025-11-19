@@ -616,11 +616,13 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
             loss_fn=torch.nn.GaussianNLLLoss(reduction=reduction),
         )
 
-    def compute_flattened(
+    # this is technically incompatible with the BaseTensorMapLoss compute_flattened:
+    # ignore the type error
+    def compute_flattened(  # type: ignore[override]
         self,
         pred_mean: TensorMap,
-        target:TensorMap,        
-        pred_var:TensorMap,        
+        target: TensorMap,
+        pred_var: TensorMap,
     ) -> torch.Tensor:
         """
         Flatten prediction and target blocks (and optional mask), then
@@ -660,7 +662,7 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
             list_pred_mean_segments.append(flat_pred_mean)
             list_target_segments.append(flat_target)
             list_pred_var_segments.append(flat_pred_var)
- 
+
         # Concatenate all segments and apply the torch loss
         all_pred_mean_flattened = torch.cat(list_pred_mean_segments)
         all_targets_flattened = torch.cat(list_target_segments)
@@ -690,13 +692,16 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         ens_name = "mtt::aux::" + self.target.replace("mtt::", "") + "_ensemble"
         if ens_name == "mtt::aux::energy_ensemble":
             ens_name = "energy_ensemble"
- 
+
         tsm_pred_orig = predictions[self.target]
         tsm_pred_ens = predictions[ens_name]
         tsm_targ = targets[self.target]
 
         # number of ensembles extracted from TensorMaps
-        n_ens = tsm_pred_ens.block(0).values.shape[1] // tsm_pred_orig.block(0).values.shape[1]
+        n_ens = (
+            tsm_pred_ens.block(0).values.shape[1]
+            // tsm_pred_orig.block(0).values.shape[1]
+        )
 
         # Check gradients are present in the target TensorMap
         if self.gradient is not None:
@@ -708,7 +713,6 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
                 )
 
         ens_pred_values = tsm_pred_ens.block().values  # shape: samples, properties
-        ens_pred_props = tsm_pred_ens.block().properties
 
         ens_pred_values = ens_pred_values.reshape(ens_pred_values.shape[0], n_ens, -1)
         ens_pred_mean = ens_pred_values.mean(dim=1)
@@ -717,9 +721,7 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         tsm_pred_mean = TensorMap(
             keys=Labels(
                 names=["_"],
-                values=torch.tensor(
-                    [[0]], device=tsm_targ.block().values.device
-                ),
+                values=torch.tensor([[0]], device=tsm_targ.block().values.device),
             ),
             blocks=[
                 TensorBlock(
@@ -734,9 +736,7 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         tsm_pred_var = TensorMap(
             keys=Labels(
                 names=["_"],
-                values=torch.tensor(
-                    [[0]], device=tsm_targ.block().values.device
-                ),
+                values=torch.tensor([[0]], device=tsm_targ.block().values.device),
             ),
             blocks=[
                 TensorBlock(

@@ -1,7 +1,5 @@
 import logging
-from pathlib import Path
-from collections import defaultdict
-from typing import Any, DefaultDict, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
 import numpy as np
@@ -202,7 +200,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         self.llpr_ensemble_layers = torch.nn.ModuleDict()
 
     def restart(self, dataset_info: DatasetInfo) -> "LLPRUncertaintyModel":
-
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -301,7 +298,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ll_features_name = "mtt::aux::energy_last_layer_features"
             ll_features = return_dict[ll_features_name]
 
-
             # compute PRs
             # the code is the same for PR and LPR
             one_over_pr_values = torch.einsum(
@@ -312,7 +308,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             ).unsqueeze(1)
 
             original_name = uncertainty_name.replace(
-                "_uncertainty", "",
+                "_uncertainty",
+                "",
             ).replace("aux::", "")
 
             # create labels for properties
@@ -349,9 +346,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ),
                 blocks=[
                     TensorBlock(
-                        values=self._get_multiplier(
-                            uncertainty_name
-                        ).expand(one_over_pr_values.shape[0], num_prop),
+                        values=self._get_multiplier(uncertainty_name).expand(
+                            one_over_pr_values.shape[0], num_prop
+                        ),
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
                         properties=cur_prop,
@@ -360,9 +357,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             )
 
             # two tsms of same shape in values are multiplied together
-            return_dict[uncertainty_name] = mts.multiply(
-                uncertainty, tsm_multiplier
-            )
+            return_dict[uncertainty_name] = mts.multiply(uncertainty, tsm_multiplier)
 
         # now deal with potential ensembles (see generate_ensemble method)
         requested_ensembles: List[str] = []
@@ -371,7 +366,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 requested_ensembles.append(name)
 
         for ens_name in requested_ensembles:
-
             original_name = (
                 ens_name.replace("_ensemble", "").replace("aux::", "")
                 if ens_name.replace("_ensemble", "").replace("aux::", "") in outputs
@@ -435,7 +429,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             ens_idxs = ens_idxs.repeat_interleave(num_samples).unsqueeze(1)
             new_prop_val = torch.cat([ens_idxs, exp_prop_val], dim=-1)
             ens_prop = Labels(
-                names=["ensemble_member"] + return_dict[original_name].block().properties.names,
+                names=["ensemble_member"]
+                + return_dict[original_name].block().properties.names,
                 values=new_prop_val,
             )
 
@@ -639,15 +634,12 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         """
         # concatenate the provided weight tensors
         # (necessary if there are multiple, as in the case of PET)
-        # TODO: automate the weight tensor extraction process   
+        # TODO: automate the weight tensor extraction process
         # weight tensor is of shape (num_subtarget, concat_llfeat)
         weight_tensors = {}  # type: ignore
         for name, tensor_names in self.hypers["ensembles"]["means"].items():
             weight_tensors[name] = torch.concatenate(
-                [
-                    self.model.state_dict()[tn]
-                    for tn in tensor_names
-                ],
+                [self.model.state_dict()[tn] for tn in tensor_names],
                 axis=-1,
             )  # type: ignore
 
@@ -657,15 +649,17 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
         n_members = self.hypers["ensembles"]["num_members"]
-                
 
         for name, weights in weight_tensors.items():
-
             uncertainty_name = _get_uncertainty_name(name)
             cur_multiplier = self._get_multiplier(uncertainty_name)
-            cur_inv_covariance = self._get_inv_covariance(
-                uncertainty_name
-            ).clone().detach().cpu().numpy()
+            cur_inv_covariance = (
+                self._get_inv_covariance(uncertainty_name)
+                .clone()
+                .detach()
+                .cpu()
+                .numpy()
+            )
             rng = np.random.default_rng()
 
             ensemble_weights = []
@@ -673,8 +667,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             for ii in range(weights.shape[0]):
                 cur_ensemble_weights = rng.multivariate_normal(
                     weights[ii].clone().detach().cpu().numpy(),
-                    cur_inv_covariance
-                    * cur_multiplier[ii].item() ** 2,
+                    cur_inv_covariance * cur_multiplier[ii].item() ** 2,
                     size=n_members[name],
                     method="svd",
                 ).T
@@ -688,8 +681,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 axis=-1,
             )  # shape: (ll_feat, n_ens, n_subtarget)
             ensemble_weights = ensemble_weights.reshape(
-                    ensemble_weights.shape[0],
-                    -1,
+                ensemble_weights.shape[0],
+                -1,
             )  # shape: (ll_feat, n_ens * n_subtarget)
 
             # create the linear layer for ensemble members
@@ -761,8 +754,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             )
         elif context == "restart":
             logging.info(
-                f"Restart for LLPRUncertaintyModel will attempt continuation of "
-                f"ensemble calibration"
+                "Restart for LLPRUncertaintyModel will attempt continuation of "
+                "ensemble calibration"
             )
             logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
@@ -787,12 +780,12 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 if "llpr_ensemble_layers" in name:
                     target_name = name.split(".")[1]
                     llpr_model.llpr_ensemble_layers[target_name] = torch.nn.Linear(
-                    val.shape[1],
-                    val.shape[0],
-                    bias=False,
-                    device=device,
-                    dtype=dtype,
-                )
+                        val.shape[1],
+                        val.shape[0],
+                        bias=False,
+                        device=device,
+                        dtype=dtype,
+                    )
             llpr_model.to(dtype).load_state_dict(model_state_dict, strict=False)
 
         return llpr_model

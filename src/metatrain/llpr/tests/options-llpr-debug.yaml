@@ -22,8 +22,8 @@ architecture:
     calib_options:
       strategy: tagged_only
       tagged_only_weights:
-          - node_last_layers.energy.0.energy___0.weight
-          - edge_last_layers.energy.0.energy___0.weight
+        - node_last_layers.energy.0.energy___0.weight
+        - edge_last_layers.energy.0.energy___0.weight
     num_epochs: 10
 
 training_set:
