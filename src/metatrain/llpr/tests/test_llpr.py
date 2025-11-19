@@ -70,20 +70,20 @@ def test_with_old_llpr_checkpoint(monkeypatch, tmp_path):
 
     # 1. Get the PET-MAD model checkpoint (v1.0.2):
     url = "https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.0.2/models/pet-mad-v1.0.2.ckpt"
-    urllib.request.urlretrieve(url, "pet-mad-v1.0.2.ckpt")
+    urllib.request.urlretrieve(url, "model-llpr.ckpt")
 
     # 2. Check that the LLPR model exported from the checkpoint works as intended
-    command = ["mtt", "export", "pet-mad-v1.0.2.ckpt"]
+    command = ["mtt", "export", "model-llpr.ckpt"]
     subprocess.check_call(command)
     for individual_outputs in [True, False]:
         for per_atom in [True, False]:
             check_exported_model_predictions(
-                "pet-mad-v1.0.2.pt", individual_outputs, per_atom
+                "model-llpr.pt", individual_outputs, per_atom
             )
 
     # 3. Check that the ASE calculator with the exported model works:
     # (automatically checks LLPR uncertainties)
-    calculator = MetatomicCalculator("pet-mad-v1.0.2.pt")
+    calculator = MetatomicCalculator("model-llpr.pt")
     structure = ase.io.read("qm9_reduced_100.xyz")
     structure.calc = calculator
     dyn = VelocityVerlet(structure, 0.5 * ase.units.fs)
