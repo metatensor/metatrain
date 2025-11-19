@@ -13,10 +13,10 @@ dependencies = [
     "ase",
     "huggingface_hub",
     "numpy",
-    "metatensor-learn >=0.3.2,<0.4",
-    "metatensor-operations >=0.3.4,<0.4",
-    "metatensor-torch >=0.8.1,<0.9",
-    "metatomic-torch >=0.1.5,<0.2",
+    "metatensor-learn >=0.4.0,<0.5",
+    "metatensor-operations >=0.4.0,<0.5",
+    "metatensor-torch >=0.8.2,<0.9",
+    "metatomic-torch >=0.1.6,<0.2",
     "jsonschema",
     "pydantic >= 2.12", # Because of passing arguments to validator functions
     "typing_extensions", # For python < 3.12 typing.TypedDict has limited functionality
