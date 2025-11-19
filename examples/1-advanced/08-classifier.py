@@ -115,10 +115,10 @@ subprocess.run(
 #    :language: yaml
 
 # Here, we run training as a subprocess, in reality you would run this from the command
-# line as ``mtt train options-classifier.yaml``.
+# line as ``mtt train options-classifier.yaml -o classifier.pt``.
 subprocess.run(
     ["mtt", "train", "options-classifier.yaml", "-o", "classifier.pt"],
-    # check=True,
+    check=True,
 )
 
 # %%
@@ -258,3 +258,13 @@ chemiscope.show(
         "structure": [{"unitCell": True}],
     },
 )
+
+# %%
+#
+# Using the classifier model in PLUMED
+# ------------------------------------
+#
+# The trained classifier model can also be used within PLUMED to define
+# collective variables based on the features learned by the classifier. Instructions
+# for using metatrain models with PLUMED can be found
+# `here <https://www.plumed.org/doc-v2.10/user-doc/html/_m_e_t_a_o_m_i_c.html>`_.
