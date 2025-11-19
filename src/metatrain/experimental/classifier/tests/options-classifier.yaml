@@ -15,9 +15,9 @@ training_set:
     read_from: qm9_reduced_100.xyz
     length_unit: angstrom
   targets:
-    class:
+    mtt::class:
       key: class_label
-      unit: ""
+      num_subtargets: 3
 
 validation_set: 0.1
 test_set: 0.1
