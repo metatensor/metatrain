@@ -1,0 +1,23 @@
+seed: 42
+
+architecture:
+  name: experimental.classifier
+  model:
+    hidden_sizes: [32, 16, 2]
+  training:
+    model_checkpoint: model.ckpt
+    num_epochs: 2
+    batch_size: 4
+    learning_rate: 0.01
+
+training_set:
+  systems:
+    read_from: qm9_reduced_100.xyz
+    length_unit: angstrom
+  targets:
+    class:
+      key: class_label
+      unit: ""
+
+validation_set: 0.1
+test_set: 0.1

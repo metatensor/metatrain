@@ -14,5 +14,5 @@ __authors__ = [
 ]
 
 __maintainers__ = [
-    ("GitHub Copilot", "@copilot"),
+    ("Michele Ceriotti", "@frostedoyster"),
 ]
