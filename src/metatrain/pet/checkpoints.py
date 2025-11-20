@@ -241,8 +241,6 @@ def model_update_v8_v9(checkpoint: dict) -> None:
                     "config": {}
                     "inherit_heads": {}
                 }
-}
-            
 
 
 ###########################
