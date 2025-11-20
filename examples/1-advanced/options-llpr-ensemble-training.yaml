@@ -5,13 +5,11 @@ seed: 42
 architecture:
   name: llpr
   model:
-    num_ensemble_members: {energy: 32}
+    num_ensemble_members: {energy: 32}  # This enables the LLPR-sampled ensemble
   training:
     model_checkpoint: model.ckpt
     batch_size: 4
-    num_epochs: 2  # Enable ensemble weight training
-    loss: ensemble_nll  # Use NLL loss for weight calibration
-    train_all_parameters: true  # Train both ensemble weights and base model
+    num_epochs: 5  # This enables further backpropagation training of the LLPR ensemble
 
 # Section defining the parameters for system and target data
 training_set:
