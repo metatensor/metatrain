@@ -858,9 +858,10 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 "out_properties": [out_properties for _ in self.atomic_types],
             }
             self.last_layers[target_name][dict_key] = LinearMap(**last_layer_arguments)
-            self.last_layer_parameter_names[target_name] = list(
-                self.last_layers[target_name][dict_key].state_dict().keys()
-            )
+            self.last_layer_parameter_names[target_name] = [
+                f"last_layers.{target_name}.{dict_key}." + n
+                for n in self.last_layers[target_name][dict_key].state_dict().keys()
+            ]
 
         self.key_labels[target_name] = target.layout.keys
         self.component_labels[target_name] = [

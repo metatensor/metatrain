@@ -3,23 +3,12 @@ seed: 4332
 architecture:
   name: llpr
   model:
-    ensembles:
-      means:
-        energy:
-          - node_last_layers.energy.0.energy___0.weight
-          - edge_last_layers.energy.0.energy___0.weight
-      num_members: {energy: 32}  # needed to converge the std in the tests
+    num_ensemble_members: {energy: 32}
   training:
     model_checkpoint: model.ckpt
     batch_size: 4
     num_epochs: 2
-    trainable_parameters: null  # Train all parameters
-    loss:
-      energy:
-        type: ensemble_nll
-        weight: 1.0
-        reduction: sum
-        gradients: {}
+    train_all_parameters: true
 
 training_set:
   systems:

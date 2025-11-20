@@ -35,8 +35,7 @@ def model_update_v2_v3(checkpoint: dict) -> None:
     checkpoint["best_model_state_dict"] = None
     # changed format for ensemble weights (only do energy for simplicity)
     t = checkpoint["model_state_dict"].pop("energy_ensemble_weights").T
-    # s = t.shape
-    # print(s)
-    # t = t.flatten()
-    # t = t.reshape(s[1], s[0])
     checkpoint["model_state_dict"]["llpr_ensemble_layers.energy.weight"] = t
+    # added num_ensemble_members to hypers (only do energy for simplicity)
+    num_members = t.shape[0]
+    checkpoint["model_data"]["hypers"]["num_ensemble_members"] = {"energy": num_members}
