@@ -50,6 +50,14 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
     metatrain), optionally per atom to calculate LPRs (per-atom uncertainties)
     with the LLPR method.
 
+    Optionally, in order to be compatible with the LLPR ensemble capabilities of this
+    class, the wrapped model also needs to have last-layer weights accessible for each
+    target. These should be provided as a dictionary mapping target names to lists of
+    parameter names in the ``last_layer_parameter_names`` attribute of the wrapped
+    model. If multiple parameters constitute the last-layer weights for a target, then
+    these should be provided in the same order that corresponds to the order of the
+    last-layer features.
+
     All uncertainties provided by this class are standard deviations (as opposed to
     variances). Prediction rigidities (local and total) can be calculated, according to
     their definition, as the inverse of the square of the standard deviations returned
@@ -151,13 +159,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 torch.tensor([1.0], dtype=dtype),
             )
 
-        ensemble_config = hypers["ensembles"]
-        if ensemble_config["means"].keys() != ensemble_config["num_members"].keys():
-            raise ValueError(
-                "The keys in 'ensemble.means' and 'ensemble.num_members' must be the "
-                "same"
-            )
-        self.ensemble_weight_sizes = ensemble_config["num_members"]
+        self.ensemble_weight_sizes = hypers["num_ensemble_members"]
 
         # register buffers for ensemble weights and ensemble outputs
         ensemble_outputs = {}
@@ -620,7 +622,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         # TODO: automate the weight tensor extraction process
         # weight tensor is of shape (num_subtarget, concat_llfeat)
         weight_tensors = {}  # type: ignore
-        for name, tensor_names in self.hypers["ensembles"]["means"].items():
+        for name, tensor_names in self.model.last_layer_parameter_names.items():
             weight_tensors[name] = torch.concatenate(
                 [self.model.state_dict()[tn] for tn in tensor_names],
                 axis=-1,
@@ -631,7 +633,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         # covariance matrix
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
-        n_members = self.hypers["ensembles"]["num_members"]
+        n_members = self.ensemble_weight_sizes
 
         for name, weights in weight_tensors.items():
             uncertainty_name = _get_uncertainty_name(name)

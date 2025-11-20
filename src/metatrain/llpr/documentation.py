@@ -40,45 +40,20 @@ from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
 
 
-class EnsemblesHypers(TypedDict):
-    """Configuration of ensembles in LLPR."""
-
-    means: dict[str, list[str]] = {}
-    """This accepts a dictionary of targets and the names of their corresponding
-    last-layer weights. For example, in the case of energy trained with the default
-    ``energy`` key in a PET model, the following could be the set of weights to provide:
-
-    .. code-block:: yaml
-
-      means:
-        energy:
-          - node_last_layers.energy.0.energy___0.weight
-          - node_last_layers.energy.1.energy___0.weight
-          - edge_last_layers.energy.0.energy___0.weight
-          - edge_last_layers.energy.1.energy___0.weight
-    """
-
-    num_members: dict[str, int] = {}
-    """This is a dictionary of targets and the corresponding number of ensemble
-    members to sample. Note that a sufficiently large number of members (more than 16)
-    are required for robust uncertainty propagation.
-    (e.g. ``num_members: {energy: 128}``)
-    """
-
-
 class ModelHypers(TypedDict):
     """Hyperparameters for the LLPR model."""
 
-    ensembles: EnsemblesHypers = init_with_defaults(EnsemblesHypers)
-    """To perform uncertainty propagation, one can generate an ensemble of weights
-    from the calibrated inverse covariance matrix from the LLPR formalism.
+    num_ensemble_members: dict[str, int] = {}
+    """Number of ensemble members for each target property for which LLPR ensembles
+    should be constructed. No ensembles will be constructed for targets which are not
+    listed.
     """
 
 
 class TrainerHypers(TypedDict):
     """Hyperparameters for the LLPR trainer."""
 
-    batch_size: int = 12
+    batch_size: int = 8
     """This defines the batch size used in the computation of last-layer
     features, covariance matrix, etc."""
 
@@ -113,14 +88,15 @@ class TrainerHypers(TypedDict):
     take place. If set to ``null``, only the LLPR covariance matrix computation
     and calibration will be performed, without ensemble weight training."""
 
-    trainable_parameters: Optional[list[str]] = None
-    """Optional list of parameter names that should be trained during ensemble
-    calibration. If set to ``null`` (default), all parameters (both the wrapped
-    model and ensemble layers) will be trained. If provided as an empty list or
-    a list of specific parameter names, only those parameters will be trained.
-    Example: ``["node_last_layers.energy.0.energy___0.weight"]`` to train only
-    specific last-layer weights. This parameter is only used when ``num_epochs``
-    is not ``null``."""
+    train_all_parameters: bool = False
+    """Whether to train all parameters of the LLPR-wrapped model, or only the
+    ensemble weights. If ``true``, all parameters will be trained, including those
+    of the base model. If ``false``, only the last-layer ensemble weights will be
+    trained. Note that training all parameters (i.e., setting this flag to ``true``)
+    will potentially change the uncertainty estimates given by the LLPR through the
+    ``uncertainty`` outputs (because the last-layer features will change).
+    In that case, only uncertainties calculated as standard deviations over the ensemble
+    members (``ensemble`` outputs) will be meaningful."""
 
     warmup_fraction: float = 0.01
     """Fraction of training steps used for learning rate warmup."""

@@ -298,39 +298,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
             for gradient_name in target_info.gradients:
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
-        trainable_parameters = self.hypers.get("trainable_parameters", None)
-        params_desc = (
-            "all parameters"
-            if trainable_parameters is None
-            else trainable_parameters
+        model = apply_ensemble_training_strategy(
+            model, self.hypers["train_all_parameters"]
         )
-        logging.info(
-            f"Setting up trainable parameters for ensemble calibration: "
-            f"{params_desc}"
-        )
-        for target_name in train_targets.keys():
-            model = apply_ensemble_training_strategy(
-                model, target_name, trainable_parameters
-            )
 
         loss_hypers = self.hypers["loss"]
-        # Validate that only ensemble_nll loss is used
-        if isinstance(loss_hypers, str):
-            if loss_hypers != "ensemble_nll":
-                raise ValueError(
-                    'Only "ensemble_nll" loss is supported for LLPR ensemble '
-                    "weight training."
-                )
-        else:
-            # It's a dict, check each target's loss type
-            loss_hypers = cast(Dict[str, LossSpecification], loss_hypers)
-            for target_name, loss_spec in loss_hypers.items():
-                if loss_spec.get("type") != "ensemble_nll":
-                    raise ValueError(
-                        f'Only "ensemble_nll" loss is supported for LLPR ensemble '
-                        f'weight training, but target "{target_name}" uses '
-                        f'"{loss_spec.get("type")}".'
-                    )
+        loss_hypers = cast(Dict[str, LossSpecification], loss_hypers)  # mypy
         loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
 
         logging.info("Using the following loss functions:")
