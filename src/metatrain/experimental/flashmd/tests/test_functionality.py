@@ -2,9 +2,9 @@ import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
-from omegaconf import OmegaConf
 
 from metatrain.experimental.flashmd.model import FlashMD
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import TargetInfo
 from metatrain.utils.neighbor_lists import (
@@ -18,8 +18,8 @@ def test_forward():
     "Run a forward pass of FlashMD on two small systems and verify the output shapes."
 
     # load default hyper parameters for FlashMD
-    full_hypers = OmegaConf.load("../default-hypers.yaml")
-    model_hypers = dict(full_hypers)["architecture"]["model"]
+    architecture_hypers = get_default_hypers("experimental.flashmd")
+    model_hypers = architecture_hypers["model"]
 
     # define dataset (especially the targets)
     dataset_info = DatasetInfo(

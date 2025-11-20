@@ -121,6 +121,11 @@ def trainer_update_v1_v2(checkpoint: Dict[str, Any]) -> None:
 
 
 def trainer_update_v2_v3(checkpoint):
+    """
+    Update trainer checkpoint from version 2 to version 3.
+
+    :param checkpoint: The checkpoint to be updated.
+    """
     # num_workers=0 means that the main process will do the data loading, which is
     # equivalent to not setting it (this was the behavior before v3)
     checkpoint["train_hypers"]["num_workers"] = 0
