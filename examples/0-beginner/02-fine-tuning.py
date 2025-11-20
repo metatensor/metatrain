@@ -26,10 +26,11 @@ In order to obtain a pretrained model, you can use a PET-MAD checkpoint from hug
 
   wget https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.1.0/models/pet-mad-v1.1.0.ckpt
 
-Next, we set up the ``options.yaml`` file. We can specify the fine-tuning method
-in the ``finetune`` block in the ``training`` options of the ``architecture``.
-Here, the basic ``full`` option is chosen, which finetunes all weights of the model.
-All available fine-tuning methods are found in the concepts page
+Next, we set up the ``options.yaml`` file. Here we specify to fine-tune on a small model dataset
+containing structures of ethanol, labelled with energies and forces.
+We can specify the fine-tuning method in the ``finetune`` block in the ``training`` options 
+of the ``architecture``. Here, the basic ``full`` option is chosen, which finetunes all weights 
+of the model. All available fine-tuning methods are found in the concepts page
 :ref:`Fine-tuning <fine-tuning>`. This section discusses implementation details,
 options and recommended use cases. Other fine-tuning options can be simply substituted in this script,
 by changing the ``finetune`` block. 
@@ -49,37 +50,38 @@ A simple ``options-ft.yaml`` file for this task could look like this:
 
 .. code-block:: yaml
 
-  architecture:
-    name: pet
-    training:
-      num_epochs: 1000
-      learning_rate: 1e-5
-      finetune:
-        method: full
-        read_from: path/to/checkpoint.ckpt
-  training_set:
-    systems:
-        read_from: dataset.xyz
-        reader: ase
-        length_unit: angstrom
-    targets:
-        energy/ft:
-            quantity: energy
-            read_from: dataset.xyz
-            reader: ase
-            key: energy
-            unit: eV
-            forces:
-                read_from: dataset.xyz
-                reader: ase
-                key: forces
-            stress:
-                read_from: dataset.xyz
-                reader: ase
-                key: stress
+architecture:
+  name: pet
+  training:
+    batch_size: 8
+    num_epochs: 25
+    learning_rate: 1e-4
+    warmup_fraction: 0.01
+    finetune:
+      method: full
+      read_from: pet-mad-v1.1.0.ckpt
 
-  test_set: 0.1
-  validation_set: 0.1
+training_set:
+  systems:
+    read_from: ethanol_reduced_100.xyz
+    reader: ase
+    length_unit: angstrom
+  targets:
+    energy/ft:
+      quantity: energy
+      read_from: ethanol_reduced_100.xyz     
+      reader: ase
+      key: energy
+      unit: eV
+      forces:
+        read_from:  ethanol_reduced_100.xyz
+        reader: ase
+        key: forces
+
+
+validation_set: 0.1
+test_set: 0.1
+
 
 In this example, we specified generic but reasonable ``num_epochs`` and ``learning_rate``
 parameters. The ``learning_rate`` is chosen to be relatively low to stabilise
@@ -87,18 +89,18 @@ training.
 
 .. warning::
 
-  Note that in ``targets`` we use the PET-MAD ``energy`` head. This means, that there won't be a new head
-  for the new reference energies provided in your dataset. This can lead to bad performance, if the reference
-  energies differ from the ones used in pretraining (different levels of theory, or different electronic structure
-  software used). In future it is recommended to create a new ``energy`` target for the new level of theory.
-  Find more about this in :ref:`Transfer-Learning <transfer-learning>`
+  Note that in ``targets`` we use the ``energy/ft`` head, differing from the default ``energy`` head. 
+  This means, that the model creates a new head with a new composition model for the new reference energies
+  provided in your dataset. While the old energy reference is still available, it is rendered useless, 
+  as we trained all weights of the model. If you want to obtain a model with multiple energy heads, you can 
+  simply train on multiple energy references simultaneously. This and other more advanced fine-tuning 
+  strategies are discussed in :ref:`Fine-tuning concepts <fine-tuning-concepts>`.
 
 
-
-We assumed that the pre-trained model is trained on the dataset ``dataset.xyz`` in which
+We assumed that the pre-trained model is trained on the dataset ``ethanol_reduced_100.xyz`` in which
 energies are written in the ``energy`` key of the ``info`` dictionary of the
-energies. Additionally, forces and stresses should be provided with corresponding keys
-which you can specify in the ``options.yaml`` file under ``targets``.
+energies. Additionally, forces should be provided with corresponding keys
+which you can specify in the ``options-ft.yaml`` file under ``targets``.
 Further information on specifying targets can be found in the :ref:`data section of the Training YAML Reference
 <data-section>`.
 
@@ -182,7 +184,7 @@ as metatomic model and evaluate energies and forces with ase.
 #
 from metatomic.torch.ase_calculator import MetatomicCalculator
 targets = ase.io.read("/Users/markusfasching/EPFL/Work/metatrain/tests/resources/ethanol_reduced_100.xyz", format='extxyz', index=':')
-calc_ft = MetatomicCalculator('model.pt', variants={"energy": "ft"})
+calc_ft = MetatomicCalculator('model.pt', variants={"energy": "ft"}) # specify variant suffix here
 
 e_targets = np.array(
     [frame.get_total_energy() / len(frame) for frame in targets]
