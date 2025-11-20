@@ -9,13 +9,14 @@ import sphericart.torch
 import torch
 import wigners
 from metatensor.torch import Labels, TensorMap
+from metatensor.torch.learn.nn import Module
 from metatensor.torch.learn.nn import Linear as LinearMap
 from spex.metatensor import SphericalExpansion
 
 from .documentation import SOAPConfig
 
 
-class VectorBasis(torch.nn.Module):
+class VectorBasis(Module):
     """
     This module creates a basis of 3 vectors for each atomic environment.
 
@@ -141,7 +142,7 @@ class VectorBasis(torch.nn.Module):
         return basis_vectors_as_tensor  # [n_atoms, 3(yzx), 3]
 
 
-class TensorBasis(torch.nn.Module):
+class TensorBasis(Module):
     """
     Creates a basis of spherical tensors for each atomic environment. Internally, it
     uses one (for proper tensors) or two (for pseudotensors) VectorBasis objects to
@@ -589,7 +590,7 @@ def _complex_clebsch_gordan_matrix(l1: int, l2: int, L: int) -> np.ndarray:
         return wigners.clebsch_gordan_array(l1, l2, L)
 
 
-class FakeVectorBasis(torch.nn.Module):
+class FakeVectorBasis(Module):
     # fake class to make torchscript work
 
     def forward(
@@ -605,7 +606,7 @@ class FakeVectorBasis(torch.nn.Module):
         return torch.tensor(0)
 
 
-class FakeSphericalExpansion(torch.nn.Module):
+class FakeSphericalExpansion(Module):
     # Dummy class to make torchscript work
     def forward(
         self,
@@ -621,7 +622,7 @@ class FakeSphericalExpansion(torch.nn.Module):
         )
 
 
-class FakeLinearMap(torch.nn.Module):
+class FakeLinearMap(Module):
     # fake class to make torchscript work
 
     def forward(

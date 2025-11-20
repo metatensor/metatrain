@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Union
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.learn.nn import Module
 from metatomic.torch import ModelOutput, NeighborListOptions, System
 from torch.utils.data import DataLoader, DistributedSampler
 
@@ -24,7 +25,7 @@ from ._base_composition import (
 from .remove import remove_additive
 
 
-class CompositionModel(torch.nn.Module):
+class CompositionModel(Module):
     """
     A simple model that calculates the per-species contributions to targets
     based on the stoichiometry in a system.
@@ -176,7 +177,7 @@ class CompositionModel(torch.nn.Module):
     def train_model(
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        additive_models: List[torch.nn.Module],
+        additive_models: List[Module],
         batch_size: int,
         is_distributed: bool,
         fixed_weights: Optional[FixedCompositionWeights] = None,

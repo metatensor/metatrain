@@ -5,13 +5,14 @@ import metatensor.torch as mts
 import torch
 from ase.data import covalent_radii
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.learn.nn import Module
 from metatomic.torch import ModelOutput, NeighborListOptions, System
 
 from ..data import DatasetInfo, TargetInfo
 from ..sum_over_atoms import sum_over_atoms
 
 
-class ZBL(torch.nn.Module):
+class ZBL(Module):
     """
     A simple model for short-range repulsive interactions.
 

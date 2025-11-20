@@ -3,6 +3,7 @@
 # with default values is not allowed by mypy.
 import torch
 from metatomic.torch import System
+from metatensor.torch.learn.nn import Module
 from typing_extensions import TypedDict
 
 from metatrain.utils.neighbor_lists import NeighborListOptions
@@ -25,7 +26,7 @@ class LongRangeHypers(TypedDict):
     """Number of grid points for interpolation (for PME only)"""
 
 
-class LongRangeFeaturizer(torch.nn.Module):
+class LongRangeFeaturizer(Module):
     """A class to compute long-range features starting from short-range features.
 
     :param hypers: Dictionary containing the hyperparameters for the long-range
@@ -191,7 +192,7 @@ class LongRangeFeaturizer(torch.nn.Module):
         return torch.concatenate(long_range_features)
 
 
-class DummyLongRangeFeaturizer(torch.nn.Module):
+class DummyLongRangeFeaturizer(Module):
     # a dummy class for torchscript
     def __init__(self) -> None:
         super().__init__()
