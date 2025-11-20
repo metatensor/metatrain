@@ -1,4 +1,7 @@
 """
+.. _parity-plot-example:
+
+
 Model validation with parity plots
 ==================================
 

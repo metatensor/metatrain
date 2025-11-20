@@ -1,4 +1,4 @@
-.. _fine-tuning:
+.. _label_fine_tuning_concept:
 
 Fine-tune a pre-trained model
 =============================
