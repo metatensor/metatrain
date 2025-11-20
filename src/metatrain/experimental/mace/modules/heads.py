@@ -1,3 +1,4 @@
+from pyexpat import features
 from typing import Callable, Optional
 
 import torch
@@ -43,7 +44,7 @@ class NonLinearHead(torch.nn.Module):
 
         self.hidden_irreps = sum(
             [
-                str(ir) if ir.ir.l > 0 else MLP_irreps
+                ir if ir.ir.l > 0 else MLP_irreps
                 for ir in irreps_in
                 if ir.ir.l in output_ls
             ],
@@ -68,3 +69,64 @@ class NonLinearHead(torch.nn.Module):
         x = self.non_linearity(self.linear_1(x))
         self.last_layer_features = x
         return self.linear_2(x)
+    
+from typing import Any
+
+from e3nn import o3
+import torch
+from mace.modules.blocks import LinearReadoutBlock, NonLinearReadoutBlock
+
+def readout_is_linear(obj: Any):
+    if isinstance(obj, torch.jit.RecursiveScriptModule):
+        return obj.original_name == "LinearReadoutBlock"
+    else:
+        return isinstance(obj, LinearReadoutBlock)
+
+def readout_is_nonlinear(obj: Any):
+    if isinstance(obj, torch.jit.RecursiveScriptModule):
+        return obj.original_name == "NonLinearReadoutBlock"
+    else:
+        return isinstance(obj, NonLinearReadoutBlock)
+    
+class LinearReadoutLLFExtractor(torch.nn.Module):
+    """Module to extract LLF from a LinearReadoutBlock."""
+
+    def __init__(self, readout: LinearReadoutBlock, n_scalars: int):
+        super().__init__()
+        self.readout = readout
+        self.n_scalars = n_scalars
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        return features[:, : self.n_scalars]
+
+class NonLinearReadoutLLFExtractor(torch.nn.Module):
+    """Module to extract LLF from a NonLinearReadoutBlock."""
+
+    def __init__(self, readout: NonLinearReadoutBlock, n_scalars: int):
+        super().__init__()
+        self.readout = readout
+        self.n_scalars = n_scalars
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        ll_feats = self.readout.non_linearity(self.readout.linear_1(features))
+        return ll_feats[:, : self.n_scalars]
+    
+class MACEHeadWrapper(torch.nn.Module):
+    """Wrapper around MACE readout heads to extract LLF.
+
+    """
+
+    def __init__(
+        self,
+        readouts: torch.nn.ModuleList,
+    ):
+        super().__init__()
+        self.readouts = readouts
+
+        self.last_layer_features_irreps = o3.Irreps("10x0e")
+        self.last_layer_features = torch.empty(0)  # To be replaced at forward pass
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        for readout in self.readouts:
+            print(readout)
+        return features
