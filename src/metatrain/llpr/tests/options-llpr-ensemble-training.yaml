@@ -1,12 +1,13 @@
-seed: 42
+seed: 4332
 
 architecture:
   name: llpr
   model:
-    num_ensemble_members: {energy: 100000}  # needed to converge the std in the tests
+    num_ensemble_members: {energy: 32}
   training:
     model_checkpoint: model.ckpt
     batch_size: 4
+    num_epochs: 2
 
 training_set:
   systems:

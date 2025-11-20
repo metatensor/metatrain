@@ -7,7 +7,7 @@ from typing import Any, Dict, Literal, Optional, Type
 
 import metatensor.torch as mts
 import torch
-from metatensor.torch import TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from pydantic import ConfigDict, with_config
 from torch.nn.modules.loss import _Loss
 from typing_extensions import NotRequired, TypedDict
@@ -594,6 +594,164 @@ class MaskedDOSLoss(LossInterface):
         return dos_loss + gradient_loss + int_MSE
 
 
+class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
+    """
+    Gaussian NLL Loss for ensembles based on :py:class:`TensorMap` entries.
+    Assumes that ensemble is the outermost dimension of :py:class:`TensorBlock`
+    properties.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for torch loss.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_fn=torch.nn.GaussianNLLLoss(reduction=reduction),
+        )
+
+    # this is technically incompatible with the BaseTensorMapLoss compute_flattened:
+    # ignore the type error
+    def compute_flattened(  # type: ignore[override]
+        self,
+        pred_mean: TensorMap,
+        target: TensorMap,
+        pred_var: TensorMap,
+    ) -> torch.Tensor:
+        """
+        Flatten prediction and target blocks (and optional mask), then
+        apply the torch loss.
+
+        :param pred_mean: mean of ensemble predictions :py:class:`TensorMap`.
+        :param target: target :py:class:`TensorMap`.
+        :param pred_var: variance of ensemble predictions :py:class:`TensorMap`.
+        :return: scalar torch.Tensor of the computed loss.
+        """
+        if self.gradient is not None:
+            return 0.0  # gradients not supported for this loss yet
+
+        list_pred_mean_segments = []
+        list_target_segments = []
+        list_pred_var_segments = []
+
+        def extract_flattened_values_from_block(
+            tensor_block: mts.TensorBlock,
+        ) -> torch.Tensor:
+            """
+            Extract values or gradients from a block, flatten to 1D.
+
+            :param tensor_block: input :py:class:`TensorBlock`.
+            :return: flattened torch.Tensor.
+            """
+            values = tensor_block.values
+            return values.reshape(-1)
+
+        # Loop over each key in the TensorMap
+        for single_key in target.keys:
+            block_pred_mean = pred_mean.block(single_key)
+            block_target = target.block(single_key)
+            block_pred_var = pred_var.block(single_key)
+
+            flat_pred_mean = extract_flattened_values_from_block(block_pred_mean)
+            flat_target = extract_flattened_values_from_block(block_target)
+            flat_pred_var = extract_flattened_values_from_block(block_pred_var)
+
+            list_pred_mean_segments.append(flat_pred_mean)
+            list_target_segments.append(flat_target)
+            list_pred_var_segments.append(flat_pred_var)
+
+        # Concatenate all segments and apply the torch loss
+        all_pred_mean_flattened = torch.cat(list_pred_mean_segments)
+        all_targets_flattened = torch.cat(list_target_segments)
+        all_pred_var_flattened = torch.cat(list_pred_var_segments)
+
+        return self.torch_loss(
+            all_pred_mean_flattened,
+            all_targets_flattened,
+            all_pred_var_flattened,
+        )
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ) -> torch.Tensor:
+        """
+        Gather and flatten target and prediction blocks, then compute loss.
+
+        :param predictions: Mapping from target names to TensorMaps, must contain
+            ensemble as the outer-most property dimension.
+        :param targets: Mapping from target names to their ref value TensorMaps.
+        :param extra_data: Ignored for this loss.
+        :return: Scalar loss tensor.
+        """
+
+        ens_name = "mtt::aux::" + self.target.replace("mtt::", "") + "_ensemble"
+        if ens_name == "mtt::aux::energy_ensemble":
+            ens_name = "energy_ensemble"
+
+        tmap_pred_orig = predictions[self.target]
+        tmap_pred_ens = predictions[ens_name]
+        tmap_targ = targets[self.target]
+
+        # number of ensembles extracted from TensorMaps
+        n_ens = (
+            tmap_pred_ens.block(0).values.shape[1]
+            // tmap_pred_orig.block(0).values.shape[1]
+        )
+
+        ens_pred_values = tmap_pred_ens.block().values  # shape: samples, properties
+
+        ens_pred_values = ens_pred_values.reshape(ens_pred_values.shape[0], n_ens, -1)
+        ens_pred_mean = ens_pred_values.mean(dim=1)
+        ens_pred_var = ens_pred_values.var(dim=1, unbiased=True)
+
+        tmap_pred_mean = TensorMap(
+            keys=Labels(
+                names=["_"],
+                values=torch.tensor([[0]], device=tmap_targ.block().values.device),
+            ),
+            blocks=[
+                TensorBlock(
+                    values=ens_pred_mean,
+                    samples=tmap_targ.block().samples,
+                    components=tmap_targ.block().components,
+                    properties=tmap_targ.block().properties,
+                ),
+            ],
+        )
+
+        tmap_pred_var = TensorMap(
+            keys=Labels(
+                names=["_"],
+                values=torch.tensor([[0]], device=tmap_targ.block().values.device),
+            ),
+            blocks=[
+                TensorBlock(
+                    values=ens_pred_var,
+                    samples=tmap_targ.block().samples,
+                    components=tmap_targ.block().components,
+                    properties=tmap_targ.block().properties,
+                ),
+            ],
+        )
+
+        # Note that we're ignoring all gradients for now. This can be extended later.
+        return self.compute_flattened(tmap_pred_mean, tmap_targ, tmap_pred_var)
+
+
 # --- aggregator -----------------------------------------------------------------------
 
 
@@ -761,6 +919,7 @@ class LossType(Enum):
     POINTWISE = ("pointwise", BaseTensorMapLoss)
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
     MASKED_DOS = ("masked_dos", MaskedDOSLoss)
+    ENSEMBLE_NLL = ("ensemble_nll", TensorMapEnsembleNLLLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key
