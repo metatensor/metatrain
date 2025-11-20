@@ -36,10 +36,8 @@ from typing import Literal, Optional
 
 from typing_extensions import TypedDict
 
-from metatrain.utils.additive import FixedCompositionWeights
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
-from metatrain.utils.scaler import FixedScalerWeights
 
 
 class EnsemblesHypers(TypedDict):
@@ -99,12 +97,6 @@ class TrainerHypers(TypedDict):
     formula here, we also note to the user that the training routine of the LLPR
     wrapper model finds the ideal global calibration factor :math:`\alpha`."""
 
-    mode: Literal["llpr_only", "llpr_ens_calib"] = "llpr_only"
-    """This determines the mode of the LLPR model training. Available options are:
-    "llpr_only", which only computes the covariance matrix and calibrates the
-    multipliers for each target, and "llpr_ens_calib", which then samples an ensemble
-    and performs gradient-based training to further calibrate the ensemble weights."""
-
     model_checkpoint: Optional[str] = None
     """This should provide the checkpoint to the model for which the
     user wants to perform UQ based on the LLPR approach. Note that the model
@@ -116,12 +108,19 @@ class TrainerHypers(TypedDict):
     weight calibration. We strongly suggest only using "ensemble_nll" loss. see
     :ref:`loss-functions` for more details of the rest of the hypers."""
 
-    calib_options: dict = {}
-    """TODO: MISSING DOCS!!"""
-
     num_epochs: Optional[int] = None
     """Number of epochs for which the LLPR ensemble weight calibration should
-    take place. Ignored when mode is set to "llpr_only"."""
+    take place. If set to ``null``, only the LLPR covariance matrix computation
+    and calibration will be performed, without ensemble weight training."""
+
+    trainable_parameters: Optional[list[str]] = None
+    """Optional list of parameter names that should be trained during ensemble
+    calibration. If set to ``null`` (default), all parameters (both the wrapped
+    model and ensemble layers) will be trained. If provided as an empty list or
+    a list of specific parameter names, only those parameters will be trained.
+    Example: ``["node_last_layers.energy.0.energy___0.weight"]`` to train only
+    specific last-layer weights. This parameter is only used when ``num_epochs``
+    is not ``null``."""
 
     warmup_fraction: float = 0.01
     """Fraction of training steps used for learning rate warmup."""

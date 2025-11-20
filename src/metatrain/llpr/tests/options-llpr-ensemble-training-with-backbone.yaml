@@ -12,16 +12,14 @@ architecture:
   training:
     model_checkpoint: model.ckpt
     batch_size: 4
-    mode: llpr_ens_calib
-    ens_calib_loss:
+    num_epochs: 2
+    trainable_parameters: null  # Train all parameters
+    loss:
       energy:
         type: ensemble_nll
         weight: 1.0
         reduction: sum
         gradients: {}
-    calib_options:
-      strategy: full
-    num_epochs: 2
 
 training_set:
   systems:
