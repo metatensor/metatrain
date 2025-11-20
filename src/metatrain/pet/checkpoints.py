@@ -234,13 +234,11 @@ def model_update_v8_v9(checkpoint: dict) -> None:
     """
     for key in ["model_state_dict", "best_model_state_dict"]:
         if (state_dict := checkpoint.get(key)) is not None:
-            if "finetune_config" not in state_dict:
-                state_dict["finetune_config"] = {
-                    "read_from": "None",
-                    "method": "full",
-                    "config": {},
-                    "inherit_heads": {},
-                }
+            if "finetune_config" in state_dict:
+                if "inherit_heads" not in state_dict["finetune_config"]:
+                    state_dict["finetune_config"]["inherit_heads"] = {}
+                if "method" not in state_dict["finetune_config"]:
+                    state_dict["finetune_config"]["method"] = "full"
 
 
 ###########################

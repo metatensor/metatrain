@@ -200,7 +200,7 @@ class TrainerHypers(TypedDict):
         "config": {},
         "inherit_heads": {},
     }
-    """Finetuning parameters for PET models pretrained on large datasets.
+    """Parameters for fine-tuning trained PET models.
 
     See :ref:`fine-tuning` for more details.
     """
