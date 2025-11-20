@@ -54,7 +54,7 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 # the command line, e.g., ``mtt train options-model.yaml -o model.pt``.
 
 print("Training baseline model...")
-subprocess.run(["mtt", "train", "options-model.yaml", "-o", "model.pt"], check=True)
+subprocess.run(["mtt", "--debug", "train", "options-model.yaml", "-o", "model.pt"], check=True)
 
 print("Training LLPR ensemble model...")
 subprocess.run(
