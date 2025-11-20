@@ -861,6 +861,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             self.last_layer_parameter_names[target_name] = [
                 f"last_layers.{target_name}.{dict_key}." + n
                 for n in self.last_layers[target_name][dict_key].state_dict().keys()
+                if n.endswith("weight")
             ]
 
         self.key_labels[target_name] = target.layout.keys
