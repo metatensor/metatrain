@@ -1,0 +1,25 @@
+device: cpu
+base_precision: 64
+seed: 42
+
+architecture:
+  name: llpr
+  model:
+    num_ensemble_members: {energy: 32}
+  training:
+    model_checkpoint: model.ckpt
+    batch_size: 4
+    num_epochs: 2  # Enable ensemble weight training
+    loss: ensemble_nll  # Use NLL loss for weight calibration
+    train_all_parameters: true  # Train both ensemble weights and base model
+
+# Section defining the parameters for system and target data
+training_set:
+  systems: qm9_reduced_100.xyz
+  targets:
+    energy:
+      key: U0
+      unit: hartree
+
+validation_set: 0.1
+test_set: 0.0
