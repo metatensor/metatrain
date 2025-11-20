@@ -309,6 +309,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 else sum_over_atoms(per_atom_output)
             )
 
+        print(return_dict)
+
         # At evaluation, we also introduce the scaler and additive contributions
         if not self.training:
             return_dict = self.scaler(systems, return_dict)
