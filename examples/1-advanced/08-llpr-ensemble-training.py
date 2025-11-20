@@ -89,12 +89,12 @@ predictions = calc.run_model(
     },
 )
 
-energies = predictions["energy"].block().values.squeeze().cpu().numpy()
+energies = predictions["energy"].block().values.squeeze().numpy()
 llpr_uncertainties = (
-    predictions["energy_uncertainty"].block().values.squeeze().cpu().numpy()
+    predictions["energy_uncertainty"].block().values.squeeze().numpy()
 )
 ensemble_predictions = (
-    predictions["energy_ensemble"].block().values.squeeze().cpu().numpy()
+    predictions["energy_ensemble"].block().values.squeeze().numpy()
 )
 
 # Calculate ensemble mean and standard deviation
