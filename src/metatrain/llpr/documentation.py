@@ -23,13 +23,6 @@ standard deviations, and not variances.
 {{SECTION_DEFAULT_HYPERS}}
 
 {{SECTION_MODEL_HYPERS}}
-
-where the ensemble hyperparameters should adhere to the following structure:
-
-.. autoclass:: {{architecture_path}}.documentation.EnsemblesHypers
-    :members:
-    :undoc-members:
-
 """
 
 from typing import Literal, Optional
