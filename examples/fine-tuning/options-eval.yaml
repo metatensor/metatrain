@@ -1,7 +1,0 @@
-systems: ../0-beginner/ethanol_reduced_100.xyz
-targets:
-  energy:
-    key: energy
-    unit: eV
-    forces:
-      key: forces
