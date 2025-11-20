@@ -193,6 +193,13 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             dtype=self.capabilities.dtype,
         )
         self.llpr_ensemble_layers = torch.nn.ModuleDict()
+        for name, value in self.ensemble_weight_sizes.items():
+            # create the linear layer for ensemble members
+            self.llpr_ensemble_layers[name] = torch.nn.Linear(
+                self.ll_feat_size,
+                value,
+                bias=False,
+            )
 
     def restart(self, dataset_info: DatasetInfo) -> "LLPRUncertaintyModel":
         # merge old and new dataset info
@@ -669,15 +676,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ensemble_weights.shape[0],
                 -1,
             )  # shape: (ll_feat, n_ens * n_subtarget)
-
-            # create the linear layer for ensemble members
-            self.llpr_ensemble_layers[name] = torch.nn.Linear(
-                self.ll_feat_size,
-                ensemble_weights.shape[1],
-                bias=False,
-                device=device,
-                dtype=dtype,
-            )
             # assign the generated weights
             with torch.no_grad():
                 self.llpr_ensemble_layers[name].weight.copy_(ensemble_weights.T)
@@ -759,17 +757,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         state_dict_iter = iter(model_state_dict.values())
         next(state_dict_iter)
         dtype = next(state_dict_iter).dtype
-        # llpr ensemble linear layers must be manually initialized
-        for name, val in model_state_dict.items():
-            if "llpr_ensemble_layers" in name:
-                target_name = name.split(".")[1]
-                llpr_model.llpr_ensemble_layers[target_name] = torch.nn.Linear(
-                    val.shape[1],
-                    val.shape[0],
-                    bias=False,
-                    dtype=dtype,
-                )
-        llpr_model.load_state_dict(model_state_dict, strict=False)
+        # TODO: find a way to refactor this to avoid strict=False
+        llpr_model.to(dtype).load_state_dict(model_state_dict, strict=False)
         return llpr_model
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:

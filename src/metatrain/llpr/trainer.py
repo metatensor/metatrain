@@ -192,7 +192,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
             model.compute_inverse_covariance(self.hypers["regularizer"])
             model.calibrate(val_dataloader)
             model.generate_ensemble()
-            model.to(device=device, dtype=dtype)  # for the new ensemble layers
             logging.info("LLPR calibration complete")
 
         if self.hypers["num_epochs"] is None:
