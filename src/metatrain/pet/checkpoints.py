@@ -238,8 +238,8 @@ def model_update_v8_v9(checkpoint: dict) -> None:
                 state_dict["finetune_config"] = {
                     "read_from": "None",
                     "method": "full",
-                    "config": {}
-                    "inherit_heads": {}
+                    "config": {},
+                    "inherit_heads": {},
                 }
 
 
