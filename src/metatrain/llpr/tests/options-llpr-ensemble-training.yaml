@@ -12,13 +12,10 @@ architecture:
   training:
     model_checkpoint: model.ckpt
     batch_size: 4
-    mode: llpr_ens_calib
-    calib_options:
-      strategy: tagged_only
-      tagged_only_weights:
-        - node_last_layers.energy.0.energy___0.weight
-        - edge_last_layers.energy.0.energy___0.weight
     num_epochs: 2
+    trainable_parameters:
+      - node_last_layers.energy.0.energy___0.weight
+      - edge_last_layers.energy.0.energy___0.weight
 
 training_set:
   systems:
