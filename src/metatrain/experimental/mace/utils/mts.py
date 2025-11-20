@@ -108,7 +108,7 @@ def e3nn_to_tensormap(
 
 def get_e3nn_target_info(target_name: str, target: dict) -> TargetInfo:
     """Get the target info corresponding to some e3nn irreps.
-    
+
     :param target_name: Name of the target.
     :param target: Target dictionary containing the irreps and other info.
     :return: The corresponding TargetInfo object.
@@ -135,7 +135,7 @@ def get_e3nn_target_info(target_name: str, target: dict) -> TargetInfo:
 
 def target_info_to_e3nn_irreps(target_info: TargetInfo) -> o3.Irreps:
     """Convert a TargetInfo to e3nn Irreps.
-    
+
     :param target_info: TargetInfo object.
     :return: e3nn Irreps corresponding to the TargetInfo.
     """

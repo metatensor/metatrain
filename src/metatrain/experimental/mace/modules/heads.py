@@ -36,10 +36,20 @@ class NonLinearHead(torch.nn.Module):
         cueq_config: Optional[CuEquivarianceConfig] = None,
     ):
         super().__init__()
+        # Get the l values present in the output irreps, so that we can filter
+        # out the irreps that are not really used in the last layer, therefore
+        # having only the last layer features that are truly used.
+        output_ls = set(ir.ir.l for ir in irreps_out)
+
         self.hidden_irreps = sum(
-            [str(ir) if ir.ir.l > 0 else MLP_irreps for ir in irreps_in], o3.Irreps("")
+            [
+                str(ir) if ir.ir.l > 0 else MLP_irreps
+                for ir in irreps_in
+                if ir.ir.l in output_ls
+            ],
+            o3.Irreps(""),
         )
-        gates = [None if ir.ir.l > 0 else gate for ir in irreps_in]
+        gates = [None if ir.ir.l > 0 else gate for ir in self.hidden_irreps]
         self.linear_1 = Linear(
             irreps_in=irreps_in, irreps_out=self.hidden_irreps, cueq_config=cueq_config
         )
