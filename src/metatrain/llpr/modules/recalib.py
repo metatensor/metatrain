@@ -1,10 +1,9 @@
-from typing import List, Optional
-
 import torch.nn as nn
 
 
 def apply_ensemble_training_strategy(
-    model: nn.Module, train_all_parameters: bool,
+    model: nn.Module,
+    train_all_parameters: bool,
 ) -> nn.Module:
     """
     Apply the user-specified ensemble training strategy to the LLPR-wrapped

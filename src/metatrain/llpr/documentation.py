@@ -36,7 +36,6 @@ from typing import Literal, Optional
 
 from typing_extensions import TypedDict
 
-from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
 
 
