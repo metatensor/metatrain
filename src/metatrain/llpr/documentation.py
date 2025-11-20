@@ -15,6 +15,9 @@ the ensemble weights sampled from the LLPR formalism, which can lead to improved
 uncertainty estimates. Gradients (e.g. forces and stresses) are not yet used in this
 implementation of the LLPR.
 
+Note that the uncertainties computed with this implementation are returned as
+standard deviations, and not variances.
+
 {{SECTION_INSTALLATION}}
 
 {{SECTION_DEFAULT_HYPERS}}

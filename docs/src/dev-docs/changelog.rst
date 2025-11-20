@@ -19,6 +19,8 @@ Added
 
 - A method to train on mixed-stress datasets by setting stresses in non-periodic
   structures to NaN.
+- The ``LLPR`` architecture now allows training LLPR ensembles by backpropagation after
+  their creation from the LLPR covariance.
 
 .. Changed
 .. #######
