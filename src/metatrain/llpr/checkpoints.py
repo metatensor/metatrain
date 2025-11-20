@@ -39,3 +39,14 @@ def model_update_v2_v3(checkpoint: dict) -> None:
     # added num_ensemble_members to hypers (only do energy for simplicity)
     num_members = t.shape[0]
     checkpoint["model_data"]["hypers"]["num_ensemble_members"] = {"energy": num_members}
+    # trainer is v1
+    checkpoint["trainer_ckpt_version"] = 1
+    # we set the following to None and the user will probably get errors if they're
+    # accessed from a restart exercise (which would be useless anyway as there was
+    # no ensemble training by backpropagation before this version)
+    checkpoint["epoch"] = None
+    checkpoint["optimizer_state_dict"] = None
+    checkpoint["scheduler_state_dict"] = None
+    checkpoint["best_epoch"] = None
+    checkpoint["best_metric"] = None
+    checkpoint["best_optimizer_state_dict"] = None
