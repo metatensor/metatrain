@@ -119,7 +119,7 @@ class TrainerHypers(TypedDict):
     calib_options: dict = {}
     """TODO: MISSING DOCS!!"""
 
-    num_epochs: Optional[int] = 0
+    num_epochs: Optional[int] = None
     """Number of epochs for which the LLPR ensemble weight calibration should
     take place. Ignored when mode is set to "llpr_only"."""
 
@@ -136,31 +136,6 @@ class TrainerHypers(TypedDict):
 
     checkpoint_interval: int = 100
     """Interval to save checkpoints."""
-
-    scale_targets: bool = True
-    """Normalize targets to unit std during training."""
-
-    fixed_composition_weights: FixedCompositionWeights = {}
-    """Weights for atomic contributions.
-
-    This is passed to the ``fixed_weights`` argument of
-    :meth:`CompositionModel.train_model
-    <metatrain.utils.additive.composition.CompositionModel.train_model>`,
-    see its documentation to understand exactly what to pass here.
-    """
-
-    remove_composition_contribution: bool = True
-    """Whether to remove the atomic composition contribution from the
-    targets by fitting a linear model to the training data before
-    training the neural network."""
-
-    fixed_scaling_weights: FixedScalerWeights = {}
-    """Weights for target scaling.
-
-    This is passed to the ``fixed_weights`` argument of
-    :meth:`Scaler.train_model <metatrain.utils.scaler.scaler.Scaler.train_model>`,
-    see its documentation to understand exactly what to pass here.
-    """
 
     per_structure_targets: list[str] = []
     """Targets to calculate per-structure losses."""
