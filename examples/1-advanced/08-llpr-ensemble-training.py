@@ -29,7 +29,7 @@ resulting shallow ensemble, which is more expensive but can lead to better uncer
 estimates. This is done by setting `num_epochs` to the number of epochs that you
 want to train for.
 
-.. literalinclude:: options-llpr-ensemble-training.yaml
+.. literalinclude:: options-llpr-ensemble-train.yaml
    :language: yaml
 
 You can train these models yourself with the following code:
