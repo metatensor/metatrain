@@ -95,7 +95,7 @@ if __name__ == "__main__":
         energy_key=energy_key,
         forces_key=forces_key,
     )
-Collapse
+
 
 
 
