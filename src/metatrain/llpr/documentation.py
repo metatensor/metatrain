@@ -17,12 +17,6 @@ implementation of the LLPR.
 
 Note that the uncertainties computed with this implementation are returned as
 standard deviations, and not variances.
-
-{{SECTION_INSTALLATION}}
-
-{{SECTION_DEFAULT_HYPERS}}
-
-{{SECTION_MODEL_HYPERS}}
 """
 
 from typing import Literal, Optional
