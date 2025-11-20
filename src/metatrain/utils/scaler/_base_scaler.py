@@ -8,13 +8,14 @@ from typing import Dict, List, Optional, Union
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.learn.nn import Module
 from metatomic.torch import System
 
 
 FixedScalerWeights = dict[str, Union[float, dict[int, float]]]
 
 
-class BaseScaler(torch.nn.Module):
+class BaseScaler(Module):
     """
     Fits a scaler for a dict of targets. Scales are computed as the per-property (and
     therefore per-block) standard deviations. By default, the scales are also computed

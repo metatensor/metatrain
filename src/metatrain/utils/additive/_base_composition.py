@@ -10,13 +10,14 @@ from typing import Dict, List, Optional, Tuple, Union
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
+from metatensor.torch.learn.nn import Module
 from metatomic.torch import ModelOutput, System
 
 
 FixedCompositionWeights = dict[str, float | dict[int, float]]
 
 
-class BaseCompositionModel(torch.nn.Module):
+class BaseCompositionModel(Module):
     """
     Fits a composition model for a dict of targets.
 

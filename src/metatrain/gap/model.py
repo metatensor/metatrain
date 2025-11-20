@@ -5,6 +5,7 @@ import metatensor.torch as mts
 import numpy as np
 import scipy
 import torch
+from metatensor.torch.learn.nn import Module
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import (
     AtomisticModel,
@@ -400,7 +401,7 @@ class _SorKernelSolver:
         return KTM @ self._weights
 
 
-class AggregateKernel(torch.nn.Module):
+class AggregateKernel(Module):
     """
     A kernel that aggregates values in a kernel over :param aggregate_names: using
     the sum as aggregate function
@@ -458,7 +459,7 @@ class AggregatePolynomial(AggregateKernel):
         return mts.pow(mts.dot(tensor1, tensor2), self._degree)
 
 
-class TorchAggregateKernel(torch.nn.Module):
+class TorchAggregateKernel(Module):
     """
     A kernel that aggregates values in a kernel over :param aggregate_names: using
     the sum as aggregate function
@@ -797,7 +798,7 @@ class SubsetOfRegressors:
         )
 
 
-class TorchSubsetofRegressors(torch.nn.Module):
+class TorchSubsetofRegressors(Module):
     def __init__(
         self,
         weights: TensorMap,

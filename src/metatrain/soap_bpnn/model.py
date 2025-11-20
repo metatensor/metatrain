@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 import metatensor.torch as mts
 import torch
+from metatensor.torch.learn.nn import Module
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.learn.nn import Linear as LinearMap
 from metatensor.torch.learn.nn import ModuleMap
@@ -32,7 +33,7 @@ from .modules.power_spectrum import SoapPowerSpectrum
 from .modules.tensor_basis import TensorBasis
 
 
-class Identity(torch.nn.Module):
+class Identity(Module):
     def __init__(self) -> None:
         super().__init__()
 
@@ -48,7 +49,7 @@ class MLPMap(ModuleMap):
         # Build a neural network for each species
         nns_per_species = []
         for _ in atomic_types:
-            module_list: List[torch.nn.Module] = []
+            module_list: List[Module] = []
             for _ in range(hypers["num_hidden_layers"]):
                 if len(module_list) == 0:
                     module_list.append(

@@ -1,7 +1,8 @@
 import torch
+from metatensor.torch.learn.nn import Module
 
 
-class FeedForwardBlock(torch.nn.Module):
+class FeedForwardBlock(Module):
     """A single transformer feed forward block."""
 
     def __init__(
