@@ -13,12 +13,6 @@ architecture:
     model_checkpoint: model.ckpt
     batch_size: 4
     mode: llpr_ens_calib
-    ens_calib_loss:
-      energy:
-        type: ensemble_nll
-        weight: 1.0
-        reduction: sum
-        gradients: {}
     calib_options:
       strategy: tagged_only
       tagged_only_weights:

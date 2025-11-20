@@ -3,22 +3,22 @@ from typing import Any, Dict
 import torch.nn as nn
 
 
-def apply_recalibration_strategy(
+def apply_ensemble_training_strategy(
     model: nn.Module, target: str, strategy: Dict[str, Any]
 ) -> nn.Module:
     """
-    Apply the user-specified recalibration strategy to the LLPR-wrapped model.
+    Apply the user-specified ensemble training strategy to the LLPR-wrapped model.
     This function modifies the model in place based on the provided strategy.
     The strategy can be one of the following:
-    - full: all model weights are retrained during calibration
+    - full: all model weights are retrained during ensemble training
     - tagged-only: only the model weights specified in a dictionary under this tag
-       are retrained during calibration (useful for head-only calibration)
+       are retrained during ensemble training (useful for head-only training)
     - ens-only: only the ensemble linear layer weights are trained
     input model should be the LLPRUncertaintyModel object.
 
     :param model: LLPR-wrapped model to be recalibrated.
-    :param target: target property for which recalibration is performed.
-    :param strategy: dictionary specifying the recalibration strategy.
+    :param target: target property for which ensemble training is performed.
+    :param strategy: dictionary specifying the ensemble training strategy.
     :return: the model with updated trainable parameters.
     """
 

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
+from metatensor.torch import TensorBlock, TensorMap
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 
@@ -33,7 +34,7 @@ from metatrain.utils.transfer import batch_to
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import LLPRUncertaintyModel
-from .modules.recalib import apply_recalibration_strategy
+from .modules.recalib import apply_ensemble_training_strategy
 
 
 def get_scheduler(
@@ -299,12 +300,17 @@ class Trainer(TrainerInterface[TrainerHypers]):
             f"as the calibration strategy"
         )
         for target_name in train_targets.keys():
-            model = apply_recalibration_strategy(
+            model = apply_ensemble_training_strategy(
                 model, target_name, self.hypers["calib_options"]
             )
 
-        loss_hypers = self.hypers["ens_calib_loss"]
+        loss_hypers = self.hypers["loss"]
         loss_hypers = cast(Dict[str, LossSpecification], loss_hypers)  # mypy
+        if loss_hypers != "ensemble_nll":
+            raise ValueError(
+                'Only "ensemble_nll" loss is supported for LLPR ensemble '
+                "weight training."
+            )
         loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
 
         logging.info("Using the following loss functions:")
@@ -409,6 +415,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
+                targets = _drop_gradient_blocks(targets)
                 train_rmse_calculator.update(predictions, targets)
                 if self.hypers["log_mae"]:
                     train_mae_calculator.update(predictions, targets)
@@ -451,6 +458,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
+                targets = _drop_gradient_blocks(targets)
                 val_rmse_calculator.update(predictions, targets)
                 if self.hypers["log_mae"]:
                     val_mae_calculator.update(predictions, targets)
@@ -576,3 +584,24 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 f"current trainer version is {cls.__checkpoint_version__}."
             )
         return checkpoint
+
+
+def _drop_gradient_blocks(targets: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove gradient blocks from the targets dictionary.
+
+    :param targets: The targets dictionary.
+    :return: The targets dictionary without gradient blocks.
+    """
+    filtered_targets = {}
+    for key, value in targets.items():
+        new_blocks = []
+        for _, b in value.items():
+            new_block = TensorBlock(
+                values=b.values,
+                samples=b.samples,
+                components=b.components,
+                properties=b.properties,
+            )
+            new_blocks.append(new_block)
+        filtered_targets[key] = TensorMap(value.keys, new_blocks)
+    return filtered_targets

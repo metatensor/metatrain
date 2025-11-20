@@ -638,6 +638,9 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         :param pred_var: variance of ensemble predictions :py:class:`TensorMap`.
         :return: scalar torch.Tensor of the computed loss.
         """
+        if self.gradient is not None:
+            return 0.0  # gradients not supported for this loss yet
+
         list_pred_mean_segments = []
         list_target_segments = []
         list_pred_var_segments = []
@@ -651,10 +654,7 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
             :param tensor_block: input :py:class:`TensorBlock`.
             :return: flattened torch.Tensor.
             """
-            if self.gradient is not None:
-                values = tensor_block.gradient(self.gradient).values
-            else:
-                values = tensor_block.values
+            values = tensor_block.values
             return values.reshape(-1)
 
         # Loop over each key in the TensorMap
