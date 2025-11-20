@@ -626,10 +626,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         """
         # concatenate the provided weight tensors
         # (necessary if there are multiple, as in the case of PET)
-        # TODO: automate the weight tensor extraction process
         # weight tensor is of shape (num_subtarget, concat_llfeat)
         weight_tensors = {}  # type: ignore
-        for name, tensor_names in self.model.last_layer_parameter_names.items():
+        for name in self.ensemble_weight_sizes:
+            tensor_names = self.model.last_layer_parameter_names[name]
             weight_tensors[name] = torch.concatenate(
                 [self.model.state_dict()[tn] for tn in tensor_names],
                 axis=-1,
@@ -640,7 +640,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         # covariance matrix
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
-        n_members = self.ensemble_weight_sizes
 
         for name, weights in weight_tensors.items():
             uncertainty_name = _get_uncertainty_name(name)
@@ -660,7 +659,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 cur_ensemble_weights = rng.multivariate_normal(
                     weights[ii].clone().detach().cpu().numpy(),
                     cur_inv_covariance * cur_multiplier[ii].item() ** 2,
-                    size=n_members[name],
+                    size=self.ensemble_weight_sizes[name],
                     method="svd",
                 ).T
                 cur_ensemble_weights = torch.tensor(

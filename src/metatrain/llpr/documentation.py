@@ -111,13 +111,13 @@ class TrainerHypers(TypedDict):
     """Number of workers for data loading. If not provided, it is set
     automatically."""
 
-    log_mae: bool = True
+    log_mae: bool = False
     """Log MAE alongside RMSE"""
 
     log_separate_blocks: bool = False
     """Log per-block error."""
 
-    best_model_metric: Literal["rmse_prod", "mae_prod", "loss"] = "mae_prod"
+    best_model_metric: Literal["rmse_prod", "mae_prod", "loss"] = "loss"
     """Metric used to select best checkpoint (e.g., ``rmse_prod``)"""
 
     grad_clip_norm: float = 1.0
