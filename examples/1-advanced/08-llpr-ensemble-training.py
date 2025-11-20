@@ -40,7 +40,6 @@ You can train these models yourself with the following code:
 import subprocess
 
 import ase.io
-import matplotlib.pyplot as plt
 import numpy as np
 from metatomic.torch import ModelOutput
 from metatomic.torch.ase_calculator import MetatomicCalculator
@@ -59,13 +58,13 @@ subprocess.run(["mtt", "train", "options-model.yaml", "-o", "model.pt"], check=T
 
 print("Training LLPR ensemble model...")
 subprocess.run(
-    ["mtt", "train", "options-llpr-ensemble.yaml", "-o", "model-llpr.pt"],
+    ["mtt", "train", "options-llpr-ensemble.yaml", "-o", "model-llpr-ens.pt"],
     check=True,
 )
 
 print("Training LLPR ensemble model with further backpropagation...")
 subprocess.run(
-    ["mtt", "train", "options-llpr-ensemble-training.yaml", "-o", "model-llpr.pt"],
+    ["mtt", "train", "options-llpr-ensemble-train.yaml", "-o", "model-llpr-ens-tr.pt"],
     check=True,
 )
 # %%
@@ -74,10 +73,10 @@ subprocess.run(
 # as follows.
 
 # Load some test structures
-structures = ase.io.read("ethanol_reduced_100.xyz", ":10")
+structures = ase.io.read("ethanol_reduced_100.xyz", ":5")
 
 # Load the ensemble-trained model
-calc = MetatomicCalculator("model-llpr.pt", extensions_directory="extensions/")
+calc = MetatomicCalculator("model-llpr-ens.pt", extensions_directory="extensions/")
 
 # Get predictions with both ensemble and analytical uncertainties
 # (note that all these quantities are also available per-atom with ``per_atom=True``)
@@ -94,7 +93,9 @@ energies = predictions["energy"].block().values.squeeze().cpu().numpy()
 llpr_uncertainties = (
     predictions["energy_uncertainty"].block().values.squeeze().cpu().numpy()
 )
-ensemble_predictions = predictions["energy_ensemble"].block().values.squeeze().cpu().numpy()
+ensemble_predictions = (
+    predictions["energy_ensemble"].block().values.squeeze().cpu().numpy()
+)
 
 # Calculate ensemble mean and standard deviation
 ensemble_mean = np.mean(ensemble_predictions, axis=1)
