@@ -1,29 +1,29 @@
 import copy
+
 import metatensor.torch as mts
-import pytest
 import numpy as np
+import pytest
 import torch
 from metatomic.torch import ModelOutput, System, systems_to_torch
-from metatrain.utils.data.readers.ase import read
 
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.data.readers import (
+    read_systems,
+)
+from metatrain.utils.data.readers.ase import read
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from metatrain.utils.data.readers import (
-    read_systems,
-)
 
+from .base import ArchitectureTests
 from .equivariance import (
     get_random_rotation,
     rotate_spherical_tensor,
     rotate_system,
 )
-from .base import ArchitectureTests
+
 
 class OutputTests(ArchitectureTests):
-
     supports_scalar_outputs: bool = True
     supports_vector_outputs: bool = True
     supports_spherical_outputs: bool = True
@@ -35,33 +35,38 @@ class OutputTests(ArchitectureTests):
 
     @pytest.fixture
     def n_features(self):
-        """Override this fixture if you want the number of output features to be checked."""
+        """Override this fixture if you want to check the number of features."""
         return None
-    
+
     @pytest.fixture
     def n_last_layer_features(self):
-        """Override this fixture if you want the number of last-layer features to be checked."""
+        """Override this fixture if you want to check the number of
+        last-layer features."""
         return None
-    
+
     @pytest.fixture
     def single_atom_energy(self):
         """Override this fixture if you want to check the single atom energy value."""
         return None
-    
+
     def _get_output(self, model_hypers, dataset_info, per_atom):
         model = self.model_cls(model_hypers, dataset_info)
 
         system = System(
             types=torch.tensor([1, 6, 7, 8]),
-            positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]]),
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]]
+            ),
             cell=torch.zeros(3, 3),
             pbc=torch.tensor([False, False, False]),
         )
-        system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        system = get_system_with_neighbor_lists(
+            system, model.requested_neighbor_lists()
+        )
 
-        return model([system], {
-            k: ModelOutput(per_atom=per_atom) for k in model.outputs
-        })
+        return model(
+            [system], {k: ModelOutput(per_atom=per_atom) for k in model.outputs}
+        )
 
     def test_output_scalar(self, model_hypers, dataset_info_scalar, per_atom):
         """Tests that forward pass works for scalar outputs."""
@@ -74,7 +79,9 @@ class OutputTests(ArchitectureTests):
             assert outputs["scalar"].block().samples.names == ["system", "atom"]
             assert outputs["scalar"].block().values.shape == (4, 5)
         else:
-            assert outputs["scalar"].block().samples.names == ["system"], outputs["scalar"].block().samples.names
+            assert outputs["scalar"].block().samples.names == ["system"], (
+                outputs["scalar"].block().samples.names
+            )
             assert outputs["scalar"].block().values.shape == (1, 5)
 
     def test_output_vector(self, model_hypers, dataset_info_vector, per_atom):
@@ -98,15 +105,20 @@ class OutputTests(ArchitectureTests):
         outputs = self._get_output(model_hypers, dataset_info_spherical, per_atom)
 
         if per_atom:
-            assert outputs["spherical_target"].block().samples.names == ["system", "atom"]
+            assert outputs["spherical_target"].block().samples.names == [
+                "system",
+                "atom",
+            ]
             assert outputs["spherical_target"].block().values.shape[0] == 4
         else:
             assert outputs["spherical_target"].block().samples.names == ["system"]
             assert outputs["spherical_target"].block().values.shape[0] == 1
 
-    def test_output_multispherical(self, model_hypers, dataset_info_multispherical, per_atom):
+    def test_output_multispherical(
+        self, model_hypers, dataset_info_multispherical, per_atom
+    ):
         """Tests that forward pass works for spherical tensor outputs
-        with multiple irreps."""""
+        with multiple irreps."""
         if not self.supports_spherical_outputs:
             pytest.skip(f"{self.architecture} does not support spherical outputs.")
 
@@ -115,7 +127,10 @@ class OutputTests(ArchitectureTests):
         assert len(outputs["spherical_tensor"]) == 3
 
         if per_atom:
-            assert outputs["spherical_tensor"].block(0).samples.names == ["system", "atom"]
+            assert outputs["spherical_tensor"].block(0).samples.names == [
+                "system",
+                "atom",
+            ]
             assert outputs["spherical_tensor"].block(0).values.shape[0] == 4
         else:
             assert outputs["spherical_tensor"].block(0).samples.names == ["system"]
@@ -133,7 +148,9 @@ class OutputTests(ArchitectureTests):
             cell=torch.zeros(3, 3),
             pbc=torch.tensor([False, False, False]),
         )
-        system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        system = get_system_with_neighbor_lists(
+            system, model.requested_neighbor_lists()
+        )
         model(
             [system],
             {"energy": model.outputs["energy"]},
@@ -144,7 +161,9 @@ class OutputTests(ArchitectureTests):
         of the atoms in a system."""
 
         if not self.supports_selected_atoms:
-            pytest.skip(f"{self.architecure} does not support selected atom predictions.")
+            pytest.skip(
+                f"{self.architecure} does not support selected atom predictions."
+            )
 
         # we need float64 for this test, then we will change it back at the end
         default_dtype_before = torch.get_default_dtype()
@@ -210,12 +229,14 @@ class OutputTests(ArchitectureTests):
 
             assert not mts.allclose(energy_monomer["energy"], energy_dimer["energy"])
 
-            assert mts.allclose(energy_monomer["energy"], energy_monomer_in_dimer["energy"])
+            assert mts.allclose(
+                energy_monomer["energy"], energy_monomer_in_dimer["energy"]
+            )
         except Exception as e:
             # make sure to set back the default dtype before raising
             torch.set_default_dtype(default_dtype_before)
             raise e
-        
+
         torch.set_default_dtype(default_dtype_before)
 
     @pytest.mark.parametrize("per_atom", [True, False])
@@ -235,7 +256,9 @@ class OutputTests(ArchitectureTests):
             cell=torch.zeros(3, 3),
             pbc=torch.tensor([False, False, False]),
         )
-        system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        system = get_system_with_neighbor_lists(
+            system, model.requested_neighbor_lists()
+        )
 
         features_output_options = ModelOutput(
             quantity="",
@@ -262,11 +285,15 @@ class OutputTests(ArchitectureTests):
             assert features.values.shape[1] == n_features
 
     @pytest.mark.parametrize("per_atom", [True, False])
-    def test_output_last_layer_features(self, model_hypers, dataset_info, per_atom, n_last_layer_features):
+    def test_output_last_layer_features(
+        self, model_hypers, dataset_info, per_atom, n_last_layer_features
+    ):
         """Tests that the model can output its last layer features."""
 
         if not self.supports_last_layer_features:
-            pytest.skip(f"{self.architecture} does not support last-layer features output.")
+            pytest.skip(
+                f"{self.architecture} does not support last-layer features output."
+            )
 
         model = self.model_cls(model_hypers, dataset_info)
 
@@ -278,7 +305,9 @@ class OutputTests(ArchitectureTests):
             cell=torch.zeros(3, 3),
             pbc=torch.tensor([False, False, False]),
         )
-        system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        system = get_system_with_neighbor_lists(
+            system, model.requested_neighbor_lists()
+        )
 
         # last-layer features per atom:
         ll_output_options = ModelOutput(
@@ -305,12 +334,17 @@ class OutputTests(ArchitectureTests):
             assert last_layer_features.values.shape[1] == n_last_layer_features
 
     @pytest.mark.parametrize("select_atoms", [[0, 2]])
-    def test_output_last_layer_features_selected_atoms(self, model_hypers, dataset_info, DATASET_PATH, select_atoms):
-
+    def test_output_last_layer_features_selected_atoms(
+        self, model_hypers, dataset_info, DATASET_PATH, select_atoms
+    ):
         if not self.supports_last_layer_features:
-            pytest.skip(f"{self.architecture} does not support last-layer features output.")
+            pytest.skip(
+                f"{self.architecture} does not support last-layer features output."
+            )
         if not self.supports_selected_atoms:
-            pytest.skip(f"{self.architecture} does not support selected atom predictions.")
+            pytest.skip(
+                f"{self.architecture} does not support selected atom predictions."
+            )
 
         systems = read_systems(DATASET_PATH)
         systems = [system.to(torch.float32) for system in systems]
@@ -346,7 +380,9 @@ class OutputTests(ArchitectureTests):
             cell=torch.zeros(3, 3),
             pbc=torch.tensor([False, False, False]),
         )
-        system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        system = get_system_with_neighbor_lists(
+            system, model.requested_neighbor_lists()
+        )
         outputs = model([system], {"energy": ModelOutput(per_atom=False)})
         if single_atom_energy is not None:
             assert outputs["energy"].block().values.item() == single_atom_energy
@@ -355,7 +391,9 @@ class OutputTests(ArchitectureTests):
         """Tests that scalar outputs are invariant to rotation"""
 
         if not self.supports_scalar_outputs or not self.is_equivariant_model:
-            pytest.skip(f"{self.architecture} does not produce invariant scalar outputs.")
+            pytest.skip(
+                f"{self.architecture} does not produce invariant scalar outputs."
+            )
 
         model = self.model_cls(model_hypers, dataset_info)
 
@@ -386,12 +424,16 @@ class OutputTests(ArchitectureTests):
             rotated_output["energy"].block().values,
         )
 
-    def test_output_spherical_equivariant_rotations(self, model_hypers, dataset_info_spherical, DATASET_PATH):
+    def test_output_spherical_equivariant_rotations(
+        self, model_hypers, dataset_info_spherical, DATASET_PATH
+    ):
         """Tests that the model is rotationally equivariant when predicting
         spherical tensors."""
 
         if not self.supports_spherical_outputs or not self.is_equivariant_model:
-            pytest.skip(f"{self.architecture} does not produce equivariant spherical outputs.")
+            pytest.skip(
+                f"{self.architecture} does not produce equivariant spherical outputs."
+            )
 
         model = self.model_cls(model_hypers, dataset_info_spherical)
 
@@ -427,11 +469,15 @@ class OutputTests(ArchitectureTests):
             rtol=1e-5,
         )
 
-    def test_output_spherical_equivariant_inversion(self, model_hypers, dataset_info_spherical, DATASET_PATH, o3_lambda, o3_sigma):
+    def test_output_spherical_equivariant_inversion(
+        self, model_hypers, dataset_info_spherical, DATASET_PATH, o3_lambda, o3_sigma
+    ):
         """Tests that the model is equivariant with respect to inversions."""
 
         if not self.supports_spherical_outputs or not self.is_equivariant_model:
-            pytest.skip(f"{self.architecture} does not produce equivariant spherical outputs.")
+            pytest.skip(
+                f"{self.architecture} does not produce equivariant spherical outputs."
+            )
 
         model = self.model_cls(model_hypers, dataset_info_spherical)
 

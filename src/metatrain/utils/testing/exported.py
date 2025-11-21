@@ -8,8 +8,8 @@ from metatrain.utils.neighbor_lists import (
 
 from .base import ArchitectureTests
 
-class ExportedTests(ArchitectureTests):
 
+class ExportedTests(ArchitectureTests):
     def test_to(self, device, dtype, model_hypers, dataset_info):
         """Tests that the `.to()` method of the exported model works."""
 

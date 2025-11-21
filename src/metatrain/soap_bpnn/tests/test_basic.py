@@ -1,33 +1,55 @@
 import copy
+
 import pytest
 
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.testing.autograd import AutogradTests
+from metatrain.utils.testing.base import ArchitectureTests
+from metatrain.utils.testing.checkpoints import CheckpointTests
 from metatrain.utils.testing.exported import ExportedTests
-from metatrain.utils.testing.torchscript import TorchscriptTests
+from metatrain.utils.testing.input import InputTests
 from metatrain.utils.testing.output import OutputTests
+from metatrain.utils.testing.torchscript import TorchscriptTests
+from metatrain.utils.testing.training import TrainingTests
 
-class TestOutput(OutputTests):
+
+class SoapBPNNTests(ArchitectureTests):
     architecture = "soap_bpnn"
 
+    @pytest.fixture
+    def minimal_model_hypers(self):
+        hypers = get_default_hypers(self.architecture)["model"]
+        hypers = copy.deepcopy(hypers)
+        hypers["soap"]["max_angular"] = 1
+        hypers["soap"]["max_radial"] = 1
+        hypers["bpnn"]["num_neurons_per_layer"] = 1
+        hypers["bpnn"]["num_hidden_layers"] = 1
+        return hypers
+
+
+class TestInput(InputTests, SoapBPNNTests): ...
+
+
+class TestOutput(OutputTests, SoapBPNNTests):
     supports_vector_outputs = False
 
     @pytest.fixture
     def n_features(self):
         return 128
-    
+
     @pytest.fixture
     def n_last_layer_features(self):
         return 128
-    
+
     @pytest.fixture
     def single_atom_energy(self):
         return 0.0
-    
-class TestAutograd(AutogradTests):
-    architecture = "soap_bpnn"
-    
-class TestTorchscript(TorchscriptTests):
-    architecture = "soap_bpnn"
+
+
+class TestAutograd(AutogradTests, SoapBPNNTests): ...
+
+
+class TestTorchscript(TorchscriptTests, SoapBPNNTests):
     float_hypers = ["soap.cutoff.radius", "soap.cutoff.width"]
 
     def test_torchscript_with_identity(self, model_hypers, dataset_info):
@@ -35,9 +57,22 @@ class TestTorchscript(TorchscriptTests):
         hypers["bpnn"]["layernorm"] = False
         self.test_torchscript(model_hypers=hypers, dataset_info=dataset_info)
 
-class TestExported(ExportedTests):
-    architecture = "soap_bpnn"
+
+class TestExported(ExportedTests, SoapBPNNTests): ...
 
 
+class TestTraining(TrainingTests, SoapBPNNTests): ...
 
 
+class TestCheckpoints(CheckpointTests, SoapBPNNTests):
+    incompatible_trainer_checkpoints = [
+        "checkpoints/model-v1_trainer-v1.ckpt.gz",
+        "checkpoints/model-v2_trainer-v1.ckpt.gz",
+        "checkpoints/model-v2_trainer-v2.ckpt.gz",
+        "checkpoints/model-v3_trainer-v2.ckpt.gz",
+        "checkpoints/model-v3_trainer-v3.ckpt.gz",
+        "checkpoints/model-v3_trainer-v4.ckpt.gz",
+        "checkpoints/model-v4_trainer-v3.ckpt.gz",
+        "checkpoints/model-v4_trainer-v4.ckpt.gz",
+        "checkpoints/model-v4_trainer-v5.ckpt.gz",
+    ]
