@@ -3,10 +3,9 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 import metatensor.torch as mts
 import torch
-from metatensor.torch.learn.nn import Module
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.learn.nn import Linear as LinearMap
-from metatensor.torch.learn.nn import ModuleMap
+from metatensor.torch.learn.nn import Module, ModuleMap
 from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,

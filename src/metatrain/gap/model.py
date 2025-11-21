@@ -5,8 +5,8 @@ import metatensor.torch as mts
 import numpy as np
 import scipy
 import torch
-from metatensor.torch.learn.nn import Module
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.learn.nn import Module
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
