@@ -129,7 +129,9 @@ will randomly select 10% of the training set for validation and 20% for testing.
 The selected indices for the training, validation and test subset will be
 available in the ``outputs`` directory.
 
-If you don't need a test set, you can simply omit the ``test_set`` parameter entirely.
+.. note::
+
+   If you don't need a test set, you can simply omit the ``test_set`` parameter entirely.
 
 Systems
 -------
