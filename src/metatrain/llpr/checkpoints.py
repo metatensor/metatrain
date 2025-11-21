@@ -50,3 +50,15 @@ def model_update_v2_v3(checkpoint: dict) -> None:
     checkpoint["best_epoch"] = None
     checkpoint["best_metric"] = None
     checkpoint["best_optimizer_state_dict"] = None
+
+
+def trainer_update_v1_v2(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 1 to version 2.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Added distributed training hyperparameters
+    if "train_hypers" in checkpoint:
+        checkpoint["train_hypers"]["distributed"] = False
+        checkpoint["train_hypers"]["distributed_port"] = 39591
