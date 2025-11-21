@@ -272,7 +272,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
 
         # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(per_atom=True, description="intermediate features")
+            "features": ModelOutput(per_atom=True, description="internal features")
         }
 
         self.single_label = Labels.single()

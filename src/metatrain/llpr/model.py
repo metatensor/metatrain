@@ -184,7 +184,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 quantity=old_capabilities.outputs[name].quantity,
                 unit=old_capabilities.outputs[name].unit,
                 per_atom=old_capabilities.outputs[name].per_atom,
-                description=old_capabilities.outputs[name].description,
+                description=f"ensemble of "{name}",
             )
         self.capabilities = ModelCapabilities(
             outputs={**self.capabilities.outputs, **ensemble_outputs},
@@ -669,7 +669,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 quantity=old_outputs[name].quantity,
                 unit=old_outputs[name].unit,
                 per_atom=old_outputs[name].per_atom,
-                description=f"Ensemble of {old_outputs[name].description}",
+                description=f"ensemble of {name}",
             )
         self.capabilities = ModelCapabilities(
             outputs={**old_outputs, **new_outputs},
