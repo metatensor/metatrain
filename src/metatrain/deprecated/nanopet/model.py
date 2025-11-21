@@ -613,10 +613,6 @@ class NanoPET(ModelInterface[ModelHypers]):
         # Move dataset info to CPU so that it can be saved
         self.dataset_info = self.dataset_info.to(device="cpu")
 
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This funciton moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
-
         interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):

@@ -2,6 +2,7 @@ from typing import Tuple
 
 import torch
 import torch.nn.functional as F
+from metatensor.torch.learn.nn import Module
 from torch import nn
 
 from .utilities import DummyModule
@@ -105,7 +106,7 @@ class AttentionBlock(nn.Module):
         return x
 
 
-class TransformerLayer(torch.nn.Module):
+class TransformerLayer(Module):
     """
     Single layer of a Transformer.
 
@@ -247,7 +248,7 @@ class TransformerLayer(torch.nn.Module):
         return node_embeddings, edge_embeddings
 
 
-class Transformer(torch.nn.Module):
+class Transformer(Module):
     """
     Transformer implementation.
 
@@ -338,7 +339,7 @@ class Transformer(torch.nn.Module):
         return node_embeddings, edge_embeddings
 
 
-class CartesianTransformer(torch.nn.Module):
+class CartesianTransformer(Module):
     """
     Cartesian Transformer implementation for handling 3D coordinates.
 

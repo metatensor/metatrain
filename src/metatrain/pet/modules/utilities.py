@@ -1,4 +1,5 @@
 import torch
+from metatensor.torch.learn.nn import Module
 
 
 def cutoff_func(grid: torch.Tensor, r_cut: float, delta: float) -> torch.Tensor:
@@ -20,7 +21,7 @@ def cutoff_func(grid: torch.Tensor, r_cut: float, delta: float) -> torch.Tensor:
     return f
 
 
-class DummyModule(torch.nn.Module):
+class DummyModule(Module):
     """Dummy torch module to make torchscript happy.
     This model should never be run"""
 
