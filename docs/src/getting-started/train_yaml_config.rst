@@ -87,12 +87,13 @@ training. This secion can be broken down into three subsections:
 
 - ``training_set``
 - ``validation_set``
-- ``test_set``
+- ``test_set`` (optional, defaults to 0.0)
 
 The training set is the data that will be used for model training, the validation set is
 the data that will be used to track the generalizability of the model during training
 and is usually used to decide on the best model. The test set is only used after training
 and it is used to evaluate the model's performance on an unseen dataset after training.
+If not specified, ``test_set`` defaults to 0.0, meaning no test set will be created.
 Each subsection has the same parameter configuration. As an example, the configuration
 of the training set is usually divided into three main sections:
 
@@ -127,6 +128,9 @@ example:
 will randomly select 10% of the training set for validation and 20% for testing.
 The selected indices for the training, validation and test subset will be
 available in the ``outputs`` directory.
+
+If you don't need a test set (for example, when you're not running benchmarks),
+you can simply omit the ``test_set`` parameter entirely, and it will default to 0.0.
 
 Systems
 -------
