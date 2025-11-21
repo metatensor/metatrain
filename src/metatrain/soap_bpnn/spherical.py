@@ -743,7 +743,7 @@ class FakeSphericalExpansion(torch.nn.Module):
         centers: torch.Tensor,
         neighbors: torch.Tensor,
         species: torch.Tensor,
-    ) -> TensorMap:
+    ) -> torch.Tensor:
         return torch.tensor(0)
 
 
