@@ -3,14 +3,16 @@ import copy
 import pytest
 
 from metatrain.utils.architectures import get_default_hypers
-from metatrain.utils.testing.autograd import AutogradTests
-from metatrain.utils.testing.base import ArchitectureTests
-from metatrain.utils.testing.checkpoints import CheckpointTests
-from metatrain.utils.testing.exported import ExportedTests
-from metatrain.utils.testing.input import InputTests
-from metatrain.utils.testing.output import OutputTests
-from metatrain.utils.testing.torchscript import TorchscriptTests
-from metatrain.utils.testing.training import TrainingTests
+from metatrain.utils.testing import (
+    ArchitectureTests,
+    AutogradTests,
+    CheckpointTests,
+    ExportedTests,
+    InputTests,
+    OutputTests,
+    TorchscriptTests,
+    TrainingTests,
+)
 
 
 class SoapBPNNTests(ArchitectureTests):

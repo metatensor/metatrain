@@ -4,9 +4,11 @@ from pathlib import Path
 import pytest
 
 from metatrain.utils.architectures import get_default_hypers
-from metatrain.utils.testing.base import ArchitectureTests
-from metatrain.utils.testing.checkpoints import CheckpointTests
-from metatrain.utils.testing.training import TrainingTests
+from metatrain.utils.testing import (
+    ArchitectureTests,
+    CheckpointTests,
+    TrainingTests,
+)
 
 
 @pytest.mark.filterwarnings("ignore:custom data:UserWarning")
@@ -27,14 +29,14 @@ class FlashMDTests(ArchitectureTests):
         return hypers
 
     @pytest.fixture
-    def DATASET_PATH(self):
+    def dataset_path(self):
         return str(Path(__file__).parents[0] / "data/flashmd.xyz")
 
     @pytest.fixture
-    def dataset_targets(self, DATASET_PATH):
+    def dataset_targets(self, dataset_path):
         positions_target = {
             "quantity": "position",
-            "read_from": DATASET_PATH,
+            "read_from": dataset_path,
             "reader": "ase",
             "key": "future_positions",
             "unit": "A",
@@ -49,7 +51,7 @@ class FlashMDTests(ArchitectureTests):
 
         momenta_target = {
             "quantity": "momentum",
-            "read_from": DATASET_PATH,
+            "read_from": dataset_path,
             "reader": "ase",
             "key": "future_momenta",
             "unit": "(eV*u)^(1/2)",
@@ -79,8 +81,6 @@ class TestCheckpoints(CheckpointTests, FlashMDTests):
 
 
 class TestTraining(TrainingTests, FlashMDTests):
-    check_gradients = False
-
     @pytest.fixture
     def default_hypers(self):
         hypers = get_default_hypers(self.architecture)

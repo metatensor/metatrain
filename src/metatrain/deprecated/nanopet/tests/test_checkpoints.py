@@ -4,7 +4,7 @@ import pytest
 
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
-from metatrain.utils.testing.checkpoints import CheckpointTests
+from metatrain.utils.testing import CheckpointTests
 
 
 class TestCheckpoints(CheckpointTests):

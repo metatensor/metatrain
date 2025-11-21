@@ -1,18 +1,35 @@
 import copy
+from typing import Any
 
 import torch
 from metatomic.torch import System
 
+from metatrain.utils.data import DatasetInfo
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
-from .base import ArchitectureTests
+from .architectures import ArchitectureTests
 
 
 class TorchscriptTests(ArchitectureTests):
-    float_hypers: list[str] = []
+    """Test suite to check that architectures can be jit compiled with
+    TorchScript."""
 
-    def test_torchscript(self, model_hypers, dataset_info):
-        """Tests that the model can be jitted."""
+    float_hypers: list[str] = []
+    """List of hyperparameter keys (dot-separated for nested keys)
+    that are floats. A test will set these to integers to test that
+    TorchScript compilation works in that case."""
+
+    def test_torchscript(self, model_hypers: dict, dataset_info: DatasetInfo) -> None:
+        """Tests that the model can be jitted.
+
+        If this test fails it probably means that there is some
+        code in the model that is not compatible with TorchScript.
+        The exception raised by the test should indicate where
+        the problem is.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset to initialize the model.
+        """
 
         model = self.model_cls(model_hypers, dataset_info)
         system = System(
@@ -33,15 +50,30 @@ class TorchscriptTests(ArchitectureTests):
             model.outputs,
         )
 
-    def test_torchscript_spherical(self, model_hypers, dataset_info_spherical):
-        """Tests that there is no problem with jitting with spherical targets."""
+    def test_torchscript_spherical(
+        self, model_hypers: dict, dataset_info_spherical: DatasetInfo
+    ) -> None:
+        """Tests that there is no problem with jitting with spherical targets.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info_spherical: Dataset to initialize the model
+        (containing spherical targets).
+        """
 
         self.test_torchscript(
             model_hypers=model_hypers, dataset_info=dataset_info_spherical
         )
 
-    def test_torchscript_save_load(self, tmpdir, model_hypers, dataset_info):
-        """Tests that the model can be jitted and saved."""
+    def test_torchscript_save_load(
+        self, tmpdir: Any, model_hypers: dict, dataset_info: DatasetInfo
+    ) -> None:
+        """Tests that the model can be jitted, saved and loaded.
+
+        :param tmpdir: Temporary directory where to save the
+        model.
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset to initialize the model.
+        """
 
         model = self.model_cls(model_hypers, dataset_info)
 
@@ -49,9 +81,15 @@ class TorchscriptTests(ArchitectureTests):
             torch.jit.save(torch.jit.script(model), "model.pt")
             torch.jit.load("model.pt")
 
-    def test_torchscript_integers(self, model_hypers, dataset_info):
+    def test_torchscript_integers(
+        self, model_hypers: dict, dataset_info: DatasetInfo
+    ) -> None:
         """Tests that the model can be jitted when some float
-        parameters are instead supplied as integers."""
+        parameters are instead supplied as integers.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset to initialize the model.
+        """
 
         new_hypers = copy.deepcopy(model_hypers)
         for hyper in self.float_hypers:

@@ -10,8 +10,7 @@ from metatrain.pet import Trainer as PETTrainer
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
-from metatrain.utils.testing.base import ArchitectureTests
-from metatrain.utils.testing.checkpoints import CheckpointTests
+from metatrain.utils.testing import ArchitectureTests, CheckpointTests
 
 
 class LLPRTests(ArchitectureTests):
@@ -21,10 +20,10 @@ class LLPRTests(ArchitectureTests):
 class TestCheckpoints(CheckpointTests, LLPRTests):
     @pytest.fixture
     def model_trainer(
-        self, dataset_targets, DATASET_PATH, model_hypers, default_hypers
+        self, dataset_targets, dataset_path, model_hypers, default_hypers
     ):
         dataset, targets_info, dataset_info = self.get_dataset(
-            dataset_targets, DATASET_PATH
+            dataset_targets, dataset_path
         )
 
         hypers = copy.deepcopy(get_default_hypers("pet"))

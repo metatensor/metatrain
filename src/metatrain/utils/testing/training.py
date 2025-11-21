@@ -1,4 +1,6 @@
 import copy
+from pathlib import Path
+from typing import Any
 
 import metatensor.torch as mts
 import torch
@@ -12,7 +14,7 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 
-from .base import ArchitectureTests
+from .architectures import ArchitectureTests
 
 
 class TrainingTests(ArchitectureTests):
@@ -22,20 +24,28 @@ class TrainingTests(ArchitectureTests):
 
     def test_continue(
         self,
-        monkeypatch,
-        tmp_path,
-        DATASET_PATH,
-        dataset_targets,
-        default_hypers,
-        model_hypers,
-    ):
+        monkeypatch: Any,
+        tmp_path: Path,
+        dataset_path: str,
+        dataset_targets: dict[str, dict],
+        default_hypers: dict[str, Any],
+        model_hypers: dict[str, Any],
+    ) -> None:
         """Tests that a model can be checkpointed and loaded
-        for a continuation of the training process"""
+        for a continuation of the training process
 
+        :param monkeypatch: Pytest fixture to modify the current working
+            directory.
+        :param tmp_path: Temporary path to use for saving checkpoints.
+        :param dataset_path: Path to the dataset to use for training.
+        :param dataset_targets: Target hypers for the targets in the dataset.
+        :param default_hypers: Default hyperparameters for the architecture.
+        :param model_hypers: Hyperparameters to initialize the model.
+        """
         monkeypatch.chdir(tmp_path)
 
         dataset, targets_info, dataset_info = self.get_dataset(
-            dataset_targets, DATASET_PATH
+            dataset_targets, dataset_path
         )
 
         model = self.model_cls(model_hypers, dataset_info)
@@ -77,7 +87,7 @@ class TrainingTests(ArchitectureTests):
         )
 
         # evaluation
-        systems = read_systems(DATASET_PATH)
+        systems = read_systems(dataset_path)
         systems = [system.to(torch.float32) for system in systems[:5]]
         for system in systems:
             system.positions.requires_grad_(True)
@@ -95,12 +105,13 @@ class TrainingTests(ArchitectureTests):
 
         # For each target, check that outputs are the same after loading
         # from checkpoint, including gradients
-        for target_key in dataset_targets:
+        for i, target_key in enumerate(dataset_targets):
             assert mts.allclose(output_before[target_key], output_after[target_key]), (
                 f"Output mismatch for {target_key}"
             )
 
-            if not self.check_gradients:
+            # We can't run a backward pass twice.
+            if i > 0 or not self.check_gradients:
                 continue
 
             target_before = output_before[target_key].block().values

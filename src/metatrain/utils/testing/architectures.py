@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 import torch
 
+from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.architectures import get_default_hypers, import_architecture
 from metatrain.utils.data import (
     Dataset,
@@ -18,26 +19,44 @@ from metatrain.utils.data.target_info import (
 
 
 class ArchitectureTests:
+    """This is the base class for all architecture tests.
+
+    It doesn't implement any tests itself, but provides fixtures
+    and helper functions that are generally useful for testing
+    architectures.
+
+    Child classes can override everything, including fixtures, to
+    make the tests suit their needs. Note that some fixtures defined
+    here depend on other fixtures, but when overriding them, you can
+    change completely their signature.
+    """
+
     architecture: str
+    """Name of the architecture to be tested.
+
+    Based on this, the test suite will find the model and trainer classes
+    as well as the hyperparameters.
+    """
 
     @pytest.fixture
-    def DATASET_PATH(self) -> str:
-        """Path to a dataset file for testing.
+    def dataset_path(self) -> str:
+        """Fixture that provides a path to a dataset file for testing.
 
         :return: The path to the dataset file.
         """
         return str(Path(__file__).parents[4] / "tests/resources/qm9_reduced_100.xyz")
 
     @pytest.fixture
-    def dataset_targets(self, DATASET_PATH: str) -> dict[str, dict]:
-        """Target hyperparameters for the dataset used in testing.
+    def dataset_targets(self, dataset_path: str) -> dict[str, dict]:
+        """Fixture that provides the target hyperparameters for the dataset used
+        in testing.
 
-        :param DATASET_PATH: The path to the dataset file.
+        :param dataset_path: The path to the dataset file.
         :return: A dictionary with target hyperparameters.
         """
         energy_target = {
             "quantity": "energy",
-            "read_from": DATASET_PATH,
+            "read_from": dataset_path,
             "reader": "ase",
             "key": "U0",
             "unit": "eV",
@@ -52,18 +71,18 @@ class ArchitectureTests:
         return {"energy": energy_target}
 
     def get_dataset(
-        self, dataset_targets: dict[str, dict], DATASET_PATH: str
+        self, dataset_targets: dict[str, dict], dataset_path: str
     ) -> tuple[Dataset, dict[str, TargetInfo], DatasetInfo]:
         """Helper function to load the dataset used in testing.
 
         :param dataset_targets: The target hyperparameters for the dataset.
-        :param DATASET_PATH: The path to the dataset file.
+        :param dataset_path: The path to the dataset file.
         :return: A tuple containing the dataset, target info, and dataset info.
         """
         dataset, targets_info, _ = get_dataset(
             {
                 "systems": {
-                    "read_from": DATASET_PATH,
+                    "read_from": dataset_path,
                     "reader": "ase",
                 },
                 "targets": dataset_targets,
@@ -80,7 +99,11 @@ class ArchitectureTests:
 
     @pytest.fixture(params=("cpu", "cuda"))
     def device(self, request: pytest.FixtureRequest) -> torch.device:
-        """Fixture to provide the device for testing."""
+        """Fixture to provide the torch device for testing.
+
+        :param request: The pytest request fixture.
+        :return: The torch device to be used.
+        """
         device = request.param
         if device == "cuda" and not torch.cuda.is_available():
             pytest.skip("CUDA is not available")
@@ -88,12 +111,20 @@ class ArchitectureTests:
 
     @pytest.fixture(params=[torch.float32, torch.float64])
     def dtype(self, request: pytest.FixtureRequest) -> torch.dtype:
-        """Fixture to provide the model data type for testing."""
+        """Fixture to provide the model data type for testing.
+
+        :param request: The pytest request fixture.
+        :return: The torch data type to be used.
+        """
         return request.param
 
     @pytest.fixture
     def dataset_info(self) -> DatasetInfo:
-        """Provides a basic DatasetInfo with an energy for testing."""
+        """Fixture that provides a basic ``DatasetInfo`` with an
+        energy target for testing.
+
+        :return: A ``DatasetInfo`` instance with an energy target.
+        """
         return DatasetInfo(
             length_unit="Angstrom",
             atomic_types=[1, 6, 7, 8],
@@ -105,11 +136,22 @@ class ArchitectureTests:
         )
 
     @pytest.fixture(params=[True, False])
-    def per_atom(self, request):
+    def per_atom(self, request: pytest.FixtureRequest) -> bool:
+        """Fixture to test both per-atom and per-system targets.
+
+        :param request: The pytest request fixture.
+        :return: Whether the target is per-atom or not.
+        """
         return request.param
 
     @pytest.fixture
-    def dataset_info_scalar(self, per_atom):
+    def dataset_info_scalar(self, per_atom: bool) -> DatasetInfo:
+        """Fixture that provides a basic ``DatasetInfo`` with a scalar target
+        for testing.
+
+        :param per_atom: Whether the target is per-atom or not.
+        :return: A ``DatasetInfo`` instance with a scalar target.
+        """
         return DatasetInfo(
             length_unit="Angstrom",
             atomic_types=[1, 6, 7, 8],
@@ -128,7 +170,13 @@ class ArchitectureTests:
         )
 
     @pytest.fixture
-    def dataset_info_vector(self, per_atom):
+    def dataset_info_vector(self, per_atom: bool) -> DatasetInfo:
+        """Fixture that provides a basic ``DatasetInfo`` with a vector target
+        for testing.
+
+        :param per_atom: Whether the target is per-atom or not.
+        :return: A ``DatasetInfo`` instance with a vector target.
+        """
         return DatasetInfo(
             length_unit="Angstrom",
             atomic_types=[1, 6, 7, 8],
@@ -147,17 +195,34 @@ class ArchitectureTests:
         )
 
     @pytest.fixture(params=[0, 1, 2, 3])
-    def o3_lambda(self, request):
+    def o3_lambda(self, request: pytest.FixtureRequest) -> int:
+        """Fixture to provide different O(3) lambda values for
+        testing spherical tensors.
+
+        :param request: The pytest request fixture.
+        :return: The O(3) lambda value.
+        """
         return request.param
 
     @pytest.fixture(params=[-1, 1])
-    def o3_sigma(self, request):
+    def o3_sigma(self, request: pytest.FixtureRequest) -> int:
+        """Fixture to provide different O(3) sigma values for
+        testing spherical tensors.
+
+        :param request: The pytest request fixture.
+        :return: The O(3) sigma value.
+        """
         return request.param
 
     @pytest.fixture
-    def dataset_info_spherical(self, o3_lambda, o3_sigma):
-        """Tests that the spherical modules can be jitted."""
+    def dataset_info_spherical(self, o3_lambda: int, o3_sigma: int) -> DatasetInfo:
+        """Fixture that provides a basic ``DatasetInfo`` with a
+        spherical target for testing.
 
+        :param o3_lambda: The O(3) lambda of the spherical target.
+        :param o3_sigma: The O(3) sigma of the spherical target.
+        :return: A ``DatasetInfo`` instance with a spherical target.
+        """
         return DatasetInfo(
             length_unit="Angstrom",
             atomic_types=[1, 6, 7, 8],
@@ -182,7 +247,13 @@ class ArchitectureTests:
         )
 
     @pytest.fixture
-    def dataset_info_multispherical(self, per_atom):
+    def dataset_info_multispherical(self, per_atom: bool) -> DatasetInfo:
+        """Fixture that provides a basic ``DatasetInfo`` with multiple spherical
+        targets for testing.
+
+        :param per_atom: Whether the target is per-atom or not.
+        :return: A ``DatasetInfo`` instance with a multiple spherical targets.
+        """
         return DatasetInfo(
             length_unit="Angstrom",
             atomic_types=[1, 6, 7, 8],
@@ -209,29 +280,43 @@ class ArchitectureTests:
         )
 
     @property
-    def model_cls(self):
+    def model_cls(self) -> type[ModelInterface]:
+        """The model class to be tested."""
         architecture = import_architecture(self.architecture)
         return architecture.__model__
 
     @property
-    def trainer_cls(self):
+    def trainer_cls(self) -> type[TrainerInterface]:
+        """The trainer class to be tested."""
         architecture = import_architecture(self.architecture)
         return architecture.__trainer__
 
     @pytest.fixture
-    def default_hypers(self):
+    def default_hypers(self) -> dict:
+        """Fixture that provides the default hyperparameters for testing.
+
+        :return: The default hyperparameters for the architecture.
+        """
         return get_default_hypers(self.architecture)
 
     @pytest.fixture
-    def model_hypers(self):
+    def model_hypers(self) -> dict:
+        """Fixture that provides the model hyperparameters for testing.
+
+        If not overriden, these are the default model hyperparameters.
+
+        :return: The model hyperparameters for testing.
+        """
         return get_default_hypers(self.architecture)["model"]
 
     @pytest.fixture
-    def minimal_model_hypers(self):
+    def minimal_model_hypers(self) -> dict:
         """The hypers that produce the smallest possible model.
 
         This should be overridden in each architecture test class
         to ensure that the tests run quickly/checkpoints occupy
         little disk space.
+
+        :return: The minimal model hyperparameters for testing.
         """
         return get_default_hypers(self.architecture)["model"]
