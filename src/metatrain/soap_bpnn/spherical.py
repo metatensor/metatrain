@@ -743,12 +743,8 @@ class FakeSphericalExpansion(torch.nn.Module):
         centers: torch.Tensor,
         neighbors: torch.Tensor,
         species: torch.Tensor,
-        structures: torch.Tensor,
-        atom_index_in_structure: torch.Tensor,
     ) -> TensorMap:
-        return TensorMap(
-            keys=Labels(names=["dummy"], values=torch.tensor([[]])), blocks=[]
-        )
+        return torch.tensor(0)
 
 
 class FakeLinearMap(torch.nn.Module):
