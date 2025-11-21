@@ -2,8 +2,8 @@ from typing import Dict, List, Optional
 
 import metatensor.torch as mts
 import torch
-from metatensor.torch.learn.nn import Module
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.learn.nn import Module
 from metatomic.torch import ModelOutput, NeighborListOptions, System
 from pydantic import TypeAdapter
 from typing_extensions import TypedDict

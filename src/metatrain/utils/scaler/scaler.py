@@ -2,8 +2,8 @@ from typing import Dict, List, Optional, Union
 
 import metatensor.torch as mts
 import torch
-from metatensor.torch.learn.nn import Module
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.learn.nn import Module
 from metatomic.torch import ModelOutput, System
 from torch.utils.data import DataLoader, DistributedSampler
 

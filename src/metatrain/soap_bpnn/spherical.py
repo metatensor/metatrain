@@ -9,8 +9,8 @@ import sphericart.torch
 import torch
 import wigners
 from metatensor.torch import Labels, TensorMap
-from metatensor.torch.learn.nn import Module
 from metatensor.torch.learn.nn import Linear as LinearMap
+from metatensor.torch.learn.nn import Module
 from spex.metatensor import SphericalExpansion
 
 from .documentation import SOAPConfig

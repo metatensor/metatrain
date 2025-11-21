@@ -2,8 +2,8 @@
 # We ignore misc errors in this file because TypedDict
 # with default values is not allowed by mypy.
 import torch
-from metatomic.torch import System
 from metatensor.torch.learn.nn import Module
+from metatomic.torch import System
 from typing_extensions import TypedDict
 
 from metatrain.utils.neighbor_lists import NeighborListOptions
