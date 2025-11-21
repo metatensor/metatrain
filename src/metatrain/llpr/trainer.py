@@ -117,25 +117,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         is_distributed = self.hypers["distributed"]
 
-        if is_distributed:
-            if len(devices) > 1:
-                raise ValueError(
-                    "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with LLPR, please "
-                    "set `device` to cuda."
-                )
-            # the calculation of the device number works both when GPUs on different
-            # processes are not visible to each other and when they are
-            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
-            device_number = distr_env.local_rank % torch.cuda.device_count()
-            device = torch.device("cuda", device_number)
-            torch.distributed.init_process_group(backend="nccl", device_id=device)
-            world_size = torch.distributed.get_world_size()
-            rank = torch.distributed.get_rank()
-        else:
-            rank = 0
-            device = devices[0]
-            # only one device, as we don't support non-distributed multi-gpu for now
+        # For the initial LLPR calibration, use a single device
+        # Distributed training will be initialized after calibration
+        device = devices[0]
+        rank = 0
 
         # check device and dtype against wrapped model class
         if device.type not in wrapped_model.__class__.__supported_devices__:
@@ -149,40 +134,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 f"Supported dtypes are {wrapped_model.__class__.__supported_dtypes__}"
             )
 
-        if is_distributed:
-            logging.info(f"Training on {world_size} devices with dtype {dtype}")
-        else:
-            logging.info(f"Training on device {device} with dtype {dtype}")
+        logging.info(f"Training on device {device} with dtype {dtype}")
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
 
         logging.info("Setting up data loaders")
-
-        if is_distributed:
-            train_samplers_initial = [
-                DistributedSampler(
-                    train_dataset,
-                    num_replicas=world_size,
-                    rank=rank,
-                    shuffle=False,
-                    drop_last=False,
-                )
-                for train_dataset in train_datasets
-            ]
-            val_samplers_initial = [
-                DistributedSampler(
-                    val_dataset,
-                    num_replicas=world_size,
-                    rank=rank,
-                    shuffle=False,
-                    drop_last=False,
-                )
-                for val_dataset in val_datasets
-            ]
-        else:
-            train_samplers_initial = [None] * len(train_datasets)
-            val_samplers_initial = [None] * len(val_datasets)
 
         # Create a collate function:
         targets_keys = list(model.dataset_info.targets.keys())
@@ -197,9 +154,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Create dataloader for the training datasets:
         train_dataloaders = []
-        for train_dataset, train_sampler in zip(
-            train_datasets, train_samplers_initial, strict=True
-        ):
+        for train_dataset in train_datasets:
             if len(train_dataset) < self.hypers["batch_size"]:
                 raise ValueError(
                     f"A training dataset has fewer samples "
@@ -211,8 +166,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 DataLoader(
                     dataset=train_dataset,
                     batch_size=self.hypers["batch_size"],
-                    sampler=train_sampler,
-                    shuffle=(train_sampler is None),
+                    shuffle=False,
                     drop_last=False,
                     collate_fn=collate_fn,
                 )
@@ -221,9 +175,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Create dataloader for the validation datasets:
         val_dataloaders = []
-        for val_dataset, val_sampler in zip(
-            val_datasets, val_samplers_initial, strict=True
-        ):
+        for val_dataset in val_datasets:
             if len(val_dataset) < self.hypers["batch_size"]:
                 raise ValueError(
                     f"A validation dataset has fewer samples "
@@ -235,7 +187,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 DataLoader(
                     dataset=val_dataset,
                     batch_size=self.hypers["batch_size"],
-                    sampler=val_sampler,
                     shuffle=False,
                     drop_last=False,
                     collate_fn=collate_fn,
@@ -257,6 +208,29 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 "proceeding to model export"
             )
             return
+
+        # Initialize distributed training environment if requested
+        # This is done after LLPR calibration to avoid modifying calibration
+        # dataloaders
+        if is_distributed:
+            if len(devices) > 1:
+                raise ValueError(
+                    "Requested distributed training with the `multi-gpu` device. "
+                    " If you want to run distributed training with LLPR, please "
+                    "set `device` to cuda."
+                )
+            # the calculation of the device number works both when GPUs on different
+            # processes are not visible to each other and when they are
+            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
+            device_number = distr_env.local_rank % torch.cuda.device_count()
+            device = torch.device("cuda", device_number)
+            torch.distributed.init_process_group(backend="nccl", device_id=device)
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
+            logging.info(f"Initialized distributed training on {world_size} devices")
+
+            # Move model to the correct device for this process
+            model.to(device=device, dtype=dtype)
 
         logging.info("Starting epoch-based training for LLPR ensemble calibration")
 
