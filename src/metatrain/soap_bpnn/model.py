@@ -946,10 +946,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         # float64
         self.to(dtype)
 
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This funciton moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
-
         interaction_ranges = [self.hypers["soap"]["cutoff"]["radius"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):

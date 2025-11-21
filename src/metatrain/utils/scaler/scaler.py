@@ -343,8 +343,6 @@ class Scaler(Module):
                     k: v.to(dtype) for k, v in self.model.scales.items()
                 }
 
-        self.model._sync_device_dtype(device, dtype)
-
     def sync_tensor_maps(self) -> None:
         # Reload the scales of the (old) targets, which are not stored in the model
         # state_dict, from the buffers
