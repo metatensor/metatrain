@@ -468,9 +468,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 lr_scheduler.step()
 
                 if is_distributed:
-                    # sum the loss over all processes and average
+                    # sum the loss over all processes
                     torch.distributed.all_reduce(train_loss_batch)
-                    train_loss_batch /= world_size
                 train_loss += train_loss_batch.item()
 
                 predictions = average_by_num_atoms(
@@ -516,9 +515,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 val_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
-                    # sum the loss over all processes and average
+                    # sum the loss over all processes
                     torch.distributed.all_reduce(val_loss_batch)
-                    val_loss_batch /= world_size
                 val_loss += val_loss_batch.item()
 
                 predictions = average_by_num_atoms(
