@@ -381,7 +381,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
 
         if is_distributed:
-            model = DistributedDataParallel(model, device_ids=[device])
+            model = DistributedDataParallel(
+                model, device_ids=[device], find_unused_parameters=True
+            )
 
         loss_hypers = self.hypers["loss"]
         loss_hypers = cast(Dict[str, LossSpecification], loss_hypers)  # mypy
@@ -483,13 +485,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
-
-                if is_distributed:
-                    # make sure all parameters contribute to the gradient calculation
-                    # to make torch DDP happy
-                    for param in model.parameters():
-                        train_loss_batch += 0.0 * param.sum()
-
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
@@ -498,8 +493,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 lr_scheduler.step()
 
                 if is_distributed:
-                    # sum the loss over all processes
+                    # sum the loss over all processes and average
                     torch.distributed.all_reduce(train_loss_batch)
+                    train_loss_batch = train_loss_batch / world_size
                 train_loss += train_loss_batch.item()
 
                 predictions = average_by_num_atoms(
@@ -545,8 +541,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 val_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
-                    # sum the loss over all processes
+                    # sum the loss over all processes and average
                     torch.distributed.all_reduce(val_loss_batch)
+                    val_loss_batch = val_loss_batch / world_size
                 val_loss += val_loss_batch.item()
 
                 predictions = average_by_num_atoms(
