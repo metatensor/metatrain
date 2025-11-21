@@ -50,12 +50,11 @@ A simple ``options-ft.yaml`` file for this task could look like this:
 
 
 .. code-block:: yaml
-
     architecture:
       name: pet
       training:
         batch_size: 8
-        num_epochs: 25
+        num_epochs: 50
         learning_rate: 1e-4
         warmup_fraction: 0.01
         finetune:
@@ -68,17 +67,17 @@ A simple ``options-ft.yaml`` file for this task could look like this:
         reader: ase
         length_unit: angstrom
       targets:
-        energy/ft:
+        energy/finetune:
           quantity: energy
           read_from: ethanol_reduced_100.xyz
           reader: ase
           key: energy
           unit: eV
+          description: 'pbe energy ethanol'
           forces:
-            read_from:  ethanol_reduced_100.xyz
+            read_from: ethanol_reduced_100.xyz
             reader: ase
             key: forces
-
 
     validation_set: 0.1
     test_set: 0.1
@@ -90,7 +89,7 @@ training.
 
 .. warning::
 
-  Note that in ``targets`` we use the ``energy/ft`` head, differing from the default ``energy`` head.
+  Note that in ``targets`` we use the ``energy/finetune`` head, differing from the default ``energy`` head.
   This means, that the model creates a new head with a new composition model for the new reference energies
   provided in your dataset. While the old energy reference is still available, it is rendered useless,
   as we trained all weights of the model. If you want to obtain a model with multiple energy heads, you can
@@ -125,6 +124,7 @@ You can check finetuning training curves by parsing the ``train.csv`` that is wr
 import matplotlib.pyplot as plt
 import numpy as np
 
+
 # %%
 #
 csv_path = "outputs/2025-11-19/18-36-04/train.csv"
@@ -143,51 +143,58 @@ structured = np.zeros(data.shape[0], dtype=dtype)
 for i, h in enumerate(header):
     structured[h] = data[:, i]
 
-r"""
-Now, let's plot the learning curves.
-"""
 # %%
 #
-training_energy_RMSE = structured["training energy/ft RMSE (per atom)"]
-training_forces_MAE = structured["training forces[energy/ft] MAE"]
-validation_energy_RMSE = structured["validation energy/ft RMSE (per atom)"]
-validation_forces_MAE = structured["validation forces[energy/ft] MAE"]
+#Now, let's plot the learning curves.
+
+# %%
+#
+training_energy_RMSE = structured["training energy/finetune RMSE (per atom)"]
+training_forces_MAE = structured["training forces[energy/finetune] MAE"]
+validation_energy_RMSE = structured["validation energy/finetune RMSE (per atom)"]
+validation_forces_MAE = structured["validation forces[energy/finetune] MAE"]
 
 fig, axs = plt.subplots(1, 2, figsize=(12, 5))
 
-axs[0].plot(training_energy_RMSE, label="training energy/ft RMSE (per atom)")
-axs[0].plot(validation_energy_RMSE, label="validation energy/ft RMSE (per atom)")
+axs[0].plot(training_energy_RMSE, label="training energy/finetune RMSE (per atom)")
+axs[0].plot(validation_energy_RMSE, label="validation energy/finetune RMSE (per atom)")
 axs[0].set_xlabel("Epochs")
 axs[0].set_ylabel("energy / meV")
+axs[0].set_xscale('log')
+axs[0].set_yscale('log')
 axs[0].legend()
-axs[1].plot(training_forces_MAE, label="training forces[energy/ft] MAE")
-axs[1].plot(validation_forces_MAE, label="validation forces[energy/ft] MAE")
+axs[1].plot(training_forces_MAE, label="training forces[energy/finetune] MAE")
+axs[1].plot(validation_forces_MAE, label="validation forces[energy/finetune] MAE")
 axs[1].set_ylabel("force / meV/A")
 axs[1].set_xlabel("Epochs")
+axs[1].set_xscale('log')
+axs[1].set_yscale('log')
 axs[1].legend()
 plt.tight_layout()
 plt.show()
 
-r"""
-You can see that the validation loss still decreases, however, for the sake of brevity of this exercise 
-we only finetuned for 25 epochs. As further check for how well your fine-tuned model performs on a dataset
-of choice, we can check the parity plots for energy and force (see :ref:`Parity
-plots <parity-plot-example>`)
-For evaluation, we can compare performance of our fine-tuned model and the base model PET-MAD.
-Using ``mtt eval`` we can simply run:
-
-.. code-block:: bash
-
-  mtt eval model-ft.pt options-eval.yaml -o output-ft.xyz 
-
-and reader the energy in the xyz header. Another possibility is to load your fine-tuned model ``model-ft.pt``
-as metatomic model and evaluate energies and forces with ase.
-"""
+# %%
+#
+#You can see that the validation loss still decreases, however, for the sake of brevity of this exercise 
+#we only finetuned for 25 epochs. As further check for how well your fine-tuned model performs on a dataset
+#of choice, we can check the parity plots for energy and force (see :ref:`Parity
+#plots <parity-plot-example>`)
+#For evaluation, we can compare performance of our fine-tuned model and the base model PET-MAD.
+#Using ``mtt eval`` we can simply run:
+#
+#.. code-block:: bash
+#
+#  mtt eval model-ft.pt options-eval.yaml -o output-ft.xyz 
+#
+#and read the energy in the xyz header. Another possibility is to load your fine-tuned model ``model-ft.pt``
+#as metatomic model and evaluate energies and forces with ase in python.
+#
 
 # %%
 #
 import ase.io
 from metatomic.torch.ase_calculator import MetatomicCalculator
+
 
 targets = ase.io.read(
     "/Users/markusfasching/EPFL/Work/metatrain/tests/resources/ethanol_reduced_100.xyz",
@@ -195,7 +202,7 @@ targets = ase.io.read(
     index=":",
 )
 calc_ft = MetatomicCalculator(
-    "model-ft.pt", variants={"energy": "ft"}, extensions_directory=None
+    "model-ft.pt", variants={"energy": "finetune"}, extensions_directory=None
 )  # specify variant suffix here
 
 e_targets = np.array(
@@ -227,6 +234,8 @@ axs[0].set_ylabel("Predicted energy / meV")
 min_e = np.min(np.array([e_targets, e_predictions])) - 2
 max_e = np.max(np.array([e_targets, e_predictions])) + 2
 axs[0].set_title("Energy Parity Plot")
+axs[0].set_xlim(min_e, max_e)
+axs[0].set_ylim(min_e, max_e)
 
 # Parity plot for forces
 axs[1].scatter(f_targets, f_predictions, alpha=0.5, label="FT")
@@ -236,11 +245,12 @@ axs[1].set_ylabel("Predicted force / meV/Å")
 min_f = np.min(np.array([f_targets, f_predictions])) - 2
 max_f = np.max(np.array([f_targets, f_predictions])) + 2
 axs[1].set_title("Force Parity Plot")
-
+axs[1].set_xlim(min_f, max_f)
+axs[1].set_ylim(min_f, max_f)
 fig.tight_layout()
 plt.show()
 
-r"""
-Further fine-tuning examples can be found in the
-`AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`_
-"""
+# %%
+#
+#Further fine-tuning examples can be found in the
+#`AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`_

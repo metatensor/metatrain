@@ -30,8 +30,7 @@ available pre-trained model defined in an ``options.yaml`` file. In this case, a
 weights of the model will be adapted to the new dataset. In contrast to to the
 training continuation, the optimizer and scheduler state will be reset. You can still
 adjust the training hyperparameters in the ``options.yaml`` file, but the model
-architecture will be taken from the checkpoint.
-
+architecture will be taken from the checkpoint. 
 To set the path to the pre-trained model checkpoint, you need to specify the
 ``read_from`` parameter in the ``options.yaml`` file:
 
@@ -54,13 +53,22 @@ as this will help stabilizing the training process. I.e. if the default learning
     training:
       learning_rate: 1e-5
 
-Please note, that in the case of the basic fine-tuning, the composition model weights
+Please note, that in most use cases you should invoke a new energy head by specifying 
+a new energy variant. The variant naming follows the simple pattern 
+``energy/{variantname}``. A reasonable name could be the energy functional or level of 
+theory your dataset was trained on, e.g. ``energy/pbe``, ``energy/SCAN`` or even  
+``energy/dataset1``. Further you can
+add a short description for the new variant, that you can specify in your
+``options.yaml`` file. 
+
+the case of the basic fine-tuning, the composition model weights
 will be taken from the checkpoint and not adapted to the new dataset.
 
 The basic fine-tuning strategy is a good choice in the case when the level of theory
 which is used for the original training is the same, or at least similar to the one used
 for the new dataset. However, since this is not always the case, we also provide more
 advanced fine-tuning strategies described below.
+For most use cases 
 
 
 Fine-tuning model Heads
