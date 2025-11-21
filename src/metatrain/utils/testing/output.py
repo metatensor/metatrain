@@ -138,7 +138,7 @@ class OutputTests(ArchitectureTests):
 
         - not be producing scalar outputs when requested.
         - not be taking into account correctly the ``per_atom`` field of the
-        outputs passed to the ``outputs`` argument of the ``forward()`` method.
+          outputs passed to the ``outputs`` argument of the ``forward()`` method.
 
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info_scalar: Dataset information with scalar outputs.
@@ -247,7 +247,7 @@ class OutputTests(ArchitectureTests):
 
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info_multispherical: Dataset information with multiple
-        spherical outputs.
+          spherical outputs.
         :param per_atom: Whether the requested outputs are per-atom or not.
         """
         if not self.supports_spherical_outputs:
@@ -413,7 +413,7 @@ class OutputTests(ArchitectureTests):
         :param dataset_info: Dataset information to initialize the model.
         :param per_atom: Whether to request per-atom features or not.
         :param n_features: Expected number of features. If ``None``, the number
-        of features is not checked.
+          of features is not checked.
         """
 
         if not self.supports_features:
@@ -477,7 +477,7 @@ class OutputTests(ArchitectureTests):
         :param dataset_info: Dataset information to initialize the model.
         :param per_atom: Whether to request per-atom last-layer features or not.
         :param n_last_layer_features: Expected number of last-layer features.
-        If ``None``, the number of last-layer features is not checked.
+          If ``None``, the number of last-layer features is not checked.
         """
 
         if not self.supports_last_layer_features:
@@ -587,7 +587,7 @@ class OutputTests(ArchitectureTests):
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info: Dataset information to initialize the model.
         :param single_atom_energy: Expected single atom energy value. If ``None``,
-        the single atom energy value is not checked.
+          the single atom energy value is not checked.
         """
         model = self.model_cls(model_hypers, dataset_info)
 

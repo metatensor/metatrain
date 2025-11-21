@@ -8,14 +8,10 @@
   [docs/src/dev-docs/architecture-life-cycle.rst](Architecture life cycle)
   document for requirements. `src/metatrain/experimental/<architecture_name>`
 - [ ] Document and provide defaults for the hyperparameters of your model.
-- [ ] Add your architecture to the CI in `.github/workflow/architecture-tests.yml`
+- [ ] Added tests for your architecture. See https://docs.metatensor.org/metatrain/latest/dev-docs/utils/testing.html
+- [ ] Added test run to the CI (file `.github/workflow/architecture-tests.yml`)
 - [ ] Add a new dependencies entry in the `optional-dependencies` section in the
   `pyproject.toml`
-- [ ] Add tests:
-  - [ ] checking that the code is compatible with TorchScript
-  - [ ] checking the basic functionality (invariance, fitting, prediction)
-  - [ ] checking that the checkpoints are properly versionned (see the existing
-    `test_checkpoint.py` in other architectures)
 - [ ] Add maintainers as codeowners in [CODEOWNERS](CODEOWNERS)
 - [ ] Trigger a GPU test by asking a maintainer to comment "cscs-ci run".
 
