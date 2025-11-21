@@ -7,9 +7,13 @@ from typing import Any, Dict, List, Literal, Optional, Union, cast
 import torch
 from metatensor.torch import TensorBlock, TensorMap
 from torch.optim.lr_scheduler import LambdaLR
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
+from metatrain.utils.distributed.distributed_data_parallel import (
+    DistributedDataParallel,
+)
+from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
     CollateFn,
@@ -111,10 +115,28 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if start_epoch == 0:
             model.set_wrapped_model(wrapped_model)
 
-        # TODO: support distributed calibration for LLPR models
-        is_distributed = False
-        rank = 0
-        device = devices[0]  # this trainer doesn't support multi-GPU training
+        is_distributed = self.hypers["distributed"]
+
+        if is_distributed:
+            if len(devices) > 1:
+                raise ValueError(
+                    "Requested distributed training with the `multi-gpu` device. "
+                    " If you want to run distributed training with LLPR, please "
+                    "set `device` to cuda."
+                )
+            # the calculation of the device number works both when GPUs on different
+            # processes are not visible to each other and when they are
+            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
+            device_number = distr_env.local_rank % torch.cuda.device_count()
+            device = torch.device("cuda", device_number)
+            torch.distributed.init_process_group(backend="nccl", device_id=device)
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
+        else:
+            rank = 0
+            device = devices[0]
+            # only one device, as we don't support non-distributed multi-gpu for now
+
         # check device and dtype against wrapped model class
         if device.type not in wrapped_model.__class__.__supported_devices__:
             raise ValueError(
@@ -126,12 +148,41 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 f"dtype {dtype} not supported by the wrapped model. "
                 f"Supported dtypes are {wrapped_model.__class__.__supported_dtypes__}"
             )
-        logging.info(f"Training on device {device} with dtype {dtype}")
+
+        if is_distributed:
+            logging.info(f"Training on {world_size} devices with dtype {dtype}")
+        else:
+            logging.info(f"Training on device {device} with dtype {dtype}")
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
 
         logging.info("Setting up data loaders")
+
+        if is_distributed:
+            train_samplers_initial = [
+                DistributedSampler(
+                    train_dataset,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=False,
+                    drop_last=False,
+                )
+                for train_dataset in train_datasets
+            ]
+            val_samplers_initial = [
+                DistributedSampler(
+                    val_dataset,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=False,
+                    drop_last=False,
+                )
+                for val_dataset in val_datasets
+            ]
+        else:
+            train_samplers_initial = [None] * len(train_datasets)
+            val_samplers_initial = [None] * len(val_datasets)
 
         # Create a collate function:
         targets_keys = list(model.dataset_info.targets.keys())
@@ -146,7 +197,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Create dataloader for the training datasets:
         train_dataloaders = []
-        for train_dataset in train_datasets:
+        for train_dataset, train_sampler in zip(
+            train_datasets, train_samplers_initial, strict=True
+        ):
             if len(train_dataset) < self.hypers["batch_size"]:
                 raise ValueError(
                     f"A training dataset has fewer samples "
@@ -158,7 +211,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 DataLoader(
                     dataset=train_dataset,
                     batch_size=self.hypers["batch_size"],
-                    shuffle=False,
+                    sampler=train_sampler,
+                    shuffle=(train_sampler is None),
                     drop_last=False,
                     collate_fn=collate_fn,
                 )
@@ -167,7 +221,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Create dataloader for the validation datasets:
         val_dataloaders = []
-        for val_dataset in val_datasets:
+        for val_dataset, val_sampler in zip(
+            val_datasets, val_samplers_initial, strict=True
+        ):
             if len(val_dataset) < self.hypers["batch_size"]:
                 raise ValueError(
                     f"A validation dataset has fewer samples "
@@ -179,6 +235,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 DataLoader(
                     dataset=val_dataset,
                     batch_size=self.hypers["batch_size"],
+                    sampler=val_sampler,
                     shuffle=False,
                     drop_last=False,
                     collate_fn=collate_fn,
@@ -235,8 +292,30 @@ class Trainer(TrainerInterface[TrainerHypers]):
             num_workers = self.hypers["num_workers"]
             validate_num_workers(num_workers)
 
-        train_samplers = [None] * len(train_datasets)
-        val_samplers = [None] * len(val_datasets)
+        if is_distributed:
+            train_samplers = [
+                DistributedSampler(
+                    train_dataset,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=True,
+                    drop_last=True,
+                )
+                for train_dataset in train_datasets
+            ]
+            val_samplers = [
+                DistributedSampler(
+                    val_dataset,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=False,
+                    drop_last=False,
+                )
+                for val_dataset in val_datasets
+            ]
+        else:
+            train_samplers = [None] * len(train_datasets)
+            val_samplers = [None] * len(val_datasets)
 
         train_dataloaders = []
         for train_dataset, train_sampler in zip(
@@ -301,6 +380,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
             model, self.hypers["train_all_parameters"]
         )
 
+        if is_distributed:
+            model = DistributedDataParallel(model, device_ids=[device])
+
         loss_hypers = self.hypers["loss"]
         loss_hypers = cast(Dict[str, LossSpecification], loss_hypers)  # mypy
         loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
@@ -352,19 +434,23 @@ class Trainer(TrainerInterface[TrainerHypers]):
             self.best_metric = float("inf")
 
         requested_outputs = {}
-        for key, value in model.dataset_info.targets.items():
-            requested_outputs[key] = model.capabilities.outputs[key]
+        model_unwrapped = model.module if is_distributed else model
+        for key, value in model_unwrapped.dataset_info.targets.items():
+            requested_outputs[key] = model_unwrapped.capabilities.outputs[key]
             requested_outputs[key].per_atom = value.per_atom
             if key == "energy":
                 ensemble_name = "energy_ensemble"
             else:
                 ensemble_name = f"mtt::aux::{key.replace('mtt::', '')}_ensemble"
-            requested_outputs[ensemble_name] = model.capabilities.outputs[ensemble_name]
+            requested_outputs[ensemble_name] = model_unwrapped.capabilities.outputs[ensemble_name]
             requested_outputs[ensemble_name].per_atom = value.per_atom
 
         assert self.hypers["num_epochs"] is not None
         epoch = start_epoch
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
+            if is_distributed:
+                for train_sampler in train_samplers:
+                    train_sampler.set_epoch(epoch)
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
 
@@ -395,11 +481,23 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
-                train_loss_batch.backward()
 
+                if is_distributed:
+                    # make sure all parameters contribute to the gradient calculation
+                    # to make torch DDP happy
+                    for param in model.parameters():
+                        train_loss_batch += 0.0 * param.sum()
+
+                train_loss_batch.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), self.hypers["grad_clip_norm"]
+                )
                 optimizer.step()
                 lr_scheduler.step()
 
+                if is_distributed:
+                    # sum the loss over all processes
+                    torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
                 predictions = average_by_num_atoms(
@@ -443,6 +541,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     is_training=False,
                 )
                 val_loss_batch = loss_fn(predictions, targets, extra_data)
+
+                if is_distributed:
+                    # sum the loss over all processes
+                    torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
 
                 predictions = average_by_num_atoms(
@@ -523,6 +625,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
         self.epoch = epoch
         self.optimizer_state_dict = optimizer.state_dict()
         self.scheduler_state_dict = lr_scheduler.state_dict()
+
+        if is_distributed:
+            torch.distributed.destroy_process_group()
 
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()

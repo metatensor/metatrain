@@ -39,6 +39,10 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for the LLPR trainer."""
 
+    distributed: bool = False
+    """Whether to use distributed training"""
+    distributed_port: int = 39591
+    """Port for DDP communication"""
     batch_size: int = 8
     """This defines the batch size used in the computation of last-layer
     features, covariance matrix, etc."""
