@@ -1,5 +1,4 @@
 import copy
-from turtle import mode
 
 import torch
 from metatomic.torch import System
@@ -8,9 +7,9 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from .base import ArchitectureTests
 
-class TorchscriptTests(ArchitectureTests):
 
-    float_hypers = []
+class TorchscriptTests(ArchitectureTests):
+    float_hypers: list[str] = []
 
     def test_torchscript(self, model_hypers, dataset_info):
         """Tests that the model can be jitted."""
@@ -24,7 +23,9 @@ class TorchscriptTests(ArchitectureTests):
             cell=torch.zeros(3, 3),
             pbc=torch.tensor([False, False, False]),
         )
-        system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        system = get_system_with_neighbor_lists(
+            system, model.requested_neighbor_lists()
+        )
 
         model = torch.jit.script(model)
         model(
@@ -39,8 +40,7 @@ class TorchscriptTests(ArchitectureTests):
             model_hypers=model_hypers, dataset_info=dataset_info_spherical
         )
 
-
-    def test_torchscript_save_load(self,tmpdir, model_hypers, dataset_info):
+    def test_torchscript_save_load(self, tmpdir, model_hypers, dataset_info):
         """Tests that the model can be jitted and saved."""
 
         model = self.model_cls(model_hypers, dataset_info)
@@ -48,7 +48,6 @@ class TorchscriptTests(ArchitectureTests):
         with tmpdir.as_cwd():
             torch.jit.save(torch.jit.script(model), "model.pt")
             torch.jit.load("model.pt")
-
 
     def test_torchscript_integers(self, model_hypers, dataset_info):
         """Tests that the model can be jitted when some float
@@ -72,7 +71,9 @@ class TorchscriptTests(ArchitectureTests):
             cell=torch.zeros(3, 3),
             pbc=torch.tensor([False, False, False]),
         )
-        system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        system = get_system_with_neighbor_lists(
+            system, model.requested_neighbor_lists()
+        )
 
         model = torch.jit.script(model)
         model(

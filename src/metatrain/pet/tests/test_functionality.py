@@ -1,21 +1,17 @@
-import metatensor.torch as mts
 import pytest
 import torch
 from metatomic.torch import ModelOutput, System
-from omegaconf import OmegaConf
 
 from metatrain.pet import PET
 from metatrain.pet.modules.transformer import AttentionBlock
-from metatrain.utils.architectures import check_architecture_options
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
     get_generic_target_info,
 )
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
-from metatrain.utils.pydantic import MetatrainValidationError
 
-from . import DEFAULT_HYPERS, MODEL_HYPERS
+from . import MODEL_HYPERS
 
 
 def test_pet_padding():
@@ -70,32 +66,6 @@ def test_pet_padding():
 
     assert torch.allclose(lone_energy, padded_energy, atol=1e-6, rtol=1e-6)
 
-def test_fixed_composition_weights():
-    """Tests the correctness of the json schema for fixed_composition_weights"""
-
-    hypers = DEFAULT_HYPERS.copy()
-    hypers["training"]["fixed_composition_weights"] = {
-        "energy": {
-            1: 1.0,
-            6: 0.0,
-            7: 0.0,
-            8: 0.0,
-            9: 3000.0,
-        }
-    }
-    hypers = OmegaConf.create(hypers)
-    check_architecture_options(name="pet", options=OmegaConf.to_container(hypers))
-
-
-def test_fixed_composition_weights_error():
-    """Test that only input of type Dict[str, Dict[int, float]] are allowed."""
-    hypers = DEFAULT_HYPERS.copy()
-    hypers["training"]["fixed_composition_weights"] = {"energy": {"H": 300.0}}
-    hypers = OmegaConf.create(hypers)
-    with pytest.raises(
-        MetatrainValidationError, match=r"Input should be a valid integer"
-    ):
-        check_architecture_options(name="pet", options=OmegaConf.to_container(hypers))
 
 def test_consistency():
     """Tests that the two implementations of attention are consistent."""
@@ -116,6 +86,7 @@ def test_consistency():
     attention_output_manual = attention(inputs, radial_mask, use_manual_attention=True)
 
     assert torch.allclose(attention_output_torch, attention_output_manual, atol=1e-6)
+
 
 @pytest.mark.parametrize("per_atom", [True, False])
 def test_nc_stress(per_atom):

@@ -1,10 +1,18 @@
+import copy
 import glob
 import gzip
+import logging
 import os
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict
 
 import pytest
 import torch
+from omegaconf import OmegaConf
+
+from metatrain.utils.hypers import init_with_defaults
+from metatrain.utils.loss import LossSpecification
+
+from .base import ArchitectureTests
 
 
 ALLOWED_NEW_KEYS_CONDITIONS = [
@@ -43,77 +51,50 @@ def check_same_checkpoint_structure(
             )
 
 
-def checkpoint_did_not_change(
-    monkeypatch: Any, tmp_path: str, model_trainer: Any
-) -> None:
-    """
-    Test that the checkpoint did not change.
+class CheckpointTests(ArchitectureTests):
+    incompatible_trainer_checkpoints: list[str] = []
+    """A list of checkpoint paths that are known
+    to be incompatible with the current trainer version when restarting."""
 
-    :param monkeypatch: The pytest monkeypatch fixture.
-    :param tmp_path: The pytest tmp_path fixture.
-    :param model_trainer: A tuple of (model, trainer) to be tested.
-    """
-    model, trainer = model_trainer
-
-    cwd = os.getcwd()
-    monkeypatch.chdir(tmp_path)
-    trainer.save_checkpoint(model, "checkpoint.ckpt")
-    checkpoint = torch.load("checkpoint.ckpt", weights_only=False)
-    monkeypatch.chdir(cwd)
-
-    model_version = model.__checkpoint_version__
-    trainer_version = trainer.__checkpoint_version__
-
-    ckpt_name = f"model-v{model_version}_trainer-v{trainer_version}.ckpt.gz"
-    ckpt_path = f"checkpoints/{ckpt_name}"
-
-    if not os.path.exists(ckpt_path):
-        with gzip.open(ckpt_name, "wb") as output:
-            with open(os.path.join(tmp_path, "checkpoint.ckpt"), "rb") as input:
-                output.write(input.read())
-
-        raise ValueError(
-            f"missing reference checkpoint for model version {model_version} and "
-            f"trainer version {trainer_version}, we created one for you with the "
-            f"current state of the code. Please move it to {ckpt_path} if you "
-            "have no other changes to do."
+    @pytest.fixture
+    def model_trainer(
+        self, dataset_targets, DATASET_PATH, minimal_model_hypers, default_hypers
+    ) -> Any:
+        dataset, targets_info, dataset_info = self.get_dataset(
+            dataset_targets, DATASET_PATH
         )
 
-    else:
-        with gzip.open(ckpt_path, "rb") as fd:
-            reference = torch.load(fd, weights_only=False)
+        model = self.model_cls(minimal_model_hypers, dataset_info)
 
-        try:
-            check_same_checkpoint_structure(checkpoint, reference)
-        except KeyError as e:
-            raise ValueError(
-                "checkpoint structure changed. Please increase the checkpoint "
-                "version and implement checkpoint update"
-            ) from e
+        hypers = copy.deepcopy(default_hypers)
+        hypers["training"]["num_epochs"] = 1
+        loss_hypers = OmegaConf.create(
+            {k: init_with_defaults(LossSpecification) for k in dataset_targets}
+        )
+        loss_hypers = OmegaConf.to_container(loss_hypers, resolve=True)
+        hypers["training"]["loss"] = loss_hypers
 
+        trainer = self.trainer_cls(hypers["training"])
 
-def make_checkpoint_load_tests(
-    DEFAULT_HYPERS: Dict[str, Any],
-    *,
-    incompatible_trainer_checkpoints: Optional[List[str]] = None,
-) -> Callable:
-    """
-    Factory function that creates a test function to check loading of old checkpoints.
+        trainer.train(
+            model,
+            dtype=model.__supported_dtypes__[0],
+            devices=[torch.device("cpu")],
+            train_datasets=[dataset],
+            val_datasets=[dataset],
+            checkpoint_dir="",
+        )
 
-    :param DEFAULT_HYPERS: The default hypers to be used for the trainer.
-    :param incompatible_trainer_checkpoints: A list of checkpoint paths that are known
-        to be incompatible with the current trainer version when restarting.
-    :return: A test function that checks loading of old checkpoints.
-    """
-    if incompatible_trainer_checkpoints is None:
-        incompatible_trainer_checkpoints = []
+        return model, trainer
 
     @pytest.mark.parametrize("context", ["restart", "finetune", "export"])
-    def test_loading_old_checkpoints(model_trainer: Any, context: str) -> None:
+    def test_loading_old_checkpoints(
+        self, default_hypers, model_trainer: Any, context: str
+    ) -> None:
         model, trainer = model_trainer
 
         for path in glob.glob("checkpoints/*.ckpt.gz"):
-            if path in incompatible_trainer_checkpoints and context == "restart":
+            if path in self.incompatible_trainer_checkpoints and context == "restart":
                 continue
 
             with gzip.open(path, "rb") as fd:
@@ -128,6 +109,90 @@ def make_checkpoint_load_tests(
                 if checkpoint["trainer_ckpt_version"] != trainer.__checkpoint_version__:
                     checkpoint = trainer.__class__.upgrade_checkpoint(checkpoint)
 
-                trainer.load_checkpoint(checkpoint, DEFAULT_HYPERS, context)
+                trainer.load_checkpoint(checkpoint, default_hypers, context)
 
-    return test_loading_old_checkpoints
+    def test_checkpoint_did_not_change(
+        self, monkeypatch: Any, tmp_path: str, model_trainer: Any
+    ) -> None:
+        """
+        Test that the checkpoint did not change.
+
+        :param monkeypatch: The pytest monkeypatch fixture.
+        :param tmp_path: The pytest tmp_path fixture.
+        :param model_trainer: A tuple of (model, trainer) to be tested.
+        """
+        model, trainer = model_trainer
+
+        cwd = os.getcwd()
+        monkeypatch.chdir(tmp_path)
+        trainer.save_checkpoint(model, "checkpoint.ckpt")
+        checkpoint = torch.load("checkpoint.ckpt", weights_only=False)
+        monkeypatch.chdir(cwd)
+
+        model_version = model.__checkpoint_version__
+        trainer_version = trainer.__checkpoint_version__
+
+        ckpt_name = f"model-v{model_version}_trainer-v{trainer_version}.ckpt.gz"
+        ckpt_path = f"checkpoints/{ckpt_name}"
+
+        if not os.path.exists(ckpt_path):
+            with gzip.open(ckpt_name, "wb") as output:
+                with open(os.path.join(tmp_path, "checkpoint.ckpt"), "rb") as input:
+                    output.write(input.read())
+
+            raise ValueError(
+                f"missing reference checkpoint for model version {model_version} and "
+                f"trainer version {trainer_version}, we created one for you with the "
+                f"current state of the code. Please move it to {ckpt_path} if you "
+                "have no other changes to do."
+            )
+
+        else:
+            with gzip.open(ckpt_path, "rb") as fd:
+                reference = torch.load(fd, weights_only=False)
+
+            try:
+                check_same_checkpoint_structure(checkpoint, reference)
+            except KeyError as e:
+                raise ValueError(
+                    "checkpoint structure changed. Please increase the checkpoint "
+                    "version and implement checkpoint update"
+                ) from e
+
+    @pytest.mark.parametrize("context", ["finetune", "restart", "export"])
+    def test_get_checkpoint(self, context, caplog, model_trainer):
+        """
+        Test that the checkpoint created by the model.get_checkpoint()
+        function can be loaded back in all possible contexts.
+        """
+        model, _ = model_trainer
+        checkpoint = model.get_checkpoint()
+
+        caplog.set_level(logging.INFO)
+        self.model_cls.load_checkpoint(checkpoint, context)
+
+        if context == "restart":
+            assert "Using latest model from epoch None" in caplog.text
+        else:
+            assert "Using best model from epoch None" in caplog.text
+
+    @pytest.mark.parametrize("cls_type", ["model", "trainer"])
+    def test_failed_checkpoint_upgrade(self, cls_type):
+        """Test error raised when trying to upgrade an invalid checkpoint version."""
+        invalid_version = 99999999999999
+        checkpoint = {f"{cls_type}_ckpt_version": invalid_version}
+
+        if cls_type == "model":
+            cls = self.model_cls
+            version = self.model_cls.__checkpoint_version__
+        else:
+            cls = self.trainer_cls
+            version = self.trainer_cls.__checkpoint_version__
+
+        match = (
+            f"Unable to upgrade the checkpoint: the checkpoint is using {cls_type} "
+            f"version {invalid_version}, while the current {cls_type} version is "
+            f"{version}."
+        )
+        with pytest.raises(RuntimeError, match=match):
+            cls.upgrade_checkpoint(checkpoint)
