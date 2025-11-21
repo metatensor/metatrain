@@ -571,8 +571,8 @@ def test_conflicting_info_between_training_sets(
         msg = (
             r"(?s)"  # now "." matches newlines
             r"Target information for key energy differs between training sets\.\s*"
-            r"Got TargetInfo\(quantity='foo'.*?"
-            r"and TargetInfo\(quantity='bar'.*?\)\."
+            r"Got TargetInfo\(layout=.*?"
+            r"and TargetInfo\(layout=.*?\)\."
         )
         with pytest.raises(ValueError, match=msg):
             train_model(options_extra)
@@ -583,8 +583,8 @@ def test_conflicting_info_between_training_sets(
         msg = (
             r"(?s)"  # now "." matches newlines
             r"Extra data information for key extra differs between training sets\.\s*"
-            r"Got TargetInfo\(quantity='foo'.*?"
-            r"and TargetInfo\(quantity='bar'.*?\)\."
+            r"Got TargetInfo\(layout=.*?"
+            r"and TargetInfo\(layout=.*?\)\."
         )
         with pytest.raises(ValueError, match=msg):
             train_model(options_extra)

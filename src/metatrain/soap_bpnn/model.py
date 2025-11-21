@@ -270,9 +270,10 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         # for LLPR
         self.last_layer_feature_size = self.n_inputs_last_layer * len(self.atomic_types)
 
+        # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(unit="", per_atom=True)
-        }  # the model is always capable of outputting the internal features
+            "features": ModelOutput(per_atom=True, description="intermediate features")
+        }
 
         self.single_label = Labels.single()
 
@@ -819,7 +820,9 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         ll_features_name = (
             f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
         )
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+        self.outputs[ll_features_name] = ModelOutput(
+            per_atom=True, description=f"last layer features for {target_name}"
+        )
 
         # last linear layers, one per block
         self.last_layers[target_name] = torch.nn.ModuleDict({})
@@ -876,6 +879,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             quantity=target.quantity,
             unit=target.unit,
             per_atom=True,
+            description=target.description,
         )
 
     @classmethod
