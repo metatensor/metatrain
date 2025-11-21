@@ -10,7 +10,6 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from .architectures import ArchitectureTests
 
 
-
 class AutogradTests(ArchitectureTests):
     """Tests that autograd works correctly for a given model."""
 
