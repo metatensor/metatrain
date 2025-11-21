@@ -1,0 +1,29 @@
+seed: 42
+device: cuda
+
+architecture:
+  name: pet
+  training:
+    batch_size: 4
+    num_epochs: 1
+    loss:
+      energy:
+        type: mse
+        weight: 1.0
+        reduction: mean
+        gradients: {}
+
+training_set:
+  systems:
+    read_from: hydrogen.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: DFT_energy
+      unit: eV
+      forces: {}
+        #      forces:
+        # key: DFT_forces
+
+validation_set: 0.1
+test_set: 0.1

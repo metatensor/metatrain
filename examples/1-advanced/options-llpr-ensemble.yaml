@@ -1,0 +1,22 @@
+device: cpu
+base_precision: 64
+seed: 42
+
+architecture:
+  name: llpr
+  model:
+    num_ensemble_members: {energy: 32}  # This enables the LLPR-sampled ensemble
+  training:
+    model_checkpoint: model.ckpt
+    batch_size: 4
+
+# Section defining the parameters for system and target data
+training_set:
+  systems: qm9_reduced_100.xyz
+  targets:
+    energy:
+      key: U0
+      unit: hartree
+
+validation_set: 0.1
+test_set: 0.0

@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-import featomic
 import featomic.torch
 import metatensor.torch as mts
 import numpy as np
@@ -39,7 +38,6 @@ class GAP(ModelInterface[ModelHypers]):
             ],
         }
     )
-    __hypers_cls__ = ModelHypers
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)

@@ -1,4 +1,5 @@
 import argparse
+import copy
 import itertools
 import logging
 import time
@@ -9,7 +10,7 @@ import numpy as np
 import torch
 import tqdm
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import AtomisticModel
+from metatomic.torch import AtomisticModel, ModelOutput
 from omegaconf import DictConfig, OmegaConf
 
 from metatrain.cli.formatter import CustomHelpFormatter
@@ -127,7 +128,7 @@ def _prepare_eval_model_args(args: argparse.Namespace) -> None:
 def _eval_targets(
     model: Union[AtomisticModel, torch.jit.RecursiveScriptModule],
     dataset: Dataset,
-    options: Dict[str, TargetInfo],
+    options: Dict[str, TargetInfo] | Dict[str, ModelOutput],
     batch_size: int = 1,
     check_consistency: bool = False,
     writer: Optional[Writer] = None,
@@ -314,18 +315,10 @@ def eval_model(
 
             # FIXME: this works only for energy models
             eval_targets: Dict[str, TensorMap] = {}
-            eval_info_dict = {}
-            do_strain_grad = all(
-                not torch.all(system.cell == 0) for system in eval_systems
-            )
-            layout = _get_energy_layout(do_strain_grad)  # TODO: layout from the user
-            for key in model.capabilities().outputs.keys():
-                eval_info_dict[key] = TargetInfo(
-                    quantity=model.capabilities().outputs[key].quantity,
-                    unit=model.capabilities().outputs[key].unit,
-                    # TODO: allow the user to specify whether per-atom or not
-                    layout=layout,
-                )
+            eval_info_dict = copy.deepcopy(model.capabilities().outputs)
+            for name, model_output in eval_info_dict.items():
+                if "energy" in name:
+                    model_output.per_atom = False  # type: ignore
 
             eval_dataset = Dataset.from_dict({"system": eval_systems, **eval_targets})
 

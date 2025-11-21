@@ -439,6 +439,26 @@ def test_empty_test_set(caplog, monkeypatch, tmp_path, options):
     assert "This dataset is empty. No evaluation" in caplog.text
 
 
+def test_default_test_set(caplog, monkeypatch, tmp_path, options):
+    """Test that test_set defaults to 0.0 when omitted."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["validation_set"] = 0.4
+    # Remove test_set from options to test default behavior
+    if "test_set" in options:
+        del options["test_set"]
+
+    match = "Requested dataset of zero length. This dataset will be empty."
+    with pytest.warns(UserWarning, match=match):
+        train_model(options)
+
+    # check if the logging is correct
+    assert "This dataset is empty. No evaluation" in caplog.text
+
+
 @pytest.mark.parametrize(
     "test_set_file, validation_set_file", [(True, False), (False, True)]
 )
@@ -718,6 +738,36 @@ def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
     assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
 
 
+def test_transfer_learn_variant(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn = copy.deepcopy(options_pet)
+    options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+    }
+    options_pet_transfer_learn["training_set"]["systems"]["read_from"] = (
+        "ethanol_reduced_100.xyz"
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"] = (
+        options_pet_transfer_learn["training_set"]["targets"].pop("energy")
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"]["key"] = (
+        "energy"
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"][
+        "forces"
+    ] = {
+        "key": "forces",
+    }
+    shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet_transfer_learn)
+
+    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+
+
 def test_transfer_learn_inherit_heads(options_pet, caplog, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
@@ -888,17 +938,25 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     for tensor_name in m1["model_state_dict"]:
         if "type_to_index" in tensor_name or "spliner" in tensor_name:
             continue  # these are always the same for both models
+
         if "buffer" in tensor_name and (
             "additive" in tensor_name or "scaler" in tensor_name
         ):
             continue  # these are not comparable in general
+
+        if "_mts_helper" in tensor_name:
+            # empty tensor
+            continue
+
         tensor1 = m1["model_state_dict"][tensor_name]
         tensor2 = m2["model_state_dict"][tensor_name]
 
-        if seed is None:
-            assert not torch.allclose(tensor1, tensor2)
-        else:
-            torch.testing.assert_close(tensor1, tensor2)
+        # only compare tensors
+        if isinstance(tensor1, torch.Tensor) and isinstance(tensor2, torch.Tensor):
+            if seed is None:
+                assert not torch.allclose(tensor1, tensor2)
+            else:
+                torch.testing.assert_close(tensor1, tensor2)
 
 
 def test_base_validation(options, monkeypatch, tmp_path):

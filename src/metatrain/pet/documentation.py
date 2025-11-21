@@ -190,7 +190,7 @@ class TrainerHypers(TypedDict):
     """Metric used to select best checkpoint (e.g., ``rmse_prod``)"""
     grad_clip_norm: float = 1.0
     """Maximum gradient norm value, by default inf (no clipping)"""
-    loss: str | dict[str, LossSpecification] = "mse"
+    loss: str | dict[str, LossSpecification | str] = "mse"
     """This section describes the loss function to be used. See the
     :ref:`loss-functions` for more details."""
 
@@ -200,7 +200,7 @@ class TrainerHypers(TypedDict):
         "config": {},
         "inherit_heads": {},
     }
-    """Finetuning parameters for PET models pretrained on large datasets.
+    """Parameters for fine-tuning trained PET models.
 
     See :ref:`fine-tuning` for more details.
     """

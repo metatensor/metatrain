@@ -49,7 +49,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 8
+    __checkpoint_version__ = 9
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -141,7 +141,7 @@ class PET(ModelInterface[ModelHypers]):
         self.edge_last_layers = torch.nn.ModuleDict()
         self.last_layer_feature_size = (
             self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
-        )
+        )  # for LLPR
 
         self.outputs = {
             "features": ModelOutput(unit="", per_atom=True)
@@ -152,6 +152,7 @@ class PET(ModelInterface[ModelHypers]):
         self.property_labels: Dict[str, List[Labels]] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
+        self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
@@ -1261,6 +1262,18 @@ class PET(ModelInterface[ModelHypers]):
                 for _ in range(self.num_readout_layers)
             ]
         )
+
+        # Register last-layer parameters, in the same order as they are returned as
+        # last-layer features in the model
+        self.last_layer_parameter_names[target_name] = []
+        for layer_index in range(self.num_readout_layers):
+            for key in self.output_shapes[target_name].keys():
+                self.last_layer_parameter_names[target_name].append(
+                    f"node_last_layers.{target_name}.{layer_index}.{key}.weight"
+                )
+                self.last_layer_parameter_names[target_name].append(
+                    f"edge_last_layers.{target_name}.{layer_index}.{key}.weight"
+                )
 
         ll_features_name = get_last_layer_features_name(target_name)
         self.outputs[ll_features_name] = ModelOutput(per_atom=True)

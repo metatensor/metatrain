@@ -268,6 +268,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             self.long_range = False
             self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
 
+        # for LLPR
         self.last_layer_feature_size = self.n_inputs_last_layer * len(self.atomic_types)
 
         self.outputs = {
@@ -284,6 +285,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
+        self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
 
@@ -922,6 +924,11 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 "out_properties": [out_properties for _ in self.atomic_types],
             }
             self.last_layers[target_name][dict_key] = LinearMap(**last_layer_arguments)
+            self.last_layer_parameter_names[target_name] = [
+                f"last_layers.{target_name}.{dict_key}." + n
+                for n in self.last_layers[target_name][dict_key].state_dict().keys()
+                if n.endswith("weight")
+            ]
 
         self.key_labels[target_name] = target.layout.keys
         self.component_labels[target_name] = [
