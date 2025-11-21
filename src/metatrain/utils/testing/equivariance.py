@@ -64,6 +64,7 @@ def calculate_wigner_D(rotation: Rotation, L: int) -> np.ndarray:
         the real spherical harmonics basis.
     """
     import spherical
+
     # We initialize the Wigner calculator from the quaternionic library...
     wigner = spherical.Wigner(L)
     # ...and we also initialize the transformation matrix from complex to real
