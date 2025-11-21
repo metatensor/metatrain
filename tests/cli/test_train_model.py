@@ -439,6 +439,26 @@ def test_empty_test_set(caplog, monkeypatch, tmp_path, options):
     assert "This dataset is empty. No evaluation" in caplog.text
 
 
+def test_default_test_set(caplog, monkeypatch, tmp_path, options):
+    """Test that test_set defaults to 0.0 when omitted."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["validation_set"] = 0.4
+    # Remove test_set from options to test default behavior
+    if "test_set" in options:
+        del options["test_set"]
+
+    match = "Requested dataset of zero length. This dataset will be empty."
+    with pytest.warns(UserWarning, match=match):
+        train_model(options)
+
+    # check if the logging is correct
+    assert "This dataset is empty. No evaluation" in caplog.text
+
+
 @pytest.mark.parametrize(
     "test_set_file, validation_set_file", [(True, False), (False, True)]
 )
