@@ -10,10 +10,6 @@ from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
-from metatrain.utils.distributed.distributed_data_parallel import (
-    DistributedDataParallel,
-)
-from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
     CollateFn,
@@ -23,6 +19,10 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.distributed.distributed_data_parallel import (
+    DistributedDataParallel,
+)
+from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension, model_from_checkpoint
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
@@ -442,7 +442,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 ensemble_name = "energy_ensemble"
             else:
                 ensemble_name = f"mtt::aux::{key.replace('mtt::', '')}_ensemble"
-            requested_outputs[ensemble_name] = model_unwrapped.capabilities.outputs[ensemble_name]
+            requested_outputs[ensemble_name] = model_unwrapped.capabilities.outputs[
+                ensemble_name
+            ]
             requested_outputs[ensemble_name].per_atom = value.per_atom
 
         assert self.hypers["num_epochs"] is not None
