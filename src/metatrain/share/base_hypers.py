@@ -216,5 +216,5 @@ class BaseHypers(TypedDict):
     """Specification of the training dataset."""
     validation_set: DatasetSpec | Annotated[float, Interval(gt=0.0, lt=1.0)]
     """Specification of the validation dataset."""
-    test_set: DatasetSpec | Annotated[float, Interval(ge=0.0, lt=1.0)]
+    test_set: NotRequired[DatasetSpec | Annotated[float, Interval(ge=0.0, lt=1.0)]]
     """Specification of the test dataset."""
