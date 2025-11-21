@@ -60,6 +60,7 @@ class ZBL(torch.nn.Module):
                 quantity=value.quantity,
                 unit=value.unit,
                 per_atom=True,
+                description=value.description,
             )
             for key, value in dataset_info.targets.items()
         }
