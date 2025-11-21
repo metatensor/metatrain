@@ -1,4 +1,5 @@
 import copy
+from typing import Optional
 
 import metatensor.torch as mts
 import numpy as np
@@ -6,6 +7,7 @@ import pytest
 import torch
 from metatomic.torch import ModelOutput, System, systems_to_torch
 
+from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.readers import (
     read_systems,
 )
@@ -15,7 +17,7 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 
-from .base import ArchitectureTests
+from .architectures import ArchitectureTests
 from .equivariance import (
     get_random_rotation,
     rotate_spherical_tensor,
@@ -24,32 +26,85 @@ from .equivariance import (
 
 
 class OutputTests(ArchitectureTests):
+    """Test suite to check that the model can produce different types of outputs.
+
+    If a model does not support a given type of output, set the corresponding
+    ``supports_*_outputs`` attribute to ``False`` to skip the corresponding tests.
+    By default, they are all set to ``True`` to avoid supported outputs from
+    being untested accidentally.
+    """
+
     supports_scalar_outputs: bool = True
+    """Whether the model supports scalar outputs."""
     supports_vector_outputs: bool = True
+    """Whether the model supports vector outputs."""
     supports_spherical_outputs: bool = True
+    """Whether the model supports spherical tensor outputs."""
     supports_selected_atoms: bool = True
+    """Whether the model supports the ``selected_atoms`` argument in the
+    ``forward()`` method.
+    """
     supports_features: bool = True
+    """Whether the model supports returning features."""
     supports_last_layer_features: bool = True
-
+    """Whether the model supports returning last-layer features."""
     is_equivariant_model: bool = True
+    """Whether the model is equivariant (i.e. produces outputs that
+    transform correctly under rotations by architecture's design)."""
 
     @pytest.fixture
-    def n_features(self):
-        """Override this fixture if you want to check the number of features."""
+    def n_features(self) -> Optional[int]:
+        """Fixture that returns the number of features produced by the model.
+
+        By default this is set to ``None``, which skips checking the number
+        of features in the output. Override this fixture for your architecture
+        if you want the test suite to check that the number of features in the
+        output is correct.
+
+        :return: The number of features produced by the model.
+        """
         return None
 
     @pytest.fixture
-    def n_last_layer_features(self):
-        """Override this fixture if you want to check the number of
-        last-layer features."""
+    def n_last_layer_features(self) -> Optional[int]:
+        """Fixture that returns the number of last-layer features produced
+        by the model.
+
+        By default this is set to ``None``, which skips checking the number
+        of last-layer features in the output. Override this fixture for your
+        architecture if you want the test suite to check that the number of
+        last-layer features in the output is correct.
+
+        :return: The number of last-layer features produced by the model.
+        """
         return None
 
     @pytest.fixture
-    def single_atom_energy(self):
-        """Override this fixture if you want to check the single atom energy value."""
+    def single_atom_energy(self) -> Optional[float]:
+        """Fixture that returns the single atom energy value.
+
+        By default this is set to ``None``, which skips checking the single
+        atom energy value in the output. Override this fixture for your
+        architecture if you want the test suite to check that the single atom
+        energy value in the output is correct.
+
+        :return: The single atom energy value.
+        """
         return None
 
-    def _get_output(self, model_hypers, dataset_info, per_atom):
+    def _get_output(
+        self, model_hypers: dict, dataset_info: DatasetInfo, per_atom: bool
+    ) -> dict[str, mts.TensorMap]:
+        """Helper function to get the model output for different types of outputs.
+
+        It initializes the model and runs a forward pass with a simple system.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset information to initialize the model.
+        :param per_atom: Whether the requested outputs are per-atom or not.
+
+        :return: The model outputs.
+        """
         model = self.model_cls(model_hypers, dataset_info)
 
         system = System(
@@ -68,8 +123,27 @@ class OutputTests(ArchitectureTests):
             [system], {k: ModelOutput(per_atom=per_atom) for k in model.outputs}
         )
 
-    def test_output_scalar(self, model_hypers, dataset_info_scalar, per_atom):
-        """Tests that forward pass works for scalar outputs."""
+    def test_output_scalar(
+        self, model_hypers: dict, dataset_info_scalar: DatasetInfo, per_atom: bool
+    ) -> None:
+        """Tests that forward pass works for scalar outputs.
+
+        It also tests that the returned outputs have the expected samples
+        and values shape.
+
+        This test is skipped if the model does not support scalar outputs,
+        i.e., if ``supports_scalar_outputs`` is set to ``False``.
+
+        If this test is failing, your model might:
+
+        - not be producing scalar outputs when requested.
+        - not be taking into account correctly the ``per_atom`` field of the
+        outputs passed to the ``outputs`` argument of the ``forward()`` method.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info_scalar: Dataset information with scalar outputs.
+        :param per_atom: Whether the requested outputs are per-atom or not.
+        """
         if not self.supports_scalar_outputs:
             pytest.skip(f"{self.architecture} does not support scalar outputs.")
 
@@ -84,8 +158,26 @@ class OutputTests(ArchitectureTests):
             )
             assert outputs["scalar"].block().values.shape == (1, 5)
 
-    def test_output_vector(self, model_hypers, dataset_info_vector, per_atom):
-        """Tests that forward pass works for vector outputs."""
+    def test_output_vector(
+        self, model_hypers: dict, dataset_info_vector: DatasetInfo, per_atom: bool
+    ) -> None:
+        """Tests that forward pass works for vector outputs.
+
+        It also tests that the returned outputs have the expected samples
+        and values shape.
+
+        This test is skipped if the model does not support vector outputs,
+        i.e., if ``supports_vector_outputs`` is set to ``False``.
+
+        If this test is failing, your model might:
+        - not be producing vector outputs when requested.
+        - not be taking into account correctly the ``per_atom`` field of the
+        outputs passed to the ``outputs`` argument of the ``forward()`` method.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info_vector: Dataset information with vector outputs.
+        :param per_atom: Whether the requested outputs are per-atom or not.
+        """
         if not self.supports_vector_outputs:
             pytest.skip(f"{self.architecture} does not support vector outputs.")
         outputs = self._get_output(model_hypers, dataset_info_vector, per_atom)
@@ -97,8 +189,26 @@ class OutputTests(ArchitectureTests):
             assert outputs["vector"].block().samples.names == ["system"]
             assert outputs["vector"].block().values.shape == (1, 3, 5)
 
-    def test_output_spherical(self, model_hypers, dataset_info_spherical, per_atom):
-        """Tests that forward pass works for spherical outputs."""
+    def test_output_spherical(
+        self, model_hypers: dict, dataset_info_spherical: DatasetInfo, per_atom: bool
+    ) -> None:
+        """Tests that forward pass works for spherical outputs.
+
+        It also tests that the returned outputs have the expected samples
+        and values shape.
+
+        This test is skipped if the model does not support spherical outputs,
+        i.e., if ``supports_spherical_outputs`` is set to ``False``.
+
+        If this test is failing, your model might:
+        - not be producing spherical outputs when requested.
+        - not be taking into account correctly the ``per_atom`` field of the
+        outputs passed to the ``outputs`` argument of the ``forward()`` method.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info_spherical: Dataset information with spherical outputs.
+        :param per_atom: Whether the requested outputs are per-atom or not.
+        """
         if not self.supports_spherical_outputs:
             pytest.skip(f"{self.architecture} does not support spherical outputs.")
 
@@ -115,10 +225,31 @@ class OutputTests(ArchitectureTests):
             assert outputs["spherical_target"].block().values.shape[0] == 1
 
     def test_output_multispherical(
-        self, model_hypers, dataset_info_multispherical, per_atom
-    ):
+        self,
+        model_hypers: dict,
+        dataset_info_multispherical: DatasetInfo,
+        per_atom: bool,
+    ) -> None:
         """Tests that forward pass works for spherical tensor outputs
-        with multiple irreps."""
+        with multiple irreps.
+
+        It also tests that the returned outputs have the expected samples
+        and values shape.
+
+        This test is skipped if the model does not support spherical outputs,
+        i.e., if ``supports_spherical_outputs`` is set to ``False``.
+
+        If this test is failing and ``test_output_spherical`` is passing, your model
+        probably is not handling the possibility that spherical outputs can have
+        multiple irreps.
+
+        If ``test_output_spherical`` is also failing, fix that test first.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info_multispherical: Dataset information with multiple
+        spherical outputs.
+        :param per_atom: Whether the requested outputs are per-atom or not.
+        """
         if not self.supports_spherical_outputs:
             pytest.skip(f"{self.architecture} does not support spherical outputs.")
 
@@ -136,10 +267,20 @@ class OutputTests(ArchitectureTests):
             assert outputs["spherical_tensor"].block(0).samples.names == ["system"]
             assert outputs["spherical_tensor"].block(0).values.shape[0] == 1
 
-    def test_prediction_energy_subset_elements(self, model_hypers, dataset_info):
+    def test_prediction_energy_subset_elements(
+        self, model_hypers: dict, dataset_info: DatasetInfo
+    ) -> None:
         """Tests that the model can predict on a subset of the elements it was trained
-        on."""
+        on.
 
+        If this test is failing, it means that your model needs each system
+        to contain all the elements that are present in the dataset.
+        If this is the expected behavior for your model, we need to introduce
+        a variable to skip this test, contact the ``metatrain`` developers.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset information to initialize the model.
+        """
         model = self.model_cls(model_hypers, dataset_info)
 
         system = System(
@@ -156,15 +297,28 @@ class OutputTests(ArchitectureTests):
             {"energy": model.outputs["energy"]},
         )
 
-    def test_prediction_energy_subset_atoms(self, model_hypers, dataset_info):
+    def test_prediction_energy_subset_atoms(
+        self, model_hypers: dict, dataset_info: DatasetInfo
+    ) -> None:
         """Tests that the model can predict on a subset
-        of the atoms in a system."""
+        of the atoms in a system.
+
+        This test checks that the model supports the ``selected_atoms``
+        argument of the ``forward()`` method, and it handles it correctly.
+        That is, the model only returns outputs for the selected atoms.
+
+        This test is skipped if the model does not support the ``selected_atoms``
+        argument of the ``forward()`` method, i.e., if ``supports_selected_atoms``
+        is set to ``False``.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset information to initialize the model.
+        """
 
         if not self.supports_selected_atoms:
             pytest.skip(
-                f"{self.architecure} does not support selected atom predictions."
+                f"{self.architecture} does not support selected atom predictions."
             )
-
         # we need float64 for this test, then we will change it back at the end
         default_dtype_before = torch.get_default_dtype()
         torch.set_default_dtype(torch.float64)
@@ -240,8 +394,27 @@ class OutputTests(ArchitectureTests):
         torch.set_default_dtype(default_dtype_before)
 
     @pytest.mark.parametrize("per_atom", [True, False])
-    def test_output_features(self, model_hypers, dataset_info, per_atom, n_features):
-        """Tests that the model can output its learned features."""
+    def test_output_features(
+        self,
+        model_hypers: dict,
+        dataset_info: DatasetInfo,
+        per_atom: bool,
+        n_features: Optional[int],
+    ) -> None:
+        """Tests that the model can output its learned features.
+
+        If this test is failing you are probably not exposing correctly
+        the features output in your model.
+
+        This test is skipped if the model does not support features output,
+        i.e., if ``supports_features`` is set to ``False``.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset information to initialize the model.
+        :param per_atom: Whether to request per-atom features or not.
+        :param n_features: Expected number of features. If ``None``, the number
+        of features is not checked.
+        """
 
         if not self.supports_features:
             pytest.skip(f"{self.architecture} does not support features output.")
@@ -286,9 +459,26 @@ class OutputTests(ArchitectureTests):
 
     @pytest.mark.parametrize("per_atom", [True, False])
     def test_output_last_layer_features(
-        self, model_hypers, dataset_info, per_atom, n_last_layer_features
-    ):
-        """Tests that the model can output its last layer features."""
+        self,
+        model_hypers: dict,
+        dataset_info: DatasetInfo,
+        per_atom: bool,
+        n_last_layer_features: Optional[int],
+    ) -> None:
+        """Tests that the model can output its last layer features.
+
+        If this test is failing you are probably not exposing correctly
+        the last-layer features output in your model.
+
+        This test is skipped if the model does not support last-layer features
+        output, i.e., if ``supports_last_layer_features`` is set to ``False``.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset information to initialize the model.
+        :param per_atom: Whether to request per-atom last-layer features or not.
+        :param n_last_layer_features: Expected number of last-layer features.
+        If ``None``, the number of last-layer features is not checked.
+        """
 
         if not self.supports_last_layer_features:
             pytest.skip(
@@ -335,8 +525,24 @@ class OutputTests(ArchitectureTests):
 
     @pytest.mark.parametrize("select_atoms", [[0, 2]])
     def test_output_last_layer_features_selected_atoms(
-        self, model_hypers, dataset_info, DATASET_PATH, select_atoms
-    ):
+        self,
+        model_hypers: dict,
+        dataset_info: DatasetInfo,
+        dataset_path: str,
+        select_atoms: list[int],
+    ) -> None:
+        """Tests that the model can output its last layer features for selected atoms.
+
+        This test is skipped if the model does not support last-layer features
+        or the model does not support the ``selected_atoms`` argument of the
+        ``forward()`` method, i.e. if either ``supports_last_layer_features``
+        or ``supports_selected_atoms`` is set to ``False``.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset information to initialize the model.
+        :param dataset_path: Path to a dataset file to read systems from.
+        :param select_atoms: List of atom indices to select for the output.
+        """
         if not self.supports_last_layer_features:
             pytest.skip(
                 f"{self.architecture} does not support last-layer features output."
@@ -346,7 +552,7 @@ class OutputTests(ArchitectureTests):
                 f"{self.architecture} does not support selected atom predictions."
             )
 
-        systems = read_systems(DATASET_PATH)
+        systems = read_systems(dataset_path)
         systems = [system.to(torch.float32) for system in systems]
 
         hypers = copy.deepcopy(model_hypers)
@@ -370,8 +576,19 @@ class OutputTests(ArchitectureTests):
         features = out[output_label].block().samples.values
         assert features.shape == selected_atoms.values.shape
 
-    def test_single_atom(self, model_hypers, dataset_info, single_atom_energy):
-        """Tests that the model runs fine on a single atom system."""
+    def test_single_atom(
+        self,
+        model_hypers: dict,
+        dataset_info: DatasetInfo,
+        single_atom_energy: Optional[float],
+    ) -> None:
+        """Tests that the model runs fine on a single atom system.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset information to initialize the model.
+        :param single_atom_energy: Expected single atom energy value. If ``None``,
+        the single atom energy value is not checked.
+        """
         model = self.model_cls(model_hypers, dataset_info)
 
         system = System(
@@ -387,9 +604,20 @@ class OutputTests(ArchitectureTests):
         if single_atom_energy is not None:
             assert outputs["energy"].block().values.item() == single_atom_energy
 
-    def test_output_scalar_invariant(self, model_hypers, dataset_info, DATASET_PATH):
-        """Tests that scalar outputs are invariant to rotation"""
+    def test_output_scalar_invariant(
+        self, model_hypers: dict, dataset_info: DatasetInfo, dataset_path: str
+    ) -> None:
+        """Tests that scalar outputs are invariant to rotation.
 
+        This test is skipped if the model does not support scalar outputs,
+        or if the model is not equivariant by design, i.e., if either
+        ``supports_scalar_outputs`` or ``is_equivariant_model`` is set to
+        ``False``.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset information to initialize the model.
+        :param dataset_path: Path to a dataset file to read systems from.
+        """
         if not self.supports_scalar_outputs or not self.is_equivariant_model:
             pytest.skip(
                 f"{self.architecture} does not produce invariant scalar outputs."
@@ -397,7 +625,7 @@ class OutputTests(ArchitectureTests):
 
         model = self.model_cls(model_hypers, dataset_info)
 
-        system = read(DATASET_PATH)
+        system: System = read(dataset_path)
         original_system = copy.deepcopy(system)
         system.rotate(48, "y")
 
@@ -425,10 +653,20 @@ class OutputTests(ArchitectureTests):
         )
 
     def test_output_spherical_equivariant_rotations(
-        self, model_hypers, dataset_info_spherical, DATASET_PATH
-    ):
+        self, model_hypers: dict, dataset_info_spherical: DatasetInfo, dataset_path: str
+    ) -> None:
         """Tests that the model is rotationally equivariant when predicting
-        spherical tensors."""
+        spherical tensors.
+
+        This test is skipped if the model does not support spherical outputs,
+        or if the model is not equivariant by design, i.e., if either
+        ``supports_spherical_outputs`` or ``is_equivariant_model`` is set to
+        ``False``.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info_spherical: Dataset information with spherical outputs.
+        :param dataset_path: Path to a dataset file to read systems from.
+        """
 
         if not self.supports_spherical_outputs or not self.is_equivariant_model:
             pytest.skip(
@@ -437,7 +675,7 @@ class OutputTests(ArchitectureTests):
 
         model = self.model_cls(model_hypers, dataset_info_spherical)
 
-        system = read(DATASET_PATH)
+        system = read(dataset_path)
         original_system = systems_to_torch(system)
         rotation = get_random_rotation()
         rotated_system = rotate_system(original_system, rotation)
@@ -470,9 +708,28 @@ class OutputTests(ArchitectureTests):
         )
 
     def test_output_spherical_equivariant_inversion(
-        self, model_hypers, dataset_info_spherical, DATASET_PATH, o3_lambda, o3_sigma
-    ):
-        """Tests that the model is equivariant with respect to inversions."""
+        self,
+        model_hypers: dict,
+        dataset_info_spherical: DatasetInfo,
+        dataset_path: str,
+        o3_lambda: int,
+        o3_sigma: int,
+    ) -> None:
+        """Tests that the model is equivariant with respect to inversions.
+
+        This test is done on spherical targets (not scalar targets).
+
+        This test is skipped if the model does not support spherical outputs,
+        or if the model is not equivariant by design, i.e., if either
+        ``supports_spherical_outputs`` or ``is_equivariant_model`` is set to
+        ``False``.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info_spherical: Dataset information with spherical outputs.
+        :param dataset_path: Path to a dataset file to read systems from.
+        :param o3_lambda: The O(3) lambda of the spherical output to test.
+        :param o3_sigma: The O(3) sigma of the spherical output to test.
+        """
 
         if not self.supports_spherical_outputs or not self.is_equivariant_model:
             pytest.skip(
@@ -481,7 +738,7 @@ class OutputTests(ArchitectureTests):
 
         model = self.model_cls(model_hypers, dataset_info_spherical)
 
-        system = read(DATASET_PATH)
+        system = read(dataset_path)
         original_system = systems_to_torch(system)
         inverted_system = System(
             positions=original_system.positions * (-1),

@@ -1,17 +1,35 @@
 import torch
 from metatomic.torch import ModelEvaluationOptions, ModelMetadata, System
 
+from metatrain.utils.data import DatasetInfo
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
 
-from .base import ArchitectureTests
+from .architectures import ArchitectureTests
 
 
 class ExportedTests(ArchitectureTests):
-    def test_to(self, device, dtype, model_hypers, dataset_info):
-        """Tests that the `.to()` method of the exported model works."""
+    """Test suite to test exported models."""
+
+    def test_to(
+        self,
+        device: torch.device,
+        dtype: torch.dtype,
+        model_hypers: dict,
+        dataset_info: DatasetInfo,
+    ) -> None:
+        """Tests that the `.to()` method of the exported model works.
+
+        In other words, it tests that the exported model can be moved to
+        different devices and dtypes.
+
+        :param device: The device to move the exported model to.
+        :param dtype: The dtype to move the exported model to.
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset information to initialize the model.
+        """
 
         model = self.model_cls(model_hypers, dataset_info).to(dtype=dtype)
 

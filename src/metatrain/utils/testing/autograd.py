@@ -1,23 +1,37 @@
 import torch
 from metatomic.torch import ModelOutput, System
 
+from metatrain.utils.data import DatasetInfo
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
-from .base import ArchitectureTests
+from .architectures import ArchitectureTests
 
 
 class AutogradTests(ArchitectureTests):
     """Tests that autograd works correctly for a given model."""
 
-    def test_autograd_positions(self, device, model_hypers, dataset_info):
-        """Tests the basic functionality of the forward pass of the model."""
+    def test_autograd_positions(
+        self, device: torch.device, model_hypers: dict, dataset_info: DatasetInfo
+    ) -> None:
+        """Tests that autograd can compute gradients with respect to
+        positions.
+
+        It checks both first and second derivatives.
+
+        It uses ``torch.autograd.gradcheck`` and
+        ``torch.autograd.gradgradcheck`` for this purpose.
+
+        :param device: The device to run the test on.
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset information to initialize the model.
+        """
 
         device = torch.device(device)
 
         model = self.model_cls(model_hypers, dataset_info)
         model = model.to(dtype=torch.float64, device=device)
 
-        def compute(positions):
+        def compute(positions: torch.Tensor) -> torch.Tensor:
             device = positions.device
 
             system = System(
@@ -45,15 +59,28 @@ class AutogradTests(ArchitectureTests):
         assert torch.autograd.gradcheck(compute, positions, fast_mode=True)
         assert torch.autograd.gradgradcheck(compute, positions, fast_mode=True)
 
-    def test_autograd_cell(self, device, model_hypers, dataset_info):
-        """Tests the basic functionality of the forward pass of the model."""
+    def test_autograd_cell(
+        self, device: torch.device, model_hypers: dict, dataset_info: DatasetInfo
+    ) -> None:
+        """Tests that autograd can compute gradients with respect to
+        the cell.
+
+        It checks both first and second derivatives.
+
+        It uses ``torch.autograd.gradcheck`` and
+        ``torch.autograd.gradgradcheck`` for this purpose.
+
+        :param device: The device to run the test on.
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset information to initialize the model.
+        """
 
         device = torch.device(device)
 
         model = self.model_cls(model_hypers, dataset_info)
         model = model.to(dtype=torch.float64, device=device)
 
-        def compute(cell):
+        def compute(cell: torch.Tensor) -> torch.Tensor:
             device = cell.device
 
             system = System(
