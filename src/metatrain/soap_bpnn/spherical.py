@@ -478,28 +478,95 @@ class TensorBasis(torch.nn.Module):
                 centers,
                 neighbors,
                 species,
-                structures,
-                atom_index_in_structure,
-            )
-            if selected_atoms is not None:
-                lambda_basis = mts.slice(lambda_basis, "samples", selected_atoms)
-            lambda_basis = lambda_basis.keys_to_properties(self.neighbor_species_labels)
-            lambda_basis = mts.drop_blocks(
-                lambda_basis,
+            )[self.o3_lambda]  # only o3_lambda tensor
+
+            lambda_basis = lambda_basis.reshape(
+                lambda_basis.shape[0],
+                lambda_basis.shape[1],
+                lambda_basis.shape[2] * lambda_basis.shape[3],
+            )  # [center, o3_mu, features]
+
+            unique_center_species = torch.unique(species)
+            blocks: list[TensorBlock] = []
+            for s in unique_center_species:
+                mask = species == s
+                lambda_basis_filtered = lambda_basis[mask]
+                structures_filtered = structures[mask]
+                centers_filtered = atom_index_in_structure[mask]
+                block = TensorBlock(
+                    values=lambda_basis_filtered,
+                    samples=Labels(
+                        names=["system", "atom"],
+                        values=torch.stack(
+                            [structures_filtered, centers_filtered], dim=1
+                        ),
+                    ),
+                    components=[
+                        Labels(
+                            names=["o3_mu"],
+                            values=torch.tensor(
+                                list(range(-self.o3_lambda, self.o3_lambda + 1)),
+                                device=lambda_basis.device,
+                            ).unsqueeze(1),
+                        )
+                    ],
+                    properties=Labels(
+                        names=["property"],
+                        values=torch.arange(
+                            lambda_basis.shape[2],
+                            device=lambda_basis.device,
+                        ).unsqueeze(1),
+                    ),
+                )
+                blocks.append(block)
+            lambda_basis_as_tensor_map = TensorMap(
                 keys=Labels(
-                    ["o3_lambda", "o3_sigma"],
-                    torch.tensor(
-                        [[ell, 1] for ell in range(self.o3_lambda)], device=device
+                    names=["o3_lambda", "o3_sigma", "center_type"],
+                    values=torch.tensor(
+                        [[self.o3_lambda, 1, int(s)] for s in unique_center_species],
+                        device=device,
                     ),
                 ),
+                blocks=blocks,
             )
 
-            lambda_basis = self.spex_contraction(lambda_basis)
-            lambda_basis = lambda_basis.keys_to_samples("center_type")
+            if selected_atoms is not None:
+                lambda_basis_as_tensor_map = mts.slice(
+                    lambda_basis_as_tensor_map, "samples", selected_atoms
+                )
+
+            lambda_basis_as_tensor_map = self.spex_contraction(
+                lambda_basis_as_tensor_map
+            )
+
+            all_lambda_basis = torch.concatenate(
+                [b.values for b in lambda_basis_as_tensor_map.blocks()]
+            )
+            # however, we need to sort them according to the order of the
+            # atoms in the systems
+            system_sizes = torch.bincount(
+                structures, minlength=len(torch.unique(structures))
+            )
+            system_offsets = torch.cat(
+                [
+                    torch.tensor([0], device=device),
+                    torch.cumsum(system_sizes, dim=0)[:-1],
+                ]
+            )
+            all_system_indices = torch.concatenate(
+                [b.samples.values[:, 0] for b in lambda_basis_as_tensor_map.blocks()]
+            )
+            all_atom_indices = torch.concatenate(
+                [b.samples.values[:, 1] for b in lambda_basis_as_tensor_map.blocks()]
+            )
+            overall_atom_indices = system_offsets[all_system_indices] + all_atom_indices
+            sorting_indices = torch.argsort(overall_atom_indices)
+            lambda_basis_as_tensor = all_lambda_basis[sorting_indices]
+
             basis = torch.cat(
                 (
                     basis,
-                    lambda_basis.block({"o3_lambda": self.o3_lambda}).values,
+                    lambda_basis_as_tensor,
                 ),
                 dim=-1,
             )
