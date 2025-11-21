@@ -447,12 +447,12 @@ approach has several advantages:
 
 - It saves you time and effort, since you don't have to write tests.
 - It makes you confident that the architecture is well integrated into
-``metatrain``.
+  ``metatrain``.
 - New architectures have many lines of new code and they can be hard to
-review, so the shared test suite helps us understanding if the
-architecture is compliant and ready to be merged.
+  review, so the shared test suite helps us understanding if the
+  architecture is compliant and ready to be merged.
 - Users benefit from it, since they are guaranteed a consistent experience
-across architectures.
+  across architectures.
 
 To make the tests run for your architecture, you should follow these steps:
 

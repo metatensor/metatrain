@@ -57,7 +57,7 @@ class TorchscriptTests(ArchitectureTests):
 
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info_spherical: Dataset to initialize the model
-        (containing spherical targets).
+          (containing spherical targets).
         """
 
         self.test_torchscript(
@@ -70,7 +70,7 @@ class TorchscriptTests(ArchitectureTests):
         """Tests that the model can be jitted, saved and loaded.
 
         :param tmpdir: Temporary directory where to save the
-        model.
+          model.
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info: Dataset to initialize the model.
         """
