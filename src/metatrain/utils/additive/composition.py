@@ -346,10 +346,6 @@ class CompositionModel(Module):
         :raises ValueError: If no weights have been computed or if `outputs` keys
             contain unsupported keys.
         """
-        dtype = systems[0].positions.dtype
-        device = systems[0].positions.device
-
-        self.weights_to(device, dtype)
 
         for output_name in outputs.keys():
             if output_name not in self.outputs:
@@ -415,19 +411,6 @@ class CompositionModel(Module):
             target_name + "_composition_buffer",
             mts.save_buffer(mts.make_contiguous(fake_weights)),
         )
-
-    def weights_to(self, device: torch.device, dtype: torch.dtype) -> None:
-        if len(self.model.weights) != 0:
-            if self.model.weights[list(self.model.weights.keys())[0]].device != device:
-                self.model.weights = {
-                    k: v.to(device) for k, v in self.model.weights.items()
-                }
-            if self.model.weights[list(self.model.weights.keys())[0]].dtype != dtype:
-                self.model.weights = {
-                    k: v.to(dtype) for k, v in self.model.weights.items()
-                }
-
-        self.model._sync_device_dtype(device, dtype)
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:

@@ -823,9 +823,6 @@ class TorchSubsetofRegressors(Module):
         :return:
             TensorMap with the predictions
         """
-        # move weights and X_pseudo to the same device as T
-        self._weights = self._weights.to(T.device)
-        self._X_pseudo = self._X_pseudo.to(T.device)
 
         k_tm = self._kernel(T, self._X_pseudo, are_pseudo_points=(False, True))
         return mts.dot(k_tm, self._weights)

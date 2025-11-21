@@ -231,7 +231,6 @@ class BaseCompositionModel(Module):
 
         device = systems[0].positions.device
         dtype = systems[0].positions.dtype
-        self._sync_device_dtype(device, dtype)
 
         # check that the systems contain no unexpected atom types
         for system in systems:
@@ -409,8 +408,6 @@ class BaseCompositionModel(Module):
         """
 
         device = systems[0].positions.device
-        dtype = systems[0].positions.dtype
-        self._sync_device_dtype(device, dtype)
 
         # Build the sample labels that are required
         _, sample_labels = _get_system_indices_and_labels(systems, device)
@@ -518,24 +515,6 @@ class BaseCompositionModel(Module):
             all_types_as_indices, num_classes=len(center_types)
         )
         return one_hot_encoding.to(dtype)
-
-    def _sync_device_dtype(self, device: torch.device, dtype: torch.dtype) -> None:
-        # manually move the TensorMap dicts:
-
-        self.atomic_types = self.atomic_types.to(device=device)
-        self.type_to_index = self.type_to_index.to(device=device)
-        self.XTX = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.XTX.items()
-        }
-        self.XTY = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.XTY.items()
-        }
-        self.weights = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.weights.items()
-        }
 
 
 def _include_key(key: LabelsEntry) -> bool:
