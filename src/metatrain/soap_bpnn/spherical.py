@@ -104,9 +104,6 @@ class VectorBasis(Module):
         """
         device = interatomic_vectors.device
 
-        if self.neighbor_species_labels.device != device:
-            self.neighbor_species_labels = self.neighbor_species_labels.to(device)
-
         spherical_expansion = self.soap_calculator(
             interatomic_vectors,
             centers,
@@ -287,8 +284,8 @@ class TensorBasis(Module):
         device = interatomic_vectors.device
         dtype = interatomic_vectors.dtype
         for k, v in self.cgs.items():
-            if v.device != device or v.dtype != dtype:
-                self.cgs[k] = v.to(device, dtype)
+            if v.dtype != dtype:
+                self.cgs[k] = v.to(dtype=dtype)
 
         if selected_atoms is None:
             num_atoms = len(atom_index_in_structure)
