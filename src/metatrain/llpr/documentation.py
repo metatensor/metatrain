@@ -87,7 +87,7 @@ class TrainerHypers(TypedDict):
     warmup_fraction: float = 0.01
     """Fraction of training steps used for learning rate warmup."""
 
-    learning_rate: float = 1e-4
+    learning_rate: float = 3e-4
     """Learning rate."""
 
     weight_decay: Optional[float] = None
