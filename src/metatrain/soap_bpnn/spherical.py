@@ -8,9 +8,10 @@ import numpy as np
 import sphericart.torch
 import torch
 import wigners
-from metatensor.torch import Labels, TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.learn.nn import Linear as LinearMap
-from spex.metatensor import SphericalExpansion
+from spex import SphericalExpansion
+from torch.profiler import record_function
 
 from .documentation import SOAPConfig
 
@@ -65,7 +66,7 @@ class VectorBasis(torch.nn.Module):
                     dim=1,
                 ),
             ),
-            in_features=(self.soap_calculator.calculator.radial.n_per_l[1])
+            in_features=(self.soap_calculator.radial.n_per_l[1])
             * len(self.atomic_types),
             out_features=3,
             bias=False,
@@ -106,38 +107,99 @@ class VectorBasis(torch.nn.Module):
         if self.neighbor_species_labels.device != device:
             self.neighbor_species_labels = self.neighbor_species_labels.to(device)
 
-        spherical_expansion = self.soap_calculator(
+        l1_spherical_expansion = self.soap_calculator(
             interatomic_vectors,
             centers,
             neighbors,
             species,
-            structures,
-            atom_index_in_structure,
-        )
-        if selected_atoms is not None:
-            spherical_expansion = mts.slice(
-                spherical_expansion, "samples", selected_atoms
+        )[1]  # only l=1 tensor
+
+        l1_spherical_expansion = l1_spherical_expansion.reshape(
+            l1_spherical_expansion.shape[0],
+            l1_spherical_expansion.shape[1],
+            l1_spherical_expansion.shape[2] * l1_spherical_expansion.shape[3],
+        )  # [center, o3_mu, features]
+
+        with record_function("conversion"):
+            unique_center_species = torch.unique(species)
+            blocks: list[TensorBlock] = []
+            for s in unique_center_species:
+                mask = species == s
+                l1_spherical_expansion_filtered = l1_spherical_expansion[mask]
+                structures_filtered = structures[mask]
+                centers_filtered = atom_index_in_structure[mask]
+                block = TensorBlock(
+                    values=l1_spherical_expansion_filtered,
+                    samples=Labels(
+                        names=["system", "atom"],
+                        values=torch.stack(
+                            [structures_filtered, centers_filtered], dim=1
+                        ),
+                    ),
+                    components=[
+                        Labels(
+                            names=["o3_mu"],
+                            values=torch.tensor(
+                                [-1, 0, 1], dtype=torch.long, device=device
+                            ).unsqueeze(1),
+                        )
+                    ],
+                    properties=Labels(
+                        names=["property"],
+                        values=torch.arange(
+                            l1_spherical_expansion.shape[2],
+                            device=l1_spherical_expansion.device,
+                        ).unsqueeze(1),
+                    ),
+                )
+                blocks.append(block)
+            l1_spherical_expansion_as_tensor_map = TensorMap(
+                keys=Labels(
+                    names=["o3_lambda", "o3_sigma", "center_type"],
+                    values=torch.tensor(
+                        [[1, 1, int(s)] for s in unique_center_species], device=device
+                    ),
+                ),
+                blocks=blocks,
             )
 
-        # by calling keys_to_samples and keys_to_properties in the same order as they
-        # are called in the main model, we should ensure that the order of the samples
-        # is the same
-        spherical_expansion = spherical_expansion.keys_to_properties(
-            self.neighbor_species_labels
+        if selected_atoms is not None:
+            l1_spherical_expansion_as_tensor_map = mts.slice(
+                l1_spherical_expansion_as_tensor_map, "samples", selected_atoms
+            )
+
+        with record_function("contraction"):
+            basis_vectors = self.contraction(l1_spherical_expansion_as_tensor_map)
+
+        # The following (until the end of the function) is equivalent to
+        # basis_vectors_as_tensor = (
+        #     basis_vectors.keys_to_samples("center_type")
+        # ).block()
+        # but faster
+
+        all_basis_vectors = torch.concatenate(
+            [b.values for b in basis_vectors.blocks()]
         )
-
-        # drop all L=0 blocks
-        spherical_expansion = mts.drop_blocks(
-            spherical_expansion,
-            keys=Labels(
-                ["o3_lambda", "o3_sigma"], torch.tensor([[0, 1]], device=device)
-            ),
+        # however, we need to sort them according to the order of the
+        # atoms in the systems
+        system_sizes = torch.bincount(
+            structures, minlength=len(torch.unique(structures))
         )
-
-        basis_vectors = self.contraction(spherical_expansion)
-        basis_vectors = basis_vectors.keys_to_samples("center_type")
-
-        basis_vectors_as_tensor = basis_vectors.block({"o3_lambda": 1}).values
+        system_offsets = torch.cat(
+            [
+                torch.tensor([0], device=device),
+                torch.cumsum(system_sizes, dim=0)[:-1],
+            ]
+        )
+        all_system_indices = torch.concatenate(
+            [b.samples.values[:, 0] for b in basis_vectors.blocks()]
+        )
+        all_atom_indices = torch.concatenate(
+            [b.samples.values[:, 1] for b in basis_vectors.blocks()]
+        )
+        overall_atom_indices = system_offsets[all_system_indices] + all_atom_indices
+        sorting_indices = torch.argsort(overall_atom_indices)
+        basis_vectors_as_tensor = all_basis_vectors[sorting_indices]
         return basis_vectors_as_tensor  # [n_atoms, 3(yzx), 3]
 
 
@@ -234,7 +296,7 @@ class TensorBasis(torch.nn.Module):
                         dim=1,
                     ),
                 ),
-                in_features=(self.spex_calculator.calculator.radial.n_per_l[o3_lambda])
+                in_features=(self.spex_calculator.radial.n_per_l[o3_lambda])
                 * len(self.atomic_types),
                 out_features=2 * o3_lambda + 1,
                 bias=False,
@@ -301,15 +363,16 @@ class TensorBasis(torch.nn.Module):
                 dtype=dtype,
             )
         elif self.o3_lambda == 1:
-            basis = self.vector_basis(
-                interatomic_vectors,
-                centers,
-                neighbors,
-                species,
-                structures,
-                atom_index_in_structure,
-                selected_atoms,
-            )
+            with record_function("vector_basis"):
+                basis = self.vector_basis(
+                    interatomic_vectors,
+                    centers,
+                    neighbors,
+                    species,
+                    structures,
+                    atom_index_in_structure,
+                    selected_atoms,
+                )
         elif self.o3_lambda == 2:
             basis = torch.empty(
                 (num_atoms, 5, 5),
@@ -415,28 +478,95 @@ class TensorBasis(torch.nn.Module):
                 centers,
                 neighbors,
                 species,
-                structures,
-                atom_index_in_structure,
-            )
-            if selected_atoms is not None:
-                lambda_basis = mts.slice(lambda_basis, "samples", selected_atoms)
-            lambda_basis = lambda_basis.keys_to_properties(self.neighbor_species_labels)
-            lambda_basis = mts.drop_blocks(
-                lambda_basis,
+            )[self.o3_lambda]  # only o3_lambda tensor
+
+            lambda_basis = lambda_basis.reshape(
+                lambda_basis.shape[0],
+                lambda_basis.shape[1],
+                lambda_basis.shape[2] * lambda_basis.shape[3],
+            )  # [center, o3_mu, features]
+
+            unique_center_species = torch.unique(species)
+            blocks: list[TensorBlock] = []
+            for s in unique_center_species:
+                mask = species == s
+                lambda_basis_filtered = lambda_basis[mask]
+                structures_filtered = structures[mask]
+                centers_filtered = atom_index_in_structure[mask]
+                block = TensorBlock(
+                    values=lambda_basis_filtered,
+                    samples=Labels(
+                        names=["system", "atom"],
+                        values=torch.stack(
+                            [structures_filtered, centers_filtered], dim=1
+                        ),
+                    ),
+                    components=[
+                        Labels(
+                            names=["o3_mu"],
+                            values=torch.tensor(
+                                list(range(-self.o3_lambda, self.o3_lambda + 1)),
+                                device=lambda_basis.device,
+                            ).unsqueeze(1),
+                        )
+                    ],
+                    properties=Labels(
+                        names=["property"],
+                        values=torch.arange(
+                            lambda_basis.shape[2],
+                            device=lambda_basis.device,
+                        ).unsqueeze(1),
+                    ),
+                )
+                blocks.append(block)
+            lambda_basis_as_tensor_map = TensorMap(
                 keys=Labels(
-                    ["o3_lambda", "o3_sigma"],
-                    torch.tensor(
-                        [[ell, 1] for ell in range(self.o3_lambda)], device=device
+                    names=["o3_lambda", "o3_sigma", "center_type"],
+                    values=torch.tensor(
+                        [[self.o3_lambda, 1, int(s)] for s in unique_center_species],
+                        device=device,
                     ),
                 ),
+                blocks=blocks,
             )
 
-            lambda_basis = self.spex_contraction(lambda_basis)
-            lambda_basis = lambda_basis.keys_to_samples("center_type")
+            if selected_atoms is not None:
+                lambda_basis_as_tensor_map = mts.slice(
+                    lambda_basis_as_tensor_map, "samples", selected_atoms
+                )
+
+            lambda_basis_as_tensor_map = self.spex_contraction(
+                lambda_basis_as_tensor_map
+            )
+
+            all_lambda_basis = torch.concatenate(
+                [b.values for b in lambda_basis_as_tensor_map.blocks()]
+            )
+            # however, we need to sort them according to the order of the
+            # atoms in the systems
+            system_sizes = torch.bincount(
+                structures, minlength=len(torch.unique(structures))
+            )
+            system_offsets = torch.cat(
+                [
+                    torch.tensor([0], device=device),
+                    torch.cumsum(system_sizes, dim=0)[:-1],
+                ]
+            )
+            all_system_indices = torch.concatenate(
+                [b.samples.values[:, 0] for b in lambda_basis_as_tensor_map.blocks()]
+            )
+            all_atom_indices = torch.concatenate(
+                [b.samples.values[:, 1] for b in lambda_basis_as_tensor_map.blocks()]
+            )
+            overall_atom_indices = system_offsets[all_system_indices] + all_atom_indices
+            sorting_indices = torch.argsort(overall_atom_indices)
+            lambda_basis_as_tensor = all_lambda_basis[sorting_indices]
+
             basis = torch.cat(
                 (
                     basis,
-                    lambda_basis.block({"o3_lambda": self.o3_lambda}).values,
+                    lambda_basis_as_tensor,
                 ),
                 dim=-1,
             )
@@ -613,12 +743,8 @@ class FakeSphericalExpansion(torch.nn.Module):
         centers: torch.Tensor,
         neighbors: torch.Tensor,
         species: torch.Tensor,
-        structures: torch.Tensor,
-        atom_index_in_structure: torch.Tensor,
-    ) -> TensorMap:
-        return TensorMap(
-            keys=Labels(names=["dummy"], values=torch.tensor([[]])), blocks=[]
-        )
+    ) -> torch.Tensor:
+        return torch.tensor(0)
 
 
 class FakeLinearMap(torch.nn.Module):
