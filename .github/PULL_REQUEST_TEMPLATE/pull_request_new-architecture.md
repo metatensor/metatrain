@@ -8,7 +8,7 @@
   [docs/src/dev-docs/architecture-life-cycle.rst](Architecture life cycle)
   document for requirements. `src/metatrain/experimental/<architecture_name>`
 - [ ] Document and provide defaults for the hyperparameters of your model.
-- [ ] Added tests for your architecture. See https://docs.metatensor.org/metatrain/latest/dev-docs/utils/testing.html
+- [ ] Added tests for your architecture. See https://docs.metatensor.org/metatrain/latest/dev-docs/new-architecture.html#testing-tests
 - [ ] Added test run to the CI (file `.github/workflow/architecture-tests.yml`)
 - [ ] Add a new dependencies entry in the `optional-dependencies` section in the
   `pyproject.toml`
