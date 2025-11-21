@@ -212,6 +212,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Initialize distributed training environment if requested
         # This is done after LLPR calibration to avoid modifying calibration
         # dataloaders
+        world_size = 1  # default for non-distributed training
         if is_distributed:
             if len(devices) > 1:
                 raise ValueError(
