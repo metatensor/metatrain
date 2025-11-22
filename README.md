@@ -40,6 +40,7 @@ model:
 | PET                      | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
 | NanoPET *(deprecated)*   | Re-implementation of the original PET with slightly improved training and evaluation speed                                           |
 | SOAP BPNN                | A Behler-Parrinello neural network with SOAP features                                                                                |
+| DPA3                     | An invariant graph neural network based on line graph series representations                                                         |
 | FlashMD                  | An architecture for the direct prediction of molecular dynamics                                                                      |
 
 <!-- marker-documentation -->
