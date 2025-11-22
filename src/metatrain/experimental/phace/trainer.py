@@ -2,7 +2,7 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import torch
 import torch.distributed
@@ -26,7 +26,7 @@ from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import LossAggregator, LossSpecification
+from metatrain.utils.loss import LossAggregator
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -36,15 +36,11 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
 
-from . import checkpoints
-from .documentation import TrainerHypers
-from .model import SoapBpnn
+from .model import PhACE
 
 
 def get_scheduler(
-    optimizer: torch.optim.Optimizer,
-    train_hypers: TrainerHypers,
-    steps_per_epoch: int,
+    optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
 ) -> LambdaLR:
     """
     Get a CosineAnnealing learning-rate scheduler with warmup
@@ -74,10 +70,10 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 8
+class Trainer(TrainerInterface):
+    __checkpoint_version__ = 6
 
-    def __init__(self, hypers: TrainerHypers):
+    def __init__(self, hypers: Dict[str, Any]):
         super().__init__(hypers)
 
         self.optimizer_state_dict: Optional[Dict[str, Any]] = None
@@ -90,14 +86,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
     def train(
         self,
-        model: SoapBpnn,
+        model: PhACE,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ) -> None:
-        assert dtype in SoapBpnn.__supported_dtypes__
+        assert dtype in PhACE.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 
@@ -105,7 +101,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    "If you want to run distributed training with SOAP-BPNN, please "
+                    "If you want to run distributed training with PhACE, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
@@ -128,21 +124,20 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of the SOAP-BPNN are always in float64 (to avoid
+        # The additive models of the PhACE are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
-        if self.hypers["remove_composition_contribution"]:
-            logging.info("Calculating composition weights")
-            model.additive_models[0].train_model(  # this is the composition model
-                train_datasets,
-                model.additive_models[1:],
-                self.hypers["batch_size"],
-                is_distributed,
-                self.hypers["fixed_composition_weights"],
-            )
+        logging.info("Calculating composition weights")
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["batch_size"],
+            is_distributed,
+            self.hypers["fixed_composition_weights"],
+        )
 
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
@@ -271,8 +266,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
+        torch.jit.set_fusion_strategy([("DYNAMIC", 0)])
+        scripted_model = torch.jit.script(model)
+
         if is_distributed:
-            model = DistributedDataParallel(model, device_ids=[device])
+            scripted_model = DistributedDataParallel(
+                scripted_model, device_ids=[device]
+            )
 
         # Extract all the possible outputs and their gradients:
         train_targets = (model.module if is_distributed else model).dataset_info.targets
@@ -283,7 +283,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
         # Create a loss function:
-        loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
+        loss_hypers = self.hypers["loss"]
         loss_fn = LossAggregator(
             targets=train_targets,
             config=loss_hypers,
@@ -301,7 +301,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Create an optimizer:
         optimizer = torch.optim.Adam(
-            model.parameters(), lr=self.hypers["learning_rate"]
+            scripted_model.parameters(), lr=self.hypers["learning_rate"]
         )
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
@@ -346,6 +346,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             train_loss = 0.0
 
+            # from torch.profiler import profile
+
+            # counter = 0
+            # with profile() as prof:   
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
@@ -355,7 +359,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
 
                 predictions = evaluate_model(
-                    model,
+                    scripted_model,
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=True,
@@ -369,13 +373,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
 
-                if is_distributed:
-                    # make sure all parameters contribute to the gradient calculation
-                    # to make torch DDP happy
-                    for param in model.parameters():
-                        train_loss_batch += 0.0 * param.sum()
-
                 train_loss_batch.backward()
+                if self.hypers["gradient_clipping"] is not None:
+                    torch.nn.utils.clip_grad_norm_(
+                        scripted_model.parameters(), self.hypers["gradient_clipping"]
+                    )
                 optimizer.step()
                 lr_scheduler.step()
 
@@ -397,6 +399,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     train_mae_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )
+            #     counter += 1
+            #     if counter == 10:
+            #         break
+            # prof.export_chrome_trace("trace.json")
+            # exit()
 
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -420,7 +427,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
 
                 predictions = evaluate_model(
-                    model,
+                    scripted_model,
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
@@ -493,7 +500,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
             if val_metric < self.best_metric:
                 self.best_metric = val_metric
                 self.best_model_state_dict = copy.deepcopy(
-                    (model.module if is_distributed else model).state_dict()
+                    (
+                        scripted_model.module if is_distributed else scripted_model
+                    ).state_dict()
                 )
                 self.best_epoch = epoch
                 self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
@@ -505,8 +514,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 self.scheduler_state_dict = lr_scheduler.state_dict()
                 self.epoch = epoch
                 if rank == 0:
+                    model.load_state_dict(
+                        (
+                            scripted_model.module if is_distributed else scripted_model
+                        ).state_dict()
+                    )
                     self.save_checkpoint(
-                        (model.module if is_distributed else model),
+                        model,
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
 
@@ -542,7 +556,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: TrainerHypers,
+        hypers: Dict[str, Any],
         context: Literal["restart", "finetune"],  # not used at the moment
     ) -> "Trainer":
         trainer = cls(hypers)
