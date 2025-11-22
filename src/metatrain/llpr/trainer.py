@@ -356,9 +356,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
 
         if is_distributed:
-            model = DistributedDataParallel(
-                model, device_ids=[device], find_unused_parameters=True
-            )
+            model = DistributedDataParallel(model, device_ids=[device])
 
         loss_hypers = self.hypers["loss"]
         loss_hypers = cast(Dict[str, LossSpecification], loss_hypers)  # mypy
@@ -460,6 +458,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
+
+                if is_distributed:
+                    # make sure all parameters contribute to the gradient calculation
+                    # to make torch DDP happy
+                    for param in model.parameters():
+                        train_loss_batch += 0.0 * param.sum()
+
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
