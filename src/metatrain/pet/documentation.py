@@ -138,7 +138,7 @@ class TrainerHypers(TypedDict):
     distributed: bool = False
     """Whether to use distributed training"""
     distributed_port: int = 39591
-    """Port for DDP communication"""
+    """Port for distributed communication among processes"""
     batch_size: int = 16
     """The number of samples to use in each batch of training. This
     hyperparameter controls the tradeoff between training speed and memory usage. In
