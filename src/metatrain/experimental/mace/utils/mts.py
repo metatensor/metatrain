@@ -10,7 +10,6 @@ from metatomic.torch import ModelOutput, System
 
 from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import TargetInfo
-from metatrain.utils.data.target_info import get_generic_target_info
 
 
 def add_contribution(
@@ -152,7 +151,9 @@ def get_e3nn_target_info(target_name: str, target: dict) -> TargetInfo:
         blocks.append(block)
 
     layout = TensorMap(
-        keys=Labels(["o3_lambda", "o3_sigma", "i_irrep"], torch.tensor(keys, dtype=torch.int32)),
+        keys=Labels(
+            ["o3_lambda", "o3_sigma", "i_irrep"], torch.tensor(keys, dtype=torch.int32)
+        ),
         blocks=blocks,
     )
 

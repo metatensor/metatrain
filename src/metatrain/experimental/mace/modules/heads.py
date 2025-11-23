@@ -1,13 +1,14 @@
-from typing import Callable, Optional, Any
+from typing import Any, Callable, Optional
 
 import torch
 from e3nn import o3
 from e3nn.nn import Activation
+from mace.modules.blocks import LinearReadoutBlock
 from mace.modules.wrapper_ops import (
     CuEquivarianceConfig,
     Linear,
 )
-from mace.modules.blocks import LinearReadoutBlock, NonLinearReadoutBlock
+
 
 class NonLinearHead(torch.nn.Module):
     """Generic non-linear head with two linear layers and an activation in between.
@@ -70,17 +71,20 @@ class NonLinearHead(torch.nn.Module):
         node_features = self.non_linearity(self.linear_1(node_features))
         self.last_layer_features = node_features
         return self.linear_2(node_features)
-    
+
+
 # ---------------------------------------------------------
 # Internal MACE Head Wrapper to extract last layer features
 # ---------------------------------------------------------
+
 
 def readout_is_linear(obj: Any):
     if isinstance(obj, torch.jit.RecursiveScriptModule):
         return obj.original_name == "LinearReadoutBlock"
     else:
         return isinstance(obj, LinearReadoutBlock)
-    
+
+
 class MACEHeadWrapper(torch.nn.Module):
     """Wrapper around MACE readout heads to extract last layer features (LLF)."""
 
@@ -99,28 +103,27 @@ class MACEHeadWrapper(torch.nn.Module):
         self.last_layer_features_irreps = features_irreps.count((0, 1)) * o3.Irrep(0, 1)
         self.last_layer_features = torch.empty(0)  # To be replaced at forward pass
 
-        self.mace_llf_extractors = torch.nn.ModuleList([
-            torch.nn.Identity() if readout_is_linear(readout) else
-            torch.nn.Sequential(readout.linear_1, readout.non_linearity)
-            for readout in readouts
-        ])
+        self.mace_llf_extractors = torch.nn.ModuleList(
+            [
+                torch.nn.Identity()
+                if readout_is_linear(readout)
+                else torch.nn.Sequential(readout.linear_1, readout.non_linearity)
+                for readout in readouts
+            ]
+        )
 
     def forward(
-        self, 
+        self,
         node_features: torch.Tensor,
         node_energies: torch.Tensor,
         compute_llf: bool = False,
     ) -> torch.Tensor:
-        node_energies = node_energies.to(dtype=node_features.dtype).reshape(
-            -1, 1
-        )
+        node_energies = node_energies.to(dtype=node_features.dtype).reshape(-1, 1)
         if compute_llf:
-            per_layer_features = torch.split(
-                node_features, self.per_layer_dims, dim=-1
-            )
+            per_layer_features = torch.split(node_features, self.per_layer_dims, dim=-1)
 
             ll_feats_list = [
-                extractor(per_layer_features[i])[:, :self.per_layer_scalars[i]]
+                extractor(per_layer_features[i])[:, : self.per_layer_scalars[i]]
                 for i, extractor in enumerate(self.mace_llf_extractors)
             ]
 
@@ -130,4 +133,3 @@ class MACEHeadWrapper(torch.nn.Module):
             self.last_layer_features = ll_features
 
         return node_energies
-
