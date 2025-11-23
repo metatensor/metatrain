@@ -27,7 +27,7 @@ Basic Fine-tuning
 
 The basic way to fine-tune a model is to use the ``mtt train`` command with the
 available pre-trained model defined in an ``options.yaml`` file. In this case, all the
-weights of the model will be adapted to the new dataset. In contrast to to the
+weights of the model will be adapted to the new dataset. In contrast to the
 training continuation, the optimizer and scheduler state will be reset. You can still
 adjust the training hyperparameters in the ``options.yaml`` file, but the model
 architecture will be taken from the checkpoint. 
@@ -57,18 +57,54 @@ Please note, that in most use cases you should invoke a new energy head by speci
 a new energy variant. The variant naming follows the simple pattern 
 ``energy/{variantname}``. A reasonable name could be the energy functional or level of 
 theory your dataset was trained on, e.g. ``energy/pbe``, ``energy/SCAN`` or even  
-``energy/dataset1``. Further you can
-add a short description for the new variant, that you can specify in your
-``options.yaml`` file. 
+``energy/dataset1``. Further you can add a short description for the new variant, that 
+you can specify in your ``options.yaml`` file. 
 
-the case of the basic fine-tuning, the composition model weights
-will be taken from the checkpoint and not adapted to the new dataset.
+.. code-block:: yaml
+
+  training_set:
+      systems:
+        read_from: path/to/dataset.xyz
+        length_unit: angstrom
+      targets:
+        energy/<variantname>:
+          quantity: energy
+          key: <energy-key>
+          unit: <energy-unit>
+          description: "description of your variant"
+
+
+The new energy variant can be selected for evaluation either with ``mtt eval`` by specifying 
+it in the options.yaml for evaluation:
+ 
+.. code-block:: yaml
+
+   systems: path/to/dataset.xyz
+   targets:
+     energy/<variantname>:
+       key: <energy-key>
+       unit: <energy-unit>
+       forces:
+         key: forces
+
+
+When using the finetuned model in simulation engines the default target name expected 
+by the ``metatomic`` package in order to use the model in ASE and LAMMPS calculations is 
+``energy``. When loading the model in ``metatomic`` you have to specify which variant
+should be used for energy and force prediction. You can find an example for how to do 
+this in the tutorial :ref:`Fine-tuning <fine-tuning-example>` and more in the 
+`metatomic documentation`_.
+
+.. _metatomic documentation: https://docs.metatensor.org/metatomic/latest/engines/index.html  
+
+
+Until here, our model would train on all weights of the model, create a new energy head
+and a new composition model.  
 
 The basic fine-tuning strategy is a good choice in the case when the level of theory
 which is used for the original training is the same, or at least similar to the one used
 for the new dataset. However, since this is not always the case, we also provide more
 advanced fine-tuning strategies described below.
-For most use cases 
 
 
 Fine-tuning model Heads
@@ -78,8 +114,7 @@ Adapting all the model weights to a new dataset is not always the best approach.
 new dataset consist of the same or similar data computed with a slightly different level
 of theory compared to the pre-trained models' dataset, you might want to keep the
 learned representations of the crystal structures and only adapt the readout layers
-(i.e. the model heads) to the new dataset.
-
+(i.e. the model heads) to the new dataset. 
 In this case, the ``mtt train`` command needs to be accompanied by the specific training
 options in the ``options.yaml`` file. The following options need to be set:
 
@@ -108,6 +143,10 @@ We recommend to first start the fine-tuning including all the modules listed abo
 experiment with their different combinations if needed. You might also consider using a
 lower learning rate, e.g. ``1e-5`` or even lower, to stabilize the training process.
 
+This is especially interesting, if one wants to obtain a model with multiple ``energy`` 
+variants. In that case it is recommended to continue training both ``energy`` 
+variants /heads, to avoid "forgetting" previously learned representations. Thus, you 
+should specify those variants in the ``targets`` section of your ``options.yaml``.
 
 LoRA Fine-tuning
 ----------------
@@ -164,13 +203,3 @@ We recommend to start with the LoRA parameters listed above and experiment with
 different values if needed. You might also consider using a lower learning rate,
 e.g. ``1e-5`` or even lower, to stabilize the training process.
 
-
-Fine-tuning on a new level of theory
-------------------------------------
-
-If the new dataset is computed with a totally different level of theory compared to the
-pre-trained model, which includes, for instance, the different composition energies, or
-you want to fine-tune the model on a completely new target, you might need to consider
-the transfer learning approach and introduce a new target in the ``options.yaml`` file.
-More details about this approach can be found in the :ref:`Transfer Learning
-<transfer-learning>` section of the documentation.
