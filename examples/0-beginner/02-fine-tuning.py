@@ -1,8 +1,8 @@
 r"""
 .. _fine-tuning-example:
 
-Finetuning example
-==================
+Fine-tuning a pre-trained model
+===============================
 
 .. warning::
 
@@ -48,8 +48,8 @@ the ``read_from`` option.
 
 A simple ``options-ft.yaml`` file for this task could look like this:
 
-
 .. code-block:: yaml
+
     architecture:
       name: pet
       training:
@@ -60,6 +60,8 @@ A simple ``options-ft.yaml`` file for this task could look like this:
         finetune:
           method: full
           read_from: pet-mad-v1.1.0.ckpt
+          inherit_heads:
+            energy/finetune: energy # inherit weights from the "energy" head
 
     training_set:
       systems:
@@ -73,7 +75,7 @@ A simple ``options-ft.yaml`` file for this task could look like this:
           reader: ase
           key: energy
           unit: eV
-          description: 'pbe energy ethanol'
+          description: "pbe energy ethanol"
           forces:
             read_from: ethanol_reduced_100.xyz
             reader: ase
@@ -145,7 +147,7 @@ for i, h in enumerate(header):
 
 # %%
 #
-#Now, let's plot the learning curves.
+# Now, let's plot the learning curves.
 
 # %%
 #
@@ -160,34 +162,47 @@ axs[0].plot(training_energy_RMSE, label="training energy/finetune RMSE (per atom
 axs[0].plot(validation_energy_RMSE, label="validation energy/finetune RMSE (per atom)")
 axs[0].set_xlabel("Epochs")
 axs[0].set_ylabel("energy / meV")
-axs[0].set_xscale('log')
-axs[0].set_yscale('log')
+axs[0].set_xscale("log")
+axs[0].set_yscale("log")
 axs[0].legend()
 axs[1].plot(training_forces_MAE, label="training forces[energy/finetune] MAE")
 axs[1].plot(validation_forces_MAE, label="validation forces[energy/finetune] MAE")
 axs[1].set_ylabel("force / meV/A")
 axs[1].set_xlabel("Epochs")
-axs[1].set_xscale('log')
-axs[1].set_yscale('log')
+axs[1].set_xscale("log")
+axs[1].set_yscale("log")
 axs[1].legend()
 plt.tight_layout()
 plt.show()
 
 # %%
 #
-#You can see that the validation loss still decreases, however, for the sake of brevity of this exercise 
-#we only finetuned for 25 epochs. As further check for how well your fine-tuned model performs on a dataset
-#of choice, we can check the parity plots for energy and force (see :ref:`Parity
-#plots <parity-plot-example>`)
-#For evaluation, we can compare performance of our fine-tuned model and the base model PET-MAD.
-#Using ``mtt eval`` we can simply run:
+# You can see that the validation loss still decreases, however, for the sake of brevity of this exercise
+# we only finetuned for 25 epochs. As further check for how well your fine-tuned model performs on a dataset
+# of choice, we can check the parity plots for energy and force (see :ref:`Parity
+# plots <parity-plot-example>`)
+# For evaluation, we can compare performance of our fine-tuned model and the base model PET-MAD.
+# Using ``mtt eval`` we can simply evaluate our new energy head, by specifying it in the options-ft-eval.yaml:
 #
-#.. code-block:: bash
+# .. code-block:: yaml
 #
-#  mtt eval model-ft.pt options-eval.yaml -o output-ft.xyz 
+#   systems: ethanol_reduced_100.xyz
+#   targets:
+#     energy/finetune:
+#       key: energy
+#       unit: eV
+#       forces:
+#         key: forces
 #
-#and read the energy in the xyz header. Another possibility is to load your fine-tuned model ``model-ft.pt``
-#as metatomic model and evaluate energies and forces with ase in python.
+# and then run
+#
+# .. code-block:: bash
+#
+#  mtt eval model-ft.pt options-ft-eval.yaml -o output-ft.xyz
+#
+# Then you can simply read the predicted energies in the headers of the xyz file.
+# Another possibility is to load your fine-tuned model ``model-ft.pt`` as metatomic model and evaluate energies
+# and forces with ASE in Python.
 #
 
 # %%
@@ -252,5 +267,5 @@ plt.show()
 
 # %%
 #
-#Further fine-tuning examples can be found in the
-#`AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`_
+# Further fine-tuning examples can be found in the
+# `AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`_

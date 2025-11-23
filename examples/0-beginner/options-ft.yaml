@@ -21,7 +21,7 @@ training_set:
       reader: ase
       key: energy
       unit: eV
-      description: 'pbe energy ethanol'
+      description: pbe energy ethanol
       forces:
         read_from: ethanol_reduced_100.xyz
         reader: ase
