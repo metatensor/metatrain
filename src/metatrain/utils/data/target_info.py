@@ -183,7 +183,7 @@ class TargetInfo:
                 )
 
         if self.is_spherical:
-            if layout.keys.names != ["o3_lambda", "o3_sigma"]:
+            if len(layout.keys.names) < 2 or layout.keys.names[:2] != ["o3_lambda", "o3_sigma"]:
                 raise ValueError(
                     "The layout ``TensorMap`` of a spherical tensor target "
                     "should have  two keys named 'o3_lambda' and 'o3_sigma'."
@@ -489,12 +489,9 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
         sample_names.append("atom")
 
     irreps = target["type"]["spherical"]["irreps"]
-    num_subtargets = target["num_subtargets"]
-    if isinstance(num_subtargets, int):
-        num_subtargets = [num_subtargets] * len(irreps)
     keys = []
     blocks = []
-    for irrep, num_properties in zip(irreps, num_subtargets, strict=True):
+    for irrep in irreps:
         components = [
             Labels(
                 names=["o3_mu"],
@@ -508,7 +505,7 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
             values=torch.empty(
                 0,
                 2 * irrep["o3_lambda"] + 1,
-                num_properties,
+                target["num_subtargets"],
                 dtype=torch.float64,
             ),
             samples=Labels(
@@ -516,7 +513,7 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
                 values=torch.empty((0, len(sample_names)), dtype=torch.int32),
             ),
             components=components,
-            properties=Labels.range(target_name.replace("mtt::", ""), num_properties),
+            properties=Labels.range(target_name.replace("mtt::", ""), target["num_subtargets"]),
         )
         keys.append([irrep["o3_lambda"], irrep["o3_sigma"]])
         blocks.append(block)
