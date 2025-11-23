@@ -27,7 +27,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
-from .modules.heads import NonLinearHead
+from .modules.heads import NonLinearHead, MACEHeadWrapper
 from .modules.scale_shift import FakeScaleShift
 from .modules.structures import create_batch
 from .utils.mts import (
@@ -37,8 +37,6 @@ from .utils.mts import (
     get_system_indices_and_labels,
     target_info_to_e3nn_irreps,
 )
-from .utils.llf import LinearReadoutLLFExtractor, NonLinearReadoutLLFExtractor, readout_is_linear
-from .modules.heads import MACEHeadWrapper
 
 
 class MetaMACE(ModelInterface[ModelHypers]):
@@ -56,16 +54,62 @@ class MetaMACE(ModelInterface[ModelHypers]):
         }
     )
 
+    # Attributes of the model
+    cutoff: float
+    """Cutoff radius used in the interactions of the MACE model."""
+    requested_nl: NeighborListOptions
+    """Neighbor list options requested by the model."""
+    mace_model: MACE
+    """The MACE model instance."""
+    loaded_mace: bool
+    """Whether the MACE model was loaded from a MACE model file.
+    
+    This will happen if the 'mace_model' hyperparameter is not None.
+    """
+    atomic_types: list[int]
+    """List of atomic types (atomic numbers) known by the model."""
+    atomic_species_to_index: torch.Tensor
+    """Mapping from atomic type (atomic number) to species index.
+    
+    The species index is simply an index going from 0 to N-1, where
+    N is the number of unique atomic types in the model.
+    """
+    per_layer_irreps: list[o3.Irreps]
+    """Irreps of the hidden features after each MACE message passing step."""
+    features_irreps: o3.Irreps
+    """Irreps of the concatenated features from all MACE message passing steps."""
+    heads: torch.nn.ModuleDict
+    """Dictionary of output heads for each target."""
+    target_infos: Dict[str, TargetInfo]
+    """Dictionary of TargetInfo for each supported output of the model.
+
+    This includes targets, features and last layer features.
+
+    Each TargetInfo contains the information needed to build the tensormap
+    corresponding to that output, from the raw torch tensor produced by the model.
+    """
+    additive_models: torch.nn.ModuleList
+    """List of additive models to compute additive contributions."""
+    scaler: Scaler
+    """Scaler to bring all targets to a scale that is optimal for training."""
+
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
+        # ---------------------------
+        #  Neighbor list information
+        # ---------------------------
+        self.cutoff = self.hypers["cutoff"]
         self.requested_nl = NeighborListOptions(
             cutoff=self.hypers["cutoff"],
             full_list=True,
             strict=True,
         )
 
-        self.cutoff = float(self.hypers["cutoff"])
+        # ---------------------------
+        # Get the MACE model instance
+        # ---------------------------
+
         self.loaded_mace = self.hypers["mace_model"] is not None
 
         if self.loaded_mace:
@@ -123,31 +167,12 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 use_agnostic_product=self.hypers["use_agnostic_product"],
             )
 
-        self.mace_head_target = str(self.hypers["mace_head_target"])
-
+        # ---------------------------
+        #   Store info about MACE
+        # ---------------------------
+        
+        # Atomic species information
         self.atomic_types = self.mace_model.atomic_numbers.tolist()
-        self.per_layer_irreps = [product.linear.irreps_out for product in self.mace_model.products]
-        self.per_layer_dims = [ir.dim for ir in self.per_layer_irreps]
-        self.features_irreps = sum(self.per_layer_irreps, o3.Irreps())
-
-        self.mace_llf_extractors = torch.nn.ModuleList()
-        for i, readout in enumerate(self.mace_model.readouts):
-            n_scalars = self.per_layer_irreps[i].count((0, 1))
-            if readout_is_linear(readout):
-                self.mace_llf_extractors.append(
-                    LinearReadoutLLFExtractor(readout, n_scalars)
-                )
-            else:
-                self.mace_llf_extractors.append(
-                    NonLinearReadoutLLFExtractor(readout, n_scalars)
-                )
-
-        self.mace_head_wrapper = MACEHeadWrapper(self.mace_model.readouts)
-
-        self.mace_readouts_are_linear = [
-            readout_is_linear(readout) for readout in self.mace_model.readouts
-        ]
-
         self.register_buffer(
             "atomic_types_to_species_index",
             torch.zeros(max(self.atomic_types) + 1, dtype=torch.int64),
@@ -155,14 +180,32 @@ class MetaMACE(ModelInterface[ModelHypers]):
         for i, atomic_type in enumerate(self.atomic_types):
             self.atomic_types_to_species_index[atomic_type] = i
 
+        # Information about the irreps of MACE features
+        self.per_layer_irreps = [product.linear.irreps_out for product in self.mace_model.products]
+        self.features_irreps = sum(self.per_layer_irreps, o3.Irreps())
+
+        # ---------------------------
+        #    Add heads for targets
+        # ---------------------------
+
+        # Create heads for each target, store the target info for each of them.
         self.heads = torch.nn.ModuleDict()
         self.target_infos: Dict[str, TargetInfo] = {}
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
-        # self.target_infos["features"] = get_e3nn_target_info(
-        #     "features", {"irreps": self.features_irreps, "per_atom": True}
-        # )
+        self.target_infos["features"] = get_e3nn_target_info(
+            "features", 
+            {"type": {"spherical": {"irreps": self.features_irreps}}, "per_atom": True}
+        )
+
+        # ---------------------------
+        # Data preprocessing modules
+        # ---------------------------
+
+        # The composition model and scaler are handled by the trainer during training.
+        # Their purpose is to adapt the data for optimal training.
+        # At evaluation time, the model applies them on forward.
 
         composition_model = CompositionModel(
             hypers={},
@@ -176,10 +219,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 },
             ),
         )
-        additive_models = [composition_model]
-        self.additive_models = torch.nn.ModuleList(additive_models)
+        self.additive_models = torch.nn.ModuleList([composition_model])
 
-        # scaler: this is also handled by the trainer at training time
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
 
         self.finetune_config: Dict[str, Any] = {}
@@ -247,6 +288,11 @@ class MetaMACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        
+        # --------------------------
+        #  Prepare inputs for MACE
+        # --------------------------
+
         # Create the batch to pass as input for MACE.
         # THIS PROBABLY SHOULD BE MOVED OUTSIDE THE MODEL!!
         # (But I don't know if this would affect the interfaces e.g. with
@@ -258,22 +304,29 @@ class MetaMACE(ModelInterface[ModelHypers]):
             n_types=len(self.atomic_types),
         )
 
-        self.mace_head_wrapper()
-
         # Change coordinates to YZX
         data["positions"] = data["positions"][:, [1, 2, 0]]
+
+        # --------------------------
+        #        Run MACE
+        # --------------------------
 
         # Run MACE and extract the node features.
         mace_output = self.mace_model(data, training=self.training, compute_force=False)
         node_features = mace_output["node_feats"]
         assert node_features is not None  # For torchscript
+        node_energy = mace_output["node_energy"]
+        assert node_energy is not None  # For torchscript
+
+        # ---------------------------------
+        #   Run heads and collect outputs
+        # ---------------------------------
 
         # We have ran MACE, now we will simply collect the requested outputs
         model_outputs: dict[str, torch.Tensor] = {}
 
         # Add features if requested
         if "features" in outputs:
-            raise NotImplementedError("Asking for 'features' is not supported yet.")
             model_outputs["features"] = node_features
 
         # Run heads
@@ -285,32 +338,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
             # Only use this head if its output or its last layer features were requested
             if requested_target or requested_llf:
                 # Get the per-atom target, as well as the per-atom last layer features
-                if output_name == self.mace_head_target:
-                    # Use the internal MACE head
-                    node_energy = mace_output["node_energy"]
-                    assert node_energy is not None  # For torchscript
-                    node_target = node_energy.to(dtype=node_features.dtype).reshape(
-                        -1, 1
-                    )
-                    if requested_llf:
-                        per_layer_features = torch.split(
-                            node_features, self.per_layer_dims, dim=-1
-                        )
-
-                        ll_feats_list = [
-                            extractor(per_layer_features[i])
-                            for i, extractor in enumerate(self.mace_llf_extractors)
-                        ]
-
-                        # Aggregate node features
-                        ll_features = torch.cat(ll_feats_list, dim=-1)
-                    else:
-                        ll_features = torch.empty(
-                            (0, 0), dtype=node_features.dtype, device=node_features.device
-                        )
-                else:
-                    node_target = head.forward(node_features)
-                    ll_features = head.last_layer_features
+                node_target = head.forward(node_features, node_energy, compute_llf=requested_llf)
+                ll_features = head.last_layer_features
 
                 # Store whatever was requested by the user
                 if requested_target:
@@ -318,8 +347,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 if requested_llf:
                     model_outputs[ll_features_name] = ll_features
 
-                    print(self.target_infos[ll_features_name])
-                    print(ll_features.shape)
+        # -----------------------------------
+        #   Convert outputs to TensorMaps
+        # -----------------------------------
 
         # At this point, we have a dictionary of all outputs as normal torch tensors.
         # Now, we simply convert to TensorMaps.
@@ -345,6 +375,10 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 if outputs[output_name].per_atom
                 else sum_over_atoms(per_atom_output)
             )
+
+        # -----------------------------------------
+        #   Add additive contributions (eval only)
+        # -----------------------------------------
         
         # At evaluation, we also introduce the scaler and additive contributions
         if not self.training:
@@ -355,7 +389,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 )
 
         return return_dict
-
 
     @property
     def outputs(self) -> Dict[str, ModelOutput]:
@@ -486,12 +519,13 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # Get the multiplicity and irrep for each target block
         target_irreps = target_info_to_e3nn_irreps(target_info)
 
-        if target_name == self.mace_head_target:
+        if target_name == self.hypers["mace_head_target"]:
             # Dummy head so that torchscript loops through this target_name
             # when doing self.heads.items(). In reality we use the internal
             # MACE head for this target
-            self.heads[target_name] = torch.nn.Identity()
-            llf_irreps = self.features_irreps.count((0, 1)) * o3.Irrep(0, 1)
+            # self.heads[target_name] = torch.nn.Identity()
+            self.heads[target_name] = MACEHeadWrapper(self.mace_model.readouts, self.per_layer_irreps)
+            #llf_irreps = self.features_irreps.count((0, 1)) * o3.Irrep(0, 1)
         else:
             head = NonLinearHead(
                 irreps_in=self.features_irreps,
@@ -501,11 +535,13 @@ class MetaMACE(ModelInterface[ModelHypers]):
             )
 
             self.heads[target_name] = head.to(torch.float64)
-            llf_irreps = head.last_layer_features_irreps
+            #llf_irreps = head.last_layer_features_irreps
+
+        llf_irreps = self.heads[target_name].last_layer_features_irreps
 
         self.target_infos[self._llf_name(target_name)] = get_e3nn_target_info(
             f"{target_name}_last_layer_features",
-            {"irreps": llf_irreps, "per_atom": True},
+            {"type": {"spherical": {"irreps": llf_irreps}}, "per_atom": True},
         )
 
     def _llf_name(self, target_name: str) -> str:

@@ -1,5 +1,4 @@
-from pyexpat import features
-from typing import Callable, Optional
+from typing import Callable, Optional, Any
 
 import torch
 from e3nn import o3
@@ -8,7 +7,7 @@ from mace.modules.wrapper_ops import (
     CuEquivarianceConfig,
     Linear,
 )
-
+from mace.modules.blocks import LinearReadoutBlock, NonLinearReadoutBlock
 
 class NonLinearHead(torch.nn.Module):
     """Generic non-linear head with two linear layers and an activation in between.
@@ -64,17 +63,17 @@ class NonLinearHead(torch.nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
+        node_features: torch.Tensor,
+        node_energies: Optional[torch.Tensor] = None,
+        compute_llf: bool = False,
     ) -> torch.Tensor:
-        x = self.non_linearity(self.linear_1(x))
-        self.last_layer_features = x
-        return self.linear_2(x)
+        node_features = self.non_linearity(self.linear_1(node_features))
+        self.last_layer_features = node_features
+        return self.linear_2(node_features)
     
-from typing import Any
-
-from e3nn import o3
-import torch
-from mace.modules.blocks import LinearReadoutBlock, NonLinearReadoutBlock
+# ---------------------------------------------------------
+# Internal MACE Head Wrapper to extract last layer features
+# ---------------------------------------------------------
 
 def readout_is_linear(obj: Any):
     if isinstance(obj, torch.jit.RecursiveScriptModule):
@@ -112,21 +111,57 @@ class NonLinearReadoutLLFExtractor(torch.nn.Module):
         return ll_feats[:, : self.n_scalars]
     
 class MACEHeadWrapper(torch.nn.Module):
-    """Wrapper around MACE readout heads to extract LLF.
-
-    """
+    """Wrapper around MACE readout heads to extract last layer features (LLF)."""
 
     def __init__(
         self,
         readouts: torch.nn.ModuleList,
+        per_layer_irreps: o3.Irreps,
     ):
         super().__init__()
-        self.readouts = readouts
 
-        self.last_layer_features_irreps = o3.Irreps("10x0e")
+        self.per_layer_irreps = per_layer_irreps
+        self.per_layer_dims = [ir.dim for ir in self.per_layer_irreps]
+        features_irreps = sum(self.per_layer_irreps, o3.Irreps())
+
+        self.last_layer_features_irreps = features_irreps.count((0, 1)) * o3.Irrep(0, 1)
         self.last_layer_features = torch.empty(0)  # To be replaced at forward pass
 
-    def forward(self, features: torch.Tensor) -> torch.Tensor:
-        for readout in self.readouts:
-            print(readout)
-        return features
+        self.mace_llf_extractors = torch.nn.ModuleList()
+        for i, readout in enumerate(readouts):
+            n_scalars = self.per_layer_irreps[i].count((0, 1))
+            if readout_is_linear(readout):
+                self.mace_llf_extractors.append(
+                    LinearReadoutLLFExtractor(readout, n_scalars)
+                )
+            else:
+                self.mace_llf_extractors.append(
+                    NonLinearReadoutLLFExtractor(readout, n_scalars)
+                )
+
+    def forward(
+        self, 
+        node_features: torch.Tensor,
+        node_energies: torch.Tensor,
+        compute_llf: bool = False,
+    ) -> torch.Tensor:
+        node_energies = node_energies.to(dtype=node_features.dtype).reshape(
+            -1, 1
+        )
+        if compute_llf:
+            per_layer_features = torch.split(
+                node_features, self.per_layer_dims, dim=-1
+            )
+
+            ll_feats_list = [
+                extractor(per_layer_features[i])
+                for i, extractor in enumerate(self.mace_llf_extractors)
+            ]
+
+            # Aggregate node features
+            ll_features = torch.cat(ll_feats_list, dim=-1)
+
+            self.last_layer_features = ll_features
+
+        return node_energies
+

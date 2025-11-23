@@ -84,13 +84,14 @@ def get_optimizer_and_scheduler(
     # additive models and scaler weights are not optimized, this maintains consistency
     # with PET, where all model parameters (including the additive models stored as
     # attributes) are passed to the optimizer.
+    heads = (model.module if is_distributed else model).heads
+
     opt_options["params"].extend(
         [
+            # Parameters of all heads except the wrapper for the internal MACE head
             {
                 "name": "heads",
-                "params": (
-                    model.module if is_distributed else model
-                ).heads.parameters(),
+                "params": [v.parameters() for k, v in heads.items() if k != model.mace_head_target],
             },
             {
                 "name": "additive_models",
