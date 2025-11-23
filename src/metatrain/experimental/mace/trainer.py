@@ -91,7 +91,11 @@ def get_optimizer_and_scheduler(
             # Parameters of all heads except the wrapper for the internal MACE head
             {
                 "name": "heads",
-                "params": [v.parameters() for k, v in heads.items() if k != model.hypers["mace_head_target"]],
+                "params": [
+                    v.parameters()
+                    for k, v in heads.items()
+                    if k != model.hypers["mace_head_target"]
+                ],
             },
             {
                 "name": "additive_models",
