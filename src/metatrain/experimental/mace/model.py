@@ -27,7 +27,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
-from .modules.heads import NonLinearHead, MACEHeadWrapper
+from .modules.heads import MACEHeadWrapper, NonLinearHead
 from .modules.scale_shift import FakeScaleShift
 from .modules.structures import create_batch
 from .utils.mts import (
@@ -64,14 +64,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
     # """The MACE model instance."""
     # loaded_mace: bool
     # """Whether the MACE model was loaded from a MACE model file.
-    
+
     # This will happen if the 'mace_model' hyperparameter is not None.
     # """
     # atomic_types: list[int]
     # """List of atomic types (atomic numbers) known by the model."""
     # atomic_species_to_index: torch.Tensor
     # """Mapping from atomic type (atomic number) to species index.
-    
+
     # The species index is simply an index going from 0 to N-1, where
     # N is the number of unique atomic types in the model.
     # """
@@ -171,7 +171,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # ---------------------------
         #   Store info about MACE
         # ---------------------------
-        
+
         # Atomic species information
         self.atomic_types = self.mace_model.atomic_numbers.tolist()
         self.register_buffer(
@@ -182,7 +182,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
             self.atomic_types_to_species_index[atomic_type] = i
 
         # Information about the irreps of MACE features
-        self.per_layer_irreps = [product.linear.irreps_out for product in self.mace_model.products]
+        self.per_layer_irreps = [
+            product.linear.irreps_out for product in self.mace_model.products
+        ]
         self.features_irreps = sum(self.per_layer_irreps, o3.Irreps())
 
         # ---------------------------
@@ -196,8 +198,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
             self._add_output(target_name, target_info)
 
         self.target_infos["features"] = get_e3nn_target_info(
-            "features", 
-            {"type": {"spherical": {"irreps": self.features_irreps}}, "per_atom": True}
+            "features",
+            {"type": {"spherical": {"irreps": self.features_irreps}}, "per_atom": True},
         )
 
         # ---------------------------
@@ -289,7 +291,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        
         # --------------------------
         #  Prepare inputs for MACE
         # --------------------------
@@ -339,7 +340,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
             # Only use this head if its output or its last layer features were requested
             if requested_target or requested_llf:
                 # Get the per-atom target, as well as the per-atom last layer features
-                node_target = head.forward(node_features, node_energy, compute_llf=requested_llf)
+                node_target = head.forward(
+                    node_features, node_energy, compute_llf=requested_llf
+                )
                 ll_features = head.last_layer_features
 
                 # Store whatever was requested by the user
@@ -380,7 +383,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # -----------------------------------------
         #   Add additive contributions (eval only)
         # -----------------------------------------
-        
+
         # At evaluation, we also introduce the scaler and additive contributions
         if not self.training:
             return_dict = self.scaler(systems, return_dict)
@@ -521,7 +524,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
         if target_name == self.hypers["mace_head_target"]:
             # Fake head that will not compute the target, but will help
             # us extract the last layer features from MACE internal head.
-            self.heads[target_name] = MACEHeadWrapper(self.mace_model.readouts, self.per_layer_irreps)
+            self.heads[target_name] = MACEHeadWrapper(
+                self.mace_model.readouts, self.per_layer_irreps
+            )
         else:
             head = NonLinearHead(
                 irreps_in=self.features_irreps,
