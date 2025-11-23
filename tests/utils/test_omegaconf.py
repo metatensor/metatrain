@@ -124,7 +124,8 @@ def test_expand_dataset_config(n_datasets):
             assert targets_conf[target_key]["quantity"] == "energy"
             assert targets_conf[target_key]["read_from"] == file_name
             assert targets_conf[target_key]["reader"] is None
-            assert targets_conf[target_key]["unit"] is None
+            assert targets_conf[target_key]["unit"] == ""
+            assert targets_conf[target_key]["description"] == ""
 
             assert targets_conf[target_key]["forces"]["read_from"] == file_name
             assert targets_conf[target_key]["forces"]["reader"] is None
@@ -176,14 +177,15 @@ def test_expand_dataset_config_min():
 
     assert conf_expanded["systems"]["read_from"] == file_name
     assert conf_expanded["systems"]["reader"] is None
-    assert conf_expanded["systems"]["length_unit"] is None
+    assert conf_expanded["systems"]["length_unit"] == ""
 
     targets_conf = conf_expanded["targets"]
     assert targets_conf["energy"]["quantity"] == "energy"
     assert targets_conf["energy"]["read_from"] == file_name
     assert targets_conf["energy"]["reader"] is None
     assert targets_conf["energy"]["key"] == "energy"
-    assert targets_conf["energy"]["unit"] is None
+    assert targets_conf["energy"]["unit"] == ""
+    assert targets_conf["energy"]["description"] == ""
 
     for gradient in ["forces", "stress"]:
         assert targets_conf["energy"][gradient]["read_from"] == file_name
@@ -760,6 +762,7 @@ def test_check_units():
         "quantity": "energy",
         "forces": file_name,
         "unit": "eV",
+        "description": "my energy target",
         "virial": {"read_from": "my_grad.dat", "key": "foo"},
     }
 

@@ -64,11 +64,14 @@ def evaluate_model(
         # Check if the target is an energy:
         if model_outputs[target_name].quantity == "energy":
             energy_targets.append(target_name)
-            # Check if the energy requires gradients:
-            if "positions" in targets[target_name].gradients:
-                energy_targets_that_require_position_gradients.append(target_name)
-            if "strain" in targets[target_name].gradients:
-                energy_targets_that_require_strain_gradients.append(target_name)
+            if isinstance(targets[target_name], TargetInfo):
+                # Check if the energy requires gradients:
+                if "positions" in targets[target_name].gradients:
+                    energy_targets_that_require_position_gradients.append(target_name)
+                if "strain" in targets[target_name].gradients:
+                    energy_targets_that_require_strain_gradients.append(target_name)
+            else:
+                pass  # ModelOutput can't have gradient information for now
 
     new_systems = []
     strains = []
@@ -266,7 +269,10 @@ def _get_model_outputs(
             length_unit="",  # this is only needed for unit conversions in MD engines
             outputs={
                 key: ModelOutput(
-                    quantity=value.quantity, unit=value.unit, per_atom=value.per_atom
+                    quantity=value.quantity,
+                    unit=value.unit,
+                    per_atom=value.per_atom,
+                    description=value.description,
                 )
                 for key, value in targets.items()
             },
@@ -277,7 +283,10 @@ def _get_model_outputs(
             systems,
             {
                 key: ModelOutput(
-                    quantity=value.quantity, unit=value.unit, per_atom=value.per_atom
+                    quantity=value.quantity,
+                    unit=value.unit,
+                    per_atom=value.per_atom,
+                    description=value.description,
                 )
                 for key, value in targets.items()
             },

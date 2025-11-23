@@ -371,6 +371,7 @@ class CompositionModel(torch.nn.Module):
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
+            description=target_info.description,
         )
 
         # Create a fake weights buffer for the target, filtering the blocks that will

@@ -93,6 +93,7 @@ BASE_OPTIONS = OmegaConf.create(
         "device": "${default_device:}",
         "base_precision": "${default_precision:}",
         "seed": "${default_random_seed:}",
+        "test_set": 0.0,
     }
 )
 
@@ -101,7 +102,7 @@ CONF_SYSTEMS = OmegaConf.create(
     {
         "read_from": "${..read_from}",
         "reader": None,
-        "length_unit": None,
+        "length_unit": "",
     }
 )
 
@@ -111,10 +112,11 @@ CONF_TARGET_FIELDS = OmegaConf.create(
         "read_from": "${...systems.read_from}",
         "reader": None,
         "key": None,
-        "unit": None,
+        "unit": "",
         "per_atom": False,
         "type": "scalar",
         "num_subtargets": 1,
+        "description": "",
     }
 )
 
@@ -124,10 +126,11 @@ CONF_EXTRA_FIELDS = OmegaConf.create(
         "read_from": "${...systems.read_from}",
         "reader": None,
         "key": None,
-        "unit": None,
+        "unit": "",
         "per_atom": False,
         "type": "scalar",
         "num_subtargets": 1,
+        "description": "",
     }
 )
 
