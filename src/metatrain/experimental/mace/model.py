@@ -54,44 +54,45 @@ class MetaMACE(ModelInterface[ModelHypers]):
         }
     )
 
-    # Attributes of the model
-    cutoff: float
-    """Cutoff radius used in the interactions of the MACE model."""
-    requested_nl: NeighborListOptions
-    """Neighbor list options requested by the model."""
-    mace_model: MACE
-    """The MACE model instance."""
-    loaded_mace: bool
-    """Whether the MACE model was loaded from a MACE model file.
+    # Attributes of the model. We can't uncomment this descriptions because
+    # torchscript complains.
+    # cutoff: float
+    # """Cutoff radius used in the interactions of the MACE model."""
+    # requested_nl: NeighborListOptions
+    # """Neighbor list options requested by the model."""
+    # mace_model: MACE
+    # """The MACE model instance."""
+    # loaded_mace: bool
+    # """Whether the MACE model was loaded from a MACE model file.
     
-    This will happen if the 'mace_model' hyperparameter is not None.
-    """
-    atomic_types: list[int]
-    """List of atomic types (atomic numbers) known by the model."""
-    atomic_species_to_index: torch.Tensor
-    """Mapping from atomic type (atomic number) to species index.
+    # This will happen if the 'mace_model' hyperparameter is not None.
+    # """
+    # atomic_types: list[int]
+    # """List of atomic types (atomic numbers) known by the model."""
+    # atomic_species_to_index: torch.Tensor
+    # """Mapping from atomic type (atomic number) to species index.
     
-    The species index is simply an index going from 0 to N-1, where
-    N is the number of unique atomic types in the model.
-    """
-    per_layer_irreps: list[o3.Irreps]
-    """Irreps of the hidden features after each MACE message passing step."""
-    features_irreps: o3.Irreps
-    """Irreps of the concatenated features from all MACE message passing steps."""
-    heads: torch.nn.ModuleDict
-    """Dictionary of output heads for each target."""
-    target_infos: Dict[str, TargetInfo]
-    """Dictionary of TargetInfo for each supported output of the model.
+    # The species index is simply an index going from 0 to N-1, where
+    # N is the number of unique atomic types in the model.
+    # """
+    # per_layer_irreps: list[o3.Irreps]
+    # """Irreps of the hidden features after each MACE message passing step."""
+    # features_irreps: o3.Irreps
+    # """Irreps of the concatenated features from all MACE message passing steps."""
+    # heads: torch.nn.ModuleDict
+    # """Dictionary of output heads for each target."""
+    # target_infos: Dict[str, TargetInfo]
+    # """Dictionary of TargetInfo for each supported output of the model.
 
-    This includes targets, features and last layer features.
+    # This includes targets, features and last layer features.
 
-    Each TargetInfo contains the information needed to build the tensormap
-    corresponding to that output, from the raw torch tensor produced by the model.
-    """
-    additive_models: torch.nn.ModuleList
-    """List of additive models to compute additive contributions."""
-    scaler: Scaler
-    """Scaler to bring all targets to a scale that is optimal for training."""
+    # Each TargetInfo contains the information needed to build the tensormap
+    # corresponding to that output, from the raw torch tensor produced by the model.
+    # """
+    # additive_models: torch.nn.ModuleList
+    # """List of additive models to compute additive contributions."""
+    # scaler: Scaler
+    # """Scaler to bring all targets to a scale that is optimal for training."""
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -516,26 +517,20 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 )
 
         self.target_infos[target_name] = target_info
-        # Get the multiplicity and irrep for each target block
-        target_irreps = target_info_to_e3nn_irreps(target_info)
 
         if target_name == self.hypers["mace_head_target"]:
-            # Dummy head so that torchscript loops through this target_name
-            # when doing self.heads.items(). In reality we use the internal
-            # MACE head for this target
-            # self.heads[target_name] = torch.nn.Identity()
+            # Fake head that will not compute the target, but will help
+            # us extract the last layer features from MACE internal head.
             self.heads[target_name] = MACEHeadWrapper(self.mace_model.readouts, self.per_layer_irreps)
-            #llf_irreps = self.features_irreps.count((0, 1)) * o3.Irrep(0, 1)
         else:
             head = NonLinearHead(
                 irreps_in=self.features_irreps,
-                irreps_out=target_irreps,
+                irreps_out=target_info_to_e3nn_irreps(target_info),
                 MLP_irreps=o3.Irreps(self.hypers["MLP_irreps"]),
                 gate=mace_modules.gate_dict.get(self.hypers["gate"], None),
             )
 
             self.heads[target_name] = head.to(torch.float64)
-            #llf_irreps = head.last_layer_features_irreps
 
         llf_irreps = self.heads[target_name].last_layer_features_irreps
 
