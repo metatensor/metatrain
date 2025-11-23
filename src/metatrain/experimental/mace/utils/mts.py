@@ -113,24 +113,55 @@ def get_e3nn_target_info(target_name: str, target: dict) -> TargetInfo:
     :param target: Target dictionary containing the irreps and other info.
     :return: The corresponding TargetInfo object.
     """
-    irreps = o3.Irreps(target["irreps"])
-    return get_generic_target_info(
-        target_name,
-        {
-            "quantity": target.get("quantity", ""),
-            "unit": target.get("unit", ""),
-            "type": {
-                "spherical": {
-                    "irreps": [
-                        {"o3_lambda": ir.ir.l, "o3_sigma": ir.ir.p * ((-1) ** ir.ir.l)}
-                        for ir in irreps
-                    ]
-                }
-            },
-            "num_subtargets": [ir.mul for ir in irreps],
-            "per_atom": target["per_atom"],
-        },
+    sample_names = ["system"]
+    if target["per_atom"]:
+        sample_names.append("atom")
+
+    irreps = o3.Irreps(target["type"]["spherical"]["irreps"])
+    keys = []
+    blocks = []
+    for i, irrep in enumerate(irreps):
+        o3_lambda = irrep.ir.l
+        o3_sigma = irrep.ir.p * ((-1) ** o3_lambda)
+        num_properties = irrep.mul
+
+        components = [
+            Labels(
+                names=["o3_mu"],
+                values=torch.arange(
+                    -o3_lambda, o3_lambda + 1, dtype=torch.int32
+                ).reshape(-1, 1),
+            )
+        ]
+        block = TensorBlock(
+            # float64: otherwise metatensor can't serialize
+            values=torch.empty(
+                0,
+                2 * o3_lambda + 1,
+                num_properties,
+                dtype=torch.float64,
+            ),
+            samples=Labels(
+                names=sample_names,
+                values=torch.empty((0, len(sample_names)), dtype=torch.int32),
+            ),
+            components=components,
+            properties=Labels.range(target_name.replace("mtt::", ""), num_properties),
+        )
+        keys.append([o3_lambda, o3_sigma, i])
+        blocks.append(block)
+
+    layout = TensorMap(
+        keys=Labels(["o3_lambda", "o3_sigma", "i_irrep"], torch.tensor(keys, dtype=torch.int32)),
+        blocks=blocks,
     )
+
+    target_info = TargetInfo(
+        quantity=target.get("quantity", ""),
+        unit=target.get("unit", ""),
+        layout=layout,
+    )
+    return target_info
 
 
 def target_info_to_e3nn_irreps(target_info: TargetInfo) -> o3.Irreps:
