@@ -143,17 +143,17 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 # %%
 #
 
-# Here, we run ``mtt train`` as a subprocess, and delete the old outputs folder
-# line, e.g. ``mtt train options-model.yaml -o model.pt``.
+# Here, we get the PET-MAD ckpt, run ``mtt train`` as a subprocess, and delete the old
+# outputs folder.
+subprocess.run([
+    "wget",
+    "https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.1.0/models/pet-mad-v1.1.0.ckpt",
+])
 subprocess.run(["rm", "-rf", "outputs"])
-#subprocess.run(["mtt", "train", "options-ft.yaml", "-o", "model-ft.pt"], check=True)
-try:
-    subprocess.run(["mtt", "train", "options-ft.yaml", "-o", "model-ft.pt"],
-                   check=True, capture_output=True, text=True)
-except subprocess.CalledProcessError as e:
-    print("STDOUT:\n", e.stdout)
-    print("STDERR:\n", e.stderr)
-    raise
+subprocess.run(["mtt", "train", "options-ft.yaml", "-o", "model-ft.pt"], check=True)
+
+# %%
+#
 csv_path = glob.glob("outputs/*/*/train.csv")[-1]
 with open(csv_path, "r") as f:
     header = f.readline().strip().split(",")
