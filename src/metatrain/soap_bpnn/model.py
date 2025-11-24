@@ -280,7 +280,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
 
         if not self.legacy:
             module_list: List[torch.nn.Module] = []
-            print(["input_size", hypers_bpnn["input_size"]])
             if self.hypers["bpnn"]["num_hidden_layers"] > 0:
                 module_list.append(
                     torch.nn.Linear(
