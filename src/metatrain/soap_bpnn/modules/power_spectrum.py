@@ -51,7 +51,7 @@ class SoapPowerSpectrum(Module):
             else len(species["Orthogonal"]["species"])
         )
         self.shape = sum(self.n_per_l[ell] ** 2 * n_species**2 for ell in l_to_treat)
-        self.modern = "Alchemical" in species
+        self.legacy = "Orthogonal" in species
 
     def forward(
         self,
@@ -119,7 +119,7 @@ class SoapPowerSpectrum(Module):
                 )
                 blocks_from_single_l.append(values)
 
-        if self.modern:
+        if not self.legacy:
             # only one center species, which will be encoded outside of this module
             output_tensor = torch.concatenate(blocks_from_single_l, dim=1)
             output_tensor_map = TensorMap(

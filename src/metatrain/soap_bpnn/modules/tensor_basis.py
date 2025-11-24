@@ -35,7 +35,7 @@ class VectorBasis(torch.nn.Module):
     ) -> None:
         super().__init__()
 
-        self.modern = legacy is False
+        self.legacy = legacy
         self.atomic_types = atomic_types
         # Define a new hyper-parameter for the basis part of the expansion
         soap_hypers = copy.deepcopy(soap_hypers)
@@ -60,7 +60,7 @@ class VectorBasis(torch.nn.Module):
                         "total_species": len(self.atomic_types),
                     }
                 }
-                if self.modern
+                if not self.legacy
                 else {"Orthogonal": {"species": self.atomic_types}}
             ),
         }
@@ -72,7 +72,7 @@ class VectorBasis(torch.nn.Module):
             values=torch.tensor(self.atomic_types).reshape(-1, 1),
         )
 
-        if self.modern:
+        if not self.legacy:
             self.center_encoding = torch.nn.Embedding(
                 num_embeddings=len(self.atomic_types),
                 embedding_dim=(self.soap_calculator.radial.n_per_l[1] * 4),
@@ -81,7 +81,7 @@ class VectorBasis(torch.nn.Module):
             self.center_encoding = torch.nn.Identity()
 
         # here, an optimizable basis seems to work much better than a fixed one
-        if self.modern:
+        if not self.legacy:
             self.contraction_for_tensors = torch.nn.Linear(
                 in_features=(self.soap_calculator.radial.n_per_l[1] * 4),
                 out_features=3,
@@ -155,7 +155,7 @@ class VectorBasis(torch.nn.Module):
             l1_spherical_expansion.shape[2] * l1_spherical_expansion.shape[3],
         )  # [center, o3_mu, features]
 
-        if self.modern:
+        if not self.legacy:
             l1_spherical_expansion = l1_spherical_expansion * (
                 self.center_encoding(species).unsqueeze(1)
             )
@@ -238,7 +238,7 @@ class VectorBasis(torch.nn.Module):
                 l1_spherical_expansion_as_tensor_map, "samples", selected_atoms
             )
 
-        if self.modern:
+        if not self.legacy:
             basis_vectors_as_tensor = self.contraction_for_tensors(
                 l1_spherical_expansion_as_tensor_map.block().values,
             )
