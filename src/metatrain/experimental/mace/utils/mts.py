@@ -77,7 +77,7 @@ def e3nn_to_tensormap(
         values = (
             target_values[:, pointer:end]
             .reshape(
-                -1,
+                target_values.shape[0],
                 n_properties,
                 n_components,
             )
