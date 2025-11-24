@@ -55,8 +55,8 @@ A simple ``options-ft.yaml`` file for this task could look like this:
       name: pet
       training:
         batch_size: 8
-        num_epochs: 50
-        learning_rate: 1e-4
+        num_epochs: 10
+        learning_rate: 1e-3
         warmup_fraction: 0.01
         finetune:
           method: full
@@ -86,8 +86,10 @@ A simple ``options-ft.yaml`` file for this task could look like this:
     test_set: 0.1
 
 
-In this example, we specified generic but reasonable ``num_epochs`` and
-``learning_rate`` parameters. The ``learning_rate`` is chosen to be relatively low
+In this example, we specified a low number of :attr:`num_epochs` and a relatively high
+:attr:`learning_rate`, for short compilation time. Usually, the ``learning_rate`` is
+chosen to be relatively low. Typically lower, than the ``learning_rate`` that the model
+has been per-trained on.
 to stabilise training.
 
 .. warning::
@@ -129,8 +131,8 @@ is not necessary for the normal usage.
 
 # %%
 #
-import subprocess
 import glob
+import subprocess
 
 import ase.io
 import matplotlib.pyplot as plt
@@ -196,7 +198,8 @@ plt.show()
 # You can see that the validation loss still decreases, however, for the sake of brevity
 # of this exercise we only finetuned for a few epochs. As further check for how well
 # your fine-tuned model performs on a dataset of choice, we can check the parity plots
-# for energy and force (see :ref:`Parity plots <parity-plot-example>`).
+# for energy and force
+# (see :ref:`sphx_glr_generated_examples_0-beginner_04-parity_plot.py`).
 # For evaluation, we can compare performance of our fine-tuned model and the base model
 # PET-MAD. Using ``mtt eval`` we can simply evaluate our new energy head, by specifying
 # it in the options-ft-eval.yaml:

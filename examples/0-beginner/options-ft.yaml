@@ -2,8 +2,8 @@ architecture:
   name: pet
   training:
     batch_size: 8
-    num_epochs: 50
-    learning_rate: 1e-4
+    num_epochs: 10
+    learning_rate: 1e-3
     warmup_fraction: 0.01
     finetune:
       method: full

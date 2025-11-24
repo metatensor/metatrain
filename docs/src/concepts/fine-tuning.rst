@@ -5,14 +5,16 @@ Fine-tune a pre-trained model
 
 .. warning::
 
-  Finetuning may not be supported by every architecture and if supported the syntax to start a finetuning may be different from how it is explained here.
-This section describes the process of fine-tuning a pre-trained model to
-adapt it to new tasks or datasets. Fine-tuning is a common technique used
-in machine learning, where a model is trained on a large dataset and then
-fine-tuned on a smaller dataset to improve its performance on specific tasks.
-So far the fine-tuning capabilities are only available for PET model.
+  Finetuning may not be supported by every architecture and if supported the syntax to
+  start a finetuning may be different from how it is explained here.
+  This section describes the process of fine-tuning a pre-trained model to adapt it to
+  new tasks or datasets. Fine-tuning is a common technique used in machine learning,
+  where a model is trained on a large dataset and then fine-tuned on a smaller dataset
+  to improve its performance on specific tasks. So far the fine-tuning capabilities are
+  only available for PET model.
 
-There is a complete example in :ref:`Fine-tune example <fine-tuning-example>`.
+There is a complete example in the tutorial section
+:ref:`sphx_glr_generated_examples_0-beginner_02-fine-tuning.py`.
 
 .. note::
 
@@ -53,11 +55,19 @@ as this will help stabilizing the training process. I.e. if the default learning
       learning_rate: 1e-5
 
 Please note, that in most use cases you should invoke a new energy head by specifying
-a new energy variant. The variant naming follows the simple pattern
-``energy/{variantname}``. A reasonable name could be the energy functional or level of
-theory your finetuning dataset was trained on, e.g. ``energy/pbe``, ``energy/SCAN`` or even
-``energy/dataset1``. Further we recommend adding a short :attr:`description` for the new variant, that
-you can specify in ``description`` of your ``options.yaml`` file.
+a new energy variant. A variant is a version of a target quantity, such as ``energy``.
+A model can have multiple variants, that can be selected during training and inference.
+More on variants can be found in `metatomic`_
+
+.. _metatomic: https://docs.metatensor.org/metatomic/latest/engines/index.html
+
+Variant names follow the simple pattern ``energy/{variantname}``, where we used
+``energy`` as the target quantity. A reasonable name could be the energy functional or
+level of theory your finetuning dataset was trained on, e.g. ``energy/pbe``,
+``energy/SCAN`` or even ``energy/dataset1``. Further we recommend adding a short
+:attr:`description` for the new variant, that you can specify in ``description`` of
+your ``options.yaml`` file.
+
 
 .. code-block:: yaml
 
@@ -73,8 +83,8 @@ you can specify in ``description`` of your ``options.yaml`` file.
           description: "description of your variant"
 
 
-The new energy variant can be selected for evaluation either with ``mtt eval`` by specifying
-it in the options.yaml for evaluation:
+The new energy variant can be selected for evaluation either with ``mtt eval`` by
+specifying it in the options.yaml for evaluation:
 
 .. code-block:: yaml
 
@@ -86,12 +96,12 @@ it in the options.yaml for evaluation:
        forces:
          key: forces
 
-
 When using the finetuned model in simulation engines the default target name expected
-by the ``metatomic`` package in order to use the model in ASE and LAMMPS calculations is
-``energy``. When loading the model in ``metatomic`` you have to specify which variant
-should be used for energy and force prediction. You can find an example for how to do
-this in the tutorial :ref:`Fine-tuning <fine-tuning-example>` and more in the
+by the ``metatomic`` package in order to use the model in ASE and LAMMPS calculations
+is ``energy``. When loading the model in ``metatomic`` you have to specify which
+variant should be used for energy and force prediction. You can find an example for how
+to do this in the tutorial
+(see :ref:`sphx_glr_generated_examples_0-beginner_02-fine-tuning.py`) and more in the
 `metatomic documentation`_.
 
 .. _metatomic documentation: https://docs.metatensor.org/metatomic/latest/engines/index.html
