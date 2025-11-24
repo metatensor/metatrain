@@ -237,7 +237,7 @@ plt.show()
 # %%
 #
 targets = ase.io.read(
-    "/Users/markusfasching/EPFL/Work/metatrain/tests/resources/ethanol_reduced_100.xyz",
+    "ethanol_reduced_100.xyz",
     format="extxyz",
     index=":",
 )
