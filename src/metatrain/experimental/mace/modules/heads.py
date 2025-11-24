@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Callable, Optional
 
 import torch
@@ -37,19 +38,27 @@ class NonLinearHead(torch.nn.Module):
         cueq_config: Optional[CuEquivarianceConfig] = None,
     ):
         super().__init__()
-        # Get the l values present in the output irreps, so that we can filter
-        # out the irreps that are not really used in the last layer, therefore
+        missing_ir = set(ir.ir for ir in irreps_out) - set(ir.ir for ir in irreps_in)
+        if len(missing_ir) > 0:
+            logging.warning(
+                f"The output irreps '{irreps_out}' contain irreps not present in the "
+                f"input irreps '{irreps_in}'. The following irreps are missing: {missing_ir}."
+            )
+
+        # Get the irreps present in the output, so that we can filter
+        # out the input irreps that are not really used in the last layer, therefore
         # having only the last layer features that are truly used.
-        output_ls = set(ir.ir.l for ir in irreps_out)
+        output_irreps = set(ir.ir for ir in irreps_out)
 
         self.hidden_irreps = sum(
             [
-                ir if ir.ir.l > 0 else MLP_irreps
+                str(ir) if ir.ir.l > 0 else MLP_irreps
                 for ir in irreps_in
-                if ir.ir.l in output_ls
+                if ir.ir in output_irreps
             ],
             o3.Irreps(""),
         )
+
         gates = [None if ir.ir.l > 0 else gate for ir in self.hidden_irreps]
         self.linear_1 = Linear(
             irreps_in=irreps_in, irreps_out=self.hidden_irreps, cueq_config=cueq_config
@@ -59,7 +68,16 @@ class NonLinearHead(torch.nn.Module):
             irreps_in=self.hidden_irreps, irreps_out=irreps_out, cueq_config=cueq_config
         )
 
-        self.last_layer_features_irreps = self.hidden_irreps
+        # Last layer features irreps.
+        # For output irreps not present in the input, add 0-multiplicity
+        # E.g. input "2x1o", output "4x1o + 3x2e" -> hidden "2x1o", llf "2x1o + 0x2e"
+        # This is for consistency in the handling of last layer features.
+        last_layer_features_irreps = o3.Irreps(self.hidden_irreps)
+        for output_ir in output_irreps:
+            if last_layer_features_irreps.count(output_ir) == 0:
+                last_layer_features_irreps += 0 * output_ir
+
+        self.last_layer_features_irreps = last_layer_features_irreps
         self.last_layer_features = torch.empty(0)  # To be replaced at forward pass
 
     def forward(
