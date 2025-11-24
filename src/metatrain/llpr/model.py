@@ -127,6 +127,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 quantity=output.quantity,
                 unit=output.unit,
                 per_atom=output.per_atom,
+                description=output.description,
             )
         self.capabilities = ModelCapabilities(
             outputs={**old_capabilities.outputs, **additional_capabilities},
@@ -183,6 +184,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 quantity=old_capabilities.outputs[name].quantity,
                 unit=old_capabilities.outputs[name].unit,
                 per_atom=old_capabilities.outputs[name].per_atom,
+                description=f"ensemble of '{name}'",
             )
         self.capabilities = ModelCapabilities(
             outputs={**self.capabilities.outputs, **ensemble_outputs},
@@ -255,11 +257,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     .replace("_ensemble", "")
                 )
                 outputs_for_model[f"mtt::aux::{target_name}_last_layer_features"] = (
-                    ModelOutput(
-                        quantity="",
-                        unit="",
-                        per_atom=output.per_atom,
-                    )
+                    ModelOutput(per_atom=output.per_atom)
                 )
                 # for both uncertainties and ensembles, we need the original output,
                 # so we request it as well
@@ -470,21 +468,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 [len(system.positions) for system in systems], device=device
             )
             systems = [system.to(device=device, dtype=dtype) for system in systems]
-            outputs_for_targets = {
-                name: ModelOutput(
-                    quantity="",
-                    unit="",
-                    per_atom=False,
-                )
-                for name in targets.keys()
-            }
+            outputs_for_targets = {name: ModelOutput() for name in targets.keys()}
             outputs_for_features = {
-                f"mtt::aux::{name.replace('mtt::', '')}_last"
-                "_layer_features": ModelOutput(
-                    quantity="",
-                    unit="",
-                    per_atom=False,
-                )
+                f"mtt::aux::{name.replace('mtt::', '')}"
+                "_last_layer_features": ModelOutput()
                 for name in targets.keys()
             }
             output = self.forward(
@@ -576,17 +563,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             # TODO: make per_atom follow the actual target
             requested_outputs = {}
             for name in targets:
-                requested_outputs[name] = ModelOutput(
-                    quantity="",
-                    unit="",
-                    per_atom=False,
-                )
+                requested_outputs[name] = ModelOutput()
                 uncertainty_name = _get_uncertainty_name(name)
-                requested_outputs[uncertainty_name] = ModelOutput(
-                    quantity="",
-                    unit="",
-                    per_atom=False,
-                )
+                requested_outputs[uncertainty_name] = ModelOutput()
             outputs = self.forward(systems, requested_outputs)
             for name, target in targets.items():
                 uncertainty_name = _get_uncertainty_name(name)
@@ -690,6 +669,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 quantity=old_outputs[name].quantity,
                 unit=old_outputs[name].unit,
                 per_atom=old_outputs[name].per_atom,
+                description=f"ensemble of {name}",
             )
         self.capabilities = ModelCapabilities(
             outputs={**old_outputs, **new_outputs},

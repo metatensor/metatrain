@@ -72,6 +72,7 @@ class GAP(ModelInterface[ModelHypers]):
                 quantity=value.quantity,
                 unit=value.unit,
                 per_atom=False,
+                description=value.description,
             )
             for key, value in dataset_info.targets.items()
         }
