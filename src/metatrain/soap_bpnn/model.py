@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 import metatensor.torch as mts
 import torch
@@ -208,7 +208,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         # implementations of SOAP-BPNN. While the latter uses uses orthogonal spaces
         # to represent chemical species (both center and neighbor species), the former
         # uses embeddings.
-        self.modern = self.hypers["modern"]
+        self.use_chemical_embedding = self.hypers["use_chemical_embedding"]
 
         self.atomic_types = dataset_info.atomic_types
         self.requested_nl = NeighborListOptions(
@@ -217,14 +217,14 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             strict=True,
         )
 
-        if self.modern:
+        if self.use_chemical_embedding:
             species_to_species_index = torch.empty(
                 max(self.atomic_types) + 1, dtype=torch.long
             )
-            species_to_species_index[self.atomic_types] = torch.arange(len(self.atomic_types))
-            self.register_buffer(
-                "species_to_species_index", species_to_species_index
+            species_to_species_index[self.atomic_types] = torch.arange(
+                len(self.atomic_types)
             )
+            self.register_buffer("species_to_species_index", species_to_species_index)
 
         spex_soap_hypers = {
             "cutoff": self.hypers["soap"]["cutoff"]["radius"],
@@ -240,14 +240,20 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             },
             "species": (
                 # hardcoded to 4 (the literature would suggest 4 is enough)
-                {"Alchemical": {"pseudo_species": 4, "total_species": len(self.atomic_types)}} if self.modern else
-                {"Orthogonal": {"species": self.atomic_types}}
-            )
+                {
+                    "Alchemical": {
+                        "pseudo_species": 4,
+                        "total_species": len(self.atomic_types),
+                    }
+                }
+                if self.use_chemical_embedding
+                else {"Orthogonal": {"species": self.atomic_types}}
+            ),
         }
         self.soap_calculator = SoapPowerSpectrum(**spex_soap_hypers)  # type: ignore
         soap_size = self.soap_calculator.shape
 
-        if self.modern:
+        if self.use_chemical_embedding:
             # register center encoding
             self.center_encoding = torch.nn.Embedding(
                 num_embeddings=len(self.atomic_types),
@@ -261,7 +267,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
 
         # define one layernorm for tensors and one for tensormaps (for torchscript)
         if hypers_bpnn["layernorm"]:
-            if self.modern:
+            if self.use_chemical_embedding:
                 self.layernorm_for_tensors = torch.nn.LayerNorm(soap_size)
                 self.layernorm = Identity()
             else:
@@ -271,7 +277,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             self.layernorm_for_tensors = torch.nn.Identity()
             self.layernorm = Identity()
 
-        if self.modern:
+        if self.use_chemical_embedding:
             module_list: List[torch.nn.Module] = []
             print(["input_size", hypers_bpnn["input_size"]])
             if self.hypers["bpnn"]["num_hidden_layers"] > 0:
@@ -283,7 +289,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                     )
                 )
                 module_list.append(torch.nn.SiLU())
-                for _ in range(hypers_bpnn["num_hidden_layers"] - 1):
+                for _ in range(cast(int, hypers_bpnn["num_hidden_layers"]) - 1):
                     module_list.append(
                         torch.nn.Linear(
                             hypers_bpnn["num_neurons_per_layer"],
@@ -327,7 +333,11 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             self.long_range = False
             self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
 
-        self.last_layer_feature_size = self.n_inputs_last_layer if self.modern else self.n_inputs_last_layer * len(self.atomic_types)
+        self.last_layer_feature_size = (
+            self.n_inputs_last_layer
+            if self.use_chemical_embedding
+            else self.n_inputs_last_layer * len(self.atomic_types)
+        )
 
         # the model is always capable of outputting the internal features
         self.outputs = {
@@ -510,7 +520,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             positions[neighbors] - positions[centers] + cell_contributions
         )
 
-        if self.modern:
+        if self.use_chemical_embedding:
             species = self.species_to_species_index[species]
 
         soap_features = self.soap_calculator(
@@ -522,7 +532,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             sample_values[:, 1],
         )
 
-        if self.modern:
+        if self.use_chemical_embedding:
             # encode center types
             soap_features = TensorMap(
                 keys=soap_features.keys,
@@ -542,14 +552,14 @@ class SoapBpnn(ModelInterface[ModelHypers]):
 
         device = soap_features.block(0).values.device
 
-        if self.modern:
+        if self.use_chemical_embedding:
             soap_features_tensor = soap_features.block(0).values
             soap_features_tensor = self.layernorm_for_tensors(soap_features_tensor)
         else:
             soap_features_tensor = torch.tensor([])  # for torchscript
             soap_features = self.layernorm(soap_features)
 
-        if self.modern:
+        if self.use_chemical_embedding:
             values = self.bpnn_for_tensors(soap_features_tensor)
             features = TensorMap(
                 keys=soap_features.keys,
@@ -564,7 +574,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                                 self.n_inputs_last_layer,
                                 device=device,
                             ).unsqueeze(1),
-                        )
+                        ),
                     )
                 ],
             )
@@ -572,7 +582,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             features = self.bpnn(soap_features)
 
         if self.long_range:
-            if self.modern:
+            if self.use_chemical_embedding:
                 distances = torch.sqrt(torch.sum(interatomic_vectors**2, dim=-1))
                 long_range_features_tensor = self.long_range_featurizer(
                     systems, features.block().values, distances
@@ -590,7 +600,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                                     self.n_inputs_last_layer,
                                     device=device,
                                 ).unsqueeze(1),
-                            )
+                            ),
                         )
                     ],
                 )
@@ -623,7 +633,9 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                     keys=features.keys,
                     blocks=[
                         TensorBlock(
-                            values=long_range_features_tensor[center_types == center_type],
+                            values=long_range_features_tensor[
+                                center_types == center_type
+                            ],
                             samples=features.block(
                                 {"center_type": int(center_type)}
                             ).samples,
@@ -645,22 +657,19 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             # output the hidden features, if requested:
             if "features" in outputs:
                 features_options = outputs["features"]
-                if not self.modern:
+                if not self.use_chemical_embedding:
                     out_features = features.keys_to_properties(self.center_type_labels)
                 else:
                     out_features = features
                 if not features_options.per_atom:
                     out_features = sum_over_atoms(out_features)
-                if self.modern:
+                if self.use_chemical_embedding:
                     return_dict["features"] = out_features
                 else:
                     return_dict["features"] = _remove_center_type_from_properties(
                         out_features
                     )
 
-            features_by_output: Dict[str, TensorMap] = {}
-            for output_name, head in self.heads.items():
-                features_by_output[output_name] = head(features)
             features_by_output: Dict[str, TensorMap] = {}
             for output_name, head in self.heads.items():
                 features_by_output[output_name] = head(features)
@@ -687,7 +696,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 if f"mtt::{base_name}" in features_by_output:
                     base_name = f"mtt::{base_name}"
                 features_options = outputs[output_name]
-                if not self.modern:
+                if not self.use_chemical_embedding:
                     out_features = features_by_output[base_name].keys_to_properties(
                         self.center_type_labels
                     )
@@ -695,13 +704,13 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                     out_features = features_by_output[base_name]
                 if not features_options.per_atom:
                     out_features = sum_over_atoms(out_features)
-                if self.modern:
+                if self.use_chemical_embedding:
                     return_dict[output_name] = out_features
                 else:
                     return_dict[output_name] = _remove_center_type_from_properties(
                         out_features
                     )
-                    
+
         with record_function("atomic_properties"):
             atomic_properties: Dict[str, TensorMap] = {}
             for output_name, output_layers in self.last_layers.items():
@@ -715,8 +724,8 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                         invariant_coefficients = output_layer(
                             features_by_output[output_name]
                         )
-                        if not self.modern:
-                            ######## optimized keys_to_samples #############################
+                        if not self.use_chemical_embedding:
+                            ######## optimized keys_to_samples ########################
                             # This is equivalent to
                             # invariant_coefficients = (
                             #     invariant_coefficients.keys_to_samples("center_type")
@@ -725,8 +734,8 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                             all_invariant_coefficients = torch.concatenate(
                                 [b.values for b in invariant_coefficients.blocks()]
                             )
-                            # however, we need to sort them according to the order of the
-                            # atoms in the systems
+                            # however, we need to sort them according to the order of
+                            # the atoms in the systems
                             system_sizes = torch.tensor(
                                 [len(system) for system in systems], device=device
                             )
@@ -776,7 +785,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                                     )
                                 ],
                             )
-                            ######## end of optimized keys_to_samples ######################
+                            ######## end of optimized keys_to_samples ##################
                         tensor_basis = torch.tensor(0)
                         for (
                             output_name_basis,
@@ -975,7 +984,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                     o3_lambda=0,
                     o3_sigma=1,
                     add_lambda_basis=self.hypers["add_lambda_basis"],
-                    modern=self.modern,
+                    use_chemical_embedding=self.use_chemical_embedding,
                 )
         elif target.is_spherical:
             for key, block in target.layout.items():
@@ -993,7 +1002,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                     o3_lambda,
                     o3_sigma,
                     self.hypers["add_lambda_basis"],
-                    self.modern,
+                    self.use_chemical_embedding,
                 )
         else:
             raise ValueError("SOAP-BPNN only supports scalar and spherical targets.")
@@ -1057,7 +1066,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                     )
                 )
             )
-            if self.modern:
+            if self.use_chemical_embedding:
                 out_properties = Labels.range(
                     "property",
                     len(block.properties.values) * basis_size,

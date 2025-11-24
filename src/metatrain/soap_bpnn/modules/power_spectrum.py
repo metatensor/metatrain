@@ -19,6 +19,7 @@ class SoapPowerSpectrum(Module):
     :param species: Species embedding specification.
     :param cutoff_function: Cutoff function specification.
     """
+
     def __init__(
         self,
         cutoff: float,
@@ -50,7 +51,7 @@ class SoapPowerSpectrum(Module):
             else len(species["Orthogonal"]["species"])
         )
         self.shape = sum(self.n_per_l[ell] ** 2 * n_species**2 for ell in l_to_treat)
-        self.modern = "Alchemical" in species
+        self.use_chemical_embedding = "Alchemical" in species
 
     def forward(
         self,
@@ -118,27 +119,30 @@ class SoapPowerSpectrum(Module):
                 )
                 blocks_from_single_l.append(values)
 
-        if self.modern:
+        if self.use_chemical_embedding:
             # only one center species, which will be encoded outside of this module
             output_tensor = torch.concatenate(blocks_from_single_l, dim=1)
             output_tensor_map = TensorMap(
-                keys=Labels(names=["_"], values=torch.tensor([[0]], dtype=torch.int32, device=R_ij.device)),
-                blocks=[TensorBlock(
-                    values=output_tensor,
-                    samples=Labels(
-                        names=["system", "atom"],
-                        values=torch.stack(
-                            [structures, centers], dim=1
+                keys=Labels(
+                    names=["_"],
+                    values=torch.tensor([[0]], dtype=torch.int32, device=R_ij.device),
+                ),
+                blocks=[
+                    TensorBlock(
+                        values=output_tensor,
+                        samples=Labels(
+                            names=["system", "atom"],
+                            values=torch.stack([structures, centers], dim=1),
                         ),
-                    ),
-                    components=[],
-                    properties=Labels(
-                        names=["property"],
-                        values=torch.arange(
-                            output_tensor.shape[1], device=output_tensor.device
-                        ).unsqueeze(1),
-                    ),
-                )]
+                        components=[],
+                        properties=Labels(
+                            names=["property"],
+                            values=torch.arange(
+                                output_tensor.shape[1], device=output_tensor.device
+                            ).unsqueeze(1),
+                        ),
+                    )
+                ],
             )
         else:
             with record_function("keys_to_properties_final"):
