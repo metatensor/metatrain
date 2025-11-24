@@ -5,8 +5,7 @@ Fine-tune a pre-trained model
 
 .. warning::
 
-  This section of the documentation is only relevant for PET model so far.
-
+  Finetuning may not be supported by every architecture and if supported the syntax to start a finetuning may be different from how it is explained here.
 This section describes the process of fine-tuning a pre-trained model to
 adapt it to new tasks or datasets. Fine-tuning is a common technique used
 in machine learning, where a model is trained on a large dataset and then
@@ -56,13 +55,8 @@ as this will help stabilizing the training process. I.e. if the default learning
 Please note, that in most use cases you should invoke a new energy head by specifying
 a new energy variant. The variant naming follows the simple pattern
 ``energy/{variantname}``. A reasonable name could be the energy functional or level of
-theory your dataset was trained on, e.g. ``energy/pbe``, ``energy/SCAN`` or even
-``energy/dataset1``. You can find more about implementing and using variants in 
-`metatomic`_. 
-
-.. _metatomic: https://docs.metatensor.org/metatomic/latest/outputs/variants.html 
-
-Further you can add a short description for the new variant, that
+theory your finetuning dataset was trained on, e.g. ``energy/pbe``, ``energy/SCAN`` or even
+``energy/dataset1``. Further we recommend adding a short :attr:`description` for the new variant, that
 you can specify in ``description`` of your ``options.yaml`` file.
 
 .. code-block:: yaml
@@ -140,7 +134,7 @@ will be adapted to the new dataset during the training process.
 
 Multi-fidelity training
 -----------------------
-Even though the old head is left untouched, it is rendered useless, due to changing
+So far the old head is left untouched, but it is rendered useless, due to changing
 deeper weights of the model. If you want to fine-tune and retain multiple functional
 heads, the recommended way is to do full fine-tuning on a new target, but keep
 training the old energy head as well. This will leave you with a model capable of
