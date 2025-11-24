@@ -30,7 +30,7 @@ available pre-trained model defined in an ``options.yaml`` file. In this case, a
 weights of the model will be adapted to the new dataset. In contrast to the
 training continuation, the optimizer and scheduler state will be reset. You can still
 adjust the training hyperparameters in the ``options.yaml`` file, but the model
-architecture will be taken from the checkpoint. 
+architecture will be taken from the checkpoint.
 To set the path to the pre-trained model checkpoint, you need to specify the
 ``read_from`` parameter in the ``options.yaml`` file:
 
@@ -53,12 +53,12 @@ as this will help stabilizing the training process. I.e. if the default learning
     training:
       learning_rate: 1e-5
 
-Please note, that in most use cases you should invoke a new energy head by specifying 
-a new energy variant. The variant naming follows the simple pattern 
-``energy/{variantname}``. A reasonable name could be the energy functional or level of 
-theory your dataset was trained on, e.g. ``energy/pbe``, ``energy/SCAN`` or even  
-``energy/dataset1``. Further you can add a short description for the new variant, that 
-you can specify in your ``options.yaml`` file. 
+Please note, that in most use cases you should invoke a new energy head by specifying
+a new energy variant. The variant naming follows the simple pattern
+``energy/{variantname}``. A reasonable name could be the energy functional or level of
+theory your dataset was trained on, e.g. ``energy/pbe``, ``energy/SCAN`` or even
+``energy/dataset1``. Further you can add a short description for the new variant, that
+you can specify in ``description`` of your ``options.yaml`` file.
 
 .. code-block:: yaml
 
@@ -74,9 +74,9 @@ you can specify in your ``options.yaml`` file.
           description: "description of your variant"
 
 
-The new energy variant can be selected for evaluation either with ``mtt eval`` by specifying 
+The new energy variant can be selected for evaluation either with ``mtt eval`` by specifying
 it in the options.yaml for evaluation:
- 
+
 .. code-block:: yaml
 
    systems: path/to/dataset.xyz
@@ -88,33 +88,106 @@ it in the options.yaml for evaluation:
          key: forces
 
 
-When using the finetuned model in simulation engines the default target name expected 
-by the ``metatomic`` package in order to use the model in ASE and LAMMPS calculations is 
+When using the finetuned model in simulation engines the default target name expected
+by the ``metatomic`` package in order to use the model in ASE and LAMMPS calculations is
 ``energy``. When loading the model in ``metatomic`` you have to specify which variant
-should be used for energy and force prediction. You can find an example for how to do 
-this in the tutorial :ref:`Fine-tuning <fine-tuning-example>` and more in the 
+should be used for energy and force prediction. You can find an example for how to do
+this in the tutorial :ref:`Fine-tuning <fine-tuning-example>` and more in the
 `metatomic documentation`_.
 
-.. _metatomic documentation: https://docs.metatensor.org/metatomic/latest/engines/index.html  
+.. _metatomic documentation: https://docs.metatensor.org/metatomic/latest/engines/index.html
 
 
 Until here, our model would train on all weights of the model, create a new energy head
-and a new composition model.  
+and a new composition model.
 
-The basic fine-tuning strategy is a good choice in the case when the level of theory
-which is used for the original training is the same, or at least similar to the one used
-for the new dataset. However, since this is not always the case, we also provide more
-advanced fine-tuning strategies described below.
+The basic fine-tuning strategy is a good choice for most use cases. Below, we present
+a few more advanced topics.
+
+Inheriting weights from existing heads
+--------------------------------------
+
+In some cases, the new targets might be similar to the existing targets
+in the pre-trained model. For example, if the pre-trained model is trained
+on energies and forces computed with the PBE functional, and the new targets
+are energies and forces coming from the PBE0 calculations, it might be beneficial
+to initialize the new PBE0 heads and last layers with the weights of the PBE
+heads and last layers. This can be done by specifying the ``inherit_heads``
+parameter in the ``options.yaml`` file:
+
+.. code-block:: yaml
+
+  architecture:
+    training:
+      finetune:
+        method: full
+        read_from: path/to/checkpoint.ckpt
+        inherit_heads:
+          energy/<variantname>: energy # inherit weights from the "energy" head
+
+The ``inherit_heads`` parameter is a dictionary mapping the new trainable
+targets specified in the ``training_set/targets`` section to the existing
+targets in the pre-trained model. The weights of the corresponding heads and
+last layers will be copied from the source heads to the destination heads
+instead of random initialization. These weights are still trainable and
+will be adapted to the new dataset during the training process.
 
 
-Fine-tuning model Heads
+Multi-fidelity training
 -----------------------
+Even though the old head is left untouched, it is rendered useless, due to changing
+deeper weights of the model. If you want to fine-tune and retain multiple functional
+heads, the recommended way is to do full fine-tuning on a new target, but keep
+training the old energy head as well. This will leave you with a model capable of
+using different variants for energy and force prediction. Again, you are able to select
+the preferred head in ``LAMMPS`` or when creating a ``metatomic`` calculator object.
+Thus, you should specify both variants in the ``targets`` section of your
+``options.yaml``. In the code snippet, we additionally assume that the energy labels
+come from different datasets. Please note, if you have both references in one file,
+they can be selected by selecting the corresponding keys from the same system.
+the same dataset.
+
+.. code-block:: yaml
+
+  training_set:
+      - systems:
+            read_from: dataset_1.xyz
+            length_unit: angstrom
+        targets:
+            energy/<variant1>:
+                quantity: energy
+                key: my_energy_label1
+                unit: eV
+                description: 'my variant1 description'
+      - systems:
+            read_from: dataset_2.xyz
+            length_unit: angstrom
+        targets:
+            energy/<variant2>:
+                quantity: energy
+                key: my_energy_label2
+                unit: eV
+                description: 'my variant2 description'
+
+
+
+You can find more about setting up training with multiple files in the
+:ref:`Training YAML reference <train_yaml_config>`.
+
+
+Training only the head weights can be an alternative, if one wants to keep the old energy
+head, but the reference data it was trained are not available. In that case, the
+internal model weights are frozen, and only the weights of the new target are trained.
+
+
+Fine-tuning model Heads only
+----------------------------
 
 Adapting all the model weights to a new dataset is not always the best approach. If the
 new dataset consist of the same or similar data computed with a slightly different level
 of theory compared to the pre-trained models' dataset, you might want to keep the
 learned representations of the crystal structures and only adapt the readout layers
-(i.e. the model heads) to the new dataset. 
+(i.e. the model heads) to the new dataset.
 In this case, the ``mtt train`` command needs to be accompanied by the specific training
 options in the ``options.yaml`` file. The following options need to be set:
 
@@ -142,64 +215,3 @@ edge heads and last layers to be fine-tuned.
 We recommend to first start the fine-tuning including all the modules listed above and
 experiment with their different combinations if needed. You might also consider using a
 lower learning rate, e.g. ``1e-5`` or even lower, to stabilize the training process.
-
-This is especially interesting, if one wants to obtain a model with multiple ``energy`` 
-variants. In that case it is recommended to continue training both ``energy`` 
-variants /heads, to avoid "forgetting" previously learned representations. Thus, you 
-should specify those variants in the ``targets`` section of your ``options.yaml``.
-
-LoRA Fine-tuning
-----------------
-
-If the conceptually new type of structures is introduced in the new dataset, tuning only
-the model heads might not be sufficient. In this case, you might need to adapt the
-internal representations of the crystal structures. This can be done using the LoRA
-technique. However, in this case the model heads will be not adapted to the new dataset,
-so conceptually the level of theory should be consistent with the one used for the
-pre-trained model.
-
-What is LoRA?
-^^^^^^^^^^^^^
-
-LoRA (Low-Rank Adaptation) stands for a Parameter-Efficient Fine-Tuning (PEFT)
-technique used to adapt pre-trained models to new tasks by introducing low-rank
-matrices into the model's architecture.
-
-Given a pre-trained model with the weights matrix :math:`W_0`, LoRA introduces
-low-rank matrices :math:`A` and :math:`B` of a rank :math:`r` such that the
-new weights matrix :math:`W` is computed as:
-
-.. math::
-
-  W = W_0 + \frac{\alpha}{r} A B
-
-where :math:`\alpha` is a regularization factor that controls the influence
-of the low-rank matrices on the model's weights. By adjusting the rank :math:`r`
-and the regularization factor :math:`\alpha`, you can fine-tune the model
-to achieve better performance on specific tasks.
-
-To use LoRA for fine-tuning, you need to provide the pre-trained model checkpoint with
-the ``mtt train`` command and specify the LoRA parameters in the ``options.yaml`` file:
-
-.. code-block:: yaml
-
-  architecture:
-    training:
-      finetune:
-        method: "lora"
-        read_from: path/to/pre-trained-model.ckpt
-        config:
-          alpha: 0.1
-          rank: 4
-
-These parameters control the rank of the low-rank matrices introduced by LoRA
-(``rank``), and the regularization factor for the low-rank matrices (``alpha``).
-By selecting the LoRA rank and the regularization factor, you can control the
-amount of adaptation to the new dataset. Using lower values of the rank and
-the regularization factor will lead to a more conservative adaptation, which can help
-balancing the performance of the model on the original and new datasets.
-
-We recommend to start with the LoRA parameters listed above and experiment with
-different values if needed. You might also consider using a lower learning rate,
-e.g. ``1e-5`` or even lower, to stabilize the training process.
-
