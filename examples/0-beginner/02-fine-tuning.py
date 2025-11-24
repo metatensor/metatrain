@@ -145,10 +145,12 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 
 # Here, we get the PET-MAD ckpt, run ``mtt train`` as a subprocess, and delete the old
 # outputs folder.
-subprocess.run([
-    "wget",
-    "https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.1.0/models/pet-mad-v1.1.0.ckpt",
-])
+subprocess.run(
+    [
+        "wget",
+        "https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.1.0/models/pet-mad-v1.1.0.ckpt",
+    ]
+)
 subprocess.run(["rm", "-rf", "outputs"])
 subprocess.run(["mtt", "train", "options-ft.yaml", "-o", "model-ft.pt"], check=True)
 
