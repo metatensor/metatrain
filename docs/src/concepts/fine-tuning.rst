@@ -55,7 +55,7 @@ as this will help stabilizing the training process. I.e. if the default learning
 Please note, that in most use cases you should invoke a new energy head by specifying
 a new energy variant. The variant naming follows the simple pattern
 ``energy/{variantname}``. A reasonable name could be the energy functional or level of
-theory your dataset was trained on, e.g. ``energy/pbe``, ``energy/SCAN`` or even
+theory your finetuning dataset was trained on, e.g. ``energy/pbe``, ``energy/SCAN`` or even
 ``energy/dataset1``. Further you can add a short description for the new variant, that
 you can specify in ``description`` of your ``options.yaml`` file.
 
