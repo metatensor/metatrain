@@ -134,7 +134,7 @@ will be adapted to the new dataset during the training process.
 
 Multi-fidelity training
 -----------------------
-Even though the old head is left untouched, it is rendered useless, due to changing
+So far the old head is left untouched, but it is rendered useless, due to changing
 deeper weights of the model. If you want to fine-tune and retain multiple functional
 heads, the recommended way is to do full fine-tuning on a new target, but keep
 training the old energy head as well. This will leave you with a model capable of
