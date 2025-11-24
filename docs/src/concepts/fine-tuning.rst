@@ -57,7 +57,12 @@ Please note, that in most use cases you should invoke a new energy head by speci
 a new energy variant. The variant naming follows the simple pattern
 ``energy/{variantname}``. A reasonable name could be the energy functional or level of
 theory your dataset was trained on, e.g. ``energy/pbe``, ``energy/SCAN`` or even
-``energy/dataset1``. Further you can add a short description for the new variant, that
+``energy/dataset1``. You can find more about implementing and using variants in 
+`metatomic`_. 
+
+.. _metatomic documentation: https://docs.metatensor.org/metatomic/latest/outputs/variants.html 
+
+Further you can add a short description for the new variant, that
 you can specify in ``description`` of your ``options.yaml`` file.
 
 .. code-block:: yaml

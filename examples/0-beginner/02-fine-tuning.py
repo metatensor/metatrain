@@ -118,17 +118,21 @@ the Training YAML Reference <data-section>`.
 
 
 After setting up your ``options-ft.yaml`` file, you can then simply run:
-
-.. code-block:: bash
-
-  mtt train options-ft.yaml -o model-ft.pt
-
-You can check finetuning training curves by parsing the ``train.csv`` that is written
-by ``mtt train``
 """
+#.. code-block:: bash
+#
+#  mtt train options-ft.yaml -o model-ft.pt
+#
+#You can check finetuning training curves by parsing the ``train.csv`` that is written
+#by ``mtt train``. We remove the old outputs folder from other examples, which
+#is not necessary for the normal usage.
+
 
 # %%
 #
+import subprocess
+import glob
+
 import ase.io
 import matplotlib.pyplot as plt
 import numpy as np
@@ -137,7 +141,12 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 
 # %%
 #
-csv_path = "outputs/2025-11-19/18-36-04/train.csv"
+#csv_path = "outputs/2025-11-19/18-36-04/train.csv"
+# Here, we run ``mtt train`` as a subprocess, and delete the old outputs folder
+# line, e.g. ``mtt train options-model.yaml -o model.pt``.
+subprocess.run(["rm", "-rf", "outputs"])
+subprocess.run(["mtt", "train", "options-ft.yaml", "-o", "model-ft.pt"], check=True)
+csv_path = glob.glob("outputs/*/*/train.csv")[-1]
 with open(csv_path, "r") as f:
     header = f.readline().strip().split(",")
     f.readline()  # skip units row
