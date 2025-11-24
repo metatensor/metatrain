@@ -60,7 +60,7 @@ theory your dataset was trained on, e.g. ``energy/pbe``, ``energy/SCAN`` or even
 ``energy/dataset1``. You can find more about implementing and using variants in 
 `metatomic`_. 
 
-.. _metatomic documentation: https://docs.metatensor.org/metatomic/latest/outputs/variants.html 
+.. _metatomic: https://docs.metatensor.org/metatomic/latest/outputs/variants.html 
 
 Further you can add a short description for the new variant, that
 you can specify in ``description`` of your ``options.yaml`` file.

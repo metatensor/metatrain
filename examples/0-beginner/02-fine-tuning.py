@@ -1,5 +1,4 @@
 r"""
-.. _fine-tuning-example:
 
 Fine-tuning a pre-trained model
 ===============================
@@ -118,15 +117,15 @@ the Training YAML Reference <data-section>`.
 
 
 After setting up your ``options-ft.yaml`` file, you can then simply run:
-"""
-#.. code-block:: bash
-#
-#  mtt train options-ft.yaml -o model-ft.pt
-#
-#You can check finetuning training curves by parsing the ``train.csv`` that is written
-#by ``mtt train``. We remove the old outputs folder from other examples, which
-#is not necessary for the normal usage.
 
+.. code-block:: bash
+
+  mtt train options-ft.yaml -o model-ft.pt
+
+You can check finetuning training curves by parsing the ``train.csv`` that is written
+by ``mtt train``. We remove the old outputs folder from other examples, which
+is not necessary for the normal usage.
+"""
 
 # %%
 #
@@ -141,7 +140,7 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 
 # %%
 #
-#csv_path = "outputs/2025-11-19/18-36-04/train.csv"
+
 # Here, we run ``mtt train`` as a subprocess, and delete the old outputs folder
 # line, e.g. ``mtt train options-model.yaml -o model.pt``.
 subprocess.run(["rm", "-rf", "outputs"])
