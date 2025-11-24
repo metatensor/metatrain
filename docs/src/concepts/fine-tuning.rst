@@ -5,8 +5,7 @@ Fine-tune a pre-trained model
 
 .. warning::
 
-  This section of the documentation is only relevant for PET model so far.
-
+  Finetuning may not be supported by every architecture and if supported the syntax to start a finetuning may be different from how it is explained here.
 This section describes the process of fine-tuning a pre-trained model to
 adapt it to new tasks or datasets. Fine-tuning is a common technique used
 in machine learning, where a model is trained on a large dataset and then
