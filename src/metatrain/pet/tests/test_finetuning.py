@@ -1,3 +1,4 @@
+import copy
 import shutil
 
 import pytest
@@ -147,7 +148,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
 
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
 
     hypers["training"]["num_epochs"] = 1
 
@@ -173,7 +174,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     assert isinstance(model_finetune, PET)
     model_finetune.restart(dataset_info)
 
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
 
     hypers["training"]["num_epochs"] = 0
 
@@ -212,7 +213,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
         ["lora_" in name for name, _ in model_finetune_restart.named_parameters()]
     )
 
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
 
     hypers["training"]["num_epochs"] = 0
 
