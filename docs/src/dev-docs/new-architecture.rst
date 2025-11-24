@@ -497,19 +497,22 @@ To make the tests run for your architecture, you should follow these steps:
         class TestCheckpoints(CheckpointTests):
             architecture = "experimental.myarchitecture"
 
-    Some test suite might not apply to your architecture. In that case, simply
-    explain this in your PR and the maintainers will help you decide if it's ok to
-    just omit them. You can of course add more tests that you find relevant for
-    your architecture, but passing ``metatrain``'s shared test suite is a sufficient
+    Some test suite might not apply to your architecture, e.g. if your model
+    does not support autograd. In that case, simply explain this in your PR
+    and the maintainers will help you decide if it's ok to just omit them.
+    You can of course add more tests that you find relevant for your architecture,
+    but passing ``metatrain``'s shared test suite is a sufficient
     condition for merging a new architecture.
 
     **Step 4:** Add your architecture tests to the ``tox.ini`` file. For this, you have to
-    add a section ``[testenv:myarchitecture-tests]``, you can get inspired by
-    existing architectures, e.g. the section ``[testenv:pet-tests]``.
+    add a section ``[testenv:myarchitecture-tests]``. You can get inspired by
+    existing architectures, e.g. the section ``[testenv:pet-tests]``. You will also need
+    to add your tests to the ``envlist`` variable at the top of the ``tox.ini`` file.
 
     **Step 5:** Run your tests. For this, you will need to install ``tox``. You can do this
     with ``pip install tox``. Then, from the root of the repository, run
-    ``tox -e myarchitecture-tests``.
+    ``tox -e myarchitecture-tests``. See :ref:`the contributing page <contributing-running-tests>`
+    for more details on how to run tests.
 
     **Step 6:** Add your architecture tests to the continuous integration (CI) system. This
     is done by adding ``myarchitecture-tests`` to the file

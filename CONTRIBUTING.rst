@@ -72,6 +72,7 @@ supported tox environments please use
     we recommend that users use ``uv pip``. Alternatively
     ``python -m ensurepip`` within the environment will setup ``pip``.
 
+.. _contributing-running-tests:
 
 Running the tests
 -----------------

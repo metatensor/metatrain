@@ -1,9 +1,10 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 import torch
 
-from metatrain.utils.abc import ModelInterface, TrainerInterface
+from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.architectures import get_default_hypers, import_architecture
 from metatrain.utils.data import (
     Dataset,
@@ -279,8 +280,10 @@ class ArchitectureTests:
             },
         )
 
+    # Replace the Any type hint with type[ModelInterface]
+    # once https://github.com/metatensor/metatrain/issues/942 is solved.
     @property
-    def model_cls(self) -> type[ModelInterface]:
+    def model_cls(self) -> Any:
         """The model class to be tested."""
         architecture = import_architecture(self.architecture)
         return architecture.__model__
