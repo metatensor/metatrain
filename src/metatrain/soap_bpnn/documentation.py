@@ -92,8 +92,9 @@ class ModelHypers(TypedDict):
     soap: SOAPConfig = init_with_defaults(SOAPConfig)
     """Configuration of the SOAP descriptors."""
 
-    use_chemical_embedding: bool = False
-    """Whether to use a learned chemical embedding for the atomic species."""
+    legacy: bool = True
+    """If true, uses the legacy implementation without chemical embedding and with one
+    MLP head per atomic species."""
 
     bpnn: BPNNConfig = init_with_defaults(BPNNConfig)
     """Configuration of the neural network architecture."""

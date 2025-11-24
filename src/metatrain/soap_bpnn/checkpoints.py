@@ -195,7 +195,7 @@ def model_update_v6_v7(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to be updated.
     """
-    checkpoint["train_hypers"]["use_chemical_embedding"] = False
+    checkpoint["train_hypers"]["legacy"] = True
 
 
 ###########################

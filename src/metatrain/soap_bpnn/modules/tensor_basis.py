@@ -24,19 +24,18 @@ class VectorBasis(torch.nn.Module):
 
     :param atomic_types: list of atomic types in the dataset.
     :param soap_hypers: dictionary with the SOAP hyper-parameters.
-    :param use_chemical_embedding: whether to use a learned chemical embedding for the
-        atomic species.
+    :param legacy: if True, uses the legacy implementation without chemical embedding.
     """
 
     def __init__(
         self,
         atomic_types: List[int],
         soap_hypers: SOAPConfig,
-        use_chemical_embedding: bool,
+        legacy: bool,
     ) -> None:
         super().__init__()
 
-        self.use_chemical_embedding = use_chemical_embedding
+        self.modern = legacy is False
         self.atomic_types = atomic_types
         # Define a new hyper-parameter for the basis part of the expansion
         soap_hypers = copy.deepcopy(soap_hypers)
@@ -61,7 +60,7 @@ class VectorBasis(torch.nn.Module):
                         "total_species": len(self.atomic_types),
                     }
                 }
-                if self.use_chemical_embedding
+                if self.modern
                 else {"Orthogonal": {"species": self.atomic_types}}
             ),
         }
@@ -73,7 +72,7 @@ class VectorBasis(torch.nn.Module):
             values=torch.tensor(self.atomic_types).reshape(-1, 1),
         )
 
-        if self.use_chemical_embedding:
+        if self.modern:
             self.center_encoding = torch.nn.Embedding(
                 num_embeddings=len(self.atomic_types),
                 embedding_dim=(self.soap_calculator.radial.n_per_l[1] * 4),
@@ -82,7 +81,7 @@ class VectorBasis(torch.nn.Module):
             self.center_encoding = torch.nn.Identity()
 
         # here, an optimizable basis seems to work much better than a fixed one
-        if self.use_chemical_embedding:
+        if self.modern:
             self.contraction_for_tensors = torch.nn.Linear(
                 in_features=(self.soap_calculator.radial.n_per_l[1] * 4),
                 out_features=3,
@@ -156,7 +155,7 @@ class VectorBasis(torch.nn.Module):
             l1_spherical_expansion.shape[2] * l1_spherical_expansion.shape[3],
         )  # [center, o3_mu, features]
 
-        if self.use_chemical_embedding:
+        if self.modern:
             l1_spherical_expansion = l1_spherical_expansion * (
                 self.center_encoding(species).unsqueeze(1)
             )
@@ -239,7 +238,7 @@ class VectorBasis(torch.nn.Module):
                 l1_spherical_expansion_as_tensor_map, "samples", selected_atoms
             )
 
-        if self.use_chemical_embedding:
+        if self.modern:
             basis_vectors_as_tensor = self.contraction_for_tensors(
                 l1_spherical_expansion_as_tensor_map.block().values,
             )
@@ -293,6 +292,7 @@ class TensorBasis(torch.nn.Module):
         lambda-basis to the spherical tensor basis. This is done by contracting a
         spherical expansion with the same o3_lambda as the target tensor.
         This usually improves the performance of the model.
+    :param legacy: if True, uses the legacy implementation without chemical embedding.
     """
 
     cgs: Dict[str, torch.Tensor]  # torchscript needs this
@@ -305,21 +305,19 @@ class TensorBasis(torch.nn.Module):
         o3_lambda: int,
         o3_sigma: int,
         add_lambda_basis: bool,
-        use_chemical_embedding: bool,
+        legacy: bool,
     ) -> None:
         super().__init__()
 
         self.o3_lambda = o3_lambda
         self.o3_sigma = o3_sigma
         if self.o3_lambda > 0:
-            self.vector_basis = VectorBasis(
-                atomic_types, soap_hypers, use_chemical_embedding
-            )
+            self.vector_basis = VectorBasis(atomic_types, soap_hypers, legacy)
         else:
             self.vector_basis = FakeVectorBasis()  # needed to make torchscript work
         if self.o3_sigma == -1:
             self.vector_basis_pseudotensor = VectorBasis(
-                atomic_types, soap_hypers, use_chemical_embedding
+                atomic_types, soap_hypers, legacy
             )
         else:
             self.vector_basis_pseudotensor = FakeVectorBasis()  # make torchscript work
