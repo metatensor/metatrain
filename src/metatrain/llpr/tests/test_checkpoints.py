@@ -13,7 +13,7 @@ from metatrain.llpr import Trainer as LLPRTrainer
 from metatrain.pet import PET
 from metatrain.pet import Trainer as PETTrainer
 from metatrain.utils.data import DatasetInfo, get_atomic_types, get_dataset
-from metatrain.utils.omegaconf import CONF_LOSS
+from metatrain.utils.omegaconf import LossSpecification, init_with_defaults
 from metatrain.utils.testing.checkpoints import (
     checkpoint_did_not_change,
     make_checkpoint_load_tests,
@@ -75,7 +75,7 @@ def model_trainer():
 
     hypers = copy.deepcopy(DEFAULT_HYPERS_PET)
     hypers["training"]["num_epochs"] = 1
-    loss_hypers = OmegaConf.create({"energy": CONF_LOSS.copy()})
+    loss_hypers = OmegaConf.create({"energy": init_with_defaults(LossSpecification)})
     loss_hypers = OmegaConf.to_container(loss_hypers, resolve=True)
     hypers["training"]["loss"] = loss_hypers
 
@@ -95,13 +95,7 @@ def model_trainer():
 
         # train LLPR model
         hypers = copy.deepcopy(MODEL_HYPERS_LLPR)
-        hypers["ensembles"]["means"] = {
-            "energy": [
-                "node_last_layers.energy.0.energy___0.weight",
-                "edge_last_layers.energy.0.energy___0.weight",
-            ]
-        }
-        hypers["ensembles"]["num_members"] = {"energy": 8}
+        hypers["num_ensemble_members"] = {"energy": 8}
 
         model = LLPRUncertaintyModel(hypers, dataset_info)
 
@@ -157,15 +151,7 @@ def test_get_checkpoint(model_trainer, context, caplog):
 
     caplog.set_level(logging.INFO)
 
-    if context == "restart":
-        with pytest.raises(
-            NotImplementedError,
-            match="Restarting from the LLPR checkpoint is not supported.",
-        ):
-            LLPRUncertaintyModel.load_checkpoint(checkpoint, context)
-        return
-    else:
-        LLPRUncertaintyModel.load_checkpoint(checkpoint, context)
+    LLPRUncertaintyModel.load_checkpoint(checkpoint, context)
 
     if context == "restart":
         assert "Using latest model from epoch None" in caplog.text

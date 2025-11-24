@@ -25,6 +25,7 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
+from .documentation import ModelHypers
 from .modules.encoder import Encoder
 from .modules.nef import (
     edge_array_to_nef,
@@ -37,7 +38,7 @@ from .modules.structures import concatenate_structures
 from .modules.transformer import Transformer
 
 
-class NanoPET(ModelInterface):
+class NanoPET(ModelInterface[ModelHypers]):
     """
     Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302).
 
@@ -61,7 +62,7 @@ class NanoPET(ModelInterface):
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.new_outputs = list(dataset_info.targets.keys())
@@ -112,10 +113,10 @@ class NanoPET(ModelInterface):
 
         self.last_layer_feature_size = self.hypers["d_pet"]
 
+        # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(unit="", per_atom=True)
-        }  # the model is always capable of outputting the internal features
-
+            "features": ModelOutput(per_atom=True, description="internal features")
+        }
         self.heads = torch.nn.ModuleDict()
         self.head_types = self.hypers["heads"]
         self.last_layers = torch.nn.ModuleDict()
@@ -658,6 +659,7 @@ class NanoPET(ModelInterface):
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
+            description=target_info.description,
         )
         if (
             target_name not in self.head_types  # default to MLP
@@ -684,7 +686,9 @@ class NanoPET(ModelInterface):
         ll_features_name = (
             f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
         )
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+        self.outputs[ll_features_name] = ModelOutput(
+            per_atom=True, description=f"last-layer features for {target_name}"
+        )
 
         self.last_layers[target_name] = torch.nn.ModuleDict(
             {

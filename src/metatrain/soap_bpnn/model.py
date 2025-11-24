@@ -28,6 +28,7 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
+from .documentation import ModelHypers
 from .modules.power_spectrum import SoapPowerSpectrum
 from .modules.tensor_basis import TensorBasis
 
@@ -182,7 +183,7 @@ def concatenate_structures(
     )
 
 
-class SoapBpnn(ModelInterface):
+class SoapBpnn(ModelInterface[ModelHypers]):
     __checkpoint_version__ = 6
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
@@ -200,7 +201,7 @@ class SoapBpnn(ModelInterface):
 
     component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         # The following hyperparameter toggles between the "modern" and "legacy"
@@ -243,7 +244,7 @@ class SoapBpnn(ModelInterface):
                 {"Orthogonal": {"species": self.atomic_types}}
             )
         }
-        self.soap_calculator = SoapPowerSpectrum(**spex_soap_hypers)
+        self.soap_calculator = SoapPowerSpectrum(**spex_soap_hypers)  # type: ignore
         soap_size = self.soap_calculator.shape
 
         if self.modern:
@@ -310,7 +311,7 @@ class SoapBpnn(ModelInterface):
         )
 
         if hypers_bpnn["num_hidden_layers"] == 0:
-            self.n_inputs_last_layer = hypers_bpnn["input_size"]
+            self.n_inputs_last_layer = soap_size
         else:
             self.n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
 
@@ -328,9 +329,10 @@ class SoapBpnn(ModelInterface):
 
         self.last_layer_feature_size = self.n_inputs_last_layer if self.modern else self.n_inputs_last_layer * len(self.atomic_types)
 
+        # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(unit="", per_atom=True)
-        }  # the model is always capable of outputting the internal features
+            "features": ModelOutput(per_atom=True, description="internal features")
+        }
 
         self.single_label = Labels.single()
 
@@ -342,6 +344,7 @@ class SoapBpnn(ModelInterface):
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
+        self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
 
@@ -655,6 +658,9 @@ class SoapBpnn(ModelInterface):
                         out_features
                     )
 
+            features_by_output: Dict[str, TensorMap] = {}
+            for output_name, head in self.heads.items():
+                features_by_output[output_name] = head(features)
             features_by_output: Dict[str, TensorMap] = {}
             for output_name, head in self.heads.items():
                 features_by_output[output_name] = head(features)
@@ -1025,7 +1031,9 @@ class SoapBpnn(ModelInterface):
         ll_features_name = (
             f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
         )
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+        self.outputs[ll_features_name] = ModelOutput(
+            per_atom=True, description=f"last layer features for {target_name}"
+        )
 
         # last linear layers, one per block
         self.last_layers[target_name] = torch.nn.ModuleDict({})
@@ -1077,6 +1085,11 @@ class SoapBpnn(ModelInterface):
                     "out_properties": [out_properties for _ in self.atomic_types],
                 }
             self.last_layers[target_name][dict_key] = LinearMap(**last_layer_arguments)
+            self.last_layer_parameter_names[target_name] = [
+                f"last_layers.{target_name}.{dict_key}." + n
+                for n in self.last_layers[target_name][dict_key].state_dict().keys()
+                if n.endswith("weight")
+            ]
 
         self.key_labels[target_name] = target.layout.keys
         self.component_labels[target_name] = [
@@ -1090,6 +1103,7 @@ class SoapBpnn(ModelInterface):
             quantity=target.quantity,
             unit=target.unit,
             per_atom=True,
+            description=target.description,
         )
 
     @classmethod

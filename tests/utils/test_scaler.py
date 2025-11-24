@@ -835,12 +835,12 @@ def test_scaler_spherical_per_atom(batch_size):
         atomic_types=[1, 8],
         targets={
             "spherical": TargetInfo(
-                quantity="spherical",
                 layout=mts.slice(
                     spherical[0],
                     "samples",
                     Labels(["system"], torch.tensor([[-1]])),
                 ),
+                quantity="mtt::spherical",
                 unit="",
             )
         },
