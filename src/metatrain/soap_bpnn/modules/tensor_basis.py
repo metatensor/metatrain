@@ -13,7 +13,7 @@ from metatensor.torch.learn.nn import Linear as LinearMap
 from spex import SphericalExpansion
 from torch.profiler import record_function
 
-from .documentation import SOAPConfig
+from ..documentation import SOAPConfig
 
 
 class VectorBasis(torch.nn.Module):
