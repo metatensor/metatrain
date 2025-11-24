@@ -53,7 +53,7 @@ class OutputTests(ArchitectureTests):
     transform correctly under rotations by architecture's design)."""
 
     @pytest.fixture
-    def n_features(self) -> Optional[int]:
+    def n_features(self) -> Optional[int | list[int]]:
         """Fixture that returns the number of features produced by the model.
 
         By default this is set to ``None``, which skips checking the number
@@ -66,7 +66,7 @@ class OutputTests(ArchitectureTests):
         return None
 
     @pytest.fixture
-    def n_last_layer_features(self) -> Optional[int]:
+    def n_last_layer_features(self) -> Optional[int | list[int]]:
         """Fixture that returns the number of last-layer features produced
         by the model.
 
@@ -118,6 +118,8 @@ class OutputTests(ArchitectureTests):
         system = get_system_with_neighbor_lists(
             system, model.requested_neighbor_lists()
         )
+
+        model = model.to(system.positions.dtype)
 
         return model(
             [system], {k: ModelOutput(per_atom=per_atom) for k in model.outputs}
@@ -257,15 +259,19 @@ class OutputTests(ArchitectureTests):
 
         assert len(outputs["spherical_tensor"]) == 3
 
-        if per_atom:
-            assert outputs["spherical_tensor"].block(0).samples.names == [
-                "system",
-                "atom",
-            ]
-            assert outputs["spherical_tensor"].block(0).values.shape[0] == 4
-        else:
-            assert outputs["spherical_tensor"].block(0).samples.names == ["system"]
-            assert outputs["spherical_tensor"].block(0).values.shape[0] == 1
+        for i in range(len(outputs["spherical_tensor"])):
+
+            spherical_target_block = outputs["spherical_tensor"].block(i)
+
+            if per_atom:
+                assert spherical_target_block.samples.names == [
+                    "system",
+                    "atom",
+                ]
+                assert spherical_target_block.values.shape[0] == 4
+            else:
+                assert spherical_target_block.samples.names == ["system"]
+                assert spherical_target_block.values.shape[0] == 1
 
     def test_prediction_energy_subset_elements(
         self, model_hypers: dict, dataset_info: DatasetInfo
@@ -448,14 +454,18 @@ class OutputTests(ArchitectureTests):
         assert "energy" in outputs
         assert "features" in outputs
 
-        features = outputs["features"].block()
+        features_outputs = outputs["features"]
+        for i in range(len(features_outputs)):
+            features = outputs["features"].block(i)
 
-        expected_samples = ["system", "atom"] if per_atom else ["system"]
-        assert features.samples.names == expected_samples
-        assert features.properties.names == ["feature"]
-        assert features.values.shape[0] == (4 if per_atom else 1)
-        if n_features is not None:
-            assert features.values.shape[1] == n_features
+            expected_samples = ["system", "atom"] if per_atom else ["system"]
+            assert features.samples.names == expected_samples
+            assert features.properties.names == ["feature"]
+            assert features.values.shape[0] == (4 if per_atom else 1)
+            if isinstance(n_features, int):
+                assert features.values.shape[1] == n_features
+            elif isinstance(n_features, list):
+                assert features.values.shape[1] == n_features[i]
 
     @pytest.mark.parametrize("per_atom", [True, False])
     def test_output_last_layer_features(
