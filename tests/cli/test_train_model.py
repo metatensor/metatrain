@@ -718,15 +718,15 @@ def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
         },
         "inherit_heads": {},
     }
-    options_pet_transfer_learn["training_set"]["systems"]["read_from"] = (
-        "ethanol_reduced_100.xyz"
-    )
+    options_pet_transfer_learn["training_set"]["systems"][
+        "read_from"
+    ] = "ethanol_reduced_100.xyz"
     options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
         options_pet_transfer_learn["training_set"]["targets"].pop("energy")
     )
-    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"]["key"] = (
-        "energy"
-    )
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"][
+        "key"
+    ] = "energy"
     options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"]["forces"] = {
         "key": "forces",
     }
@@ -746,15 +746,15 @@ def test_transfer_learn_variant(options_pet, caplog, monkeypatch, tmp_path):
         "method": "full",
         "read_from": str(MODEL_PATH_PET),
     }
-    options_pet_transfer_learn["training_set"]["systems"]["read_from"] = (
-        "ethanol_reduced_100.xyz"
-    )
+    options_pet_transfer_learn["training_set"]["systems"][
+        "read_from"
+    ] = "ethanol_reduced_100.xyz"
     options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"] = (
         options_pet_transfer_learn["training_set"]["targets"].pop("energy")
     )
-    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"]["key"] = (
-        "energy"
-    )
+    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"][
+        "key"
+    ] = "energy"
     options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"][
         "forces"
     ] = {
@@ -1370,7 +1370,7 @@ def test_train_wandb_logger(monkeypatch, tmp_path):
     with open("wandb/latest-run/logs/debug.log") as f:
         file_log = f.read()
 
-    assert "'base_precision': 64" in file_log
+    assert "'base_precision': 32" in file_log
     assert "'seed': 42" in file_log
 
 
