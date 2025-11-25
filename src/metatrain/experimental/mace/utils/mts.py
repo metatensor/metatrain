@@ -116,6 +116,8 @@ def get_e3nn_target_info(target_name: str, target: dict) -> TargetInfo:
     if target["per_atom"]:
         sample_names.append("atom")
 
+    properties_name = target.get("properties_name", target_name.replace("mtt::", ""))
+
     irreps = o3.Irreps(target["type"]["spherical"]["irreps"])
     keys = []
     blocks = []
@@ -145,7 +147,7 @@ def get_e3nn_target_info(target_name: str, target: dict) -> TargetInfo:
                 values=torch.empty((0, len(sample_names)), dtype=torch.int32),
             ),
             components=components,
-            properties=Labels.range(target_name.replace("mtt::", ""), num_properties),
+            properties=Labels.range(properties_name, num_properties),
         )
         keys.append([o3_lambda, o3_sigma, i])
         blocks.append(block)
@@ -179,7 +181,8 @@ def target_info_to_e3nn_irreps(target_info: TargetInfo) -> o3.Irreps:
             irreps.append((multiplicity, (0, 1)))
         elif target_info.is_spherical:
             ell = int(key["o3_lambda"])
-            irreps.append((multiplicity, (ell, (-1) ** ell)))
+            p = int(key["o3_sigma"] * ((-1) ** ell))
+            irreps.append((multiplicity, (ell, p)))
         elif target_info.is_cartesian:
             ell = 1
             irreps.append((multiplicity, (ell, (-1) ** ell)))

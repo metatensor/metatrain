@@ -6,6 +6,7 @@ from metatomic.torch import System
 
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.abc import ModelInterface
 
 from .architectures import ArchitectureTests
 
@@ -18,6 +19,18 @@ class TorchscriptTests(ArchitectureTests):
     """List of hyperparameter keys (dot-separated for nested keys)
     that are floats. A test will set these to integers to test that
     TorchScript compilation works in that case."""
+
+    def jit_compile(self, model: ModelInterface) -> torch.jit.ScriptModule:
+        """JIT compiles the given model.
+
+        The default is to simply torch.jit.script the model, but
+        architectures can override this method if some special
+        compilation procedure is needed.
+
+        :param model: Model to compile.
+        :return: JIT compiled model.
+        """
+        return torch.jit.script(model)
 
     def test_torchscript(self, model_hypers: dict, dataset_info: DatasetInfo) -> None:
         """Tests that the model can be jitted.
@@ -44,7 +57,9 @@ class TorchscriptTests(ArchitectureTests):
             system, model.requested_neighbor_lists()
         )
 
-        model = torch.jit.script(model)
+        model = model.to(system.positions.dtype)
+
+        model = self.jit_compile(model)
         model(
             [system],
             model.outputs,
@@ -78,7 +93,7 @@ class TorchscriptTests(ArchitectureTests):
         model = self.model_cls(model_hypers, dataset_info)
 
         with tmpdir.as_cwd():
-            torch.jit.save(torch.jit.script(model), "model.pt")
+            torch.jit.save(self.jit_compile(model), "model.pt")
             torch.jit.load("model.pt")
 
     def test_torchscript_integers(
@@ -99,22 +114,7 @@ class TorchscriptTests(ArchitectureTests):
                 sub_dict = sub_dict[key]
             sub_dict[nested_key[-1]] = int(sub_dict[nested_key[-1]])
 
-        model = self.model_cls(new_hypers, dataset_info)
-
-        system = System(
-            types=torch.tensor([6, 1, 8, 7]),
-            positions=torch.tensor(
-                [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]]
-            ),
-            cell=torch.zeros(3, 3),
-            pbc=torch.tensor([False, False, False]),
-        )
-        system = get_system_with_neighbor_lists(
-            system, model.requested_neighbor_lists()
+        self.test_torchscript(
+            model_hypers=new_hypers, dataset_info=dataset_info
         )
 
-        model = torch.jit.script(model)
-        model(
-            [system],
-            model.outputs,
-        )
