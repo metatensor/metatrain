@@ -432,3 +432,88 @@ Similarly, the ``Trainer`` state is also saved in checkpoint and used to restart
 training. All trainer must thus have a ``__checkpoint_version__`` class
 attribute as well as a ``upgrade_checkpoint(checkpoint: Dict) -> Dict`` function
 to updgrade from previous checkpoints.
+
+Testing (``tests/``)
+--------------------
+
+Metatrain aims to provide users with a consistent experience across
+architectures. To ensure this, we must test that all architectures
+behave in the "``metatrain`` way".
+
+The good news is: **you don't have to write any tests!** Since we know
+that writing tests is not an enjoyable experience, **we provide the
+tests, you just have to make sure your architecture passes them.** This
+approach has several advantages:
+
+- It saves you time and effort, since you don't have to write tests.
+- It makes you confident that the architecture is well integrated into
+  ``metatrain``.
+- New architectures have many lines of new code and they can be hard to
+  review, so the shared test suite helps us understanding if the
+  architecture is compliant and ready to be merged.
+- Users benefit from it, since they are guaranteed a consistent experience
+  across architectures.
+
+To make the tests run for your architecture, you should follow these steps:
+
+    **Step 1:** Create a ``tests/`` subdirectory inside your architecture directory.
+
+    **Step 2:** Inside the ``tests/`` directory, create a new file called ``test_basic.py``.
+
+    **Step 3:** The ``test_basic.py`` file should contain the relevant classes from
+    :ref:`metatrain.utils.testing<testing-utilities>`. Each ``<*>Tests`` class tests a
+    different kind of functionality, and can be tuned to enable/disable certain tests for
+    your architecture. You can get inspired by existing architectures'
+    ``test_basic.py`` files, but here is an example for an architecture called
+    ``experimental.myarchitecture``:
+
+    .. code-block:: python
+
+        from metatrain.utils.testing import (
+            AutogradTests,
+            CheckpointTests,
+            ExportedTests,
+            InputTests,
+            OutputTests,
+            TorchscriptTests,
+            TrainingTests,
+        )
+
+        class TestInput(InputTests):
+            architecture = "experimental.myarchitecture"
+
+        class TestAutograd(AutogradTests):
+            architecture = "experimental.myarchitecture"
+
+        class TestTorchscript(TorchscriptTests):
+            architecture = "experimental.myarchitecture"
+
+        class TestExported(ExportedTests):
+            architecture = "experimental.myarchitecture"
+
+        class TestTraining(TrainingTests):
+            architecture = "experimental.myarchitecture"
+
+        class TestCheckpoints(CheckpointTests):
+            architecture = "experimental.myarchitecture"
+
+    Some test suite might not apply to your architecture, e.g. if your model
+    does not support autograd. In that case, simply explain this in your PR
+    and the maintainers will help you decide if it's ok to just omit them.
+    You can of course add more tests that you find relevant for your architecture,
+    but passing ``metatrain``'s shared test suite is a sufficient
+    condition for merging a new architecture.
+
+    **Step 4:** Add your architecture tests to the ``tox.ini`` file. For this, you have to
+    add a section ``[testenv:myarchitecture-tests]``. You can get inspired by
+    existing architectures, e.g. the section ``[testenv:pet-tests]``. You will also need
+    to add your tests to the ``envlist`` variable at the top of the ``tox.ini`` file.
+
+    **Step 5:** Run your tests. For this, you will need to install ``tox``. You can do this
+    with ``pip install tox``. Then, from the root of the repository, run
+    ``tox -e myarchitecture-tests``. See :ref:`the contributing page <contributing-running-tests>`
+    for more details on how to run tests.
+
+    **Step 6:** Add your architecture tests to the continuous integration (CI) system. This
+    is done by adding ``myarchitecture-tests`` to the file
+    ``.github/workflows/architecture-tests.yml``.

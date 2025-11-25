@@ -9,33 +9,49 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 
 .. Possible sections for each release:
 
-Fixed
-#####
+.. Fixed
+.. #####
 
-- Longe-range featurizer now also works with 2D periodic boundary conditions.
+.. Added
+.. #####
 
-Added
-#####
-
-- A method to train on mixed-stress datasets by setting stresses in non-periodic
-  structures to NaN.
-- Support to train target variants defined by <base>/<variant> (i.e. ``energy/PBE``).
-  Variants can be selected as a property to be predicted by an engine besides a base
-  target (i.e. ``energy``).
-- The ``LLPR`` architecture now allows training LLPR ensembles by backpropagation after
-  their creation from the LLPR covariance.
-
-Changed
-#######
-
-- Raise an error (instead of warning) if energies gradients are direct targets and do
-  not have a "non_conservative" prefix
+.. Changed
+.. #######
 
 .. Removed
 .. #######
 
 Unreleased
 ----------
+
+Version 2025.12 - 2025-11-25
+----------------------------
+
+Fixed
+#####
+
+- Improved computational efficiency of the SOAP-BPNN architecture.
+- Improved computational efficiency of ``DiskDataset``.
+- Longe-range featurizer now also works with 2D periodic boundary conditions.
+
+Added
+#####
+
+- An option to inherit head weights during fine-tuning
+- DOS loss for training on the electronic density of states
+- A method to train on mixed-stress datasets by setting stresses in non-periodic
+  structures to NaN.
+- Support to train target variants defined by <base>/<variant> (i.e. ``energy/PBE``).
+  Variants can be selected as a property to be predicted by an engine as opposed to a
+  base target (i.e. ``energy``).
+- The ``LLPR`` architecture now allows training LLPR ensembles by backpropagation after
+  their creation from the LLPR covariance. This includes support for multi-GPU training.
+
+Changed
+#######
+
+- Raise an error (instead of warning) if energies gradients are direct targets and do
+  not have a "non_conservative" prefix
 
 Version 2025.11 - 2025-10-20
 ----------------------------
