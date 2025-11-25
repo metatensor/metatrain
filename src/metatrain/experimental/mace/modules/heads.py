@@ -115,20 +115,27 @@ class MACEHeadWrapper(torch.nn.Module):
 
         self.per_layer_irreps = per_layer_irreps
         self.per_layer_dims = [ir.dim for ir in self.per_layer_irreps]
-        self.per_layer_scalars = [ir.count((0, 1)) for ir in self.per_layer_irreps]
-        features_irreps = sum(self.per_layer_irreps, o3.Irreps())
 
-        self.last_layer_features_irreps = features_irreps.count((0, 1)) * o3.Irrep(0, 1)
+
+
+        self.mace_llf_extractors = torch.nn.ModuleList()
+        self.per_layer_n_llfs = []
+        for i, readout in enumerate(readouts):
+            if readout_is_linear(readout):
+                n_llf = self.per_layer_irreps[i].count((0, 1))
+                extractor = torch.nn.Identity()
+            else:
+                n_llf = readout.linear_2.irreps_in.count((0, 1))
+                extractor = torch.nn.Sequential(
+                    readout.linear_1,
+                    readout.non_linearity,
+                )
+
+            self.mace_llf_extractors.append(extractor)
+            self.per_layer_n_llfs.append(n_llf)
+
+        self.last_layer_features_irreps = sum(self.per_layer_n_llfs) * o3.Irrep(0, 1)
         self.last_layer_features = torch.empty(0)  # To be replaced at forward pass
-
-        self.mace_llf_extractors = torch.nn.ModuleList(
-            [
-                torch.nn.Identity()
-                if readout_is_linear(readout)
-                else torch.nn.Sequential(readout.linear_1, readout.non_linearity)
-                for readout in readouts
-            ]
-        )
 
     def forward(
         self,
@@ -137,11 +144,12 @@ class MACEHeadWrapper(torch.nn.Module):
         compute_llf: bool = False,
     ) -> torch.Tensor:
         node_energies = node_energies.to(dtype=node_features.dtype).reshape(-1, 1)
+
         if compute_llf:
             per_layer_features = torch.split(node_features, self.per_layer_dims, dim=-1)
 
             ll_feats_list = [
-                extractor(per_layer_features[i])[:, : self.per_layer_scalars[i]]
+                extractor(per_layer_features[i])[:, : self.per_layer_n_llfs[i]]
                 for i, extractor in enumerate(self.mace_llf_extractors)
             ]
 
