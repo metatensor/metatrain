@@ -16,6 +16,7 @@ from metatomic.torch import (
     NeighborListOptions,
     System,
 )
+import warnings
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import CompositionModel
@@ -133,40 +134,44 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 self.mace_model.scale_shift = FakeScaleShift()
 
         else:
-            self.mace_model = MACE(
-                r_max=self.cutoff,
-                num_bessel=self.hypers["num_radial_basis"],
-                num_polynomial_cutoff=self.hypers["num_cutoff_basis"],
-                max_ell=self.hypers["max_ell"],
-                interaction_cls=mace_modules.interaction_classes[
-                    self.hypers["interaction"]
-                ],
-                num_interactions=self.hypers["num_interactions"],
-                num_elements=len(dataset_info.atomic_types),
-                hidden_irreps=o3.Irreps(self.hypers["hidden_irreps"]),
-                edge_irreps=o3.Irreps(self.hypers["edge_irreps"])
-                if "edge_irreps" in self.hypers
-                else None,
-                atomic_energies=torch.zeros(len(dataset_info.atomic_types)),
-                apply_cutoff=self.hypers["apply_cutoff"],
-                avg_num_neighbors=self.hypers["avg_num_neighbors"],
-                atomic_numbers=dataset_info.atomic_types,
-                pair_repulsion=self.hypers["pair_repulsion"],
-                distance_transform=self.hypers["distance_transform"],
-                correlation=self.hypers["correlation"],
-                gate=mace_modules.gate_dict[self.hypers["gate"]]
-                if self.hypers["gate"] is not None
-                else None,
-                interaction_cls_first=mace_modules.interaction_classes[
-                    self.hypers["interaction_first"]
-                ],
-                MLP_irreps=o3.Irreps(self.hypers["MLP_irreps"]),
-                radial_MLP=self.hypers["radial_MLP"],
-                radial_type=self.hypers["radial_type"],
-                use_embedding_readout=self.hypers["use_embedding_readout"],
-                use_last_readout_only=self.hypers["use_last_readout_only"],
-                use_agnostic_product=self.hypers["use_agnostic_product"],
-            )
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore", "To copy construct from a tensor", UserWarning
+                )
+                self.mace_model = MACE(
+                    r_max=self.cutoff,
+                    num_bessel=self.hypers["num_radial_basis"],
+                    num_polynomial_cutoff=self.hypers["num_cutoff_basis"],
+                    max_ell=self.hypers["max_ell"],
+                    interaction_cls=mace_modules.interaction_classes[
+                        self.hypers["interaction"]
+                    ],
+                    num_interactions=self.hypers["num_interactions"],
+                    num_elements=len(dataset_info.atomic_types),
+                    hidden_irreps=o3.Irreps(self.hypers["hidden_irreps"]),
+                    edge_irreps=o3.Irreps(self.hypers["edge_irreps"])
+                    if "edge_irreps" in self.hypers
+                    else None,
+                    atomic_energies=torch.zeros(len(dataset_info.atomic_types)),
+                    apply_cutoff=self.hypers["apply_cutoff"],
+                    avg_num_neighbors=self.hypers["avg_num_neighbors"],
+                    atomic_numbers=dataset_info.atomic_types,
+                    pair_repulsion=self.hypers["pair_repulsion"],
+                    distance_transform=self.hypers["distance_transform"],
+                    correlation=self.hypers["correlation"],
+                    gate=mace_modules.gate_dict[self.hypers["gate"]]
+                    if self.hypers["gate"] is not None
+                    else None,
+                    interaction_cls_first=mace_modules.interaction_classes[
+                        self.hypers["interaction_first"]
+                    ],
+                    MLP_irreps=o3.Irreps(self.hypers["MLP_irreps"]),
+                    radial_MLP=self.hypers["radial_MLP"],
+                    radial_type=self.hypers["radial_type"],
+                    use_embedding_readout=self.hypers["use_embedding_readout"],
+                    use_last_readout_only=self.hypers["use_last_readout_only"],
+                    use_agnostic_product=self.hypers["use_agnostic_product"],
+                )
 
         # ---------------------------
         #   Store info about MACE
@@ -199,8 +204,17 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         self.target_infos["features"] = get_e3nn_target_info(
             "features",
-            {"type": {"spherical": {"irreps": self.features_irreps}}, "per_atom": True},
+            {"type": {"spherical": {"irreps": self.features_irreps}}, "per_atom": True, "properties_name": "feature"},
         )
+
+        self.outputs = {
+            k: ModelOutput(
+                quantity=target_info.quantity,
+                unit=target_info.unit,
+                per_atom=True,
+            )
+            for k, target_info in self.target_infos.items()
+        }
 
         # ---------------------------
         # Data preprocessing modules
@@ -394,17 +408,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         return return_dict
 
-    @property
-    def outputs(self) -> Dict[str, ModelOutput]:
-        return {
-            k: ModelOutput(
-                quantity=target_info.quantity,
-                unit=target_info.unit,
-                per_atom=True,
-            )
-            for k, target_info in self.target_infos.items()
-        }
-
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
@@ -541,7 +544,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         self.target_infos[self._llf_name(target_name)] = get_e3nn_target_info(
             f"{target_name}_last_layer_features",
-            {"type": {"spherical": {"irreps": llf_irreps}}, "per_atom": True},
+            {"type": {"spherical": {"irreps": llf_irreps}}, "per_atom": True, "properties_name": "feature"},
         )
 
     def _llf_name(self, target_name: str) -> str:
