@@ -200,7 +200,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
     )
 
     component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
-    species_to_species_index: torch.Tensor  # torchscript needs this
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -226,6 +225,8 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 len(self.atomic_types)
             )
             self.register_buffer("species_to_species_index", species_to_species_index)
+        else:
+            self.species_to_species_index = torch.zeros(1)  # for torchscript
 
         spex_soap_hypers = {
             "cutoff": self.hypers["soap"]["cutoff"]["radius"],
@@ -261,7 +262,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 embedding_dim=soap_size,
             )
         else:
-            self.center_encoding = Identity()
+            self.center_encoding = torch.nn.Identity()
 
         hypers_bpnn = {**self.hypers["bpnn"]}
         hypers_bpnn["input_size"] = soap_size
@@ -556,7 +557,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             soap_features_tensor = soap_features.block(0).values
             soap_features_tensor = self.layernorm_for_tensors(soap_features_tensor)
         else:
-            soap_features_tensor = torch.tensor([])  # for torchscript
+            soap_features_tensor = torch.zeros(1)  # for torchscript
             soap_features = self.layernorm(soap_features)
 
         if not self.legacy:
