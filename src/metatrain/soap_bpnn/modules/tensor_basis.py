@@ -407,6 +407,7 @@ class TensorBasis(torch.nn.Module):
                 legacy=self.legacy,
             )
             self.spex_calculator = SphericalExpansion(**spex_soap_hypers)
+            self.center_encoding = self.vector_basis.center_encoding
 
             if self.legacy:
                 n_radial = self.spex_calculator.radial.n_per_l[o3_lambda]
@@ -431,7 +432,6 @@ class TensorBasis(torch.nn.Module):
                     ],
                 )
                 self.spex_contraction_for_tensors = torch.nn.Identity()
-                self.center_encoding = torch.nn.Identity()
             else:
                 n_radial = self.spex_calculator.radial.n_per_l[o3_lambda]
                 self.spex_contraction_for_tensors = torch.nn.Linear(
@@ -440,11 +440,6 @@ class TensorBasis(torch.nn.Module):
                     bias=False,
                 )
                 self.spex_contraction = FakeLinearMap()
-                # TODO: maybe use the same encoding as in VectorBasis?
-                self.center_encoding = torch.nn.Embedding(
-                    num_embeddings=len(self.atomic_types),
-                    embedding_dim=self.spex_calculator.radial.n_per_l[1] * 4,
-                )
         else:
             # needed to make torchscript work
             self.center_encoding = torch.nn.Identity()
