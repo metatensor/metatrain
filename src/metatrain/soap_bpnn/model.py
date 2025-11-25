@@ -184,7 +184,7 @@ def concatenate_structures(
 
 
 class SoapBpnn(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 6
+    __checkpoint_version__ = 7
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -208,7 +208,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         # implementations of SOAP-BPNN. While the latter uses uses orthogonal spaces
         # to represent chemical species (both center and neighbor species), the former
         # uses embeddings.
-        self.legacy = self.hypers["legacy"]
+        self.legacy = self.hypers.get("legacy", True)
 
         self.atomic_types = dataset_info.atomic_types
         self.requested_nl = NeighborListOptions(
