@@ -10,6 +10,14 @@ from .architectures import ArchitectureTests
 class AutogradTests(ArchitectureTests):
     """Tests that autograd works correctly for a given model."""
 
+    cuda_nondet_tolerance = 0.0
+    """Some operations in your model might be nondeterministic in CuBLAS.
+
+    This can result in small differences in two gradient computations
+    with the same input and outputs. This number sets the nondeterministic
+    tolerance for ``gradcheck`` and ``gradgradcheck`` when running on CUDA.
+    """
+
     def test_autograd_positions(
         self, device: torch.device, model_hypers: dict, dataset_info: DatasetInfo
     ) -> None:
@@ -27,6 +35,8 @@ class AutogradTests(ArchitectureTests):
         """
 
         device = torch.device(device)
+
+        nondet_tolerance = self.cuda_nondet_tolerance if device.type == "cuda" else 0.0
 
         model = self.model_cls(model_hypers, dataset_info)
         model = model.to(dtype=torch.float64, device=device)
@@ -56,9 +66,11 @@ class AutogradTests(ArchitectureTests):
             requires_grad=True,
             device=device,
         )
-        assert torch.autograd.gradcheck(compute, positions, fast_mode=True)
+        assert torch.autograd.gradcheck(
+            compute, positions, fast_mode=True, nondet_tol=nondet_tolerance
+        )
         assert torch.autograd.gradgradcheck(
-            compute, positions, fast_mode=True, nondet_tol=1e-12
+            compute, positions, fast_mode=True, nondet_tol=nondet_tolerance
         )
 
     def test_autograd_cell(
@@ -78,6 +90,7 @@ class AutogradTests(ArchitectureTests):
         """
 
         device = torch.device(device)
+        nondet_tolerance = self.cuda_nondet_tolerance if device.type == "cuda" else 0.0
 
         model = self.model_cls(model_hypers, dataset_info)
         model = model.to(dtype=torch.float64, device=device)
@@ -108,7 +121,9 @@ class AutogradTests(ArchitectureTests):
 
         cell = torch.eye(3, dtype=torch.float64, requires_grad=True, device=device)
 
-        assert torch.autograd.gradcheck(compute, cell, fast_mode=True)
+        assert torch.autograd.gradcheck(
+            compute, cell, fast_mode=True, nondet_tol=nondet_tolerance
+        )
         assert torch.autograd.gradgradcheck(
-            compute, cell, fast_mode=True, nondet_tol=1e-12
+            compute, cell, fast_mode=True, nondet_tol=nondet_tolerance
         )

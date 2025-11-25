@@ -48,7 +48,8 @@ class TestOutput(OutputTests, SoapBPNNTests):
         return 0.0
 
 
-class TestAutograd(AutogradTests, SoapBPNNTests): ...
+class TestAutograd(AutogradTests, SoapBPNNTests):
+    cuda_nondet_tolerance = 1e-12
 
 
 class TestTorchscript(TorchscriptTests, SoapBPNNTests):
