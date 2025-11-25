@@ -1,3 +1,6 @@
+import random
+
+import numpy as np
 import torch
 from metatomic.torch import ModelOutput, System
 
@@ -33,6 +36,11 @@ class AutogradTests(ArchitectureTests):
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info: Dataset information to initialize the model.
         """
+        # Gradient differences can depend on the initialized weights,
+        # and we don't want this test to fail randomly, so we set the seed.
+        random.seed(0)
+        np.random.seed(0)
+        torch.manual_seed(0)
 
         device = torch.device(device)
 
@@ -88,6 +96,12 @@ class AutogradTests(ArchitectureTests):
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info: Dataset information to initialize the model.
         """
+
+        # Gradient differences can depend on the initialized weights,
+        # and we don't want this test to fail randomly, so we set the seed.
+        random.seed(0)
+        np.random.seed(0)
+        torch.manual_seed(0)
 
         device = torch.device(device)
         nondet_tolerance = self.cuda_nondet_tolerance if device.type == "cuda" else 0.0
