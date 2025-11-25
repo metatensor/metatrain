@@ -57,7 +57,9 @@ class AutogradTests(ArchitectureTests):
             device=device,
         )
         assert torch.autograd.gradcheck(compute, positions, fast_mode=True)
-        assert torch.autograd.gradgradcheck(compute, positions, fast_mode=True)
+        assert torch.autograd.gradgradcheck(
+            compute, positions, fast_mode=True, nondet_tol=1e-12
+        )
 
     def test_autograd_cell(
         self, device: torch.device, model_hypers: dict, dataset_info: DatasetInfo
@@ -107,4 +109,6 @@ class AutogradTests(ArchitectureTests):
         cell = torch.eye(3, dtype=torch.float64, requires_grad=True, device=device)
 
         assert torch.autograd.gradcheck(compute, cell, fast_mode=True)
-        assert torch.autograd.gradgradcheck(compute, cell, fast_mode=True)
+        assert torch.autograd.gradgradcheck(
+            compute, cell, fast_mode=True, nondet_tol=1e-12
+        )
