@@ -1,4 +1,5 @@
 import argparse
+import copy
 
 from mace.tools import build_default_arg_parser
 
@@ -52,7 +53,7 @@ def get_mace_hypers_spec():
             assert action.default == "[64, 64, 64]"
             return "list[int]"
         elif action.choices is not None:
-            choices = action.choices.copy()
+            choices = copy.copy(list(action.choices))
             optional = False
             if "None" in choices:
                 optional = True
@@ -74,10 +75,10 @@ def get_mace_hypers_spec():
             annotation = "bool"
         elif action.type is None:
             annotation = "str"
-        elif action.type.__name__ == "str2bool":
+        elif hasattr(action.type, "__name__") and action.type.__name__ == "str2bool":
             annotation = "bool"
         else:
-            annotation = action.type.__name__
+            annotation = getattr(action.type, "__name__", "str")
 
         if optional:
             annotation = f"Optional[{annotation}]"

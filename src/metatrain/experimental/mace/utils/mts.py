@@ -1,60 +1,13 @@
 """Utilities related to the interaction with metatensor"""
 
-from typing import Dict, List, Optional
+from typing import List
 
 import torch
 from e3nn import o3
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.operations._add import _add_block_block
-from metatomic.torch import ModelOutput, System
+from metatomic.torch import System
 
-from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import TargetInfo
-
-
-def add_contribution(
-    values: Dict[str, TensorMap],
-    systems: List[System],
-    outputs: Dict[str, ModelOutput],
-    additive_model: CompositionModel,
-    selected_atoms: Optional[Labels] = None,
-) -> None:
-    outputs_for_additive_model: Dict[str, ModelOutput] = {}
-    for name, output in outputs.items():
-        if name in additive_model.outputs:
-            outputs_for_additive_model[name] = output
-    additive_contributions = additive_model.forward(
-        systems,
-        outputs_for_additive_model,
-        selected_atoms,
-    )
-    for name in additive_contributions:
-        # # TODO: uncomment this after metatensor.torch.add is updated to
-        # # handle sparse sums
-        # return_dict[name] = metatensor.torch.add(
-        #     return_dict[name],
-        #     additive_contributions[name].to(
-        #         device=return_dict[name].device,
-        #         dtype=return_dict[name].dtype
-        #         ),
-        # )
-
-        # TODO: "manual" sparse sum: update to metatensor.torch.add after
-        # sparse sum is implemented in metatensor.operations
-        output_blocks: List[TensorBlock] = []
-        for k, b in values[name].items():
-            if k in additive_contributions[name].keys:
-                output_blocks.append(
-                    _add_block_block(
-                        b,
-                        additive_contributions[name]
-                        .block(k)
-                        .to(device=b.device, dtype=b.dtype),
-                    )
-                )
-            else:
-                output_blocks.append(b)
-        values[name] = TensorMap(values[name].keys, output_blocks)
 
 
 def e3nn_to_tensormap(

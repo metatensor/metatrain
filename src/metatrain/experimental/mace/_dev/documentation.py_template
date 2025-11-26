@@ -67,8 +67,6 @@ class ModelHypers(TypedDict):
 
     This is passed to MACE's ``r_max`` argument.
     """
-
-
 {mace_hypers}
 
 
