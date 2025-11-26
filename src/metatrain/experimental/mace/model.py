@@ -32,13 +32,13 @@ from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.heads import MACEHeadWrapper, NonLinearHead
 from .modules.scale_shift import FakeScaleShift
-from .modules.structures import create_batch
 from .utils.mts import (
     e3nn_to_tensormap,
     get_e3nn_target_info,
-    get_system_indices_and_labels,
+    get_samples_labels,
     target_info_to_e3nn_irreps,
 )
+from .utils.structures import create_batch
 
 
 class MetaMACE(ModelInterface[ModelHypers]):
@@ -375,7 +375,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # Now, we simply convert to TensorMaps.
 
         # Get the labels for the samples (system and atom of each value)
-        _, samples = get_system_indices_and_labels(systems)
+        samples = get_samples_labels(systems)
 
         return_dict: Dict[str, TensorMap] = {}
         for output_name, model_output in model_outputs.items():

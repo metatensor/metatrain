@@ -29,7 +29,7 @@ MACE_MODEL_ARG_KEYS = [
 ]
 
 
-def get_mace_defaults():
+def get_mace_defaults() -> dict:
     parser = build_default_arg_parser()
 
     # Extract defaults without triggering required arguments
@@ -42,7 +42,7 @@ def get_mace_defaults():
     return mace_defaults
 
 
-def get_mace_hypers_spec():
+def get_mace_hypers_spec() -> dict:
     """Get the MACE hyperparameter specification.
 
     :return: A dictionary with the MACE hyperparameter specification.
