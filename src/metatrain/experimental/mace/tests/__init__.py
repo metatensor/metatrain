@@ -1,12 +1,9 @@
+import urllib.request
 from pathlib import Path
 
-from metatrain.utils.architectures import get_default_hypers
 
+mace_model_url = "https://github.com/ACEsuit/mace-mp/releases/download/mace_mp_0/2023-12-10-mace-128-L0_energy_epoch-249.model"
+model_path = Path(__file__).parent / "mace_small.model"
 
-DATASET_PATH = str(Path(__file__).parents[4] / "tests/resources/qm9_reduced_100.xyz")
-DATASET_WITH_FORCES_PATH = str(
-    Path(__file__).parents[4] / "tests/resources/carbon_reduced_100.xyz"
-)
-
-DEFAULT_HYPERS = get_default_hypers("experimental.mace")
-MODEL_HYPERS = DEFAULT_HYPERS["model"]
+if not model_path.exists():
+    urllib.request.urlretrieve(mace_model_url, model_path)

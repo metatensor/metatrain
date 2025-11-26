@@ -22,7 +22,7 @@ def write_mace_hypers_spec():
     and writes it to mace_hypers_spec.yaml.
     """
 
-    with open(Path(__file__).parent / "documentation_template.py", "r") as f:
+    with open(Path(__file__).parent / "documentation.py_template", "r") as f:
         template_content = f.read()
 
     def _get_default(key, spec):

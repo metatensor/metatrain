@@ -1,4 +1,6 @@
 import logging
+import warnings
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 import mace.modules as mace_modules
@@ -7,7 +9,8 @@ import torch
 from e3nn import o3
 from e3nn.util import jit
 from mace.modules import MACE
-from metatensor.torch import Labels, TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -16,7 +19,6 @@ from metatomic.torch import (
     NeighborListOptions,
     System,
 )
-import warnings
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import CompositionModel
@@ -32,7 +34,6 @@ from .modules.heads import MACEHeadWrapper, NonLinearHead
 from .modules.scale_shift import FakeScaleShift
 from .modules.structures import create_batch
 from .utils.mts import (
-    add_contribution,
     e3nn_to_tensormap,
     get_e3nn_target_info,
     get_system_indices_and_labels,
@@ -116,7 +117,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         if self.loaded_mace:
             # MACE model provided, load it in case it's a path or use it directly
-            if isinstance(self.hypers["mace_model"], str):
+            if isinstance(self.hypers["mace_model"], (Path, str)):
                 self.mace_model = torch.load(
                     self.hypers["mace_model"], weights_only=False
                 )
@@ -204,7 +205,11 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         self.target_infos["features"] = get_e3nn_target_info(
             "features",
-            {"type": {"spherical": {"irreps": self.features_irreps}}, "per_atom": True, "properties_name": "feature"},
+            {
+                "type": {"spherical": {"irreps": self.features_irreps}},
+                "per_atom": True,
+                "properties_name": "feature",
+            },
         )
 
         self.outputs = {
@@ -223,7 +228,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # The composition model and scaler are handled by the trainer during training.
         # Their purpose is to adapt the data for optimal training.
         # At evaluation time, the model applies them on forward.
-
         composition_model = CompositionModel(
             hypers={},
             dataset_info=DatasetInfo(
@@ -285,26 +289,24 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         return self
 
-    def to(self, *args: Any, **kwargs: Any) -> "MetaMACE":
-        super().to(*args, **kwargs)
-        device = next(self.parameters()).device
-        dtype = next(self.parameters()).dtype
-        # Move dataset info to the correct device
-        self.dataset_info = self.dataset_info.to(device=device)
-        # If the MACE model was loaded as part of the hypers, it is probably
-        # a RecursiveScriptModule, which seems to not get moved by super().to()
-        # So we move it here manually.
-        if self.loaded_mace:
-            self.mace_model = self.mace_model.to(device=device, dtype=dtype)
-
-        return self
-
     def forward(
         self,
         systems: List[System],
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        # --------------------------
+        # Moving to device and dtype
+        # --------------------------
+        # We can't overwrite the to() method because this does not work with
+        # torchscript, so we do the necessary operations here.
+        # Get device and dtype from the first system
+        device = systems[0].device
+        # Move target infos to the correct device
+        self.target_infos = {
+            k: v.to(device=device) for k, v in self.target_infos.items()
+        }
+
         # --------------------------
         #  Prepare inputs for MACE
         # --------------------------
@@ -395,18 +397,71 @@ class MetaMACE(ModelInterface[ModelHypers]):
             )
 
         # -----------------------------------------
-        #   Add additive contributions (eval only)
+        #   Undo data preprocessing (eval only)
         # -----------------------------------------
 
         # At evaluation, we also introduce the scaler and additive contributions
         if not self.training:
             return_dict = self.scaler(systems, return_dict)
-            for additive_model in self.additive_models:
-                add_contribution(
-                    return_dict, systems, outputs, additive_model, selected_atoms
-                )
+            self.add_additive_contributions(
+                return_dict, systems, outputs, selected_atoms
+            )
 
         return return_dict
+
+    def add_additive_contributions(
+        self,
+        values: Dict[str, TensorMap],
+        systems: List[System],
+        outputs: Dict[str, ModelOutput],
+        selected_atoms: Optional[Labels] = None,
+    ) -> None:
+        """Adds the contributions from all additive models to the passed values.
+
+        :param values: Dictionary of TensorMaps containing the current outputs
+          (without additive contributions). The additive contributions will be added
+          in place to this dictionary.
+        :param systems: List of systems that have been evaluated to produce the outputs.
+        :param outputs: Dictionary of requested ModelOutputs.
+        :param selected_atoms: Optional Labels selecting a subset of atoms.
+        """
+        for additive_model in self.additive_models:
+            outputs_for_additive_model: Dict[str, ModelOutput] = {}
+            for name, output in outputs.items():
+                if name in additive_model.outputs:
+                    outputs_for_additive_model[name] = output
+            additive_contributions = additive_model.forward(
+                systems,
+                outputs_for_additive_model,
+                selected_atoms,
+            )
+            for name in additive_contributions:
+                # # TODO: uncomment this after metatensor.torch.add is updated to
+                # # handle sparse sums
+                # return_dict[name] = metatensor.torch.add(
+                #     return_dict[name],
+                #     additive_contributions[name].to(
+                #         device=return_dict[name].device,
+                #         dtype=return_dict[name].dtype
+                #         ),
+                # )
+
+                # TODO: "manual" sparse sum: update to metatensor.torch.add after
+                # sparse sum is implemented in metatensor.operations
+                output_blocks: List[TensorBlock] = []
+                for k, b in values[name].items():
+                    if k in additive_contributions[name].keys:
+                        output_blocks.append(
+                            _add_block_block(
+                                b,
+                                additive_contributions[name]
+                                .block(k)
+                                .to(device=b.device, dtype=b.dtype),
+                            )
+                        )
+                    else:
+                        output_blocks.append(b)
+                values[name] = TensorMap(values[name].keys, output_blocks)
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -544,7 +599,11 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         self.target_infos[self._llf_name(target_name)] = get_e3nn_target_info(
             f"{target_name}_last_layer_features",
-            {"type": {"spherical": {"irreps": llf_irreps}}, "per_atom": True, "properties_name": "feature"},
+            {
+                "type": {"spherical": {"irreps": llf_irreps}},
+                "per_atom": True,
+                "properties_name": "feature",
+            },
         )
 
     def _llf_name(self, target_name: str) -> str:

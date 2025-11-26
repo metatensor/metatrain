@@ -4,9 +4,9 @@ from typing import Any
 import torch
 from metatomic.torch import System
 
+from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
-from metatrain.utils.abc import ModelInterface
 
 from .architectures import ArchitectureTests
 
@@ -32,7 +32,9 @@ class TorchscriptTests(ArchitectureTests):
         """
         return torch.jit.script(model)
 
-    def test_torchscript(self, model_hypers: dict, dataset_info: DatasetInfo) -> None:
+    def test_torchscript(
+        self, model_hypers: dict, dataset_info: DatasetInfo, dtype: torch.dtype
+    ) -> None:
         """Tests that the model can be jitted.
 
         If this test fails it probably means that there is some
@@ -42,24 +44,61 @@ class TorchscriptTests(ArchitectureTests):
 
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info: Dataset to initialize the model.
+        :param dtype: Dtype to use for the model and inputs.
         """
 
         model = self.model_cls(model_hypers, dataset_info)
         system = System(
             types=torch.tensor([6, 1, 8, 7]),
             positions=torch.tensor(
-                [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]]
+                [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
+                dtype=dtype,
             ),
-            cell=torch.zeros(3, 3),
+            cell=torch.zeros(3, 3, dtype=dtype),
             pbc=torch.tensor([False, False, False]),
         )
         system = get_system_with_neighbor_lists(
             system, model.requested_neighbor_lists()
         )
 
-        model = model.to(system.positions.dtype)
+        model = model.to(dtype)
 
         model = self.jit_compile(model)
+        model(
+            [system],
+            model.outputs,
+        )
+
+    def test_torchscript_dtypechange(
+        self, model_hypers: dict, dataset_info: DatasetInfo, dtype: torch.dtype
+    ) -> None:
+        """Tests that the model can be changed to a different dtype after jitting.
+
+        If this test fails and ``test_torchscript`` passes, it probably means that
+        your model is overwriting the `to()` method, which does not work in
+        TorchScript. If ``test_torchscript`` also fails, then one should fix
+        that one first.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset to initialize the model.
+        :param dtype: Dtype to change the model to.
+        """
+        model = self.model_cls(model_hypers, dataset_info)
+        system = System(
+            types=torch.tensor([6, 1, 8, 7]),
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
+                dtype=dtype,
+            ),
+            cell=torch.zeros(3, 3, dtype=dtype),
+            pbc=torch.tensor([False, False, False]),
+        )
+        system = get_system_with_neighbor_lists(
+            system, model.requested_neighbor_lists()
+        )
+
+        model = self.jit_compile(model)
+        model = model.to(dtype)
         model(
             [system],
             model.outputs,
@@ -76,7 +115,9 @@ class TorchscriptTests(ArchitectureTests):
         """
 
         self.test_torchscript(
-            model_hypers=model_hypers, dataset_info=dataset_info_spherical
+            model_hypers=model_hypers,
+            dataset_info=dataset_info_spherical,
+            dtype=torch.float32,
         )
 
     def test_torchscript_save_load(
@@ -97,7 +138,9 @@ class TorchscriptTests(ArchitectureTests):
             torch.jit.load("model.pt")
 
     def test_torchscript_integers(
-        self, model_hypers: dict, dataset_info: DatasetInfo
+        self,
+        model_hypers: dict,
+        dataset_info: DatasetInfo,
     ) -> None:
         """Tests that the model can be jitted when some float
         parameters are instead supplied as integers.
@@ -115,6 +158,5 @@ class TorchscriptTests(ArchitectureTests):
             sub_dict[nested_key[-1]] = int(sub_dict[nested_key[-1]])
 
         self.test_torchscript(
-            model_hypers=new_hypers, dataset_info=dataset_info
+            model_hypers=new_hypers, dataset_info=dataset_info, dtype=torch.float32
         )
-
