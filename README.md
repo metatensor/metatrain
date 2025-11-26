@@ -41,6 +41,7 @@ model:
 | NanoPET *(deprecated)*   | Re-implementation of the original PET with slightly improved training and evaluation speed                                           |
 | SOAP BPNN                | A Behler-Parrinello neural network with SOAP features                                                                                |
 | FlashMD                  | An architecture for the direct prediction of molecular dynamics                                                                      |
+| MACE                     | A higher order equivariant message passing neural network.
 
 <!-- marker-documentation -->
 

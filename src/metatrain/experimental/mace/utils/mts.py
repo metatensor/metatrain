@@ -15,6 +15,18 @@ def e3nn_to_tensormap(
     samples: Labels,
     target_info: TargetInfo,
 ) -> TensorMap:
+    """Convert the e3nn torch tensor outputs to a metatensor TensorMap.
+
+    :param target_values: Tensor of shape ``(n_samples, dim)``
+        containing the target values, with ``dim`` being the flattened
+        dimension containing all irreps.
+    :param samples: ``Labels`` for the samples argument of ``TensorBlock``.
+    :param target_info: ``TargetInfo`` object containing the layout of the
+        e3nn irreps in the shape of a ``TensorMap``. This has probably
+        been obtained with ``get_e3nn_target_info``.
+
+    :return: A ``TensorMap`` containing the target values.
+    """
     blocks: list[TensorBlock] = []
     pointer = 0
     for i in range(len(target_info.component_labels)):
@@ -142,7 +154,13 @@ def target_info_to_e3nn_irreps(target_info: TargetInfo) -> o3.Irreps:
     return o3.Irreps(irreps)
 
 
-def get_system_indices_and_labels(systems: List[System]) -> tuple[torch.Tensor, Labels]:
+def get_samples_labels(systems: List[System]) -> Labels:
+    """For a list of systems, get the Labels object for the samples
+    of a ``TensorBlock`` containing per-atom data.
+
+    :param systems: List of systems.
+    :return: ``Labels`` object for the samples of a ``TensorBlock``.
+    """
     device = systems[0].device
 
     system_indices = torch.concatenate(
@@ -175,4 +193,4 @@ def get_system_indices_and_labels(systems: List[System]) -> tuple[torch.Tensor, 
         names=["system", "atom"],
         values=sample_values,
     )
-    return system_indices, sample_labels
+    return sample_labels

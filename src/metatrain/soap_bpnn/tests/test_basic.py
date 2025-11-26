@@ -58,7 +58,9 @@ class TestTorchscript(TorchscriptTests, SoapBPNNTests):
     def test_torchscript_with_identity(self, model_hypers, dataset_info, dtype):
         hypers = copy.deepcopy(model_hypers)
         hypers["bpnn"]["layernorm"] = False
-        self.test_torchscript(model_hypers=hypers, dataset_info=dataset_info, dtype=dtype)
+        self.test_torchscript(
+            model_hypers=hypers, dataset_info=dataset_info, dtype=dtype
+        )
 
 
 class TestExported(ExportedTests, SoapBPNNTests): ...
