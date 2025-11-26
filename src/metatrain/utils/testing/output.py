@@ -260,7 +260,6 @@ class OutputTests(ArchitectureTests):
         assert len(outputs["spherical_tensor"]) == 3
 
         for i in range(len(outputs["spherical_tensor"])):
-
             spherical_target_block = outputs["spherical_tensor"].block(i)
 
             if per_atom:
@@ -298,6 +297,7 @@ class OutputTests(ArchitectureTests):
         system = get_system_with_neighbor_lists(
             system, model.requested_neighbor_lists()
         )
+        model = model.to(system.positions.dtype)
         model(
             [system],
             {"energy": model.outputs["energy"]},
@@ -444,6 +444,7 @@ class OutputTests(ArchitectureTests):
             unit="unitless",
             per_atom=per_atom,
         )
+        model = model.to(system.positions.dtype)
         outputs = model(
             [system],
             {
@@ -463,9 +464,15 @@ class OutputTests(ArchitectureTests):
             assert features.properties.names == ["feature"]
             assert features.values.shape[0] == (4 if per_atom else 1)
             if isinstance(n_features, int):
-                assert features.values.shape[-1] == n_features, f"Block {i}, expected {n_features} features but got {features.values.shape[-1]}"
+                assert features.values.shape[-1] == n_features, (
+                    f"Block {i}, expected {n_features} features "
+                    f"but got {features.values.shape[-1]}"
+                )
             elif isinstance(n_features, list):
-                assert features.values.shape[-1] == n_features[i], f"Block {i}, expected {n_features[i]} features but got {features.values.shape[-1]}"
+                assert features.values.shape[-1] == n_features[i], (
+                    f"Block {i}, expected {n_features[i]} features "
+                    f"but got {features.values.shape[-1]}"
+                )
 
     @pytest.mark.parametrize("per_atom", [True, False])
     def test_output_last_layer_features(
@@ -515,6 +522,7 @@ class OutputTests(ArchitectureTests):
             unit="unitless",
             per_atom=per_atom,
         )
+        model = model.to(system.positions.dtype)
         outputs = model(
             [system],
             {
@@ -582,6 +590,7 @@ class OutputTests(ArchitectureTests):
                 [(n, i) for n in range(len(systems)) for i in select_atoms]
             ),
         )
+        model = model.to(systems[0].positions.dtype)
         out = model(systems, outputs, selected_atoms=selected_atoms)
         features = out[output_label].block().samples.values
         assert features.shape == selected_atoms.values.shape
@@ -610,6 +619,7 @@ class OutputTests(ArchitectureTests):
         system = get_system_with_neighbor_lists(
             system, model.requested_neighbor_lists()
         )
+        model = model.to(system.positions.dtype)
         outputs = model([system], {"energy": ModelOutput(per_atom=False)})
         if single_atom_energy is not None:
             assert outputs["energy"].block().values.item() == single_atom_energy
@@ -646,19 +656,11 @@ class OutputTests(ArchitectureTests):
         model = model.to(original_system.positions.dtype)
 
         original_output = model(
-            [
-                get_system_with_neighbor_lists(
-                    original_system, requested_neighbor_lists
-                )
-            ],
+            [get_system_with_neighbor_lists(original_system, requested_neighbor_lists)],
             {"energy": model.outputs["energy"]},
         )
         rotated_output = model(
-            [
-                get_system_with_neighbor_lists(
-                    system, requested_neighbor_lists
-                )
-            ],
+            [get_system_with_neighbor_lists(system, requested_neighbor_lists)],
             {"energy": model.outputs["energy"]},
         )
 

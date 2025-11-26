@@ -42,7 +42,8 @@ class NonLinearHead(torch.nn.Module):
         if len(missing_ir) > 0:
             logging.warning(
                 f"The output irreps '{irreps_out}' contain irreps not present in the "
-                f"input irreps '{irreps_in}'. The following irreps are missing: {missing_ir}."
+                f"input irreps '{irreps_in}'. "
+                "The following irreps are missing: {missing_ir}."
             )
 
         # Get the irreps present in the output, so that we can filter
@@ -50,13 +51,15 @@ class NonLinearHead(torch.nn.Module):
         # having only the last layer features that are truly used.
         output_irreps = set(ir.ir for ir in irreps_out)
 
-        self.hidden_irreps = sum(
-            [
-                str(ir) if ir.ir.l > 0 else MLP_irreps
-                for ir in irreps_in
-                if ir.ir in output_irreps
-            ],
-            o3.Irreps(""),
+        self.hidden_irreps = o3.Irreps(
+            sum(
+                [
+                    str(ir) if ir.ir.l > 0 else MLP_irreps
+                    for ir in irreps_in
+                    if ir.ir in output_irreps
+                ],
+                o3.Irreps(""),
+            )
         )
 
         gates = [None if ir.ir.l > 0 else gate for ir in self.hidden_irreps]
@@ -115,8 +118,6 @@ class MACEHeadWrapper(torch.nn.Module):
 
         self.per_layer_irreps = per_layer_irreps
         self.per_layer_dims = [ir.dim for ir in self.per_layer_irreps]
-
-
 
         self.mace_llf_extractors = torch.nn.ModuleList()
         self.per_layer_n_llfs = []
