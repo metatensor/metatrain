@@ -228,6 +228,17 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         else:
             self.species_to_species_index = torch.zeros(1)  # for torchscript
 
+        species: Dict[str, Any]  # make mypy happy
+        if self.legacy:
+            species = {"Orthogonal": {"species": self.atomic_types}}
+        else:
+            # hardcoded to 4 (the literature would suggest 4 is enough)
+            species = {
+                "Alchemical": {
+                    "pseudo_species": 4,
+                    "total_species": len(self.atomic_types),
+                }
+            }
         spex_soap_hypers = {
             "cutoff": self.hypers["soap"]["cutoff"]["radius"],
             "max_angular": self.hypers["soap"]["max_angular"],
@@ -240,17 +251,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             "cutoff_function": {
                 "ShiftedCosine": {"width": self.hypers["soap"]["cutoff"]["width"]}
             },
-            "species": (
-                # hardcoded to 4 (the literature would suggest 4 is enough)
-                {
-                    "Alchemical": {
-                        "pseudo_species": 4,
-                        "total_species": len(self.atomic_types),
-                    }
-                }
-                if not self.legacy
-                else {"Orthogonal": {"species": self.atomic_types}}
-            ),
+            "species": species,
         }
         self.soap_calculator = SoapPowerSpectrum(**spex_soap_hypers)  # type: ignore
         soap_size = self.soap_calculator.shape

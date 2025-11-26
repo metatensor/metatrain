@@ -1,7 +1,7 @@
 """Modules to allow SOAP-BPNN to fit arbitrary spherical tensor targets."""
 
 import copy
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import metatensor.torch as mts
 import numpy as np
@@ -21,10 +21,11 @@ def _build_spex_hypers(
     max_angular: int,
     atomic_types: List[int],
     legacy: bool,
-) -> Dict[str, object]:
+) -> Dict[str, Any]:
     """Build the hypers dictionary for SphericalExpansion, handling legacy mode."""
     soap_hypers = copy.deepcopy(soap_hypers)
 
+    species_def: Dict[str, Any]  # make mypy happy
     if legacy:
         species_def = {"Orthogonal": {"species": atomic_types}}
     else:
@@ -36,7 +37,7 @@ def _build_spex_hypers(
             }
         }
 
-    spex_soap_hypers: Dict[str, object] = {
+    spex_soap_hypers = {
         "cutoff": soap_hypers["cutoff"]["radius"],
         "max_angular": max_angular,
         "radial": {
