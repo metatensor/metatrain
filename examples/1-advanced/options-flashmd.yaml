@@ -33,7 +33,7 @@ training_set:
     momenta:
       key: future_momenta
       quantity: momentum
-      unit: (eV*u)^1/2
+      unit: (eV*u)^(1/2)
       type:
         cartesian:
           rank: 1

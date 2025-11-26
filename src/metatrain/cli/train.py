@@ -400,7 +400,7 @@ def train_model(
 
     # Expand loss options and finalize the hypers
     options = expand_loss_config(options)
-    hypers = OmegaConf.to_container(options["architecture"])
+    hypers = OmegaConf.to_container(options["architecture"], resolve=True)
 
     ############################################
     # SAVE TRAIN, VALIDATION, TEST INDICES #####

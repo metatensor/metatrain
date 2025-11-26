@@ -24,8 +24,8 @@ New architectures added to the library will initially be classified as experimen
 These architectures are stored in the ``experimental`` subdirectory within the
 repository. To qualify as an experimental architecture, certain criteria must be met:
 
-1. Capability to fit at least a single quantity and predict it, verified through CI
-   tests.
+1. Pass basic provided architecture tests, including capability to fit at least a single
+   quantity and predict it, verified through CI tests.
 2. Compatibility with JIT compilation using `TorchScript
    <https://pytorch.org/docs/stable/jit.html>`_.
 3. Provision of reasonable default hyperparameters.

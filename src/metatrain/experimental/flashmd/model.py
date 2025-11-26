@@ -46,7 +46,7 @@ class FlashMD(ModelInterface[ModelHypers]):
     For more information, you can refer to https://arxiv.org/abs/2505.19350.
     """
 
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -140,9 +140,10 @@ class FlashMD(ModelInterface[ModelHypers]):
             self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
         )
 
+        # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(unit="", per_atom=True)
-        }  # the model is always capable of outputting the internal features
+            "features": ModelOutput(per_atom=True, description="internal features")
+        }
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
         self.key_labels: Dict[str, Labels] = {}
@@ -1220,6 +1221,7 @@ class FlashMD(ModelInterface[ModelHypers]):
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
+            description=target_info.description,
         )
 
         self.node_heads[target_name] = torch.nn.ModuleList(
@@ -1279,7 +1281,9 @@ class FlashMD(ModelInterface[ModelHypers]):
         )
 
         ll_features_name = get_last_layer_features_name(target_name)
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+        self.outputs[ll_features_name] = ModelOutput(
+            per_atom=True, description=f"last-layer features for {target_name}"
+        )
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [
             block.components for block in target_info.layout.blocks()

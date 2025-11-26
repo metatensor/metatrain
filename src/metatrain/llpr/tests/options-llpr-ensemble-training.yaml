@@ -1,0 +1,22 @@
+seed: 4332
+
+architecture:
+  name: llpr
+  model:
+    num_ensemble_members: {energy: 32}
+  training:
+    model_checkpoint: model.ckpt
+    batch_size: 4
+    num_epochs: 2
+
+training_set:
+  systems:
+    read_from: qm9_reduced_100.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: U0
+      unit: eV
+
+validation_set: 0.1
+test_set: 0.1

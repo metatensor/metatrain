@@ -19,7 +19,13 @@ from metatensor.torch import (
     make_contiguous_block,
     save_buffer,
 )
-from metatomic.torch import System, load_system, load_system_buffer
+from metatomic.torch import (
+    ModelCapabilities,
+    ModelOutput,
+    System,
+    load_system,
+    load_system_buffer,
+)
 from metatomic.torch import save_buffer as save_system_buffer
 from omegaconf import DictConfig
 from torch.utils.data import Dataset as TorchDataset
@@ -65,8 +71,10 @@ class DatasetInfo:
     This class is used to communicate additional dataset details to the
     training functions of the individual models.
 
-    :param length_unit: Unit of length used in the dataset. Examples are ``"angstrom"``
-        or ``"nanometer"``. If None, the unit will be set to the empty string.
+    :param length_unit: Unit of length used in the dataset.
+
+        The list of possible units is available `here
+        <https://docs.metatensor.org/metatomic/latest/torch/reference/misc.html#known-quantities-units>`_.
     :param atomic_types: List containing all integer atomic types present in the
         dataset. ``atomic_types`` will be stored as a sorted list of **unique** atomic
         types.
@@ -77,12 +85,19 @@ class DatasetInfo:
 
     def __init__(
         self,
-        length_unit: Optional[str],
+        length_unit: str,
         atomic_types: List[int],
         targets: Dict[str, TargetInfo],
         extra_data: Optional[Dict[str, TargetInfo]] = None,
     ):
-        self.length_unit = length_unit if length_unit is not None else ""
+        # verify that `length_unit` and `atomic_types` are valid for metatomic
+        _ = ModelCapabilities(
+            outputs={"energy": ModelOutput()},
+            length_unit=length_unit,
+            atomic_types=atomic_types,
+        )
+
+        self.length_unit = length_unit
         self._atomic_types = _set(atomic_types)
         self.targets = targets
         self.extra_data: Dict[str, TargetInfo] = (
@@ -369,10 +384,7 @@ class CollateFn:
     ):
         self.target_keys: Set[str] = set(target_keys)
         self.callables: List[Callable] = callables if callables is not None else []
-        self.join_kwargs: Dict[str, Any] = join_kwargs or {
-            "remove_tensor_name": True,
-            "different_keys": "union",
-        }
+        self.join_kwargs: Dict[str, Any] = join_kwargs or {"different_keys": "union"}
 
     def __call__(
         self,

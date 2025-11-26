@@ -10,66 +10,40 @@ The implementation of the LLPR as a separate architecture within ``metatrain``
 allows the users to compute the uncertainties without dealing with the fine details
 of the LLPR implementation.
 
-{{SECTION_INSTALLATION}}
+This implementation further allows the user to perform gradient-based tuning of
+the ensemble weights sampled from the LLPR formalism, which can lead to improved
+uncertainty estimates. Gradients (e.g. forces and stresses) are not yet used in this
+implementation of the LLPR.
 
-{{SECTION_DEFAULT_HYPERS}}
-
-{{SECTION_MODEL_HYPERS}}
-
-where the ensemble hyperparameters should adhere to the following structure:
-
-.. autoclass:: {{architecture_path}}.documentation.EnsemblesHypers
-    :members:
-    :undoc-members:
-
+Note that the uncertainties computed with this implementation are returned as
+standard deviations, and not variances.
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from typing_extensions import TypedDict
 
-from metatrain.utils.hypers import init_with_defaults
-
-
-class EnsemblesHypers(TypedDict):
-    """Configuration of ensembles in LLPR."""
-
-    means: dict[str, list[str]] = {}
-    """This accepts a dictionary of targets and the names of their corresponding
-    last-layer weights. For example, in the case of energy trained with the default
-    ``energy`` key in a PET model, the following could be the set of weights to provide:
-
-    .. code-block:: yaml
-
-      means:
-        energy:
-          - node_last_layers.energy.0.energy___0.weight
-          - node_last_layers.energy.1.energy___0.weight
-          - edge_last_layers.energy.0.energy___0.weight
-          - edge_last_layers.energy.1.energy___0.weight
-    """
-
-    num_members: dict[str, int] = {}
-    """This is a dictionary of targets and the corresponding number of ensemble
-    members to sample. Note that a sufficiently large number of members (more than 16)
-    are required for robust uncertainty propagation.
-    (e.g. ``num_members: {energy: 128}``)
-    """
+from metatrain.utils.loss import LossSpecification
 
 
 class ModelHypers(TypedDict):
     """Hyperparameters for the LLPR model."""
 
-    ensembles: EnsemblesHypers = init_with_defaults(EnsemblesHypers)
-    """To perform uncertainty propagation, one can generate an ensemble of weights
-    from the calibrated inverse covariance matrix from the LLPR formalism.
+    num_ensemble_members: dict[str, int] = {}
+    """Number of ensemble members for each target property for which LLPR ensembles
+    should be constructed. No ensembles will be constructed for targets which are not
+    listed.
     """
 
 
 class TrainerHypers(TypedDict):
     """Hyperparameters for the LLPR trainer."""
 
-    batch_size: int = 12
+    distributed: bool = False
+    """Whether to use distributed training"""
+    distributed_port: int = 39591
+    """Port for distributed communication among processes"""
+    batch_size: int = 8
     """This defines the batch size used in the computation of last-layer
     features, covariance matrix, etc."""
 
@@ -93,3 +67,56 @@ class TrainerHypers(TypedDict):
     user wants to perform UQ based on the LLPR approach. Note that the model
     architecture must comply with the requirement that the last-layer features are
     exposed under the convention defined by metatrain."""
+
+    loss: str | dict[str, LossSpecification] = "ensemble_nll"
+    """This section describes the loss function to be used during LLPR ensemble
+    weight calibration. We strongly suggest only using "ensemble_nll" loss. see
+    :ref:`loss-functions` for more details of the rest of the hypers."""
+
+    num_epochs: Optional[int] = None
+    """Number of epochs for which the LLPR ensemble weight calibration should
+    take place. If set to ``null``, only the LLPR covariance matrix computation
+    and calibration will be performed, without ensemble weight training."""
+
+    train_all_parameters: bool = False
+    """Whether to train all parameters of the LLPR-wrapped model, or only the
+    ensemble weights. If ``true``, all parameters will be trained, including those
+    of the base model. If ``false``, only the last-layer ensemble weights will be
+    trained. Note that training all parameters (i.e., setting this flag to ``true``)
+    will potentially change the uncertainty estimates given by the LLPR through the
+    ``uncertainty`` outputs (because the last-layer features will change).
+    In that case, only uncertainties calculated as standard deviations over the ensemble
+    members (``ensemble`` outputs) will be meaningful."""
+
+    warmup_fraction: float = 0.01
+    """Fraction of training steps used for learning rate warmup."""
+
+    learning_rate: float = 3e-4
+    """Learning rate."""
+
+    weight_decay: Optional[float] = None
+
+    log_interval: int = 1
+    """Interval to log metrics."""
+
+    checkpoint_interval: int = 100
+    """Interval to save checkpoints."""
+
+    per_structure_targets: list[str] = []
+    """Targets to calculate per-structure losses."""
+
+    num_workers: Optional[int] = None
+    """Number of workers for data loading. If not provided, it is set
+    automatically."""
+
+    log_mae: bool = False
+    """Log MAE alongside RMSE"""
+
+    log_separate_blocks: bool = False
+    """Log per-block error."""
+
+    best_model_metric: Literal["rmse_prod", "mae_prod", "loss"] = "loss"
+    """Metric used to select best checkpoint (e.g., ``rmse_prod``)"""
+
+    grad_clip_norm: float = 1.0
+    """Maximum gradient norm value, by default inf (no clipping)"""

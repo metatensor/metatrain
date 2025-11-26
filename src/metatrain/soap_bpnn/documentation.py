@@ -125,7 +125,7 @@ class TrainerHypers(TypedDict):
     distributed: bool = False
     """Whether to use distributed training"""
     distributed_port: int = 39591
-    """Port for DDP communication"""
+    """Port for distributed communication among processes"""
     batch_size: int = 8
     """The number of samples to use in each batch of training. This
     hyperparameter controls the tradeoff between training speed and memory usage. In
@@ -173,6 +173,6 @@ class TrainerHypers(TypedDict):
     """Log per-block error."""
     best_model_metric: Literal["rmse_prod", "mae_prod", "loss"] = "rmse_prod"
     """Metric used to select best checkpoint (e.g., ``rmse_prod``)"""
-    loss: str | dict[str, LossSpecification] = "mse"
+    loss: str | dict[str, LossSpecification | str] = "mse"
     """This section describes the loss function to be used. See the
     :ref:`loss-functions` for more details."""
