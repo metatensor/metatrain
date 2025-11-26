@@ -8,8 +8,20 @@ def create_batch(
     systems: List[System],
     neighbor_list_options: NeighborListOptions,
     atomic_types_to_species_index: torch.Tensor,
-    n_types: int,  # Mapping from atomic types to species index
+    n_types: int,
 ) -> dict[str, torch.Tensor]:
+    """Creates a torch geometric-like batch from a list of systems.
+
+    The batch returned by this function can be used as input
+    for MACE models.
+
+    :param systems: List of systems to batch.
+    :param neighbor_list_options: Options to create the neighbor lists.
+    :param atomic_types_to_species_index: Mapping from atomic types to species index.
+    :param n_types: Number of different species.
+
+    :return: A dictionary containing the batched data.
+    """
     unit_shifts = []
     cell_shifts = []
     edge_index = []
