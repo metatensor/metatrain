@@ -22,7 +22,15 @@ def _build_spex_hypers(
     atomic_types: List[int],
     legacy: bool,
 ) -> Dict[str, Any]:
-    """Build the hypers dictionary for SphericalExpansion, handling legacy mode."""
+    """
+    Build the hypers dictionary for SphericalExpansion.
+
+    :param soap_hypers: dictionary with the SOAP hyper-parameters.
+    :param max_angular: maximum angular momentum to be used.
+    :param atomic_types: list of atomic types in the dataset.
+    :param legacy: if True, uses the legacy implementation without chemical embedding.
+    :return: dictionary with the hyper-parameters for SphericalExpansion.
+    """
     soap_hypers = copy.deepcopy(soap_hypers)
 
     species_def: Dict[str, Any]  # make mypy happy
@@ -63,6 +71,12 @@ def _sort_tensor_blocks_like_atoms(
 
     This is used in the legacy branches instead of
     `keys_to_samples("center_type")` for performance reasons.
+
+    :param tensor_map: TensorMap with blocks labeled by (system, atom).
+    :param structures: (num_atoms,) tensor with the index of the structure each
+        atom belongs to.
+    :return: a tensor of shape (num_atoms, ...) with the values sorted to follow
+        the ordering implied by `structures` and an in-structure atom index.
     """
     device = structures.device
 
