@@ -364,3 +364,17 @@ def trainer_update_v9_v10(checkpoint: dict) -> None:
     """
     # Ensuring that the finetune read_from is None if not specified
     checkpoint["train_hypers"]["remove_composition_contribution"] = True
+
+
+def trainer_update_v10_v11(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 10 to version 11.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Trainer hyper name change:
+    # remove_composition_contribution -> use_atomic_baseline
+    train_hypers = checkpoint["train_hypers"]
+    train_hypers["use_atomic_baseline"] = train_hypers.pop(
+        "remove_composition_contribution"
+    )

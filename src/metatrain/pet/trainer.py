@@ -76,7 +76,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 10
+    __checkpoint_version__ = 11
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -159,7 +159,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
-        if self.hypers["remove_composition_contribution"]:
+        if self.hypers["use_atomic_baseline"]:
             logging.info("Calculating composition weights")
             model.additive_models[0].train_model(  # this is the composition model
                 train_datasets,
