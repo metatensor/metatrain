@@ -82,9 +82,6 @@
         "zbl": {
           "type": "boolean"
         },
-        "rescale_train_predictions": {
-            "type": "boolean"
-        },
         "long_range": {
           "type": "object",
           "properties": {
@@ -143,6 +140,9 @@
         },
         "scale_targets": {
           "type": "boolean"
+        },
+        "rescale_predictions": {
+            "type": "boolean"
         },
         "fixed_composition_weights": {
           "type": "object",
