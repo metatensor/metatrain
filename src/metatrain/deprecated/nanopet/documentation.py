@@ -98,10 +98,14 @@ class TrainerHypers(TypedDict):
     <metatrain.utils.additive.composition.CompositionModel.train_model>`,
     see its documentation to understand exactly what to pass here.
     """
-    remove_composition_contribution: bool = True
-    """Whether to remove the atomic composition contribution from the
-    targets by fitting a linear model to the training data before
-    training the neural network."""
+    use_atomic_baseline: bool = True
+    """Whether to train a linear model to compute a baseline for each atomic species
+    for each target.
+
+    If ``True``, this atomic baseline is removed from the targets during training, which
+    avoids the main model needing to learn atomic contributions, and likely makes
+    training easier. When the model is used in evaluation mode, the atomic baseline is
+    added on top of the model predictions automatically."""
     fixed_scaling_weights: FixedScalerWeights = {}
     """Weights for target scaling.
 

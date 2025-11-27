@@ -8,7 +8,7 @@ architecture:
     batch_size: 1
     num_epochs: 10
     learning_rate: 0.01
-    remove_composition_contribution: false
+    use_atomic_baseline: false
     scale_targets: false
     loss:
       mtt::dos:

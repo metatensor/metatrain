@@ -169,3 +169,17 @@ def trainer_update_v5_v6(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     checkpoint["train_hypers"]["remove_composition_contribution"] = True
+
+
+def trainer_update_v6_v7(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 6 to version 7.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Trainer hyper name change:
+    # remove_composition_contribution -> use_atomic_baseline
+    train_hypers = checkpoint["train_hypers"]
+    train_hypers["use_atomic_baseline"] = train_hypers.pop(
+        "remove_composition_contribution"
+    )
