@@ -48,7 +48,8 @@
               "type": "string",
               "enum": [
                 "linear",
-                "mlp"
+                "mlp",
+                "mlp_shallow"
               ]
             }
           },

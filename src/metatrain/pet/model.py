@@ -1265,6 +1265,43 @@ class PET(ModelInterface):
                 ]
             )
 
+        elif self.head_types[target_name] == "mlp_shallow":
+            self.node_heads[target_name] = torch.nn.ModuleList(
+                [
+                    torch.nn.Sequential(
+                        torch.nn.Linear(self.d_node, self.d_head_node),
+                        torch.nn.SiLU(),
+                    )
+                    for _ in range(self.num_readout_layers)
+                ]
+            )
+
+            self.edge_heads[target_name] = torch.nn.ModuleList(
+                [
+                    torch.nn.Sequential(
+                        torch.nn.Linear(self.d_pet, self.d_head),
+                        torch.nn.SiLU(),
+                    )
+                    for _ in range(self.num_readout_layers)
+                ]
+            )
+
+            self.node_last_layers[target_name] = torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            key: torch.nn.Linear(
+                                self.d_head_node,
+                                prod(shape),
+                                bias=True,
+                            )
+                            for key, shape in self.output_shapes[target_name].items()
+                        }
+                    )
+                    for _ in range(self.num_readout_layers)
+                ]
+            )
+
             self.edge_last_layers[target_name] = torch.nn.ModuleList(
                 [
                     torch.nn.ModuleDict(
