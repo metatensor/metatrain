@@ -6,6 +6,7 @@ from mace.tools import build_default_arg_parser
 
 # Keys from the MACE argparser that correspond to model hyperparameters
 MACE_MODEL_ARG_KEYS = [
+    "r_max",
     "num_radial_basis",
     "num_cutoff_basis",
     "max_ell",
