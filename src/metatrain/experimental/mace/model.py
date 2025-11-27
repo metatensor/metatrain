@@ -100,16 +100,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         # ---------------------------
-        #  Neighbor list information
-        # ---------------------------
-        self.cutoff = self.hypers["cutoff"]
-        self.requested_nl = NeighborListOptions(
-            cutoff=self.hypers["cutoff"],
-            full_list=True,
-            strict=True,
-        )
-
-        # ---------------------------
         # Get the MACE model instance
         # ---------------------------
 
@@ -140,7 +130,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     "ignore", "To copy construct from a tensor", UserWarning
                 )
                 self.mace_model = MACE(
-                    r_max=self.cutoff,
+                    r_max=self.hypers["r_max"],
                     num_bessel=self.hypers["num_radial_basis"],
                     num_polynomial_cutoff=self.hypers["num_cutoff_basis"],
                     max_ell=self.hypers["max_ell"],
@@ -173,6 +163,16 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     use_last_readout_only=self.hypers["use_last_readout_only"],
                     use_agnostic_product=self.hypers["use_agnostic_product"],
                 )
+
+        # ---------------------------
+        #  Neighbor list information
+        # ---------------------------
+        self.cutoff = float(self.mace_model.r_max)
+        self.requested_nl = NeighborListOptions(
+            cutoff=self.cutoff,
+            full_list=True,
+            strict=True,
+        )
 
         # ---------------------------
         #   Store info about MACE
@@ -324,6 +324,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         # Change coordinates to YZX
         data["positions"] = data["positions"][:, [1, 2, 0]]
+        data["cell"] = data["cell"][:, [1, 2, 0]]
+        data["shifts"] = data["shifts"][:, [1, 2, 0]]
 
         # --------------------------
         #        Run MACE
@@ -548,7 +550,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # be registered correctly with Pytorch. This function moves them:
         self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
-        interaction_range = self.hypers["num_interactions"] * self.hypers["cutoff"]
+        interaction_range = self.hypers["num_interactions"] * self.cutoff
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,

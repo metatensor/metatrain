@@ -54,13 +54,11 @@ class ModelHypers(TypedDict):
     metatrain target corresponds to the MACE head. For this target, no new head will be
     added, and the output of MACE's head will be used directly.
     """
-    cutoff: float = 5.0
+    r_max: float = 5.0
     """Cutoff radius for neighbor search.
 
     This should be set to a value after which most of the interactions between atoms is
     expected to be negligible. A lower cutoff will lead to faster models.
-
-    This is passed to MACE's ``r_max`` argument.
     """
     num_radial_basis: int = 8
     r"""number of radial basis functions"""
@@ -167,10 +165,14 @@ class TrainerHypers(TypedDict):
     <metatrain.utils.additive.composition.CompositionModel.train_model>`, see its
     documentation to understand exactly what to pass here.
     """
-    remove_composition_contribution: bool = True
-    """Whether to remove the atomic composition contribution from the
-    targets by fitting a linear model to the training data before training the neural
-    network."""
+    use_atomic_baseline: bool = True
+    """Whether to train a linear model to compute a baseline for each atomic species
+    for each target.
+
+    If ``True``, this atomic baseline is removed from the targets during training, which
+    avoids the main model needing to learn atomic contributions, and likely makes
+    training easier. When the model is used in evaluation mode, the atomic baseline is
+    added on top of the model predictions automatically."""
     fixed_scaling_weights: FixedScalerWeights = {}
     """Weights for target scaling.
 
