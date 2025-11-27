@@ -130,7 +130,7 @@ class TestAutograd(AutogradTests, MACETests):
 
 
 class TestTorchscript(TorchscriptTests, MACETests):
-    float_hypers = ["cutoff"]
+    float_hypers = ["r_max"]
 
     def jit_compile(self, model: MetaMACE) -> torch.jit.ScriptModule:
         return torch.jit.script(e3nn.util.jit.compile(model))
