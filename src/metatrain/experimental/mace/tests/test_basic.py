@@ -27,6 +27,14 @@ from metatrain.utils.testing import (
 class MACETests(ArchitectureTests):
     architecture = "experimental.mace"
 
+    @pytest.fixture
+    def mace_model_path(self) -> Path:
+        """Path to a small MACE model for testing.
+
+        :return: Path to the MACE model.
+        """
+        return Path(__file__).parent / "mace_small.model"
+
     @pytest.fixture(params=["from_hypers", "from_file"])
     def mace_init_mode(self, request: pytest.FixtureRequest) -> str:
         """Type of MACE model to use: loaded from file or built from hypers.
@@ -38,7 +46,7 @@ class MACETests(ArchitectureTests):
         return request.param
 
     @pytest.fixture
-    def model_hypers(self, mace_init_mode: str) -> dict:
+    def model_hypers(self, mace_init_mode: str, mace_model_path: Path) -> dict:
         """Smaller hyperparameters than the defaults for faster testing.
 
         :param mace_init_mode: How to initialize the MACE model.
@@ -48,7 +56,7 @@ class MACETests(ArchitectureTests):
         if mace_init_mode == "from_hypers":
             defaults["hidden_irreps"] = "20x0e + 20x1o + 20x2e"
         else:
-            defaults["mace_model"] = Path(__file__).parent / "mace_small.model"
+            defaults["mace_model"] = mace_model_path
         return defaults
 
     @pytest.fixture

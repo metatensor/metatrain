@@ -36,6 +36,9 @@ def write_mace_hypers_spec():
     hypers_spec = get_mace_hypers_spec()
     mace_hypers_str = ""
     for key in MACE_MODEL_ARG_KEYS:
+        if key == "r_max":
+            # r_max is documented separately
+            continue
         spec = hypers_spec[key]
         mace_hypers_str += f"    {key}: {spec['type']} = {_get_default(key, spec)}\n"
         mace_hypers_str += f'    r"""{spec["help"]}"""\n'
@@ -51,7 +54,7 @@ def write_mace_hypers_spec():
         **{f"mace_help_{key}": hypers_spec[key]["help"] for key in hypers_spec},
     )
 
-    with open(Path(__file__).parent.parent / "documentation.py", "w") as f:
+    with open(Path(__file__).parent / "documentation.py", "w") as f:
         f.write(template_content)
 
 
