@@ -26,6 +26,9 @@
         "d_node": {
           "type": "integer"
         },
+        "d_head_node": {
+          "type": "integer"
+        },
         "d_feedforward": {
           "type": "integer"
         },

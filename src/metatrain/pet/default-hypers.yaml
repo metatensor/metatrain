@@ -6,6 +6,7 @@ architecture:
     d_pet: 128
     d_head: 128
     d_node: 256
+    d_head_node: 256
     d_feedforward: 256
     num_heads: 8
     num_attention_layers: 2
