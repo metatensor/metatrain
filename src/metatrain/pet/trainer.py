@@ -45,7 +45,7 @@ def get_scheduler(
     optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
 ) -> LambdaLR:
     """
-    Get a CosineAnnealing learning-rate scheduler with warmup
+    Get a CosineAnnealing learning-rate scheduler with linear warmup and hold phase.
 
     :param optimizer: The optimizer for which to create the scheduler.
     :param train_hypers: The training hyperparameters.
@@ -54,16 +54,20 @@ def get_scheduler(
     """
     total_steps = train_hypers["num_epochs"] * steps_per_epoch
     warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
-    min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
+    hold_steps = int(train_hypers["hold_fraction"] * total_steps)
+    min_lr_ratio = train_hypers["min_lr_ratio"]
 
     def lr_lambda(current_step: int) -> float:
         if current_step < warmup_steps:
             # Linear warmup
             return float(current_step) / float(max(1, warmup_steps))
+        elif current_step < warmup_steps + hold_steps:
+            # Hold phase
+            return 1.0
         else:
             # Cosine decay
-            progress = (current_step - warmup_steps) / float(
-                max(1, total_steps - warmup_steps)
+            progress = (current_step - (warmup_steps + hold_steps)) / float(
+                max(1, total_steps - (warmup_steps + hold_steps))
             )
             cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
             return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
@@ -429,9 +433,23 @@ class Trainer(TrainerInterface):
                         train_loss_batch += 0.0 * param.sum()
 
                 train_loss_batch.backward()
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), self.hypers["grad_clip_norm"]
-                )
+
+                # Set the gradient clipping:
+                #   - 0.25x during warmup
+                #   - 0.5x during half of the hold phase
+                #   - 1.0x afterwards
+                warmup_epochs = int(self.hypers["warmup_fraction"] * self.hypers["num_epochs"])
+                half_hold_epochs = int(self.hypers["hold_fraction"] * self.hypers["num_epochs"] / 2)
+                base_clip = self.hypers["grad_clip_norm"]
+
+                if epoch < warmup_epochs:
+                    grad_clip_norm = base_clip * 0.25
+                elif epoch < warmup_epochs + half_hold_epochs:
+                    grad_clip_norm = base_clip * 0.5
+                else:
+                    grad_clip_norm = base_clip
+
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
                 optimizer.step()
                 lr_scheduler.step()
 

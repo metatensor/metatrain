@@ -126,6 +126,12 @@
         "learning_rate": {
           "type": "number"
         },
+        "min_lr_ratio": {
+          "type": "number"
+        },
+        "hold_fraction": {
+          "type": "number"
+        },
         "weight_decay": {
           "type": [
             "number",
