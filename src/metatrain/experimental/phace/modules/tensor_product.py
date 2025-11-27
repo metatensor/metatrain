@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import List
 
 import numpy as np
 import torch
@@ -118,7 +118,8 @@ def uncouple_features(
     stacked_features = torch.cat(features, dim=1)
     stacked_features = stacked_features.swapaxes(0, 1)
     uncoupled_features = (
-        U @ stacked_features.reshape(
+        U
+        @ stacked_features.reshape(
             (padded_l_max + 1) * (padded_l_max + 1),
             stacked_features.shape[1] * stacked_features.shape[-1],
         )
@@ -163,7 +164,8 @@ def couple_features(
     )
     features = features.swapaxes(0, 1)
     features = (
-        U.T @ features.reshape(
+        U.T
+        @ features.reshape(
             (padded_l_max + 1) * (padded_l_max + 1),
             features.shape[1] * features.shape[-1],
         )
@@ -172,12 +174,8 @@ def couple_features(
         features.shape[1],
         features.shape[-1],
     )
-    stacked_features = (
-        features.swapaxes(0, 1)
-    )
-    features_coupled = torch.split(
-        stacked_features, split_sizes, dim=1
-    )
+    stacked_features = features.swapaxes(0, 1)
+    features_coupled = torch.split(stacked_features, split_sizes, dim=1)
 
     coupled_features = []
     for l in range(padded_l_max + 1):

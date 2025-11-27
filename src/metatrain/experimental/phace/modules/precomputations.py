@@ -8,6 +8,9 @@ import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
+from .physical_basis import get_physical_basis_spliner
+from ase.data import covalent_radii
+
 
 class SphericalHarmonicsNoSphericart(torch.nn.Module):
     # uses the sphericart algorithm in pytorch
@@ -95,16 +98,34 @@ class SphericalHarmonicsSphericart(torch.nn.Module):
 
 
 class Precomputer(torch.nn.Module):
-    def __init__(self, l_max, use_sphericart):
+    def __init__(self, max_eigenvalue, cutoff, cutoff_width, scale, optimizable_lengthscales, all_species, use_sphericart):
         super().__init__()
+
+        self.n_max_l, self.spliner = get_physical_basis_spliner(
+            max_eigenvalue, cutoff, normalize=True
+        )
+        self.l_max = len(self.n_max_l) - 1
+
         self.spherical_harmonics_split_list = [
             (2 * l + 1)
-            for l in range(l_max + 1)  # noqa: E741
+            for l in range(self.l_max + 1)  # noqa: E741
         ]
         if use_sphericart:
-            self.spherical_harmonics = SphericalHarmonicsSphericart(l_max)
+            self.spherical_harmonics = SphericalHarmonicsSphericart(self.l_max)
         else:
-            self.spherical_harmonics = SphericalHarmonicsNoSphericart(l_max)
+            self.spherical_harmonics = SphericalHarmonicsNoSphericart(self.l_max)
+
+        lengthscales = torch.zeros((max(all_species) + 1))
+        for species in all_species:
+            lengthscales[species] = np.log(scale * covalent_radii[species])
+
+        if optimizable_lengthscales:
+            self.lengthscales = torch.nn.Parameter(lengthscales)
+        else:
+            self.register_buffer("lengthscales", lengthscales)
+
+        self.r_cut = cutoff
+        self.cutoff_width = cutoff_width
 
     def forward(
         self,
@@ -115,6 +136,8 @@ class Precomputer(torch.nn.Module):
         pairs,
         structure_pairs,
         structure_offsets,
+        center_species,
+        neighbor_species,
     ):
         cartesian_vectors = get_cartesian_vectors(
             positions,
@@ -139,48 +162,21 @@ class Precomputer(torch.nn.Module):
             spherical_harmonics, self.spherical_harmonics_split_list, dim=1
         )  # Split them into l chunks
 
-        spherical_harmonics_blocks = [
-            TensorBlock(
-                values=spherical_harmonics_l.unsqueeze(-1),
-                samples=cartesian_vectors.samples,
-                components=[
-                    Labels(
-                        names=("o3_mu",),
-                        values=torch.arange(
-                            start=-l, end=l + 1, dtype=torch.int32
-                        ).reshape(2 * l + 1, 1),
-                    ).to(device=cartesian_vectors.values.device)
-                ],
-                properties=Labels(
-                    names=["_"],
-                    values=torch.zeros(
-                        1, 1, dtype=torch.int32, device=cartesian_vectors.values.device
-                    ),
-                ),
-            )
-            for l, spherical_harmonics_l in enumerate(spherical_harmonics)  # noqa: E741
-        ]
-        spherical_harmonics_map = TensorMap(
-            keys=Labels(
-                names=["o3_lambda"],
-                values=torch.arange(
-                    len(spherical_harmonics_blocks), device=r.device
-                ).reshape(len(spherical_harmonics_blocks), 1),
-            ),
-            blocks=spherical_harmonics_blocks,
+        x = r / (
+            0.1 + torch.exp(self.lengthscales[center_species]) + torch.exp(self.lengthscales[neighbor_species])
         )
 
-        r_block = TensorBlock(
-            values=r.unsqueeze(-1),
-            samples=cartesian_vectors.samples,
-            components=[],
-            properties=Labels(
-                names=["_"],
-                values=torch.zeros(1, 1, dtype=torch.int32, device=r.device),
-            ),
+        capped_x = torch.where(x < 10.0, x, 5.0)
+        radial_functions = torch.where(
+            x.unsqueeze(1) < 10.0, self.spliner.compute(capped_x), 0.0
         )
 
-        return r_block, spherical_harmonics_map
+        cutoff_multiplier = cutoff_fn(r, self.r_cut, self.cutoff_width)
+        radial_functions = radial_functions * cutoff_multiplier.unsqueeze(1)
+
+        radial_basis = torch.split(radial_functions, self.n_max_l, dim=1)
+
+        return spherical_harmonics, radial_basis
 
 
 def get_cartesian_vectors(
@@ -251,3 +247,11 @@ def get_cartesian_vectors(
     )
 
     return block
+
+
+def cutoff_fn(r, r_cut: float, cutoff_width: float):
+    return torch.where(
+        r < r_cut - cutoff_width,
+        1.0,
+        1.0 + 1.0 * torch.cos((r - (r_cut - cutoff_width)) * torch.pi / cutoff_width),
+    )

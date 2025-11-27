@@ -89,7 +89,7 @@ def test_equivariance_rotations(o3_lambda, o3_sigma):
                     },
                     "num_subtargets": 100,
                     "per_atom": False,
-                }
+                },
             )
         },
     )
@@ -155,7 +155,7 @@ def test_equivariance_inversion(dataset_path, o3_lambda, o3_sigma):
                     },
                     "num_subtargets": 100,
                     "per_atom": False,
-                }
+                },
             )
         },
     )

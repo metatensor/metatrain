@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -20,18 +21,17 @@ from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
-from metatensor.torch.operations._add import _add_block_block
 
+from .documentation import ModelHypers
 from .modules.center_embedding import embed_centers, embed_centers_tensor_map
 from .modules.cg import get_cg_coefficients
 from .modules.cg_iterator import CGIterator
-from .modules.initial_features import get_initial_features
-from .modules.layers import EquivariantLastLayer, Identity, InvariantMLP
 from .modules.message_passing import EquivariantMessagePasser, InvariantMessagePasser
 from .modules.precomputations import Precomputer
 from .modules.tensor_product import (
     TensorProduct,
 )
+from .modules.layers import Linear
 from .utils import systems_to_batch
 
 
@@ -42,7 +42,7 @@ warnings.filterwarnings(
 )
 
 
-class PhACE(ModelInterface):
+class PhACE(ModelInterface[ModelHypers]):
     __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
@@ -87,28 +87,41 @@ class PhACE(ModelInterface):
         if self.num_message_passing_layers < 1:
             raise ValueError("Number of message-passing layers must be at least 1")
 
+        # A module that precomputes quantities that are useful in all message-passing
+        # steps (spherical harmonics, distances)
+        self.precomputer = Precomputer(
+            max_eigenvalue=hypers["radial_basis"]["max_eigenvalue"],
+            cutoff=hypers["cutoff"],
+            cutoff_width=hypers["cutoff_width"],
+            scale=hypers["radial_basis"]["scale"],
+            optimizable_lengthscales=hypers["radial_basis"][
+                "optimizable_lengthscales"
+            ],
+            all_species=self.atomic_types,
+            use_sphericart=hypers["use_sphericart"]
+        )
+
         # The message passing is invariant for the first layer
         self.invariant_message_passer = InvariantMessagePasser(
-            hypers,
             self.atomic_types,
             self.mp_scaling,
             hypers["disable_nu_0"],
+            self.precomputer.n_max_l,
+            hypers["num_element_channels"],
         )
 
         self.atomic_types = self.atomic_types
-        n_max = self.invariant_message_passer.n_max_l
+        n_max = self.precomputer.n_max_l
         self.l_max = len(n_max) - 1
         self.k_max_l = [
             n_channels * n_max[l]
             for l in range(self.l_max + 1)  # noqa: E741
         ]
-        print(self.k_max_l)
         self.k_max_l_max = [0] * (self.l_max + 1)
         previous = 0
         for l in range(self.l_max, -1, -1):
             self.k_max_l_max[l] = self.k_max_l[l] - previous
             previous = self.k_max_l[l]
-        print(self.k_max_l_max)
 
         cgs = get_cg_coefficients(self.l_max)
         cgs = {
@@ -137,12 +150,6 @@ class PhACE(ModelInterface):
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
-        # A module that precomputes quantities that are useful in all message-passing
-        # steps (spherical harmonics, distances)
-        self.precomputer = Precomputer(
-            self.l_max, use_sphericart=hypers["use_sphericart"]
-        )
-
         tensor_product = TensorProduct(self.k_max_l)
 
         self.cg_iterator = CGIterator(
@@ -155,8 +162,8 @@ class PhACE(ModelInterface):
         generalized_cg_iterators: List[CGIterator] = []
         for _ in range(self.num_message_passing_layers - 1):
             equivariant_message_passer = EquivariantMessagePasser(
-                hypers,
-                self.atomic_types,
+                self.precomputer.n_max_l,
+                self.hypers["num_element_channels"],
                 tensor_product,
                 self.mp_scaling,
             )
@@ -274,7 +281,7 @@ class PhACE(ModelInterface):
         n_atoms = len(structures["positions"])
 
         # precomputation of distances and spherical harmonics
-        r, sh = self.precomputer(
+        spherical_harmonics, radial_basis = self.precomputer(
             positions=structures["positions"],
             cells=structures["cells"],
             species=structures["species"],
@@ -282,23 +289,24 @@ class PhACE(ModelInterface):
             pairs=structures["pairs"],
             structure_pairs=structures["structure_pairs"],
             structure_offsets=structures["structure_offsets"],
+            center_species=structures["species"][structures["pairs"][:, 0]],
+            neighbor_species=structures["species"][structures["pairs"][:, 1]],
         )
-
+        
         # scaling the spherical harmonics in this way makes sure that each successive
         # body-order is scaled by the same factor
-        sh = metatensor.torch.multiply(sh, self.nu_scaling)
+        spherical_harmonics = [sh * self.nu_scaling for sh in spherical_harmonics]
 
         # compute sample labels
         samples_values = torch.stack(
             (
                 structures["structure_centers"],
                 structures["centers"],
-                structures["species"],
             ),
             dim=1,
         )
         samples = metatensor.torch.Labels(
-            names=["system", "atom", "center_type"],
+            names=["system", "atom"],
             values=samples_values,
         )
 
@@ -306,35 +314,27 @@ class PhACE(ModelInterface):
         center_species_indices = self.species_to_species_index[structures["species"]]
         center_embeddings = self.embeddings(center_species_indices)
 
-        initial_features = get_initial_features(
-            structures["structure_centers"],
-            structures["centers"],
-            structures["species"],
-            structures["positions"].dtype,
-            self.k_max_l[0],
-        )  # these features are all one
-        initial_element_embedding = embed_centers_tensor_map(
-            initial_features, center_embeddings
+        initial_features = torch.ones(
+            (n_atoms, 1, self.k_max_l[0]), dtype=structures["positions"].dtype, device=structures["positions"].device
         )
+        initial_element_embedding = embed_centers_tensor_map(
+            [initial_features], center_embeddings
+        )[0]
         # now they are all the same as the center embeddings
 
         # ACE-like features
         spherical_expansion = self.invariant_message_passer(
-            r,
-            sh,
+            radial_basis,
+            spherical_harmonics,
             structures["structure_offsets"][structures["structure_pairs"]]
             + structures["pairs"][:, 0],
             structures["structure_offsets"][structures["structure_pairs"]]
             + structures["pairs"][:, 1],
             n_atoms,
             initial_element_embedding,
-            samples,
         )
 
-        features = [
-            spherical_expansion.block({"o3_lambda": l}).values
-            for l in range(self.l_max + 1)
-        ]
+        features = [spherical_expansion[l] for l in range(self.l_max + 1)]
         features = self.cg_iterator(features)
 
         # message passing
@@ -345,8 +345,8 @@ class PhACE(ModelInterface):
         ):
             embedded_features = embed_centers(features, center_embeddings)
             mp_features = message_passer(
-                r,
-                sh,
+                radial_basis,
+                spherical_harmonics,
                 structures["structure_offsets"][structures["structure_pairs"]]
                 + structures["pairs"][:, 0],
                 structures["structure_offsets"][structures["structure_pairs"]]
@@ -357,59 +357,75 @@ class PhACE(ModelInterface):
             features = iterated_features
 
         # TODO: change position?
-        embedded_features = embed_centers(features, center_embeddings)
+        features = embed_centers(features, center_embeddings)
 
-        features = TensorMap(
-            keys=spherical_expansion.keys,
-            blocks=[
-                TensorBlock(
-                    values=embedded_features[l],
-                    samples=spherical_expansion.block({"o3_lambda": l}).samples,
-                    components=spherical_expansion.block({"o3_lambda": l}).components,
-                    properties=spherical_expansion.block({"o3_lambda": l}).properties,
-                )
-                for l in range(self.l_max + 1)
-            ],
-        )
+        # TODO: selected_atoms
 
-        # remove the center_type dimension
-        features = metatensor.torch.remove_dimension(features, "samples", "center_type")
+        # features = TensorMap(
+        #     keys=spherical_expansion.keys,
+        #     blocks=[
+        #         TensorBlock(
+        #             values=embedded_features[l],
+        #             samples=spherical_expansion.block({"o3_lambda": l}).samples,
+        #             components=spherical_expansion.block({"o3_lambda": l}).components,
+        #             properties=spherical_expansion.block({"o3_lambda": l}).properties,
+        #         )
+        #         for l in range(self.l_max + 1)
+        #     ],
+        # )
 
-        if selected_atoms is not None:
-            features = metatensor.torch.slice(
-                features, axis="samples", selection=selected_atoms
-            )
+        # # remove the center_type dimension
+        # features = metatensor.torch.remove_dimension(features, "samples", "center_type")
+
+        # if selected_atoms is not None:
+        #     features = metatensor.torch.slice(
+        #         features, axis="samples", selection=selected_atoms
+        #     )
 
         return_dict: Dict[str, TensorMap] = {}
 
-        # output the hidden features, if requested (invariant only):
-        if "features" in outputs:
-            feature_tmap = TensorMap(
-                keys=self.single_label,
-                blocks=[
-                    TensorBlock(
-                        values=features.block(
-                            {"o3_lambda": 0, "o3_sigma": 1}
-                        ).values.squeeze(1),
-                        samples=features.block({"o3_lambda": 0, "o3_sigma": 1}).samples,
-                        components=[],
-                        properties=features.block(
-                            {"o3_lambda": 0, "o3_sigma": 1}
-                        ).properties,
-                    )
-                ],
-            )
-            features_options = outputs["features"]
-            if features_options.per_atom:
-                return_dict["features"] = feature_tmap
-            else:
-                return_dict["features"] = metatensor.torch.sum_over_samples(
-                    feature_tmap, ["atom"]
-                )
+        # # output the hidden features, if requested (invariant only):
+        # if "features" in outputs:
+        #     feature_tmap = TensorMap(
+        #         keys=self.single_label,
+        #         blocks=[
+        #             TensorBlock(
+        #                 values=features.block(
+        #                     {"o3_lambda": 0, "o3_sigma": 1}
+        #                 ).values.squeeze(1),
+        #                 samples=features.block({"o3_lambda": 0, "o3_sigma": 1}).samples,
+        #                 components=[],
+        #                 properties=features.block(
+        #                     {"o3_lambda": 0, "o3_sigma": 1}
+        #                 ).properties,
+        #             )
+        #         ],
+        #     )
+        #     features_options = outputs["features"]
+        #     if features_options.per_atom:
+        #         return_dict["features"] = feature_tmap
+        #     else:
+        #         return_dict["features"] = metatensor.torch.sum_over_samples(
+        #             feature_tmap, ["atom"]
+        #         )
 
         for output_name, output_head in self.heads.items():
             if output_name in outputs:
-                return_dict[output_name] = output_head(features)
+                output_tensor = output_head(features[0])
+                for out_2, output_layer in self.last_layers.items():
+                    if out_2 == output_name:
+                        output_tensor = output_layer(output_tensor)
+                return_dict[output_name] = TensorMap(
+                    keys=self.key_labels[output_name],
+                    blocks=[
+                        TensorBlock(
+                            values=output_tensor.squeeze(1),
+                            samples=samples,
+                            components=self.component_labels[output_name][0],
+                            properties=self.property_labels[output_name][0],
+                        )
+                    ],
+                )
 
         # output the last-layer features for the outputs, if requested:
         for output_name in outputs.keys():
@@ -439,7 +455,7 @@ class PhACE(ModelInterface):
         for output_name, output_layer in self.last_layers.items():
             if output_name in outputs:
                 return_dict[output_name] = metatensor.torch.multiply(
-                    output_layer(return_dict[output_name]),
+                    return_dict[output_name],
                     self.overall_scaling,
                 )
             if len(self.component_labels[output_name][0]) > 0:
@@ -595,32 +611,43 @@ class PhACE(ModelInterface):
         if use_mlp:
             if target_info.is_spherical or target_info.is_cartesian:
                 raise ValueError("MLP heads are only supported for scalar targets.")
-            self.heads[target_name] = InvariantMLP(
-                self.k_max_l[0], self.head_num_layers
+            
+            layers = (
+                [Linear(self.k_max_l[0], self.k_max_l[0]), torch.nn.SiLU()]
+                if self.head_num_layers == 1
+                else [Linear(self.k_max_l[0], 4 * self.k_max_l[0]), torch.nn.SiLU()]
+                + [Linear(4 * self.k_max_l[0], 4 * self.k_max_l[0]), torch.nn.SiLU()] * (self.head_num_layers - 2)
+                + [Linear(4 * self.k_max_l[0], self.k_max_l[0]), torch.nn.SiLU()]
             )
+            self.heads[target_name] = torch.nn.Sequential(*layers)
         else:
-            self.heads[target_name] = Identity()
+            self.heads[target_name] = torch.nn.Identity()
 
         if target_info.is_scalar:
-            self.last_layers[target_name] = EquivariantLastLayer(
-                [(0, 1)], self.k_max_l, [[]], [target_info.layout.block(0).properties]
+            # self.last_layers[target_name] = EquivariantLastLayer(
+            #     [(0, 1)], , [[]], [target_info.layout.block(0).properties]
+            # )
+            # if [(0, 1)] not in self.requested_LS_tuples:
+            #     self.requested_LS_tuples.append((0, 1))
+            self.last_layers[target_name] = Linear(
+                self.k_max_l[0],
+                1
             )
-            if [(0, 1)] not in self.requested_LS_tuples:
-                self.requested_LS_tuples.append((0, 1))
         elif target_info.is_cartesian:
-            # here, we handle Cartesian targets
-            if len(target_info.layout.block().components) == 1:
-                self.last_layers[target_name] = EquivariantLastLayer(
-                    [(1, 1)],
-                    self.k_max_l,
-                    [block.components for block in target_info.layout.blocks()],
-                    [block.properties for block in target_info.layout.blocks()],
-                )
-                self.requested_LS_tuples.append((1, 1))
-            else:
-                raise NotImplementedError(
-                    "PhACE only supports Cartesian targets with rank=1."
-                )
+            # # here, we handle Cartesian targets
+            # if len(target_info.layout.block().components) == 1:
+            #     self.last_layers[target_name] = EquivariantLastLayer(
+            #         [(1, 1)],
+            #         self.k_max_l,
+            #         [block.components for block in target_info.layout.blocks()],
+            #         [block.properties for block in target_info.layout.blocks()],
+            #     )
+            #     self.requested_LS_tuples.append((1, 1))
+            # else:
+            #     raise NotImplementedError(
+            #         "PhACE only supports Cartesian targets with rank=1."
+            #     )
+            pass
         else:  # spherical equivariant
             irreps = []
             for key in target_info.layout.keys:

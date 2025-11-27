@@ -36,6 +36,8 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
 
+from . import checkpoints
+from .documentation import TrainerHypers
 from .model import PhACE
 
 
@@ -70,7 +72,7 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface):
+class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 6
 
     def __init__(self, hypers: Dict[str, Any]):
@@ -349,7 +351,7 @@ class Trainer(TrainerInterface):
             # from torch.profiler import profile
 
             # counter = 0
-            # with profile() as prof:   
+            # with profile() as prof:
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
