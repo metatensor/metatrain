@@ -94,6 +94,8 @@ class TestOutput(OutputTests, MACETests):
 
 
 class TestAutograd(AutogradTests, MACETests):
+    cuda_nondet_tolerance = 1e-12
+
     def test_autograd_positions(
         self,
         device: torch.device,
