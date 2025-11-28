@@ -1,9 +1,9 @@
-import importlib
 from collections import namedtuple
+from importlib.util import find_spec
 
 
 DepStatus = namedtuple("DepStatus", ["present", "message"])
-if importlib.util.find_spec("wandb"):
+if find_spec("wandb"):
     WANDB_AVAILABLE = DepStatus(True, "present")
 else:
     WANDB_AVAILABLE = DepStatus(False, "wandb not installed")
