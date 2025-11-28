@@ -85,17 +85,17 @@ def get_optimizer_and_scheduler(
     # with PET, where all model parameters (including the additive models stored as
     # attributes) are passed to the optimizer.
     heads = (model.module if is_distributed else model).heads
+    head_parameters = []
+    for k, v in heads.items():
+        if k != model.hypers["mace_head_target"]:
+            head_parameters.extend(v.parameters())
 
     opt_options["params"].extend(
         [
             # Parameters of all heads except the wrapper for the internal MACE head
             {
                 "name": "heads",
-                "params": [
-                    v.parameters()
-                    for k, v in heads.items()
-                    if k != model.hypers["mace_head_target"]
-                ],
+                "params": head_parameters,
             },
             {
                 "name": "additive_models",
