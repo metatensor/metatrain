@@ -140,6 +140,7 @@ class Scaler(torch.nn.Module):
         batch_size: int,
         is_distributed: bool,
         fixed_weights: Optional[Dict[str, Union[float, Dict[int, float]]]] = None,
+        fit_property_scales: bool = False,
     ) -> None:
         """
         Placeholder docs.
@@ -169,7 +170,7 @@ class Scaler(torch.nn.Module):
 
         device = self.dummy_buffer.device
 
-        # accumulate
+        # accumulate global
         for batch in dataloader:
             systems, targets, extra_data = unpack_batch(batch)
             systems, targets, extra_data = batch_to(
@@ -190,33 +191,96 @@ class Scaler(torch.nn.Module):
                     },
                 )
             targets = average_by_num_atoms(targets, systems, [])
-            self.model.accumulate(systems, targets, extra_data)
+            self.model.accumulate_global(systems, targets, extra_data)
 
         if is_distributed:
             torch.distributed.barrier()
             # All-reduce the accumulated TensorMaps across all processes
             for target_name in self.new_outputs:
                 for N_block, Y2_block in zip(
-                    self.model.N[target_name],
-                    self.model.Y2[target_name],
+                    self.model.N_global[target_name],
+                    self.model.Y2_global[target_name],
                     strict=True,
                 ):
                     torch.distributed.all_reduce(N_block.values)
                     torch.distributed.all_reduce(Y2_block.values)
 
         # Compute the scales on all ranks
-        self.model.fit(fixed_weights=fixed_weights, targets_to_fit=self.new_outputs)
+        self.model.fit_global(
+            fixed_weights=fixed_weights, targets_to_fit=self.new_outputs
+        )
 
         # update the buffer scales now they are fitted
-        for target_name in self.model.scales.keys():
+        for target_name in self.model.scales_global.keys():
             self.register_buffer(
-                target_name + "_scaler_buffer",
+                target_name + "_scaler_global_buffer",
                 mts.save_buffer(
                     mts.make_contiguous(
-                        self.model.scales[target_name].to("cpu", torch.float64)
+                        self.model.scales_global[target_name].to("cpu", torch.float64)
                     )
                 ).to(device),
             )
+
+        # accumulate per-property
+        if fit_property_scales:
+            for batch in dataloader:
+                systems, targets, extra_data = unpack_batch(batch)
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, device=device
+                )
+                if len(targets) == 0:
+                    break
+
+                # remove additive contributions from these targets
+                for additive_model in additive_models:
+                    targets = remove_additive(
+                        systems,
+                        targets,
+                        additive_model,
+                        {
+                            target_name: self.target_infos[target_name]
+                            for target_name in targets
+                        },
+                    )
+                targets = average_by_num_atoms(targets, systems, [])
+                # apply global scales before accumulating per-property scales
+                targets = {
+                    target_name: mts.divide(
+                        target, self.model.scales_global[target_name][0].values.item()
+                    )
+                    for target_name, target in targets.items()
+                }
+                self.model.accumulate_property(systems, targets, extra_data)
+
+            if is_distributed:
+                torch.distributed.barrier()
+                # All-reduce the accumulated TensorMaps across all processes
+                for target_name in self.new_outputs:
+                    for N_block, Y2_block in zip(
+                        self.model.N_property[target_name],
+                        self.model.Y2_property[target_name],
+                        strict=True,
+                    ):
+                        torch.distributed.all_reduce(N_block.values)
+                        torch.distributed.all_reduce(Y2_block.values)
+
+            # Compute the scales on all ranks
+            self.model.fit_property(
+                fixed_weights=fixed_weights, targets_to_fit=self.new_outputs
+            )
+
+            # update the buffer scales now they are fitted
+            for target_name in self.model.scales_property.keys():
+                self.register_buffer(
+                    target_name + "_scaler_property_buffer",
+                    mts.save_buffer(
+                        mts.make_contiguous(
+                            self.model.scales_property[target_name].to(
+                                "cpu", torch.float64
+                            )
+                        )
+                    ).to(device),
+                )
 
     def restart(self, dataset_info: DatasetInfo) -> "Scaler":
         """
@@ -254,6 +318,8 @@ class Scaler(torch.nn.Module):
         systems: List[System],
         outputs: Dict[str, TensorMap],
         remove: bool = False,
+        use_global_scales: bool = True,
+        use_property_scales: bool = False,
     ) -> Dict[str, TensorMap]:
         """Scales the outputs based on the stored standard deviations.
 
@@ -271,7 +337,9 @@ class Scaler(torch.nn.Module):
 
         self.scales_to(device, dtype)
 
-        scaled_outputs = self.model.forward(systems, outputs, remove)
+        scaled_outputs = self.model.forward(
+            systems, outputs, remove, use_global_scales, use_property_scales
+        )
 
         return scaled_outputs
 
@@ -307,7 +375,22 @@ class Scaler(torch.nn.Module):
                 f"{valid_sample_names}."
             )
 
-        fake_scales = TensorMap(
+        fake_scales_global = TensorMap(
+            keys=Labels(["_"], torch.tensor([[0]])),
+            blocks=[
+                TensorBlock(
+                    values=torch.ones(  # important when scale_targets=False
+                        1,
+                        1,
+                        dtype=torch.float64,
+                    ),
+                    samples=Labels(["_"], torch.tensor([[0]])),
+                    components=[],
+                    properties=Labels(["_"], torch.tensor([[0]])),
+                )
+            ],
+        )
+        fake_scales_property = TensorMap(
             keys=layout.keys,
             blocks=[
                 TensorBlock(
@@ -324,19 +407,50 @@ class Scaler(torch.nn.Module):
             ],
         )
         self.register_buffer(
-            target_name + "_scaler_buffer",
-            mts.save_buffer(mts.make_contiguous(fake_scales)),
+            target_name + "_scaler_global_buffer",
+            mts.save_buffer(mts.make_contiguous(fake_scales_global)),
+        )
+        self.register_buffer(
+            target_name + "_scaler_property_buffer",
+            mts.save_buffer(mts.make_contiguous(fake_scales_property)),
         )
 
     def scales_to(self, device: torch.device, dtype: torch.dtype) -> None:
-        if len(self.model.scales) != 0:
-            if self.model.scales[list(self.model.scales.keys())[0]].device != device:
-                self.model.scales = {
-                    k: v.to(device) for k, v in self.model.scales.items()
+        if len(self.model.scales_global) != 0:
+            if (
+                self.model.scales_global[
+                    list(self.model.scales_global.keys())[0]
+                ].device
+                != device
+            ):
+                self.model.scales_global = {
+                    k: v.to(device) for k, v in self.model.scales_global.items()
                 }
-            if self.model.scales[list(self.model.scales.keys())[0]].dtype != dtype:
-                self.model.scales = {
-                    k: v.to(dtype) for k, v in self.model.scales.items()
+            if (
+                self.model.scales_global[list(self.model.scales_global.keys())[0]].dtype
+                != dtype
+            ):
+                self.model.scales_global = {
+                    k: v.to(dtype) for k, v in self.model.scales_global.items()
+                }
+        if len(self.model.scales_property) != 0:
+            if (
+                self.model.scales_property[
+                    list(self.model.scales_property.keys())[0]
+                ].device
+                != device
+            ):
+                self.model.scales_property = {
+                    k: v.to(device) for k, v in self.model.scales_property.items()
+                }
+            if (
+                self.model.scales_property[
+                    list(self.model.scales_property.keys())[0]
+                ].dtype
+                != dtype
+            ):
+                self.model.scales_property = {
+                    k: v.to(dtype) for k, v in self.model.scales_property.items()
                 }
 
         self.model._sync_device_dtype(device, dtype)
@@ -345,6 +459,9 @@ class Scaler(torch.nn.Module):
         # Reload the scales of the (old) targets, which are not stored in the model
         # state_dict, from the buffers
         for k in self.dataset_info.targets:
-            self.model.scales[k] = mts.load_buffer(
-                self.__getattr__(k + "_scaler_buffer")
+            self.model.scales_global[k] = mts.load_buffer(
+                self.__getattr__(k + "_scaler_global_buffer")
+            )
+            self.model.scales_property[k] = mts.load_buffer(
+                self.__getattr__(k + "_scaler_property_buffer")
             )

@@ -148,11 +148,14 @@
         "checkpoint_interval": {
           "type": "integer"
         },
-        "scale_targets": {
+        "use_global_scales": {
           "type": "boolean"
         },
-        "rescale_predictions": {
-            "type": "boolean"
+        "use_property_scales": {
+          "type": "boolean"
+        },
+        "rescale_prediction_properties": {
+          "type": "boolean"
         },
         "fixed_composition_weights": {
           "type": "object",

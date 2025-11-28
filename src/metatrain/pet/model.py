@@ -511,7 +511,9 @@ class PET(ModelInterface):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(systems, return_dict)
+            return_dict = self.scaler(
+                systems, return_dict, use_global_scales=True, use_property_scales=True
+            )
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
                 for name, output in outputs.items():
@@ -1319,17 +1321,11 @@ class PET(ModelInterface):
             )
         elif self.head_types[target_name] == "linear":
             self.node_heads[target_name] = torch.nn.ModuleList(
-                [
-                    torch.nn.Sequential()
-                    for _ in range(self.num_readout_layers)
-                ]
+                [torch.nn.Sequential() for _ in range(self.num_readout_layers)]
             )
 
             self.edge_heads[target_name] = torch.nn.ModuleList(
-                [
-                    torch.nn.Sequential()
-                    for _ in range(self.num_readout_layers)
-                ]
+                [torch.nn.Sequential() for _ in range(self.num_readout_layers)]
             )
 
             self.node_last_layers[target_name] = torch.nn.ModuleList(

@@ -6,6 +6,7 @@ The class ``Scaler`` wraps this to be compatible with metatrain-style objects.
 import logging
 from typing import Dict, List, Optional, Union
 
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
@@ -34,8 +35,10 @@ class BaseScaler(torch.nn.Module):
     scales: Dict[str, TensorMap]
     sample_kinds: Dict[str, str]
     type_to_index: torch.Tensor
-    N: Dict[str, TensorMap]
-    Y2: Dict[str, TensorMap]
+    N_global: Dict[str, TensorMap]
+    Y2_global: Dict[str, TensorMap]
+    N_property: Dict[str, TensorMap]
+    Y2_property: Dict[str, TensorMap]
 
     def __init__(self, atomic_types: List[int], layouts: Dict[str, TensorMap]) -> None:
         super().__init__()
@@ -43,9 +46,12 @@ class BaseScaler(torch.nn.Module):
         self.atomic_types = torch.as_tensor(atomic_types, dtype=torch.int32)
         self.target_names = []
         self.sample_kinds = {}
-        self.N = {}
-        self.Y2 = {}
-        self.scales = {}
+        self.N_global = {}
+        self.Y2_global = {}
+        self.scales_global: Dict[str, TensorMap] = {}
+        self.N_property = {}
+        self.Y2_property = {}
+        self.scales_property: Dict[str, TensorMap] = {}
 
         # go from an atomic type to its position in `self.atomic_types`
         self.register_buffer(
@@ -95,7 +101,43 @@ class BaseScaler(torch.nn.Module):
             )
 
         # Initialize TensorMaps for the quantities to accumulate for this target.
-        self.N[target_name] = TensorMap(
+        # For global scales
+        self.N_global[target_name] = TensorMap(
+            Labels(["_"], torch.tensor([[0]])),
+            blocks=[
+                TensorBlock(
+                    values=torch.zeros(1, 1, dtype=torch.float64),
+                    samples=Labels(["_"], torch.tensor([[0]])),
+                    components=[],
+                    properties=Labels(["_"], torch.tensor([[0]])),
+                )
+            ],
+        )
+        self.Y2_global[target_name] = TensorMap(
+            Labels(["_"], torch.tensor([[0]])),
+            blocks=[
+                TensorBlock(
+                    values=torch.zeros(1, 1, dtype=torch.float64),
+                    samples=Labels(["_"], torch.tensor([[0]])),
+                    components=[],
+                    properties=Labels(["_"], torch.tensor([[0]])),
+                )
+            ],
+        )
+        self.scales_global[target_name] = TensorMap(
+            Labels(["_"], torch.tensor([[0]])),
+            blocks=[
+                TensorBlock(
+                    values=torch.zeros(1, 1, dtype=torch.float64),
+                    samples=Labels(["_"], torch.tensor([[0]])),
+                    components=[],
+                    properties=Labels(["_"], torch.tensor([[0]])),
+                )
+            ],
+        )
+
+        # For property scales
+        self.N_property[target_name] = TensorMap(
             layout.keys,
             blocks=[
                 TensorBlock(
@@ -111,7 +153,7 @@ class BaseScaler(torch.nn.Module):
                 for block in layout
             ],
         )
-        self.Y2[target_name] = TensorMap(
+        self.Y2_property[target_name] = TensorMap(
             layout.keys,
             blocks=[
                 TensorBlock(
@@ -127,7 +169,7 @@ class BaseScaler(torch.nn.Module):
                 for block in layout
             ],
         )
-        self.scales[target_name] = TensorMap(
+        self.scales_property[target_name] = TensorMap(
             layout.keys,
             blocks=[
                 TensorBlock(
@@ -144,7 +186,7 @@ class BaseScaler(torch.nn.Module):
             ],
         )
 
-    def accumulate(
+    def accumulate_global(
         self,
         systems: List[System],
         targets: Dict[str, TensorMap],
@@ -169,7 +211,51 @@ class BaseScaler(torch.nn.Module):
         dtype = list(targets.values())[0][0].values.dtype
         self._sync_device_dtype(device, dtype)
 
-        # accumulate
+        # accumulate global quantities
+        for target_name, target in targets.items():
+            mask = None
+            if target_name + "_mask" in extra_data:
+                mask = extra_data[target_name + "_mask"]
+
+            # First accumulate the global quantities
+            for key, block in target.items():
+                if mask is None:
+                    block_vals = block.values
+                else:
+                    mask_block = mask.block(key).values.to(torch.bool)
+                    block_vals = block.values[mask_block]
+                N = block_vals.numel()
+                # sums = torch.sum(block_vals)
+                Y2 = torch.sum(block_vals**2)
+                self.N_global[target_name][0].values[0] += N
+                self.Y2_global[target_name][0].values[0] += Y2
+
+    def accumulate_property(
+        self,
+        systems: List[System],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ) -> None:
+        """
+        Takes a batch of targets, and for each target accumulates the
+        necessary quantities, i.e. the sum over the squared
+        samples (Y2), and the number of samples overall (N).
+
+        :param systems: List of systems corresponding to the targets.
+        :param targets: Dict of names to targets to accumulate. The names (keys)
+            should be a subset of the target names used during fitting.
+        :param extra_data: Optional dict of extra data, e.g., masks for the targets
+            (e.g., for padded samples).
+        """
+
+        if extra_data is None:
+            extra_data = {}
+
+        device = list(targets.values())[0][0].values.device
+        dtype = list(targets.values())[0][0].values.dtype
+        self._sync_device_dtype(device, dtype)
+
+        # accumulate per-property quantities
         for target_name, target in targets.items():
             mask = None
             if target_name + "_mask" in extra_data:
@@ -196,8 +282,8 @@ class BaseScaler(torch.nn.Module):
                     N = Y.numel() // Y.shape[-1] if Y.numel() > 0 else 0
                     Y2_values = torch.sum(Y**2, dim=list(range(0, Y.dim() - 1)))
 
-                    self.N[target_name][key].values[0] += N
-                    self.Y2[target_name][key].values[0] += Y2_values
+                    self.N_property[target_name][key].values[0] += N
+                    self.Y2_property[target_name][key].values[0] += Y2_values
 
                 else:
                     assert self.sample_kinds[target_name] == "per_atom"
@@ -234,14 +320,14 @@ class BaseScaler(torch.nn.Module):
                         Y2_values = torch.sum(Y**2, dim=list(range(0, Y.dim() - 1)))
 
                         # Repeat the along the component axes (if any) and accumulate
-                        self.N[target_name][key].values[
+                        self.N_property[target_name][key].values[
                             self.type_to_index[atomic_type]
                         ] += N
-                        self.Y2[target_name][key].values[
+                        self.Y2_property[target_name][key].values[
                             self.type_to_index[atomic_type]
                         ] += Y2_values
 
-    def fit(
+    def fit_global(
         self,
         fixed_weights: Optional[Dict[str, Union[float, Dict[int, float]]]] = None,
         targets_to_fit: Optional[List[str]] = None,
@@ -264,16 +350,45 @@ class BaseScaler(torch.nn.Module):
         if fixed_weights is None:
             fixed_weights = {}
 
-        # fit
+        # fit global scales
         for target_name in targets_to_fit:
             if target_name in fixed_weights:
                 self._apply_fixed_weights(target_name, fixed_weights[target_name])
                 continue
+            else:
+                N = self.N_global[target_name][0].values.item()
+                Y2 = self.Y2_global[target_name][0].values[0]
+                self.scales_global[target_name][0].values[0] = (Y2 / N) ** 0.5
 
+    def fit_property(
+        self,
+        fixed_weights: Optional[Dict[str, Union[float, Dict[int, float]]]] = None,
+        targets_to_fit: Optional[List[str]] = None,
+    ) -> None:
+        """
+        Based on the pre-accumulated quantities from the training data, computes the
+        scales for each target.
+
+        :param fixed_weights: Optional dict of fixed weights to apply to the scales
+            of each target. The keys of the dict are the target names, and the values
+            are either a single float value to be applied to all atomic types, or a
+            dict mapping atomic type (int) to weight (float). If not provided, all
+            scales will be computed based on the accumulated quantities.
+        :param targets_to_fit: Optional list of target names to fit. If not provided,
+            all targets will be fitted.
+        """
+        if targets_to_fit is None:
+            targets_to_fit = self.target_names
+
+        if fixed_weights is None:
+            fixed_weights = {}
+
+        # fit per-property scales
+        for target_name in targets_to_fit:
             blocks = []
-            for key in self.N[target_name].keys:
-                N_block = self.N[target_name][key]
-                Y2_block = self.Y2[target_name][key]
+            for key in self.N_property[target_name].keys:
+                N_block = self.N_property[target_name][key]
+                Y2_block = self.Y2_property[target_name][key]
 
                 N_values = N_block.values
                 Y2_values = Y2_block.values
@@ -308,32 +423,17 @@ class BaseScaler(torch.nn.Module):
 
                 blocks.append(block)
 
-            self.scales[target_name] = TensorMap(
-                self.Y2[target_name].keys.to(device=scale_vals_type.device),
+            self.scales_property[target_name] = TensorMap(
+                self.Y2_property[target_name].keys.to(device=scale_vals_type.device),
                 blocks,
             )
 
-    def forward(
+    def _apply_global_scales(
         self,
         systems: List[System],
         outputs: Dict[str, TensorMap],
         remove: bool,
     ) -> Dict[str, TensorMap]:
-        """
-        Scales the targets based on the stored standard deviations.
-
-        :param systems: List of systems corresponding to the for which the outputs
-            were computed.
-        :param outputs: Dict of names outputs to scale. The names (keys) should be a
-            subset of the target names used during fitting.
-        :param remove: If True, removes the scaling (i.e., divides by the scales). If
-            False, applies the scaling (i.e., multiplies by the scales).
-        :returns: A dictionary with the scaled outputs for each system.
-
-        :raises ValueError: If no scales have been computed or if `outputs` keys
-            contain unsupported keys.
-        """
-
         device = list(outputs.values())[0][0].values.device
         dtype = list(outputs.values())[0][0].values.dtype
         self._sync_device_dtype(device, dtype)
@@ -341,17 +441,48 @@ class BaseScaler(torch.nn.Module):
         # Build the scaled outputs for each output
         predictions: Dict[str, TensorMap] = {}
         for output_name in outputs:
+            predictions[output_name] = outputs[output_name]
+
             if output_name not in self.target_names:
                 # just return output as is (e.g., auxiliary outputs)
-                predictions[output_name] = outputs[output_name]
                 continue
 
-            output_tmap = outputs[output_name]
+            if remove:
+                predictions[output_name] = mts.divide(
+                    predictions[output_name],
+                    float(self.scales_global[output_name].block(0).values.item()),
+                )
+            else:
+                predictions[output_name] = mts.multiply(
+                    predictions[output_name],
+                    float(self.scales_global[output_name].block(0).values.item()),
+                )
+
+        return predictions
+
+    def _apply_property_scales(
+        self,
+        systems: List[System],
+        outputs: Dict[str, TensorMap],
+        remove: bool,
+    ) -> Dict[str, TensorMap]:
+        device = list(outputs.values())[0][0].values.device
+        dtype = list(outputs.values())[0][0].values.dtype
+        self._sync_device_dtype(device, dtype)
+
+        # Build the scaled outputs for each output
+        predictions: Dict[str, TensorMap] = {}
+        for output_name in outputs:
+            predictions[output_name] = outputs[output_name]
+
+            if output_name not in self.target_names:
+                # just return output as is (e.g., auxiliary outputs)
+                continue
 
             prediction_blocks: List[TensorBlock] = []
-            for key, output_block in output_tmap.items():
+            for key, output_block in predictions[output_name].items():
                 # Find the scales block and check metadata
-                scales_block = self.scales[output_name].block(key)
+                scales_block = self.scales_property[output_name].block(key)
                 assert scales_block.properties == output_block.properties, (
                     f"Properties of scales block {scales_block.properties} "
                     f"do not match output block {output_block.properties} "
@@ -450,6 +581,57 @@ class BaseScaler(torch.nn.Module):
 
         return predictions
 
+    def forward(
+        self,
+        systems: List[System],
+        outputs: Dict[str, TensorMap],
+        remove: bool,
+        use_global_scales: bool = True,
+        use_property_scales: bool = False,
+    ) -> Dict[str, TensorMap]:
+        """
+        Scales the targets based on the stored standard deviations.
+
+        :param systems: List of systems corresponding to the for which the outputs
+            were computed.
+        :param outputs: Dict of names outputs to scale. The names (keys) should be a
+            subset of the target names used during fitting.
+        :param remove: If True, removes the scaling (i.e., divides by the scales). If
+            False, applies the scaling (i.e., multiplies by the scales).
+        :param use_global_scales: If True, applies/removes global scales.
+        :param use_property_scales: If True, applies/removes per-property scales.
+        :returns: A dictionary with the scaled outputs for each system.
+
+        :raises ValueError: If no scales have been computed or if `outputs` keys
+            contain unsupported keys.
+        """
+
+        # If removing scales, first remove global scales, then property scales.
+        # Otherwise if applying scales, first apply per-property, then globally.
+        predictions: Dict[str, TensorMap] = {
+            output_name: outputs[output_name] for output_name in outputs
+        }
+        if remove:
+            if use_global_scales:
+                predictions = self._apply_global_scales(
+                    systems, predictions, remove=True
+                )
+            if use_property_scales:
+                predictions = self._apply_property_scales(
+                    systems, predictions, remove=True
+                )
+        else:
+            if use_property_scales:
+                predictions = self._apply_property_scales(
+                    systems, predictions, remove=False
+                )
+            if use_global_scales:
+                predictions = self._apply_global_scales(
+                    systems, predictions, remove=False
+                )
+
+        return predictions
+
     def _apply_fixed_weights(
         self, target_name: str, weights: Union[float, Dict[int, float]]
     ) -> None:
@@ -460,17 +642,6 @@ class BaseScaler(torch.nn.Module):
         :param weights: Either a single float value to be applied to all atomic types,
             or a dict mapping atomic type (int) to weight (float).
         """
-        # Error out if multiple blocks or multiple properties are present. These are
-        # difficult to allow in the yaml files.
-        if len(self.scales[target_name]) > 1:
-            raise NotImplementedError(
-                "Multiple blocks are not supported for fixed weights in `Scaler`."
-            )
-        if len(self.scales[target_name].block().properties) > 1:
-            raise NotImplementedError(
-                "Multiple properties are not supported for fixed weights in `Scaler`."
-            )
-
         Y2_block = self.Y2[target_name].block()
         block = TensorBlock(
             values=torch.empty_like(Y2_block.values),  # [1, 1] or [n_types, 1]
@@ -507,7 +678,7 @@ class BaseScaler(torch.nn.Module):
                 "weights must be either a float or a dict of int to float."
             )
 
-        self.scales[target_name] = TensorMap(
+        self.scales_global[target_name] = TensorMap(
             self.Y2[target_name].keys.to(device=block.values.device),
             [block],
         )
@@ -517,15 +688,27 @@ class BaseScaler(torch.nn.Module):
 
         self.atomic_types = self.atomic_types.to(device=device)
         self.type_to_index = self.type_to_index.to(device=device)
-        self.N = {
+        self.N_global = {
             target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.N.items()
+            for target_name, tm in self.N_global.items()
         }
-        self.Y2 = {
+        self.Y2_global = {
             target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.Y2.items()
+            for target_name, tm in self.Y2_global.items()
         }
-        self.scales = {
+        self.scales_global = {
             target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.scales.items()
+            for target_name, tm in self.scales_global.items()
+        }
+        self.N_property = {
+            target_name: tm.to(device=device, dtype=dtype)
+            for target_name, tm in self.N_property.items()
+        }
+        self.Y2_property = {
+            target_name: tm.to(device=device, dtype=dtype)
+            for target_name, tm in self.Y2_property.items()
+        }
+        self.scales_property = {
+            target_name: tm.to(device=device, dtype=dtype)
+            for target_name, tm in self.scales_property.items()
         }

@@ -11,6 +11,8 @@ def remove_scale(
     systems: List[System],
     targets: Dict[str, TensorMap],
     scaler: torch.nn.Module,
+    use_global_scales: bool,
+    use_property_scales: bool,
 ) -> Dict[str, TensorMap]:
     """
     Scale all targets to a standard deviation of one.
@@ -20,10 +22,18 @@ def remove_scale(
     :param scaler: The scaler used to scale the targets.
     :return: The scaled targets.
     """
-    return scaler(systems, targets, remove=True)
+    return scaler(
+        systems,
+        targets,
+        remove=True,
+        use_global_scales=use_global_scales,
+        use_property_scales=use_property_scales,
+    )
 
 
-def get_remove_scale_transform(scaler: Scaler) -> Callable:
+def get_remove_scale_transform(
+    scaler: Scaler, use_global_scales: bool, use_property_scales: bool
+) -> Callable:
     """
     Remove the scaling from the targets using the provided scaler.
 
@@ -42,7 +52,9 @@ def get_remove_scale_transform(scaler: Scaler) -> Callable:
         :param extra: Dictionary containing any extra data.
         :return: The systems, updated targets and extra data.
         """
-        new_targets = remove_scale(systems, targets, scaler)
+        new_targets = remove_scale(
+            systems, targets, scaler, use_global_scales, use_property_scales
+        )
         return systems, new_targets, extra
 
     return transform

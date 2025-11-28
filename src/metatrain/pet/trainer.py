@@ -159,6 +159,12 @@ class Trainer(TrainerInterface):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
+        # Train composition model and scaler
+        dataset_info = model.dataset_info
+        train_targets = dataset_info.targets
+        extra_data_info = dataset_info.extra_data
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
+
         if self.hypers["remove_composition_contribution"]:
             logging.info("Calculating composition weights")
             model.additive_models[0].train_model(  # this is the composition model
@@ -169,14 +175,20 @@ class Trainer(TrainerInterface):
                 self.hypers["fixed_composition_weights"],
             )
 
-        if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
+        if self.hypers["use_global_scales"] or self.hypers["use_property_scales"]:
+            if self.hypers["use_global_scales"] and self.hypers["use_property_scales"]:
+                logging.info("Calculating both global and per-property scaling weights")
+            elif self.hypers["use_global_scales"]:
+                logging.info("Calculating global scaling weights only")
+            else:
+                logging.info("Calculating per-property scaling weights only")
             model.scaler.train_model(
                 train_datasets,
                 model.additive_models,
                 self.hypers["batch_size"],
                 is_distributed,
                 self.hypers["fixed_scaling_weights"],
+                fit_property_scales=self.hypers["use_property_scales"],
             )
 
         logging.info("Setting up data loaders")
@@ -227,36 +239,81 @@ class Trainer(TrainerInterface):
             target_info_dict=train_targets, extra_data_info_dict=extra_data_info
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
-        if self.hypers["scale_targets"]:
-            if self.hypers["rescale_predictions"]:
-                logging.info("Training with rescaled predictions (physical units)")
-                # the predictions will be rescaled to have physical units, so the targets
-                # shouldn't be scaled in the collate fn (i.e. don't use the remove scale
-                # transform)
-                remove_scale_transform = []
+        if self.hypers["use_global_scales"]:
+            if self.hypers["use_property_scales"]:
+                if self.hypers["rescale_prediction_properties"]:
+                    logging.info(
+                        "Training with global and per-property scaling. Prediction"
+                        "  properties will be rescaled before loss calculation."
+                    )
+                    remove_scale_transform = [
+                        get_remove_scale_transform(
+                            scaler,
+                            use_global_scales=True,
+                            use_property_scales=False,  # predictions rescaled
+                        )
+                    ]
+                else:
+                    logging.info("Training with global and per-property scaling.")
+                    remove_scale_transform = [
+                        get_remove_scale_transform(
+                            scaler,
+                            use_global_scales=True,
+                            use_property_scales=True,  # targets scaled
+                        )
+                    ]
             else:
-                logging.info("Training with scaled predictions (scaled units)")
-                # the predictions will have scaled units, so the targets need to be scaled
-                # in the collate fn (i.e. use the remove scale transform)
-                remove_scale_transform = [get_remove_scale_transform(scaler)]
+                logging.info("Training with global scaling.")
+                remove_scale_transform = [
+                    get_remove_scale_transform(
+                        scaler,
+                        use_global_scales=True,
+                        use_property_scales=False,  # no per-property scaling
+                    )
+                ]
         else:
-            # no scales are computed, so they don't need to be removed from the targets
-            # in the collate function
-            remove_scale_transform = []
+            if self.hypers["use_property_scales"]:
+                if self.hypers["rescale_prediction_properties"]:
+                    logging.info("Training with per-property scaling.")
+                    remove_scale_transform = [
+                        get_remove_scale_transform(
+                            scaler,
+                            use_global_scales=False,
+                            use_property_scales=False,  # predictions rescaled
+                        )
+                    ]
+                else:
+                    logging.info(
+                        "Training with per-property scaling. Prediction"
+                        "  properties will be rescaled before loss calculation."
+                    )
+                    remove_scale_transform = [
+                        get_remove_scale_transform(
+                            scaler,
+                            use_global_scales=False,
+                            use_property_scales=True,  # targets rescaled
+                        )
+                    ]
+            else:
+                logging.info("No target scaling.")
+                remove_scale_transform = []  # no scaling
+
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
                 rotational_augmenter.apply_random_augmentations,
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
-            ] + remove_scale_transform,
+            ]
+            + remove_scale_transform,
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[  # no augmentation for validation
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
-            ] + remove_scale_transform,
+            ]
+            + remove_scale_transform,
         )
 
         # Create dataloader for the training datasets:
@@ -413,22 +470,29 @@ class Trainer(TrainerInterface):
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=True,
                 )
-                if self.hypers["scale_targets"] and self.hypers["rescale_predictions"]:
-                    # rescale the predictions to physical units for loss calculation
+                if (
+                    self.hypers["use_property_scales"]
+                    and self.hypers["rescale_prediction_properties"]
+                ):
                     predictions = (model.module if is_distributed else model).scaler(
-                        systems, predictions
+                        systems,
+                        predictions,
+                        use_global_scales=False,  # never applied for loss
+                        use_property_scales=True,  # predictions rescaled
                     )
 
-                # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
+                # average by the number of atoms before entering the loss (but don't
+                # store, as the global scaler needs to be applied before averaging for
+                # metric calculation)
+                train_loss_batch = loss_fn(
+                    average_by_num_atoms(predictions, systems, per_structure_targets),
+                    average_by_num_atoms(targets, systems, per_structure_targets),
+                    extra_data,
                 )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
-                    # make sure all parameters contribute to the gradient calculation
-                    # to make torch DDP happy
+                    # make sure all parameters contribute to the gradient calculation to
+                    # make torch DDP happy
                     for param in model.parameters():
                         train_loss_batch += 0.0 * param.sum()
 
@@ -438,8 +502,12 @@ class Trainer(TrainerInterface):
                 #   - 0.25x during warmup
                 #   - 0.5x during half of the hold phase
                 #   - 1.0x afterwards
-                warmup_epochs = int(self.hypers["warmup_fraction"] * self.hypers["num_epochs"])
-                half_hold_epochs = int(self.hypers["hold_fraction"] * self.hypers["num_epochs"] / 2)
+                warmup_epochs = int(
+                    self.hypers["warmup_fraction"] * self.hypers["num_epochs"]
+                )
+                half_hold_epochs = int(
+                    self.hypers["hold_fraction"] * self.hypers["num_epochs"] / 2
+                )
                 base_clip = self.hypers["grad_clip_norm"]
 
                 if epoch < warmup_epochs:
@@ -458,29 +526,35 @@ class Trainer(TrainerInterface):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                if self.hypers["scale_targets"] and not self.hypers["rescale_predictions"]:
-                    # if the targets have been scaled and the predictions are in scaled
-                    # units, scale both predictions and targets up to physical units for
-                    # calculation of metrics
-                    scaled_predictions = (model.module if is_distributed else model).scaler(
-                        systems, predictions
-                    )
-                    scaled_targets = (model.module if is_distributed else model).scaler(
-                        systems, targets
-                    )
-                else:
-                    # both the targets and predictions are already in physical units,
-                    # ready for calculation of metrics
-                    scaled_predictions = predictions
-                    scaled_targets = targets
-
-                train_rmse_calculator.update(
-                    scaled_predictions, scaled_targets, extra_data
+                # Now ensure the targets and predictions are in physical units for
+                # calculation of metrics
+                predictions = (model.module if is_distributed else model).scaler(
+                    systems,
+                    predictions,
+                    use_global_scales=True,  # always applied for metrics
+                    use_property_scales=(
+                        self.hypers["use_property_scales"]
+                        and not self.hypers["rescale_prediction_properties"]
+                    ),
                 )
+                targets = (model.module if is_distributed else model).scaler(
+                    systems,
+                    targets,
+                    use_global_scales=True,  # always for metrics
+                    use_property_scales=(
+                        self.hypers["use_property_scales"]
+                        and not self.hypers["rescale_prediction_properties"]
+                    ),
+                )
+                # And average by the number of atoms for the metrics
+                predictions = average_by_num_atoms(
+                    predictions, systems, per_structure_targets
+                )
+                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+
+                train_rmse_calculator.update(predictions, targets, extra_data)
                 if self.hypers["log_mae"]:
-                    train_mae_calculator.update(
-                        scaled_predictions, scaled_targets, extra_data
-                    )
+                    train_mae_calculator.update(predictions, targets, extra_data)
 
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -508,47 +582,60 @@ class Trainer(TrainerInterface):
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
                 )
-                if self.hypers["scale_targets"] and self.hypers["rescale_predictions"]:
-                    # rescale the predictions to physical units for loss calculation
+                if (
+                    self.hypers["use_property_scales"]
+                    and self.hypers["rescale_prediction_properties"]
+                ):
                     predictions = (model.module if is_distributed else model).scaler(
-                        systems, predictions
+                        systems,
+                        predictions,
+                        use_global_scales=False,  # never applied for loss
+                        use_property_scales=True,  # predictions are rescaled
                     )
 
-                # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
+                # average by the number of atoms before entering the loss (but don't
+                # store, as the global scaler needs to be applied before averaging for
+                # metric calculation)
+                val_loss_batch = loss_fn(
+                    average_by_num_atoms(predictions, systems, per_structure_targets),
+                    average_by_num_atoms(targets, systems, per_structure_targets),
+                    extra_data,
                 )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                val_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
                     # sum the loss over all processes
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
 
-                if self.hypers["scale_targets"] and not self.hypers["rescale_predictions"]:
-                    # if the targets have been scaled and the predictions are in scaled
-                    # units, scale both predictions and targets up to physical units for
-                    # calculation of metrics
-                    scaled_predictions = (model.module if is_distributed else model).scaler(
-                        systems, predictions
-                    )
-                    scaled_targets = (model.module if is_distributed else model).scaler(
-                        systems, targets
-                    )
-                else:
-                    # both the targets and predictions are already in physical units,
-                    # ready for calculation of metrics
-                    scaled_predictions = predictions
-                    scaled_targets = targets
-
-                val_rmse_calculator.update(
-                    scaled_predictions, scaled_targets, extra_data
+                # Now ensure the targets and predictions are in physical units for
+                # calculation of metrics
+                predictions = (model.module if is_distributed else model).scaler(
+                    systems,
+                    predictions,
+                    use_global_scales=True,  # always applied for metrics
+                    use_property_scales=(
+                        self.hypers["use_property_scales"]
+                        and not self.hypers["rescale_prediction_properties"]
+                    ),
                 )
+                targets = (model.module if is_distributed else model).scaler(
+                    systems,
+                    targets,
+                    use_global_scales=True,  # always apply for metrics
+                    use_property_scales=(
+                        self.hypers["use_property_scales"]
+                        and not self.hypers["rescale_prediction_properties"]
+                    ),
+                )
+                # And average by the number of atoms for the metrics
+                predictions = average_by_num_atoms(
+                    predictions, systems, per_structure_targets
+                )
+                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+
+                val_rmse_calculator.update(predictions, targets, extra_data)
                 if self.hypers["log_mae"]:
-                    val_mae_calculator.update(
-                        scaled_predictions, scaled_targets, extra_data
-                    )
+                    val_mae_calculator.update(predictions, targets, extra_data)
 
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
