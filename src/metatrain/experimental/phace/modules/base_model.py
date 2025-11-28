@@ -199,26 +199,30 @@ class GradientModel(torch.nn.Module):
 
     def forward(self, structures_as_list):
 
-        def compute_energy(params, buffers, input_tensors):
-            positions = input_tensors[:len(structures_as_list)]
-            strains = input_tensors[len(structures_as_list):]
-            for i in range(len(structures_as_list)):
-                structures_as_list[i][0] = positions[i] @ strains[i]
-                structures_as_list[i][2] = structures_as_list[i][2] @ strains[i]
-            pred = functional_call(self.module, (params, buffers), (structures_as_list,))
-            return pred.sum(), pred
-
-        params = dict(self.module.named_parameters())
-        buffers = dict(self.module.named_buffers())
         positions = [s[0] for s in structures_as_list]
         strains = [torch.eye(3, device=s[0].device, dtype=s[0].dtype) for s in structures_as_list]
         tensors_to_differentiate = positions + strains
 
-        compute_batch_val_and_grad = grad(compute_energy, argnums=2, has_aux=True)
-        
-        gradients, energies = compute_batch_val_and_grad(params, buffers, tensors_to_differentiate)
+        for t in tensors_to_differentiate:
+            t.requires_grad = True
+
+        positions = tensors_to_differentiate[:len(structures_as_list)]
+        strains = tensors_to_differentiate[len(structures_as_list):]
+        for i in range(len(structures_as_list)):
+            structures_as_list[i][0] = positions[i] @ strains[i]
+            structures_as_list[i][2] = structures_as_list[i][2] @ strains[i]
+
+        # compute_batch_val_and_grad = grad(compute_energy, argnums=2, has_aux=True)
+        # gradients, energies = compute_batch_val_and_grad(params, buffers, tensors_to_differentiate)
+
+        energies = self.module(structures_as_list)
+        gradients = torch.autograd.grad(
+            outputs=energies.sum(),
+            inputs=tensors_to_differentiate,
+            create_graph=True,
+        )
 
         forces = -torch.concatenate(gradients[:len(structures_as_list)])
-        virials = -torch.stack(gradients[len(structures_as_list):])
+        # virials = -torch.stack(gradients[len(structures_as_list):])
 
         return energies, forces

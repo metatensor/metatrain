@@ -175,7 +175,7 @@ def couple_features(
         features.shape[-1],
     )
     stacked_features = features.swapaxes(0, 1)
-    features_coupled = torch.split(stacked_features, split_sizes, dim=1)
+    features_coupled = [t.contiguous() for t in torch.split(stacked_features, split_sizes, dim=1)]
 
     coupled_features = []
     for l in range(padded_l_max + 1):

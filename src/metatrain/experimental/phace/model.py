@@ -22,10 +22,10 @@ from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 
-from .documentation import ModelHypers
-from .modules.base_model import GradientModel
-from .modules.layers import Linear
-from .utils import systems_to_list
+from metatrain.experimental.phace.documentation import ModelHypers
+from metatrain.experimental.phace.modules.base_model import GradientModel
+from metatrain.experimental.phace.modules.layers import Linear
+from metatrain.experimental.phace.utils import systems_to_list
 
 
 warnings.filterwarnings(
