@@ -4,14 +4,27 @@ import torch
 from metatomic.torch import NeighborListOptions, System
 
 
-def systems_to_batch(
+def systems_to_list(
     systems: List[System], nl_options: NeighborListOptions
-) -> Dict[str, torch.Tensor]:
-    device = systems[0].positions.device
-    positions = torch.cat([item.positions for item in systems])
-    cells = torch.stack([item.cell for item in systems])
-    species = torch.cat([item.types for item in systems])
-    ptr = torch.tensor([0] + [len(item) for item in systems]).cumsum(0)
+) -> List[List[torch.Tensor]]:
+    systems_as_list: List[List[torch.Tensor]] = []
+    for system in systems:
+        nl = system.get_neighbor_list(nl_options)
+        samples = nl.samples.values
+        edge_indices = samples[:, :2]
+        cell_shifts = samples[:, 2:]
+        systems_as_list.append(
+            [system.positions, system.types, system.cell, edge_indices, cell_shifts]
+        )
+    return systems_as_list 
+
+
+def systems_to_batch(systems: List[List[torch.Tensor]]) -> Dict[str, torch.Tensor]:
+    device = systems[0][0].device
+    positions = torch.cat([system[0] for system in systems])
+    species = torch.cat([system[1] for system in systems])
+    cells = torch.stack([system[2] for system in systems])
+    ptr = torch.tensor([0] + [len(system[0]) for system in systems]).cumsum(0)
 
     edge_index_list = []
     cell_shifts_list = []
@@ -19,30 +32,19 @@ def systems_to_batch(
     structures_centers_list = []
     structure_pairs_list = []
     for i, system in enumerate(systems):
-        nl = system.get_neighbor_list(nl_options)
-        samples = nl.samples
-        edge_index_item = torch.stack(
-            (samples.column("first_atom"), samples.column("second_atom")), dim=1
-        )
-        cell_shifts_item = torch.stack(
-            (
-                samples.column("cell_shift_a"),
-                samples.column("cell_shift_b"),
-                samples.column("cell_shift_c"),
-            ),
-            dim=0,
-        ).T
+        edge_index_item = system[3]
+        cell_shifts_item = system[4]
         edge_index_list.append(edge_index_item)
         cell_shifts_list.append(cell_shifts_item)
         centers_list.append(
-            torch.arange(len(system.positions), device=device, dtype=torch.int32)
+            torch.arange(len(system[0]), device=device, dtype=torch.int32)
         )
         structures_centers_list.append(
-            torch.tensor([i] * len(system.positions), device=device, dtype=torch.int32)
+            torch.tensor([i] * len(system[0]), device=device, dtype=torch.int32)
         )
         structure_pairs_list.append(
             torch.tensor(
-                [i] * len(samples.column("first_atom")),
+                [i] * len(system[3]),
                 device=device,
                 dtype=torch.int32,
             )

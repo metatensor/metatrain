@@ -23,16 +23,9 @@ from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 
 from .documentation import ModelHypers
-from .modules.center_embedding import embed_centers, embed_centers_tensor_map
-from .modules.cg import get_cg_coefficients
-from .modules.cg_iterator import CGIterator
-from .modules.message_passing import EquivariantMessagePasser, InvariantMessagePasser
-from .modules.precomputations import Precomputer
-from .modules.tensor_product import (
-    TensorProduct,
-)
+from .modules.base_model import GradientModel
 from .modules.layers import Linear
-from .utils import systems_to_batch
+from .utils import systems_to_list
 
 
 warnings.filterwarnings(
@@ -64,70 +57,10 @@ class PhACE(ModelInterface[ModelHypers]):
         self.dataset_info = dataset_info
         self.hypers = hypers
 
-        self.nu_scaling = hypers["nu_scaling"]
-        self.mp_scaling = hypers["mp_scaling"]
+        self.module = GradientModel(hypers, self.atomic_types)
+        self.k_max_l = self.module.k_max_l
+
         self.overall_scaling = hypers["overall_scaling"]
-
-        n_channels = hypers["num_element_channels"]
-
-        # Embedding of the atomic types
-        self.embeddings = torch.nn.Embedding(len(self.atomic_types), n_channels)
-
-        # A buffer that maps atomic types to indices in the embeddings
-        species_to_species_index = torch.zeros(
-            (max(self.atomic_types) + 1,), dtype=torch.int
-        )
-        species_to_species_index[self.atomic_types] = torch.arange(
-            len(self.atomic_types), dtype=torch.int
-        )
-        self.register_buffer("species_to_species_index", species_to_species_index)
-
-        self.nu_max = hypers["max_correlation_order_per_layer"]
-        self.num_message_passing_layers = hypers["num_message_passing_layers"]
-        if self.num_message_passing_layers < 1:
-            raise ValueError("Number of message-passing layers must be at least 1")
-
-        # A module that precomputes quantities that are useful in all message-passing
-        # steps (spherical harmonics, distances)
-        self.precomputer = Precomputer(
-            max_eigenvalue=hypers["radial_basis"]["max_eigenvalue"],
-            cutoff=hypers["cutoff"],
-            cutoff_width=hypers["cutoff_width"],
-            scale=hypers["radial_basis"]["scale"],
-            optimizable_lengthscales=hypers["radial_basis"][
-                "optimizable_lengthscales"
-            ],
-            all_species=self.atomic_types,
-            use_sphericart=hypers["use_sphericart"]
-        )
-
-        # The message passing is invariant for the first layer
-        self.invariant_message_passer = InvariantMessagePasser(
-            self.atomic_types,
-            self.mp_scaling,
-            hypers["disable_nu_0"],
-            self.precomputer.n_max_l,
-            hypers["num_element_channels"],
-        )
-
-        self.atomic_types = self.atomic_types
-        n_max = self.precomputer.n_max_l
-        self.l_max = len(n_max) - 1
-        self.k_max_l = [
-            n_channels * n_max[l]
-            for l in range(self.l_max + 1)  # noqa: E741
-        ]
-        self.k_max_l_max = [0] * (self.l_max + 1)
-        previous = 0
-        for l in range(self.l_max, -1, -1):
-            self.k_max_l_max[l] = self.k_max_l[l] - previous
-            previous = self.k_max_l[l]
-
-        cgs = get_cg_coefficients(self.l_max)
-        cgs = {
-            str(l1) + "_" + str(l2) + "_" + str(L): tensor
-            for (l1, l2, L), tensor in cgs._cgs.items()
-        }
 
         self.outputs = {
             "features": ModelOutput(unit="", per_atom=True)
@@ -149,34 +82,6 @@ class PhACE(ModelInterface[ModelHypers]):
         self.head_num_layers = self.hypers["head_num_layers"]
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
-
-        tensor_product = TensorProduct(self.k_max_l)
-
-        self.cg_iterator = CGIterator(
-            tensor_product,
-            self.nu_max - 1,
-        )
-
-        # Subsequent message-passing layers
-        equivariant_message_passers: List[EquivariantMessagePasser] = []
-        generalized_cg_iterators: List[CGIterator] = []
-        for _ in range(self.num_message_passing_layers - 1):
-            equivariant_message_passer = EquivariantMessagePasser(
-                self.precomputer.n_max_l,
-                self.hypers["num_element_channels"],
-                tensor_product,
-                self.mp_scaling,
-            )
-            equivariant_message_passers.append(equivariant_message_passer)
-            generalized_cg_iterator = CGIterator(
-                tensor_product,
-                self.nu_max - 1,
-            )
-            generalized_cg_iterators.append(generalized_cg_iterator)
-        self.equivariant_message_passers = torch.nn.ModuleList(
-            equivariant_message_passers
-        )
-        self.generalized_cg_iterators = torch.nn.ModuleList(generalized_cg_iterators)
 
         self.last_layer_feature_size = self.k_max_l[0]
 
@@ -275,89 +180,27 @@ class PhACE(ModelInterface[ModelHypers]):
                 for output_name, labels in self.property_labels.items()
             }
 
-        neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
-        structures = systems_to_batch(systems, neighbor_list_options)
-
-        n_atoms = len(structures["positions"])
-
-        # precomputation of distances and spherical harmonics
-        spherical_harmonics, radial_basis = self.precomputer(
-            positions=structures["positions"],
-            cells=structures["cells"],
-            species=structures["species"],
-            cell_shifts=structures["cell_shifts"],
-            pairs=structures["pairs"],
-            structure_pairs=structures["structure_pairs"],
-            structure_offsets=structures["structure_offsets"],
-            center_species=structures["species"][structures["pairs"][:, 0]],
-            neighbor_species=structures["species"][structures["pairs"][:, 1]],
-        )
-        
-        # scaling the spherical harmonics in this way makes sure that each successive
-        # body-order is scaled by the same factor
-        spherical_harmonics = [sh * self.nu_scaling for sh in spherical_harmonics]
-
         # compute sample labels
-        samples_values = torch.stack(
-            (
-                structures["structure_centers"],
-                structures["centers"],
-            ),
-            dim=1,
-        )
+        centers_list = []
+        structures_centers_list = []
+        for i, system in enumerate(systems):
+            centers_list.append(
+                torch.arange(len(system.positions), device=device, dtype=torch.int32)
+            )
+            structures_centers_list.append(
+                torch.tensor([i] * len(system.positions), device=device, dtype=torch.int32)
+            )
+        centers = torch.cat(centers_list, dim=0)
+        structure_centers = torch.cat(structures_centers_list, dim=0)
+        samples_values = torch.stack([structure_centers, centers], dim=1)
         samples = metatensor.torch.Labels(
             names=["system", "atom"],
             values=samples_values,
         )
 
-        # calculate the center embeddings; these are shared across all layers
-        center_species_indices = self.species_to_species_index[structures["species"]]
-        center_embeddings = self.embeddings(center_species_indices)
-
-        initial_features = torch.ones(
-            (n_atoms, 1, self.k_max_l[0]), dtype=structures["positions"].dtype, device=structures["positions"].device
-        )
-        initial_element_embedding = embed_centers_tensor_map(
-            [initial_features], center_embeddings
-        )[0]
-        # now they are all the same as the center embeddings
-
-        # ACE-like features
-        spherical_expansion = self.invariant_message_passer(
-            radial_basis,
-            spherical_harmonics,
-            structures["structure_offsets"][structures["structure_pairs"]]
-            + structures["pairs"][:, 0],
-            structures["structure_offsets"][structures["structure_pairs"]]
-            + structures["pairs"][:, 1],
-            n_atoms,
-            initial_element_embedding,
-        )
-
-        features = [spherical_expansion[l] for l in range(self.l_max + 1)]
-        features = self.cg_iterator(features)
-
-        # message passing
-        for message_passer, generalized_cg_iterator in zip(
-            self.equivariant_message_passers,
-            self.generalized_cg_iterators,
-            strict=False,
-        ):
-            embedded_features = embed_centers(features, center_embeddings)
-            mp_features = message_passer(
-                radial_basis,
-                spherical_harmonics,
-                structures["structure_offsets"][structures["structure_pairs"]]
-                + structures["pairs"][:, 0],
-                structures["structure_offsets"][structures["structure_pairs"]]
-                + structures["pairs"][:, 1],
-                embedded_features,
-            )
-            iterated_features = generalized_cg_iterator(mp_features)
-            features = iterated_features
-
-        # TODO: change position?
-        features = embed_centers(features, center_embeddings)
+        neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
+        structures_as_list = systems_to_list(systems, neighbor_list_options)
+        energies, forces = self.module(structures_as_list)
 
         # TODO: selected_atoms
 
@@ -411,20 +254,47 @@ class PhACE(ModelInterface[ModelHypers]):
 
         for output_name, output_head in self.heads.items():
             if output_name in outputs:
-                output_tensor = output_head(features[0])
-                for out_2, output_layer in self.last_layers.items():
-                    if out_2 == output_name:
-                        output_tensor = output_layer(output_tensor)
+                block = TensorBlock(
+                    values=energies.squeeze(1),
+                    samples=samples,
+                    components=self.component_labels[output_name][0],
+                    properties=self.property_labels[output_name][0],
+                )
+                block = metatensor.torch.sum_over_samples_block(block, ["atom"])
+                block.add_gradient(
+                    "positions",
+                    TensorBlock(
+                        values=-forces.unsqueeze(-1),
+                        samples = Labels(
+                            names=["sample", "atom"],
+                            values=torch.stack(
+                                [
+                                    torch.concatenate(
+                                        [
+                                            torch.tensor([i] * len(system), device=device)
+                                            for i, system in enumerate(systems)
+                                        ]
+                                    ),
+                                    torch.concatenate(
+                                        [torch.arange(len(system), device=device) for system in systems]
+                                    ),
+                                ],
+                                dim=1,
+                            ),
+                            assume_unique=True,
+                        ),
+                        components=[
+                            Labels(
+                                names=["xyz"],
+                                values=torch.tensor([[0], [1], [2]], device=device),
+                            )
+                        ],
+                        properties=self.property_labels[output_name][0],
+                    )
+                )
                 return_dict[output_name] = TensorMap(
                     keys=self.key_labels[output_name],
-                    blocks=[
-                        TensorBlock(
-                            values=output_tensor.squeeze(1),
-                            samples=samples,
-                            components=self.component_labels[output_name][0],
-                            properties=self.property_labels[output_name][0],
-                        )
-                    ],
+                    blocks=[block],
                 )
 
         # output the last-layer features for the outputs, if requested:
@@ -475,12 +345,12 @@ class PhACE(ModelInterface[ModelHypers]):
                         ],
                     )
 
-        for output_name in self.last_layers:
-            if output_name in outputs:
-                if not outputs[output_name].per_atom:
-                    return_dict[output_name] = metatensor.torch.sum_over_samples(
-                        return_dict[output_name], ["atom"]
-                    )
+        # for output_name in self.last_layers:
+        #     if output_name in outputs:
+        #         if not outputs[output_name].per_atom:
+        #             return_dict[output_name] = metatensor.torch.sum_over_samples(
+        #                 return_dict[output_name], ["atom"]
+        #             )
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
@@ -596,6 +466,7 @@ class PhACE(ModelInterface[ModelHypers]):
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
+            explicit_gradients=(["positions", "strain"] if target_info.quantity == "energy" and target_info.is_scalar and target_info.per_atom == False else [])
         )
 
         if target_name not in self.head_types:

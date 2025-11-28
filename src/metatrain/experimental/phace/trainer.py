@@ -8,6 +8,7 @@ import torch
 import torch.distributed
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
+from metatomic.torch import ModelOutput
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
@@ -268,8 +269,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
-        torch.jit.set_fusion_strategy([("DYNAMIC", 0)])
-        scripted_model = torch.jit.script(model)
+        # scripted_model = torch.compile(model, mode="max-autotune")
+        scripted_model = model
 
         if is_distributed:
             scripted_model = DistributedDataParallel(
@@ -348,64 +349,70 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             train_loss = 0.0
 
-            # from torch.profiler import profile
+            from torch.profiler import profile
+            counter = 0
+            with profile() as prof:
 
-            # counter = 0
-            # with profile() as prof:
-            for batch in train_dataloader:
-                optimizer.zero_grad()
+                for batch in train_dataloader:
+                    optimizer.zero_grad()
 
-                systems, targets, extra_data = unpack_batch(batch)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype, device=device
-                )
-
-                predictions = evaluate_model(
-                    scripted_model,
-                    systems,
-                    {key: train_targets[key] for key in targets.keys()},
-                    is_training=True,
-                )
-
-                # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
-                train_loss_batch = loss_fn(predictions, targets, extra_data)
-
-                train_loss_batch.backward()
-                if self.hypers["gradient_clipping"] is not None:
-                    torch.nn.utils.clip_grad_norm_(
-                        scripted_model.parameters(), self.hypers["gradient_clipping"]
+                    systems, targets, extra_data = unpack_batch(batch)
+                    systems, targets, extra_data = batch_to(
+                        systems, targets, extra_data, dtype=dtype, device=device
                     )
-                optimizer.step()
-                lr_scheduler.step()
 
-                if is_distributed:
-                    # sum the loss over all processes
-                    torch.distributed.all_reduce(train_loss_batch)
-                train_loss += train_loss_batch.item()
+                    # predictions = evaluate_model(
+                    #     scripted_model,
+                    #     systems,
+                    #     {key: train_targets[key] for key in targets.keys()},
+                    #     is_training=True,
+                    # )
 
-                scaled_predictions = (model.module if is_distributed else model).scaler(
-                    systems, predictions
-                )
-                scaled_targets = (model.module if is_distributed else model).scaler(
-                    systems, targets
-                )
-                train_rmse_calculator.update(
-                    scaled_predictions, scaled_targets, extra_data
-                )
-                if self.hypers["log_mae"]:
-                    train_mae_calculator.update(
+                    
+                    predictions = model(systems, outputs={"energy": ModelOutput()})
+
+                    # average by the number of atoms
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(targets, systems, per_structure_targets)
+
+                    train_loss_batch = loss_fn(predictions, targets, extra_data)
+
+                    train_loss_batch.backward()
+                    if self.hypers["gradient_clipping"] is not None:
+                        torch.nn.utils.clip_grad_norm_(
+                            scripted_model.parameters(), self.hypers["gradient_clipping"]
+                        )
+                    optimizer.step()
+                    lr_scheduler.step()
+
+                    if is_distributed:
+                        # sum the loss over all processes
+                        torch.distributed.all_reduce(train_loss_batch)
+                    train_loss += train_loss_batch.item()
+
+                    scaled_predictions = (model.module if is_distributed else model).scaler(
+                        systems, predictions
+                    )
+                    scaled_targets = (model.module if is_distributed else model).scaler(
+                        systems, targets
+                    )
+                    train_rmse_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )
-            #     counter += 1
-            #     if counter == 10:
-            #         break
-            # prof.export_chrome_trace("trace.json")
-            # exit()
+                    if self.hypers["log_mae"]:
+                        train_mae_calculator.update(
+                            scaled_predictions, scaled_targets, extra_data
+                        )
+                    counter += 1
+                    if counter == 10:
+                        break
+
+
+
+            prof.export_chrome_trace("trace.json")
+            exit()
 
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -428,12 +435,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     systems, targets, extra_data, dtype=dtype, device=device
                 )
 
-                predictions = evaluate_model(
-                    scripted_model,
-                    systems,
-                    {key: train_targets[key] for key in targets.keys()},
-                    is_training=False,
-                )
+                # predictions = evaluate_model(
+                #     scripted_model,
+                #     systems,
+                #     {key: train_targets[key] for key in targets.keys()},
+                #     is_training=False,
+                # )
+
+                predictions = model(systems, outputs={"energy": ModelOutput()})
 
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
@@ -515,16 +524,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 self.optimizer_state_dict = optimizer.state_dict()
                 self.scheduler_state_dict = lr_scheduler.state_dict()
                 self.epoch = epoch
-                if rank == 0:
-                    model.load_state_dict(
-                        (
-                            scripted_model.module if is_distributed else scripted_model
-                        ).state_dict()
-                    )
-                    self.save_checkpoint(
-                        model,
-                        Path(checkpoint_dir) / f"model_{epoch}.ckpt",
-                    )
+                # if rank == 0:
+                #     model.load_state_dict(
+                #         (
+                #             scripted_model.module._orig_mod if is_distributed else scripted_model._orig_mod
+                #         ).state_dict()
+                #     )
+                #     self.save_checkpoint(
+                #         model,
+                #         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
+                #     )
 
         # prepare for the checkpoint that will be saved outside the function
         self.epoch = epoch

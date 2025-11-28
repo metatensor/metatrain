@@ -6,7 +6,6 @@ from math import factorial
 
 import numpy as np
 import torch
-from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from .physical_basis import get_physical_basis_spliner
 from ase.data import covalent_radii
@@ -149,11 +148,10 @@ class Precomputer(torch.nn.Module):
             structure_offsets,
         )
 
-        bare_cartesian_vectors = cartesian_vectors.values.squeeze(dim=-1)
-        r = torch.sqrt((bare_cartesian_vectors**2).sum(dim=-1))
+        r = torch.sqrt((cartesian_vectors**2).sum(dim=-1))
 
         spherical_harmonics = self.spherical_harmonics(
-            bare_cartesian_vectors
+            cartesian_vectors
         )  # Get the spherical harmonics
         spherical_harmonics = spherical_harmonics * (4.0 * torch.pi) ** (
             0.5
@@ -198,55 +196,7 @@ def get_cartesian_vectors(
             "ab, abc -> ac", cell_shifts.to(cells.dtype), cells[structure_pairs]
         )
     )
-
-    # find associated metadata
-    pairs_i = pairs[:, 0]
-    pairs_j = pairs[:, 1]
-    labels = torch.stack(
-        [
-            structure_pairs,
-            pairs_i,
-            pairs_j,
-            species[shifted_pairs_i],
-            species[shifted_pairs_j],
-            cell_shifts[:, 0],
-            cell_shifts[:, 1],
-            cell_shifts[:, 2],
-        ],
-        dim=-1,
-    )
-
-    # build TensorBlock
-    block = TensorBlock(
-        values=direction_vectors.unsqueeze(dim=-1),
-        samples=Labels(
-            names=[
-                "structure",
-                "center",
-                "neighbor",
-                "species_center",
-                "species_neighbor",
-                "cell_x",
-                "cell_y",
-                "cell_z",
-            ],
-            values=labels,
-        ),
-        components=[
-            Labels(
-                names=["cartesian_dimension"],
-                values=torch.tensor([-1, 0, 1], dtype=torch.int32).reshape((-1, 1)),
-            ).to(device=direction_vectors.device)
-        ],
-        properties=Labels(
-            names=["_"],
-            values=torch.zeros(
-                1, 1, dtype=torch.int32, device=direction_vectors.device
-            ),
-        ),
-    )
-
-    return block
+    return direction_vectors
 
 
 def cutoff_fn(r, r_cut: float, cutoff_width: float):
