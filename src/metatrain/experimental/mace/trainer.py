@@ -76,17 +76,17 @@ def get_optimizer_and_scheduler(
         scheduler_patience=trainer_hypers["lr_scheduler_patience"],
     )
 
-    opt_options = get_params_options(
-        opt_args, (model.module if is_distributed else model).mace_model
-    )
+    # Take into account distributed training
+    model = model.module if is_distributed else model
+
+    opt_options = get_params_options(opt_args, model.mace_model)
 
     # Add heads, additive models and scaler parameters to the optimizer. Although the
     # additive models and scaler weights are not optimized, this maintains consistency
     # with PET, where all model parameters (including the additive models stored as
     # attributes) are passed to the optimizer.
-    heads = (model.module if is_distributed else model).heads
     head_parameters = []
-    for k, v in heads.items():
+    for k, v in model.heads.items():
         if k != model.hypers["mace_head_target"]:
             head_parameters.extend(v.parameters())
 
@@ -99,15 +99,11 @@ def get_optimizer_and_scheduler(
             },
             {
                 "name": "additive_models",
-                "params": (
-                    model.module if is_distributed else model
-                ).additive_models.parameters(),
+                "params": model.additive_models.parameters(),
             },
             {
                 "name": "scaler",
-                "params": (
-                    model.module if is_distributed else model
-                ).scaler.parameters(),
+                "params": model.scaler.parameters(),
             },
         ]
     )
@@ -119,14 +115,14 @@ def get_optimizer_and_scheduler(
     if optimizer_state_dict is not None and not is_finetune:
         # try to load the optimizer state dict, but this is only possible
         # if there are no new targets in the model (new parameters)
-        if not (model.module if is_distributed else model).has_new_targets:
+        if not model.has_new_targets:
             optimizer.load_state_dict(optimizer_state_dict)
 
     scheduler = LRScheduler(optimizer, opt_args)
 
     if scheduler_state_dict is not None and not is_finetune:
         # same as the optimizer, try to load the scheduler state dict
-        if not (model.module if is_distributed else model).has_new_targets:
+        if not model.has_new_targets:
             scheduler.load_state_dict(scheduler_state_dict)
 
     return optimizer, scheduler
