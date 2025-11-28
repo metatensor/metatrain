@@ -81,7 +81,10 @@ class NonLinearHead(torch.nn.Module):
                 last_layer_features_irreps += 0 * output_ir
 
         self.last_layer_features_irreps = last_layer_features_irreps
-        self.last_layer_features = torch.empty(0)  # To be replaced at forward pass
+        # Set a dummy tensor for last layer features, which will be replaced
+        # at each forward pass. We need to set the attribute here so that
+        # torchscript doesn't complain.
+        self.last_layer_features = torch.empty(0)
 
     def forward(
         self,
@@ -136,7 +139,10 @@ class MACEHeadWrapper(torch.nn.Module):
             self.per_layer_n_llfs.append(n_llf)
 
         self.last_layer_features_irreps = sum(self.per_layer_n_llfs) * o3.Irrep(0, 1)
-        self.last_layer_features = torch.empty(0)  # To be replaced at forward pass
+        # Set a dummy tensor for last layer features, which will be replaced
+        # at each forward pass. We need to set the attribute here so that
+        # torchscript doesn't complain.
+        self.last_layer_features = torch.empty(0)
 
     def forward(
         self,

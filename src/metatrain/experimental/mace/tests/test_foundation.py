@@ -29,7 +29,7 @@ class TestFoundation(MACETests):
 
         # Get an atoms object to test
         periodic_water_file = (
-            Path(__file__).parents[5] / "tests" / "resources" / "periodic_water.lmp"
+            Path(__file__).parents[5] / "tests" / "resources" / "periodic_water.data"
         )
         atoms = ase.io.read(periodic_water_file, format="lammps-data")
 
