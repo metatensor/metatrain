@@ -357,6 +357,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
         self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
+        self.cartesian_targets: List[str] = []
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
 
@@ -893,6 +894,11 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                             output_blocks.append(b)
                     return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
 
+        # Rotate rank-1 Cartesian tensors back to Cartesian basis
+        for name in self.cartesian_targets:
+            assert name in return_dict
+            return_dict[name] = _to_cartesian_rank_1(return_dict[name])
+
         return return_dict
 
     def requested_neighbor_lists(
@@ -1006,6 +1012,22 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                     self.hypers["add_lambda_basis"],
                     self.legacy,
                 )
+        elif target.is_cartesian:
+            if len(target.layout.block().components) > 1:
+                raise ValueError(
+                    "SOAP-BPNN does not support Cartesian tensors with rank > 1."
+                )
+            self.cartesian_targets.append(target_name)
+            # hard-code to spherical conversion for vectors
+            dict_key = target_name + "___0"
+            self.basis_calculators[target_name][dict_key] = TensorBasis(
+                self.atomic_types,
+                self.hypers["soap"],
+                1,
+                1,
+                self.hypers["add_lambda_basis"],
+                self.legacy,
+            )
         else:
             raise ValueError("SOAP-BPNN only supports scalar and spherical targets.")
 
@@ -1165,6 +1187,32 @@ def _remove_center_type_from_properties(tensor_map: TensorMap) -> TensorMap:
                     ).reshape(-1, 1),
                     assume_unique=True,
                 ),
+            )
+        )
+    return TensorMap(keys=tensor_map.keys, blocks=new_blocks)
+
+
+def _to_cartesian_rank_1(tensor_map: TensorMap) -> TensorMap:
+    """
+    Convert a spherical tensormap with o3_lambda=1, o3_sigma=1 to a rank-1 Cartesian
+    tensor.
+
+    :param tensor_map: input TensorMap with spherical tensors
+    :return: TensorMap with Cartesian tensors
+    """
+    new_blocks: List[TensorBlock] = []
+    for block in tensor_map.blocks():
+        new_blocks.append(
+            TensorBlock(
+                values=block.values.roll(1, 1),
+                samples=block.samples,
+                components=[
+                    Labels(
+                        "xyz",
+                        torch.arange(3, device=block.values.device).reshape(-1, 1),
+                    )
+                ],
+                properties=block.properties,
             )
         )
     return TensorMap(keys=tensor_map.keys, blocks=new_blocks)
