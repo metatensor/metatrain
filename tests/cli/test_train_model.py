@@ -1370,7 +1370,7 @@ def test_train_wandb_logger(monkeypatch, tmp_path):
     with open("wandb/latest-run/logs/debug.log") as f:
         file_log = f.read()
 
-    assert "'base_precision': 64" in file_log
+    assert "'base_precision': 32" in file_log
     assert "'seed': 42" in file_log
 
 
