@@ -273,6 +273,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
+        def _get_requested_outputs(targets, target_info_dict):
+            requested_outputs = {}
+            for name, target in targets.items():
+                requested_outputs[name] = ModelOutput(
+                    quantity=target_info_dict[name].quantity,
+                    unit=target_info_dict[name].unit,
+                    per_atom=target_info_dict[name].per_atom,
+                    explicit_gradients=[g for g in target.block(0).gradients_list()]
+                )
+            return requested_outputs
 
         @contextlib.contextmanager
         def fx_duck_shape(enabled: bool):
@@ -284,40 +294,33 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 torch.fx.experimental._config.use_duck_shape = init_duck_shape
 
 
-        def get_as_fx(model: torch.nn.Module):
+        def compile_model(model: PhACE):
+            batch = next(iter(train_dataloader))
+            systems, targets, extra_data = unpack_batch(batch)
+            systems, targets, extra_data = batch_to(
+                systems, targets, extra_data, dtype=dtype, device=device
+            )
+            data = systems_to_list(systems, requested_neighbor_lists[0])
             with fx_duck_shape(False):
-                batch = next(iter(train_dataloader))
-                systems, targets, extra_data = unpack_batch(batch)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype, device=device
-                )
-                data = systems_to_list(systems, requested_neighbor_lists[0])
                 fx_model = make_fx(
                     model.module,
                     tracing_mode="symbolic",
                     _allow_non_fake_inputs=True,
                     _error_on_data_dependent_ops=True,
-                )(data)
-            return fx_model
+                )(data, ["energy"])
+            compiled_module = torch.compile(
+                fx_model,
+                dynamic=True,
+                fullgraph=True,
+                mode="max-autotune",
+            )
+            model.module = compiled_module
 
-        # m = model.module
-        m = get_as_fx(model)
-
-        # scripted_model = m
-        # scripted_model = torch.compile(m, mode="max-autotune")
-        scripted_model = torch.compile(
-            m,
-            dynamic=True,
-            fullgraph=True,
-            mode="max-autotune",
-        )
-
-        # scripted_model = torch.compile(model.module, mode="max-autotune")
-        # scripted_model = model.module
+        compile_model(model)
 
         if is_distributed:
-            scripted_model = DistributedDataParallel(
-                scripted_model, device_ids=[device]
+            model = DistributedDataParallel(
+                model, device_ids=[device]
             )
 
         # Extract all the possible outputs and their gradients:
@@ -347,7 +350,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Create an optimizer:
         optimizer = torch.optim.Adam(
-            scripted_model.parameters(), lr=self.hypers["learning_rate"]
+            model.parameters(), lr=self.hypers["learning_rate"]
         )
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
@@ -409,36 +412,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     systems, targets, extra_data, dtype=dtype, device=device
                 )
 
-                # predictions = evaluate_model(
-                #     scripted_model,
-                #     systems,
-                #     {key: train_targets[key] for key in targets.keys()},
-                #     is_training=True,
-                # )
-
-                systems_as_list = systems_to_list(systems, requested_neighbor_lists[0])
-                predictions = scripted_model(systems_as_list)
-                predictions_as_tmap = {}
-                b = TensorBlock(
-                    values=predictions[0].reshape(5, 9, 1).sum(dim=1),
-                    samples=targets["energy"].block().samples,
-                    components=targets["energy"].block().components,
-                    properties=targets["energy"].block().properties,
-                )
-                b.add_gradient(
-                    "positions",
-                    TensorBlock(
-                        values=-predictions[1].unsqueeze(-1),
-                        samples=targets["energy"].block().gradient("positions").samples,
-                        components=targets["energy"].block().gradient("positions").components,
-                        properties=targets["energy"].block().gradient("positions").properties,
-                    ),
-                )
-                predictions_as_tmap["energy"] = TensorMap(
-                    Labels.single().to(device=device),
-                    [b],
-                )
-                predictions = predictions_as_tmap
+                predictions = model(systems, _get_requested_outputs(targets, dataset_info.targets))
 
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
@@ -447,16 +421,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
-                # train_loss_batch = torch.nn.functional.mse_loss(
-                #     predictions[0].reshape(5, 9).sum(dim=1), targets["energy"].block().values.reshape(predictions[0].reshape(5, 9).sum(dim=1).shape)
-                # ) + torch.nn.functional.mse_loss(
-                #     -predictions[1], targets["energy"].block().gradient("positions").values.reshape(predictions[1].shape)
-                # )
 
                 train_loss_batch.backward()
                 if self.hypers["gradient_clipping"] is not None:
                     torch.nn.utils.clip_grad_norm_(
-                        scripted_model.parameters(), self.hypers["gradient_clipping"]
+                        model.parameters(), self.hypers["gradient_clipping"]
                     )
                 optimizer.step()
                 lr_scheduler.step()
@@ -510,36 +479,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         systems, targets, extra_data, dtype=dtype, device=device
                     )
 
-                    # predictions = evaluate_model(
-                    #     scripted_model,
-                    #     systems,
-                    #     {key: train_targets[key] for key in targets.keys()},
-                    #     is_training=False,
-                    # )
-
-                    systems_as_list = systems_to_list(systems, requested_neighbor_lists[0])
-                    predictions = scripted_model(systems_as_list)
-                    predictions_as_tmap = {}
-                    b = TensorBlock(
-                        values=predictions[0].reshape(5, 9, 1).sum(dim=1),
-                        samples=targets["energy"].block().samples,
-                        components=targets["energy"].block().components,
-                        properties=targets["energy"].block().properties,
-                    )
-                    b.add_gradient(
-                        "positions",
-                        TensorBlock(
-                            values=-predictions[1].unsqueeze(-1),
-                            samples=targets["energy"].block().gradient("positions").samples,
-                            components=targets["energy"].block().gradient("positions").components,
-                            properties=targets["energy"].block().gradient("positions").properties,
-                        ),
-                    )
-                    predictions_as_tmap["energy"] = TensorMap(
-                        Labels.single().to(device=device),
-                        [b],
-                    )
-                    predictions = predictions_as_tmap
+                    predictions = model(systems, _get_requested_outputs(targets, dataset_info.targets))
 
                     # average by the number of atoms
                     predictions = average_by_num_atoms(
@@ -609,7 +549,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 self.best_metric = val_metric
                 self.best_model_state_dict = copy.deepcopy(
                     (
-                        scripted_model.module if is_distributed else scripted_model
+                        model.module if is_distributed else model
                     ).state_dict()
                 )
                 self.best_epoch = epoch
@@ -624,7 +564,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # if rank == 0:
                 #     model.load_state_dict(
                 #         (
-                #             scripted_model.module._orig_mod if is_distributed else scripted_model._orig_mod
+                #             model.module._orig_mod if is_distributed else model._orig_mod
                 #         ).state_dict()
                 #     )
                 #     self.save_checkpoint(

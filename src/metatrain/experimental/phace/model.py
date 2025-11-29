@@ -1,6 +1,6 @@
 import logging
 import warnings
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch
 import torch
@@ -24,7 +24,6 @@ from metatrain.utils.scaler import Scaler
 
 from metatrain.experimental.phace.documentation import ModelHypers
 from metatrain.experimental.phace.modules.base_model import GradientModel
-from metatrain.experimental.phace.modules.layers import Linear
 from metatrain.experimental.phace.utils import systems_to_list
 
 
@@ -43,7 +42,6 @@ class PhACE(ModelInterface[ModelHypers]):
 
     component_labels: Dict[str, List[List[Labels]]]
     U_dict: Dict[int, torch.Tensor]
-    # U_dict_parity: Dict[str, torch.Tensor]
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -57,8 +55,8 @@ class PhACE(ModelInterface[ModelHypers]):
         self.dataset_info = dataset_info
         self.hypers = hypers
 
-        self.module = GradientModel(hypers, self.atomic_types)
-        self.k_max_l = self.module.k_max_l
+        self.module = GradientModel(hypers, dataset_info)
+        self.k_max_l = self.module.module.k_max_l
 
         self.overall_scaling = hypers["overall_scaling"]
 
@@ -72,10 +70,6 @@ class PhACE(ModelInterface[ModelHypers]):
             )
             self.outputs[ll_features_name] = ModelOutput(per_atom=True)
 
-        self.requested_LS_tuples: List[Tuple[int, int]] = []
-        self.heads = torch.nn.ModuleDict()
-        self.head_types = self.hypers["heads"]
-        self.last_layers = torch.nn.ModuleDict()
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
@@ -200,101 +194,37 @@ class PhACE(ModelInterface[ModelHypers]):
 
         neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
         structures_as_list = systems_to_list(systems, neighbor_list_options)
-        energies, forces = self.module(structures_as_list)
-
-        # TODO: selected_atoms
-
-        # features = TensorMap(
-        #     keys=spherical_expansion.keys,
-        #     blocks=[
-        #         TensorBlock(
-        #             values=embedded_features[l],
-        #             samples=spherical_expansion.block({"o3_lambda": l}).samples,
-        #             components=spherical_expansion.block({"o3_lambda": l}).components,
-        #             properties=spherical_expansion.block({"o3_lambda": l}).properties,
-        #         )
-        #         for l in range(self.l_max + 1)
-        #     ],
-        # )
-
-        # # remove the center_type dimension
-        # features = metatensor.torch.remove_dimension(features, "samples", "center_type")
-
-        # if selected_atoms is not None:
-        #     features = metatensor.torch.slice(
-        #         features, axis="samples", selection=selected_atoms
-        #     )
+        predictions = self.module(structures_as_list, [n for n, o in outputs.items() if len(o.explicit_gradients) > 0])
 
         return_dict: Dict[str, TensorMap] = {}
 
-        # # output the hidden features, if requested (invariant only):
-        # if "features" in outputs:
-        #     feature_tmap = TensorMap(
-        #         keys=self.single_label,
-        #         blocks=[
-        #             TensorBlock(
-        #                 values=features.block(
-        #                     {"o3_lambda": 0, "o3_sigma": 1}
-        #                 ).values.squeeze(1),
-        #                 samples=features.block({"o3_lambda": 0, "o3_sigma": 1}).samples,
-        #                 components=[],
-        #                 properties=features.block(
-        #                     {"o3_lambda": 0, "o3_sigma": 1}
-        #                 ).properties,
-        #             )
-        #         ],
-        #     )
-        #     features_options = outputs["features"]
-        #     if features_options.per_atom:
-        #         return_dict["features"] = feature_tmap
-        #     else:
-        #         return_dict["features"] = metatensor.torch.sum_over_samples(
-        #             feature_tmap, ["atom"]
-        #         )
-
-        for output_name, output_head in self.heads.items():
-            if output_name in outputs:
-                block = TensorBlock(
-                    values=energies.squeeze(1),
-                    samples=samples,
-                    components=self.component_labels[output_name][0],
-                    properties=self.property_labels[output_name][0],
-                )
-                block = metatensor.torch.sum_over_samples_block(block, ["atom"])
-                block.add_gradient(
-                    "positions",
+        # output the features, if requested:
+        if "features" in outputs:
+            # only a single features block is supported by metatomic, we choose L=0
+            features_tensor = predictions["features"][0].squeeze(1)
+            features = TensorMap(
+                keys=self.single_label,
+                blocks=[
                     TensorBlock(
-                        values=-forces.unsqueeze(-1),
-                        samples = Labels(
-                            names=["sample", "atom"],
-                            values=torch.stack(
-                                [
-                                    torch.concatenate(
-                                        [
-                                            torch.tensor([i] * len(system), device=device)
-                                            for i, system in enumerate(systems)
-                                        ]
-                                    ),
-                                    torch.concatenate(
-                                        [torch.arange(len(system), device=device) for system in systems]
-                                    ),
-                                ],
-                                dim=1,
-                            ),
-                            assume_unique=True,
-                        ),
-                        components=[
-                            Labels(
-                                names=["xyz"],
-                                values=torch.tensor([[0], [1], [2]], device=device),
-                            )
-                        ],
-                        properties=self.property_labels[output_name][0],
+                        values=features_tensor,
+                        samples=samples,
+                        components=[],
+                        properties=Labels(
+                            names=["features"],
+                            values=torch.arange(features_tensor.shape[-1]).unsqueeze(-1),
+                        )
                     )
+                ],
+            )
+            if selected_atoms is not None:
+                features = metatensor.torch.slice(
+                    features, axis="samples", selection=selected_atoms
                 )
-                return_dict[output_name] = TensorMap(
-                    keys=self.key_labels[output_name],
-                    blocks=[block],
+            if outputs["features"].per_atom:
+                return_dict["features"] = features
+            else:
+                return_dict["features"] = metatensor.torch.sum_over_samples(
+                    features, ["atom"]
                 )
 
         # output the last-layer features for the outputs, if requested:
@@ -308,49 +238,157 @@ class PhACE(ModelInterface[ModelHypers]):
                 "_last_layer_features", ""
             )
             # the corresponding output could be base_name or mtt::base_name
-            if f"mtt::{base_name}" not in return_dict and base_name not in return_dict:
-                raise ValueError(
-                    f"Features {output_name} can only be requested "
-                    f"if the corresponding output {base_name} is also requested."
-                )
-            if f"mtt::{base_name}" in return_dict:
+            if f"mtt::{base_name}" in self.outputs:
                 base_name = f"mtt::{base_name}"
-            return_dict[output_name] = return_dict[base_name]
-            last_layer_features_options = outputs[output_name]
-            if not last_layer_features_options.per_atom:
+            
+            last_layer_features_as_dict_of_tensors = predictions[f"{base_name}__llf"]
+            return_dict[output_name] = TensorMap(
+                keys=Labels(
+                    names=["o3_lambda"],
+                    values=torch.arange(self.l_max+1, device=features[0].device).unsqueeze(-1),
+                ),
+                blocks=[
+                    TensorBlock(
+                        values=t,
+                        samples=samples,
+                        components=[Labels(
+                            names=["o3_mu"],
+                            values=torch.tensor(range(-l, l), device=features.device).unsqueeze(-1),
+                        )],
+                        properties=Labels(
+                            names=["features"],
+                            values=torch.arange(features[l].shape[-1]).unsqueeze(-1),
+                        )
+                    )
+                    for l, t in last_layer_features_as_dict_of_tensors.items()
+                ],
+            )
+            if selected_atoms is not None:
+                return_dict[output_name] = metatensor.torch.slice(
+                    return_dict[output_name], axis="samples", selection=selected_atoms
+                )
+            if not outputs[output_name].per_atom:
                 return_dict[output_name] = metatensor.torch.sum_over_samples(
                     return_dict[output_name], ["atom"]
                 )
 
-        for output_name, output_layer in self.last_layers.items():
-            if output_name in outputs:
-                return_dict[output_name] = metatensor.torch.multiply(
-                    return_dict[output_name],
-                    self.overall_scaling,
+        # remaining outputs (main outputs)
+        for output_name in outputs.keys():
+            if output_name == "features" or output_name.startswith("mtt::aux::"):
+                continue
+            output_as_tensor_dict = predictions[output_name]
+            return_dict[output_name] = TensorMap(
+                keys=self.key_labels[output_name],
+                blocks=[
+                    TensorBlock(
+                        values=(
+                            output_as_tensor_dict[(len(c[0])-1)//2] if len(c) > 0
+                            else output_as_tensor_dict[0].squeeze(1)
+                        ),
+                        samples=samples,
+                        components=c,
+                        properties=p,
+                    )
+                    for c, p in zip(self.component_labels[output_name], self.property_labels[output_name], strict=True) 
+                ],
+            )
+            if selected_atoms is not None:
+                return_dict[output_name] = metatensor.torch.slice(
+                    return_dict[output_name], axis="samples", selection=selected_atoms
                 )
-            if len(self.component_labels[output_name][0]) > 0:
-                if self.component_labels[output_name][0][0].names == ["xyz"]:
-                    # modify to extract xyz from spherical L=1
-                    tmap_as_spherical = return_dict[output_name]
-                    cartesian_values = tmap_as_spherical.block().values[:, [2, 0, 1]]
+            if not outputs[output_name].per_atom:
+                return_dict[output_name] = metatensor.torch.sum_over_samples(
+                    return_dict[output_name], ["atom"]
+                )
+            for gradient_name in outputs[output_name].explicit_gradients:
+                if gradient_name == "positions":
+                    original_block = return_dict[output_name].block()
+                    block = TensorBlock(
+                        values=original_block.values,
+                        samples=original_block.samples,
+                        components=original_block.components,
+                        properties=original_block.properties,
+                    )
+                    device = block.values.device
+                    samples = Labels(
+                        names=["sample", "atom"],
+                        values=torch.stack(
+                            [
+                                torch.concatenate(
+                                    [
+                                        torch.tensor([i] * len(system), device=device)
+                                        for i, system in enumerate(systems)
+                                    ]
+                                ),
+                                torch.concatenate(
+                                    [torch.arange(len(system), device=device) for system in systems]
+                                ),
+                            ],
+                            dim=1,
+                        ),
+                        assume_unique=True,
+                    )
+                    components = [
+                        Labels(
+                            names=["xyz"],
+                            values=torch.tensor([[0], [1], [2]], device=device),
+                        )
+                    ]
+                    gradient_tensor = -predictions[f"{output_name}__for"]
+                    block.add_gradient(
+                        "positions",
+                        TensorBlock(
+                            values=gradient_tensor.unsqueeze(-1),
+                            samples=samples.to(gradient_tensor.device),
+                            components=components,
+                            properties=Labels("energy", torch.tensor([[0]], device=device)),
+                        )
+                    )
                     return_dict[output_name] = TensorMap(
-                        keys=self.key_labels[output_name],
-                        blocks=[
-                            TensorBlock(
-                                values=cartesian_values,
-                                samples=tmap_as_spherical.block().samples,
-                                components=self.component_labels[output_name][0],
-                                properties=self.property_labels[output_name][0],
-                            )
-                        ],
+                        return_dict[output_name].keys,
+                        [block],
+                    )
+                if gradient_name == "strain":
+                    original_block = return_dict[output_name].block()
+                    block = TensorBlock(
+                        values=original_block.values,
+                        samples=original_block.samples,
+                        components=original_block.components,
+                        properties=original_block.properties,
+                    )
+                    device = block.values.device
+                    samples = Labels(
+                        names=["sample"],
+                        values=torch.arange(len(systems), device=device).unsqueeze(-1),
+                        assume_unique=True,
+                    )
+                    components = [
+                        Labels(
+                            names=["xyz_1"],
+                            values=torch.tensor([[0], [1], [2]], device=device),
+                        ),
+                        Labels(
+                            names=["xyz_2"],
+                            values=torch.tensor([[0], [1], [2]], device=device),
+                        ),
+                    ]
+                    gradient_tensor = -predictions[f"{output_name}__vir"]
+                    block.add_gradient(
+                        "positions",
+                        TensorBlock(
+                            values=gradient_tensor.unsqueeze(-1),
+                            samples=samples.to(gradient_tensor.device),
+                            components=components,
+                            properties=Labels("energy", torch.tensor([[0]], device=device)),
+                        )
+                    )
+                    return_dict[output_name] = TensorMap(
+                        return_dict[output_name].keys,
+                        [block],
                     )
 
-        # for output_name in self.last_layers:
-        #     if output_name in outputs:
-        #         if not outputs[output_name].per_atom:
-        #             return_dict[output_name] = metatensor.torch.sum_over_samples(
-        #                 return_dict[output_name], ["atom"]
-        #             )
+
+        # TODO: conversion for L=1 cartesian
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
@@ -468,73 +506,6 @@ class PhACE(ModelInterface[ModelHypers]):
             per_atom=True,
             explicit_gradients=(["positions", "strain"] if target_info.quantity == "energy" and target_info.is_scalar and target_info.per_atom == False else [])
         )
-
-        if target_name not in self.head_types:
-            if target_info.is_scalar:
-                use_mlp = True  # default to MLP for scalars
-            else:
-                use_mlp = False  # can't use MLP for equivariants
-                # TODO: the equivariant could be a scalar...
-        else:
-            # specified by the user
-            use_mlp = self.head_types[target_name] == "mlp"
-
-        if use_mlp:
-            if target_info.is_spherical or target_info.is_cartesian:
-                raise ValueError("MLP heads are only supported for scalar targets.")
-            
-            layers = (
-                [Linear(self.k_max_l[0], self.k_max_l[0]), torch.nn.SiLU()]
-                if self.head_num_layers == 1
-                else [Linear(self.k_max_l[0], 4 * self.k_max_l[0]), torch.nn.SiLU()]
-                + [Linear(4 * self.k_max_l[0], 4 * self.k_max_l[0]), torch.nn.SiLU()] * (self.head_num_layers - 2)
-                + [Linear(4 * self.k_max_l[0], self.k_max_l[0]), torch.nn.SiLU()]
-            )
-            self.heads[target_name] = torch.nn.Sequential(*layers)
-        else:
-            self.heads[target_name] = torch.nn.Identity()
-
-        if target_info.is_scalar:
-            # self.last_layers[target_name] = EquivariantLastLayer(
-            #     [(0, 1)], , [[]], [target_info.layout.block(0).properties]
-            # )
-            # if [(0, 1)] not in self.requested_LS_tuples:
-            #     self.requested_LS_tuples.append((0, 1))
-            self.last_layers[target_name] = Linear(
-                self.k_max_l[0],
-                1
-            )
-        elif target_info.is_cartesian:
-            # # here, we handle Cartesian targets
-            # if len(target_info.layout.block().components) == 1:
-            #     self.last_layers[target_name] = EquivariantLastLayer(
-            #         [(1, 1)],
-            #         self.k_max_l,
-            #         [block.components for block in target_info.layout.blocks()],
-            #         [block.properties for block in target_info.layout.blocks()],
-            #     )
-            #     self.requested_LS_tuples.append((1, 1))
-            # else:
-            #     raise NotImplementedError(
-            #         "PhACE only supports Cartesian targets with rank=1."
-            #     )
-            pass
-        else:  # spherical equivariant
-            irreps = []
-            for key in target_info.layout.keys:
-                key_values = key.values
-                L = int(key_values[0])
-                S = int(key_values[1])
-                irreps.append((L, S))
-            self.last_layers[target_name] = EquivariantLastLayer(
-                irreps,
-                self.k_max_l,
-                [block.components for block in target_info.layout.blocks()],
-                [block.properties for block in target_info.layout.blocks()],
-            )
-            for irrep in irreps:
-                if irrep not in self.requested_LS_tuples:
-                    self.requested_LS_tuples.append(irrep)
 
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [

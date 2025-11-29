@@ -8,19 +8,22 @@ from .cg import get_cg_coefficients
 from .cg_iterator import CGIterator
 from .center_embedding import embed_centers, embed_centers_tensor_map
 from typing import List
+from .layers import Linear
 
 import torch
 from torch.func import grad, functional_call
+from typing import Dict
 
 
 class BaseModel(torch.nn.Module):
-    def __init__(self, hypers, atomic_types) -> None:
+    def __init__(self, hypers, dataset_info) -> None:
         super().__init__()
-        self.atomic_types = atomic_types
+        self.atomic_types = dataset_info.atomic_types
         self.hypers = hypers
         self.mp_scaling = hypers["mp_scaling"]
         self.nu_max = hypers["max_correlation_order_per_layer"]
         self.nu_scaling = hypers["nu_scaling"]
+        self.head_num_layers = hypers["head_num_layers"]
 
         self.num_message_passing_layers = hypers["num_message_passing_layers"]
         if self.num_message_passing_layers < 1:
@@ -112,7 +115,11 @@ class BaseModel(torch.nn.Module):
         )
         self.generalized_cg_iterators = torch.nn.ModuleList(generalized_cg_iterators)
 
-        self.energy_linear = torch.nn.Linear(self.k_max_l[0], 1)
+        self.head_types = self.hypers["heads"]
+        self.heads = torch.nn.ModuleDict()
+        self.last_layers = torch.nn.ModuleDict()
+        for target_name, target_info in dataset_info.targets.items():
+            self._add_output(target_name, target_info)
 
     def forward(self, structures_as_list) -> torch.Tensor:
         structures = systems_to_batch(structures_as_list)
@@ -185,30 +192,100 @@ class BaseModel(torch.nn.Module):
         # TODO: change position?
         features = embed_centers(features, center_embeddings)
 
-        # final energy prediction
-        energies = self.energy_linear(features[0])
+        # final predictions
+        return_dict: Dict[str, Dict[int, torch.Tensor]] = {}
+        return_dict["features"] = {L: tensor for L, tensor in enumerate(features)}
 
-        return energies
+        last_layer_feature_dict: Dict[str, List[torch.Tensor]] = {}
+        for output_name, layer in self.heads.items():
+            last_layer_features = features
+            last_layer_features[0] = layer(last_layer_features[0])  # only L=0
+            last_layer_feature_dict[output_name] = last_layer_features
+
+        for output_name, layer in self.last_layers.items():
+            output: Dict[int, torch.Tensor] = {}
+            for L, layer_L in layer.items():
+                output[int(L)] = layer_L(last_layer_feature_dict[output_name][int(L)])
+            return_dict[output_name] = output
+
+        for output_name, llf in last_layer_feature_dict.items():
+            return_dict[f"{output_name}__llf"] = {L: t for L, t in enumerate(llf)}
+
+        return return_dict
+
+
+    def _add_output(self, target_name, target_info):
+        if target_name not in self.head_types:
+            if target_info.is_scalar:
+                use_mlp = True  # default to MLP for scalars
+            else:
+                use_mlp = False  # can't use MLP for equivariants
+                # TODO: the equivariant, or part of it, could be a scalar...
+        else:
+            # specified by the user
+            use_mlp = self.head_types[target_name] == "mlp"
+
+        if use_mlp:
+            if target_info.is_spherical or target_info.is_cartesian:
+                raise ValueError("MLP heads are only supported for scalar targets.")
+            
+            layers = (
+                [Linear(self.k_max_l[0], self.k_max_l[0]), torch.nn.SiLU()]
+                if self.head_num_layers == 1
+                else [Linear(self.k_max_l[0], 4 * self.k_max_l[0]), torch.nn.SiLU()]
+                + [Linear(4 * self.k_max_l[0], 4 * self.k_max_l[0]), torch.nn.SiLU()] * (self.head_num_layers - 2)
+                + [Linear(4 * self.k_max_l[0], self.k_max_l[0]), torch.nn.SiLU()]
+            )
+            self.heads[target_name] = torch.nn.Sequential(*layers)
+        else:
+            self.heads[target_name] = torch.nn.Identity()
+
+        if target_info.is_scalar:
+            self.last_layers[target_name] = torch.nn.ModuleDict({"0": Linear(self.k_max_l[0], len(target_info.layout.block().properties))})
+        elif target_info.is_cartesian:
+            # here, we handle Cartesian targets
+            # we just treat them as a spherical L=1 targets, the conversion will be
+            # performed in the metatensor wrapper
+            if len(target_info.layout.block().components) == 1:
+                self.last_layers[target_name] = torch.nn.ModuleDict({"1": Linear(self.k_max_l[0], len(target_info.layout.block().properties))})
+            else:
+                raise NotImplementedError(
+                    "PhACE only supports Cartesian targets with rank=1."
+                )
+        else:  # spherical equivariant
+            irreps = []
+            for key in target_info.layout.keys:
+                key_values = key.values
+                L = int(key_values[0])  # S = int(key_values[1]) is ignored here
+                irreps.append(L)
+            self.last_layers[target_name] = torch.nn.ModuleDict({
+                str(L): Linear(self.k_max_l[0], len(target_info.layout.block({"o3_lambds": L}).properties)) for L in irreps
+            })
 
 
 class GradientModel(torch.nn.Module):
-    def __init__(self, hypers, atomic_types) -> None:
+    def __init__(self, hypers, dataset_info) -> None:
         super().__init__()
-        # We wrap layers in a sub-module so we can functionalize 'self.net' 
-        # inside 'forward' without triggering recursive calls to 'self.forward'.
-        self.module = BaseModel(hypers, atomic_types)
-        self.k_max_l = self.module.k_max_l
+        self.module = BaseModel(hypers, dataset_info)
 
-    def forward(self, structures_as_list):
+    def forward(
+        self,
+        structures_as_list: List[List[torch.Tensor]],
+        outputs_to_take_gradients_of: List[str],
+    ):
+        if len(outputs_to_take_gradients_of) == 0:
+            return self.module(structures_as_list)
 
-        def compute_energy(params, buffers, input_tensors):
+        def compute_energy(params, buffers, input_tensors, output_name):
             positions = input_tensors[:len(structures_as_list)]
             strains = input_tensors[len(structures_as_list):]
             for i in range(len(structures_as_list)):
                 structures_as_list[i][0] = positions[i] @ strains[i]
                 structures_as_list[i][2] = structures_as_list[i][2] @ strains[i]
-            pred = functional_call(self.module, (params, buffers), (structures_as_list,))
-            return pred.sum(), pred
+            predictions = functional_call(self.module, (params, buffers), (structures_as_list,))
+            return predictions[output_name][0].sum(), predictions
+
+        compute_val_and_grad = grad(compute_energy, argnums=2, has_aux=True)
 
         params = dict(self.module.named_parameters())
         buffers = dict(self.module.named_buffers())
@@ -216,11 +293,11 @@ class GradientModel(torch.nn.Module):
         strains = [torch.eye(3, device=s[0].device, dtype=s[0].dtype) for s in structures_as_list]
         tensors_to_differentiate = positions + strains
 
-        compute_batch_val_and_grad = grad(compute_energy, argnums=2, has_aux=True)
-        
-        gradients, energies = compute_batch_val_and_grad(params, buffers, tensors_to_differentiate)
+        all_gradients = {}
+        for output_name in outputs_to_take_gradients_of:
+            gradients, predictions = compute_val_and_grad(params, buffers, tensors_to_differentiate, output_name)
+            all_gradients[f"{output_name}__for"] = -torch.concatenate(gradients[:len(structures_as_list)])
+            all_gradients[f"{output_name}__vir"] = -torch.stack(gradients[len(structures_as_list):])
 
-        forces = -torch.concatenate(gradients[:len(structures_as_list)])
-        # virials = -torch.stack(gradients[len(structures_as_list):])
-
-        return energies, forces
+        predictions.update(all_gradients)
+        return predictions
