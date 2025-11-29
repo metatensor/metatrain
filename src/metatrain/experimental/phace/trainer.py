@@ -46,6 +46,57 @@ from .documentation import TrainerHypers
 from .model import PhACE
 
 
+def _get_requested_outputs(targets, target_info_dict):
+    requested_outputs = {}
+    for name, target in targets.items():
+        requested_outputs[name] = ModelOutput(
+            quantity=target_info_dict[name].quantity,
+            unit=target_info_dict[name].unit,
+            per_atom=target_info_dict[name].per_atom,
+            explicit_gradients=[g for g in target.block(0).gradients_list()]
+        )
+    return requested_outputs
+
+@contextlib.contextmanager
+def _disable_fx_duck_shape():
+    init_duck_shape = torch.fx.experimental._config.use_duck_shape
+    torch.fx.experimental._config.use_duck_shape = False
+    try:
+        yield
+    finally:
+        torch.fx.experimental._config.use_duck_shape = init_duck_shape
+
+def compile_model(
+        model: PhACE,
+        loader: torch.utils.data.DataLoader
+    ):
+    parameter_tensor = next(iter(model.parameters()))
+    dtype = parameter_tensor.dtype
+    device = parameter_tensor.device
+    batch = next(iter(loader))
+    systems, targets, extra_data = unpack_batch(batch)
+    systems, targets, extra_data = batch_to(
+        systems, targets, extra_data, dtype=dtype, device=device
+    )
+    data = systems_to_list(systems, model.requested_neighbor_lists()[0])
+    with _disable_fx_duck_shape():
+        fx_model = make_fx(
+            model.module,
+            tracing_mode="symbolic",
+            _allow_non_fake_inputs=True,
+            _error_on_data_dependent_ops=True,
+        )(
+            data,
+            [n for n, o in _get_requested_outputs(targets, model.dataset_info.targets).items() if len(o.explicit_gradients) > 0]
+        )
+    compiled_module = torch.compile(
+        fx_model,
+        dynamic=True,
+        fullgraph=True,
+        mode="max-autotune",
+    )
+    model.module = compiled_module
+
 def get_scheduler(
     optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
 ) -> LambdaLR:
@@ -273,50 +324,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
-        def _get_requested_outputs(targets, target_info_dict):
-            requested_outputs = {}
-            for name, target in targets.items():
-                requested_outputs[name] = ModelOutput(
-                    quantity=target_info_dict[name].quantity,
-                    unit=target_info_dict[name].unit,
-                    per_atom=target_info_dict[name].per_atom,
-                    explicit_gradients=[g for g in target.block(0).gradients_list()]
-                )
-            return requested_outputs
-
-        @contextlib.contextmanager
-        def fx_duck_shape(enabled: bool):
-            init_duck_shape = torch.fx.experimental._config.use_duck_shape
-            torch.fx.experimental._config.use_duck_shape = enabled
-            try:
-                yield
-            finally:
-                torch.fx.experimental._config.use_duck_shape = init_duck_shape
-
-
-        def compile_model(model: PhACE):
-            batch = next(iter(train_dataloader))
-            systems, targets, extra_data = unpack_batch(batch)
-            systems, targets, extra_data = batch_to(
-                systems, targets, extra_data, dtype=dtype, device=device
-            )
-            data = systems_to_list(systems, requested_neighbor_lists[0])
-            with fx_duck_shape(False):
-                fx_model = make_fx(
-                    model.module,
-                    tracing_mode="symbolic",
-                    _allow_non_fake_inputs=True,
-                    _error_on_data_dependent_ops=True,
-                )(data, ["energy"])
-            compiled_module = torch.compile(
-                fx_model,
-                dynamic=True,
-                fullgraph=True,
-                mode="max-autotune",
-            )
-            model.module = compiled_module
-
-        compile_model(model)
+        if self.hypers["compile"]:
+            compile_model(model, train_dataloader)
 
         if is_distributed:
             model = DistributedDataParallel(

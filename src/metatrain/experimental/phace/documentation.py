@@ -89,6 +89,9 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for training the experimental.phace model."""
 
+    compile: bool = True
+    """Whether to use `torch.compile` during training."""
+
     distributed: bool = False
     """Whether to use distributed training."""
 
