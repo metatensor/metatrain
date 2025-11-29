@@ -94,8 +94,10 @@ exclude_lines = [
 ]
 omit = [
     "*/site-packages/*",
-    "*/metatrain/experimental/*",
-    "*/metatrain/utils/testing/*"
+    "tests/*",
+    "src/metatrain/**/tests/*",
+    "src/metatrain/utils/testing/*",
+    "examples/*"
 ]
 
 [tool.coverage.paths]
