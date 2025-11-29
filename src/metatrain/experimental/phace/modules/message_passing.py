@@ -21,6 +21,7 @@ class InvariantMessagePasser(torch.nn.Module):
         self.all_species = all_species
         self.radial_basis_mlp = MLPRadialBasis(n_max_l, num_element_channels)
         self.n_max_l = n_max_l
+        # self.k_max_l = [128, 128, 128]
         self.k_max_l = [
             num_element_channels * n_max for n_max in self.n_max_l
         ]
@@ -83,11 +84,12 @@ class EquivariantMessagePasser(torch.nn.Module):
         super().__init__()
 
         self.n_max_l = list(n_max_l)
-        print(self.n_max_l)
-        print(num_element_channels)
+        # print(self.n_max_l)
+        # print(num_element_channels)
         self.k_max_l = [
             num_element_channels * n_max for n_max in self.n_max_l
         ]
+        # self.k_max_l = [128, 128, 128]
         self.l_max = len(self.n_max_l) - 1
 
         self.k_max_l_max = [0] * (self.l_max + 1)

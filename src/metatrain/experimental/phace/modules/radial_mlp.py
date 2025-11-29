@@ -32,6 +32,7 @@ class MLPRadialBasis(torch.nn.Module):
                     Linear(
                         4 * self.n_max_l[l] * self.n_channels,
                         self.n_max_l[l] * self.n_channels,
+                        # 128
                     ),
                 )
                 for l in range(self.l_max + 1)  # noqa: E741
