@@ -439,6 +439,26 @@ def test_empty_test_set(caplog, monkeypatch, tmp_path, options):
     assert "This dataset is empty. No evaluation" in caplog.text
 
 
+def test_default_test_set(caplog, monkeypatch, tmp_path, options):
+    """Test that test_set defaults to 0.0 when omitted."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["validation_set"] = 0.4
+    # Remove test_set from options to test default behavior
+    if "test_set" in options:
+        del options["test_set"]
+
+    match = "Requested dataset of zero length. This dataset will be empty."
+    with pytest.warns(UserWarning, match=match):
+        train_model(options)
+
+    # check if the logging is correct
+    assert "This dataset is empty. No evaluation" in caplog.text
+
+
 @pytest.mark.parametrize(
     "test_set_file, validation_set_file", [(True, False), (False, True)]
 )
@@ -571,8 +591,8 @@ def test_conflicting_info_between_training_sets(
         msg = (
             r"(?s)"  # now "." matches newlines
             r"Target information for key energy differs between training sets\.\s*"
-            r"Got TargetInfo\(quantity='foo'.*?"
-            r"and TargetInfo\(quantity='bar'.*?\)\."
+            r"Got TargetInfo\(layout=.*?"
+            r"and TargetInfo\(layout=.*?\)\."
         )
         with pytest.raises(ValueError, match=msg):
             train_model(options_extra)
@@ -583,8 +603,8 @@ def test_conflicting_info_between_training_sets(
         msg = (
             r"(?s)"  # now "." matches newlines
             r"Extra data information for key extra differs between training sets\.\s*"
-            r"Got TargetInfo\(quantity='foo'.*?"
-            r"and TargetInfo\(quantity='bar'.*?\)\."
+            r"Got TargetInfo\(layout=.*?"
+            r"and TargetInfo\(layout=.*?\)\."
         )
         with pytest.raises(ValueError, match=msg):
             train_model(options_extra)
@@ -708,6 +728,36 @@ def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
         "energy"
     )
     options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"]["forces"] = {
+        "key": "forces",
+    }
+    shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet_transfer_learn)
+
+    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+
+
+def test_transfer_learn_variant(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn = copy.deepcopy(options_pet)
+    options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+    }
+    options_pet_transfer_learn["training_set"]["systems"]["read_from"] = (
+        "ethanol_reduced_100.xyz"
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"] = (
+        options_pet_transfer_learn["training_set"]["targets"].pop("energy")
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"]["key"] = (
+        "energy"
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"][
+        "forces"
+    ] = {
         "key": "forces",
     }
     shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")

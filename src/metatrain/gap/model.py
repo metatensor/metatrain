@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-import featomic
 import featomic.torch
 import metatensor.torch as mts
 import numpy as np
@@ -73,6 +72,7 @@ class GAP(ModelInterface[ModelHypers]):
                 quantity=value.quantity,
                 unit=value.unit,
                 per_atom=False,
+                description=value.description,
             )
             for key, value in dataset_info.targets.items()
         }

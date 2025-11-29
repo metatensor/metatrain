@@ -7,6 +7,7 @@ from metatomic.torch import NeighborListOptions, System
 def concatenate_structures(
     systems: List[System], neighbor_list_options: NeighborListOptions
 ):
+    """Concatenate a list of systems into a single batch."""
     positions = []
     centers = []
     neighbors = []

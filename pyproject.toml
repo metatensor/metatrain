@@ -113,8 +113,11 @@ exclude = ["docs/src/examples/**", "src/metatrain/_version.py"]
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "B", "I"]
+select = ["E", "F", "B", "I", "D103"]
 ignore = ["B018", "B904"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/{docs,deprecated,examples,experimental,tests}/*" = ["D"]
 
 [tool.ruff.lint.isort]
 lines-after-imports = 2
@@ -136,6 +139,15 @@ ignore_missing_imports = true
 module = "metatrain.*.documentation"
 disable_error_code = ["misc"]
 
+[tool.pydoclint]
+quiet = true
+style = "sphinx"
+check_return_types = false
+arg_type_hints_in_docstring = false
+skip_checking_raises = true
+check_class_attributes = false
+skip_checking_short_docstrings = false
+
 [tool.pytest.ini_options]
 # ignore" a bunch of internal warnings with Python 3.13 and PyTorch
 filterwarnings = [
@@ -156,6 +168,8 @@ filterwarnings = [
     # Multi-threaded tests clash with multi-process data-loading
     "ignore:This process \\(pid=\\d+\\) is multi-threaded, use of fork\\(\\) may lead to deadlocks in the child.:DeprecationWarning",
 ]
+addopts = ["-p", "mtt_plugin"]
+pythonpath = "src/metatrain/utils/testing"
 
 [tool.yamlfix]
 line_length = 88

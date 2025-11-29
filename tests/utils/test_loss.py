@@ -381,7 +381,7 @@ def test_tmap_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
     )
     layout = TensorMap(keys=Labels.single(), blocks=[block])
 
-    target_info = TargetInfo(quantity="energy", unit="eV", layout=layout)
+    target_info = TargetInfo(layout=layout, quantity="energy", unit="eV")
     loss_hypers = {
         "output_1": {
             "type": "mse",
@@ -486,7 +486,7 @@ def test_tmap_loss_multiple_datasets_same_target_different_gradients(
     )
     layout = TensorMap(keys=Labels.single(), blocks=[block])
 
-    target_info = TargetInfo(quantity="energy", unit="eV", layout=layout)
+    target_info = TargetInfo(layout=layout, quantity="energy", unit="eV")
     loss_hypers = {
         "output": {
             "type": "mse",

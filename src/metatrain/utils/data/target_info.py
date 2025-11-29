@@ -1,7 +1,8 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap, equal_metadata
+from metatomic.torch import ModelOutput
 from omegaconf import DictConfig
 
 # We explicitly import device because otherwise torch.jit.script doesn't
@@ -12,22 +13,32 @@ from torch import device as _torch_device
 class TargetInfo:
     """A class that contains information about a target.
 
-    :param quantity: The physical quantity of the target (e.g., "energy").
     :param layout: The layout of the target, as a ``TensorMap`` with 0 samples.
         This ``TensorMap`` will be used to retrieve the names of
         the ``samples``, as well as the ``components`` and ``properties`` of the
         target and their gradients. For example, this allows to infer the type of
         the target (scalar, Cartesian tensor, spherical tensor), whether it is per
         atom, the names of its gradients, etc.
-    :param unit: The unit of the target. If :py:obj:`None` the ``unit`` will be set to
-        an empty string ``""``.
+    :param quantity: Quantity of the target (e.g. "energy", "dipole", …). If this is an
+        empty string, no unit conversion will be performed.
+
+        The list of possible quantities is available `here`_.
+    :param unit: Unit of the target. If this is an empty string, no unit conversion will
+        be performed.
+
+        The list of possible units is available `here`_.
+    :param description: A description of this target. A description is especially
+        recommended for non-standard outputs and variants of a unit.
+
+    .. _here: https://docs.metatensor.org/metatomic/latest/torch/reference/misc.html#known-quantities-units
     """
 
     def __init__(
         self,
-        quantity: str,
         layout: TensorMap,
-        unit: Union[None, str] = "",
+        quantity: str = "",
+        unit: str = "",
+        description: str = "",
     ):
         # one of these will be set to True inside the _check_layout method
         self.is_scalar = False
@@ -35,10 +46,14 @@ class TargetInfo:
         self.is_spherical = False
 
         self._check_layout(layout)
-
-        self.quantity = quantity  # float64: otherwise metatensor can't serialize
         self.layout = layout
-        self.unit = unit if unit is not None else ""
+
+        # verify that `quantity`, `unit` and `description` are valid for metatomic
+        _ = ModelOutput(quantity=quantity, unit=unit, description=description)
+
+        self.quantity = quantity
+        self.unit = unit
+        self.description = description
 
         self.blocks_shape: Dict[str, List[int]] = {}
         self._set_blocks_shape()
@@ -67,8 +82,9 @@ class TargetInfo:
         return [block.properties for block in self.layout.blocks()]
 
     def __repr__(self) -> str:
-        return "TargetInfo(quantity={!r}, unit={!r}, layout={!r})".format(
-            self.quantity, self.unit, self.layout
+        return (
+            f"TargetInfo(layout={self.layout}, quantity='{self.quantity}', "
+            f"unit='{self.unit}', description='{self.description}')"
         )
 
     @torch.jit.unused
@@ -78,6 +94,7 @@ class TargetInfo:
         return (
             self.quantity == other.quantity
             and self.unit == other.unit
+            and self.description == other.description
             # we can't use metatensor.torch.equal here because we want to allow
             # for potential gradient mismatches (e.g. energy-0nly vs energy+forces)
             and _is_equal_up_to_gradients(self.layout, other.layout)
@@ -233,6 +250,8 @@ class TargetInfo:
             return False
         if self.unit != other.unit:
             return False
+        if self.description != other.description:
+            return False
         return equal_metadata(self.layout, other.layout, check_gradients=False)
 
     @property
@@ -253,9 +272,10 @@ class TargetInfo:
         """
         new_layout = self.layout.to(device=device, dtype=dtype)
         return TargetInfo(
-            quantity=self.quantity,
             layout=new_layout,
+            quantity=self.quantity,
             unit=self.unit,
+            description=self.description,
         )
 
     @torch.jit.unused
@@ -266,12 +286,14 @@ class TargetInfo:
         :param state: The state to set.
         """
 
-        self.quantity = state["quantity"]
         self.layout = state["layout"]
-        self.unit = state["unit"]
         self.is_scalar = state["is_scalar"]
         self.is_cartesian = state["is_cartesian"]
         self.is_spherical = state["is_spherical"]
+
+        self.quantity = state["quantity"]
+        self.unit = state["unit"]
+        self.description = state.get("description", "")
 
         # For backward compatibility, if blocks_shape is not in the state,
         # we build it.
@@ -354,12 +376,12 @@ def get_energy_target_info(
         blocks=[block],
     )
 
-    target_info = TargetInfo(
+    return TargetInfo(
+        layout=layout,
         quantity="energy",
         unit=target["unit"],
-        layout=layout,
+        description=target.get("description", ""),
     )
-    return target_info
 
 
 def get_generic_target_info(target_name: str, target: DictConfig) -> TargetInfo:
@@ -406,12 +428,12 @@ def _get_scalar_target_info(target_name: str, target: DictConfig) -> TargetInfo:
         blocks=[block],
     )
 
-    target_info = TargetInfo(
+    return TargetInfo(
+        layout=layout,
         quantity=target["quantity"],
         unit=target["unit"],
-        layout=layout,
+        description=target.get("description", ""),
     )
-    return target_info
 
 
 def _get_cartesian_target_info(target_name: str, target: DictConfig) -> TargetInfo:
@@ -453,12 +475,12 @@ def _get_cartesian_target_info(target_name: str, target: DictConfig) -> TargetIn
         blocks=[block],
     )
 
-    target_info = TargetInfo(
+    return TargetInfo(
+        layout=layout,
         quantity=target["quantity"],
         unit=target["unit"],
-        layout=layout,
+        description=target.get("description", ""),
     )
-    return target_info
 
 
 def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetInfo:
@@ -503,12 +525,12 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
         blocks=blocks,
     )
 
-    target_info = TargetInfo(
+    return TargetInfo(
+        layout=layout,
         quantity=target["quantity"],
         unit=target["unit"],
-        layout=layout,
+        description=target.get("description", ""),
     )
-    return target_info
 
 
 def is_auxiliary_output(name: str) -> bool:
