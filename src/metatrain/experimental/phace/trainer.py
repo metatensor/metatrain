@@ -1,3 +1,4 @@
+import contextlib
 import copy
 import logging
 import math
@@ -6,6 +7,8 @@ from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
 import torch.distributed
+from metatomic.torch import ModelOutput
+from torch.fx.experimental.proxy_tensor import make_fx
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
@@ -23,7 +26,6 @@ from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
 from metatrain.utils.distributed.slurm import DistributedEnvironment
-from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator, LossSpecification
@@ -38,13 +40,69 @@ from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
 from .documentation import TrainerHypers
-from .model import SoapBpnn
+from .model import PhACE
+from .utils import InversionAugmenter, systems_to_list
+
+
+def _get_requested_outputs(targets, target_info_dict):
+    requested_outputs = {}
+    for name, target in targets.items():
+        requested_outputs[name] = ModelOutput(
+            quantity=target_info_dict[name].quantity,
+            unit=target_info_dict[name].unit,
+            per_atom=target_info_dict[name].per_atom,
+            explicit_gradients=[g for g in target.block(0).gradients_list()],
+        )
+    return requested_outputs
+
+
+@contextlib.contextmanager
+def _disable_fx_duck_shape():
+    init_duck_shape = torch.fx.experimental._config.use_duck_shape
+    torch.fx.experimental._config.use_duck_shape = False
+    try:
+        yield
+    finally:
+        torch.fx.experimental._config.use_duck_shape = init_duck_shape
+
+
+def compile_model(model: PhACE, loader: torch.utils.data.DataLoader):
+    parameter_tensor = next(iter(model.parameters()))
+    dtype = parameter_tensor.dtype
+    device = parameter_tensor.device
+    batch = next(iter(loader))
+    systems, targets, extra_data = unpack_batch(batch)
+    systems, targets, extra_data = batch_to(
+        systems, targets, extra_data, dtype=dtype, device=device
+    )
+    data = systems_to_list(systems, model.requested_neighbor_lists()[0])
+    with _disable_fx_duck_shape():
+        fx_model = make_fx(
+            model.module,
+            tracing_mode="symbolic",
+            _allow_non_fake_inputs=True,
+            _error_on_data_dependent_ops=True,
+        )(
+            data,
+            [
+                n
+                for n, o in _get_requested_outputs(
+                    targets, model.dataset_info.targets
+                ).items()
+                if len(o.explicit_gradients) > 0
+            ],
+        )
+    compiled_module = torch.compile(
+        fx_model,
+        dynamic=True,
+        fullgraph=True,
+        mode="max-autotune",
+    )
+    model.module = compiled_module
 
 
 def get_scheduler(
-    optimizer: torch.optim.Optimizer,
-    train_hypers: TrainerHypers,
-    steps_per_epoch: int,
+    optimizer: torch.optim.Optimizer, train_hypers: TrainerHypers, steps_per_epoch: int
 ) -> LambdaLR:
     """
     Get a CosineAnnealing learning-rate scheduler with warmup
@@ -75,9 +133,9 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 8
+    __checkpoint_version__ = 6
 
-    def __init__(self, hypers: TrainerHypers):
+    def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
 
         self.optimizer_state_dict: Optional[Dict[str, Any]] = None
@@ -90,14 +148,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
     def train(
         self,
-        model: SoapBpnn,
+        model: PhACE,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ) -> None:
-        assert dtype in SoapBpnn.__supported_dtypes__
+        assert dtype in PhACE.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 
@@ -105,7 +163,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    "If you want to run distributed training with SOAP-BPNN, please "
+                    "If you want to run distributed training with PhACE, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
@@ -128,21 +186,20 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of the SOAP-BPNN are always in float64 (to avoid
+        # The additive models of the PhACE are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
-        if self.hypers["remove_composition_contribution"]:
-            logging.info("Calculating composition weights")
-            model.additive_models[0].train_model(  # this is the composition model
-                train_datasets,
-                model.additive_models[1:],
-                self.hypers["batch_size"],
-                is_distributed,
-                self.hypers["fixed_composition_weights"],
-            )
+        logging.info("Calculating composition weights")
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["batch_size"],
+            is_distributed,
+            self.hypers["fixed_composition_weights"],
+        )
 
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
@@ -194,13 +251,26 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.scaler.to(device)
         model.scaler.scales_to(device=device, dtype=torch.float64)
 
-        # Create a collate function:
+        # Create collate functions:
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
+        extra_data_info = dataset_info.extra_data
+        inversion_augmenter = InversionAugmenter(
+            target_info_dict=train_targets, extra_data_info_dict=extra_data_info
+        )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
-        collate_fn = CollateFn(
+        collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
+                inversion_augmenter.apply_random_augmentations,
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                get_remove_additive_transform(additive_models, train_targets),
+                get_remove_scale_transform(scaler),
+            ],
+        )
+        collate_fn_val = CollateFn(
+            target_keys=list(train_targets.keys()),
+            callables=[  # no augmentation for validation
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
@@ -242,7 +312,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         # the sampler takes care of this (if present)
                         train_sampler is None
                     ),
-                    collate_fn=collate_fn,
+                    collate_fn=collate_fn_train,
                     num_workers=num_workers,
                 )
             )
@@ -265,11 +335,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     sampler=val_sampler,
                     shuffle=False,
                     drop_last=False,
-                    collate_fn=collate_fn,
+                    collate_fn=collate_fn_val,
                     num_workers=num_workers,
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
+
+        if self.hypers["compile"]:
+            compile_model(model, train_dataloader)
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -283,6 +356,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
         # Create a loss function:
+        loss_hypers = self.hypers["loss"]
         loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
         loss_fn = LossAggregator(
             targets=train_targets,
@@ -346,6 +420,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             train_loss = 0.0
 
+            # from torch.profiler import profile
+            # counter = 0
+            # with profile() as prof:
+
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
@@ -354,11 +432,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     systems, targets, extra_data, dtype=dtype, device=device
                 )
 
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    {key: train_targets[key] for key in targets.keys()},
-                    is_training=True,
+                predictions = model(
+                    systems, _get_requested_outputs(targets, dataset_info.targets)
                 )
 
                 # average by the number of atoms
@@ -369,13 +444,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
 
-                if is_distributed:
-                    # make sure all parameters contribute to the gradient calculation
-                    # to make torch DDP happy
-                    for param in model.parameters():
-                        train_loss_batch += 0.0 * param.sum()
-
                 train_loss_batch.backward()
+                if self.hypers["gradient_clipping"] is not None:
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), self.hypers["gradient_clipping"]
+                    )
                 optimizer.step()
                 lr_scheduler.step()
 
@@ -397,6 +470,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     train_mae_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )
+                # counter += 1
+                # if counter == 4:
+                #     break
+
+            # prof.export_chrome_trace("trace.json")
+            # exit()
 
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -412,63 +491,64 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
                 )
 
-            val_loss = 0.0
-            for batch in val_dataloader:
-                systems, targets, extra_data = unpack_batch(batch)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype, device=device
-                )
+            with torch.no_grad():
+                val_loss = 0.0
+                for batch in val_dataloader:
+                    systems, targets, extra_data = unpack_batch(batch)
+                    systems, targets, extra_data = batch_to(
+                        systems, targets, extra_data, dtype=dtype, device=device
+                    )
 
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    {key: train_targets[key] for key in targets.keys()},
-                    is_training=False,
-                )
+                    predictions = model(
+                        systems, _get_requested_outputs(targets, dataset_info.targets)
+                    )
 
-                # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                    # average by the number of atoms
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(
+                        targets, systems, per_structure_targets
+                    )
 
-                val_loss_batch = loss_fn(predictions, targets, extra_data)
+                    val_loss_batch = loss_fn(predictions, targets, extra_data)
 
-                if is_distributed:
-                    # sum the loss over all processes
-                    torch.distributed.all_reduce(val_loss_batch)
-                val_loss += val_loss_batch.item()
-                scaled_predictions = (model.module if is_distributed else model).scaler(
-                    systems, predictions
-                )
-                scaled_targets = (model.module if is_distributed else model).scaler(
-                    systems, targets
-                )
-                val_rmse_calculator.update(
-                    scaled_predictions, scaled_targets, extra_data
-                )
-                if self.hypers["log_mae"]:
-                    val_mae_calculator.update(
+                    if is_distributed:
+                        # sum the loss over all processes
+                        torch.distributed.all_reduce(val_loss_batch)
+                    val_loss += val_loss_batch.item()
+                    scaled_predictions = (
+                        model.module if is_distributed else model
+                    ).scaler(systems, predictions)
+                    scaled_targets = (model.module if is_distributed else model).scaler(
+                        systems, targets
+                    )
+                    val_rmse_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )
+                    if self.hypers["log_mae"]:
+                        val_mae_calculator.update(
+                            scaled_predictions, scaled_targets, extra_data
+                        )
 
-            finalized_val_info = val_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets,
-                is_distributed=is_distributed,
-                device=device,
-            )
-            if self.hypers["log_mae"]:
-                finalized_val_info.update(
-                    val_mae_calculator.finalize(
-                        not_per_atom=["positions_gradients"] + per_structure_targets,
-                        is_distributed=is_distributed,
-                        device=device,
-                    )
+                finalized_val_info = val_rmse_calculator.finalize(
+                    not_per_atom=["positions_gradients"] + per_structure_targets,
+                    is_distributed=is_distributed,
+                    device=device,
                 )
+                if self.hypers["log_mae"]:
+                    finalized_val_info.update(
+                        val_mae_calculator.finalize(
+                            not_per_atom=["positions_gradients"]
+                            + per_structure_targets,
+                            is_distributed=is_distributed,
+                            device=device,
+                        )
+                    )
 
-            # Now we log the information:
-            finalized_train_info = {"loss": train_loss, **finalized_train_info}
-            finalized_val_info = {"loss": val_loss, **finalized_val_info}
+                # Now we log the information:
+                finalized_train_info = {"loss": train_loss, **finalized_train_info}
+                finalized_val_info = {"loss": val_loss, **finalized_val_info}
 
             if epoch == start_epoch:
                 metric_logger = MetricLogger(
@@ -505,8 +585,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 self.scheduler_state_dict = lr_scheduler.state_dict()
                 self.epoch = epoch
                 if rank == 0:
+                    model.load_state_dict(
+                        (model.module if is_distributed else model).state_dict()
+                    )
                     self.save_checkpoint(
-                        (model.module if is_distributed else model),
+                        model,
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
 
