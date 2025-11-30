@@ -83,7 +83,7 @@ class ModelHypers(TypedDict):
     max_num_neighbors: Optional[int] = None
     """Maximum number of neighbors per atom.
 
-    This parameter activates the adaptive cutoff functionality and 
+    This parameter activates the adaptive cutoff functionality and
     limits the number of neighbors considered for each atom.
     Setting it to None disables this feature and uses all neighbors
     within the cutoff radius.

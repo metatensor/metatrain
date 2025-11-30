@@ -71,7 +71,7 @@ def concatenate_structures(
                 max_center_index = int(unique_centers.max())
             ghost_to_real_index = torch.full(
                 [
-                    int(unique_centers.max()) + 1 if len(unique_centers) > 0 else 0,
+                    max_center_index + 1,
                 ],
                 -1,
                 device=centers_values.device,
@@ -162,10 +162,10 @@ def systems_to_batch(
     :param all_species_list: List of all atomic species in the dataset.
     :param species_to_species_index: Mapping from atomic species to species indices.
     :param cutoff_width: Width of the cutoff function for a cutoff mask.
-    :param selected_atoms: Optional labels of selected atoms to include in the batch.
     :param max_num_neighbors: Optional maximum number of neighbors per atom.
         If provided, the adaptive cutoff scheme will be used for each atom to
         approximately select this number of neighbors.
+    :param selected_atoms: Optional labels of selected atoms to include in the batch.
     :return: A tuple containing the batch tensors.
         The batch consists of the following tensors:
         - `element_indices_nodes`: The atomic species of the central atoms
@@ -332,10 +332,13 @@ def get_effective_num_neighbors(
     """
     Computes the effective number of neighbors for each probe cutoff.
 
-    The width parameter controls the smoothness of the step function used for
-    neighbor counting. If not provided, it is automatically computed from the
-    probe cutoff spacing as: width = 2.5 * spacing, which provides a smooth
-    transition over ~2-3 probe cutoff intervals.
+    :param edge_distances: Distances between centers and their neighbors.
+    :param probe_cutoffs: Probe cutoff distances.
+    :param centers: Indices of the center atoms.
+    :param num_centers: Total number of center atoms.
+    :param width: Width of the cutoff function. If None, it will be
+        automatically determined from the probe cutoff spacing.
+    :return: Effective number of neighbors for each center atom and probe cutoff.
     """
     if width is None:
         # Automatically determine width from probe cutoff spacing
@@ -371,7 +374,16 @@ def get_gaussian_cutoff_weights(
 ) -> torch.Tensor:
     """
     Computes the weights for each probe cutoff based on
-    the effective number of neighbors.
+    the effective number of neighbors using Gaussian weights
+    centered at the expected number of neighbors.
+
+    :param effective_num_neighbors: Effective number of neighbors for each center atom
+        and probe cutoff.
+    :param probe_cutoffs: Probe cutoff distances.
+    :param max_num_neighbors: Target maximum number of neighbors per atom.
+    :param num_nodes: Total number of center atoms.
+    :param width: Width of the Gaussian function.
+    :return: Weights for each probe cutoff.
     """
     num_neighbors_threshold = (
         max_num_neighbors
@@ -399,7 +411,15 @@ def get_exponential_cutoff_weights(
 ) -> torch.Tensor:
     """
     Computes the weights for each probe cutoff based on
-    the effective number of neighbors.
+    the effective number of neighbors using Exponential weights.
+
+    :param effective_num_neighbors: Effective number of neighbors for each center atom
+        and probe cutoff.
+    :param probe_cutoffs: Probe cutoff distances.
+    :param max_num_neighbors: Target maximum number of neighbors per atom.
+    :param width: Width of the step characteristic function.
+    :param beta: Exponential scaling factor.
+    :return: Weights for each probe cutoff.
     """
     cutoffs_weights = torch.exp(beta * probe_cutoffs) * step_characteristic_function(
         effective_num_neighbors, max_num_neighbors, width=width
