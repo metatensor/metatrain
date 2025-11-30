@@ -241,6 +241,17 @@ def model_update_v8_v9(checkpoint: dict) -> None:
                     state_dict["finetune_config"]["method"] = "full"
 
 
+def model_update_v9_v10(checkpoint: dict) -> None:
+    """
+    Update a v9 checkpoint to v10.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Adding the max_num_neighbors hyperparameter if not present
+    if "max_num_neighbors" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["max_num_neighbors"] = None
+
+
 ###########################
 # TRAINER #################
 ###########################

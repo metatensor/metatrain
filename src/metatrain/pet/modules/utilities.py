@@ -1,12 +1,12 @@
 import torch
 
 
-def cutoff_func(grid: torch.Tensor, r_cut: float, delta: float) -> torch.Tensor:
+def cutoff_func(grid: torch.Tensor, r_cut: torch.Tensor, delta: float) -> torch.Tensor:
     """
     Cosine cutoff function.
 
     :param grid: Distances at which to evaluate the cutoff function.
-    :param r_cut: Cutoff radius.
+    :param r_cut: Cutoff radius for each node.
     :param delta: Width of the cutoff region.
     :return: Values of the cutoff function at the specified distances.
     """
@@ -18,6 +18,34 @@ def cutoff_func(grid: torch.Tensor, r_cut: float, delta: float) -> torch.Tensor:
     f[mask_bigger] = 0.0
     f[mask_smaller] = 1.0
     return f
+
+
+def step_characteristic_function(
+    values: torch.Tensor, threshold: float, width: float
+) -> torch.Tensor:
+    """Compute the step characteristic function values.
+    :param values: Input values (torch.Tensor).
+    :param threshold: Threshold value (float).
+    :param width: Width parameter (float).
+
+    :return: Step characteristic function values (torch.Tensor).
+    """
+    x = (values - threshold) / width
+    return 0.5 * (1.0 - torch.tanh(x))
+
+
+def smooth_delta_function(
+    values: torch.Tensor, center: float, width: float
+) -> torch.Tensor:
+    """Compute the smooth delta function values.
+    :param values: Input values (torch.Tensor).
+    :param center: Center value (float).
+    :param width: Width parameter (float).
+
+    :return: Smooth delta function values (torch.Tensor).
+    """
+    x = (values - center) / width
+    return torch.exp(-(x**2)) / (width * torch.sqrt(torch.tensor(torch.pi)))
 
 
 class DummyModule(torch.nn.Module):

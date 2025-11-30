@@ -10,6 +10,7 @@ from .nef import (
     get_corresponding_edges,
     get_nef_indices,
 )
+from .utilities import cutoff_func, smooth_delta_function, step_characteristic_function
 
 
 def concatenate_structures(
@@ -139,8 +140,12 @@ def systems_to_batch(
     options: NeighborListOptions,
     all_species_list: List[int],
     species_to_species_index: torch.Tensor,
+    cutoff_width: float,
+    max_num_neighbors: Optional[float] = None,
     selected_atoms: Optional[Labels] = None,
 ) -> Tuple[
+    torch.Tensor,
+    torch.Tensor,
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
@@ -156,6 +161,10 @@ def systems_to_batch(
     :param options: Options for the neighbor list.
     :param all_species_list: List of all atomic species in the dataset.
     :param species_to_species_index: Mapping from atomic species to species indices.
+    :param cutoff_width: Width of the cutoff function for a cutoff mask.
+    :param max_num_neighbors: Optional maximum number of neighbors per atom.
+        If provided, the adaptive cutoff scheme will be used for each atom to
+        approximately select this number of neighbors.
     :param selected_atoms: Optional labels of selected atoms to include in the batch.
     :return: A tuple containing the batch tensors.
         The batch consists of the following tensors:
@@ -163,11 +172,14 @@ def systems_to_batch(
         - `element_indices_neighbors`: The atomic species of the neighboring atoms
         - `edge_vectors`: The cartesian edge vectors between the central atoms and their
             neighbors
+        - `edge_distances`: The distances between the central atoms and their neighbors
         - `padding_mask`: A padding mask indicating which neighbors are real, and which
             are padded
-        - `neighbors_index`: The indices of the neighboring atoms for each central atom
-        - `num_neighbors`: The number of neighbors for each central atom
-        - `reversed_neighbor_list`: The reversed neighbor list for each central atom
+        - `reverse_neighbor_index`: The reversed neighbor list for each central atom
+        - `cutoff_factors`: The cutoff function values for each edge
+        - `system_indices`: The system index for each atom in the batch
+        - `sample_labels`: Labels indicating the system and atom indices for each atom
+
     """
     (
         positions,
@@ -192,11 +204,7 @@ def systems_to_batch(
             cells[system_indices[centers]],
         )
     edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
-    num_neghbors = torch.bincount(centers)
-    if num_neghbors.numel() == 0:  # no edges
-        max_edges_per_node = 0
-    else:
-        max_edges_per_node = int(torch.max(num_neghbors))
+    edge_distances = torch.norm(edge_vectors, dim=-1) + 1e-15
 
     if selected_atoms is not None:
         if torch.numel(centers) == 0:
@@ -205,6 +213,53 @@ def systems_to_batch(
             num_nodes = int(centers.max()) + 1
     else:
         num_nodes = len(positions)
+
+    atomic_cutoffs = options.cutoff * torch.ones(
+        num_nodes, device=positions.device, dtype=positions.dtype
+    )
+
+    if max_num_neighbors is not None:
+        # Enabling the adaptive cutoff scheme to approximately select
+        # `max_num_neighbors` neighbors for each atom
+        probe_cutoffs = torch.arange(
+            0.5,
+            options.cutoff,
+            0.2,
+            device=edge_distances.device,
+            dtype=edge_distances.dtype,
+        )
+        effective_num_neighbors = get_effective_num_neighbors(
+            edge_distances,
+            probe_cutoffs,
+            centers,
+            num_nodes,
+        )
+        cutoffs_weights = get_exponential_cutoff_weights(
+            effective_num_neighbors,
+            probe_cutoffs,
+            max_num_neighbors,
+        )
+        adapted_atomic_cutoffs = probe_cutoffs @ cutoffs_weights.T
+
+        unique_centers = torch.unique(centers)
+        atomic_cutoffs[unique_centers] = adapted_atomic_cutoffs[unique_centers]
+
+        cutoff_mask = edge_distances <= adapted_atomic_cutoffs[centers]
+        centers = centers[cutoff_mask]
+        neighbors = neighbors[cutoff_mask]
+        edge_vectors = edge_vectors[cutoff_mask]
+        cell_shifts = cell_shifts[cutoff_mask]
+    else:
+        atomic_cutoffs = options.cutoff * torch.ones(
+            len(positions), device=positions.device, dtype=positions.dtype
+        )
+
+    num_neighbors = torch.bincount(centers)
+
+    if num_neighbors.numel() == 0:  # no edges
+        max_edges_per_node = 0
+    else:
+        max_edges_per_node = int(torch.max(num_neighbors))
 
     # Convert to NEF (Node-Edge-Feature) format:
     nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
@@ -217,6 +272,7 @@ def systems_to_batch(
 
     # Send everything to NEF:
     edge_vectors = edge_array_to_nef(edge_vectors, nef_indices)
+    edge_distances = torch.sqrt(torch.sum(edge_vectors**2, dim=2) + 1e-15)
     element_indices_neighbors = edge_array_to_nef(
         element_indices_neighbors, nef_indices
     )
@@ -248,13 +304,125 @@ def systems_to_batch(
     reverse_neighbor_index[~nef_mask] = torch.arange(
         int(torch.sum(~nef_mask)), device=reverse_neighbor_index.device
     )
+    cutoff_factors = cutoff_func(
+        edge_distances, atomic_cutoffs.unsqueeze(1), cutoff_width
+    )
+    cutoff_factors[~nef_mask] = 0.0
 
     return (
         element_indices_nodes,
         element_indices_neighbors,
         edge_vectors,
+        edge_distances,
         nef_mask,
         reverse_neighbor_index,
+        cutoff_factors,
         system_indices,
         sample_labels,
     )
+
+
+def get_effective_num_neighbors(
+    edge_distances: torch.Tensor,
+    probe_cutoffs: torch.Tensor,
+    centers: torch.Tensor,
+    num_centers: int,
+    width: Optional[float] = None,
+) -> torch.Tensor:
+    """
+    Computes the effective number of neighbors for each probe cutoff.
+
+    :param edge_distances: Distances between centers and their neighbors.
+    :param probe_cutoffs: Probe cutoff distances.
+    :param centers: Indices of the center atoms.
+    :param num_centers: Total number of center atoms.
+    :param width: Width of the cutoff function. If None, it will be
+        automatically determined from the probe cutoff spacing.
+    :return: Effective number of neighbors for each center atom and probe cutoff.
+    """
+    if width is None:
+        # Automatically determine width from probe cutoff spacing
+        # Use 2.5x the spacing for a smooth step function
+        if len(probe_cutoffs) > 1:
+            probe_spacing = probe_cutoffs[1] - probe_cutoffs[0]
+            width = 2.5 * probe_spacing
+        else:
+            width = 0.5  # fallback for single probe cutoff
+
+    weights = step_characteristic_function(
+        edge_distances.unsqueeze(0), probe_cutoffs.unsqueeze(1), width
+    )
+    probe_num_neighbors = torch.zeros(
+        (len(probe_cutoffs), num_centers),
+        dtype=edge_distances.dtype,
+        device=edge_distances.device,
+    )
+    for i, w in enumerate(weights):
+        num_neighbors = torch.bincount(centers, weights=w)
+        if len(num_neighbors) > 0:
+            probe_num_neighbors[i, : max(centers) + 1] = num_neighbors
+    probe_num_neighbors = probe_num_neighbors.T.contiguous()
+    return probe_num_neighbors
+
+
+def get_gaussian_cutoff_weights(
+    effective_num_neighbors: torch.Tensor,
+    probe_cutoffs: torch.Tensor,
+    max_num_neighbors: float,
+    num_nodes: int,
+    width: float = 0.5,
+) -> torch.Tensor:
+    """
+    Computes the weights for each probe cutoff based on
+    the effective number of neighbors using Gaussian weights
+    centered at the expected number of neighbors.
+
+    :param effective_num_neighbors: Effective number of neighbors for each center atom
+        and probe cutoff.
+    :param probe_cutoffs: Probe cutoff distances.
+    :param max_num_neighbors: Target maximum number of neighbors per atom.
+    :param num_nodes: Total number of center atoms.
+    :param width: Width of the Gaussian function.
+    :return: Weights for each probe cutoff.
+    """
+    num_neighbors_threshold = (
+        max_num_neighbors
+        * torch.ones(num_nodes, 1, device=effective_num_neighbors.device)
+        - 5e-2
+    )  # eps
+    cutoffs_threshold_idx = torch.searchsorted(
+        effective_num_neighbors, num_neighbors_threshold, right=False
+    ).clamp(max=len(probe_cutoffs) - 1)
+    cutoffs_thresholds = probe_cutoffs[cutoffs_threshold_idx]
+
+    cutoffs_weights = smooth_delta_function(
+        probe_cutoffs.unsqueeze(0), cutoffs_thresholds, width=width
+    )
+    cutoffs_weights = cutoffs_weights / cutoffs_weights.sum(dim=1, keepdim=True)
+    return cutoffs_weights
+
+
+def get_exponential_cutoff_weights(
+    effective_num_neighbors: torch.Tensor,
+    probe_cutoffs: torch.Tensor,
+    max_num_neighbors: float,
+    width: float = 1.0,
+    beta: float = 1.0,
+) -> torch.Tensor:
+    """
+    Computes the weights for each probe cutoff based on
+    the effective number of neighbors using Exponential weights.
+
+    :param effective_num_neighbors: Effective number of neighbors for each center atom
+        and probe cutoff.
+    :param probe_cutoffs: Probe cutoff distances.
+    :param max_num_neighbors: Target maximum number of neighbors per atom.
+    :param width: Width of the step characteristic function.
+    :param beta: Exponential scaling factor.
+    :return: Weights for each probe cutoff.
+    """
+    cutoffs_weights = torch.exp(beta * probe_cutoffs) * step_characteristic_function(
+        effective_num_neighbors, max_num_neighbors, width=width
+    )
+    cutoffs_weights = cutoffs_weights / cutoffs_weights.sum(dim=1, keepdim=True)
+    return cutoffs_weights
