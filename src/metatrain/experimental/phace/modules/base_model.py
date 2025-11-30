@@ -187,6 +187,7 @@ class BaseModel(torch.nn.Module):
         )
 
         split_features = split_up_features(features, self.k_max_l)
+        features = []
         for l in range(self.l_max + 1):  # noqa: E741
             features.append(
                 uncouple_features(
@@ -302,7 +303,7 @@ class BaseModel(torch.nn.Module):
                 self.last_layers[target_name] = torch.nn.ModuleDict(
                     {
                         "1": Linear(
-                            self.k_max_l[0], len(target_info.layout.block().properties)
+                            self.k_max_l[1], len(target_info.layout.block().properties)
                         )
                     }
                 )

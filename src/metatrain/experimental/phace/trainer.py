@@ -586,7 +586,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 self.epoch = epoch
                 if rank == 0:
                     model.load_state_dict(
-                        (model if is_distributed else model.module).state_dict()
+                        (model.module if is_distributed else model).state_dict()
                     )
                     self.save_checkpoint(
                         model,

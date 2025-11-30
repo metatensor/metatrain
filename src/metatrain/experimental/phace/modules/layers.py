@@ -65,6 +65,7 @@ class LinearList(torch.nn.Module):
 
         if self.spherical_linear_layers:
             split_features = split_up_features(new_features_list, self.k_max_l)
+            new_features_list = []
             for l in range(self.l_max + 1):  # noqa: E741
                 new_features_list.append(
                     uncouple_features(

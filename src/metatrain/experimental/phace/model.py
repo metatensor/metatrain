@@ -320,6 +320,13 @@ class PhACE(ModelInterface[ModelHypers]):
                     )
                 ],
             )
+            # Handle Cartesian rank-1 outputs (e.g. direct forces)
+            if len(self.component_labels[output_name]) == 1:
+                if len(self.component_labels[output_name][0]) == 1:
+                    if self.component_labels[output_name][0][0].names == ["xyz"]:
+                        return_dict[output_name].block().values[:] = (
+                            return_dict[output_name].block().values[:, [2, 0, 1]]
+                        )
             if selected_atoms is not None:
                 return_dict[output_name] = metatensor.torch.slice(
                     return_dict[output_name], axis="samples", selection=selected_atoms
