@@ -1,5 +1,6 @@
 import torch
 from typing import List
+from .tensor_product import couple_features, uncouple_features, split_up_features
 
 
 class Linear(torch.nn.Module):
@@ -14,16 +15,61 @@ class Linear(torch.nn.Module):
 
 
 class LinearList(torch.nn.Module):
-    def __init__(self, k_max_l: List[int]) -> None:
+    def __init__(self, k_max_l: List[int], spherical_linear_layers) -> None:
         super().__init__()
-        self.linears = torch.nn.ModuleList([Linear(k_max, k_max) for k_max in k_max_l])
+        self.spherical_linear_layers = spherical_linear_layers
+        self.k_max_l = k_max_l
+        self.l_max = len(k_max_l) - 1
+        self.padded_l_list = [2 * ((l + 1) // 2) for l in range(self.l_max + 1)]
+        if spherical_linear_layers:
+            self.linears = torch.nn.ModuleList([Linear(k_max, k_max) for k_max in k_max_l])
+        else:
+            l_max = len(k_max_l) - 1
+            self.linears = []
+            for l in range(l_max, -1, -1):
+                lower_bound = k_max_l[l + 1] if l < l_max else 0
+                upper_bound = k_max_l[l]
+                dimension = upper_bound - lower_bound
+                self.linears.append(Linear(dimension, dimension))
+            self.linears = torch.nn.ModuleList(self.linears[::-1])
 
-    def forward(self, features_list: List[torch.Tensor]) -> List[torch.Tensor]:
+    def forward(self, features_list: List[torch.Tensor], U_dict) -> List[torch.Tensor]:
+
+        if self.spherical_linear_layers:
+            coupled_features: List[List[torch.Tensor]] = []
+            for l in range(self.l_max + 1):
+                coupled_features.append(
+                    couple_features(
+                        features_list[l],
+                        U_dict[self.padded_l_list[l]],
+                        self.padded_l_list[l],
+                    )
+                )
+            features_list = []
+            for l in range(self.l_max + 1):
+                features_list.append(
+                    torch.concatenate(
+                        [coupled_features[lp][l] for lp in range(l, self.l_max + 1)], dim=-1
+                    )
+                )
+
         new_features_list: List[torch.Tensor] = []
         for i, linear in enumerate(self.linears):
             current_features = features_list[i]
             new_features = linear(current_features)
             new_features_list.append(new_features)
+
+        if self.spherical_linear_layers:
+            split_features = split_up_features(new_features_list, self.k_max_l)
+            new_features_list: List[torch.Tensor] = []
+            for l in range(self.l_max + 1):
+                new_features_list.append(
+                    uncouple_features(
+                        split_features[l],
+                        U_dict[self.padded_l_list[l]],
+                        self.padded_l_list[l],
+                    )
+                )
 
         return new_features_list
 

@@ -87,6 +87,7 @@ gap = [
 phace = [
     "physical_basis",
     "wigners",
+    "opt-einsum",
 ]
 llpr = []
 

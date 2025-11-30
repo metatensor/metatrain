@@ -3,16 +3,21 @@ import torch
 from metatrain.experimental.phace.utils import systems_to_batch
 from .precomputations import Precomputer
 from .message_passing import InvariantMessagePasser, EquivariantMessagePasser
-from .tensor_product import TensorProduct
 from .cg import get_cg_coefficients
 from .cg_iterator import CGIterator
-from .center_embedding import embed_centers, embed_centers_tensor_map
+from .center_embedding import embed_centers
 from typing import List
 from .layers import Linear
+from .tensor_product import uncouple_features, split_up_features, couple_features
 
 import torch
 from torch.func import grad, functional_call
 from typing import Dict
+
+import numpy as np
+import torch
+
+from .cg import get_cg_coefficients
 
 
 class BaseModel(torch.nn.Module):
@@ -24,24 +29,7 @@ class BaseModel(torch.nn.Module):
         self.nu_max = hypers["max_correlation_order_per_layer"]
         self.nu_scaling = hypers["nu_scaling"]
         self.head_num_layers = hypers["head_num_layers"]
-
-        self.num_message_passing_layers = hypers["num_message_passing_layers"]
-        if self.num_message_passing_layers < 1:
-            raise ValueError("Number of message-passing layers must be at least 1")
-
-        # Embedding of the atomic types
-        n_channels = hypers["num_element_channels"]
-
-        # A buffer that maps atomic types to indices in the embeddings
-        species_to_species_index = torch.zeros(
-            (max(self.atomic_types) + 1,), dtype=torch.int
-        )
-        species_to_species_index[self.atomic_types] = torch.arange(
-            len(self.atomic_types), dtype=torch.int
-        )
-        self.register_buffer("species_to_species_index", species_to_species_index)
-
-        self.embeddings = torch.nn.Embedding(len(self.atomic_types), n_channels)
+        self.spherical_linear_layers = hypers["spherical_linear_layers"]
 
         # A module that precomputes quantities that are useful in all message-passing
         # steps (spherical harmonics, distances)
@@ -57,29 +45,62 @@ class BaseModel(torch.nn.Module):
             use_sphericart=hypers["use_sphericart"]
         )
 
+        n_max = self.precomputer.n_max_l
+        self.l_max = len(n_max) - 1
+        n_channels = hypers["num_element_channels"]
+        if hypers["force_rectangular"]:
+            self.k_max_l = [n_channels * n_max[0]] * (self.l_max + 1)
+        else:
+            self.k_max_l = [
+                n_channels * n_max[l]
+                for l in range(self.l_max + 1)  # noqa: E741
+            ]
+
+        ################
+        cg_calculator = get_cg_coefficients(2 * ((self.l_max + 1) // 2))
+        self.padded_l_list = [2 * ((l + 1) // 2) for l in range(self.l_max + 1)]
+        U_dict = {}
+        for padded_l in np.unique(self.padded_l_list):
+            cg_tensors = [
+                cg_calculator._cgs[(padded_l // 2, padded_l // 2, L)]
+                for L in range(padded_l + 1)
+            ]
+            U = torch.concatenate(
+                [cg_tensor for cg_tensor in cg_tensors], dim=2
+            ).reshape((padded_l + 1) ** 2, (padded_l + 1) ** 2)
+            assert torch.allclose(
+                U @ U.T, torch.eye((padded_l + 1) ** 2, dtype=U.dtype)
+            )
+            assert torch.allclose(
+                U.T @ U, torch.eye((padded_l + 1) ** 2, dtype=U.dtype)
+            )
+            U_dict[int(padded_l)] = U
+        self.U_dict = U_dict
+        ################
+
+        self.num_message_passing_layers = hypers["num_message_passing_layers"]
+        if self.num_message_passing_layers < 1:
+            raise ValueError("Number of message-passing layers must be at least 1")
+
+        # A buffer that maps atomic types to indices in the embeddings
+        species_to_species_index = torch.zeros(
+            (max(self.atomic_types) + 1,), dtype=torch.int
+        )
+        species_to_species_index[self.atomic_types] = torch.arange(
+            len(self.atomic_types), dtype=torch.int
+        )
+        self.register_buffer("species_to_species_index", species_to_species_index)
+
+        self.embeddings = torch.nn.Embedding(len(self.atomic_types), n_channels)
+
         # The message passing is invariant for the first layer
         self.invariant_message_passer = InvariantMessagePasser(
             self.atomic_types,
             self.mp_scaling,
             hypers["disable_nu_0"],
             self.precomputer.n_max_l,
-            hypers["num_element_channels"],
+            self.k_max_l,
         )
-
-        self.atomic_types = self.atomic_types
-        n_max = self.precomputer.n_max_l
-        self.l_max = len(n_max) - 1
-        self.k_max_l = [
-            n_channels * n_max[l]
-            for l in range(self.l_max + 1)  # noqa: E741
-        ]
-        print(self.k_max_l)
-        # self.k_max_l = [128, 128, 128]
-        self.k_max_l_max = [0] * (self.l_max + 1)
-        previous = 0
-        for l in range(self.l_max, -1, -1):
-            self.k_max_l_max[l] = self.k_max_l[l] - previous
-            previous = self.k_max_l[l]
 
         cgs = get_cg_coefficients(self.l_max)
         cgs = {
@@ -87,11 +108,8 @@ class BaseModel(torch.nn.Module):
             for (l1, l2, L), tensor in cgs._cgs.items()
         }
 
-        tensor_product = TensorProduct(self.k_max_l)
-
         self.cg_iterator = CGIterator(
-            tensor_product,
-            self.nu_max - 1,
+            self.k_max_l, self.nu_max - 1, self.spherical_linear_layers
         )
 
         # Subsequent message-passing layers
@@ -100,14 +118,13 @@ class BaseModel(torch.nn.Module):
         for _ in range(self.num_message_passing_layers - 1):
             equivariant_message_passer = EquivariantMessagePasser(
                 self.precomputer.n_max_l,
-                self.hypers["num_element_channels"],
-                tensor_product,
+                self.k_max_l,
                 self.mp_scaling,
+                self.spherical_linear_layers
             )
             equivariant_message_passers.append(equivariant_message_passer)
             generalized_cg_iterator = CGIterator(
-                tensor_product,
-                self.nu_max - 1,
+                self.k_max_l, self.nu_max - 1, self.spherical_linear_layers
             )
             generalized_cg_iterators.append(generalized_cg_iterator)
         self.equivariant_message_passers = torch.nn.ModuleList(
@@ -122,6 +139,13 @@ class BaseModel(torch.nn.Module):
             self._add_output(target_name, target_info)
 
     def forward(self, structures_as_list) -> torch.Tensor:
+        device = structures_as_list[0][0].device
+        if self.U_dict[0].device != device:
+            self.U_dict = {key: U.to(device) for key, U in self.U_dict.items()}
+        dtype = structures_as_list[0][0].dtype
+        if self.U_dict[0].dtype != dtype:
+            self.U_dict = {key: U.to(dtype) for key, U in self.U_dict.items()}
+
         structures = systems_to_batch(structures_as_list)
 
         n_atoms = len(structures["positions"])
@@ -150,13 +174,13 @@ class BaseModel(torch.nn.Module):
         initial_features = torch.ones(
             (n_atoms, 1, self.k_max_l[0]), dtype=structures["positions"].dtype, device=structures["positions"].device
         )
-        initial_element_embedding = embed_centers_tensor_map(
+        initial_element_embedding = embed_centers(
             [initial_features], center_embeddings
         )[0]
         # now they are all the same as the center embeddings
 
         # ACE-like features
-        spherical_expansion = self.invariant_message_passer(
+        features = self.invariant_message_passer(
             radial_basis,
             spherical_harmonics,
             structures["structure_offsets"][structures["structure_pairs"]]
@@ -167,8 +191,18 @@ class BaseModel(torch.nn.Module):
             initial_element_embedding,
         )
 
-        features = [spherical_expansion[l] for l in range(self.l_max + 1)]
-        features = self.cg_iterator(features)
+        split_features = split_up_features(features, self.k_max_l)
+        features: List[torch.Tensor] = []
+        for l in range(self.l_max + 1):
+            features.append(
+                uncouple_features(
+                    split_features[l],
+                    self.U_dict[self.padded_l_list[l]],
+                    self.padded_l_list[l],
+                )
+            )
+
+        features = self.cg_iterator(features, self.U_dict)
 
         # message passing
         for message_passer, generalized_cg_iterator in zip(
@@ -185,9 +219,27 @@ class BaseModel(torch.nn.Module):
                 structures["structure_offsets"][structures["structure_pairs"]]
                 + structures["pairs"][:, 1],
                 embedded_features,
+                self.U_dict,
             )
-            iterated_features = generalized_cg_iterator(mp_features)
+            iterated_features = generalized_cg_iterator(mp_features, self.U_dict)
             features = iterated_features
+
+        coupled_features: List[List[torch.Tensor]] = []
+        for l in range(self.l_max + 1):
+            coupled_features.append(
+                couple_features(
+                    features[l],
+                    self.U_dict[self.padded_l_list[l]],
+                    self.padded_l_list[l],
+                )
+            )
+        features = []
+        for l in range(self.l_max + 1):
+            features.append(
+                torch.concatenate(
+                    [coupled_features[lp][l] for lp in range(l, self.l_max + 1)], dim=-1
+                )
+            )
 
         # TODO: change position?
         features = embed_centers(features, center_embeddings)

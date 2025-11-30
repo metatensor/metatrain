@@ -6,36 +6,31 @@ from typing import List
 
 
 class MLPRadialBasis(torch.nn.Module):
-    def __init__(self, n_max_l, num_element_channels) -> None:
+    def __init__(self, n_max_l, k_max_l) -> None:
         super().__init__()
 
-        self.n_max_l = list(n_max_l)
-        self.l_max = len(self.n_max_l) - 1
-        self.n_channels = num_element_channels
-
-        self.apply_mlp = False
+        l_max = len(n_max_l) - 1
         self.radial_mlps = torch.nn.ModuleDict(
             {
                 str(l): torch.nn.Sequential(
-                    Linear(self.n_max_l[l], 4 * self.n_max_l[l] * self.n_channels),
+                    Linear(n_max_l[l], 4 * k_max_l[l]),
                     torch.nn.SiLU(),
                     Linear(
-                        4 * self.n_max_l[l] * self.n_channels,
-                        4 * self.n_max_l[l] * self.n_channels,
+                        4 * k_max_l[l],
+                        4 * k_max_l[l],
                     ),
                     torch.nn.SiLU(),
                     Linear(
-                        4 * self.n_max_l[l] * self.n_channels,
-                        4 * self.n_max_l[l] * self.n_channels,
+                        4 * k_max_l[l],
+                        4 * k_max_l[l],
                     ),
                     torch.nn.SiLU(),
                     Linear(
-                        4 * self.n_max_l[l] * self.n_channels,
-                        self.n_max_l[l] * self.n_channels,
-                        # 128
+                        4 * k_max_l[l],
+                        k_max_l[l],
                     ),
                 )
-                for l in range(self.l_max + 1)  # noqa: E741
+                for l in range(l_max + 1)  # noqa: E741
             }
         )
 

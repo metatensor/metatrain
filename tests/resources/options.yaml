@@ -8,13 +8,15 @@ architecture:
     num_element_channels: 64
     radial_basis:
       max_eigenvalue: 25.0
+    force_rectangular: true
+    spherical_linear_layers: true
   training:
     batch_size: 5
     num_epochs: 1000
     per_structure_targets: [energy]
     log_mae: true
     log_interval: 1
-    # learning_rate: 0.0
+    compile: true
 
 training_set:
   systems:

@@ -14,9 +14,6 @@ class RadialBasisHypers(TypedDict):
     might be beneficial for the accuracy of the model and/or
     its physical correctness."""
 
-    mlp: bool = True
-    """Whether to use an MLP for the radial basis."""
-
     max_eigenvalue: float = 60.0
     """Maximum eigenvalue for the radial basis."""
 
@@ -49,6 +46,12 @@ class ModelHypers(TypedDict):
 
     num_element_channels: int = 64
     """Number of channels per element."""
+
+    force_rectangular: bool = False
+    """Makes the number of channels per irrep the same."""
+
+    spherical_linear_layers: bool = False
+    """Whether to perform linear layers in the spherical representation"""
 
     radial_basis: RadialBasisHypers = init_with_defaults(RadialBasisHypers)
     """Hyperparameters for the radial basis functions."""

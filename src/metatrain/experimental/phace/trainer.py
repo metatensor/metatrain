@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 from .utils import systems_to_list
-from metatensor.torch import TensorMap, TensorBlock, Labels
+from .utils import InversionAugmenter
 from torch.fx.experimental.proxy_tensor import make_fx
 
 import torch
@@ -247,13 +247,26 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.scaler.to(device)
         model.scaler.scales_to(device=device, dtype=torch.float64)
 
-        # Create a collate function:
+        # Create collate functions:
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
+        extra_data_info = dataset_info.extra_data
+        inversion_augmenter = InversionAugmenter(
+            target_info_dict=train_targets, extra_data_info_dict=extra_data_info
+        )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
-        collate_fn = CollateFn(
+        collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
+                inversion_augmenter.apply_random_augmentations,
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                get_remove_additive_transform(additive_models, train_targets),
+                get_remove_scale_transform(scaler),
+            ],
+        )
+        collate_fn_val = CollateFn(
+            target_keys=list(train_targets.keys()),
+            callables=[  # no augmentation for validation
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
@@ -295,7 +308,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         # the sampler takes care of this (if present)
                         train_sampler is None
                     ),
-                    collate_fn=collate_fn,
+                    collate_fn=collate_fn_train,
                     num_workers=num_workers,
                 )
             )
@@ -318,7 +331,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     sampler=val_sampler,
                     shuffle=False,
                     drop_last=False,
-                    collate_fn=collate_fn,
+                    collate_fn=collate_fn_val,
                     num_workers=num_workers,
                 )
             )

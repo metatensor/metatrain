@@ -5,26 +5,24 @@ import torch
 from .layers import LinearList as Linear
 from .radial_mlp import MLPRadialBasis
 from .tensor_product import (
-    combine_uncoupled_features,
+    tensor_product,
     couple_features,
     uncouple_features,
+    split_up_features,
 )
 
 
 class InvariantMessagePasser(torch.nn.Module):
     # performs invariant message passing with linear contractions
     def __init__(
-        self, all_species: List[int], mp_scaling, disable_nu_0, n_max_l, num_element_channels
+        self, all_species: List[int], mp_scaling, disable_nu_0, n_max_l, k_max_l
     ) -> None:
         super().__init__()
 
         self.all_species = all_species
-        self.radial_basis_mlp = MLPRadialBasis(n_max_l, num_element_channels)
+        self.radial_basis_mlp = MLPRadialBasis(n_max_l, k_max_l)
         self.n_max_l = n_max_l
-        # self.k_max_l = [128, 128, 128]
-        self.k_max_l = [
-            num_element_channels * n_max for n_max in self.n_max_l
-        ]
+        self.k_max_l = k_max_l
         self.l_max = len(self.n_max_l) - 1
         self.irreps_out = [(l, 1) for l in range(self.l_max + 1)]  # noqa: E741
 
@@ -77,34 +75,22 @@ class EquivariantMessagePasser(torch.nn.Module):
     def __init__(
         self,
         n_max_l,
-        num_element_channels,
-        tensor_product,
+        k_max_l,
         mp_scaling,
+        spherical_linear_layers,
     ) -> None:
         super().__init__()
 
         self.n_max_l = list(n_max_l)
-        # print(self.n_max_l)
-        # print(num_element_channels)
-        self.k_max_l = [
-            num_element_channels * n_max for n_max in self.n_max_l
-        ]
-        # self.k_max_l = [128, 128, 128]
+        self.k_max_l = k_max_l
         self.l_max = len(self.n_max_l) - 1
 
-        self.k_max_l_max = [0] * (self.l_max + 1)
-        previous = 0
-        for l in range(self.l_max, -1, -1):
-            self.k_max_l_max[l] = self.k_max_l[l] - previous
-            previous = self.k_max_l[l]
-
         self.mp_scaling = mp_scaling
-        self.padded_l_list = tensor_product.padded_l_list
-        self.U_dict = tensor_product.U_dict
+        self.padded_l_list = [2 * ((l + 1) // 2) for l in range(self.l_max + 1)]
 
-        self.linear = Linear(self.k_max_l)
+        self.linear = Linear(self.k_max_l, spherical_linear_layers)
 
-        self.radial_basis_mlp = MLPRadialBasis(n_max_l, num_element_channels)
+        self.radial_basis_mlp = MLPRadialBasis(n_max_l, k_max_l)
 
     def forward(
         self,
@@ -113,55 +99,21 @@ class EquivariantMessagePasser(torch.nn.Module):
         centers,
         neighbors,
         features: List[torch.Tensor],
+        U_dict,
     ) -> List[torch.Tensor]:
-        device = features[0].device
-        if self.U_dict[0].device != device:
-            self.U_dict = {key: U.to(device) for key, U in self.U_dict.items()}
-        dtype = features[0].dtype
-        if self.U_dict[0].dtype != dtype:
-            self.U_dict = {key: U.to(dtype) for key, U in self.U_dict.items()}
-
         radial_basis = self.radial_basis_mlp(radial_basis)
         vector_expansion = [
             spherical_harmonics[l].unsqueeze(2) * radial_basis[l].unsqueeze(1)
             for l in range(self.l_max + 1)  # noqa: E741
         ]
 
-        split_vector_expansion: List[List[torch.Tensor]] = []
-        for l in range(self.l_max, -1, -1):
-            lower_bound = self.k_max_l[l + 1] if l < self.l_max else 0
-            upper_bound = self.k_max_l[l]
-            split_vector_expansion = [
-                [
-                    vector_expansion[lp][:, :, lower_bound:upper_bound]
-                    for lp in range(l + 1)
-                ]
-            ] + split_vector_expansion
-
+        split_vector_expansion = split_up_features(vector_expansion, self.k_max_l)
         uncoupled_vector_expansion = []
         for l in range(self.l_max + 1):
             uncoupled_vector_expansion.append(
                 uncouple_features(
                     split_vector_expansion[l],
-                    self.U_dict[self.padded_l_list[l]],
-                    self.padded_l_list[l],
-                )
-            )
-
-        split_features: List[List[torch.Tensor]] = []
-        for l in range(self.l_max, -1, -1):
-            lower_bound = self.k_max_l[l + 1] if l < self.l_max else 0
-            upper_bound = self.k_max_l[l]
-            split_features = [
-                [features[lp][:, :, lower_bound:upper_bound] for lp in range(l + 1)]
-            ] + split_features
-
-        uncoupled_features = []
-        for l in range(self.l_max + 1):
-            uncoupled_features.append(
-                uncouple_features(
-                    split_features[l],
-                    self.U_dict[self.padded_l_list[l]],
+                    U_dict[self.padded_l_list[l]],
                     self.padded_l_list[l],
                 )
             )
@@ -169,11 +121,10 @@ class EquivariantMessagePasser(torch.nn.Module):
         n_atoms = features[0].shape[0]
 
         indexed_features = []
-        for feature in uncoupled_features:
+        for feature in features:
             indexed_features.append(feature[neighbors])
 
-        # TODO: maybe it would be a good idea to break these up to limit memory usage
-        combined_features = combine_uncoupled_features(
+        combined_features = tensor_product(
             uncoupled_vector_expansion, indexed_features
         )
 
@@ -192,29 +143,11 @@ class EquivariantMessagePasser(torch.nn.Module):
                 source=f,
             )
 
-        coupled_features: List[List[torch.Tensor]] = []
-        for l in range(self.l_max + 1):
-            coupled_features.append(
-                couple_features(
-                    combined_features_pooled[l],
-                    self.U_dict[self.padded_l_list[l]],
-                    self.padded_l_list[l],
-                )
-            )
-
-        concatenated_coupled_features = []
-        for l in range(self.l_max + 1):
-            concatenated_coupled_features.append(
-                torch.concatenate(
-                    [coupled_features[lp][l] for lp in range(l, self.l_max + 1)], dim=-1
-                )
-            )
-
         # apply mp_scaling
         combined_features_pooled = [
-            (f * self.mp_scaling) for f in concatenated_coupled_features
+            (f * self.mp_scaling) for f in combined_features_pooled
         ]
 
-        features_out = self.linear(concatenated_coupled_features)
+        features_out = self.linear(combined_features_pooled, U_dict)
         features_out = [f + fo for f, fo in zip(features, features_out, strict=False)]
         return features_out

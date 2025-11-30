@@ -1,91 +1,5 @@
 from typing import List
-
-import numpy as np
 import torch
-
-from .cg import get_cg_coefficients
-
-
-class TensorProduct(torch.nn.Module):
-    def __init__(self, k_max_l: List[int]):
-        super().__init__()
-        self.k_max_l = k_max_l
-        self.l_max = len(k_max_l) - 1
-
-        cg_calculator = get_cg_coefficients(2 * ((self.l_max + 1) // 2))
-        self.padded_l_list = [2 * ((l + 1) // 2) for l in range(self.l_max + 1)]
-        U_dict = {}
-        for padded_l in np.unique(self.padded_l_list):
-            cg_tensors = [
-                cg_calculator._cgs[(padded_l // 2, padded_l // 2, L)]
-                for L in range(padded_l + 1)
-            ]
-            U = torch.concatenate(
-                [cg_tensor for cg_tensor in cg_tensors], dim=2
-            ).reshape((padded_l + 1) ** 2, (padded_l + 1) ** 2)
-            assert torch.allclose(
-                U @ U.T, torch.eye((padded_l + 1) ** 2, dtype=U.dtype)
-            )
-            assert torch.allclose(
-                U.T @ U, torch.eye((padded_l + 1) ** 2, dtype=U.dtype)
-            )
-            U_dict[int(padded_l)] = U
-        self.U_dict = U_dict
-
-    def forward(self, features_1: List[torch.Tensor], features_2: List[torch.Tensor]):
-        device = features_1[0].device
-        if self.U_dict[0].device != device:
-            self.U_dict = {key: U.to(device) for key, U in self.U_dict.items()}
-        dtype = features_2[0].dtype
-        if self.U_dict[0].dtype != dtype:
-            self.U_dict = {key: U.to(dtype) for key, U in self.U_dict.items()}
-
-        split_features_1 = split_up_features(features_1, self.k_max_l)
-        split_features_2 = split_up_features(features_2, self.k_max_l)
-
-        uncoupled_features_1: List[torch.Tensor] = []
-        for l in range(self.l_max + 1):
-            uncoupled_features_1.append(
-                uncouple_features(
-                    split_features_1[l],
-                    self.U_dict[self.padded_l_list[l]],
-                    self.padded_l_list[l],
-                )
-            )
-
-        uncoupled_features_2 = []
-        for l in range(self.l_max + 1):
-            uncoupled_features_2.append(
-                uncouple_features(
-                    split_features_2[l],
-                    self.U_dict[self.padded_l_list[l]],
-                    self.padded_l_list[l],
-                )
-            )
-
-        combined_features = combine_uncoupled_features(
-            uncoupled_features_1, uncoupled_features_2
-        )
-
-        coupled_features: List[List[torch.Tensor]] = []
-        for l in range(self.l_max + 1):
-            coupled_features.append(
-                couple_features(
-                    combined_features[l],
-                    self.U_dict[self.padded_l_list[l]],
-                    self.padded_l_list[l],
-                )
-            )
-
-        concatenated_coupled_features = []
-        for l in range(self.l_max + 1):
-            concatenated_coupled_features.append(
-                torch.concatenate(
-                    [coupled_features[lp][l] for lp in range(l, self.l_max + 1)], dim=-1
-                )
-            )
-
-        return concatenated_coupled_features
 
 
 def split_up_features(features: List[torch.Tensor], k_max_l: List[int]):
@@ -138,7 +52,7 @@ def uncouple_features(
     return uncoupled_features
 
 
-def combine_uncoupled_features(
+def tensor_product(
     uncoupled_features_1: List[torch.Tensor],
     uncoupled_features_2: List[torch.Tensor],
 ):
