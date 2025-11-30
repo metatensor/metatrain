@@ -167,8 +167,9 @@ class TrainerHypers(TypedDict):
     see its documentation to understand exactly what to pass here.
     """
     use_atomic_baseline: bool = True
-    """Whether to train a linear model to compute a baseline for each atomic species
-    for each target.
+    """Whether to train a linear model (:class:`CompositionModel<metatrain.utils.
+    additive.composition.CompositionModel>`) to compute a baseline for each atomic
+    species for each target.
 
     If ``True``, this atomic baseline is removed from the targets during training, which
     avoids the main model needing to learn atomic contributions, and likely makes
