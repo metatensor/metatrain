@@ -227,9 +227,6 @@ class PET(ModelInterface):
 
         self.finetune_config: Dict[str, Any] = {}
 
-        self.w1 = None
-        self.w2 = None
-
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
@@ -420,8 +417,6 @@ class PET(ModelInterface):
             self.cutoff_width,
             self.max_num_neighbors,
             selected_atoms,
-            self.w1,
-            self.w2,
         )
 
         # the scaled_dot_product_attention function from torch cannot do

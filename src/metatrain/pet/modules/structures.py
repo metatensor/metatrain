@@ -139,8 +139,6 @@ def systems_to_batch(
     cutoff_width: float,
     max_num_neighbors: Optional[float] = None,
     selected_atoms: Optional[Labels] = None,
-    w1: Optional[float] = None,
-    w2: Optional[float] = None,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -219,7 +217,7 @@ def systems_to_batch(
         probe_cutoffs = torch.arange(
             0.5,
             options.cutoff,
-            0.1,
+            0.2,
             device=edge_distances.device,
             dtype=edge_distances.dtype,
         )
@@ -228,20 +226,18 @@ def systems_to_batch(
             probe_cutoffs,
             centers,
             num_nodes,
-            width=w1 if w1 is not None else 0.5,
         )
-        cutoffs_weights = get_probe_cutoffs_weights(
+        cutoffs_weights = get_exponential_cutoff_weights(
             effective_num_neighbors,
             probe_cutoffs,
             max_num_neighbors,
-            num_nodes,
-            width=w2 if w2 is not None else 0.5,
         )
         adapted_atomic_cutoffs = probe_cutoffs @ cutoffs_weights.T
 
-        cutoff_mask = edge_distances <= adapted_atomic_cutoffs[centers]
         unique_centers = torch.unique(centers)
         atomic_cutoffs[unique_centers] = adapted_atomic_cutoffs[unique_centers]
+
+        cutoff_mask = edge_distances <= adapted_atomic_cutoffs[centers]
         centers = centers[cutoff_mask]
         neighbors = neighbors[cutoff_mask]
         edge_vectors = edge_vectors[cutoff_mask]
@@ -324,11 +320,25 @@ def get_effective_num_neighbors(
     probe_cutoffs: torch.Tensor,
     centers: torch.Tensor,
     num_centers: int,
-    width: float = 0.5,
+    width: Optional[float] = None,
 ) -> torch.Tensor:
     """
     Computes the effective number of neighbors for each probe cutoff.
+
+    The width parameter controls the smoothness of the step function used for
+    neighbor counting. If not provided, it is automatically computed from the
+    probe cutoff spacing as: width = 2.5 * spacing, which provides a smooth
+    transition over ~2-3 probe cutoff intervals.
     """
+    if width is None:
+        # Automatically determine width from probe cutoff spacing
+        # Use 2.5x the spacing for a smooth step function
+        if len(probe_cutoffs) > 1:
+            probe_spacing = probe_cutoffs[1] - probe_cutoffs[0]
+            width = 2.5 * probe_spacing
+        else:
+            width = 0.5  # fallback for single probe cutoff
+
     weights = step_characteristic_function(
         edge_distances.unsqueeze(0), probe_cutoffs.unsqueeze(1), width
     )
@@ -345,7 +355,7 @@ def get_effective_num_neighbors(
     return probe_num_neighbors
 
 
-def get_probe_cutoffs_weights(
+def get_gaussian_cutoff_weights(
     effective_num_neighbors: torch.Tensor,
     probe_cutoffs: torch.Tensor,
     max_num_neighbors: float,
@@ -368,6 +378,24 @@ def get_probe_cutoffs_weights(
 
     cutoffs_weights = smooth_delta_function(
         probe_cutoffs.unsqueeze(0), cutoffs_thresholds, width=width
+    )
+    cutoffs_weights = cutoffs_weights / cutoffs_weights.sum(dim=1, keepdim=True)
+    return cutoffs_weights
+
+
+def get_exponential_cutoff_weights(
+    effective_num_neighbors: torch.Tensor,
+    probe_cutoffs: torch.Tensor,
+    max_num_neighbors: float,
+    width: float = 1.0,
+    beta: float = 1.0,
+) -> torch.Tensor:
+    """
+    Computes the weights for each probe cutoff based on
+    the effective number of neighbors.
+    """
+    cutoffs_weights = torch.exp(beta * probe_cutoffs) * step_characteristic_function(
+        effective_num_neighbors, max_num_neighbors, width=width
     )
     cutoffs_weights = cutoffs_weights / cutoffs_weights.sum(dim=1, keepdim=True)
     return cutoffs_weights
