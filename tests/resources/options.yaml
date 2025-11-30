@@ -1,31 +1,23 @@
 seed: 42
-base_precision: 32
 
 architecture:
-  name: experimental.phace
-  model:
-    num_message_passing_layers: 2
-    num_element_channels: 64
-    radial_basis:
-      max_eigenvalue: 25.0
-    force_rectangular: true
-    spherical_linear_layers: true
+  name: soap_bpnn
   training:
     batch_size: 5
-    num_epochs: 1000
-    per_structure_targets: [energy]
-    log_mae: true
-    log_interval: 1
-    compile: true
+    num_epochs: 1
+  model:
+    soap:
+      max_radial: 4
+      max_angular: 2
 
 training_set:
   systems:
-    read_from: ethanol_train_0.xyz
+    read_from: qm9_reduced_100.xyz
     length_unit: angstrom
   targets:
     energy:
-      key: energy
+      key: U0
       unit: eV
 
-test_set: 0.90
-validation_set: 0.05
+test_set: 0.5
+validation_set: 0.1
