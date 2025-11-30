@@ -201,7 +201,7 @@ class ModelHypers(TypedDict):
     that target will be ``num_interactions - 1``.
     """
     hidden_irreps: Optional[str] = "128x0e + 128x1o + 128x2e"
-    """Irreps for hidden node features.
+    r"""Irreps for hidden node features.
 
     This defines the shape of the node features at each layer of the MACE model
     (except for the last layer, which only contains scalars). The notation for
