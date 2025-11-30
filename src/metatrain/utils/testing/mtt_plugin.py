@@ -32,7 +32,7 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Generator:
         import_path = f"metatrain.utils.testing.{item.obj.__qualname__}"
 
         # Example: customize your documentation URL here
-        doc_url = f"https://https://docs.metatensor.org/metatrain/latest/dev-docs/utils/testing.html#{import_path}"
+        doc_url = f"https://docs.metatensor.org/metatrain/latest/dev-docs/utils/testing.html#{import_path}"
 
         longrepr = report.longrepr
 
