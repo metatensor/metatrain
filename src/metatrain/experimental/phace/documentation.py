@@ -1,3 +1,32 @@
+"""
+PhACE
+=====
+
+PhACE is a cleaner, more user-friendly reimplementation of the original
+PET model :footcite:p:`pozdnyakov_smooth_2023`. It is designed for better
+modularity and maintainability, while preseving compatibility with the original
+PET implementation in ``metatrain``. It also adds new features like long-range
+features, better fine-tuning implementation, a possibility to train on
+arbitrarty targets, and a faster inference due to the ``fast attention``.
+
+{{SECTION_INSTALLATION}}
+
+{{SECTION_DEFAULT_HYPERS}}
+
+Tuning hyperparameters
+----------------------
+
+The default hyperparameters above will work well in most cases, but they
+may not be optimal for your specific dataset. There is good number of
+parameters to tune, both for the
+:ref:`model <architecture-{{architecture}}_model_hypers>` and the
+:ref:`trainer <architecture-{{architecture}}_trainer_hypers>`. Since seeing them
+for the first time might be overwhelming, here we provide a **list of the
+parameters that are in general the most important** (in decreasing order
+of importance):
+
+"""
+
 from typing import Literal, Optional
 
 from typing_extensions import TypedDict

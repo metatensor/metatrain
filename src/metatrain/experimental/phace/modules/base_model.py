@@ -320,7 +320,7 @@ class BaseModel(torch.nn.Module):
                 {
                     str(L): Linear(
                         self.k_max_l[0],
-                        len(target_info.layout.block({"o3_lambds": L}).properties),
+                        len(target_info.layout.block({"o3_lambda": L}).properties),
                     )
                     for L in irreps
                 }
