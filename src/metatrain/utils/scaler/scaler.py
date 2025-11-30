@@ -15,9 +15,8 @@ from metatrain.utils.per_atom import average_by_num_atoms
 
 from ..additive import remove_additive
 from ..data import DatasetInfo, TargetInfo, unpack_batch
-from ..jsonschema import validate
 from ..transfer import batch_to
-from ._base_scaler import BaseScaler
+from ._base_scaler import BaseScaler, FixedScalerWeights
 
 
 class Scaler(torch.nn.Module):
@@ -35,10 +34,11 @@ class Scaler(torch.nn.Module):
         super().__init__()
 
         # `hypers` should be an empty dictionary
-        validate(
-            instance=hypers,
-            schema={"type": "object", "additionalProperties": False},
-        )
+        if not (isinstance(hypers, dict) and len(hypers) == 0):
+            raise ValueError(
+                f"{self.__class__.__name__} hypers takes an empty dictionary"
+                f"Got: {hypers}."
+            )
 
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
@@ -139,7 +139,7 @@ class Scaler(torch.nn.Module):
         additive_models: List[torch.nn.Module],
         batch_size: int,
         is_distributed: bool,
-        fixed_weights: Optional[Dict[str, Union[float, Dict[int, float]]]] = None,
+        fixed_weights: Optional[FixedScalerWeights] = None,
     ) -> None:
         """
         Placeholder docs.
@@ -254,6 +254,7 @@ class Scaler(torch.nn.Module):
         systems: List[System],
         outputs: Dict[str, TensorMap],
         remove: bool = False,
+        selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         """Scales the outputs based on the stored standard deviations.
 
@@ -261,6 +262,7 @@ class Scaler(torch.nn.Module):
         :param outputs: Dictionary containing the output TensorMaps.
         :param remove: If True, removes the scaling (i.e., divides by the scales). If
             False, applies the scaling (i.e., multiplies by the scales).
+        :param selected_atoms: Optional labels for selected atoms.
         :returns: A dictionary with the scaled outputs.
 
         :raises ValueError: If no scales have been computed or if `outputs` keys
@@ -271,7 +273,7 @@ class Scaler(torch.nn.Module):
 
         self.scales_to(device, dtype)
 
-        scaled_outputs = self.model.forward(systems, outputs, remove)
+        scaled_outputs = self.model.forward(systems, outputs, remove, selected_atoms)
 
         return scaled_outputs
 
@@ -283,6 +285,7 @@ class Scaler(torch.nn.Module):
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
+            description=target_info.description,
         )
 
         layout = target_info.layout

@@ -1,11 +1,14 @@
 import numpy as np
-import spherical
 import torch
 from metatomic.torch import System
 from scipy.spatial.transform import Rotation
 
 
 def get_random_rotation() -> Rotation:
+    """Generate a random 3D rotation.
+
+    :return: A scipy.spatial.transform.Rotation object representing the random rotation.
+    """
     return Rotation.random()
 
 
@@ -60,6 +63,8 @@ def calculate_wigner_D(rotation: Rotation, L: int) -> np.ndarray:
     :return: A numpy array of shape (2*L+1, 2*L+1) representing the Wigner D matrix in
         the real spherical harmonics basis.
     """
+    import spherical
+
     # We initialize the Wigner calculator from the quaternionic library...
     wigner = spherical.Wigner(L)
     # ...and we also initialize the transformation matrix from complex to real

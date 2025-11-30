@@ -1,4 +1,5 @@
 import logging
+import typing
 import warnings
 from math import prod
 from typing import Any, Dict, List, Literal, Optional, Tuple
@@ -26,16 +27,17 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
+from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func
 
 
-AVAILABLE_FEATURIZERS = ["feedforward", "residual"]
+AVAILABLE_FEATURIZERS = typing.get_args(ModelHypers.__annotations__["featurizer_type"])
 
 
-class PET(ModelInterface):
+class PET(ModelInterface[ModelHypers]):
     """
     Metatrain-native implementation of the PET architecture.
 
@@ -47,7 +49,7 @@ class PET(ModelInterface):
         targets.
     """
 
-    __checkpoint_version__ = 8
+    __checkpoint_version__ = 9
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -56,7 +58,7 @@ class PET(ModelInterface):
     component_labels: Dict[str, List[List[Labels]]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         # Cache frequently accessed hyperparameters
@@ -139,17 +141,19 @@ class PET(ModelInterface):
         self.edge_last_layers = torch.nn.ModuleDict()
         self.last_layer_feature_size = (
             self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
-        )
+        )  # for LLPR
 
+        # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(unit="", per_atom=True)
-        }  # the model is always capable of outputting the internal features
+            "features": ModelOutput(per_atom=True, description="internal features")
+        }
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
         self.key_labels: Dict[str, Labels] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
+        self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
@@ -509,7 +513,9 @@ class PET(ModelInterface):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(systems, return_dict)
+            return_dict = self.scaler(
+                systems, return_dict, selected_atoms=selected_atoms
+            )
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
                 for name, output in outputs.items():
@@ -1200,6 +1206,7 @@ class PET(ModelInterface):
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
+            description=target_info.description,
         )
 
         self.node_heads[target_name] = torch.nn.ModuleList(
@@ -1258,8 +1265,22 @@ class PET(ModelInterface):
             ]
         )
 
+        # Register last-layer parameters, in the same order as they are returned as
+        # last-layer features in the model
+        self.last_layer_parameter_names[target_name] = []
+        for layer_index in range(self.num_readout_layers):
+            for key in self.output_shapes[target_name].keys():
+                self.last_layer_parameter_names[target_name].append(
+                    f"node_last_layers.{target_name}.{layer_index}.{key}.weight"
+                )
+                self.last_layer_parameter_names[target_name].append(
+                    f"edge_last_layers.{target_name}.{layer_index}.{key}.weight"
+                )
+
         ll_features_name = get_last_layer_features_name(target_name)
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+        self.outputs[ll_features_name] = ModelOutput(
+            per_atom=True, description=f"last layer features for {target_name}"
+        )
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [
             block.components for block in target_info.layout.blocks()

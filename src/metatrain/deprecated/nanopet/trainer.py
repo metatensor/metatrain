@@ -1,7 +1,7 @@
 import copy
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Union
+from typing import Any, Dict, List, Literal, Union, cast
 
 import torch
 import torch.distributed
@@ -25,7 +25,7 @@ from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import LossAggregator
+from metatrain.utils.loss import LossAggregator, LossSpecification
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -36,19 +36,20 @@ from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
+from .documentation import TrainerHypers
 from .model import NanoPET
 
 
-class Trainer(TrainerInterface):
+class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 6
 
-    def __init__(self, hypers):
+    def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)
 
         self.optimizer_state_dict = None
         self.scheduler_state_dict = None
-        self.epoch = None
-        self.best_metric = None
+        self.epoch: int | None = None
+        self.best_metric: float | None = None
         self.best_model_state_dict = None
         self.best_optimizer_state_dict = None
 
@@ -252,7 +253,7 @@ class Trainer(TrainerInterface):
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
         # Create a loss function:
-        loss_hypers = self.hypers["loss"]
+        loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
         loss_fn = LossAggregator(
             targets=train_targets,
             config=loss_hypers,
@@ -532,7 +533,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: TrainerHypers,
         context: Literal["restart", "finetune"],  # not used at the moment
     ) -> "Trainer":
         epoch = checkpoint["epoch"]
