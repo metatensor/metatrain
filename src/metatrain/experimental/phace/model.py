@@ -45,8 +45,6 @@ class PhACE(ModelInterface[ModelHypers]):
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
-        self.hypers = hypers
-        self.dataset_info = dataset_info
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = sorted(dataset_info.atomic_types)
 

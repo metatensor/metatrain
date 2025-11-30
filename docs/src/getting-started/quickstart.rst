@@ -8,6 +8,6 @@ Quickstart
    :start-after: <!-- marker-quickstart -->
    :end-before: <!-- marker-shell -->
 
-For a more detailed description please checkout
+For a more detailed description please check out
 our :ref:`label_basic_usage` and the rest of the
 documentation.
