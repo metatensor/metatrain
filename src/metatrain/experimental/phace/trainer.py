@@ -1,18 +1,16 @@
+import contextlib
 import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
-from .utils import systems_to_list
-from .utils import InversionAugmenter
-from torch.fx.experimental.proxy_tensor import make_fx
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
 import torch.distributed
+from metatomic.torch import ModelOutput
+from torch.fx.experimental.proxy_tensor import make_fx
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
-from metatomic.torch import ModelOutput
-import contextlib
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
@@ -28,10 +26,9 @@ from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
 from metatrain.utils.distributed.slurm import DistributedEnvironment
-from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import LossAggregator
+from metatrain.utils.loss import LossAggregator, LossSpecification
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -44,6 +41,7 @@ from metatrain.utils.transfer import batch_to
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import PhACE
+from .utils import InversionAugmenter, systems_to_list
 
 
 def _get_requested_outputs(targets, target_info_dict):
@@ -53,9 +51,10 @@ def _get_requested_outputs(targets, target_info_dict):
             quantity=target_info_dict[name].quantity,
             unit=target_info_dict[name].unit,
             per_atom=target_info_dict[name].per_atom,
-            explicit_gradients=[g for g in target.block(0).gradients_list()]
+            explicit_gradients=[g for g in target.block(0).gradients_list()],
         )
     return requested_outputs
+
 
 @contextlib.contextmanager
 def _disable_fx_duck_shape():
@@ -66,10 +65,8 @@ def _disable_fx_duck_shape():
     finally:
         torch.fx.experimental._config.use_duck_shape = init_duck_shape
 
-def compile_model(
-        model: PhACE,
-        loader: torch.utils.data.DataLoader
-    ):
+
+def compile_model(model: PhACE, loader: torch.utils.data.DataLoader):
     parameter_tensor = next(iter(model.parameters()))
     dtype = parameter_tensor.dtype
     device = parameter_tensor.device
@@ -87,7 +84,13 @@ def compile_model(
             _error_on_data_dependent_ops=True,
         )(
             data,
-            [n for n, o in _get_requested_outputs(targets, model.dataset_info.targets).items() if len(o.explicit_gradients) > 0]
+            [
+                n
+                for n, o in _get_requested_outputs(
+                    targets, model.dataset_info.targets
+                ).items()
+                if len(o.explicit_gradients) > 0
+            ],
         )
     compiled_module = torch.compile(
         fx_model,
@@ -97,8 +100,9 @@ def compile_model(
     )
     model.module = compiled_module
 
+
 def get_scheduler(
-    optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
+    optimizer: torch.optim.Optimizer, train_hypers: TrainerHypers, steps_per_epoch: int
 ) -> LambdaLR:
     """
     Get a CosineAnnealing learning-rate scheduler with warmup
@@ -131,7 +135,7 @@ def get_scheduler(
 class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 6
 
-    def __init__(self, hypers: Dict[str, Any]):
+    def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
 
         self.optimizer_state_dict: Optional[Dict[str, Any]] = None
@@ -341,9 +345,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             compile_model(model, train_dataloader)
 
         if is_distributed:
-            model = DistributedDataParallel(
-                model, device_ids=[device]
-            )
+            model = DistributedDataParallel(model, device_ids=[device])
 
         # Extract all the possible outputs and their gradients:
         train_targets = (model.module if is_distributed else model).dataset_info.targets
@@ -355,6 +357,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Create a loss function:
         loss_hypers = self.hypers["loss"]
+        loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
         loss_fn = LossAggregator(
             targets=train_targets,
             config=loss_hypers,
@@ -417,11 +420,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             train_loss = 0.0
 
-
-
-
-
-
             # from torch.profiler import profile
             # counter = 0
             # with profile() as prof:
@@ -434,7 +432,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     systems, targets, extra_data, dtype=dtype, device=device
                 )
 
-                predictions = model(systems, _get_requested_outputs(targets, dataset_info.targets))
+                predictions = model(
+                    systems, _get_requested_outputs(targets, dataset_info.targets)
+                )
 
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
@@ -474,8 +474,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # if counter == 4:
                 #     break
 
-
-
             # prof.export_chrome_trace("trace.json")
             # exit()
 
@@ -501,13 +499,17 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         systems, targets, extra_data, dtype=dtype, device=device
                     )
 
-                    predictions = model(systems, _get_requested_outputs(targets, dataset_info.targets))
+                    predictions = model(
+                        systems, _get_requested_outputs(targets, dataset_info.targets)
+                    )
 
                     # average by the number of atoms
                     predictions = average_by_num_atoms(
                         predictions, systems, per_structure_targets
                     )
-                    targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                    targets = average_by_num_atoms(
+                        targets, systems, per_structure_targets
+                    )
 
                     val_loss_batch = loss_fn(predictions, targets, extra_data)
 
@@ -515,9 +517,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         # sum the loss over all processes
                         torch.distributed.all_reduce(val_loss_batch)
                     val_loss += val_loss_batch.item()
-                    scaled_predictions = (model.module if is_distributed else model).scaler(
-                        systems, predictions
-                    )
+                    scaled_predictions = (
+                        model.module if is_distributed else model
+                    ).scaler(systems, predictions)
                     scaled_targets = (model.module if is_distributed else model).scaler(
                         systems, targets
                     )
@@ -537,7 +539,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 if self.hypers["log_mae"]:
                     finalized_val_info.update(
                         val_mae_calculator.finalize(
-                            not_per_atom=["positions_gradients"] + per_structure_targets,
+                            not_per_atom=["positions_gradients"]
+                            + per_structure_targets,
                             is_distributed=is_distributed,
                             device=device,
                         )
@@ -570,9 +573,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             if val_metric < self.best_metric:
                 self.best_metric = val_metric
                 self.best_model_state_dict = copy.deepcopy(
-                    (
-                        model.module if is_distributed else model
-                    ).state_dict()
+                    (model.module if is_distributed else model).state_dict()
                 )
                 self.best_epoch = epoch
                 self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
@@ -583,16 +584,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 self.optimizer_state_dict = optimizer.state_dict()
                 self.scheduler_state_dict = lr_scheduler.state_dict()
                 self.epoch = epoch
-                # if rank == 0:
-                #     model.load_state_dict(
-                #         (
-                #             model.module._orig_mod if is_distributed else model._orig_mod
-                #         ).state_dict()
-                #     )
-                #     self.save_checkpoint(
-                #         model,
-                #         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
-                #     )
+                if rank == 0:
+                    model.load_state_dict(
+                        (model if is_distributed else model.module).state_dict()
+                    )
+                    self.save_checkpoint(
+                        model,
+                        Path(checkpoint_dir) / f"model_{epoch}.ckpt",
+                    )
 
         # prepare for the checkpoint that will be saved outside the function
         self.epoch = epoch
@@ -626,7 +625,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: TrainerHypers,
         context: Literal["restart", "finetune"],  # not used at the moment
     ) -> "Trainer":
         trainer = cls(hypers)

@@ -1,11 +1,12 @@
 from typing import List
+
 import torch
 
 
 def split_up_features(features: List[torch.Tensor], k_max_l: List[int]):
     l_max = len(k_max_l) - 1
     split_features: List[List[torch.Tensor]] = []
-    for l in range(l_max, -1, -1):
+    for l in range(l_max, -1, -1):  # noqa: E741
         lower_bound = k_max_l[l + 1] if l < l_max else 0
         upper_bound = k_max_l[l]
         split_features = [
@@ -69,7 +70,7 @@ def couple_features(
 ):
     # features is [..., padded_l_max+1, padded_l_max+1, n_features]
     # U is dense and [(padded_l_max+1)**2, (padded_l_max+1)**2]
-    split_sizes = [2 * l + 1 for l in range(padded_l_max + 1)]
+    split_sizes = [2 * l + 1 for l in range(padded_l_max + 1)]  # noqa: E741
 
     features = features.reshape(
         features.shape[0],
@@ -89,9 +90,11 @@ def couple_features(
         features.shape[-1],
     )
     stacked_features = features.swapaxes(0, 1)
-    features_coupled = [t.contiguous() for t in torch.split(stacked_features, split_sizes, dim=1)]
+    features_coupled = [
+        t.contiguous() for t in torch.split(stacked_features, split_sizes, dim=1)
+    ]
 
     coupled_features = []
-    for l in range(padded_l_max + 1):
+    for l in range(padded_l_max + 1):  # noqa: E741
         coupled_features.append(features_coupled[l])
     return coupled_features

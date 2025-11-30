@@ -5,10 +5,9 @@ import torch
 from .layers import LinearList as Linear
 from .radial_mlp import MLPRadialBasis
 from .tensor_product import (
-    tensor_product,
-    couple_features,
-    uncouple_features,
     split_up_features,
+    tensor_product,
+    uncouple_features,
 )
 
 
@@ -56,9 +55,7 @@ class InvariantMessagePasser(torch.nn.Module):
                 index=centers,
                 source=spherical_harmonics_l.unsqueeze(2)
                 * radial_basis_l.unsqueeze(1)
-                * initial_center_embedding[neighbors][
-                    :, :, : radial_basis_l.shape[1]
-                ],
+                * initial_center_embedding[neighbors][:, :, : radial_basis_l.shape[1]],
             )
             density.append(density_l * self.mp_scaling)
 
@@ -66,7 +63,7 @@ class InvariantMessagePasser(torch.nn.Module):
 
         if not self.disable_nu_0:
             density[0] = density[0] + initial_center_embedding
-        
+
         return density
 
 
@@ -86,7 +83,7 @@ class EquivariantMessagePasser(torch.nn.Module):
         self.l_max = len(self.n_max_l) - 1
 
         self.mp_scaling = mp_scaling
-        self.padded_l_list = [2 * ((l + 1) // 2) for l in range(self.l_max + 1)]
+        self.padded_l_list = [2 * ((l + 1) // 2) for l in range(self.l_max + 1)]  # noqa: E741
 
         self.linear = Linear(self.k_max_l, spherical_linear_layers)
 
@@ -109,7 +106,7 @@ class EquivariantMessagePasser(torch.nn.Module):
 
         split_vector_expansion = split_up_features(vector_expansion, self.k_max_l)
         uncoupled_vector_expansion = []
-        for l in range(self.l_max + 1):
+        for l in range(self.l_max + 1):  # noqa: E741
             uncoupled_vector_expansion.append(
                 uncouple_features(
                     split_vector_expansion[l],
@@ -124,9 +121,7 @@ class EquivariantMessagePasser(torch.nn.Module):
         for feature in features:
             indexed_features.append(feature[neighbors])
 
-        combined_features = tensor_product(
-            uncoupled_vector_expansion, indexed_features
-        )
+        combined_features = tensor_product(uncoupled_vector_expansion, indexed_features)
 
         combined_features_pooled = []
         for f in combined_features:

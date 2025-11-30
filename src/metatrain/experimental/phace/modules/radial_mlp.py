@@ -1,8 +1,8 @@
+from typing import List
 
 import torch
 
 from .layers import Linear
-from typing import List
 
 
 class MLPRadialBasis(torch.nn.Module):
@@ -35,7 +35,6 @@ class MLPRadialBasis(torch.nn.Module):
         )
 
     def forward(self, radial_basis: List[torch.Tensor]) -> List[torch.Tensor]:
-
         radial_basis_after_mlp = []
         for l_string, radial_mlp_l in self.radial_mlps.items():
             l = int(l_string)  # noqa: E741

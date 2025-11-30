@@ -1,14 +1,10 @@
-from typing import Dict, List
-
-import torch
-from metatomic.torch import NeighborListOptions, System
 import random
 from typing import Dict, List, Optional, Tuple
 
 import metatensor.torch as mts
 import torch
 from metatensor.torch import TensorBlock, TensorMap
-from metatomic.torch import System, register_autograd_neighbors
+from metatomic.torch import NeighborListOptions, System, register_autograd_neighbors
 
 from metatrain.utils import torch_jit_script_unless_coverage
 from metatrain.utils.data import TargetInfo
@@ -26,7 +22,7 @@ def systems_to_list(
         systems_as_list.append(
             [system.positions, system.types, system.cell, edge_indices, cell_shifts]
         )
-    return systems_as_list 
+    return systems_as_list
 
 
 def systems_to_batch(systems: List[List[torch.Tensor]]) -> Dict[str, torch.Tensor]:
@@ -114,7 +110,7 @@ class InversionAugmenter:
             if target_info.is_cartesian:
                 if len(target_info.layout.block(0).components) > 2:
                     raise ValueError(
-                        "RotationalAugmenter only supports Cartesian targets "
+                        "InversionAugmenter only supports Cartesian targets "
                         "with `rank<=2`."
                     )
 
@@ -122,49 +118,6 @@ class InversionAugmenter:
         if extra_data_info_dict is None:
             extra_data_info_dict = {}
         self.extra_data_info_dict = extra_data_info_dict
-
-        self.wigner = None
-        self.complex_to_real_spherical_harmonics_transforms = {}
-        is_any_target_spherical = any(
-            target_info.is_spherical for target_info in target_info_dict.values()
-        )
-        is_any_extra_data_spherical = any(
-            extra_data_info.is_spherical
-            for extra_data_info in extra_data_info_dict.values()
-        )
-        if is_any_target_spherical or is_any_extra_data_spherical:
-            try:
-                import spherical
-            except ImportError as e:
-                # quaternionic (used below) is a dependency of spherical
-                raise ImportError(
-                    "To perform data augmentation on spherical targets, please "
-                    "install the `spherical` package with `pip install spherical`."
-                ) from e
-
-            largest_l_targets = -1
-            largest_l_extra_data = -1
-            if is_any_target_spherical:
-                largest_l_targets = max(
-                    (len(block.components[0]) - 1) // 2
-                    for target_info in target_info_dict.values()
-                    if target_info.is_spherical
-                    for block in target_info.layout.blocks()
-                )
-            if is_any_extra_data_spherical:
-                largest_l_extra_data = max(
-                    (len(block.components[0]) - 1) // 2
-                    for extra_data_info in extra_data_info_dict.values()
-                    if extra_data_info.is_spherical
-                    for block in extra_data_info.layout.blocks()
-                )
-            largest_l = max(largest_l_targets, largest_l_extra_data)
-
-            self.wigner = spherical.Wigner(largest_l)
-            for ell in range(largest_l + 1):
-                self.complex_to_real_spherical_harmonics_transforms[ell] = (
-                    _complex_to_real_spherical_harmonics_transform(ell)
-                )
 
     def apply_random_augmentations(
         self,
@@ -217,14 +170,9 @@ class InversionAugmenter:
         """
         self._validate(systems, inversions)
 
-        return _apply_augmentations(
-            systems, targets, inversions, extra_data=extra_data
-        )
+        return _apply_augmentations(systems, targets, inversions, extra_data=extra_data)
 
-    def _validate(
-        self, systems: List[System], inversions: List[int]
-    ) -> None:
-
+    def _validate(self, systems: List[System], inversions: List[int]) -> None:
         if len(inversions) != len(systems):
             raise ValueError(
                 "The number of inversions must match the number of systems."
@@ -250,10 +198,8 @@ def _apply_inversions_to_spherical_tensor_map(
             split_values = torch.split(values, [1 for _ in systems])
         new_values = []
         ell = (len(block.components[0]) - 1) // 2
-        for v, i in zip(
-            split_values, inversions, strict=True
-        ):
-            is_inverted = (i == -1)
+        for v, i in zip(split_values, inversions, strict=True):
+            is_inverted = i == -1
             new_v = v.clone()
             if is_inverted:  # inversion
                 new_v = new_v * (-1) ** ell * sigma
@@ -329,9 +275,7 @@ def _apply_augmentations(
         for options in system.known_neighbor_lists():
             neighbors = mts.detach_block(system.get_neighbor_list(options))
 
-            neighbors.values[:] = (
-                neighbors.values.squeeze(-1) * i
-            ).unsqueeze(-1)
+            neighbors.values[:] = (neighbors.values.squeeze(-1) * i).unsqueeze(-1)
 
             register_autograd_neighbors(system, neighbors)
             new_system.add_neighbor_list(options, neighbors)
@@ -441,9 +385,7 @@ def _apply_augmentations(
                     else:
                         split_vectors = torch.split(vectors, [1 for _ in systems])
                     new_vectors = []
-                    for v, i in zip(
-                        split_vectors, inversions, strict=True
-                    ):
+                    for v, i in zip(split_vectors, inversions, strict=True):
                         new_v = v * i
                         new_vectors.append(new_v)
                     new_vectors = torch.cat(new_vectors)

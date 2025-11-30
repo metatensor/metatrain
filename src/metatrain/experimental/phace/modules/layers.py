@@ -1,6 +1,8 @@
-import torch
 from typing import List
-from .tensor_product import couple_features, uncouple_features, split_up_features
+
+import torch
+
+from .tensor_product import couple_features, split_up_features, uncouple_features
 
 
 class Linear(torch.nn.Module):
@@ -20,13 +22,15 @@ class LinearList(torch.nn.Module):
         self.spherical_linear_layers = spherical_linear_layers
         self.k_max_l = k_max_l
         self.l_max = len(k_max_l) - 1
-        self.padded_l_list = [2 * ((l + 1) // 2) for l in range(self.l_max + 1)]
+        self.padded_l_list = [2 * ((l + 1) // 2) for l in range(self.l_max + 1)]  # noqa: E741
         if spherical_linear_layers:
-            self.linears = torch.nn.ModuleList([Linear(k_max, k_max) for k_max in k_max_l])
+            self.linears = torch.nn.ModuleList(
+                [Linear(k_max, k_max) for k_max in k_max_l]
+            )
         else:
             l_max = len(k_max_l) - 1
             self.linears = []
-            for l in range(l_max, -1, -1):
+            for l in range(l_max, -1, -1):  # noqa: E741
                 lower_bound = k_max_l[l + 1] if l < l_max else 0
                 upper_bound = k_max_l[l]
                 dimension = upper_bound - lower_bound
@@ -34,10 +38,9 @@ class LinearList(torch.nn.Module):
             self.linears = torch.nn.ModuleList(self.linears[::-1])
 
     def forward(self, features_list: List[torch.Tensor], U_dict) -> List[torch.Tensor]:
-
         if self.spherical_linear_layers:
             coupled_features: List[List[torch.Tensor]] = []
-            for l in range(self.l_max + 1):
+            for l in range(self.l_max + 1):  # noqa: E741
                 coupled_features.append(
                     couple_features(
                         features_list[l],
@@ -46,10 +49,11 @@ class LinearList(torch.nn.Module):
                     )
                 )
             features_list = []
-            for l in range(self.l_max + 1):
+            for l in range(self.l_max + 1):  # noqa: E741
                 features_list.append(
                     torch.concatenate(
-                        [coupled_features[lp][l] for lp in range(l, self.l_max + 1)], dim=-1
+                        [coupled_features[lp][l] for lp in range(l, self.l_max + 1)],
+                        dim=-1,
                     )
                 )
 
@@ -61,8 +65,7 @@ class LinearList(torch.nn.Module):
 
         if self.spherical_linear_layers:
             split_features = split_up_features(new_features_list, self.k_max_l)
-            new_features_list: List[torch.Tensor] = []
-            for l in range(self.l_max + 1):
+            for l in range(self.l_max + 1):  # noqa: E741
                 new_features_list.append(
                     uncouple_features(
                         split_features[l],

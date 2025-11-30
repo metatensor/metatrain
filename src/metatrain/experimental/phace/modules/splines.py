@@ -112,16 +112,16 @@ class DynamicSpliner(torch.nn.Module):
             new_derivatives = derivatives_fn(intermediate_positions)
 
             concatenated_positions = torch.cat(
-                [self.spline_positions, intermediate_positions],
-                dim=0,  # type: ignore
+                [self.spline_positions, intermediate_positions],  # type: ignore
+                dim=0,
             )
             concatenated_values = torch.cat(
-                [self.spline_values, new_values],
-                dim=0,  # type: ignore
+                [self.spline_values, new_values],  # type: ignore
+                dim=0,
             )
             concatenated_derivatives = torch.cat(
-                [self.spline_derivatives, new_derivatives],
-                dim=0,  # type: ignore
+                [self.spline_derivatives, new_derivatives],  # type: ignore
+                dim=0,
             )
 
             sort_indices = torch.argsort(concatenated_positions, dim=0)

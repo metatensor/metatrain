@@ -6,9 +6,9 @@ from math import factorial
 
 import numpy as np
 import torch
+from ase.data import covalent_radii
 
 from .physical_basis import get_physical_basis_spliner
-from ase.data import covalent_radii
 
 
 class SphericalHarmonicsNoSphericart(torch.nn.Module):
@@ -97,7 +97,16 @@ class SphericalHarmonicsSphericart(torch.nn.Module):
 
 
 class Precomputer(torch.nn.Module):
-    def __init__(self, max_eigenvalue, cutoff, cutoff_width, scale, optimizable_lengthscales, all_species, use_sphericart):
+    def __init__(
+        self,
+        max_eigenvalue,
+        cutoff,
+        cutoff_width,
+        scale,
+        optimizable_lengthscales,
+        all_species,
+        use_sphericart,
+    ):
         super().__init__()
 
         self.n_max_l, self.spliner = get_physical_basis_spliner(
@@ -161,7 +170,9 @@ class Precomputer(torch.nn.Module):
         )  # Split them into l chunks
 
         x = r / (
-            0.1 + torch.exp(self.lengthscales[center_species]) + torch.exp(self.lengthscales[neighbor_species])
+            0.1
+            + torch.exp(self.lengthscales[center_species])
+            + torch.exp(self.lengthscales[neighbor_species])
         )
 
         capped_x = torch.where(x < 10.0, x, 5.0)

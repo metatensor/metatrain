@@ -8,12 +8,7 @@ from .tensor_product import tensor_product
 
 class CGIterator(torch.nn.Module):
     # A high-level CG iterator, doing multiple iterations
-    def __init__(
-        self,
-        k_max_l,
-        number_of_iterations,
-        spherical_linear_layers
-    ):
+    def __init__(self, k_max_l, number_of_iterations, spherical_linear_layers):
         super().__init__()
         self.number_of_iterations = number_of_iterations
 
@@ -37,7 +32,9 @@ class CGIterator(torch.nn.Module):
         density_index = 1
         current_density = starting_density
         for iterator in self.cg_iterations:
-            current_density = iterator(current_density, mixed_densities[density_index], U_dict)
+            current_density = iterator(
+                current_density, mixed_densities[density_index], U_dict
+            )
             density_index += 1
 
         return current_density
@@ -48,11 +45,7 @@ class CGIteration(torch.nn.Module):
     # - tensor product
     # - linear transformation
     # - skip connection
-    def __init__(
-        self,
-        k_max_l,
-        spherical_linear_layers
-    ):
+    def __init__(self, k_max_l, spherical_linear_layers):
         super().__init__()
         self.linear = Linear(k_max_l, spherical_linear_layers)
 

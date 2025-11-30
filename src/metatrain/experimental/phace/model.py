@@ -15,16 +15,15 @@ from metatomic.torch import (
     System,
 )
 
+from metatrain.experimental.phace.documentation import ModelHypers
+from metatrain.experimental.phace.modules.base_model import GradientModel
+from metatrain.experimental.phace.utils import systems_to_list
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
-
-from metatrain.experimental.phace.documentation import ModelHypers
-from metatrain.experimental.phace.modules.base_model import GradientModel
-from metatrain.experimental.phace.utils import systems_to_list
 
 
 warnings.filterwarnings(
@@ -43,7 +42,7 @@ class PhACE(ModelInterface[ModelHypers]):
     component_labels: Dict[str, List[List[Labels]]]
     U_dict: Dict[int, torch.Tensor]
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.hypers = hypers
@@ -95,7 +94,20 @@ class PhACE(ModelInterface[ModelHypers]):
         )
         additive_models = [composition_model]
         if self.hypers["zbl"]:
-            additive_models.append(ZBL(hypers, dataset_info))
+            additive_models.append(
+                ZBL(
+                    {},
+                    dataset_info=DatasetInfo(
+                        length_unit=dataset_info.length_unit,
+                        atomic_types=self.atomic_types,
+                        targets={
+                            target_name: target_info
+                            for target_name, target_info in dataset_info.targets.items()
+                            if ZBL.is_valid_target(target_name, target_info)
+                        },
+                    ),
+                )
+            )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
@@ -182,7 +194,9 @@ class PhACE(ModelInterface[ModelHypers]):
                 torch.arange(len(system.positions), device=device, dtype=torch.int32)
             )
             structures_centers_list.append(
-                torch.tensor([i] * len(system.positions), device=device, dtype=torch.int32)
+                torch.tensor(
+                    [i] * len(system.positions), device=device, dtype=torch.int32
+                )
             )
         centers = torch.cat(centers_list, dim=0)
         structure_centers = torch.cat(structures_centers_list, dim=0)
@@ -194,7 +208,10 @@ class PhACE(ModelInterface[ModelHypers]):
 
         neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
         structures_as_list = systems_to_list(systems, neighbor_list_options)
-        predictions = self.module(structures_as_list, [n for n, o in outputs.items() if len(o.explicit_gradients) > 0])
+        predictions = self.module(
+            structures_as_list,
+            [n for n, o in outputs.items() if len(o.explicit_gradients) > 0],
+        )
 
         return_dict: Dict[str, TensorMap] = {}
 
@@ -211,8 +228,10 @@ class PhACE(ModelInterface[ModelHypers]):
                         components=[],
                         properties=Labels(
                             names=["features"],
-                            values=torch.arange(features_tensor.shape[-1]).unsqueeze(-1),
-                        )
+                            values=torch.arange(features_tensor.shape[-1]).unsqueeze(
+                                -1
+                            ),
+                        ),
                     )
                 ],
             )
@@ -240,27 +259,33 @@ class PhACE(ModelInterface[ModelHypers]):
             # the corresponding output could be base_name or mtt::base_name
             if f"mtt::{base_name}" in self.outputs:
                 base_name = f"mtt::{base_name}"
-            
+
             last_layer_features_as_dict_of_tensors = predictions[f"{base_name}__llf"]
             return_dict[output_name] = TensorMap(
                 keys=Labels(
                     names=["o3_lambda"],
-                    values=torch.arange(self.l_max+1, device=features[0].device).unsqueeze(-1),
+                    values=torch.arange(
+                        self.l_max + 1, device=features[0].device
+                    ).unsqueeze(-1),
                 ),
                 blocks=[
                     TensorBlock(
                         values=t,
                         samples=samples,
-                        components=[Labels(
-                            names=["o3_mu"],
-                            values=torch.tensor(range(-l, l), device=features.device).unsqueeze(-1),
-                        )],
+                        components=[
+                            Labels(
+                                names=["o3_mu"],
+                                values=torch.tensor(
+                                    range(-l, l), device=features.device
+                                ).unsqueeze(-1),
+                            )
+                        ],
                         properties=Labels(
                             names=["features"],
                             values=torch.arange(features[l].shape[-1]).unsqueeze(-1),
-                        )
+                        ),
                     )
-                    for l, t in last_layer_features_as_dict_of_tensors.items()
+                    for l, t in last_layer_features_as_dict_of_tensors.items()  # noqa: E741
                 ],
             )
             if selected_atoms is not None:
@@ -282,14 +307,19 @@ class PhACE(ModelInterface[ModelHypers]):
                 blocks=[
                     TensorBlock(
                         values=(
-                            output_as_tensor_dict[(len(c[0])-1)//2] if len(c) > 0
+                            output_as_tensor_dict[(len(c[0]) - 1) // 2]
+                            if len(c) > 0
                             else output_as_tensor_dict[0].squeeze(1)
                         ),
                         samples=samples,
                         components=c,
                         properties=p,
                     )
-                    for c, p in zip(self.component_labels[output_name], self.property_labels[output_name], strict=True) 
+                    for c, p in zip(
+                        self.component_labels[output_name],
+                        self.property_labels[output_name],
+                        strict=True,
+                    )
                 ],
             )
             if selected_atoms is not None:
@@ -321,7 +351,10 @@ class PhACE(ModelInterface[ModelHypers]):
                                     ]
                                 ),
                                 torch.concatenate(
-                                    [torch.arange(len(system), device=device) for system in systems]
+                                    [
+                                        torch.arange(len(system), device=device)
+                                        for system in systems
+                                    ]
                                 ),
                             ],
                             dim=1,
@@ -341,8 +374,10 @@ class PhACE(ModelInterface[ModelHypers]):
                             values=gradient_tensor.unsqueeze(-1),
                             samples=samples.to(gradient_tensor.device),
                             components=components,
-                            properties=Labels("energy", torch.tensor([[0]], device=device)),
-                        )
+                            properties=Labels(
+                                "energy", torch.tensor([[0]], device=device)
+                            ),
+                        ),
                     )
                     return_dict[output_name] = TensorMap(
                         return_dict[output_name].keys,
@@ -379,14 +414,15 @@ class PhACE(ModelInterface[ModelHypers]):
                             values=gradient_tensor.unsqueeze(-1),
                             samples=samples.to(gradient_tensor.device),
                             components=components,
-                            properties=Labels("energy", torch.tensor([[0]], device=device)),
-                        )
+                            properties=Labels(
+                                "energy", torch.tensor([[0]], device=device)
+                            ),
+                        ),
                     )
                     return_dict[output_name] = TensorMap(
                         return_dict[output_name].keys,
                         [block],
                     )
-
 
         # TODO: conversion for L=1 cartesian
 
@@ -432,11 +468,6 @@ class PhACE(ModelInterface[ModelHypers]):
 
         return return_dict
 
-    def requested_neighbor_lists(
-        self,
-    ) -> List[NeighborListOptions]:
-        return [self.requested_nl]
-
     @classmethod
     def load_checkpoint(
         cls,
@@ -470,19 +501,21 @@ class PhACE(ModelInterface[ModelHypers]):
 
         return model
 
-    def export(self) -> AtomisticModel:
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {self.dtype} for PhACE")
+            raise ValueError(f"unsupported dtype {dtype} for PET")
 
         # Make sure the model is all in the same dtype
         # For example, after training, the additive models could still be in
         # float64
         self.to(dtype)
 
-        interaction_ranges = [
-            self.hypers["cutoff"] * self.hypers["num_message_passing_layers"]
-        ]
+        # Additionally, the composition model contains some `TensorMap`s that cannot
+        # be registered correctly with Pytorch. This function moves them:
+        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
+
+        interaction_ranges = [self.num_gnn_layers * self.cutoff]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)
@@ -497,14 +530,22 @@ class PhACE(ModelInterface[ModelHypers]):
             dtype=dtype_to_str(dtype),
         )
 
-        return AtomisticModel(self.eval(), ModelMetadata(), capabilities)
+        metadata = merge_metadata(self.metadata, metadata)
+
+        return AtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
-            explicit_gradients=(["positions", "strain"] if target_info.quantity == "energy" and target_info.is_scalar and target_info.per_atom == False else [])
+            explicit_gradients=(
+                ["positions", "strain"]
+                if target_info.quantity == "energy"
+                and target_info.is_scalar
+                and not target_info.per_atom
+                else []
+            ),
         )
 
         self.key_labels[target_name] = target_info.layout.keys
@@ -544,4 +585,7 @@ class PhACE(ModelInterface[ModelHypers]):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        return ValueError()
+        raise ValueError(
+            "Checkpoint upgrade not implemented for PhACE model. "
+            "Please retrain the model from scratch."
+        )
