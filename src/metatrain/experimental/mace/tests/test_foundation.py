@@ -38,6 +38,7 @@ class TestFoundation(MACETests):
 
         model_hypers["mace_model"] = mace_model_path
         model_hypers["mace_model_remove_scale_shift"] = False
+        model_hypers["mace_model_remove_atomic_baseline"] = False
 
         model = self.model_cls(model_hypers, dataset_info)
 
