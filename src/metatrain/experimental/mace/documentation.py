@@ -178,7 +178,7 @@ class ModelHypers(TypedDict):
     r"""Highest \ell of spherical harmonics used in the interactions.
 
     Note that this is not the maximum \ell in ``hidden_irreps``, since
-    hidden_irreps can contain \ell values as high as ``max_ell``*``correlation``.
+    hidden_irreps can contain \ell values as high as ``max_ell*correlation``.
     """
     interaction: Literal[
         "RealAgnosticResidualInteractionBlock",
