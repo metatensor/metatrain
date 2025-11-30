@@ -55,10 +55,12 @@ class TestAutograd(AutogradTests, SoapBPNNTests):
 class TestTorchscript(TorchscriptTests, SoapBPNNTests):
     float_hypers = ["soap.cutoff.radius", "soap.cutoff.width"]
 
-    def test_torchscript_with_identity(self, model_hypers, dataset_info):
+    def test_torchscript_with_identity(self, model_hypers, dataset_info, dtype):
         hypers = copy.deepcopy(model_hypers)
         hypers["bpnn"]["layernorm"] = False
-        self.test_torchscript(model_hypers=hypers, dataset_info=dataset_info)
+        self.test_torchscript(
+            model_hypers=hypers, dataset_info=dataset_info, dtype=dtype
+        )
 
 
 class TestExported(ExportedTests, SoapBPNNTests): ...

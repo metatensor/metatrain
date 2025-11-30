@@ -1,0 +1,26 @@
+class ModelHypers(TypedDict):
+{mace_hypers}
+
+
+class TrainerHypers(TypedDict):
+    # Optimizer hypers (directly using MACE's scripts)
+    optimizer: {mace_param_optimizer}
+    """{mace_help_optimizer}"""
+    learning_rate: {mace_param_lr}  # Named "lr" in MACE
+    """{mace_help_lr}"""
+    weight_decay: {mace_param_weight_decay}
+    """{mace_help_weight_decay}"""
+    amsgrad: {mace_param_amsgrad}
+    """{mace_help_amsgrad}"""
+    beta: {mace_param_beta}
+    """{mace_help_beta}"""
+
+    # Scheduler hypers (directly using MACE's scripts)
+    lr_scheduler: {mace_param_scheduler}  # Named "scheduler" in MACE
+    """{mace_help_scheduler}"""
+    lr_scheduler_gamma: {mace_param_lr_scheduler_gamma}
+    """{mace_help_lr_scheduler_gamma}"""
+    lr_factor: {mace_param_lr_factor}
+    """{mace_help_lr_factor}"""
+    lr_scheduler_patience: {mace_param_scheduler_patience}  # Named "scheduler_patience" in MACE
+    """{mace_help_scheduler_patience}"""
