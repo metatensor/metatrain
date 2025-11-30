@@ -1,0 +1,8 @@
+systems: ethanol_reduced_100.xyz
+
+targets:
+  energy/finetune:
+    key: energy
+    unit: eV
+    forces:
+      key: forces

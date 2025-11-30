@@ -202,5 +202,5 @@ class TrainerHypers(TypedDict):
     }
     """Parameters for fine-tuning trained PET models.
 
-    See :ref:`fine-tuning` for more details.
+    See :ref:`label_fine_tuning_concept` for more details.
     """
