@@ -1055,18 +1055,26 @@ class PET(ModelInterface):
                             key
                         ] + (node_atomic_predictions + edge_atomic_predictions)
 
-                if output_name == "non_conservative_stress":  # TODO: variants
+                if output_name == "non_conservative_stress" or "_sym" in output_name:  # TODO: variants
                     block_key = list(atomic_predictions_by_block.keys())[0]
                     output_shapes_values = list(
                         self.output_shapes[output_name].values()
                     )
                     num_properties = output_shapes_values[0][-1]
-                    symmetrized = process_non_conservative_stress(
-                        atomic_predictions_by_block[block_key],
-                        systems,
-                        system_indices,
-                        num_properties,
-                    )
+                    if output_name == "non_conservative_stress":
+                        symmetrized = process_non_conservative_stress(
+                            atomic_predictions_by_block[block_key],
+                            systems,
+                            system_indices,
+                            num_properties,
+                        )
+                    else:
+                        symmetrized = process_symmetric_rank_2(
+                            atomic_predictions_by_block[block_key],
+                            systems,
+                            system_indices,
+                            num_properties,
+                        )
                     atomic_predictions_by_block[block_key] = symmetrized
 
                 blocks = [
@@ -1456,6 +1464,31 @@ def process_non_conservative_stress(
     volumes[volumes == 0.0] = torch.inf
     volumes_by_atom = volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
     tensor_as_three_by_three = tensor_as_three_by_three / volumes_by_atom
+
+    # Symmetrize
+    tensor_as_three_by_three = (
+        tensor_as_three_by_three + tensor_as_three_by_three.transpose(1, 2)
+    ) / 2.0
+
+    return tensor_as_three_by_three
+
+def process_symmetric_rank_2(
+    tensor: torch.Tensor,
+    systems: List[System],
+    system_indices: torch.Tensor,
+    num_properties: int,
+) -> torch.Tensor:
+    """
+    Symmetrizes rank-2 Cartesian tensors.
+
+    :param tensor: Tensor of shape [n_atoms, 9 * num_properties].
+    :param systems: List of `metatomic.torch.System` objects to process.
+    :param system_indices: Tensor mapping each atom to its system index [n_atoms].
+    :param num_properties: Number of properties in the tensor (e.g., 6 for stress).
+    :return: Symmetrized tensor of shape [n_atoms, 3, 3, num_properties].
+    """
+    # Reshape to 3x3 matrix per atom
+    tensor_as_three_by_three = tensor.reshape(-1, 3, 3, num_properties)
 
     # Symmetrize
     tensor_as_three_by_three = (
