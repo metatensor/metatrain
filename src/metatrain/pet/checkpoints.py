@@ -232,6 +232,21 @@ def model_update_v8_v9(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to update.
     """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            if "finetune_config" in state_dict:
+                if "inherit_heads" not in state_dict["finetune_config"]:
+                    state_dict["finetune_config"]["inherit_heads"] = {}
+                if "method" not in state_dict["finetune_config"]:
+                    state_dict["finetune_config"]["method"] = "full"
+
+
+def model_update_v9_v10(checkpoint: dict) -> None:
+    """
+    Update a v9 checkpoint to v10.
+
+    :param checkpoint: The checkpoint to update.
+    """
     # Adding the max_num_neighbors hyperparameter if not present
     if "max_num_neighbors" not in checkpoint["model_data"]["model_hypers"]:
         checkpoint["model_data"]["model_hypers"]["max_num_neighbors"] = None

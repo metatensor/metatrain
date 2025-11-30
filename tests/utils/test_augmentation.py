@@ -84,8 +84,7 @@ def test_rotation_per_structure_spherical(batch_size):
             for i, sample in enumerate(dataset_unrotated)
             if i < batch_size
         ],
-        "samples",
-        remove_tensor_name=True,
+        axis="samples",
     )
     fRX = mts.join(
         [
@@ -93,8 +92,7 @@ def test_rotation_per_structure_spherical(batch_size):
             for i, sample in enumerate(dataset_rotated)
             if i < batch_size
         ],
-        "samples",
-        remove_tensor_name=True,
+        axis="samples",
     )
 
     # Init the RotationalAugmenter
@@ -166,8 +164,7 @@ def test_rotation_per_atom_spherical(batch_size):
             for i, sample in enumerate(dataset_unrotated)
             if i < batch_size
         ],
-        "samples",
-        remove_tensor_name=True,
+        axis="samples",
     )
     fRX = mts.join(
         [
@@ -175,8 +172,7 @@ def test_rotation_per_atom_spherical(batch_size):
             for i, sample in enumerate(dataset_rotated)
             if i < batch_size
         ],
-        "samples",
-        remove_tensor_name=True,
+        axis="samples",
     )
 
     # Init the RotationalAugmenter
@@ -226,7 +222,7 @@ def test_missing_library(monkeypatch, layout_spherical):
     monkeypatch.setitem(sys.modules, "spherical", None)
 
     target_info_dict = {
-        "foo": TargetInfo(quantity="energy", unit=None, layout=layout_spherical)
+        "foo": TargetInfo(layout=layout_spherical, quantity="energy", unit="")
     }
 
     msg = (

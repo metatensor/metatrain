@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-import featomic
 import featomic.torch
 import metatensor.torch as mts
 import numpy as np
@@ -21,8 +20,10 @@ from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.metadata import merge_metadata
 
+from .documentation import ModelHypers
 
-class GAP(ModelInterface):
+
+class GAP(ModelInterface[ModelHypers]):
     __checkpoint_version__ = 1
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
@@ -38,7 +39,7 @@ class GAP(ModelInterface):
         }
     )
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         if len(dataset_info.targets) > 1:
@@ -71,6 +72,7 @@ class GAP(ModelInterface):
                 quantity=value.quantity,
                 unit=value.unit,
                 per_atom=False,
+                description=value.description,
             )
             for key, value in dataset_info.targets.items()
         }

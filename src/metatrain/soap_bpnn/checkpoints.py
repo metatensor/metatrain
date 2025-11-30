@@ -1,3 +1,5 @@
+import re
+
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -12,6 +14,9 @@ def model_update_v1_v2(checkpoint: dict) -> None:
     """
     Update model checkpoint from version 1 to version 2.
 
+    We moved the ``type_to_index`` mapping inside the composition model instead of
+    the BaseCompositionModel.
+
     :param checkpoint: The checkpoint to update.
     """
     for key in ["model_state_dict", "best_model_state_dict"]:
@@ -25,8 +30,12 @@ def model_update_v2_v3(checkpoint: dict) -> None:
     """
     Update model checkpoint from version 2 to version 3.
 
+    This update makes sure all optional fields are present in the checkpoint, setting
+    them as ``None`` if they were not present before.
+
     :param checkpoint: The checkpoint to update.
     """
+    # explicitly set epoch and best_epoch to `None` if they do not exist
     checkpoint["epoch"] = checkpoint.get("epoch")
     checkpoint["best_epoch"] = checkpoint.get("best_epoch")
 
@@ -38,9 +47,11 @@ def model_update_v3_v4(checkpoint: dict) -> None:
     """
     Update model checkpoint from version 3 to version 4.
 
-    :param checkpoint: The checkpoint to be updated.
+    This update changes the way target scaling factors are stored. Previously, a
+    single tensor of scales was stored, now each target has its own scale TensorMap.
+
+    :param checkpoint: The checkpoint to update.
     """
-    # this update consists in changes in the scaler
     for key in ["model_state_dict", "best_model_state_dict"]:
         if (state_dict := checkpoint.get(key)) is not None:
             if (
@@ -61,9 +72,9 @@ def model_update_v3_v4(checkpoint: dict) -> None:
             state_dict["scaler.model.type_to_index"] = state_dict[
                 "additive_models.0.model.type_to_index"
             ]
-            for target_name, target_info in checkpoint["model_data"][
-                "dataset_info"
-            ].targets.items():
+
+            all_targets = checkpoint["model_data"]["dataset_info"].targets
+            for target_name, target_info in all_targets.items():
                 layout = target_info.layout
                 if layout.sample_names == ["system"]:
                     samples = Labels(["atomic_type"], torch.tensor([[-1]]))
@@ -100,6 +111,82 @@ def model_update_v3_v4(checkpoint: dict) -> None:
                 state_dict[f"scaler.{target_name}_scaler_buffer"] = mts.save_buffer(
                     mts.make_contiguous(scales_tensormap)
                 )
+
+
+def model_update_v4_v5(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 4 to version 5.
+
+    The main change is the use of mts.torch.nn.Module as a base class for
+    mts.torch.nn.Linear and other layers, which now has a `module_list` sub-module.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    LAST_LAYER_REGEX = re.compile(r"last_layers\.(.*)\.module_map\.(\d+)\.weight")
+
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        state_dict = checkpoint.get(key)
+        if state_dict is not None:
+            new_state_dict = {}
+            last_layer_entries = set()
+            for name, value in state_dict.items():
+                if name.startswith("layernorm."):
+                    new_name = name.replace("layernorm.", "layernorm.module_list.")
+                    new_state_dict[new_name] = value
+                elif name.startswith("bpnn."):
+                    new_name = name.replace("bpnn.", "bpnn.module_list.")
+                    new_state_dict[new_name] = value
+                else:
+                    match = re.match(LAST_LAYER_REGEX, name)
+                    if match is not None:
+                        last_layer_entries.add(match.group(1))
+                        new_name = (
+                            f"last_layers.{match.group(1)}.module_map."
+                            + f"module_list.{match.group(2)}.weight"
+                        )
+                        new_state_dict[new_name] = value
+                    else:
+                        new_state_dict[name] = value
+
+            dtype = state_dict["layernorm.0.weight"].dtype
+            device = state_dict["layernorm.1.weight"].device
+            mts_helper = torch.zeros(0, dtype=dtype, device=device)
+
+            new_state_dict["layernorm._mts_helper"] = mts_helper
+            # This should contain the serialized _in_keys and _out_properties, but we
+            # can not recover them here, so we set them to empty dicts and hope they
+            # where properly set when creating the model instance.
+            new_state_dict["layernorm._extra_state"] = {}
+
+            new_state_dict["bpnn._mts_helper"] = mts_helper
+            new_state_dict["bpnn._extra_state"] = {}
+
+            for target in last_layer_entries:
+                new_state_dict[f"last_layers.{target}._mts_helper"] = mts_helper
+                new_state_dict[f"last_layers.{target}._extra_state"] = {}
+
+                new_state_dict[f"last_layers.{target}.module_map._mts_helper"] = (
+                    mts_helper
+                )
+                new_state_dict[f"last_layers.{target}.module_map._extra_state"] = {}
+
+            checkpoint[key] = new_state_dict
+
+
+def model_update_v5_v6(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 5 to version 6.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            for key in list(state_dict.keys()):
+                if "soap_calculator.calculator." in key:
+                    new_key = key.replace(
+                        "soap_calculator.calculator.", "soap_calculator."
+                    )
+                    state_dict[new_key] = state_dict.pop(key)
 
 
 ###########################

@@ -30,6 +30,7 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
+from .documentation import ModelHypers
 from .modules.additive import PositionAdditive
 from .modules.encoder import NodeEncoder
 from .modules.structures import systems_to_batch
@@ -38,14 +39,14 @@ from .modules.structures import systems_to_batch
 AVAILABLE_FEATURIZERS = ["feedforward", "residual"]
 
 
-class FlashMD(ModelInterface):
+class FlashMD(ModelInterface[ModelHypers]):
     """
     Implementation of the FlashMD architecture.
 
     For more information, you can refer to https://arxiv.org/abs/2505.19350.
     """
 
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -54,7 +55,7 @@ class FlashMD(ModelInterface):
     component_labels: Dict[str, List[List[Labels]]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         # Cache frequently accessed hyperparameters
@@ -139,9 +140,10 @@ class FlashMD(ModelInterface):
             self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
         )
 
+        # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(unit="", per_atom=True)
-        }  # the model is always capable of outputting the internal features
+            "features": ModelOutput(per_atom=True, description="internal features")
+        }
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
         self.key_labels: Dict[str, Labels] = {}
@@ -538,7 +540,9 @@ class FlashMD(ModelInterface):
         if not self.training:
             with record_function("FlashMD::post-processing"):
                 # at evaluation, we also introduce the scaler and additive contributions
-                return_dict = self.scaler(systems, return_dict)
+                return_dict = self.scaler(
+                    systems, return_dict, selected_atoms=selected_atoms
+                )
                 for additive_model in self.additive_models:
                     outputs_for_additive_model: Dict[str, ModelOutput] = {}
                     for name, output in outputs.items():
@@ -1217,6 +1221,7 @@ class FlashMD(ModelInterface):
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
+            description=target_info.description,
         )
 
         self.node_heads[target_name] = torch.nn.ModuleList(
@@ -1276,7 +1281,9 @@ class FlashMD(ModelInterface):
         )
 
         ll_features_name = get_last_layer_features_name(target_name)
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+        self.outputs[ll_features_name] = ModelOutput(
+            per_atom=True, description=f"last-layer features for {target_name}"
+        )
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [
             block.components for block in target_info.layout.blocks()

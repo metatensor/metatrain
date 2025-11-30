@@ -65,6 +65,10 @@ def concatenate_structures(
                 torch.cat([system_selected_atoms, unique_centers])
             )
             # calculate the mapping from the ghost atoms to the real atoms
+            if torch.numel(unique_centers) == 0:
+                max_center_index = -1
+            else:
+                max_center_index = int(unique_centers.max())
             ghost_to_real_index = torch.full(
                 [
                     int(unique_centers.max()) + 1 if len(unique_centers) > 0 else 0,
@@ -203,7 +207,10 @@ def systems_to_batch(
     edge_distances = torch.norm(edge_vectors, dim=-1) + 1e-15
 
     if selected_atoms is not None:
-        num_nodes = int(centers.max()) + 1
+        if torch.numel(centers) == 0:
+            num_nodes = 0
+        else:
+            num_nodes = int(centers.max()) + 1
     else:
         num_nodes = len(positions)
 

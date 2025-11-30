@@ -11,8 +11,9 @@ from metatrain.pet.modules.finetuning import (
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import model_from_checkpoint
-from metatrain.utils.omegaconf import CONF_LOSS
+from metatrain.utils.loss import LossSpecification
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -150,7 +151,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
 
     hypers["training"]["num_epochs"] = 1
 
-    loss_conf = OmegaConf.create({"mtt::U0": CONF_LOSS.copy()})
+    loss_conf = OmegaConf.create({"mtt::U0": init_with_defaults(LossSpecification)})
     OmegaConf.resolve(loss_conf)
     hypers["training"]["loss"] = loss_conf
 

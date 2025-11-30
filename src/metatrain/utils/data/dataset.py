@@ -19,7 +19,13 @@ from metatensor.torch import (
     make_contiguous_block,
     save_buffer,
 )
-from metatomic.torch import System, load_system, load_system_buffer
+from metatomic.torch import (
+    ModelCapabilities,
+    ModelOutput,
+    System,
+    load_system,
+    load_system_buffer,
+)
 from metatomic.torch import save_buffer as save_system_buffer
 from omegaconf import DictConfig
 from torch.utils.data import Dataset as TorchDataset
@@ -65,8 +71,10 @@ class DatasetInfo:
     This class is used to communicate additional dataset details to the
     training functions of the individual models.
 
-    :param length_unit: Unit of length used in the dataset. Examples are ``"angstrom"``
-        or ``"nanometer"``. If None, the unit will be set to the empty string.
+    :param length_unit: Unit of length used in the dataset.
+
+        The list of possible units is available `here
+        <https://docs.metatensor.org/metatomic/latest/torch/reference/misc.html#known-quantities-units>`_.
     :param atomic_types: List containing all integer atomic types present in the
         dataset. ``atomic_types`` will be stored as a sorted list of **unique** atomic
         types.
@@ -77,12 +85,19 @@ class DatasetInfo:
 
     def __init__(
         self,
-        length_unit: Optional[str],
+        length_unit: str,
         atomic_types: List[int],
         targets: Dict[str, TargetInfo],
         extra_data: Optional[Dict[str, TargetInfo]] = None,
     ):
-        self.length_unit = length_unit if length_unit is not None else ""
+        # verify that `length_unit` and `atomic_types` are valid for metatomic
+        _ = ModelCapabilities(
+            outputs={"energy": ModelOutput()},
+            length_unit=length_unit,
+            atomic_types=atomic_types,
+        )
+
+        self.length_unit = length_unit
         self._atomic_types = _set(atomic_types)
         self.targets = targets
         self.extra_data: Dict[str, TargetInfo] = (
@@ -369,10 +384,7 @@ class CollateFn:
     ):
         self.target_keys: Set[str] = set(target_keys)
         self.callables: List[Callable] = callables if callables is not None else []
-        self.join_kwargs: Dict[str, Any] = join_kwargs or {
-            "remove_tensor_name": True,
-            "different_keys": "union",
-        }
+        self.join_kwargs: Dict[str, Any] = join_kwargs or {"different_keys": "union"}
 
     def __call__(
         self,
@@ -627,23 +639,37 @@ class DiskDataset(torch.utils.data.Dataset):
 
         self._sample_class = namedtuple("Sample", self._fields_to_read)
 
+        # Do not open file in the main process and start sub-processes with None
+        self.zip_file: Optional[zipfile.ZipFile] = None
+        self._zip_file_pid: Optional[int] = None
+
+    def _open_zip_once(self) -> None:
+        pid = os.getpid()
+        if self._zip_file_pid != pid:
+            if self.zip_file is not None:
+                self.zip_file.close()
+            self.zip_file = zipfile.ZipFile(self.zip_file_path, "r")
+            self._zip_file_pid = pid
+
     def __len__(self) -> int:
         return self._len
 
     def __getitem__(self, index: int) -> Any:
+        self._open_zip_once()
+        assert self.zip_file is not None
+
         system_and_targets = []
-        with zipfile.ZipFile(self.zip_file_path, "r") as zip_file:
-            for field_name in self._fields_to_read:
-                if field_name == "system":
-                    with zip_file.open(f"{index}/system.mta", "r") as file:
-                        system = load_system(file)
-                        system_and_targets.append(system)
-                else:
-                    with zip_file.open(f"{index}/{field_name}.mts", "r") as file:
-                        numpy_buffer = np.load(file)
-                        tensor_buffer = torch.from_numpy(numpy_buffer)
-                        tensor_map = load_buffer(tensor_buffer)
-                        system_and_targets.append(tensor_map)
+        for field_name in self._fields_to_read:
+            if field_name == "system":
+                with self.zip_file.open(f"{index}/system.mta", "r") as file:
+                    system = load_system(file)
+                    system_and_targets.append(system)
+            else:
+                with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
+                    numpy_buffer = np.load(file)
+                    tensor_buffer = torch.from_numpy(numpy_buffer)
+                    tensor_map = load_buffer(tensor_buffer)
+                    system_and_targets.append(tensor_map)
         return self._sample_class(*system_and_targets)
 
     def __iter__(self) -> Any:
@@ -685,6 +711,10 @@ class DiskDataset(torch.utils.data.Dataset):
                 target_info.layout = _empty_tensor_map_like(tensor_map)
                 target_info_dict[target_key] = target_info
         return target_info_dict
+
+    def __del__(self) -> None:
+        if self.zip_file is not None:
+            self.zip_file.close()
 
 
 def _is_disk_dataset(dataset: Any) -> bool:

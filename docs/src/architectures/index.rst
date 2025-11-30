@@ -9,4 +9,4 @@ This is a list of all architectures available in ``metatrain``.
    :maxdepth: 1
    :glob:
 
-   ./*
+   ./generated/*
