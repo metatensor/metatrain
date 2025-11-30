@@ -93,7 +93,11 @@ class OutputTests(ArchitectureTests):
         return None
 
     def _get_output(
-        self, model_hypers: dict, dataset_info: DatasetInfo, per_atom: bool
+        self,
+        model_hypers: dict,
+        dataset_info: DatasetInfo,
+        per_atom: bool,
+        outputs: Optional[list[str]] = None,
     ) -> dict[str, mts.TensorMap]:
         """Helper function to get the model output for different types of outputs.
 
@@ -102,6 +106,8 @@ class OutputTests(ArchitectureTests):
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info: Dataset information to initialize the model.
         :param per_atom: Whether the requested outputs are per-atom or not.
+        :param outputs: List of output names to request. If ``None``, all outputs
+            defined in the model are requested.
 
         :return: The model outputs.
         """
@@ -119,9 +125,10 @@ class OutputTests(ArchitectureTests):
             system, model.requested_neighbor_lists()
         )
 
-        return model(
-            [system], {k: ModelOutput(per_atom=per_atom) for k in model.outputs}
-        )
+        if outputs is None:
+            outputs = list(model.outputs.keys())
+
+        return model([system], {k: ModelOutput(per_atom=per_atom) for k in outputs})
 
     def test_output_scalar(
         self, model_hypers: dict, dataset_info_scalar: DatasetInfo, per_atom: bool
@@ -147,7 +154,9 @@ class OutputTests(ArchitectureTests):
         if not self.supports_scalar_outputs:
             pytest.skip(f"{self.architecture} does not support scalar outputs.")
 
-        outputs = self._get_output(model_hypers, dataset_info_scalar, per_atom)
+        outputs = self._get_output(
+            model_hypers, dataset_info_scalar, per_atom, ["scalar"]
+        )
 
         if per_atom:
             assert outputs["scalar"].block().samples.names == ["system", "atom"]
@@ -180,7 +189,9 @@ class OutputTests(ArchitectureTests):
         """
         if not self.supports_vector_outputs:
             pytest.skip(f"{self.architecture} does not support vector outputs.")
-        outputs = self._get_output(model_hypers, dataset_info_vector, per_atom)
+        outputs = self._get_output(
+            model_hypers, dataset_info_vector, per_atom, ["vector"]
+        )
 
         if per_atom:
             assert outputs["vector"].block().samples.names == ["system", "atom"]
@@ -212,7 +223,9 @@ class OutputTests(ArchitectureTests):
         if not self.supports_spherical_outputs:
             pytest.skip(f"{self.architecture} does not support spherical outputs.")
 
-        outputs = self._get_output(model_hypers, dataset_info_spherical, per_atom)
+        outputs = self._get_output(
+            model_hypers, dataset_info_spherical, per_atom, ["spherical_target"]
+        )
 
         if per_atom:
             assert outputs["spherical_target"].block().samples.names == [
@@ -253,7 +266,9 @@ class OutputTests(ArchitectureTests):
         if not self.supports_spherical_outputs:
             pytest.skip(f"{self.architecture} does not support spherical outputs.")
 
-        outputs = self._get_output(model_hypers, dataset_info_multispherical, per_atom)
+        outputs = self._get_output(
+            model_hypers, dataset_info_multispherical, per_atom, ["spherical_tensor"]
+        )
 
         assert len(outputs["spherical_tensor"]) == 3
 
