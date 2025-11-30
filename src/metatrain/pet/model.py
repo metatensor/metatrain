@@ -48,7 +48,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 9
+    __checkpoint_version__ = 10
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -63,6 +63,7 @@ class PET(ModelInterface[ModelHypers]):
         # Cache frequently accessed hyperparameters
         self.cutoff = float(self.hypers["cutoff"])
         self.cutoff_width = float(self.hypers["cutoff_width"])
+        print(self.hypers)
         self.max_num_neighbors = (
             float(self.hypers["max_num_neighbors"])
             if self.hypers["max_num_neighbors"] is not None

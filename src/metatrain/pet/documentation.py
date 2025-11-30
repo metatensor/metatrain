@@ -30,6 +30,9 @@ of importance):
   .. autoattribute:: {{model_hypers_path}}.cutoff
       :no-index:
 
+  .. autoattribute:: {{trainer_hypers_path}}.max_num_neighbors
+      :no-index:
+
   .. autoattribute:: {{trainer_hypers_path}}.learning_rate
       :no-index:
 
@@ -76,6 +79,14 @@ class ModelHypers(TypedDict):
     This should be set to a value after which most of the interactions
     between atoms is expected to be negligible. A lower cutoff will lead
     to faster models.
+    """
+    max_num_neighbors: Optional[int] = None
+    """Maximum number of neighbors per atom.
+
+    This parameter activates the adaptive cutoff functionality and 
+    limits the number of neighbors considered for each atom.
+    Setting it to None disables this feature and uses all neighbors
+    within the cutoff radius.
     """
     cutoff_width: float = 0.2
     """Width of the smoothing function at the cutoff"""
