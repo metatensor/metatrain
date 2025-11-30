@@ -19,6 +19,7 @@ jobs:
           - pet
           - nanopet
           - flashmd
+          - classifier
 
     runs-on: ubuntu-22.04
 

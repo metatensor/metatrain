@@ -76,6 +76,7 @@ gap = [
     "scipy",
 ]
 llpr = []
+classifier = []
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]
