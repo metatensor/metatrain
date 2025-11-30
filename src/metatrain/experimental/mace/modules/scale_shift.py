@@ -2,6 +2,14 @@ import torch
 
 
 class FakeScaleShift(torch.nn.Module):
+    """This is a module with the same interface as mace's ScaleShift module,
+    but that does nothing.
+
+    It is used as a replacement when we want to remove MACE's scale and shift
+    (e.g., when loading a pretrained MACE model), which will likely be replaced
+    by metatrain's Scaler and CompositionModel classes.
+    """
+
     def __init__(self):
         super().__init__()
         self.scale = 1.0

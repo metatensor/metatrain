@@ -118,6 +118,20 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     "The 'mace_model' hyper must be a path or a torch.nn.Module"
                 )
 
+            # Remove atomic baseline from the model
+            if self.hypers["mace_model_remove_atomic_baseline"]:
+                if hasattr(self.mace_model, "atomic_energies_fn"):
+                    self.mace_model.atomic_energies_fn.atomic_energies[:] = 0.0
+                # Future models that are not meant for the energy might have
+                # atomic baselines stored in other ways. In that case, we
+                # will simply add another if clause here.
+                else:
+                    logging.warning(
+                        "The hypers of the model ask for atomic baselines to be"
+                        " removed, but we couldn't find a module storing atomic"
+                        " baselines inside the loaded MACE model."
+                    )
+
             # Remove scale and shift if present
             if self.hypers["mace_model_remove_scale_shift"] and hasattr(
                 self.mace_model, "scale_shift"
@@ -126,8 +140,15 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         else:
             with warnings.catch_warnings():
+                # Don't show warnings from e3nn to user (these warnings
+                # only appear in old versions of e3nn)
                 warnings.filterwarnings(
                     "ignore", "To copy construct from a tensor", UserWarning
+                )
+                warnings.filterwarnings(
+                    "ignore",
+                    "The TorchScript type system",
+                    UserWarning,
                 )
                 self.mace_model = MACE(
                     r_max=self.hypers["r_max"],
