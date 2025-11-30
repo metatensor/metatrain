@@ -175,10 +175,10 @@ class ModelHypers(TypedDict):
     num_cutoff_basis: int = 5
     """Number of basis functions for smooth cutoff"""
     max_ell: int = 3
-    r"""Highest \ell of spherical harmonics used in the interactions.
+    r"""Highest :math:`\ell` of spherical harmonics used in the interactions.
 
-    Note that this is not the maximum \ell in ``hidden_irreps``, since
-    hidden_irreps can contain \ell values as high as ``max_ell*correlation``.
+    Note that this is not the maximum :math:`\ell` in ``hidden_irreps``, since
+    hidden_irreps can contain :math:`\ell` values as high as ``max_ell*correlation``.
     """
     interaction: Literal[
         "RealAgnosticResidualInteractionBlock",
@@ -205,22 +205,22 @@ class ModelHypers(TypedDict):
 
     This defines the shape of the node features at each layer of the MACE model
     (except for the last layer, which only contains scalars). The notation for
-    the irreps is `e3nn's standard notation<https://docs.e3nn.org/en/stable/api/
-    o3/o3_irreps.html>`. Essentially, the irreps string is a sum of terms of the
+    the irreps is `e3nn's standard notation <https://docs.e3nn.org/en/stable/api/
+    o3/o3_irreps.html>`_. Essentially, the irreps string is a sum of terms of the
     form ``{multiplicity}x{ell}{parity}``, where ``{multiplicity}`` is the number of
     channels with angular momentum ``{ell}`` and parity ``{parity}`` (``e`` for even,
     ``o`` for odd). For example, ``16x0e + 32x1o`` means that there are 16 scalar
-    channels (``\ell=0``) and 32 vector channels (``\ell=1``) at each layer.
+    channels (:math:`\ell=0`) and 32 vector channels (:math:`\ell=1`) at each layer.
 
     Increasing the multiplicities makes the network wider, which generally leads to
     better accuracy at the cost of increased training and evaluation time.
 
-    Increasing the maximum ``\ell`` included in the irreps allows the network to
+    Increasing the maximum :math:`\ell` included in the irreps allows the network to
     capture more complex angular dependencies. However, its effect might be heavily
     dependent on your dataset and target. The hidden irreps should include at least
-    up to the maximum ``\ell`` of the target you are training on. For example, if
-    you are training on dipole moments (``\ell=1``), the hidden irreps should include
-    at least ``\ell=1`` channels.
+    up to the maximum :math:`\ell` of the target you are training on. For example, if
+    you are training on dipole moments (:math:`\ell=1`), the hidden irreps should
+    include at least :math:`\ell=1` channels.
 
     .. note::
 
