@@ -1,0 +1,28 @@
+seed: 42
+
+architecture:
+  name: pet
+  training:
+    batch_size: 10
+    num_epochs: 3
+
+training_set:
+  systems:
+    read_from: ethanol_train_0.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: energy
+      unit: eV
+      forces: off
+    non_conservative_forces:
+      quantity: force
+      key: forces
+      unit: eV/angstrom
+      per_atom: true
+      type:
+        cartesian:
+          rank: 1
+
+test_set: 0.9
+validation_set: 0.01
