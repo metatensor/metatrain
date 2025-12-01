@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List
 
 import torch
 
@@ -96,7 +96,7 @@ class EquivariantMessagePasser(torch.nn.Module):
         centers,
         neighbors,
         features: List[torch.Tensor],
-        U_dict,
+        U_dict: Dict[int, torch.Tensor],
     ) -> List[torch.Tensor]:
         radial_basis = self.radial_basis_mlp(radial_basis)
         vector_expansion = [

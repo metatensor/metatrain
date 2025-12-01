@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List
 
 import torch
 
@@ -24,7 +24,9 @@ class CGIterator(torch.nn.Module):
             cg_iterations.append(CGIteration(k_max_l, spherical_linear_layers))
         self.cg_iterations = torch.nn.ModuleList(cg_iterations)
 
-    def forward(self, features: List[torch.Tensor], U_dict) -> List[torch.Tensor]:
+    def forward(
+        self, features: List[torch.Tensor], U_dict: Dict[int, torch.Tensor]
+    ) -> List[torch.Tensor]:
         density = features
         mixed_densities = [mixer(density, U_dict) for mixer in self.mixers]
 
@@ -50,7 +52,10 @@ class CGIteration(torch.nn.Module):
         self.linear = Linear(k_max_l, spherical_linear_layers)
 
     def forward(
-        self, features_1: List[torch.Tensor], features_2: List[torch.Tensor], U_dict
+        self,
+        features_1: List[torch.Tensor],
+        features_2: List[torch.Tensor],
+        U_dict: Dict[int, torch.Tensor],
     ) -> List[torch.Tensor]:
         features_out = tensor_product(features_1, features_2)
         features_out = self.linear(features_out, U_dict)

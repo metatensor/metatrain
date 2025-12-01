@@ -131,7 +131,9 @@ class BaseModel(torch.nn.Module):
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
-    def forward(self, structures_as_list) -> torch.Tensor:
+    def forward(
+        self, structures_as_list: List[List[torch.Tensor]]
+    ) -> Dict[str, Dict[int, torch.Tensor]]:
         device = structures_as_list[0][0].device
         if self.U_dict[0].device != device:
             self.U_dict = {key: U.to(device) for key, U in self.U_dict.items()}
@@ -241,7 +243,7 @@ class BaseModel(torch.nn.Module):
 
         # final predictions
         return_dict: Dict[str, Dict[int, torch.Tensor]] = {}
-        return_dict["features"] = {L: tensor for L, tensor in enumerate(features)}
+        return_dict["features"] = {l: tensor for l, tensor in enumerate(features)}  # noqa: E741
 
         last_layer_feature_dict: Dict[str, List[torch.Tensor]] = {}
         for output_name, layer in self.heads.items():
@@ -251,12 +253,13 @@ class BaseModel(torch.nn.Module):
 
         for output_name, layer in self.last_layers.items():
             output: Dict[int, torch.Tensor] = {}
-            for L, layer_L in layer.items():
-                output[int(L)] = layer_L(last_layer_feature_dict[output_name][int(L)])
+            for l_str, layer_L in layer.items():
+                l = int(l_str)  # noqa: E741
+                output[l] = layer_L(last_layer_feature_dict[output_name][l])
             return_dict[output_name] = output
 
         for output_name, llf in last_layer_feature_dict.items():
-            return_dict[f"{output_name}__llf"] = {L: t for L, t in enumerate(llf)}
+            return_dict[f"{output_name}__llf"] = {l: t for l, t in enumerate(llf)}  # noqa: E741
 
         return return_dict
 
@@ -315,23 +318,24 @@ class BaseModel(torch.nn.Module):
             irreps = []
             for key in target_info.layout.keys:
                 key_values = key.values
-                L = int(key_values[0])  # S = int(key_values[1]) is ignored here
-                irreps.append(L)
+                l = int(key_values[0])  # noqa: E741
+                # s = int(key_values[1]) is ignored here
+                irreps.append(l)
             self.last_layers[target_name] = torch.nn.ModuleDict(
                 {
-                    str(L): Linear(
-                        self.k_max_l[0],
-                        len(target_info.layout.block({"o3_lambda": L}).properties),
+                    str(l): Linear(
+                        self.k_max_l[l],
+                        len(target_info.layout.block({"o3_lambda": l}).properties),
                     )
-                    for L in irreps
+                    for l in irreps  # noqa: E741
                 }
             )
 
 
 class GradientModel(torch.nn.Module):
-    def __init__(self, hypers, dataset_info) -> None:
+    def __init__(self, module) -> None:
         super().__init__()
-        self.module = BaseModel(hypers, dataset_info)
+        self.module = module
 
     def forward(
         self,
@@ -368,12 +372,25 @@ class GradientModel(torch.nn.Module):
             gradients, predictions = compute_val_and_grad(
                 params, buffers, tensors_to_differentiate, output_name
             )
-            all_gradients[f"{output_name}__for"] = -torch.concatenate(
-                gradients[: len(structures_as_list)]
-            )
-            all_gradients[f"{output_name}__vir"] = -torch.stack(
-                gradients[len(structures_as_list) :]
-            )
+            all_gradients[f"{output_name}__for"] = {
+                -1: -torch.concatenate(gradients[: len(structures_as_list)])
+            }
+            all_gradients[f"{output_name}__vir"] = {
+                -1: -torch.stack(gradients[len(structures_as_list) :])
+            }
 
         predictions.update(all_gradients)
         return predictions
+
+
+class FakeGradientModel(torch.nn.Module):
+    def __init__(self, module) -> None:
+        super().__init__()
+        self.module = module
+
+    def forward(
+        self,
+        structures_as_list: List[List[torch.Tensor]],
+        outputs_to_take_gradients_of: List[str],
+    ):
+        return self.module(structures_as_list)

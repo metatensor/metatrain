@@ -341,6 +341,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
+        # TODO: COMMENT
+        model.module = model.gradient_model
+
         if self.hypers["compile"]:
             compile_model(model, train_dataloader)
 

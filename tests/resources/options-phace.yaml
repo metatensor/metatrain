@@ -12,7 +12,7 @@ architecture:
     # spherical_linear_layers: true
   training:
     batch_size: 5
-    num_epochs: 1000
+    num_epochs: 1
     per_structure_targets: [energy]
     log_mae: true
     log_interval: 1

@@ -20,11 +20,11 @@ class TestInput(InputTests, PhACETests): ...
 
 
 class TestOutput(OutputTests, PhACETests):
-    supports_features = False
+    is_equivariant_reflections = False
 
     @pytest.fixture
     def n_last_layer_features(self) -> int:
-        return 192
+        return 256
 
 
 class TestAutograd(AutogradTests, PhACETests): ...

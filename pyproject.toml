@@ -171,7 +171,7 @@ filterwarnings = [
     "ignore:No libgomp shared library found in 'sphericart_torch.libs'.",
     # Multi-threaded tests clash with multi-process data-loading
     "ignore:This process \\(pid=\\d+\\) is multi-threaded, use of fork\\(\\) may lead to deadlocks in the child.:DeprecationWarning",
-    # Initialization of tensors of length zero
+    # Initialization of tensors of zero size
     "ignore:Initializing zero-element tensors is a no-op:UserWarning"
 ]
 addopts = ["-p", "mtt_plugin"]

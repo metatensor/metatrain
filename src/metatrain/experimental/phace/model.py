@@ -16,7 +16,11 @@ from metatomic.torch import (
 )
 
 from metatrain.experimental.phace.documentation import ModelHypers
-from metatrain.experimental.phace.modules.base_model import GradientModel
+from metatrain.experimental.phace.modules.base_model import (
+    BaseModel,
+    FakeGradientModel,
+    GradientModel,
+)
 from metatrain.experimental.phace.utils import systems_to_list
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
@@ -30,6 +34,11 @@ warnings.filterwarnings(
     "ignore",
     category=UserWarning,
     message=("The TorchScript type system doesn't support instance-level annotations"),
+)
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    message=("Initializing zero-element tensors is a no-op"),
 )
 
 
@@ -52,8 +61,14 @@ class PhACE(ModelInterface[ModelHypers]):
         self.dataset_info = dataset_info
         self.hypers = hypers
 
-        self.module = GradientModel(hypers, dataset_info)
+        # machinery to trick torchscript into liking our model
+        base_model = BaseModel(hypers, dataset_info)
+        self.fake_gradient_model = FakeGradientModel(base_model)
+        self.gradient_model = GradientModel(base_model)
+        self.module = self.fake_gradient_model
+
         self.k_max_l = self.module.module.k_max_l
+        self.l_max = len(self.k_max_l) - 1
 
         self.overall_scaling = hypers["overall_scaling"]
 
@@ -206,10 +221,12 @@ class PhACE(ModelInterface[ModelHypers]):
 
         neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
         structures_as_list = systems_to_list(systems, neighbor_list_options)
-        predictions = self.module(
-            structures_as_list,
-            [n for n, o in outputs.items() if len(o.explicit_gradients) > 0],
-        )
+        outputs_with_gradients: List[str] = []
+        for output_name, output_info in outputs.items():
+            if len(output_info.explicit_gradients) > 0:
+                outputs_with_gradients.append(output_name)
+
+        predictions = self.module(structures_as_list, outputs_with_gradients)
 
         return_dict: Dict[str, TensorMap] = {}
 
@@ -225,7 +242,7 @@ class PhACE(ModelInterface[ModelHypers]):
                         samples=samples,
                         components=[],
                         properties=Labels(
-                            names=["features"],
+                            names=["feature"],
                             values=torch.arange(features_tensor.shape[-1]).unsqueeze(
                                 -1
                             ),
@@ -262,9 +279,7 @@ class PhACE(ModelInterface[ModelHypers]):
             return_dict[output_name] = TensorMap(
                 keys=Labels(
                     names=["o3_lambda"],
-                    values=torch.arange(
-                        self.l_max + 1, device=features[0].device
-                    ).unsqueeze(-1),
+                    values=torch.arange(self.l_max + 1, device=device).unsqueeze(-1),
                 ),
                 blocks=[
                     TensorBlock(
@@ -273,14 +288,16 @@ class PhACE(ModelInterface[ModelHypers]):
                         components=[
                             Labels(
                                 names=["o3_mu"],
-                                values=torch.tensor(
-                                    range(-l, l), device=features.device
-                                ).unsqueeze(-1),
+                                values=torch.arange(-l, l + 1, device=device).unsqueeze(
+                                    -1
+                                ),
                             )
                         ],
                         properties=Labels(
-                            names=["features"],
-                            values=torch.arange(features[l].shape[-1]).unsqueeze(-1),
+                            names=["feature"],
+                            values=torch.arange(t.shape[-1], device=device).unsqueeze(
+                                -1
+                            ),
                         ),
                     )
                     for l, t in last_layer_features_as_dict_of_tensors.items()  # noqa: E741
@@ -372,7 +389,7 @@ class PhACE(ModelInterface[ModelHypers]):
                             values=torch.tensor([[0], [1], [2]], device=device),
                         )
                     ]
-                    gradient_tensor = -predictions[f"{output_name}__for"]
+                    gradient_tensor = -predictions[f"{output_name}__for"][-1]
                     block.add_gradient(
                         "positions",
                         TensorBlock(
@@ -412,7 +429,7 @@ class PhACE(ModelInterface[ModelHypers]):
                             values=torch.tensor([[0], [1], [2]], device=device),
                         ),
                     ]
-                    gradient_tensor = -predictions[f"{output_name}__vir"]
+                    gradient_tensor = -predictions[f"{output_name}__vir"][-1]
                     block.add_gradient(
                         "positions",
                         TensorBlock(
@@ -507,6 +524,11 @@ class PhACE(ModelInterface[ModelHypers]):
         return model
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
+        # TODO: COMMENT
+        self.module = self.fake_gradient_model
+        del self.gradient_model
+        del self.fake_gradient_model
+
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {dtype} for PET")
@@ -520,7 +542,9 @@ class PhACE(ModelInterface[ModelHypers]):
         # be registered correctly with Pytorch. This function moves them:
         self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
-        interaction_ranges = [self.num_gnn_layers * self.cutoff]
+        interaction_ranges = [
+            self.hypers["num_message_passing_layers"] * self.hypers["cutoff"]
+        ]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)

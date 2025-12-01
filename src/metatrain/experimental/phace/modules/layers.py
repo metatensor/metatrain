@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List
 
 import torch
 
@@ -37,7 +37,9 @@ class LinearList(torch.nn.Module):
                 self.linears.append(Linear(dimension, dimension))
             self.linears = torch.nn.ModuleList(self.linears[::-1])
 
-    def forward(self, features_list: List[torch.Tensor], U_dict) -> List[torch.Tensor]:
+    def forward(
+        self, features_list: List[torch.Tensor], U_dict: Dict[int, torch.Tensor]
+    ) -> List[torch.Tensor]:
         if self.spherical_linear_layers:
             coupled_features: List[List[torch.Tensor]] = []
             for l in range(self.l_max + 1):  # noqa: E741
