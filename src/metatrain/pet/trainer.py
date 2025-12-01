@@ -581,6 +581,25 @@ class Trainer(TrainerInterface):
                         (model.module if is_distributed else model),
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
+            lr_scheduler.step()
+            new_lr = lr_scheduler.get_last_lr()[0]
+            if new_lr != old_lr:
+                if new_lr < 1e-7:
+                    logging.info("Learning rate is too small, stopping training")
+                    break
+                else:
+                    if epoch >= 100:
+                        logging.info(
+                            f"Changing learning rate from {old_lr} to {new_lr}"
+                        )
+                    elif epoch == 100 - 1:
+                        logging.info(
+                            "Finished warm-up. "
+                            f"Now training with learning rate {new_lr}"
+                        )
+                    else:  # epoch < 100 - 1:
+                        pass  # we don't clutter the log at every warm-up step
+                    old_lr = new_lr
 
         # prepare for the checkpoint that will be saved outside the function
         self.epoch = epoch
