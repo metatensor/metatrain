@@ -148,16 +148,29 @@ class TrainerHypers(TypedDict):
     """Number of epochs."""
     warmup_fraction: float = 0.01
     """Fraction of training steps used for learning rate warmup."""
+    hold_fraction: float = 0.0
+    """Fraction of training steps to hold the initial learning rate, after warmup."""
     learning_rate: float = 1e-4
     """Learning rate."""
     weight_decay: Optional[float] = None
+    min_lr_ratio: float = 0.0
+    """Ratio of minimum to initial learning rate."""
+
 
     log_interval: int = 1
     """Interval to log metrics."""
     checkpoint_interval: int = 100
     """Interval to save checkpoints."""
-    scale_targets: bool = True
-    """Normalize targets to unit std during training."""
+    # scale_targets: bool = True
+    # """Normalize targets to unit std during training."""
+    use_global_scales: bool = True
+    """Whether to use global scaling for target properties."""
+    use_property_scales: bool = True
+    """Whether to use per-property scaling for target properties."""
+    rescale_prediction_properties: bool = True
+    """
+    Whether to rescale prediction properties before computing the loss.
+    """
     fixed_composition_weights: FixedCompositionWeights = {}
     """Weights for atomic contributions.
 
