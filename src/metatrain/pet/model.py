@@ -63,7 +63,6 @@ class PET(ModelInterface[ModelHypers]):
         # Cache frequently accessed hyperparameters
         self.cutoff = float(self.hypers["cutoff"])
         self.cutoff_width = float(self.hypers["cutoff_width"])
-        print(self.hypers)
         self.max_num_neighbors = (
             float(self.hypers["max_num_neighbors"])
             if self.hypers["max_num_neighbors"] is not None

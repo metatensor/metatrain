@@ -17,7 +17,7 @@ def get_adaptive_cutoffs(
     max_cutoff: float,
     grid_spacing: float = DEFAULT_PROBE_CUTOFFS_SPACING,
     weighting: str = "gaussian",
-):
+) -> torch.Tensor:
     """
     Computes the adaptive cutoff values for each center atom.
 
