@@ -654,6 +654,121 @@ class BandgapLoss(LossInterface):
             gapforce_loss = torch.mean((gap_force_predictions - true_gapforce) ** 2) 
             total_loss += gapforce_loss * self.force_weight
         return total_loss
+    
+
+class HOMOLUMOLoss(LossInterface):
+    """
+    HOMO LUMO loss on :py:class:`TensorMap` entries to get bandgap
+
+    :param name: key for the dos in the prediction/target dictionary.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param force_weight: Multiplier for the forces of the gap.
+    :param force: Whether to apply the force term.
+    :param reduction: reduction mode for torch loss.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        force_weight: float,
+        force: bool,
+        reduction: str,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+        )
+        self.force_weight = force_weight
+        self.force = force
+        self.print = True
+
+    def compute(
+        self,
+        model_predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ) -> torch.Tensor:
+        """
+        Gather and flatten target and prediction blocks, then compute loss.
+
+        :param model_predictions: Mapping from target names to TensorMaps.
+        :param targets: Mapping from target names to TensorMaps.
+        :param extra_data: Additional data for loss computation. Assumes that, for the
+            target ``name`` used in the constructor, there is a corresponding data field
+            ``name + "_mask"`` that contains the tensor to be used for masking. It
+            should have the same metadata as the target and prediction tensors.
+        :return: Scalar loss tensor.
+        """
+        gap_key = f"mtt::gap"
+        gapforce_key = f"mtt::gapforce"
+        systems, model, extra_data = extra_data
+        if extra_data is None or gap_key not in extra_data:
+            raise ValueError(
+                f"Expected extra_data to contain TensorMap under '{gap_key}'"
+            )
+        if self.force:
+            if gapforce_key not in extra_data:
+                raise ValueError(
+                    f"Expected extra_data to contain TensorMap under '{gapforce_key}'"
+                )
+            
+        tensor_map_gap = extra_data[gap_key]
+        if self.force:
+            tensor_map_gapforce = extra_data[gapforce_key]
+            true_gapforce = tensor_map_gapforce.block().values
+            
+        # Should be atomwise, need to check the shapes
+        HOMO_prediction = model_predictions['mtt::HOMO'].block().values
+        LUMO_prediction = model_predictions['mtt::LUMO'].block().values
+        # Need to test iteratively
+        print (HOMO_prediction.shape)
+        print (LUMO_prediction.shape)
+
+        # Use logsumexp to get smoothmax
+        assert False
+
+
+class NoLoss(LossInterface):
+    """
+    No loss on :py:class:`TensorMap` entries to support fake targets.
+
+    :param name: key for the dos in the prediction/target dictionary.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for torch loss.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+        )
+        self.force_weight = force_weight
+        self.force = force
+        self.print = True
+    def compute(
+        self,
+        model_predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ) -> torch.Tensor:
+        """
+        returns zero loss
+        """
+        return torch.tensor(0.0)
 # --- aggregator -----------------------------------------------------------------------
 
 
@@ -818,6 +933,8 @@ class LossType(Enum):
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
     MASKED_DOS = ("masked_dos", MaskedDOSLoss)
     GAPDOS = ("bandgap", BandgapLoss)
+    HOMOLUMO = ("HOMOLUMO", HOMOLUMOLoss)
+    noloss = ("noloss", NoLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key
