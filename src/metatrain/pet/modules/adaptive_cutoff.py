@@ -6,7 +6,6 @@ from .utilities import smooth_delta_function, step_characteristic_function
 
 
 DEFAULT_MIN_PROBE_CUTOFF = 0.5
-DEFAULT_WIDTH = 0.5
 DEFAULT_PROBE_CUTOFFS_SPACING = 0.1
 
 
@@ -46,18 +45,11 @@ def get_adaptive_cutoffs(
     )
     if weighting == "gaussian":
         cutoffs_weights = get_gaussian_cutoff_weights(
-            effective_num_neighbors,
-            probe_cutoffs,
-            max_num_neighbors,
-            num_nodes,
-            width=DEFAULT_WIDTH,
+            effective_num_neighbors, probe_cutoffs, max_num_neighbors, num_nodes
         )
     elif weighting == "exponential":
         cutoffs_weights = get_exponential_cutoff_weights(
-            effective_num_neighbors,
-            probe_cutoffs,
-            max_num_neighbors,
-            width=DEFAULT_WIDTH,
+            effective_num_neighbors, probe_cutoffs, max_num_neighbors
         )
     else:
         raise ValueError(
@@ -152,7 +144,7 @@ def get_exponential_cutoff_weights(
     effective_num_neighbors: torch.Tensor,
     probe_cutoffs: torch.Tensor,
     max_num_neighbors: float,
-    width: float = 1.0,
+    width: float = 0.5,
     beta: float = 1.0,
 ) -> torch.Tensor:
     """
