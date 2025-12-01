@@ -30,7 +30,7 @@ of importance):
   .. autoattribute:: {{model_hypers_path}}.cutoff
       :no-index:
 
-  .. autoattribute:: {{trainer_hypers_path}}.max_num_neighbors
+  .. autoattribute:: {{model_hypers_path}}.max_num_neighbors
       :no-index:
 
   .. autoattribute:: {{trainer_hypers_path}}.learning_rate
