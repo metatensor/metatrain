@@ -1,7 +1,9 @@
-ase
 chemiscope
 furo
+jinja2
+matplotlib
 myst-parser
+pytest
 sphinx >= 7
 sphinxcontrib-bibtex
 sphinx-gallery

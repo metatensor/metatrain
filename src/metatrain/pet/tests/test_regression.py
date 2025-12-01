@@ -14,8 +14,9 @@ from metatrain.utils.data.readers import (
 )
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.hypers import init_with_defaults
+from metatrain.utils.loss import LossSpecification
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
-from metatrain.utils.omegaconf import CONF_LOSS
 
 from . import DATASET_PATH, DATASET_WITH_FORCES_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -99,8 +100,10 @@ def test_regression_energies_forces_train(device):
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["scheduler_patience"] = 1
     hypers["training"]["fixed_composition_weights"] = {}
-    loss_conf = {"energy": CONF_LOSS.copy()}
-    loss_conf["energy"]["gradients"] = {"positions": CONF_LOSS.copy()}
+    loss_conf = {"energy": init_with_defaults(LossSpecification)}
+    loss_conf["energy"]["gradients"] = {
+        "positions": init_with_defaults(LossSpecification)
+    }
     loss_conf = OmegaConf.create(loss_conf)
     OmegaConf.resolve(loss_conf)
     hypers["training"]["loss"] = loss_conf

@@ -24,8 +24,8 @@ New architectures added to the library will initially be classified as experimen
 These architectures are stored in the ``experimental`` subdirectory within the
 repository. To qualify as an experimental architecture, certain criteria must be met:
 
-1. Capability to fit at least a single quantity and predict it, verified through CI
-   tests.
+1. Pass basic provided architecture tests, including capability to fit at least a single
+   quantity and predict it, verified through CI tests.
 2. Compatibility with JIT compilation using `TorchScript
    <https://pytorch.org/docs/stable/jit.html>`_.
 3. Provision of reasonable default hyperparameters.
@@ -44,8 +44,8 @@ Transitioning from an experimental to a stable model requires additional criteri
 satisfied:
 
 1. Provision of regression prediction tests with a small (not exported) checkpoint file.
-2. Comprehensive architecture documentation including a schema for verifying the
-   architecture's hyperparameters.
+2. Comprehensive architecture documentation including the type hinting of the
+   architecture's hyperparameters so that they can be validated by the CLI.
 3. If an architecture has external dependencies, all must be publicly available on PyPI.
 4. Adherence to the standard output infrastructure of ``metatrain``, including
    logging and model save locations.

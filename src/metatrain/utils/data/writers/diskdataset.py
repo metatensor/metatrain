@@ -2,6 +2,7 @@ import zipfile
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Union
 
+import metatensor.torch as mts
 import metatomic.torch as mta
 import numpy as np
 import torch
@@ -59,6 +60,7 @@ class DiskDatasetWriter(Writer):
             # each target
             for target_name, tensor_map in preds.items():
                 with self.zip_file.open(f"{self.index}/{target_name}.mts", "w") as f:
+                    tensor_map = mts.make_contiguous(tensor_map)
                     buf = tensor_map.to("cpu").to(torch.float64)
                     # metatensor.torch.save_buffer returns a torch.Tensor buffer
                     buffer = buf.save_buffer()
