@@ -463,6 +463,11 @@ class BaseScaler(torch.nn.Module):
                     float(self.scales_global[output_name].block(0).values.item()),
                 )
 
+            if selected_atoms is not None:
+                predictions[output_name] = mts.slice(
+                    predictions[output_name], "samples", selected_atoms
+                )
+
         return predictions
 
     def _apply_property_scales(
@@ -470,6 +475,7 @@ class BaseScaler(torch.nn.Module):
         systems: List[System],
         outputs: Dict[str, TensorMap],
         remove: bool,
+        selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         device = list(outputs.values())[0][0].values.device
         dtype = list(outputs.values())[0][0].values.dtype
@@ -610,6 +616,7 @@ class BaseScaler(torch.nn.Module):
         systems: List[System],
         outputs: Dict[str, TensorMap],
         remove: bool,
+        selected_atoms: Optional[Labels] = None,
         use_global_scales: bool = True,
         use_property_scales: bool = False,
     ) -> Dict[str, TensorMap]:
@@ -639,20 +646,20 @@ class BaseScaler(torch.nn.Module):
         if remove:
             if use_global_scales:
                 predictions = self._apply_global_scales(
-                    systems, predictions, remove=True
+                    systems, predictions, remove=True, selected_atoms=selected_atoms
                 )
             if use_property_scales:
                 predictions = self._apply_property_scales(
-                    systems, predictions, remove=True
+                    systems, predictions, remove=True, selected_atoms=selected_atoms
                 )
         else:
             if use_property_scales:
                 predictions = self._apply_property_scales(
-                    systems, predictions, remove=False
+                    systems, predictions, remove=False, selected_atoms=selected_atoms
                 )
             if use_global_scales:
                 predictions = self._apply_global_scales(
-                    systems, predictions, remove=False
+                    systems, predictions, remove=False, selected_atoms=selected_atoms
                 )
 
         return predictions

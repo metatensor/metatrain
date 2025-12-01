@@ -130,6 +130,14 @@ class ModelHypers(TypedDict):
     """Use ZBL potential for short-range repulsion"""
     long_range: LongRangeHypers = init_with_defaults(LongRangeHypers)
     """Long-range Coulomb interactions parameters."""
+    head_types: Literal["mlp", "mlp_shallow", "linear"] = "mlp"
+    """
+    Type of the heads to use for each target property.
+    
+    ``mlp`` uses a 2 hidden layer with SiLU activations, ``mlp_shallow`` uses a single
+    hidden layer with SiLU activation, and ``linear`` uses a single linear layer that
+    maps backbone features directly to the output size.
+    """
 
 
 class TrainerHypers(TypedDict):

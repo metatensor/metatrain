@@ -67,7 +67,6 @@ class PET(ModelInterface[ModelHypers]):
         self.d_pet = self.hypers["d_pet"]
         self.d_node = self.hypers["d_node"]
         self.d_head = self.hypers["d_head"]
-        self.d_head_node = self.hypers["d_head_node"]
         self.d_feedforward = self.hypers["d_feedforward"]
         self.num_heads = self.hypers["num_heads"]
         self.head_types = self.hypers["head_types"]
@@ -1231,9 +1230,9 @@ class PET(ModelInterface[ModelHypers]):
             self.node_heads[target_name] = torch.nn.ModuleList(
                 [
                     torch.nn.Sequential(
-                        torch.nn.Linear(self.d_node, self.d_head_node),
+                        torch.nn.Linear(self.d_node, self.d_head),
                         torch.nn.SiLU(),
-                        torch.nn.Linear(self.d_head_node, self.d_head_node),
+                        torch.nn.Linear(self.d_head, self.d_head),
                         torch.nn.SiLU(),
                     )
                     for _ in range(self.num_readout_layers)
@@ -1257,7 +1256,7 @@ class PET(ModelInterface[ModelHypers]):
                     torch.nn.ModuleDict(
                         {
                             key: torch.nn.Linear(
-                                self.d_head_node,
+                                self.d_head,
                                 prod(shape),
                                 bias=True,
                             )
@@ -1288,7 +1287,7 @@ class PET(ModelInterface[ModelHypers]):
             self.node_heads[target_name] = torch.nn.ModuleList(
                 [
                     torch.nn.Sequential(
-                        torch.nn.Linear(self.d_node, self.d_head_node),
+                        torch.nn.Linear(self.d_node, self.d_head),
                         torch.nn.SiLU(),
                     )
                     for _ in range(self.num_readout_layers)
@@ -1310,7 +1309,7 @@ class PET(ModelInterface[ModelHypers]):
                     torch.nn.ModuleDict(
                         {
                             key: torch.nn.Linear(
-                                self.d_head_node,
+                                self.d_head,
                                 prod(shape),
                                 bias=True,
                             )
