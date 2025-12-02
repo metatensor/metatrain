@@ -211,6 +211,9 @@ class TrainerHypers(TypedDict):
     """Metric used to select best checkpoint (e.g., ``rmse_prod``)"""
     grad_clip_norm: float = 1.0
     """Maximum gradient norm value, by default inf (no clipping)"""
+    schedule_grad_clip_norm: bool = False
+    """Whether to schedule the increase of `grad_clip_norm` during warmup and part of
+    the hold phase"""
     loss: str | dict[str, LossSpecification | str] = "mse"
     """This section describes the loss function to be used. See the
     :ref:`loss-functions` for more details."""

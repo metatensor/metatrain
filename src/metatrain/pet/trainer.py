@@ -492,24 +492,27 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 train_loss_batch.backward()
 
-                # Set the gradient clipping:
-                #   - 0.25x during warmup
-                #   - 0.5x during half of the hold phase
-                #   - 1.0x afterwards
-                warmup_epochs = int(
-                    self.hypers["warmup_fraction"] * self.hypers["num_epochs"]
-                )
-                half_hold_epochs = int(
-                    self.hypers["hold_fraction"] * self.hypers["num_epochs"] / 2
-                )
-                base_clip = self.hypers["grad_clip_norm"]
+                if self.hypers["schedule_grad_clip_norm"]:
+                    # Set the gradient clipping:
+                    #   - 0.25x during warmup
+                    #   - 0.5x during half of the hold phase
+                    #   - 1.0x afterwards
+                    warmup_epochs = int(
+                        self.hypers["warmup_fraction"] * self.hypers["num_epochs"]
+                    )
+                    half_hold_epochs = int(
+                        self.hypers["hold_fraction"] * self.hypers["num_epochs"] / 2
+                    )
+                    base_clip = self.hypers["grad_clip_norm"]
 
-                if epoch < warmup_epochs:
-                    grad_clip_norm = base_clip * 0.25
-                elif epoch < warmup_epochs + half_hold_epochs:
-                    grad_clip_norm = base_clip * 0.5
+                    if epoch < warmup_epochs:
+                        grad_clip_norm = base_clip * 0.25
+                    elif epoch < warmup_epochs + half_hold_epochs:
+                        grad_clip_norm = base_clip * 0.5
+                    else:
+                        grad_clip_norm = base_clip
                 else:
-                    grad_clip_norm = base_clip
+                    grad_clip_norm = self.hypers["grad_clip_norm"]
 
                 torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
                 optimizer.step()
