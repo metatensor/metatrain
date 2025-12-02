@@ -456,7 +456,7 @@ class TensorBasis(torch.nn.Module):
                 self.spex_contraction = FakeLinearMap()
                 self.center_encoding = torch.nn.Embedding(
                     num_embeddings=len(self.atomic_types),
-                    embedding_dim=self.spex_calculator.radial.n_per_l[1] * 4,
+                    embedding_dim=self.spex_calculator.radial.n_per_l[o3_lambda] * 4,
                 )
         else:
             # needed to make torchscript work
