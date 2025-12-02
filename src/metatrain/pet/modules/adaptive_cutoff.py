@@ -98,7 +98,8 @@ def get_effective_num_neighbors(
         dtype=edge_distances.dtype,
         device=edge_distances.device,
     )
-    # Vectorized version: use scatter_add_ to accumulate weights for all probe cutoffs at once
+    # Vectorized version: use scatter_add_ to accumulate weights for all probe
+    # cutoffs at once
     centers_expanded = (
         centers.unsqueeze(0).expand(len(probe_cutoffs), -1).to(torch.int64)
     )
