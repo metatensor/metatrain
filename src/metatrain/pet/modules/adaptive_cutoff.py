@@ -98,10 +98,9 @@ def get_effective_num_neighbors(
         dtype=edge_distances.dtype,
         device=edge_distances.device,
     )
-    for i, w in enumerate(weights):
-        num_neighbors = torch.bincount(centers, weights=w)
-        if len(num_neighbors) > 0:
-            probe_num_neighbors[i, :num_nodes] = num_neighbors
+    # Vectorized version: use scatter_add_ to accumulate weights for all probe cutoffs at once
+    centers_expanded = centers.unsqueeze(0).expand(len(probe_cutoffs), -1)
+    probe_num_neighbors.scatter_add_(1, centers_expanded, weights)
     probe_num_neighbors = probe_num_neighbors.T.contiguous()
     return probe_num_neighbors
 
