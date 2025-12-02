@@ -99,7 +99,9 @@ def get_effective_num_neighbors(
         device=edge_distances.device,
     )
     # Vectorized version: use scatter_add_ to accumulate weights for all probe cutoffs at once
-    centers_expanded = centers.unsqueeze(0).expand(len(probe_cutoffs), -1)
+    centers_expanded = (
+        centers.unsqueeze(0).expand(len(probe_cutoffs), -1).to(torch.int64)
+    )
     probe_num_neighbors.scatter_add_(1, centers_expanded, weights)
     probe_num_neighbors = probe_num_neighbors.T.contiguous()
     return probe_num_neighbors
