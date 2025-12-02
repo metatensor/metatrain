@@ -131,7 +131,7 @@ class BaseScaler(torch.nn.Module):
             Labels(["_"], torch.tensor([[0]])),
             blocks=[
                 TensorBlock(
-                    values=torch.zeros(1, 1, dtype=torch.float64),
+                    values=torch.ones(1, 1, dtype=torch.float64),
                     samples=Labels(["_"], torch.tensor([[0]])),
                     components=[],
                     properties=Labels(["_"], torch.tensor([[0]])),

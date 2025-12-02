@@ -130,7 +130,7 @@ class ModelHypers(TypedDict):
     """Use ZBL potential for short-range repulsion"""
     long_range: LongRangeHypers = init_with_defaults(LongRangeHypers)
     """Long-range Coulomb interactions parameters."""
-    head_types: Literal["mlp", "mlp_shallow", "linear"] = "mlp"
+    head_types: dict = {}
     """
     Type of the heads to use for each target property.
     
