@@ -42,10 +42,10 @@ from .modules.finetuning import apply_finetuning_strategy
 
 def get_scheduler(optimizer, train_hypers):
     def func_lr_scheduler(epoch):
-        if epoch < train_hypers["num_epochs_warmup"]:
-            return epoch / train_hypers["num_epochs_warmup"]
-        delta = epoch - train_hypers["num_epochs_warmup"]
-        num_blocks = delta // train_hypers["scheduler_patience"]
+        if epoch < 100:
+            return epoch / 100
+        delta = epoch - 100
+        num_blocks = delta // 250
         return 0.5 ** (num_blocks)
 
     scheduler = LambdaLR(optimizer, func_lr_scheduler)
@@ -359,7 +359,7 @@ class Trainer(TrainerInterface):
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a learning rate scheduler
-        lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
+        lr_scheduler = get_scheduler(optimizer, self.hypers)#, len(train_dataloader))
 
         if self.scheduler_state_dict is not None and not is_finetune:
             # same as the optimizer, try to load the scheduler state dict
