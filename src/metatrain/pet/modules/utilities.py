@@ -21,11 +21,11 @@ def cutoff_func(grid: torch.Tensor, r_cut: torch.Tensor, delta: float) -> torch.
 
 
 def step_characteristic_function(
-    values: torch.Tensor, threshold: float, width: float
+    values: torch.Tensor, threshold: torch.Tensor, width: float
 ) -> torch.Tensor:
     """Compute the step characteristic function values.
     :param values: Input values (torch.Tensor).
-    :param threshold: Threshold value (float).
+    :param threshold: Threshold value (torch.Tensor).
     :param width: Width parameter (float).
 
     :return: Step characteristic function values (torch.Tensor).
@@ -35,11 +35,11 @@ def step_characteristic_function(
 
 
 def smooth_delta_function(
-    values: torch.Tensor, center: float, width: float
+    values: torch.Tensor, center: torch.Tensor, width: float
 ) -> torch.Tensor:
     """Compute the smooth delta function values.
     :param values: Input values (torch.Tensor).
-    :param center: Center value (float).
+    :param center: Center value (torch.Tensor).
     :param width: Width parameter (float).
 
     :return: Smooth delta function values (torch.Tensor).

@@ -223,22 +223,24 @@ def systems_to_batch(
         # Enabling the adaptive cutoff scheme to approximately select
         # `max_num_neighbors` neighbors for each atom
 
-        adapted_atomic_cutoffs = get_adaptive_cutoffs(
-            centers,
-            edge_distances,
-            max_num_neighbors,
-            num_nodes,
-            options.cutoff,
-        )
+        with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
+            adapted_atomic_cutoffs = get_adaptive_cutoffs(
+                centers,
+                edge_distances,
+                max_num_neighbors,
+                num_nodes,
+                options.cutoff,
+            )
 
-        unique_centers = torch.unique(centers)
-        atomic_cutoffs[unique_centers] = adapted_atomic_cutoffs[unique_centers]
+        with torch.profiler.record_function("PET::adaptive_cutoff_masking"):
+            unique_centers = torch.unique(centers)
+            atomic_cutoffs[unique_centers] = adapted_atomic_cutoffs[unique_centers]
 
-        cutoff_mask = edge_distances <= adapted_atomic_cutoffs[centers]
-        centers = centers[cutoff_mask]
-        neighbors = neighbors[cutoff_mask]
-        edge_vectors = edge_vectors[cutoff_mask]
-        cell_shifts = cell_shifts[cutoff_mask]
+            cutoff_mask = edge_distances <= adapted_atomic_cutoffs[centers]
+            centers = centers[cutoff_mask]
+            neighbors = neighbors[cutoff_mask]
+            edge_vectors = edge_vectors[cutoff_mask]
+            cell_shifts = cell_shifts[cutoff_mask]
     else:
         atomic_cutoffs = options.cutoff * torch.ones(
             len(positions), device=positions.device, dtype=positions.dtype

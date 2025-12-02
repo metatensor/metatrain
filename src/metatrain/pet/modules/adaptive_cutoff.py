@@ -37,26 +37,29 @@ def get_adaptive_cutoffs(
         device=edge_distances.device,
         dtype=edge_distances.dtype,
     )
-    effective_num_neighbors = get_effective_num_neighbors(
-        edge_distances,
-        probe_cutoffs,
-        centers,
-        num_nodes,
-    )
-    if weighting == "gaussian":
-        cutoffs_weights = get_gaussian_cutoff_weights(
-            effective_num_neighbors, probe_cutoffs, max_num_neighbors, num_nodes
+    with torch.profiler.record_function("PET::get_effective_num_neighbors"):
+        effective_num_neighbors = get_effective_num_neighbors(
+            edge_distances,
+            probe_cutoffs,
+            centers,
+            num_nodes,
         )
-    elif weighting == "exponential":
-        cutoffs_weights = get_exponential_cutoff_weights(
-            effective_num_neighbors, probe_cutoffs, max_num_neighbors
-        )
-    else:
-        raise ValueError(
-            f"Unknown weighting scheme: {weighting}"
-            " Supported: 'gaussian', 'exponential'."
-        )
-    adapted_atomic_cutoffs = probe_cutoffs @ cutoffs_weights.T
+    with torch.profiler.record_function("PET::get_cutoff_weights"):
+        if weighting == "gaussian":
+            cutoffs_weights = get_gaussian_cutoff_weights(
+                effective_num_neighbors, probe_cutoffs, max_num_neighbors, num_nodes
+            )
+        elif weighting == "exponential":
+            cutoffs_weights = get_exponential_cutoff_weights(
+                effective_num_neighbors, probe_cutoffs, max_num_neighbors
+            )
+        else:
+            raise ValueError(
+                f"Unknown weighting scheme: {weighting}"
+                " Supported: 'gaussian', 'exponential'."
+            )
+    with torch.profiler.record_function("PET::calculate_adapted_cutoffs"):
+        adapted_atomic_cutoffs = probe_cutoffs @ cutoffs_weights.T
     return adapted_atomic_cutoffs
 
 
@@ -64,7 +67,7 @@ def get_effective_num_neighbors(
     edge_distances: torch.Tensor,
     probe_cutoffs: torch.Tensor,
     centers: torch.Tensor,
-    num_centers: int,
+    num_nodes: int,
     width: Optional[float] = None,
 ) -> torch.Tensor:
     """
@@ -73,7 +76,7 @@ def get_effective_num_neighbors(
     :param edge_distances: Distances between centers and their neighbors.
     :param probe_cutoffs: Probe cutoff distances.
     :param centers: Indices of the center atoms.
-    :param num_centers: Total number of center atoms.
+    :param num_nodes: Total number of center atoms.
     :param width: Width of the cutoff function. If None, it will be
         automatically determined from the probe cutoff spacing.
     :return: Effective number of neighbors for each center atom and probe cutoff.
@@ -91,14 +94,14 @@ def get_effective_num_neighbors(
         edge_distances.unsqueeze(0), probe_cutoffs.unsqueeze(1), width
     )
     probe_num_neighbors = torch.zeros(
-        (len(probe_cutoffs), num_centers),
+        (len(probe_cutoffs), num_nodes),
         dtype=edge_distances.dtype,
         device=edge_distances.device,
     )
     for i, w in enumerate(weights):
         num_neighbors = torch.bincount(centers, weights=w)
         if len(num_neighbors) > 0:
-            probe_num_neighbors[i, : max(centers) + 1] = num_neighbors
+            probe_num_neighbors[i, :num_nodes] = num_neighbors
     probe_num_neighbors = probe_num_neighbors.T.contiguous()
     return probe_num_neighbors
 
@@ -159,6 +162,11 @@ def get_exponential_cutoff_weights(
     :param beta: Exponential scaling factor.
     :return: Weights for each probe cutoff.
     """
+    max_num_neighbors = torch.tensor(
+        max_num_neighbors,
+        device=effective_num_neighbors.device,
+        dtype=effective_num_neighbors.dtype,
+    )
     cutoffs_weights = torch.exp(beta * probe_cutoffs) * step_characteristic_function(
         effective_num_neighbors, max_num_neighbors, width=width
     )
