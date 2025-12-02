@@ -436,7 +436,7 @@ class Trainer(TrainerInterface):
                     model.parameters(), self.hypers["grad_clip_norm"]
                 )
                 optimizer.step()
-                lr_scheduler.step()
+                # lr_scheduler.step()
 
                 if is_distributed:
                     # sum the loss over all processes
