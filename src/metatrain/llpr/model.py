@@ -468,10 +468,12 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 [len(system.positions) for system in systems], device=device
             )
             systems = [system.to(device=device, dtype=dtype) for system in systems]
-            outputs_for_targets = {name: ModelOutput(per_atom="atom" in target.block(0).samples.names) for name, target in targets.items()}
+            outputs_for_targets = {
+                name: ModelOutput(per_atom="atom" in target.block(0).samples.names)
+                for name, target in targets.items()
+            }
             outputs_for_features = {
-                f"mtt::aux::{n.replace('mtt::', '')}"
-                "_last_layer_features": o
+                f"mtt::aux::{n.replace('mtt::', '')}_last_layer_features": o
                 for n, o in outputs_for_targets.items()
             }
             output = self.forward(
@@ -484,7 +486,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 # TODO: interface ll_feat calculation with the loss function,
                 # paying attention to normalization w.r.t. n_atoms
                 if not outputs_for_targets[name].per_atom:
-                    ll_feats = ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(1)
+                    ll_feats = ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(
+                        1
+                    )
                 uncertainty_name = _get_uncertainty_name(name)
                 covariance = self._get_covariance(uncertainty_name)
                 covariance += ll_feats.T @ ll_feats
