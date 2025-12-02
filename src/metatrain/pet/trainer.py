@@ -369,7 +369,9 @@ class Trainer(TrainerInterface):
         per_structure_targets = self.hypers["per_structure_targets"]
 
         # Log the initial learning rate:
+        old_lr = optimizer.param_groups[0]["lr"]
         logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
+        logging.info(f"Initial learning rate: {old_lr}")
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
