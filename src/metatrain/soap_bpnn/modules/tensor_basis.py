@@ -11,7 +11,6 @@ import wigners
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.learn.nn import Linear as LinearMap
 from spex import SphericalExpansion
-from torch.profiler import record_function
 
 from ..documentation import SOAPConfig
 
@@ -422,7 +421,6 @@ class TensorBasis(torch.nn.Module):
                 legacy=self.legacy,
             )
             self.spex_calculator = SphericalExpansion(**spex_soap_hypers)
-            self.center_encoding = self.vector_basis.center_encoding
 
             if self.legacy:
                 n_radial = self.spex_calculator.radial.n_per_l[o3_lambda]
@@ -447,6 +445,7 @@ class TensorBasis(torch.nn.Module):
                     ],
                 )
                 self.spex_contraction_for_tensors = torch.nn.Identity()
+                self.center_encoding = torch.nn.Identity()
             else:
                 n_radial = self.spex_calculator.radial.n_per_l[o3_lambda]
                 self.spex_contraction_for_tensors = torch.nn.Linear(
@@ -455,6 +454,10 @@ class TensorBasis(torch.nn.Module):
                     bias=False,
                 )
                 self.spex_contraction = FakeLinearMap()
+                self.center_encoding = torch.nn.Embedding(
+                    num_embeddings=len(self.atomic_types),
+                    embedding_dim=self.spex_calculator.radial.n_per_l[1] * 4,
+                )
         else:
             # needed to make torchscript work
             self.center_encoding = torch.nn.Identity()
@@ -514,16 +517,15 @@ class TensorBasis(torch.nn.Module):
                 dtype=dtype,
             )
         elif self.o3_lambda == 1:
-            with record_function("vector_basis"):
-                basis = self.vector_basis(
-                    interatomic_vectors,
-                    centers,
-                    neighbors,
-                    species,
-                    structures,
-                    atom_index_in_structure,
-                    selected_atoms,
-                )
+            basis = self.vector_basis(
+                interatomic_vectors,
+                centers,
+                neighbors,
+                species,
+                structures,
+                atom_index_in_structure,
+                selected_atoms,
+            )
         elif self.o3_lambda == 2:
             basis = torch.empty(
                 (num_atoms, 5, 5),
