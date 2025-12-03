@@ -453,7 +453,7 @@ class PET(ModelInterface[ModelHypers]):
             if "mtt::features::" + featurizer_input_name in outputs:
                 return_dict["mtt::features::" + featurizer_input_name] = (
                     self._create_diagnostic_feature_tensormap(
-                        featurizer_inputs[featurizer_input_name],
+                        tensor,
                         centers,
                         nef_to_edges_neighbor,
                         sample_labels,
@@ -595,7 +595,7 @@ class PET(ModelInterface[ModelHypers]):
         centers: torch.Tensor,
         nef_to_edges_neighbor: torch.Tensor,
         sample_labels: Labels,
-        pair_sample_labels: Dict[str, Labels],
+        pair_sample_labels: Labels,
     ) -> TensorMap:
         assert tensor.shape[0] == sample_labels.values.shape[0], (
             "diagnostic feature tensor must be per-atom or per-pair like in shape."
@@ -613,7 +613,7 @@ class PET(ModelInterface[ModelHypers]):
 
         else:  # edge-like, shape (n_atoms, num_neighbors, d)
             outp = outp[centers, nef_to_edges_neighbor]
-            labels = pair_sample_labels["offsite"]
+            labels = pair_sample_labels
 
         if outp.ndim == 1:  # can happen if d == 1
             outp = outp.unsqueeze(1)
@@ -640,15 +640,23 @@ class PET(ModelInterface[ModelHypers]):
         centers: torch.Tensor,
         nef_to_edges_neighbor: torch.Tensor,
         sample_labels: Labels,
-        pair_sample_labels: Dict[str, Labels],
-    ) -> None:
+        pair_sample_labels: Labels,
+    ) -> List[RemovableHandle]:
         """
         Prepare forward hooks to capture diagnostic tokens from internal modules.
-        :param diagnostic_tokens: Dictionary to store captured tokens.
-        """
-        diagnostic_handles = []
 
-        def _resolve_module(path: str):
+        :param outputs: Dictionary of requested outputs.
+        :param return_dict: Dictionary to store captured outputs.
+        :param centers: Tensor mapping center atoms to their indices in the batch.
+        :param nef_to_edges_neighbor: Tensor mapping neighbor edge features to edges.
+        :param sample_labels: node-like (per-atom) sample Labels for the batch.
+        :param pair_sample_labels: edg-like (per-pair) sample Labels for the batch.
+
+        :return: List of removable handles for the registered hooks.
+        """
+        diagnostic_handles: List[RemovableHandle] = []
+
+        def _resolve_module(path: str) -> Any:
             obj: Any = self
             for part in path.split("."):
                 if part.isdigit():
@@ -661,7 +669,8 @@ class PET(ModelInterface[ModelHypers]):
                     obj = getattr(obj, part)
             return obj
 
-        # Build list of possible module paths that can be captured for these model hypers.
+        # Build list of possible module paths that can be captured for these model
+        # hypers.
         possible_capture_paths: List[str] = []
 
         for i in range(self.num_readout_layers):
@@ -706,8 +715,10 @@ class PET(ModelInterface[ModelHypers]):
             try:
                 module = _resolve_module(path)
 
-                def make_hook(p):
-                    def _hook(module, inp, outp):
+                def make_hook(p: str) -> Any:
+                    def _hook(
+                        module: torch.nn.Module, inp: torch.Tensor, outp: torch.Tensor
+                    ) -> None:
                         return_dict["mtt::features::" + p] = (
                             self._create_diagnostic_feature_tensormap(
                                 outp,
