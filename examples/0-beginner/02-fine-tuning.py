@@ -20,20 +20,16 @@ setting the new targets corresponding to the new level of theory in the ``option
 file.
 
 
-In order to obtain a pretrained model, you can use a PET-MAD checkpoint from huggingface
 
-.. code-block:: bash
-
-  wget https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.1.0/models/pet-mad-v1.1.0.ckpt
-
-Next, we set up the ``options.yaml`` file. Here we specify to fine-tune on a small model
-dataset containing structures of ethanol, labelled with energies and forces.
-We can specify the fine-tuning method in the ``finetune`` block in the ``training``
-options of the ``architecture``. Here, the basic ``full`` option is chosen, which
-finetunes all weights of the model. All available fine-tuning methods are found in the
-concepts page :ref:`Fine-tuning <label_fine_tuning_concept>`. This section discusses
-implementation details, options and recommended use cases. Other fine-tuning options can
-be simply substituted in this script, by changing the ``finetune`` block.
+We start by setting up the ``options.yaml`` file. Here we specify to fine-tune on a
+small model dataset containing structures of ethanol, labelled with energies and
+forces. We can specify the fine-tuning method in the ``finetune`` block in the
+``training`` options of the ``architecture``. Here, the basic ``full`` option is
+chosen, which finetunes all weights of the model. All available fine-tuning methods
+are found in the concepts page :ref:`Fine-tuning <label_fine_tuning_concept>`. This
+section discusses implementation details, options and recommended use cases. Other
+fine-tuning options can be simply substituted in this script, by changing the
+``finetune`` block.
 
 .. note::
 
@@ -41,7 +37,7 @@ be simply substituted in this script, by changing the ``finetune`` block.
   different from the reference of the pretrained model, it is recommended to create a
   new energy head. Using this so-called energy variant can be simply invoked by
   requesting a new target in the options file. Follow the nomenclature
-  energy/{yourname}.
+  ``energy/{yourname}``.
 
 
 Furthermore, you need to specify the checkpoint, that you want to fine-tune in
@@ -49,42 +45,8 @@ the ``read_from`` option.
 
 A simple ``options-ft.yaml`` file for this task could look like this:
 
-.. code-block:: yaml
-
-    architecture:
-      name: pet
-      training:
-        batch_size: 8
-        num_epochs: 10
-        learning_rate: 1e-3
-        warmup_fraction: 0.01
-        finetune:
-          method: full
-          read_from: pet-mad-v1.1.0.ckpt
-          inherit_heads:
-            energy/finetune: energy # inherit weights from the "energy" head
-
-    training_set:
-      systems:
-        read_from: ethanol_reduced_100.xyz
-        reader: ase
-        length_unit: angstrom
-      targets:
-        energy/finetune:
-          quantity: energy
-          read_from: ethanol_reduced_100.xyz
-          reader: ase
-          key: energy
-          unit: eV
-          description: "pbe energy ethanol"
-          forces:
-            read_from: ethanol_reduced_100.xyz
-            reader: ase
-            key: forces
-
-    validation_set: 0.1
-    test_set: 0.1
-
+.. literalinclude:: options-ft.yaml
+  :language: yaml
 
 In this example, we specified a low number of :attr:`num_epochs` and a relatively high
 :attr:`learning_rate`, for short compilation time. Usually, the ``learning_rate`` is
@@ -143,19 +105,28 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 # %%
 #
 
-# Here, we get the PET-MAD ckpt, run ``mtt train`` as a subprocess, and delete the old
-# outputs folder.
+# In order to obtain a pretrained model, you can use a PET-MAD checkpoint from
+# huggingface. Here, we get the PET-MAD ckpt, run ``mtt train`` as a subprocess, and
+# delete the old outputs folder and old model checkpoints.
+
+# %%
+#
+subprocess.run(["rm", "-rf", "outputs", "pet-mad-v1.1.0.ckpt*"], check=True)
 subprocess.run(
     [
         "wget",
         "https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.1.0/models/pet-mad-v1.1.0.ckpt",
-    ]
+    ],
+    check=True,
 )
-subprocess.run(["rm", "-rf", "outputs"])
+
 subprocess.run(["mtt", "train", "options-ft.yaml", "-o", "model-ft.pt"], check=True)
 
 # %%
 #
+# After training, we can check if finetuning was successful.
+# First we check the training curves, that are saved in ``train.csv`` in the outputs
+# folder. We start with parsing the csv file.
 csv_path = glob.glob("outputs/*/*/train.csv")[-1]
 with open(csv_path, "r") as f:
     header = f.readline().strip().split(",")
@@ -176,24 +147,22 @@ for i, h in enumerate(header):
 #
 # Now, let's plot the learning curves.
 
-# %%
-#
 training_energy_RMSE = structured["training energy/finetune RMSE (per atom)"]
 training_forces_MAE = structured["training forces[energy/finetune] MAE"]
 validation_energy_RMSE = structured["validation energy/finetune RMSE (per atom)"]
 validation_forces_MAE = structured["validation forces[energy/finetune] MAE"]
 
-fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+fig, axs = plt.subplots(1, 2, figsize=((8, 3.5)))
 
-axs[0].plot(training_energy_RMSE, label="training energy/finetune RMSE (per atom)")
-axs[0].plot(validation_energy_RMSE, label="validation energy/finetune RMSE (per atom)")
+axs[0].plot(training_energy_RMSE, label="training energy RMSE")
+axs[0].plot(validation_energy_RMSE, label="validation energy RMSE")
 axs[0].set_xlabel("Epochs")
 axs[0].set_ylabel("energy / meV")
 axs[0].set_xscale("log")
 axs[0].set_yscale("log")
 axs[0].legend()
-axs[1].plot(training_forces_MAE, label="training forces[energy/finetune] MAE")
-axs[1].plot(validation_forces_MAE, label="validation forces[energy/finetune] MAE")
+axs[1].plot(training_forces_MAE, label="training forces MAE")
+axs[1].plot(validation_forces_MAE, label="validation forces MAE")
 axs[1].set_ylabel("force / meV/A")
 axs[1].set_xlabel("Epochs")
 axs[1].set_xscale("log")
@@ -262,9 +231,7 @@ f_predictions = np.array(
     [frame.get_forces().flatten() for frame in targets]
 ).flatten()  # predicted forces
 
-# %%
-#
-fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+fig, axs = plt.subplots(1, 2, figsize=(8, 4))
 
 # Parity plot for energies
 axs[0].scatter(e_targets, e_predictions, label="FT")
@@ -292,5 +259,15 @@ plt.show()
 
 # %%
 #
-# Further fine-tuning examples can be found in the
-# `AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`_
+# We see that the fine-tuning gives reasonable predictions on energies and forces.
+# Since the training was limited to 10 epochs in this example, the results can be
+# obviously improved by training for more epochs and optimizing training
+# hyperparameters.
+
+# %%
+#
+# .. note::
+#
+#   To learn about more elaborate fine-tuning strategies and tools, check out the
+#   fine-tuning examples in the
+#   `AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`_

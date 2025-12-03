@@ -11,7 +11,8 @@ Quickstart
 .. hint::
 
   If you want to fine-tune an existing model
-  check out :ref:`label_fine_tuning_concept`.
+  check out :ref:`label_fine_tuning_concept` or the beginner tutorial
+  :ref:`sphx_glr_generated_examples_0-beginner_02-fine-tuning.py`.
 
 .. note::
 
