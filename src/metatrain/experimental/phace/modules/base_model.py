@@ -152,7 +152,7 @@ class BaseModel(torch.nn.Module):
         if self.U_dict[0].dtype != dtype:
             self.U_dict = {key: U.to(dtype) for key, U in self.U_dict.items()}
 
-        n_atoms = len(batch["positions"])
+        n_atoms = batch["positions"].size(0)
 
         # precomputation of distances and spherical harmonics
         spherical_harmonics, radial_basis = self.precomputer(
@@ -362,18 +362,20 @@ class GradientModel(torch.nn.Module):
 
         def compute_energy(params, buffers, positions, strains, output_name):
             # Apply strain to positions and cells
-            # For each structure, multiply its positions and cell by its strain matrix
+            # For each atom, get the strain matrix for its structure using structure_centers
+            # strains: [n_structures, 3, 3]
+            # structure_centers: [n_atoms] - maps each atom to its structure index
+            # positions: [n_atoms, 3]
 
-            # Compute strained positions
-            # We need to apply the strain per-structure
-            strained_positions = torch.zeros_like(positions)
-            strained_cells = torch.zeros_like(batch["cells"])
+            # Get the strain matrix for each atom: [n_atoms, 3, 3]
+            atom_strains = strains[batch["structure_centers"]]
 
-            # Use structure_centers to apply per-structure strain to positions
-            for i in range(n_structures):
-                mask = batch["structure_centers"] == i
-                strained_positions[mask] = positions[mask] @ strains[i]
-                strained_cells[i] = batch["cells"][i] @ strains[i]
+            # Apply strain to positions: pos @ strain for each atom
+            # Using einsum: positions[i, j] * atom_strains[i, j, k] -> strained_positions[i, k]
+            strained_positions = torch.einsum("ij,ijk->ik", positions, atom_strains)
+
+            # Apply strain to cells: [n_structures, 3, 3] @ [n_structures, 3, 3]
+            strained_cells = torch.bmm(batch["cells"], strains)
 
             # Create a modified batch with strained positions and cells
             strained_batch = {
