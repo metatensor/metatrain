@@ -1,0 +1,31 @@
+architecture:
+  name: pet
+  training:
+    batch_size: 8
+    num_epochs: 10
+    learning_rate: 1e-3
+    warmup_fraction: 0.01
+    finetune:
+      method: full
+      read_from: pet-mad-v1.1.0.ckpt
+
+training_set:
+  systems:
+    read_from: ethanol_reduced_100.xyz
+    reader: ase
+    length_unit: angstrom
+  targets:
+    energy/finetune:
+      quantity: energy
+      read_from: ethanol_reduced_100.xyz
+      reader: ase
+      key: energy
+      unit: eV
+      description: pbe energy ethanol
+      forces:
+        read_from: ethanol_reduced_100.xyz
+        reader: ase
+        key: forces
+
+validation_set: 0.1
+test_set: 0.1
