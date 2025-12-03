@@ -43,7 +43,7 @@ class RadialBasisHypers(TypedDict):
     might be beneficial for the accuracy of the model and/or
     its physical correctness."""
 
-    max_eigenvalue: float = 60.0
+    max_eigenvalue: float = 25.0
     """Maximum eigenvalue for the radial basis."""
 
     scale: float = 0.7
@@ -73,7 +73,7 @@ class ModelHypers(TypedDict):
     cutoff_width: float = 1.0
     """Width of the cutoff smoothing function."""
 
-    num_element_channels: int = 64
+    num_element_channels: int = 128
     """Number of channels per element."""
 
     force_rectangular: bool = False
