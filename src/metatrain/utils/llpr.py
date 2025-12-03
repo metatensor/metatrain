@@ -444,11 +444,12 @@ class LLPRUncertaintyModel(torch.nn.Module):
                             * torch.eye(self.ll_feat_size, device=covariance.device)
                         )
                         inv_covariance[:] = (inverse + inverse.T) / 2.0
+                        print("log10 sigma squared:", log10_sigma_squared)
                         break
 
         self.inv_covariance_computed = True
 
-    def calibrate(self, valid_loader: DataLoader):
+    def calibrate(self, valid_loader: DataLoader) -> int:
         """
         Calibrate the LLPR model.
 
@@ -522,6 +523,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     all_uncertainties[uncertainty_name] = []
 
                 all_predictions[name].append(outputs[name].block().values.detach())
+                print("raw trial:", target.block().values.max())
                 all_targets[name].append(target.block().values)
                 all_uncertainties[uncertainty_name].append(
                     outputs[uncertainty_name].block().values.detach()
@@ -577,7 +579,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 mask_count = revised_masks.sum(dim=0)
 
                 # raw residuals
-                resid = all_predictions[name] - (revised_dos_targets * all_lens.unsqueeze(-1))
+                resid = all_predictions[name] - revised_dos_targets # * all_lens.unsqueeze(-1))
                 resid_masked_sum = ((resid ** 2) * revised_masks).sum(dim=0)
                 resid_masked_mean = resid_masked_sum / mask_count.clamp(min=1)
 
@@ -585,8 +587,25 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 uncer_masked_mean = uncer_masked_sum / mask_count.clamp(min=1)
 
                 # true/pred ratios
+                print(resid_masked_mean.min(), resid_masked_mean.max())
+                print(uncer_masked_mean.min(), uncer_masked_mean.max())
+
+
                 ratios = resid_masked_mean / uncer_masked_mean
-                ratios = torch.where(mask_count > 0, ratios, torch.tensor(float('nan')))
+                print("pred_max", all_predictions[name][:, :3000].max())
+                print("targ_max", revised_dos_targets[:, :3000].max())
+                print("len_max", all_lens.max())
+
+                print("resid", resid_masked_mean)
+                print("resid_max", resid_masked_mean[:3000].max())
+                print("ratios", ratios)
+                print("ratios_max", ratios.max())
+
+
+                ratios = torch.where(mask_count > 20, ratios, torch.tensor(float('nan')))
+
+                idx = (mask_count > 20).nonzero(as_tuple=True)[0]
+                max_channel = idx[-1].item()
 
                 multiplier = self._get_multiplier(uncertainty_name)
                 multiplier[:] = ratios
@@ -597,6 +616,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 multiplier[:] = torch.sqrt(torch.mean(residuals**2 / uncertainties**2))
 
         self.is_calibrated = True
+
+        return max_channel
 
     def generate_ensemble(
         self,
@@ -635,36 +656,40 @@ class LLPRUncertaintyModel(torch.nn.Module):
             rng = np.random.default_rng()
             self.n_ens[name] = n_ens[name]
 
-            ensemble_weights = []
-            max_multiplier = -1
-
             cur_multiplier = self.get_buffer("multiplier_" + uncertainty_name).detach().cpu().numpy()
             cur_inv_cov = self.get_buffer("inv_covariance_" + uncertainty_name).detach().cpu().numpy()
 
-            for ii in range(weights.shape[0]):
+            n_channels = weights.shape[0]
+            n_feats = weights.shape[1]
+
+            print("---- UPDATED ROUTINE ----")
+
+            L = np.linalg.cholesky(cur_inv_cov)
+            Z = rng.standard_normal(size=(n_feats, n_ens[name]))
+
+            ensemble_weights = []
+            max_multiplier = np.nanmax(cur_multiplier)
+
+            for ii in range(n_channels):
+
+                mean_vec = weights[ii].clone().detach().cpu().numpy()
+
+                mult = cur_multiplier[ii]
                 if np.isnan(cur_multiplier[ii]):
                     print(f"multiplier is NaN for channel # {ii}! We resort to the max_multiplier value...")
-                    cur_ensemble_weights = rng.multivariate_normal(
-                        weights[ii].clone().detach().cpu().numpy(),
-                        cur_inv_cov * max_multiplier,
-                        size=n_ens[name],
-                        method="svd",
-                    ).T
+                    mult = max_multiplier
                 else:
                     print("ens. generation for energy channel -- #", ii)
-                    cur_ensemble_weights = rng.multivariate_normal(
-                        weights[ii].clone().detach().cpu().numpy(),
-                        cur_inv_cov * cur_multiplier[ii],
-                        size=n_ens[name],
-                        method="svd",
-                    ).T
-                    if max_multiplier < cur_multiplier[ii]:
-                        max_multiplier = cur_multiplier[ii]
+    
+                scaled_noise = L @ (Z * np.sqrt(mult))
 
                 cur_ensemble_weights = torch.tensor(
-                    cur_ensemble_weights, device=device, dtype=dtype
+                    mean_vec[:, None] + scaled_noise,
+                    device=device,
+                    dtype=dtype,
                 )
                 ensemble_weights.append(cur_ensemble_weights)    # DOS specific
+
             ensemble_weights = torch.stack(ensemble_weights, axis=-1)   # DOS specific, shape ll_Feat, n_ens, n_channel
             print(ensemble_weights.shape)
 

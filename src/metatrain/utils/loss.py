@@ -49,6 +49,7 @@ class LossInterface(ABC):
         predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
         extra_data: Optional[Any] = None,
+        max_channel: Optional[int] = 5000,
     ) -> torch.Tensor:
         """
         Compute the loss.
@@ -65,6 +66,7 @@ class LossInterface(ABC):
         predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
         extra_data: Optional[Any] = None,
+        max_channel: Optional[int] = 5000,
     ) -> torch.Tensor:
         """
         Alias to compute() for direct invocation.
@@ -628,6 +630,7 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
         extra_data: Optional[Dict[str, TensorMap]] = None,
+        max_channel: int = 5000,
     ) -> torch.Tensor:
         """
         Gather and flatten target and prediction blocks, then compute loss.
@@ -685,6 +688,8 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
                 revised_masks[low_e_mask] = 1
                 mask_count = revised_masks.sum(dim=0)
 
+                revised_masks[:, max_channel:] = 0
+
                 tsm_revised_targ = TensorMap(
                         keys=Labels(
                             names=["_"],
@@ -734,6 +739,8 @@ class MaskedDOSLoss(LossInterface):
         extra_targets: int,
         reduction: str,
     ):
+        if name == "mtt::dos2":
+            name = "mtt::dos"
         super().__init__(
             name,
             gradient,

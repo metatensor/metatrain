@@ -71,6 +71,7 @@ class Trainer(TrainerInterface):
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        max_channel: int,
         checkpoint_dir: str,
     ):
         assert dtype in PET.__supported_dtypes__
@@ -424,7 +425,7 @@ class Trainer(TrainerInterface):
                     )
                     # targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                train_loss_batch = loss_fn(predictions, targets, extra_data)
+                train_loss_batch = loss_fn(predictions, targets, extra_data, max_channel)
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
@@ -435,6 +436,10 @@ class Trainer(TrainerInterface):
                     # sum the loss over all processes
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
+
+#                print(targets["mtt::dos"].block().values.mean(axis=1))
+#                print(predictions["mtt::dos"].block().values.mean(axis=1))
+
             train_loss /= train_count
 
                 # train_rmse_calculator.update(predictions, targets)
@@ -492,7 +497,7 @@ class Trainer(TrainerInterface):
                     )
                     # targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                val_loss_batch = loss_fn(predictions, targets, extra_data)
+                val_loss_batch = loss_fn(predictions, targets, extra_data, max_channel)
 
                 if is_distributed:
                     # sum the loss over all processes
