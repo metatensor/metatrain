@@ -360,7 +360,7 @@ class GradientModel(torch.nn.Module):
         if len(outputs_to_take_gradients_of) == 0:
             return self.module(batch)
 
-        n_structures = len(batch["n_atoms"])
+        n_structures = batch["n_atoms"].size(0)
         device = batch["positions"].device
         dtype = batch["positions"].dtype
 

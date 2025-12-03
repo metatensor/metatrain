@@ -16,25 +16,15 @@ architecture:
     per_structure_targets: [energy]
     log_mae: true
     log_interval: 1
-    compile: false
+    compile: true
 
 training_set:
   systems:
-    read_from: ethanol_train_0.xyz
+    read_from: qm9_reduced_100.xyz
     length_unit: angstrom
   targets:
     energy:
-      key: energy
+      key: U0
       unit: eV
-      forces: false
-    non_conservative_forces:
-      quantity: force
-      key: forces
-      unit: eV/angstrom
-      per_atom: true
-      type:
-        cartesian:
-          rank: 1
 
-test_set: 0.90
-validation_set: 0.05
+validation_set: 0.1
