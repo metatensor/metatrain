@@ -4,8 +4,6 @@ import numpy as np
 import torch
 from torch.func import functional_call, grad
 
-from metatrain.experimental.phace.utils import systems_to_batch
-
 from .center_embedding import embed_centers
 from .cg import get_cg_coefficients
 from .cg_iterator import CGIterator
@@ -20,9 +18,13 @@ class BaseModel(torch.nn.Module):
         super().__init__()
         self.atomic_types = dataset_info.atomic_types
         self.hypers = hypers
-        self.mp_scaling = hypers["mp_scaling"]
+        # Store scaling values for passing to submodules
+        mp_scaling_value = hypers["mp_scaling"]
+        nu_scaling_value = hypers["nu_scaling"]
+        # Register scaling factors as buffers for efficiency
+        self.register_buffer("mp_scaling", torch.tensor(mp_scaling_value))
         self.nu_max = hypers["max_correlation_order_per_layer"]
-        self.nu_scaling = hypers["nu_scaling"]
+        self.register_buffer("nu_scaling", torch.tensor(nu_scaling_value))
         self.head_num_layers = hypers["head_num_layers"]
         self.spherical_linear_layers = hypers["spherical_linear_layers"]
 
@@ -89,7 +91,7 @@ class BaseModel(torch.nn.Module):
         # The message passing is invariant for the first layer
         self.invariant_message_passer = InvariantMessagePasser(
             self.atomic_types,
-            self.mp_scaling,
+            mp_scaling_value,
             hypers["disable_nu_0"],
             self.precomputer.n_max_l,
             self.k_max_l,
@@ -112,7 +114,7 @@ class BaseModel(torch.nn.Module):
             equivariant_message_passer = EquivariantMessagePasser(
                 self.precomputer.n_max_l,
                 self.k_max_l,
-                self.mp_scaling,
+                mp_scaling_value,
                 self.spherical_linear_layers,
             )
             equivariant_message_passers.append(equivariant_message_passer)
@@ -132,30 +134,41 @@ class BaseModel(torch.nn.Module):
             self._add_output(target_name, target_info)
 
     def forward(
-        self, structures_as_list: List[List[torch.Tensor]]
+        self, batch: Dict[str, torch.Tensor]
     ) -> Dict[str, Dict[int, torch.Tensor]]:
-        device = structures_as_list[0][0].device
+        """
+        Forward pass of the base model.
+
+        :param batch: Dictionary containing batched tensors:
+            - positions: stacked positions of all atoms [N_total, 3]
+            - cells: stacked unit cells [N_structures, 3, 3]
+            - species: atomic types of all atoms [N_total]
+            - cell_shifts: cell shift vectors for all pairs [N_pairs, 3]
+            - center_indices: global center indices for all pairs [N_pairs]
+            - neighbor_indices: global neighbor indices for all pairs [N_pairs]
+            - structure_pairs: structure index for each pair [N_pairs]
+        :return: Dictionary of predictions
+        """
+        device = batch["positions"].device
         if self.U_dict[0].device != device:
             self.U_dict = {key: U.to(device) for key, U in self.U_dict.items()}
-        dtype = structures_as_list[0][0].dtype
+        dtype = batch["positions"].dtype
         if self.U_dict[0].dtype != dtype:
             self.U_dict = {key: U.to(dtype) for key, U in self.U_dict.items()}
 
-        structures = systems_to_batch(structures_as_list)
-
-        n_atoms = len(structures["positions"])
+        n_atoms = batch["positions"].size(0)
 
         # precomputation of distances and spherical harmonics
         spherical_harmonics, radial_basis = self.precomputer(
-            positions=structures["positions"],
-            cells=structures["cells"],
-            species=structures["species"],
-            cell_shifts=structures["cell_shifts"],
-            pairs=structures["pairs"],
-            structure_pairs=structures["structure_pairs"],
-            structure_offsets=structures["structure_offsets"],
-            center_species=structures["species"][structures["pairs"][:, 0]],
-            neighbor_species=structures["species"][structures["pairs"][:, 1]],
+            positions=batch["positions"],
+            cells=batch["cells"],
+            species=batch["species"],
+            cell_shifts=batch["cell_shifts"],
+            center_indices=batch["center_indices"],
+            neighbor_indices=batch["neighbor_indices"],
+            structure_pairs=batch["structure_pairs"],
+            center_species=batch["species"][batch["center_indices"]],
+            neighbor_species=batch["species"][batch["neighbor_indices"]],
         )
 
         # scaling the spherical harmonics in this way makes sure that each successive
@@ -163,13 +176,13 @@ class BaseModel(torch.nn.Module):
         spherical_harmonics = [sh * self.nu_scaling for sh in spherical_harmonics]
 
         # calculate the center embeddings; these are shared across all layers
-        center_species_indices = self.species_to_species_index[structures["species"]]
+        center_species_indices = self.species_to_species_index[batch["species"]]
         center_embeddings = self.embeddings(center_species_indices)
 
         initial_features = torch.ones(
             (n_atoms, 1, self.k_max_l[0]),
-            dtype=structures["positions"].dtype,
-            device=structures["positions"].device,
+            dtype=batch["positions"].dtype,
+            device=batch["positions"].device,
         )
         initial_element_embedding = embed_centers(
             [initial_features], center_embeddings
@@ -180,10 +193,8 @@ class BaseModel(torch.nn.Module):
         features = self.invariant_message_passer(
             radial_basis,
             spherical_harmonics,
-            structures["structure_offsets"][structures["structure_pairs"]]
-            + structures["pairs"][:, 0],
-            structures["structure_offsets"][structures["structure_pairs"]]
-            + structures["pairs"][:, 1],
+            batch["center_indices"],
+            batch["neighbor_indices"],
             n_atoms,
             initial_element_embedding,
         )
@@ -211,10 +222,8 @@ class BaseModel(torch.nn.Module):
             mp_features = message_passer(
                 radial_basis,
                 spherical_harmonics,
-                structures["structure_offsets"][structures["structure_pairs"]]
-                + structures["pairs"][:, 0],
-                structures["structure_offsets"][structures["structure_pairs"]]
-                + structures["pairs"][:, 1],
+                batch["center_indices"],
+                batch["neighbor_indices"],
                 embedded_features,
                 self.U_dict,
             )
@@ -333,50 +342,81 @@ class BaseModel(torch.nn.Module):
 
 
 class GradientModel(torch.nn.Module):
+    """
+    Wrapper around BaseModel that computes gradients with respect to positions and strain.
+
+    Uses batched tensor representation for torch.compile compatibility.
+    """
+
     def __init__(self, module) -> None:
         super().__init__()
         self.module = module
 
     def forward(
         self,
-        structures_as_list: List[List[torch.Tensor]],
+        batch: Dict[str, torch.Tensor],
         outputs_to_take_gradients_of: List[str],
     ):
         if len(outputs_to_take_gradients_of) == 0:
-            return self.module(structures_as_list)
+            return self.module(batch)
 
-        def compute_energy(params, buffers, input_tensors, output_name):
-            positions = input_tensors[: len(structures_as_list)]
-            strains = input_tensors[len(structures_as_list) :]
-            for i in range(len(structures_as_list)):
-                structures_as_list[i][0] = positions[i] @ strains[i]
-                structures_as_list[i][2] = structures_as_list[i][2] @ strains[i]
+        n_structures = len(batch["n_atoms"])
+        device = batch["positions"].device
+        dtype = batch["positions"].dtype
+
+        def compute_energy(params, buffers, positions, strains, output_name):
+            # Apply strain to positions and cells
+            # For each atom, get the strain matrix for its structure using structure_centers
+            # strains: [n_structures, 3, 3]
+            # structure_centers: [n_atoms] - maps each atom to its structure index
+            # positions: [n_atoms, 3]
+
+            # Get the strain matrix for each atom: [n_atoms, 3, 3]
+            atom_strains = strains[batch["structure_centers"]]
+
+            # Apply strain to positions: pos @ strain for each atom
+            # Using einsum: positions[i, j] * atom_strains[i, j, k] -> strained_positions[i, k]
+            strained_positions = torch.einsum("ij,ijk->ik", positions, atom_strains)
+
+            # Apply strain to cells: [n_structures, 3, 3] @ [n_structures, 3, 3]
+            strained_cells = torch.bmm(batch["cells"], strains)
+
+            # Create a modified batch with strained positions and cells
+            strained_batch = {
+                "positions": strained_positions,
+                "cells": strained_cells,
+                "species": batch["species"],
+                "cell_shifts": batch["cell_shifts"],
+                "center_indices": batch["center_indices"],
+                "neighbor_indices": batch["neighbor_indices"],
+                "structure_pairs": batch["structure_pairs"],
+            }
+
             predictions = functional_call(
-                self.module, (params, buffers), (structures_as_list,)
+                self.module, (params, buffers), (strained_batch,)
             )
             return predictions[output_name][0].sum(), predictions
 
-        compute_val_and_grad = grad(compute_energy, argnums=2, has_aux=True)
+        compute_val_and_grad = grad(compute_energy, argnums=(2, 3), has_aux=True)
 
         params = dict(self.module.named_parameters())
         buffers = dict(self.module.named_buffers())
-        positions = [s[0] for s in structures_as_list]
-        strains = [
-            torch.eye(3, device=s[0].device, dtype=s[0].dtype)
-            for s in structures_as_list
-        ]
-        tensors_to_differentiate = positions + strains
+
+        # Create strain tensors (one 3x3 identity per structure)
+        strains = torch.eye(3, device=device, dtype=dtype).unsqueeze(0).expand(
+            n_structures, -1, -1
+        ).clone()  # [n_structures, 3, 3]
 
         all_gradients = {}
         for output_name in outputs_to_take_gradients_of:
-            gradients, predictions = compute_val_and_grad(
-                params, buffers, tensors_to_differentiate, output_name
+            (pos_grad, strain_grads), predictions = compute_val_and_grad(
+                params, buffers, batch["positions"], strains, output_name
             )
             all_gradients[f"{output_name}__for"] = {
-                -1: -torch.concatenate(gradients[: len(structures_as_list)])
+                -1: -pos_grad  # Forces are negative gradient of energy
             }
             all_gradients[f"{output_name}__vir"] = {
-                -1: -torch.stack(gradients[len(structures_as_list) :])
+                -1: -strain_grads  # Virial/stress from strain gradient
             }
 
         predictions.update(all_gradients)
@@ -384,13 +424,19 @@ class GradientModel(torch.nn.Module):
 
 
 class FakeGradientModel(torch.nn.Module):
+    """
+    Wrapper around BaseModel that does not compute gradients.
+
+    Used during inference when gradients are not needed.
+    """
+
     def __init__(self, module) -> None:
         super().__init__()
         self.module = module
 
     def forward(
         self,
-        structures_as_list: List[List[torch.Tensor]],
+        batch: Dict[str, torch.Tensor],
         outputs_to_take_gradients_of: List[str],
     ):
-        return self.module(structures_as_list)
+        return self.module(batch)

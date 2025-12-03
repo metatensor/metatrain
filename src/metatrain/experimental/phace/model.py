@@ -21,7 +21,7 @@ from metatrain.experimental.phace.modules.base_model import (
     FakeGradientModel,
     GradientModel,
 )
-from metatrain.experimental.phace.utils import systems_to_list
+from metatrain.experimental.phace.utils import systems_to_batch_direct
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
@@ -199,34 +199,25 @@ class PhACE(ModelInterface[ModelHypers]):
                 for output_name, labels in self.property_labels.items()
             }
 
-        # compute sample labels
-        centers_list = []
-        structures_centers_list = []
-        for i, system in enumerate(systems):
-            centers_list.append(
-                torch.arange(len(system.positions), device=device, dtype=torch.int32)
-            )
-            structures_centers_list.append(
-                torch.tensor(
-                    [i] * len(system.positions), device=device, dtype=torch.int32
-                )
-            )
-        centers = torch.cat(centers_list, dim=0)
-        structure_centers = torch.cat(structures_centers_list, dim=0)
-        samples_values = torch.stack([structure_centers, centers], dim=1)
+        # Convert systems to batch format
+        neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
+        batch = systems_to_batch_direct(systems, neighbor_list_options)
+
+        # compute sample labels from batch
+        samples_values = torch.stack(
+            [batch["structure_centers"], batch["centers"]], dim=1
+        )
         samples = metatensor.torch.Labels(
             names=["system", "atom"],
             values=samples_values,
         )
 
-        neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
-        structures_as_list = systems_to_list(systems, neighbor_list_options)
         outputs_with_gradients: List[str] = []
         for output_name, output_info in outputs.items():
             if len(output_info.explicit_gradients) > 0:
                 outputs_with_gradients.append(output_name)
 
-        predictions = self.module(structures_as_list, outputs_with_gradients)
+        predictions = self.module(batch, outputs_with_gradients)
 
         return_dict: Dict[str, TensorMap] = {}
 
