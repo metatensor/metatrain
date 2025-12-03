@@ -111,7 +111,7 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 
 # %%
 #
-subprocess.run(["rm", "-rf", "outputs", "pet-mad-v1.1.0.ckpt*"], check=True)
+subprocess.run(["rm", "-rf", "outputs"], check=True)
 subprocess.run(
     [
         "wget",
@@ -121,7 +121,7 @@ subprocess.run(
 )
 
 subprocess.run(["mtt", "train", "options-ft.yaml", "-o", "model-ft.pt"], check=True)
-
+subprocess.run(["rm", "-rf", "pet-mad-v1.1.0.ckpt"], check=True)
 # %%
 #
 # After training, we can check if finetuning was successful.
@@ -204,7 +204,8 @@ plt.show()
 #
 
 # %%
-#
+# sphinx_gallery_capture_repr_block = ()
+np.seterr()
 targets = ase.io.read(
     "ethanol_reduced_100.xyz",
     format="extxyz",
@@ -212,24 +213,25 @@ targets = ase.io.read(
 )
 calc_ft = MetatomicCalculator(
     "model-ft.pt", variants={"energy": "finetune"}, extensions_directory=None
-)  # specify variant suffix here
+)
+# specify variant suffix here
+with np.errstate(invalid="ignore"):
+    e_targets = np.array(
+        [frame.get_total_energy() / len(frame) for frame in targets]
+    )  # target energies
+    f_targets = np.array(
+        [frame.get_forces().flatten() for frame in targets]
+    ).flatten()  # target forces
 
-e_targets = np.array(
-    [frame.get_total_energy() / len(frame) for frame in targets]
-)  # target energies
-f_targets = np.array(
-    [frame.get_forces().flatten() for frame in targets]
-).flatten()  # target forces
+    for frame in targets:
+        frame.calc = calc_ft
 
-for frame in targets:
-    frame.set_calculator(calc_ft)
-
-e_predictions = np.array(
-    [frame.get_total_energy() / len(frame) for frame in targets]
-)  # predicted energies
-f_predictions = np.array(
-    [frame.get_forces().flatten() for frame in targets]
-).flatten()  # predicted forces
+    e_predictions = np.array(
+        [frame.get_total_energy() / len(frame) for frame in targets]
+    )  # predicted energies
+    f_predictions = np.array(
+        [frame.get_forces().flatten() for frame in targets]
+    ).flatten()  # predicted forces
 
 fig, axs = plt.subplots(1, 2, figsize=(8, 4))
 
