@@ -12,7 +12,7 @@ from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 
 
-FixedCompositionWeights = dict[str, dict[int, float]]
+FixedCompositionWeights = dict[str, float | dict[int, float]]
 
 
 class BaseCompositionModel(torch.nn.Module):
@@ -271,6 +271,35 @@ class BaseCompositionModel(torch.nn.Module):
                     X, Y, dims=([0], [0])
                 )
 
+    def _sanitize_fixed_weights(
+        self,
+        fixed_weights: Optional[FixedCompositionWeights],
+    ) -> dict[str, dict[int, float]]:
+        """Sanitizes the input fixed composition weights to ensure that all targets
+        contain a dict of atomic types to weights.
+
+        This function converts something like `{"energy": 1.0}` to
+        `{"energy": {1: 1.0, 6: 1.0, 7: 1.0, 8: 1.0}}` if the atomic types are
+        `[1, 6, 7, 8]`.
+
+        :param fixed_weights: The raw fixed weights provided by the user.
+        :return: The sanitized fixed weights.
+        """
+        if fixed_weights is None:
+            return {}
+
+        sanitized_fixed_weights = {}
+        for target_name, weights in fixed_weights.items():
+            if isinstance(weights, float):
+                weights = {
+                    int(atomic_type): float(weights)
+                    for atomic_type in self.atomic_types.tolist()
+                }
+
+            sanitized_fixed_weights[target_name] = weights
+
+        return sanitized_fixed_weights
+
     def fit(
         self,
         fixed_weights: Optional[FixedCompositionWeights] = None,
@@ -280,18 +309,17 @@ class BaseCompositionModel(torch.nn.Module):
         Based on the pre-accumulated quantities from the training data, fits the
         compositions for each target.
 
-        :param fixed_weights: Optional dict of target names to dict of atomic types
-            to fixed weights. If provided, the weights for the specified atomic types
-            will be fixed to the provided values, and the weights for the other atomic
-            types will be fitted normally.
+        :param fixed_weights: Optional dict of target names to either (1) a sinlge
+            weight for all atomic_types or (2) a dict of atomic types to weights.
+            If provided, the specified weights will be fixed to the provided values,
+            and the weights for the other atomic types will be fitted normally.
         :param targets_to_fit: List of target names to fit. If `None`,
             all targets in the model will be fitted.
         """
         if targets_to_fit is None:
             targets_to_fit = self.target_names
 
-        if fixed_weights is None:
-            fixed_weights = {}
+        sanitized_fixed_weights = self._sanitize_fixed_weights(fixed_weights)
 
         # fit
         for target_name in targets_to_fit:
@@ -303,7 +331,7 @@ class BaseCompositionModel(torch.nn.Module):
                 XTX_values = XTX_block.values
                 XTY_values = XTY_block.values
 
-                if target_name in fixed_weights:
+                if target_name in sanitized_fixed_weights:
                     weight_vals = torch.vstack(
                         [
                             torch.full(
@@ -312,7 +340,7 @@ class BaseCompositionModel(torch.nn.Module):
                                     *[len(c) for c in XTY_block.components],
                                     len(XTY_block.properties),
                                 ),
-                                fixed_weights[target_name][int(atomic_type)],
+                                sanitized_fixed_weights[target_name][int(atomic_type)],
                                 dtype=XTY_values.dtype,
                                 device=XTY_values.device,
                             )

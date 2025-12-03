@@ -197,10 +197,11 @@ class CompositionModel(torch.nn.Module):
             removed from the targets before training.
         :param batch_size: The batch size to use for training.
         :param is_distributed: Whether to use distributed sampling for the dataloader.
-        :param fixed_weights: A dictionary specifying which targets should be treated as
-            fixed weights during training. The keys are target names, and the values are
-            dictionaries mapping atomic types to their fixed weights. If None, no
-            weights are treated as fixed.
+        :param fixed_weights: Optional dict of target names to either (1) a sinlge
+            weight for all atomic_types or (2) a dict of atomic types to weights.
+            If provided, the specified weights will be fixed to the provided values,
+            and the weights for the other atomic types will be fitted normally. If
+            ``None``, all weights will be fitted normally.
         """
 
         if not isinstance(datasets, list):

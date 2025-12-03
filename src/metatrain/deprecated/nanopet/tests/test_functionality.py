@@ -321,11 +321,11 @@ def test_output_per_atom():
     assert outputs["energy"].block().values.shape == (4, 1)
 
 
-def test_fixed_composition_weights():
-    """Tests the correctness of the json schema for fixed_composition_weights"""
+def test_atomic_baseline():
+    """Tests the correctness of the json schema for atomic_baseline"""
 
     hypers = DEFAULT_HYPERS.copy()
-    hypers["training"]["fixed_composition_weights"] = {
+    hypers["training"]["atomic_baseline"] = {
         "energy": {
             1: 1.0,
             6: 0.0,
@@ -340,10 +340,10 @@ def test_fixed_composition_weights():
     )
 
 
-def test_fixed_composition_weights_error():
+def test_atomic_baseline_error():
     """Test that only input of type Dict[str, Dict[int, float]] are allowed."""
     hypers = DEFAULT_HYPERS.copy()
-    hypers["training"]["fixed_composition_weights"] = {"energy": {"H": 300.0}}
+    hypers["training"]["atomic_baseline"] = {"energy": {"H": 300.0}}
     hypers = OmegaConf.create(hypers)
     with pytest.raises(
         MetatrainValidationError, match=r"Input should be a valid integer"

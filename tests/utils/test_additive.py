@@ -193,6 +193,82 @@ def test_composition_model_train(fixed_weights):
     )
 
 
+def test_composition_model_float_fixed_weight():
+    """Test that passing a single weight for all types works.
+
+    In particular, we test that passing 0.0 as the weight for
+    a target effectively disables the composition model.
+    """
+
+    systems = [
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+    energies = [2.0]
+    energies = [
+        TensorMap(
+            keys=Labels(names=["_"], values=torch.tensor([[0]])),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[e]], dtype=torch.float64),
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[],
+                    properties=Labels(names=["energy"], values=torch.tensor([[0]])),
+                )
+            ],
+        )
+        for i, e in enumerate(energies)
+    ]
+    dataset = Dataset.from_dict({"system": systems, "energy": energies})
+
+    composition_model = CompositionModel(
+        hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 8],
+            targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
+        ),
+    )
+
+    system_H = System(
+        positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+        types=torch.tensor([1]),
+        cell=torch.eye(3, dtype=torch.float64),
+        pbc=torch.tensor([True, True, True]),
+    )
+    system_O = System(
+        positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+        types=torch.tensor([8]),
+        cell=torch.eye(3, dtype=torch.float64),
+        pbc=torch.tensor([True, True, True]),
+    )
+
+    fixed_weights = {"energy": 0.0}
+
+    composition_model.train_model(
+        dataset, [], batch_size=1, is_distributed=False, fixed_weights=fixed_weights
+    )
+    assert composition_model.atomic_types == [1, 8]
+    output_H = composition_model(
+        [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+    )
+    torch.testing.assert_close(
+        output_H["energy"].block().values, torch.tensor([[0.0]], dtype=torch.float64)
+    )
+    output_O = composition_model(
+        [system_O], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+    )
+    torch.testing.assert_close(
+        output_O["energy"].block().values, torch.tensor([[0.0]], dtype=torch.float64)
+    )
+
+
 @pytest.mark.parametrize("device", ("cpu", "cuda"))
 def test_composition_model_predict(device):
     """Test the prediction of composition energies."""
