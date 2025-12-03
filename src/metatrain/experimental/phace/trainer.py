@@ -22,9 +22,6 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
-from metatrain.utils.distributed.distributed_data_parallel import (
-    DistributedDataParallel,
-)
 from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
@@ -347,11 +344,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.hypers["compile"]:
             compile_model(model, train_dataloader)
 
+        # For distributed training, we don't use DDP to avoid gradient bucketing
+        # which can break up the computational graph for the backward pass.
+        # Instead, we manually average gradients across processes.
         if is_distributed:
-            model = DistributedDataParallel(model, device_ids=[device])
+            world_size = torch.distributed.get_world_size()
 
         # Extract all the possible outputs and their gradients:
-        train_targets = (model.module if is_distributed else model).dataset_info.targets
+        train_targets = model.dataset_info.targets
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -383,7 +383,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not model.has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a learning rate scheduler
@@ -391,7 +391,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not model.has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         # per-atom targets:
@@ -448,6 +448,15 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 train_loss_batch.backward()
+
+                # In distributed training, manually average gradients across processes
+                # instead of using DDP to avoid gradient bucketing breaking the graph
+                if is_distributed:
+                    for param in model.parameters():
+                        if param.grad is not None:
+                            torch.distributed.all_reduce(param.grad)
+                            param.grad /= world_size
+
                 if self.hypers["gradient_clipping"] is not None:
                     torch.nn.utils.clip_grad_norm_(
                         model.parameters(), self.hypers["gradient_clipping"]
@@ -460,10 +469,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                scaled_predictions = (model.module if is_distributed else model).scaler(
+                scaled_predictions = model.scaler(
                     systems, predictions
                 )
-                scaled_targets = (model.module if is_distributed else model).scaler(
+                scaled_targets = model.scaler(
                     systems, targets
                 )
                 train_rmse_calculator.update(
@@ -520,10 +529,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         # sum the loss over all processes
                         torch.distributed.all_reduce(val_loss_batch)
                     val_loss += val_loss_batch.item()
-                    scaled_predictions = (
-                        model.module if is_distributed else model
-                    ).scaler(systems, predictions)
-                    scaled_targets = (model.module if is_distributed else model).scaler(
+                    scaled_predictions = model.scaler(systems, predictions)
+                    scaled_targets = model.scaler(
                         systems, targets
                     )
                     val_rmse_calculator.update(
@@ -556,9 +563,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             if epoch == start_epoch:
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
-                    dataset_info=(
-                        model.module if is_distributed else model
-                    ).dataset_info,
+                    dataset_info=model.dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
                 )
@@ -575,9 +580,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
             if val_metric < self.best_metric:
                 self.best_metric = val_metric
-                self.best_model_state_dict = copy.deepcopy(
-                    (model.module if is_distributed else model).state_dict()
-                )
+                self.best_model_state_dict = copy.deepcopy(model.state_dict())
                 self.best_epoch = epoch
                 self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 
@@ -588,9 +591,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 self.scheduler_state_dict = lr_scheduler.state_dict()
                 self.epoch = epoch
                 if rank == 0:
-                    model.load_state_dict(
-                        (model.module if is_distributed else model).state_dict()
-                    )
                     self.save_checkpoint(
                         model,
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",

@@ -18,9 +18,13 @@ class BaseModel(torch.nn.Module):
         super().__init__()
         self.atomic_types = dataset_info.atomic_types
         self.hypers = hypers
-        self.mp_scaling = hypers["mp_scaling"]
+        # Store scaling values for passing to submodules
+        mp_scaling_value = hypers["mp_scaling"]
+        nu_scaling_value = hypers["nu_scaling"]
+        # Register scaling factors as buffers for efficiency
+        self.register_buffer("mp_scaling", torch.tensor(mp_scaling_value))
         self.nu_max = hypers["max_correlation_order_per_layer"]
-        self.nu_scaling = hypers["nu_scaling"]
+        self.register_buffer("nu_scaling", torch.tensor(nu_scaling_value))
         self.head_num_layers = hypers["head_num_layers"]
         self.spherical_linear_layers = hypers["spherical_linear_layers"]
 
@@ -87,7 +91,7 @@ class BaseModel(torch.nn.Module):
         # The message passing is invariant for the first layer
         self.invariant_message_passer = InvariantMessagePasser(
             self.atomic_types,
-            self.mp_scaling,
+            mp_scaling_value,
             hypers["disable_nu_0"],
             self.precomputer.n_max_l,
             self.k_max_l,
@@ -110,7 +114,7 @@ class BaseModel(torch.nn.Module):
             equivariant_message_passer = EquivariantMessagePasser(
                 self.precomputer.n_max_l,
                 self.k_max_l,
-                self.mp_scaling,
+                mp_scaling_value,
                 self.spherical_linear_layers,
             )
             equivariant_message_passers.append(equivariant_message_passer)

@@ -25,7 +25,8 @@ class InvariantMessagePasser(torch.nn.Module):
         self.l_max = len(self.n_max_l) - 1
         self.irreps_out = [(l, 1) for l in range(self.l_max + 1)]  # noqa: E741
 
-        self.mp_scaling = mp_scaling
+        # Register mp_scaling as a buffer for efficiency
+        self.register_buffer("mp_scaling", torch.tensor(mp_scaling))
         self.disable_nu_0 = disable_nu_0
 
     def forward(
@@ -82,7 +83,8 @@ class EquivariantMessagePasser(torch.nn.Module):
         self.k_max_l = k_max_l
         self.l_max = len(self.n_max_l) - 1
 
-        self.mp_scaling = mp_scaling
+        # Register mp_scaling as a buffer for efficiency
+        self.register_buffer("mp_scaling", torch.tensor(mp_scaling))
         self.padded_l_list = [2 * ((l + 1) // 2) for l in range(self.l_max + 1)]  # noqa: E741
 
         self.linear = Linear(self.k_max_l, spherical_linear_layers)
