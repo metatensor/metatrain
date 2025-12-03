@@ -141,20 +141,19 @@ class Precomputer(torch.nn.Module):
         cells,
         species,
         cell_shifts,
-        pairs,
+        center_indices,
+        neighbor_indices,
         structure_pairs,
-        structure_offsets,
         center_species,
         neighbor_species,
     ):
         cartesian_vectors = get_cartesian_vectors(
             positions,
             cells,
-            species,
             cell_shifts,
-            pairs,
+            center_indices,
+            neighbor_indices,
             structure_pairs,
-            structure_offsets,
         )
 
         r = torch.sqrt((cartesian_vectors**2).sum(dim=-1))
@@ -189,20 +188,22 @@ class Precomputer(torch.nn.Module):
 
 
 def get_cartesian_vectors(
-    positions, cells, species, cell_shifts, pairs, structure_pairs, structure_offsets
+    positions, cells, cell_shifts, center_indices, neighbor_indices, structure_pairs
 ):
     """
-    Wraps direction vectors into TensorBlock object with metadata information
-    """
+    Calculate direction vectors between center and neighbor atoms.
 
-    # calculate interatomic vectors
-    pairs_offsets = structure_offsets[structure_pairs]
-    shifted_pairs = pairs_offsets[:, None] + pairs
-    shifted_pairs_i = shifted_pairs[:, 0]
-    shifted_pairs_j = shifted_pairs[:, 1]
+    :param positions: Atomic positions [N_total, 3]
+    :param cells: Unit cells [N_structures, 3, 3]
+    :param cell_shifts: Cell shift vectors [N_pairs, 3]
+    :param center_indices: Global center indices [N_pairs]
+    :param neighbor_indices: Global neighbor indices [N_pairs]
+    :param structure_pairs: Structure index for each pair [N_pairs]
+    :return: Direction vectors from center to neighbor [N_pairs, 3]
+    """
     direction_vectors = (
-        positions[shifted_pairs_j]
-        - positions[shifted_pairs_i]
+        positions[neighbor_indices]
+        - positions[center_indices]
         + torch.einsum(
             "ab, abc -> ac", cell_shifts.to(cells.dtype), cells[structure_pairs]
         )
