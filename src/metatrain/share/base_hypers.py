@@ -90,6 +90,7 @@ class CartesianTargetTypeHypers(TypedDict):
 class SphericalTargetIrrepsConfig(TypedDict):
     o3_lambda: int
     o3_sigma: float
+    n_centers: int
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))

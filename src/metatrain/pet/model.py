@@ -23,7 +23,7 @@ from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.pad import get_pair_sample_labels
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
-from metatrain.utils.matrix import transpose_tensormap
+from metatrain.utils.matrix import read_basis_set, transpose_tensormap
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
@@ -77,6 +77,21 @@ class PET(ModelInterface[ModelHypers]):
         self.activation = self.hypers["activation"]
         self.transformer_type = self.hypers["transformer_type"]
         self.featurizer_type = self.hypers["featurizer_type"]
+        self.basis_set: Dict[str, int] = {}
+        if self.hypers.get("basis_set") is not None:
+            basis_set = read_basis_set(self.hypers["basis_set"])
+            basis_types = [int(key.split("_")[1]) for key in basis_set]
+            assert all(
+                [
+                    atomic_type in basis_types
+                    for atomic_type in dataset_info.atomic_types
+                ]
+            ), (
+                "All atomic types in the dataset must be present"
+                f" in the basis set. Types in basis set: {basis_types},"
+                f" types in dataset: {dataset_info.atomic_types}"
+            )
+            self.basis_set = basis_set
 
         self.atomic_types = dataset_info.atomic_types
         self.requested_nl = NeighborListOptions(

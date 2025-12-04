@@ -211,6 +211,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         get_pad_samples_transform(
                             spherical_per_atom_targets,
                             requested_neighbor_lists[0],
+                            basis_set=model.basis_set,
+                            dtype=dtype,
+                            device=device,
                         ),
                         get_create_dynamic_target_mask_transform(dynamic_mask_targets),
                     ],
@@ -267,14 +270,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.hypers["scale_targets"]:
             if self.hypers["rescale_predictions"]:
                 logging.info("Training with rescaled predictions (physical units)")
-                # the predictions will be rescaled to have physical units, so the targets
-                # shouldn't be scaled in the collate fn (i.e. don't use the remove scale
-                # transform)
+                # the predictions will be rescaled to have physical units, so the
+                # targets shouldn't be scaled in the collate fn (i.e. don't use the
+                # remove scale transform)
                 remove_scale_transform = []
             else:
                 logging.info("Training with scaled predictions (scaled units)")
-                # the predictions will have scaled units, so the targets need to be scaled
-                # in the collate fn (i.e. use the remove scale transform)
+                # the predictions will have scaled units, so the targets need to be
+                # scaled in the collate fn (i.e. use the remove scale transform)
                 remove_scale_transform = [get_remove_scale_transform(scaler)]
         else:
             # no scales are computed, so they don't need to be removed from the targets
@@ -288,11 +291,15 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_pad_samples_transform(
                     spherical_per_atom_targets,
                     requested_neighbor_lists[0],
+                    basis_set=model.basis_set,
+                    dtype=dtype,
+                    device=device,
                 ),
-                # rotational_augmenter.apply_random_augmentations,
+                rotational_augmenter.apply_random_augmentations,
                 get_create_dynamic_target_mask_transform(dynamic_mask_targets),
                 get_remove_additive_transform(additive_models, train_targets),
-            ] + remove_scale_transform,
+            ]
+            + remove_scale_transform,
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
@@ -302,10 +309,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_pad_samples_transform(
                     spherical_per_atom_targets,
                     requested_neighbor_lists[0],
+                    basis_set=model.basis_set,
+                    dtype=dtype,
+                    device=device,
                 ),
                 get_create_dynamic_target_mask_transform(dynamic_mask_targets),
                 get_remove_additive_transform(additive_models, train_targets),
-            ] + remove_scale_transform,
+            ]
+            + remove_scale_transform,
         )
 
         # Create dataloader for the training datasets:
@@ -493,13 +504,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                if self.hypers["scale_targets"] and not self.hypers["rescale_predictions"]:
+                if (
+                    self.hypers["scale_targets"]
+                    and not self.hypers["rescale_predictions"]
+                ):
                     # if the targets have been scaled and the predictions are in scaled
                     # units, scale both predictions and targets up to physical units for
                     # calculation of metrics
-                    scaled_predictions = (model.module if is_distributed else model).scaler(
-                        systems, predictions
-                    )
+                    scaled_predictions = (
+                        model.module if is_distributed else model
+                    ).scaler(systems, predictions)
                     scaled_targets = (model.module if is_distributed else model).scaler(
                         systems, targets
                     )
@@ -508,7 +522,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     # ready for calculation of metrics
                     scaled_predictions = predictions
                     scaled_targets = targets
-                    
+
                 train_rmse_calculator.update(
                     scaled_predictions, scaled_targets, extra_data
                 )
@@ -561,13 +575,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
 
-                if self.hypers["scale_targets"] and not self.hypers["rescale_predictions"]:
+                if (
+                    self.hypers["scale_targets"]
+                    and not self.hypers["rescale_predictions"]
+                ):
                     # if the targets have been scaled and the predictions are in scaled
                     # units, scale both predictions and targets up to physical units for
                     # calculation of metrics
-                    scaled_predictions = (model.module if is_distributed else model).scaler(
-                        systems, predictions
-                    )
+                    scaled_predictions = (
+                        model.module if is_distributed else model
+                    ).scaler(systems, predictions)
                     scaled_targets = (model.module if is_distributed else model).scaler(
                         systems, targets
                     )

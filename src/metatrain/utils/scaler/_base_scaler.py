@@ -6,9 +6,9 @@ The class ``Scaler`` wraps this to be compatible with metatrain-style objects.
 import logging
 from typing import Dict, List, Optional, Union
 
-import torch
 import metatensor.torch as mts
-from metatensor.torch import LabelsEntry, Labels, TensorBlock, TensorMap
+import torch
+from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
 from metatomic.torch import System
 
 
@@ -218,7 +218,6 @@ class BaseScaler(torch.nn.Module):
                 mask = extra_data[target_name + "_mask"]
 
             for key, block in target.items():
-
                 if not _include_key(key):
                     continue
 
@@ -451,7 +450,6 @@ class BaseScaler(torch.nn.Module):
 
             prediction_blocks: List[TensorBlock] = []
             for key, output_block in output_tmap.items():
-
                 if not _include_key(key):
                     # no scaling to be applied, just copy the block
                     prediction_blocks.append(output_block)

@@ -130,6 +130,8 @@ class ModelHypers(TypedDict):
     """Use ZBL potential for short-range repulsion"""
     long_range: LongRangeHypers = init_with_defaults(LongRangeHypers)
     """Long-range Coulomb interactions parameters."""
+    basis_set: str = ""
+    """Atomic orbital or auxiliary basis set definition for properties on a basis."""
 
 
 class TrainerHypers(TypedDict):
@@ -165,6 +167,10 @@ class TrainerHypers(TypedDict):
     :meth:`CompositionModel.train_model
     <metatrain.utils.additive.composition.CompositionModel.train_model>`,
     see its documentation to understand exactly what to pass here.
+    """
+    rescale_predictions: bool = False
+    """Rescale model predictions back to original target scale
+    during training and evaluation.
     """
     remove_composition_contribution: bool = True
     """Whether to remove the atomic composition contribution from the

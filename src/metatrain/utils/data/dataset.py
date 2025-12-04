@@ -41,6 +41,7 @@ from metatrain.utils.data.target_info import (
     get_generic_target_info,
 )
 from metatrain.utils.external_naming import to_external_name
+from metatrain.utils.matrix import Blocks2Matrix
 from metatrain.utils.units import get_gradient_units
 
 
@@ -440,6 +441,9 @@ class CollateFn:
 def get_pad_samples_transform(
     target_names: List[str],
     nl_options: NeighborListOptions,
+    basis_set: Optional[Dict[str, int]] = None,
+    dtype: Optional[torch.dtype] = None,
+    device: Optional[torch.device] = None,
 ) -> Callable:
     """
     Get a function that pads the samples of spherical per-atom and per-pair targets
@@ -452,6 +456,14 @@ def get_pad_samples_transform(
     :return: A function that takes in systems, targets and extra data, and returns the
         systems, targets and extra data with padded samples.
     """
+    if basis_set is None:
+        b2m = None
+    else:
+        b2m = Blocks2Matrix(
+            basis_set,
+            dtype=dtype,
+            device=device,
+        )
 
     def transform(
         systems: List[System],
@@ -498,14 +510,21 @@ def get_pad_samples_transform(
                         f"{target.sample_names} for padding."
                     )
 
-                padded_blocks.append(
-                    pad_block(
-                        block,
-                        "samples",
-                        padded_sample_labels,
-                        pad_value=torch.nan,
-                    )
+                padded_block = pad_block(
+                    block,
+                    "samples",
+                    padded_sample_labels,
+                    pad_value=torch.nan,
                 )
+                if b2m is not None:
+                    orbital_mask_block = b2m.build_orbital_mask_block(
+                        systems, key, padded_block
+                    )
+                    implicit_zeros = (padded_block.values.isnan()) & (
+                        orbital_mask_block.values == 1.0
+                    )
+                    padded_block.values[implicit_zeros] = 0.0
+                padded_blocks.append(padded_block)
 
             targets[name] = TensorMap(target.keys, padded_blocks)
 

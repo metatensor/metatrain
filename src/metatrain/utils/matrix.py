@@ -2,7 +2,7 @@ from typing import Dict, List, Optional, Tuple
 
 import torch
 from featomic.torch.clebsch_gordan import calculate_cg_coefficients
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
 from metatomic.torch import System
 
 
@@ -140,7 +140,6 @@ class Blocks2Matrix(torch.nn.Module):
 
     Precompute CG blocks and normalize input maps.
     :param basis_set: Basis set for the matrices
-    :param o3_lambda_max: Maximum o3_lambda in the basis set
     :param dtype: Data type for internal computations
     :param device: Device for internal computations
     """
@@ -150,8 +149,7 @@ class Blocks2Matrix(torch.nn.Module):
 
     def __init__(
         self,
-        basis_set: Dict[Tuple[int, int], int],
-        o3_lambda_max: int,
+        basis_set: Dict[str, int],
         *,
         dtype,
         device,
@@ -159,12 +157,16 @@ class Blocks2Matrix(torch.nn.Module):
         super().__init__()
 
         # keep a string-keyed local version of basis_set for forward to use
-        self.basis_set: Dict[str, int] = {
-            f"{k[0]}_{k[1]}": v for k, v in basis_set.items()
-        }
+        self.basis_set: Dict[str, int] = basis_set
 
         # Build coupled_basis_set
-        raw_coupled = get_coupled_basis_set(basis_set, True)
+        raw_coupled = get_coupled_basis_set(
+            {
+                (int(k.split("_")[0]), int(k.split("_")[1])): v
+                for k, v in basis_set.items()
+            },
+            True,
+        )
         cb: Dict[str, List[List[int]]] = {}
         for k, v in raw_coupled.items():
             # k presumably (lambda, sigma, n_centers), v is list of (Zi, Zj)
@@ -174,6 +176,7 @@ class Blocks2Matrix(torch.nn.Module):
         self.coupled_basis_set: Dict[str, List[List[int]]] = cb
 
         # Precompute CG coefficient blocks for all lambda up to 2*o3_lambda_max
+        o3_lambda_max = max([int(key.split("_")[0]) for key in basis_set])
         cg = calculate_cg_coefficients(
             o3_lambda_max * 2,
             cg_backend="python-dense",
@@ -206,8 +209,8 @@ class Blocks2Matrix(torch.nn.Module):
         self._cg_cache: Dict[str, torch.Tensor] = cg_cache
 
         # Precompute basis_table (l,Z) -> max_n
-        max_l = max(k[0] for k in basis_set.keys())
-        max_Z = max(k[1] for k in basis_set.keys())
+        max_l = max(int(k.split("_")[0]) for k in basis_set.keys())
+        max_Z = max(int(k.split("_")[1]) for k in basis_set.keys())
         self._basis_table = torch.full(
             (max_l + 1, max_Z + 1), -1, dtype=torch.long, device=device
         )
@@ -223,161 +226,168 @@ class Blocks2Matrix(torch.nn.Module):
         self._device = device
 
     @torch.jit.export
+    def build_orbital_mask_block(
+        self,
+        systems: List[System],
+        key: LabelsEntry,
+        block: TensorBlock,
+    ) -> TensorBlock:
+        basis_table = self._basis_table
+
+        o3_lambda = int(key["o3_lambda"])
+        o3_sigma = int(key["o3_sigma"])
+
+        mask_values = torch.zeros_like(block.values)
+
+        samples = block.samples.values
+        props = block.properties.values
+        S = samples.shape[0]
+        P = props.shape[0]
+
+        if S == 0 or P == 0:
+            return TensorBlock(
+                samples=block.samples,
+                components=block.components,
+                properties=block.properties,
+                values=mask_values,
+            )
+
+        # Precompute sample info
+        samples_A = samples[:, 0].to(torch.long)
+        samples_i1 = samples[:, 1].to(torch.long)
+        samples_i2 = samples[:, 2].to(torch.long)
+
+        Z_1 = torch.empty((S,), dtype=torch.long, device=samples.device)
+        Z_2 = torch.empty((S,), dtype=torch.long, device=samples.device)
+
+        # Fill Z_1/Z_2 per system
+        sys_seen: List[int] = []
+        for idx in range(S):
+            Ai = int(samples_A[idx].item())
+            if Ai not in sys_seen:
+                sys_seen.append(Ai)
+        for Ai in sys_seen:
+            pos_mask = samples_A == Ai
+            idxs = torch.nonzero(pos_mask).squeeze(1)
+            if idxs.numel() == 0:
+                continue
+
+            # NOTE: caching here creates problems if b2m is used across different
+            # batches, as the cache based on system index may not be valid anymore.
+            # Disabling for now.
+
+            # cache system types if not already
+            # if Ai not in self._cached_system_types:
+            #     self._cached_system_types[Ai] = systems[Ai].types.to(torch.long)
+            # types_tensor = self._cached_system_types[Ai]
+
+            types_tensor = systems[Ai].types.to(torch.long)
+            Z_1[idxs] = types_tensor[samples_i1[idxs]]
+            Z_2[idxs] = types_tensor[samples_i2[idxs]]
+
+        # Extract properties
+        l1s = torch.tensor(
+            [int(p[0].item()) for p in props],
+            dtype=torch.long,
+            device=samples.device,
+        )
+        l2s = torch.tensor(
+            [int(p[1].item()) for p in props],
+            dtype=torch.long,
+            device=samples.device,
+        )
+        n1s = torch.tensor(
+            [int(p[2].item()) for p in props],
+            dtype=torch.long,
+            device=samples.device,
+        )
+        n2s = torch.tensor(
+            [int(p[3].item()) for p in props],
+            dtype=torch.long,
+            device=samples.device,
+        )
+
+        # Parity and n_centers
+        parity_ok = (-1) ** (l1s + l2s + o3_lambda) == o3_sigma
+        skip_prop = torch.zeros_like(parity_ok, dtype=torch.bool)
+        if key["n_centers"] == 1 and o3_sigma == -1:
+            skip_prop[:] = True
+        valid_prop_mask = parity_ok & (~skip_prop)
+        if not valid_prop_mask.any().item():
+            return TensorBlock(
+                samples=block.samples,
+                components=block.components,
+                properties=block.properties,
+                values=mask_values,
+            )
+
+        # Expand for vectorized checks
+        l1_expand = l1s.unsqueeze(0).expand(S, P)
+        l2_expand = l2s.unsqueeze(0).expand(S, P)
+        n1_expand = n1s.unsqueeze(0).expand(S, P)
+        n2_expand = n2s.unsqueeze(0).expand(S, P)
+        Z1_expand = Z_1.unsqueeze(1).expand(S, P)
+        Z2_expand = Z_2.unsqueeze(1).expand(S, P)
+
+        # Safe indexing
+        in_l1 = (l1_expand >= 0) & (l1_expand < basis_table.shape[0])
+        in_l2 = (l2_expand >= 0) & (l2_expand < basis_table.shape[0])
+        in_Z1 = (Z1_expand >= 0) & (Z1_expand < basis_table.shape[1])
+        in_Z2 = (Z2_expand >= 0) & (Z2_expand < basis_table.shape[1])
+
+        allowed_n1 = torch.full((S, P), -1, dtype=torch.long, device=samples.device)
+        allowed_n2 = torch.full((S, P), -1, dtype=torch.long, device=samples.device)
+
+        ok1 = in_l1 & in_Z1
+        ok2 = in_l2 & in_Z2
+
+        if ok1.any().item():
+            idxs1 = torch.nonzero(ok1).t()
+            allowed_n1[idxs1[0], idxs1[1]] = basis_table[
+                l1_expand[idxs1[0], idxs1[1]], Z1_expand[idxs1[0], idxs1[1]]
+            ]
+        if ok2.any().item():
+            idxs2 = torch.nonzero(ok2).t()
+            allowed_n2[idxs2[0], idxs2[1]] = basis_table[
+                l2_expand[idxs2[0], idxs2[1]], Z2_expand[idxs2[0], idxs2[1]]
+            ]
+
+        # Final mask
+        valid_mask = (allowed_n1 > n1_expand) & (allowed_n2 > n2_expand)
+        valid_mask = valid_mask & valid_prop_mask.unsqueeze(0).expand(S, P)
+
+        if valid_mask.any().item():
+            if mask_values.dim() == 2:
+                mask_values[valid_mask] = 1.0
+            else:
+                # reshape middle dims
+                S_dim = mask_values.shape[0]
+                P_dim = mask_values.shape[-1]
+                M = 1
+                for d in mask_values.shape[1:-1]:
+                    M *= d
+                mid = mask_values.view(S_dim, M, P_dim)
+                nonzero = torch.nonzero(valid_mask)
+                S_idx, P_idx = nonzero[:, 0], nonzero[:, 1]
+                mid[S_idx, :, P_idx] = 1.0
+                mask_values = mid.view(mask_values.shape)
+
+        return TensorBlock(
+            samples=block.samples,
+            components=block.components,
+            properties=block.properties,
+            values=mask_values,
+        )
+
+    @torch.jit.export
     def build_orbital_mask(
         self,
         systems: List[System],
         tensor: TensorMap,
     ) -> TensorMap:
         mask_blocks: List[TensorBlock] = []
-
-        basis_table = self._basis_table
-
-        for k, b in tensor.items():
-            o3_lambda = int(k["o3_lambda"])
-            o3_sigma = int(k["o3_sigma"])
-
-            mask_values = torch.zeros_like(b.values)
-
-            samples = b.samples.values
-            props = b.properties.values
-            S = samples.shape[0]
-            P = props.shape[0]
-
-            if S == 0 or P == 0:
-                mask_blocks.append(
-                    TensorBlock(
-                        samples=b.samples,
-                        components=b.components,
-                        properties=b.properties,
-                        values=mask_values,
-                    )
-                )
-                continue
-
-            # Precompute sample info
-            samples_A = samples[:, 0].to(torch.long)
-            samples_i1 = samples[:, 1].to(torch.long)
-            samples_i2 = samples[:, 2].to(torch.long)
-
-            Z_1 = torch.empty((S,), dtype=torch.long, device=samples.device)
-            Z_2 = torch.empty((S,), dtype=torch.long, device=samples.device)
-
-            # Fill Z_1/Z_2 per system
-            sys_seen: List[int] = []
-            for idx in range(S):
-                Ai = int(samples_A[idx].item())
-                if Ai not in sys_seen:
-                    sys_seen.append(Ai)
-            for Ai in sys_seen:
-                pos_mask = samples_A == Ai
-                idxs = torch.nonzero(pos_mask).squeeze(1)
-                if idxs.numel() == 0:
-                    continue
-                # cache system types if not already
-                if Ai not in self._cached_system_types:
-                    self._cached_system_types[Ai] = systems[Ai].types.to(torch.long)
-                types_tensor = self._cached_system_types[Ai]
-                Z_1[idxs] = types_tensor[samples_i1[idxs]]
-                Z_2[idxs] = types_tensor[samples_i2[idxs]]
-
-            # Extract properties
-            l1s = torch.tensor(
-                [int(p[0].item()) for p in props],
-                dtype=torch.long,
-                device=samples.device,
-            )
-            l2s = torch.tensor(
-                [int(p[1].item()) for p in props],
-                dtype=torch.long,
-                device=samples.device,
-            )
-            n1s = torch.tensor(
-                [int(p[2].item()) for p in props],
-                dtype=torch.long,
-                device=samples.device,
-            )
-            n2s = torch.tensor(
-                [int(p[3].item()) for p in props],
-                dtype=torch.long,
-                device=samples.device,
-            )
-
-            # Parity and n_centers
-            parity_ok = (-1) ** (l1s + l2s + o3_lambda) == o3_sigma
-            skip_prop = torch.zeros_like(parity_ok, dtype=torch.bool)
-            if k["n_centers"] == 1 and o3_sigma == -1:
-                skip_prop[:] = True
-            valid_prop_mask = parity_ok & (~skip_prop)
-            if not valid_prop_mask.any().item():
-                mask_blocks.append(
-                    TensorBlock(
-                        samples=b.samples,
-                        components=b.components,
-                        properties=b.properties,
-                        values=mask_values,
-                    )
-                )
-                continue
-
-            # Expand for vectorized checks
-            l1_expand = l1s.unsqueeze(0).expand(S, P)
-            l2_expand = l2s.unsqueeze(0).expand(S, P)
-            n1_expand = n1s.unsqueeze(0).expand(S, P)
-            n2_expand = n2s.unsqueeze(0).expand(S, P)
-            Z1_expand = Z_1.unsqueeze(1).expand(S, P)
-            Z2_expand = Z_2.unsqueeze(1).expand(S, P)
-
-            # Safe indexing
-            in_l1 = (l1_expand >= 0) & (l1_expand < basis_table.shape[0])
-            in_l2 = (l2_expand >= 0) & (l2_expand < basis_table.shape[0])
-            in_Z1 = (Z1_expand >= 0) & (Z1_expand < basis_table.shape[1])
-            in_Z2 = (Z2_expand >= 0) & (Z2_expand < basis_table.shape[1])
-
-            allowed_n1 = torch.full((S, P), -1, dtype=torch.long, device=samples.device)
-            allowed_n2 = torch.full((S, P), -1, dtype=torch.long, device=samples.device)
-
-            ok1 = in_l1 & in_Z1
-            ok2 = in_l2 & in_Z2
-
-            if ok1.any().item():
-                idxs1 = torch.nonzero(ok1).t()
-                allowed_n1[idxs1[0], idxs1[1]] = basis_table[
-                    l1_expand[idxs1[0], idxs1[1]], Z1_expand[idxs1[0], idxs1[1]]
-                ]
-            if ok2.any().item():
-                idxs2 = torch.nonzero(ok2).t()
-                allowed_n2[idxs2[0], idxs2[1]] = basis_table[
-                    l2_expand[idxs2[0], idxs2[1]], Z2_expand[idxs2[0], idxs2[1]]
-                ]
-
-            # Final mask
-            valid_mask = (allowed_n1 > n1_expand) & (allowed_n2 > n2_expand)
-            valid_mask = valid_mask & valid_prop_mask.unsqueeze(0).expand(S, P)
-
-            if valid_mask.any().item():
-                if mask_values.dim() == 2:
-                    mask_values[valid_mask] = 1.0
-                else:
-                    # reshape middle dims
-                    S_dim = mask_values.shape[0]
-                    P_dim = mask_values.shape[-1]
-                    M = 1
-                    for d in mask_values.shape[1:-1]:
-                        M *= d
-                    mid = mask_values.view(S_dim, M, P_dim)
-                    nonzero = torch.nonzero(valid_mask)
-                    S_idx, P_idx = nonzero[:, 0], nonzero[:, 1]
-                    mid[S_idx, :, P_idx] = 1.0
-                    mask_values = mid.view(mask_values.shape)
-
-            mask_blocks.append(
-                TensorBlock(
-                    samples=b.samples,
-                    components=b.components,
-                    properties=b.properties,
-                    values=mask_values,
-                )
-            )
+        for key, block in tensor.items():
+            mask_blocks.append(self.build_orbital_mask_block(systems, key, block))
 
         return TensorMap(tensor.keys, mask_blocks)
 
@@ -565,3 +575,32 @@ class Blocks2Matrix(torch.nn.Module):
             dense_list.append(H_dense)
 
         return dense_list
+
+
+def read_basis_set(path: str) -> Dict[str, int]:
+    """
+    Reads the basis set from file.
+
+    Assumes it has the following format:
+
+        # o3_lambda center_type n_radial
+        0 1 5
+        1 1 10
+        ...
+
+    and returns it in a dict of the form:
+
+        {
+            "{o3_lambda}_{center_type}": n_radial,
+            ...
+        }
+    """
+    with open(path, "r") as f:
+        lines = f.readlines()
+        assert lines[0].split() == "# o3_lambda center_type n_radial".split()
+    basis_set = {}
+    for line in lines[1:]:
+        o3_lambda, center_type, n_radial = line.split()
+        basis_set[(int(o3_lambda), int(center_type))] = int(n_radial)
+
+    return {f"{k[0]}_{k[1]}": v for k, v in basis_set.items()}
