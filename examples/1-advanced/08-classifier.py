@@ -89,7 +89,9 @@ ase.io.write("carbon_allotropes.xyz", structures)
 # for our classifier. We will use PET-MAD, a universal interatomic potential for
 # materials and molecules.
 
-PET_MAD_URL = "https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.0.2/models/pet-mad-v1.0.2.ckpt"
+PET_MAD_URL = (
+    "https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.0.2/models/pet-mad-v1.0.2.ckpt"
+)
 
 subprocess.run(["wget", PET_MAD_URL], check=True)
 
@@ -171,7 +173,7 @@ plt.title("Classifier Accuracy per Class")
 plt.ylim(0, 105)
 
 # Add value labels on top of bars
-for bar, acc in zip(bars, accuracies):
+for bar, acc in zip(bars, accuracies, strict=True):
     plt.text(
         bar.get_x() + bar.get_width() / 2,
         bar.get_height() + 2,
