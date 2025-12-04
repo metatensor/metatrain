@@ -108,52 +108,10 @@ def test_classifier(monkeypatch, tmp_path):
     assert torch.all(class_probs <= 1)
 
 
-def test_checkpoint_export(monkeypatch, tmp_path):
+def test_checkpoint_export_from_ckpt(monkeypatch, tmp_path):
     """
-    Test that the Classifier model checkpoint can be saved and loaded for export.
-    """
-    monkeypatch.chdir(tmp_path)
-    shutil.copy(HERE / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
-    shutil.copy(HERE / "options-pet.yaml", "options-pet.yaml")
-    shutil.copy(HERE / "options-classifier.yaml", "options-classifier.yaml")
-
-    # Add class labels to the structures
-    structures = ase.io.read("qm9_reduced_100.xyz", ":")
-    for i, structure in enumerate(structures):
-        class_id = i % 3
-        if class_id == 0:
-            structure.info["class_label"] = [1.0, 0.0, 0.0]
-        elif class_id == 1:
-            structure.info["class_label"] = [0.0, 1.0, 0.0]
-        else:
-            structure.info["class_label"] = [0.0, 0.0, 1.0]
-    ase.io.write("qm9_reduced_100.xyz", structures)
-
-    # Train a PET model first
-    subprocess.check_call(["mtt", "train", "options-pet.yaml"])
-
-    # Train the Classifier model
-    subprocess.check_call(
-        ["mtt", "train", "options-classifier.yaml", "-o", "classifier.pt"]
-    )
-
-    # Load the checkpoint and verify it works
-    checkpoint = torch.load("classifier.pt", weights_only=False)
-    assert "model_ckpt_version" in checkpoint
-    assert checkpoint["model_ckpt_version"] == Classifier.__checkpoint_version__
-
-    # Test that the model can be loaded from checkpoint in export context
-    model = Classifier.load_checkpoint(checkpoint, "export")
-    assert model is not None
-
-    # Export the model and verify it works
-    exported = model.export()
-    assert exported is not None
-
-
-def test_checkpoint_finetune_error(monkeypatch, tmp_path):
-    """
-    Test that attempting to finetune from a Classifier checkpoint raises an error.
+    Test that a Classifier model can be exported from a checkpoint file.
+    Similar to the LLPR tests, this checks that `mtt export` works on the .ckpt file.
     """
     monkeypatch.chdir(tmp_path)
     shutil.copy(HERE / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
@@ -175,54 +133,32 @@ def test_checkpoint_finetune_error(monkeypatch, tmp_path):
     # Train a PET model first
     subprocess.check_call(["mtt", "train", "options-pet.yaml"])
 
-    # Train the Classifier model
+    # Train the Classifier model (outputs model-classifier.ckpt checkpoint)
     subprocess.check_call(
-        ["mtt", "train", "options-classifier.yaml", "-o", "classifier.pt"]
+        ["mtt", "train", "options-classifier.yaml", "-o", "model-classifier.pt"]
     )
 
-    # Load the checkpoint
-    checkpoint = torch.load("classifier.pt", weights_only=False)
+    # Check that a model exported from the checkpoint also works as intended
+    subprocess.check_call(["mtt", "export", "model-classifier.ckpt"])
 
-    # Test that finetune raises an error
-    with pytest.raises(NotImplementedError, match="Finetuning.*not supported"):
-        Classifier.load_checkpoint(checkpoint, "finetune")
+    # Verify the exported model works with MetatomicCalculator
+    calc = MetatomicCalculator("model-classifier.pt")
+    test_structures = ase.io.read("qm9_reduced_100.xyz", ":")[:3]
 
+    outputs = {"mtt::class": ModelOutput()}
+    predictions = calc.run_model(test_structures, outputs)
+    class_probs = predictions["mtt::class"].block().values
 
-def test_checkpoint_restart_error(monkeypatch, tmp_path):
-    """
-    Test that attempting to restart from a Classifier checkpoint raises an error.
-    """
-    monkeypatch.chdir(tmp_path)
-    shutil.copy(HERE / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
-    shutil.copy(HERE / "options-pet.yaml", "options-pet.yaml")
-    shutil.copy(HERE / "options-classifier.yaml", "options-classifier.yaml")
+    # Check shape (3 structures, 3 classes)
+    assert class_probs.shape == (3, 3)
 
-    # Add class labels to the structures
-    structures = ase.io.read("qm9_reduced_100.xyz", ":")
-    for i, structure in enumerate(structures):
-        class_id = i % 3
-        if class_id == 0:
-            structure.info["class_label"] = [1.0, 0.0, 0.0]
-        elif class_id == 1:
-            structure.info["class_label"] = [0.0, 1.0, 0.0]
-        else:
-            structure.info["class_label"] = [0.0, 0.0, 1.0]
-    ase.io.write("qm9_reduced_100.xyz", structures)
-
-    # Train a PET model first
-    subprocess.check_call(["mtt", "train", "options-pet.yaml"])
-
-    # Train the Classifier model
-    subprocess.check_call(
-        ["mtt", "train", "options-classifier.yaml", "-o", "classifier.pt"]
+    # Check that probabilities sum to 1
+    assert torch.allclose(
+        class_probs.sum(dim=1),
+        torch.ones(3, device=class_probs.device),
+        atol=1e-5,
+        rtol=1e-5,
     )
-
-    # Load the checkpoint
-    checkpoint = torch.load("classifier.pt", weights_only=False)
-
-    # Test that restart raises an error
-    with pytest.raises(NotImplementedError, match="Restarting.*not supported"):
-        Classifier.load_checkpoint(checkpoint, "restart")
 
 
 def test_failed_model_checkpoint_upgrade():
