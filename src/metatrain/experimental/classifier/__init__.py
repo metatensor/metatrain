@@ -10,7 +10,7 @@ __capabilities__ = {
 }
 
 __authors__ = [
-    ("GitHub Copilot", "@copilot"),
+    ("Filippo Bigi", "@frostedoyster"),
 ]
 
 __maintainers__ = [
