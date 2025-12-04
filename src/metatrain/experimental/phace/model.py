@@ -605,7 +605,11 @@ class PhACE(ModelInterface[ModelHypers]):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        raise ValueError(
-            "Checkpoint upgrade not implemented for PhACE model. "
-            "Please retrain the model from scratch."
-        )
+        checkpoint_version = checkpoint["model_ckpt_version"]
+        if checkpoint_version != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint_version}, while the current model version "
+                f"is {cls.__checkpoint_version__}."
+            )
+        return checkpoint
