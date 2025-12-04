@@ -89,13 +89,9 @@ ase.io.write("carbon_allotropes.xyz", structures)
 # for our classifier. We will use PET-MAD, a universal interatomic potential for
 # materials and molecules.
 
-subprocess.run(
-    [
-        "wget",
-        "https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.0.2/models/pet-mad-v1.0.2.ckpt",
-    ],
-    check=True,
-)
+PET_MAD_URL = "https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.0.2/models/pet-mad-v1.0.2.ckpt"
+
+subprocess.run(["wget", PET_MAD_URL], check=True)
 
 # %%
 #
