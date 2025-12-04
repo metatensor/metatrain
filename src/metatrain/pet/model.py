@@ -619,7 +619,7 @@ class PET(ModelInterface[ModelHypers]):
             outp = outp.unsqueeze(1)
 
         return TensorMap(
-            Labels(["_"], torch.tensor([[0]])),
+            Labels(["_"], torch.tensor([[0]]).to(outp.device)),
             [
                 TensorBlock(
                     values=outp,
@@ -627,7 +627,7 @@ class PET(ModelInterface[ModelHypers]):
                     components=[],
                     properties=Labels(
                         ["_"],
-                        torch.arange(outp.shape[1]).reshape(-1, 1),
+                        torch.arange(outp.shape[1]).reshape(-1, 1).to(outp.device),
                     ),
                 )
             ],
