@@ -99,7 +99,7 @@ def get_architecture_name(path: Union[str, Path]) -> str:
         raise ValueError(f"`path` {str(path)!r} does not exist")
 
     architecture_path = directory.relative_to(PACKAGE_ROOT)
-    name = str(architecture_path).replace("/", ".")
+    name = ".".join(architecture_path.parts)
 
     try:
         check_architecture_name(name)

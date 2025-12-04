@@ -45,8 +45,12 @@ class SystemsHypers(TypedDict):
     will be read by ``ase`` and ``.mts`` will be read by
     ``metatensor``."""
     length_unit: NotRequired[Optional[str]]
-    """The unit of lengths in the system file, optional but
-    highly recommended for running simulations."""
+    """Unit of lengths in the system file, optional but **highly recommended for
+    running simulations**. If not given, no unit conversion will be performed when
+    running simulations which may lead to severe errors.
+
+    The list of possible length units is available `here
+    <https://docs.metatensor.org/metatomic/latest/torch/reference/misc.html#known-quantities-units>`_."""
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))
@@ -128,9 +132,13 @@ class TargetHypers(TypedDict):
 
     If not provided, it defaults to the key of the target in the
     yaml dataset specification."""
-    unit: NotRequired[Optional[str]] = ""
-    """The unit of the target, optional but highly recommended for
-    running simulations."""
+    unit: NotRequired[str] = ""
+    """Unit of the target, optional but **highly recommended for running simulations**.
+    If not given, no unit conversion will be performed when running simulations which
+    may lead to severe errors.
+
+    The list of possible units is available `here
+    <https://docs.metatensor.org/metatomic/latest/torch/reference/misc.html#known-quantities-units>`_."""
     per_atom: NotRequired[bool] = False
     """Whether the target is a per-atom quantity, as opposed to a global
     (per-structure) quantity."""
@@ -151,6 +159,9 @@ class TargetHypers(TypedDict):
     discretization of a continuous target, such as the grid points of a function. In the
     example above, there are 4000 sub-targets for the density of states (DOS). In
     metatensor, these correspond to the number of properties of the target."""
+    description: NotRequired[str] = ""
+    """A description of this target. A description is highly recommended if there is
+    more than one target with the same :attr:`quantity`."""
     forces: NotRequired[bool | str | GradientDict]
     """Specification for the forces associated with the target.
 
@@ -216,5 +227,5 @@ class BaseHypers(TypedDict):
     """Specification of the training dataset."""
     validation_set: DatasetSpec | Annotated[float, Interval(gt=0.0, lt=1.0)]
     """Specification of the validation dataset."""
-    test_set: DatasetSpec | Annotated[float, Interval(ge=0.0, lt=1.0)]
+    test_set: NotRequired[DatasetSpec | Annotated[float, Interval(ge=0.0, lt=1.0)]]
     """Specification of the test dataset."""

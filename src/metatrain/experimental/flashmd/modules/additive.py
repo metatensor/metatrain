@@ -42,6 +42,7 @@ class PositionAdditive(torch.nn.Module):
                 quantity=value.quantity,
                 unit=value.unit,
                 per_atom=True,
+                description=value.description,
             )
 
     def restart(self, dataset_info: DatasetInfo) -> "PositionAdditive":
@@ -61,6 +62,7 @@ class PositionAdditive(torch.nn.Module):
                 quantity=value.quantity,
                 unit=value.unit,
                 per_atom=True,
+                description=value.description,
             )
         return self
 

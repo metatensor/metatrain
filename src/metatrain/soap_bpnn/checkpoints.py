@@ -173,6 +173,31 @@ def model_update_v4_v5(checkpoint: dict) -> None:
             checkpoint[key] = new_state_dict
 
 
+def model_update_v5_v6(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 5 to version 6.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            for key in list(state_dict.keys()):
+                if "soap_calculator.calculator." in key:
+                    new_key = key.replace(
+                        "soap_calculator.calculator.", "soap_calculator."
+                    )
+                    state_dict[new_key] = state_dict.pop(key)
+
+
+def model_update_v6_v7(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 6 to version 7.
+
+    :param checkpoint: The checkpoint to be updated.
+    """
+    checkpoint["model_data"]["model_hypers"]["legacy"] = True
+
+
 ###########################
 # TRAINER #################
 ###########################

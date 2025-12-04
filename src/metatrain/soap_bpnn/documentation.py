@@ -95,6 +95,10 @@ class ModelHypers(TypedDict):
     soap: SOAPConfig = init_with_defaults(SOAPConfig)
     """Configuration of the SOAP descriptors."""
 
+    legacy: bool = True
+    """If true, uses the legacy implementation without chemical embedding and with one
+    MLP head per atomic species."""
+
     bpnn: BPNNConfig = init_with_defaults(BPNNConfig)
     """Configuration of the neural network architecture."""
 
@@ -128,7 +132,7 @@ class TrainerHypers(TypedDict):
     distributed: bool = False
     """Whether to use distributed training"""
     distributed_port: int = 39591
-    """Port for DDP communication"""
+    """Port for distributed communication among processes"""
     batch_size: int = 8
     """The number of samples to use in each batch of training. This
     hyperparameter controls the tradeoff between training speed and memory usage. In

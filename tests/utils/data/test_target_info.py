@@ -15,6 +15,7 @@ def energy_target_config() -> DictConfig:
         {
             "quantity": "energy",
             "unit": "eV",
+            "description": "Total potential energy of the system",
             "per_atom": False,
             "num_subtargets": 1,
             "type": "scalar",
@@ -77,6 +78,7 @@ def test_layout_energy(energy_target_config):
     assert target_info.quantity == "energy"
     assert target_info.unit == "eV"
     assert target_info.per_atom is False
+    assert target_info.description == "Total potential energy of the system"
     assert target_info.gradients == []
     assert target_info.device == target_info.layout.device
 
@@ -100,6 +102,13 @@ def test_layout_energy(energy_target_config):
     assert target_info.per_atom is False
     assert target_info.gradients == ["positions", "strain"]
     assert target_info.device == target_info.layout.device
+
+    repr_str = repr(target_info)
+    reprs = (
+        f"TargetInfo(layout={target_info.layout}, quantity='{target_info.quantity}', "
+        f"unit='{target_info.unit}', description='{target_info.description}')"
+    )
+    assert reprs == repr_str
 
 
 def test_layout_scalar(scalar_target_config):
@@ -170,3 +179,35 @@ def test_instance_torchscript_compatible(target_config, request):
         "target_name", request.getfixturevalue(target_config)
     )
     torch.jit.script(target_info)
+
+
+def test_invalid_unit():
+    conf = DictConfig(
+        {
+            "quantity": "energy",
+            "unit": "fooo",
+            "description": "Total potential energy of the system",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "type": "scalar",
+        }
+    )
+
+    with pytest.raises(ValueError, match="fooo"):
+        get_generic_target_info("energy", conf)
+
+
+def warn_unknown_quantity():
+    conf = DictConfig(
+        {
+            "quantity": "fooo",
+            "unit": "fooo",
+            "description": "Some description",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "type": "scalar",
+        }
+    )
+
+    with pytest.warns(UserWarning, match="unknown quantity 'fooo'"):
+        get_generic_target_info("some_target", conf)

@@ -222,7 +222,7 @@ def test_missing_library(monkeypatch, layout_spherical):
     monkeypatch.setitem(sys.modules, "spherical", None)
 
     target_info_dict = {
-        "foo": TargetInfo(quantity="energy", unit=None, layout=layout_spherical)
+        "foo": TargetInfo(layout=layout_spherical, quantity="energy", unit="")
     }
 
     msg = (
