@@ -34,7 +34,7 @@ class ClassifierTests(ArchitectureTests):
 class TestCheckpoints(CheckpointTests, ClassifierTests):
     @pytest.fixture
     def model_trainer(
-        self, dataset_targets, dataset_path, minimal_model_hypers, default_hypers
+        self, dataset_targets, dataset_path, model_hypers, default_hypers
     ):
         dataset, targets_info, dataset_info = self.get_dataset(
             dataset_targets, dataset_path
@@ -75,7 +75,7 @@ class TestCheckpoints(CheckpointTests, ClassifierTests):
             trainer.save_checkpoint(pet_model, f"{tmpdir}/pet_checkpoint.ckpt")
 
             # train Classifier model
-            hypers = copy.deepcopy(minimal_model_hypers)
+            hypers = copy.deepcopy(model_hypers)
 
             model = self.model_cls(hypers, dataset_info)
 
