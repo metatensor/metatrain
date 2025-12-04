@@ -14,5 +14,5 @@ __authors__ = [
 ]
 
 __maintainers__ = [
-    ("Michele Ceriotti", "@frostedoyster"),
+    ("Filippo Bigi", "@frostedoyster"),
 ]
