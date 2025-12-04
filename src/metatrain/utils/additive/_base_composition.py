@@ -288,13 +288,22 @@ class BaseCompositionModel(torch.nn.Module):
         if fixed_weights is None:
             return {}
 
+        atomic_types = self.atomic_types.tolist()
+
         sanitized_fixed_weights = {}
         for target_name, weights in fixed_weights.items():
             if isinstance(weights, float):
+                # A float is provided for this target, which means that the same
+                # weight should be used for all atomic types.
                 weights = {
-                    int(atomic_type): float(weights)
-                    for atomic_type in self.atomic_types.tolist()
+                    int(atomic_type): float(weights) for atomic_type in atomic_types
                 }
+            elif missing_types := set(atomic_types) - set(weights):
+                # The user provided a dict, check that all atomic types are present.
+                raise ValueError(
+                    f"Fixed weights for target '{target_name}' are missing "
+                    f"the following atomic types: {missing_types}"
+                )
 
             sanitized_fixed_weights[target_name] = weights
 
@@ -309,10 +318,11 @@ class BaseCompositionModel(torch.nn.Module):
         Based on the pre-accumulated quantities from the training data, fits the
         compositions for each target.
 
-        :param fixed_weights: Optional dict of target names to either (1) a sinlge
+        :param fixed_weights: Optional dict of target names to either (1) a single
             weight for all atomic_types or (2) a dict of atomic types to weights.
-            If provided, the specified weights will be fixed to the provided values,
-            and the weights for the other atomic types will be fitted normally.
+            If provided, these weights will be fixed instead of being fitted.
+            If a dict of weights is provided for a target, all atomic types handled
+            by the model must have a weight specified.
         :param targets_to_fit: List of target names to fit. If `None`,
             all targets in the model will be fitted.
         """

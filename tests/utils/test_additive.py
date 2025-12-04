@@ -269,6 +269,61 @@ def test_composition_model_float_fixed_weight():
     )
 
 
+def test_fixed_weights_missing_types():
+    """
+    Tests that a meaningful error is raised when the provided fixed
+    weights are missing some atomic types.
+    """
+
+    systems = [
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+    energies = [2.0]
+    energies = [
+        TensorMap(
+            keys=Labels(names=["_"], values=torch.tensor([[0]])),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[e]], dtype=torch.float64),
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[],
+                    properties=Labels(names=["energy"], values=torch.tensor([[0]])),
+                )
+            ],
+        )
+        for i, e in enumerate(energies)
+    ]
+    dataset = Dataset.from_dict({"system": systems, "energy": energies})
+
+    composition_model = CompositionModel(
+        hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 8],
+            targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
+        ),
+    )
+
+    fixed_weights = {"energy": {1: 0.0}}  # Missing O weight
+
+    error_msg = (
+        r"Fixed weights for target 'energy' are missing"
+        r" the following atomic types: \{8\}"
+    )
+
+    with pytest.raises(ValueError, match=error_msg):
+        composition_model.train_model(
+            dataset, [], batch_size=1, is_distributed=False, fixed_weights=fixed_weights
+        )
+
+
 @pytest.mark.parametrize("device", ("cpu", "cuda"))
 def test_composition_model_predict(device):
     """Test the prediction of composition energies."""

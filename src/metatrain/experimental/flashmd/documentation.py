@@ -191,8 +191,8 @@ class TrainerHypers(TypedDict):
       as fitting the baselines for all other targets.
     - ``atomic_baseline: {"energy": -5.0}`` will fix the energy baseline for
       all atomic types to -5.0.
-    - ``atomic_baseline: {"DOS": 0.0}`` sets the baseline for the DOS target
-      to 0.0, effectively disabling the atomic baseline for that target.
+    - ``atomic_baseline: {"mtt:dos": 0.0}`` sets the baseline for the "mtt:dos"
+      target to 0.0, effectively disabling the atomic baseline for that target.
 
     This atomic baseline is substracted from the targets during training, which
     avoids the main model needing to learn atomic contributions, and likely makes
