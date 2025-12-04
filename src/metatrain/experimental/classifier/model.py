@@ -16,7 +16,6 @@ from metatrain.utils.data import DatasetInfo
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 
-from . import checkpoints
 from .documentation import ModelHypers
 
 
@@ -251,7 +250,6 @@ class Classifier(ModelInterface[ModelHypers]):
         elif context == "export":
             classifier_model = cls(**checkpoint["model_data"])
             classifier_model.set_wrapped_model(model)
-            print(checkpoint.keys())
             classifier_model.build_mlp(
                 checkpoint["state_dict"]["mlp.1.weight"].shape[1],
                 checkpoint["state_dict"]["linear.weight"].shape[0],
@@ -280,12 +278,7 @@ class Classifier(ModelInterface[ModelHypers]):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["model_ckpt_version"] == v:
-                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
-
+        # Currently at version 1, no upgrades needed yet
         if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using model "

@@ -134,8 +134,11 @@ calc = MetatomicCalculator("classifier.pt")
 
 structures = ase.io.read("carbon_allotropes.xyz", index=":")
 
-# Get predictions (now returns probabilities)
-correct_count = 0
+# Get predictions and compute per-class accuracy
+class_names = ["Diamond", "Graphite", "Graphene"]
+correct_per_class = {0: 0, 1: 0, 2: 0}
+total_per_class = {0: 0, 1: 0, 2: 0}
+
 for structure in structures:
     probabilities = (
         calc.run_model(
@@ -150,10 +153,36 @@ for structure in structures:
     predicted_class = np.argmax(probabilities)
     # Get actual class from one-hot encoding
     actual_class = np.argmax(structure.info["class"])
+    total_per_class[actual_class] += 1
     if predicted_class == actual_class:
-        correct_count += 1
+        correct_per_class[actual_class] += 1
 
-print(f"Classifier accuracy: {(correct_count / len(structures)) * 100:.2f}% correct")
+# Compute accuracy for each class
+accuracies = [
+    correct_per_class[i] / total_per_class[i] * 100 if total_per_class[i] > 0 else 0
+    for i in range(3)
+]
+
+# Create a bar plot showing per-class accuracy
+plt.figure(figsize=(5, 3))
+bars = plt.bar(class_names, accuracies, color=["#1f77b4", "#ff7f0e", "#2ca02c"])
+plt.ylabel("Accuracy (%)")
+plt.title("Classifier Accuracy per Class")
+plt.ylim(0, 105)
+
+# Add value labels on top of bars
+for bar, acc in zip(bars, accuracies):
+    plt.text(
+        bar.get_x() + bar.get_width() / 2,
+        bar.get_height() + 2,
+        f"{acc:.0f}%",
+        ha="center",
+        va="bottom",
+        fontsize=10,
+    )
+
+plt.tight_layout()
+plt.show()
 
 # %%
 #

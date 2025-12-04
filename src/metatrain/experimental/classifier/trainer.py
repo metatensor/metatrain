@@ -20,7 +20,6 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 
-from . import checkpoints
 from .documentation import TrainerHypers
 from .model import Classifier
 
@@ -333,12 +332,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["trainer_ckpt_version"] == v:
-                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["trainer_ckpt_version"] = v + 1
-
+        # Currently at version 1, no upgrades needed yet
         if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using "
