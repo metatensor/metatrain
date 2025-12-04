@@ -595,52 +595,28 @@ class PET(ModelInterface[ModelHypers]):
         centers: torch.Tensor,
         nef_to_edges_neighbor: torch.Tensor,
         sample_labels: Labels,
-        pair_sample_labels: Dict[str, Labels],
+        pair_sample_labels: Labels,
     ) -> TensorMap:
+        assert tensor.shape[0] == sample_labels.values.shape[0], (
+            "diagnostic feature tensor must be per-atom or per-pair like in shape."
+            f" Got tensor.shape = {tensor.shape}, "
+        )
 
-        if isinstance(tensor, tuple):  # these are the node and edges in a tuple
-            for t in tensor:
-                assert t.shape[0] == sample_labels.values.shape[0], (
-                    "diagnostic feature tensor must be per-atom or per-pair like in shape."
-                    f" Got tensor.shape = {tensor.shape}, "
-                )
-            assert len(tensor) == 2
-            outp = [t.detach().clone() for t in tensor]
-            outp = [
-                outp[0].squeeze(1),
-                outp[1][centers, nef_to_edges_neighbor],
-            ]
-            # print(outp[0].shape, outp[1].shape)
-            outp = torch.vstack(outp)
-            labels = Labels(
-                pair_sample_labels["onsite"].names,
-                torch.vstack(
-                    [
-                        pair_sample_labels["onsite"].values,
-                        pair_sample_labels["offsite"].values,
-                    ]
-                )
-            )
-        else:
-            assert tensor.shape[0] == sample_labels.values.shape[0], (
-                "diagnostic feature tensor must be per-atom or per-pair like in shape."
-                f" Got tensor.shape = {tensor.shape}, "
-            )
-            outp = tensor.detach().clone()
+        outp = tensor.detach().clone()
 
-            if outp.ndim == 1:  # can happen if d == 1
-                outp = outp.unsqueeze(1)
+        if outp.ndim == 1:  # can happen if d == 1
+            outp = outp.unsqueeze(1)
 
-            if outp.shape[1] == 1:  # node-like, shape (n_atoms, 1, d)
-                outp = outp.squeeze(1)
-                labels = sample_labels
+        if outp.shape[1] == 1:  # node-like, shape (n_atoms, 1, d)
+            outp = outp.squeeze(1)
+            labels = sample_labels
 
-            else:  # edge-like, shape (n_atoms, num_neighbors, d)
-                outp = outp[centers, nef_to_edges_neighbor]
-                labels = pair_sample_labels["offsite"]
+        else:  # edge-like, shape (n_atoms, num_neighbors, d)
+            outp = outp[centers, nef_to_edges_neighbor]
+            labels = pair_sample_labels
 
-            if outp.ndim == 1:  # can happen if d == 1
-                outp = outp.unsqueeze(1)
+        if outp.ndim == 1:  # can happen if d == 1
+            outp = outp.unsqueeze(1)
 
         return TensorMap(
             Labels(["_"], torch.tensor([[0]]).to(outp.device)),

@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 from metatensor.torch import Labels
@@ -269,11 +269,10 @@ def get_pair_sample_labels(
     sample_labels: Labels,
     nl_options: NeighborListOptions,
     device: torch.device,
-) -> Dict[str, Labels]:
+) -> Labels:
     """
     Builds the pair samples labels for the input ``systems``, based on the pre-computed
-    neighbor list. Returns the labels for both the onsite (``n_centers=1``) and offsite
-    (``n_centers=2``) blocks, in a dictionary.
+    neighbor list. These are 'off-site', i.e. not including self-interactions.
 
     :param systems: List of systems to build the pair sample labels for.
     :param sample_labels: The sample labels for per-atom quantities.
@@ -289,29 +288,13 @@ def get_pair_sample_labels(
         "cell_shift_b",
         "cell_shift_c",
     ]
-    # Onsite labels
-    pair_sample_labels_onsite = Labels(
-        sample_names,
-        torch.hstack(
-            [
-                sample_labels.values,
-                sample_labels.values[:, 1].unsqueeze(1),  # i == j
-                torch.zeros(  # cell shifts are 0
-                    (sample_labels.values.shape[0], 3),
-                    dtype=torch.int32,
-                    device=device,
-                ),
-            ]
-        ),
-    )
 
-    # Offsite labels
-    pair_sample_values_offsite = []
+    pair_sample_values = []
     for system_idx, system in enumerate(systems):
         neighbor_list = system.get_neighbor_list(nl_options)
         nl_values = neighbor_list.samples.values
 
-        pair_sample_values_offsite.append(
+        pair_sample_values.append(
             torch.hstack(
                 [
                     torch.full(
@@ -324,11 +307,7 @@ def get_pair_sample_labels(
                 ],
             )
         )
-    pair_sample_values_offsite = torch.vstack(pair_sample_values_offsite)
+    pair_sample_values = torch.vstack(pair_sample_values)
+    pair_sample_labels = Labels(sample_names, pair_sample_values).to(device=device)
 
-    # Create the labels for the edge samples
-    pair_sample_labels_offsite = Labels(sample_names, pair_sample_values_offsite).to(
-        device=device
-    )
-
-    return {"onsite": pair_sample_labels_onsite, "offsite": pair_sample_labels_offsite}
+    return pair_sample_labels
