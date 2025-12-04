@@ -37,6 +37,7 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 # %%
 #
 # We generate structures for three carbon allotropes:
+#
 # - Diamond (class 0)
 # - Graphite (class 1)
 # - Graphene (class 2)
