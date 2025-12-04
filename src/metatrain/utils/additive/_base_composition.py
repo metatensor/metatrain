@@ -4,6 +4,7 @@ metatomic. The class ``CompositionModel`` wraps this to be compatible with
 metatrain-style objects.
 """
 
+import logging
 from typing import Dict, List, Optional, Tuple, Union
 
 import metatensor.torch as mts
@@ -292,6 +293,13 @@ class BaseCompositionModel(torch.nn.Module):
 
         sanitized_fixed_weights = {}
         for target_name, weights in fixed_weights.items():
+            if target_name not in self.target_names:
+                logging.warning(
+                    f"Fixed weights provided for unknown target '{target_name}'. "
+                    f"Available targets are: {self.target_names}"
+                )
+                continue
+
             if isinstance(weights, float):
                 # A float is provided for this target, which means that the same
                 # weight should be used for all atomic types.

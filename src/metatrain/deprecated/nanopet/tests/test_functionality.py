@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import metatensor.torch as mts
 import pytest
 import torch
@@ -342,7 +344,7 @@ def test_atomic_baseline():
 
 def test_atomic_baseline_error():
     """Test that only input of type Dict[str, Dict[int, float]] are allowed."""
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = deepcopy(DEFAULT_HYPERS)
     hypers["training"]["atomic_baseline"] = {"energy": {"H": 300.0}}
     hypers = OmegaConf.create(hypers)
     with pytest.raises(
