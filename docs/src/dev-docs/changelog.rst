@@ -24,6 +24,13 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Changed
+#######
+
+- SOAP-BPNN and MCoV now use species embeddings by default, allowing for better
+  scalability and speed. The traditional SOAP-BPNN (and associated MCoV) architecture
+  can be accessed by setting ``legacy: True``
+
 Version 2025.12 - 2025-11-25
 ----------------------------
 

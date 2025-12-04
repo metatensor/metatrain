@@ -189,6 +189,15 @@ def model_update_v5_v6(checkpoint: dict) -> None:
                     state_dict[new_key] = state_dict.pop(key)
 
 
+def model_update_v6_v7(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 6 to version 7.
+
+    :param checkpoint: The checkpoint to be updated.
+    """
+    checkpoint["model_data"]["model_hypers"]["legacy"] = True
+
+
 ###########################
 # TRAINER #################
 ###########################
