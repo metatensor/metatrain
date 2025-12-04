@@ -604,7 +604,7 @@ class PET(ModelInterface[ModelHypers]):
 
         outp = tensor.detach().clone()
 
-        if outp.ndim == 1:  # can happen if d == 1
+        if outp.ndim <= 2:  # can happen if d == 1 or if an output of i.e. a GNN layer
             outp = outp.unsqueeze(1)
 
         if outp.shape[1] == 1:  # node-like, shape (n_atoms, 1, d)
@@ -678,8 +678,11 @@ class PET(ModelInterface[ModelHypers]):
         possible_capture_paths.append("edge_embedder")
 
         for i in range(self.num_gnn_layers):
-            possible_capture_paths.append(f"gnn_layers.{i}")
-            # embeddings and compressions
+            # Total GNN layer: special case as returns both node and edge features
+            possible_capture_paths.append(f"gnn_layers.{i}_node")
+            possible_capture_paths.append(f"gnn_layers.{i}_edge")
+            
+            # Finer-grained: embeddings and compressions
             possible_capture_paths.append(f"gnn_layers.{i}.edge_embedder")
             if i > 0:
                 possible_capture_paths.append(f"gnn_layers.{i}.neighbor_embedder")
@@ -687,9 +690,16 @@ class PET(ModelInterface[ModelHypers]):
 
             # transformer layers
             for j in range(self.num_attention_layers):
+
+                # Transformer layer: special case as returns both node and edge features
                 possible_capture_paths.append(
-                    f"gnn_layers.{i}.trans.layers.{j}"
+                    f"gnn_layers.{i}.trans.layers.{j}_node"
                 )
+                possible_capture_paths.append(
+                    f"gnn_layers.{i}.trans.layers.{j}_edge"
+                )
+
+                # Finer-grained: attention and MLP submodules
                 possible_capture_paths.append(
                     f"gnn_layers.{i}.trans.layers.{j}.norm_attention"
                 )
@@ -715,27 +725,58 @@ class PET(ModelInterface[ModelHypers]):
         for path in possible_capture_paths:
             if "mtt::features::" + path not in outputs:
                 continue
+            
+            if "_node" in path:
+                suffix = "_node"
+                path = path.replace(suffix, "")
+            elif "_edge" in path:
+                suffix = "_edge"
+                path = path.replace(suffix, "")
+            else:
+                suffix = ""
 
             try:
                 module = _resolve_module(path)
 
-                def make_hook(p: str) -> Any:
+                def make_hook(p: str, suffix: str) -> Any:
                     def _hook(
                         module: torch.nn.Module, inp: torch.Tensor, outp: torch.Tensor
                     ) -> None:
-                        return_dict["mtt::features::" + p] = (
-                            self._create_diagnostic_feature_tensormap(
-                                outp,
+
+                        if isinstance(outp, tuple):
+                            assert "_node" in suffix or "_edge" in suffix, (
+                                "When capturing from a module that returns multiple outputs, "
+                                "the requested output must carry the suffix '_node' or '_edge'."
+                            )
+                            if suffix == "_node":
+                                tensor = outp[0]
+                            else:
+                                assert suffix == "_edge"
+                                tensor = outp[1]
+                                
+                            return_dict[
+                                f"mtt::features::{p}{suffix}"
+                            ] = self._create_diagnostic_feature_tensormap(
+                                tensor,
                                 centers,
                                 nef_to_edges_neighbor,
                                 sample_labels,
                                 pair_sample_labels,
                             )
-                        )
+                        else:
+                            return_dict["mtt::features::" + p] = (
+                                self._create_diagnostic_feature_tensormap(
+                                    outp,
+                                    centers,
+                                    nef_to_edges_neighbor,
+                                    sample_labels,
+                                    pair_sample_labels,
+                                )
+                            )
 
                     return _hook
 
-                handle = module.register_forward_hook(make_hook(path))
+                handle = module.register_forward_hook(make_hook(path, suffix))
                 diagnostic_handles.append(handle)
             except Exception:
                 logging.exception(
