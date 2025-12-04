@@ -678,6 +678,7 @@ class PET(ModelInterface[ModelHypers]):
         possible_capture_paths.append("edge_embedder")
 
         for i in range(self.num_gnn_layers):
+            possible_capture_paths.append(f"gnn_layers.{i}")
             # embeddings and compressions
             possible_capture_paths.append(f"gnn_layers.{i}.edge_embedder")
             if i > 0:
@@ -686,6 +687,9 @@ class PET(ModelInterface[ModelHypers]):
 
             # transformer layers
             for j in range(self.num_attention_layers):
+                possible_capture_paths.append(
+                    f"gnn_layers.{i}.trans.layers.{j}"
+                )
                 possible_capture_paths.append(
                     f"gnn_layers.{i}.trans.layers.{j}.norm_attention"
                 )
