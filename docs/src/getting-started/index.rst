@@ -10,5 +10,4 @@ This sections describes how to install the package, and its most basic commands.
    train_yaml_config
    override
    checkpoints
-   finetuning-example
    units

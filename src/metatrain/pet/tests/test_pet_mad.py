@@ -1,3 +1,5 @@
+import shutil
+import subprocess
 import warnings
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
@@ -14,6 +16,26 @@ from . import DATASET_WITH_FORCES_PATH
 
 
 STABLE_VERSIONS = ["1.0.1", "1.0.2", "1.1.0"]
+
+FINETUNING_OPTIONS = """
+architecture:
+    name: pet
+    training:
+        finetune:
+            read_from: model.ckpt
+        batch_size: 1
+        num_epochs: 1
+
+training_set:
+    systems:
+        read_from: finetune.xyz
+        length_unit: angstrom
+    targets:
+        energy:
+            unit: eV
+
+validation_set: 0.1
+"""
 
 
 @pytest.mark.parametrize("version", STABLE_VERSIONS)
@@ -57,3 +79,20 @@ def test_pet_mad_consistency(version, monkeypatch, tmp_path):
     torch.testing.assert_close(
         predictions["energy"].block().values[:5], expected_output, atol=5e-2, rtol=5e-2
     )
+
+
+@pytest.mark.parametrize("version", STABLE_VERSIONS)
+def test_pet_mad_finetuning(version, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    path = f"https://huggingface.co/lab-cosmo/pet-mad/resolve/v{version}/models/pet-mad-v{version}.ckpt"
+    if urlparse(path).scheme:
+        path, _ = urlretrieve(path)
+
+    # copy dataset with forces to here
+    shutil.copy(DATASET_WITH_FORCES_PATH, tmp_path / "finetune.xyz")
+    shutil.copy(path, tmp_path / "model.ckpt")
+
+    with open(tmp_path / "finetune.yaml", "w") as f:
+        f.write(FINETUNING_OPTIONS)
+
+    subprocess.run(["mtt", "train", "finetune.yaml"], check=True)
