@@ -85,16 +85,12 @@ def systems_to_batch_direct(
         )
         cell_shifts_list.append(cell_shifts_item)
 
-        centers_list.append(
-            torch.arange(n_atoms_i, device=device, dtype=torch.int32)
-        )
+        centers_list.append(torch.arange(n_atoms_i, device=device, dtype=torch.int32))
         structures_centers_list.append(
             torch.full((n_atoms_i,), i, device=device, dtype=torch.int32)
         )
         structure_pairs_list.append(
-            torch.full(
-                (len(edge_indices),), i, device=device, dtype=torch.int32
-            )
+            torch.full((len(edge_indices),), i, device=device, dtype=torch.int32)
         )
 
         cumulative_atoms += n_atoms_i
@@ -110,13 +106,9 @@ def systems_to_batch_direct(
     structure_pairs = torch.cat(structure_pairs_list, dim=0)
 
     # Compute structure offsets (cumulative sum of n_atoms, starting with 0)
-    structure_offsets = torch.zeros(
-        len(systems), device=device, dtype=torch.int32
-    )
+    structure_offsets = torch.zeros(len(systems), device=device, dtype=torch.int32)
     if len(systems) > 1:
-        structure_offsets[1:] = torch.cumsum(
-            n_atoms[:-1].to(torch.int32), dim=0
-        )
+        structure_offsets[1:] = torch.cumsum(n_atoms[:-1].to(torch.int32), dim=0)
 
     batch_dict = {
         "positions": positions,

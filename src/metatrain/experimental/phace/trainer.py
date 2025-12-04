@@ -469,12 +469,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                scaled_predictions = model.scaler(
-                    systems, predictions
-                )
-                scaled_targets = model.scaler(
-                    systems, targets
-                )
+                scaled_predictions = model.scaler(systems, predictions)
+                scaled_targets = model.scaler(systems, targets)
                 train_rmse_calculator.update(
                     scaled_predictions, scaled_targets, extra_data
                 )
@@ -530,9 +526,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         torch.distributed.all_reduce(val_loss_batch)
                     val_loss += val_loss_batch.item()
                     scaled_predictions = model.scaler(systems, predictions)
-                    scaled_targets = model.scaler(
-                        systems, targets
-                    )
+                    scaled_targets = model.scaler(systems, targets)
                     val_rmse_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )

@@ -343,7 +343,8 @@ class BaseModel(torch.nn.Module):
 
 class GradientModel(torch.nn.Module):
     """
-    Wrapper around BaseModel that computes gradients with respect to positions and strain.
+    Wrapper around BaseModel that computes gradients with respect to positions and
+    strain.
 
     Uses batched tensor representation for torch.compile compatibility.
     """
@@ -366,7 +367,8 @@ class GradientModel(torch.nn.Module):
 
         def compute_energy(params, buffers, positions, strains, output_name):
             # Apply strain to positions and cells
-            # For each atom, get the strain matrix for its structure using structure_centers
+            # For each atom, get the strain matrix for its structure by indexing with
+            # structure_centers
             # strains: [n_structures, 3, 3]
             # structure_centers: [n_atoms] - maps each atom to its structure index
             # positions: [n_atoms, 3]
@@ -374,8 +376,7 @@ class GradientModel(torch.nn.Module):
             # Get the strain matrix for each atom: [n_atoms, 3, 3]
             atom_strains = strains[batch["structure_centers"]]
 
-            # Apply strain to positions: pos @ strain for each atom
-            # Using einsum: positions[i, j] * atom_strains[i, j, k] -> strained_positions[i, k]
+            # Apply strain to positions: pos @ strain for each atom (using einsum)
             strained_positions = torch.einsum("ij,ijk->ik", positions, atom_strains)
 
             # Apply strain to cells: [n_structures, 3, 3] @ [n_structures, 3, 3]
@@ -403,9 +404,12 @@ class GradientModel(torch.nn.Module):
         buffers = dict(self.module.named_buffers())
 
         # Create strain tensors (one 3x3 identity per structure)
-        strains = torch.eye(3, device=device, dtype=dtype).unsqueeze(0).expand(
-            n_structures, -1, -1
-        ).clone()  # [n_structures, 3, 3]
+        strains = (
+            torch.eye(3, device=device, dtype=dtype)
+            .unsqueeze(0)
+            .expand(n_structures, -1, -1)
+            .clone()
+        )  # [n_structures, 3, 3]
 
         all_gradients = {}
         for output_name in outputs_to_take_gradients_of:
