@@ -429,7 +429,8 @@ class Trainer(TrainerInterface):
                 bandgap_predictions = model.bandgap_layer(gapdos_predictions)
                 tensor_map_gap = extra_data["mtt::gap"]
                 true_gap = tensor_map_gap.block().values
-
+                print (bandgap_predictions)
+                print (true_gap)
                 manual_MSE = torch.mean((bandgap_predictions - true_gap) ** 2)
                 print ("Obtained manually, ", manual_MSE.item())
 
