@@ -16,6 +16,7 @@ def get_adaptive_cutoffs(
     max_num_neighbors: float,
     num_nodes: int,
     max_cutoff: float,
+    min_cutoff: float = DEFAULT_MIN_PROBE_CUTOFF,
     grid_spacing: float = DEFAULT_PROBE_CUTOFFS_SPACING,
 ) -> torch.Tensor:
     """
@@ -30,7 +31,7 @@ def get_adaptive_cutoffs(
     :return: Adapted cutoff distances for each center atom.
     """
     probe_cutoffs = torch.arange(
-        DEFAULT_MIN_PROBE_CUTOFF,
+        min_cutoff,
         max_cutoff,
         grid_spacing,
         device=edge_distances.device,
@@ -47,7 +48,6 @@ def get_adaptive_cutoffs(
         cutoffs_weights = get_gaussian_cutoff_weights(
             effective_num_neighbors,
             max_num_neighbors,
-            num_nodes,
             probe_cutoffs=probe_cutoffs,
         )
     with torch.profiler.record_function("PET::calculate_adapted_cutoffs"):
@@ -117,7 +117,7 @@ def get_gaussian_cutoff_weights(
         )
         # Automatically determine width from probe cutoff spacing
         delta_r = probe_cutoffs[1] - probe_cutoffs[0]
-        width = 3 * max_num_neighbors * delta_r.item() / max(probe_cutoffs).item()
+        width = 3 * max_num_neighbors * delta_r.item() / max(probe_cutoffs)
 
     max_num_neighbors_t = torch.as_tensor(
         max_num_neighbors, device=effective_num_neighbors.device
