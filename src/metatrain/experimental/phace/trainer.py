@@ -64,6 +64,7 @@ def _disable_fx_duck_shape():
 
 
 def compile_model(model: PhACE, loader: torch.utils.data.DataLoader):
+    # inspired by the NequIP codebase
     parameter_tensor = next(iter(model.parameters()))
     dtype = parameter_tensor.dtype
     device = parameter_tensor.device
