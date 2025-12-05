@@ -33,7 +33,7 @@ class TestInput(InputTests, SoapBPNNTests): ...
 
 
 class TestOutput(OutputTests, SoapBPNNTests):
-    supports_vector_outputs = False
+    supports_vector_outputs = True
 
     @pytest.fixture
     def n_features(self):
