@@ -1,6 +1,7 @@
 # mypy: disable-error-code=misc
 # We ignore misc errors in this file because TypedDict
 # with default values is not allowed by mypy.
+import math
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Dict, Literal, Optional, Type
@@ -633,8 +634,6 @@ class GaussianCRPSLoss(torch.nn.Module):
         :param var: Variance of the predictions.
         :return: Value of the loss.
         """
-
-        import math
 
         var_clamped = torch.clamp(var, min=self.eps)
         sigma = torch.sqrt(var_clamped)
