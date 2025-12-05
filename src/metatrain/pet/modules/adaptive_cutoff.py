@@ -6,6 +6,7 @@ from .utilities import cutoff_func
 
 
 DEFAULT_MIN_PROBE_CUTOFF = 0.5
+DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH = 0.5
 DEFAULT_PROBE_CUTOFFS_SPACING = 0.1
 
 
@@ -60,7 +61,7 @@ def get_effective_num_neighbors(
     probe_cutoffs: torch.Tensor,
     centers: torch.Tensor,
     num_nodes: int,
-    width: Optional[float] = None,
+    width: float = DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH,
 ) -> torch.Tensor:
     """
     Computes the effective number of neighbors for each probe cutoff.
@@ -73,14 +74,6 @@ def get_effective_num_neighbors(
         automatically determined from the probe cutoff spacing.
     :return: Effective number of neighbors for each center atom and probe cutoff.
     """
-    if width is None:
-        # Automatically determine width from probe cutoff spacing
-        # Use 2.5x the spacing for a smooth step function
-        if len(probe_cutoffs) > 1:
-            probe_spacing = probe_cutoffs[1] - probe_cutoffs[0]
-            width = 2 * probe_spacing.item()
-        else:
-            width = 0.5  # fallback for single probe cutoff
 
     weights = cutoff_func(
         edge_distances.unsqueeze(0), probe_cutoffs.unsqueeze(1), width
