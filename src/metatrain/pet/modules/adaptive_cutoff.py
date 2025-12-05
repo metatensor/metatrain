@@ -27,7 +27,6 @@ def get_adaptive_cutoffs(
     :param num_nodes: Total number of center atoms.
     :param max_cutoff: Maximum cutoff distance to consider.
     :param grid_spacing: Spacing between probe cutoff distances.
-    :param weighting: Weighting scheme to use ('gaussian' or 'exponential').
     :return: Adapted cutoff distances for each center atom.
     """
     probe_cutoffs = torch.arange(
@@ -91,7 +90,7 @@ def get_effective_num_neighbors(
     )
     probe_num_neighbors.scatter_add_(1, centers_expanded, weights)
     probe_num_neighbors = probe_num_neighbors.T.contiguous()
-    return probe_num_neighbors  # / 0.286241 # normalization factor to account for the form of the cutoff function
+    return probe_num_neighbors
 
 
 def get_gaussian_cutoff_weights(
@@ -107,10 +106,9 @@ def get_gaussian_cutoff_weights(
 
     :param effective_num_neighbors: Effective number of neighbors for each center atom
         and probe cutoff.
-    :param probe_cutoffs: Probe cutoff distances.
     :param max_num_neighbors: Target maximum number of neighbors per atom.
-    :param num_nodes: Total number of center atoms.
     :param width: Width of the Gaussian function.
+    :param probe_cutoffs: Probe cutoff distances.
     :return: Weights for each probe cutoff.
     """
     if width is None:

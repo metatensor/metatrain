@@ -7,7 +7,7 @@ def cutoff_func(
     """
     Bump cutoff function.
 
-    :param grid: Distances at which to evaluate the cutoff function.
+    :param values: Distances at which to evaluate the cutoff function.
     :param cutoff: Cutoff radius for each node.
     :param width: Width of the cutoff region.
     :return: Values of the cutoff function at the specified distances.
