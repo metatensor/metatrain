@@ -15,6 +15,10 @@ from metatrain.utils.testing import (
 class PhACETests(ArchitectureTests):
     architecture = "experimental.phace"
 
+    @pytest.fixture(params=[0, 1, 2])
+    def o3_lambda(self, request: pytest.FixtureRequest) -> int:
+        return request.param
+
 
 class TestInput(InputTests, PhACETests): ...
 

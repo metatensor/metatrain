@@ -344,6 +344,7 @@ class PhACE(ModelInterface[ModelHypers]):
                     return_dict[output_name], ["atom"]
                 )
             for gradient_name in outputs[output_name].explicit_gradients:
+                print(outputs[output_name].explicit_gradients)
                 if gradient_name == "positions":
                     original_block = return_dict[output_name].block()
                     block = TensorBlock(
@@ -559,13 +560,6 @@ class PhACE(ModelInterface[ModelHypers]):
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
-            explicit_gradients=(
-                ["positions", "strain"]
-                if target_info.quantity == "energy"
-                and target_info.is_scalar
-                and not target_info.per_atom
-                else []
-            ),
         )
 
         self.key_labels[target_name] = target_info.layout.keys
