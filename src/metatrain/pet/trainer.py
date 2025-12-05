@@ -332,10 +332,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 weight_decay=self.hypers["weight_decay"],
             )
         else:
-            # optimizer = torch.optim.Adam(
-            #     model.parameters(), lr=self.hypers["learning_rate"]
-            # )
-            optimizer = torch.optim.Muon(
+            optimizer = torch.optim.Adam(
                 model.parameters(), lr=self.hypers["learning_rate"]
             )
 
