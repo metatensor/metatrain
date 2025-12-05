@@ -666,7 +666,7 @@ class GaussianCRPSLoss(torch.nn.Module):
 
 class TensorMapLLPREnsembleLoss(BaseTensorMapLoss):
     """
-    Gaussian NLL Loss for ensembles based on :py:class:`TensorMap` entries.
+    Loss for ensembles based on :py:class:`TensorMap` entries.
     Assumes that ensemble is the outermost dimension of :py:class:`TensorBlock`
     properties.
 
