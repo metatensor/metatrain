@@ -77,6 +77,15 @@ def default_huber_loss_delta() -> float:
     return 1.0
 
 
+def default_llpr_ensemble_scoring_rule() -> str:
+    """
+    Return the default scoring rule for the llpr ensemble loss.
+
+    :return: The default scoring rule for the llpr ensemble loss.
+    """
+    return "gaussian_nll"
+
+
 # Register custom resolvers
 OmegaConf.register_new_resolver("default_device", default_device)
 OmegaConf.register_new_resolver("default_precision", default_precision)
@@ -483,6 +492,8 @@ def expand_loss_config(conf: DictConfig) -> DictConfig:
             node["reduction"] = d["reduction"]
         if node.get("type") == "huber" and "delta" not in node:
             node["delta"] = default_huber_loss_delta()
+        if node.get("type") == "llpr_ensemble" and "scoring_rule" not in node:
+            node["scoring_rule"] = default_llpr_ensemble_scoring_rule()
 
     # 1) Collect target / gradient info from training_set
     training_confs = conf["training_set"]
