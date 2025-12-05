@@ -8,9 +8,11 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.loss import (
+    GaussianCRPSLoss,
     LossAggregator,
     LossType,
     TensorMapHuberLoss,
+    TensorMapLLPREnsembleLoss,
     TensorMapMAELoss,
     TensorMapMaskedHuberLoss,
     TensorMapMaskedMAELoss,
@@ -578,3 +580,226 @@ def test_tmap_loss_multiple_datasets_same_target_different_gradients(
 
     loss_value = loss(output_dict, target_dict)
     torch.testing.assert_close(loss_value, expected_result)
+
+
+# ===== Tests for GaussianCRPSLoss =====
+
+
+def test_gaussian_crps_loss_known_values():
+    """Test GaussianCRPSLoss against known analytical values."""
+    # For a standard normal N(0,1) evaluated at x=0:
+    # CRPS = sigma * [z(2Phi(z) - 1) + 2phi(z) - 1/sqrt(pi)]
+    # where z=0, Phi(0)=0.5, phi(0)=1/sqrt(2*pi)
+    # CRPS = 1 * [0 + 2/sqrt(2*pi) - 1/sqrt(pi)] ≈ 0.2337
+    import math
+
+    loss_fn = GaussianCRPSLoss(reduction="none")
+
+    # Test case 1: mean=0, var=1, target=0
+    input_mean = torch.tensor([0.0])
+    target = torch.tensor([0.0])
+    var = torch.tensor([1.0])
+
+    result = loss_fn(input_mean, target, var)
+    expected = 2.0 / math.sqrt(2.0 * math.pi) - 1.0 / math.sqrt(math.pi)
+    assert result.item() == pytest.approx(expected, rel=1e-5)
+
+    # Test case 2: When prediction equals target with zero variance
+    # CRPS should be small but not exactly zero due to eps
+    input_mean = torch.tensor([2.5])
+    target = torch.tensor([2.5])
+    var = torch.tensor([1e-15])  # Very small variance
+
+    result = loss_fn(input_mean, target, var)
+    # With very small variance, z becomes very large, CRPS approaches 0
+    assert result.item() < 1e-6
+
+
+def test_gaussian_crps_loss_reduction_modes():
+    """Test that reduction modes work correctly for GaussianCRPSLoss."""
+    input_mean = torch.tensor([0.0, 1.0, 2.0])
+    target = torch.tensor([0.5, 1.5, 2.5])
+    var = torch.tensor([1.0, 1.0, 1.0])
+
+    # Test 'none' reduction
+    loss_none = GaussianCRPSLoss(reduction="none")
+    result_none = loss_none(input_mean, target, var)
+    assert result_none.shape == (3,)
+
+    # Test 'mean' reduction
+    loss_mean = GaussianCRPSLoss(reduction="mean")
+    result_mean = loss_mean(input_mean, target, var)
+    assert result_mean.item() == pytest.approx(result_none.mean().item())
+
+    # Test 'sum' reduction
+    loss_sum = GaussianCRPSLoss(reduction="sum")
+    result_sum = loss_sum(input_mean, target, var)
+    assert result_sum.item() == pytest.approx(result_none.sum().item())
+
+
+def test_gaussian_crps_loss_invalid_reduction():
+    """Test that invalid reduction mode raises error."""
+    loss_fn = GaussianCRPSLoss(reduction="invalid")
+    input_mean = torch.tensor([0.0])
+    target = torch.tensor([0.0])
+    var = torch.tensor([1.0])
+
+    with pytest.raises(ValueError, match="invalid is not valid"):
+        loss_fn(input_mean, target, var)
+
+
+def test_gaussian_crps_loss_variance_clamping():
+    """Test that variance is clamped to avoid numerical issues."""
+    loss_fn = GaussianCRPSLoss(reduction="none", eps=1e-6)
+
+    input_mean = torch.tensor([0.0])
+    target = torch.tensor([1.0])
+    var = torch.tensor([1e-12])  # Smaller than eps
+
+    # Should not raise error due to clamping
+    result = loss_fn(input_mean, target, var)
+    assert torch.isfinite(result).all()
+
+
+# ===== Tests for TensorMapLLPREnsembleLoss =====
+
+
+@pytest.fixture
+def ensemble_tensor_maps():
+    """Create tensor maps for ensemble loss testing."""
+    # Create a simple ensemble prediction with 3 ensemble members
+    # and 2 samples
+    n_samples = 2
+    n_ensemble = 3
+    n_properties = 1
+
+    # Ensemble predictions: shape (n_samples, n_ensemble * n_properties)
+    ensemble_values = torch.tensor(
+        [
+            [1.0, 1.5, 2.0],  # sample 0: ensemble members predict 1.0, 1.5, 2.0
+            [3.0, 3.2, 3.1],  # sample 1: ensemble members predict 3.0, 3.2, 3.1
+        ]
+    )
+
+    # Original prediction (mean): shape (n_samples, n_properties)
+    mean_values = torch.tensor([[1.5], [3.1]])
+
+    # Target values: shape (n_samples, n_properties)
+    target_values = torch.tensor([[1.6], [3.0]])
+
+    # Create TensorMaps
+    samples = Labels.range("sample", n_samples)
+    properties_mean = Labels.range("property", n_properties)
+    properties_ensemble = Labels.range("property", n_ensemble * n_properties)
+
+    target_block = TensorBlock(
+        values=target_values, samples=samples, components=[], properties=properties_mean
+    )
+    target_map = TensorMap(keys=Labels.single(), blocks=[target_block])
+
+    mean_block = TensorBlock(
+        values=mean_values, samples=samples, components=[], properties=properties_mean
+    )
+    mean_map = TensorMap(keys=Labels.single(), blocks=[mean_block])
+
+    ensemble_block = TensorBlock(
+        values=ensemble_values,
+        samples=samples,
+        components=[],
+        properties=properties_ensemble,
+    )
+    ensemble_map = TensorMap(keys=Labels.single(), blocks=[ensemble_block])
+
+    return {
+        "target": target_map,
+        "mean": mean_map,
+        "ensemble": ensemble_map,
+    }
+
+
+def test_tensormap_llpr_ensemble_loss_gaussian_nll(ensemble_tensor_maps):
+    """Test TensorMapLLPREnsembleLoss with gaussian_nll scoring rule."""
+    loss_fn = TensorMapLLPREnsembleLoss(
+        name="energy",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+        scoring_rule="gaussian_nll",
+    )
+
+    predictions = {
+        "energy": ensemble_tensor_maps["mean"],
+        "energy_ensemble": ensemble_tensor_maps["ensemble"],
+    }
+    targets = {"energy": ensemble_tensor_maps["target"]}
+
+    # Should not raise an error and should return a finite value
+    result = loss_fn.compute(predictions, targets)
+    assert torch.isfinite(result)
+
+
+def test_tensormap_llpr_ensemble_loss_gaussian_crps(ensemble_tensor_maps):
+    """Test TensorMapLLPREnsembleLoss with gaussian_crps scoring rule."""
+    loss_fn = TensorMapLLPREnsembleLoss(
+        name="energy",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+        scoring_rule="gaussian_crps",
+    )
+
+    predictions = {
+        "energy": ensemble_tensor_maps["mean"],
+        "energy_ensemble": ensemble_tensor_maps["ensemble"],
+    }
+    targets = {"energy": ensemble_tensor_maps["target"]}
+
+    # Should not raise an error
+    result = loss_fn.compute(predictions, targets)
+    assert torch.isfinite(result)
+    assert result.item() >= 0.0  # CRPS should be non-negative
+
+
+def test_tensormap_llpr_ensemble_loss_invalid_scoring_rule():
+    """Test that invalid scoring rule raises ValueError."""
+    with pytest.raises(
+        ValueError, match="Unknown LLPREnsembleLoss scoring rule: invalid_rule"
+    ):
+        TensorMapLLPREnsembleLoss(
+            name="energy",
+            gradient=None,
+            weight=1.0,
+            reduction="mean",
+            scoring_rule="invalid_rule",
+        )
+
+
+def test_tensormap_llpr_ensemble_loss_scoring_rules_differ(ensemble_tensor_maps):
+    """Test that different scoring rules produce different loss values."""
+    predictions = {
+        "energy": ensemble_tensor_maps["mean"],
+        "energy_ensemble": ensemble_tensor_maps["ensemble"],
+    }
+    targets = {"energy": ensemble_tensor_maps["target"]}
+
+    loss_nll = TensorMapLLPREnsembleLoss(
+        name="energy",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+        scoring_rule="gaussian_nll",
+    )
+
+    loss_crps = TensorMapLLPREnsembleLoss(
+        name="energy",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+        scoring_rule="gaussian_crps",
+    )
+
+    result_nll = loss_nll.compute(predictions, targets)
+    result_crps = loss_crps.compute(predictions, targets)
+
+    # The two scoring rules should produce different values
+    assert result_nll.item() != pytest.approx(result_crps.item())
