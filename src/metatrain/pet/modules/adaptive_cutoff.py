@@ -2,7 +2,7 @@ from typing import Optional
 
 import torch
 
-from .utilities import smooth_delta_function, step_characteristic_function
+from .utilities import cutoff_func
 
 
 DEFAULT_MIN_PROBE_CUTOFF = 0.5
@@ -16,7 +16,6 @@ def get_adaptive_cutoffs(
     num_nodes: int,
     max_cutoff: float,
     grid_spacing: float = DEFAULT_PROBE_CUTOFFS_SPACING,
-    weighting: str = "gaussian",
 ) -> torch.Tensor:
     """
     Computes the adaptive cutoff values for each center atom.
@@ -31,7 +30,7 @@ def get_adaptive_cutoffs(
     :return: Adapted cutoff distances for each center atom.
     """
     probe_cutoffs = torch.arange(
-        0.5,
+        DEFAULT_MIN_PROBE_CUTOFF,
         max_cutoff,
         grid_spacing,
         device=edge_distances.device,
@@ -45,19 +44,12 @@ def get_adaptive_cutoffs(
             num_nodes,
         )
     with torch.profiler.record_function("PET::get_cutoff_weights"):
-        if weighting == "gaussian":
-            cutoffs_weights = get_gaussian_cutoff_weights(
-                effective_num_neighbors, probe_cutoffs, max_num_neighbors, num_nodes
-            )
-        elif weighting == "exponential":
-            cutoffs_weights = get_exponential_cutoff_weights(
-                effective_num_neighbors, probe_cutoffs, max_num_neighbors
-            )
-        else:
-            raise ValueError(
-                f"Unknown weighting scheme: {weighting}"
-                " Supported: 'gaussian', 'exponential'."
-            )
+        cutoffs_weights = get_gaussian_cutoff_weights(
+            effective_num_neighbors,
+            max_num_neighbors,
+            num_nodes,
+            probe_cutoffs=probe_cutoffs,
+        )
     with torch.profiler.record_function("PET::calculate_adapted_cutoffs"):
         adapted_atomic_cutoffs = probe_cutoffs @ cutoffs_weights.T
     return adapted_atomic_cutoffs
@@ -86,13 +78,14 @@ def get_effective_num_neighbors(
         # Use 2.5x the spacing for a smooth step function
         if len(probe_cutoffs) > 1:
             probe_spacing = probe_cutoffs[1] - probe_cutoffs[0]
-            width = 2.5 * probe_spacing
+            width = 2 * probe_spacing.item()
         else:
             width = 0.5  # fallback for single probe cutoff
 
-    weights = step_characteristic_function(
+    weights = cutoff_func(
         edge_distances.unsqueeze(0), probe_cutoffs.unsqueeze(1), width
     )
+
     probe_num_neighbors = torch.zeros(
         (len(probe_cutoffs), num_nodes),
         dtype=edge_distances.dtype,
@@ -105,15 +98,14 @@ def get_effective_num_neighbors(
     )
     probe_num_neighbors.scatter_add_(1, centers_expanded, weights)
     probe_num_neighbors = probe_num_neighbors.T.contiguous()
-    return probe_num_neighbors
+    return probe_num_neighbors  # / 0.286241 # normalization factor to account for the form of the cutoff function
 
 
 def get_gaussian_cutoff_weights(
     effective_num_neighbors: torch.Tensor,
-    probe_cutoffs: torch.Tensor,
     max_num_neighbors: float,
-    num_nodes: int,
-    width: float = 0.5,
+    width: Optional[float] = None,
+    probe_cutoffs: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
     Computes the weights for each probe cutoff based on
@@ -128,49 +120,30 @@ def get_gaussian_cutoff_weights(
     :param width: Width of the Gaussian function.
     :return: Weights for each probe cutoff.
     """
-    num_neighbors_threshold = (
-        max_num_neighbors
-        * torch.ones(num_nodes, 1, device=effective_num_neighbors.device)
-        - 5e-2
-    )  # eps
-    cutoffs_threshold_idx = torch.searchsorted(
-        effective_num_neighbors, num_neighbors_threshold, right=False
-    ).clamp(max=len(probe_cutoffs) - 1)
-    cutoffs_thresholds = probe_cutoffs[cutoffs_threshold_idx]
+    if width is None:
+        assert probe_cutoffs is not None, (
+            "Either width or probe_cutoffs must be provided."
+        )
+        # Automatically determine width from probe cutoff spacing
+        delta_r = probe_cutoffs[1] - probe_cutoffs[0]
+        width = 3 * max_num_neighbors * delta_r.item() / max(probe_cutoffs).item()
 
-    cutoffs_weights = smooth_delta_function(
-        probe_cutoffs.unsqueeze(0), cutoffs_thresholds, width=width
+    max_num_neighbors_t = torch.as_tensor(
+        max_num_neighbors, device=effective_num_neighbors.device
     )
-    cutoffs_weights = cutoffs_weights / cutoffs_weights.sum(dim=1, keepdim=True)
-    return cutoffs_weights
 
-
-def get_exponential_cutoff_weights(
-    effective_num_neighbors: torch.Tensor,
-    probe_cutoffs: torch.Tensor,
-    max_num_neighbors: float,
-    width: float = 0.5,
-    beta: float = 1.0,
-) -> torch.Tensor:
-    """
-    Computes the weights for each probe cutoff based on
-    the effective number of neighbors using Exponential weights.
-
-    :param effective_num_neighbors: Effective number of neighbors for each center atom
-        and probe cutoff.
-    :param probe_cutoffs: Probe cutoff distances.
-    :param max_num_neighbors: Target maximum number of neighbors per atom.
-    :param width: Width of the step characteristic function.
-    :param beta: Exponential scaling factor.
-    :return: Weights for each probe cutoff.
-    """
-    max_num_neighbors = torch.tensor(
-        max_num_neighbors,
-        device=effective_num_neighbors.device,
-        dtype=effective_num_neighbors.dtype,
+    diff = effective_num_neighbors - max_num_neighbors_t
+    x = torch.linspace(
+        0, 1, effective_num_neighbors.shape[1], device=effective_num_neighbors.device
     )
-    cutoffs_weights = torch.exp(beta * probe_cutoffs) * step_characteristic_function(
-        effective_num_neighbors, max_num_neighbors, width=width
-    )
-    cutoffs_weights = cutoffs_weights / cutoffs_weights.sum(dim=1, keepdim=True)
-    return cutoffs_weights
+    baseline = max_num_neighbors_t * x**3
+
+    diff = diff + baseline.unsqueeze(0)
+
+    weights = torch.exp(-0.5 * (diff / width) ** 2)
+
+    # row-wise normalization, with small epsilon to avoid division by zero
+    weights_sum = weights.sum(dim=1, keepdim=True)
+    weights = weights / weights_sum
+
+    return weights
