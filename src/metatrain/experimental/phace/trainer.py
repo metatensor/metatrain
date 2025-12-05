@@ -38,7 +38,7 @@ from metatrain.utils.transfer import batch_to
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import PhACE
-from .utils import InversionAugmenter, systems_to_batch_direct
+from .utils import InversionAugmenter, systems_to_batch
 
 
 def _get_requested_outputs(targets, target_info_dict):
@@ -72,7 +72,7 @@ def compile_model(model: PhACE, loader: torch.utils.data.DataLoader):
     systems, targets, extra_data = batch_to(
         systems, targets, extra_data, dtype=dtype, device=device
     )
-    data = systems_to_batch_direct(systems, model.requested_neighbor_lists()[0])
+    data = systems_to_batch(systems, model.requested_neighbor_lists()[0])
     with _disable_fx_duck_shape():
         fx_model = make_fx(
             model.module,

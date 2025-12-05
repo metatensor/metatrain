@@ -139,7 +139,6 @@ class Precomputer(torch.nn.Module):
         self,
         positions,
         cells,
-        species,
         cell_shifts,
         center_indices,
         neighbor_indices,

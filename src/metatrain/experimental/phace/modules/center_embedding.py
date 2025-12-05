@@ -5,6 +5,7 @@ import torch
 
 def embed_centers(features: List[torch.Tensor], center_embeddings: torch.Tensor):
     # multiplies arbitrary equivariant features by the provided center embeddings
+    # (the center embeddings are expanded as needed)
     n_channels = center_embeddings.shape[-1]
     new_features: List[torch.Tensor] = []
     for feature_tensor in features:

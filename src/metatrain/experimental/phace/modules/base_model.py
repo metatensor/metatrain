@@ -156,7 +156,6 @@ class BaseModel(torch.nn.Module):
         spherical_harmonics, radial_basis = self.precomputer(
             positions=batch["positions"],
             cells=batch["cells"],
-            species=batch["species"],
             cell_shifts=batch["cell_shifts"],
             center_indices=batch["center_indices"],
             neighbor_indices=batch["neighbor_indices"],
@@ -226,9 +225,10 @@ class BaseModel(torch.nn.Module):
             self.padded_l_list,
         )
 
+        # center embedding
         features = embed_centers(features, center_embeddings)
 
-        # final predictions
+        # predictions
         return_dict: Dict[str, Dict[int, torch.Tensor]] = {}
         return_dict["features"] = {l: tensor for l, tensor in enumerate(features)}  # noqa: E741
 
@@ -392,11 +392,11 @@ class GradientModel(torch.nn.Module):
             (pos_grad, strain_grads), predictions = compute_val_and_grad(
                 params, buffers, batch["positions"], strains, output_name
             )
-            all_gradients[f"{output_name}__for"] = {
-                -1: -pos_grad  # Forces are negative gradient of energy
+            all_gradients[f"{output_name}__pos"] = {
+                -1: pos_grad  # Forces are negative gradient of energy
             }
-            all_gradients[f"{output_name}__vir"] = {
-                -1: -strain_grads  # Virial/stress from strain gradient
+            all_gradients[f"{output_name}__str"] = {
+                -1: strain_grads  # Virial/stress from strain gradient
             }
 
         predictions.update(all_gradients)
@@ -407,7 +407,8 @@ class FakeGradientModel(torch.nn.Module):
     """
     Wrapper around BaseModel that does not compute gradients.
 
-    Used during inference when returning gradients from inside the model is not needed.
+    Used during inference when returning gradients from inside the model is not needed
+    and torchscript compatibility is required.
     """
 
     def __init__(self, module) -> None:

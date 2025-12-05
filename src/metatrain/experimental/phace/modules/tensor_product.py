@@ -4,6 +4,7 @@ import torch
 
 
 def split_up_features(features: List[torch.Tensor], k_max_l: List[int]):
+    # splits a ragged list of features into a list of lists of features
     l_max = len(k_max_l) - 1
     split_features: List[List[torch.Tensor]] = []
     for l in range(l_max, -1, -1):  # noqa: E741
@@ -20,6 +21,7 @@ def uncouple_features(
     U: torch.Tensor,
     padded_l_max: int,
 ):
+    # spherical (coupled) to TP (uncoupled) basis
     # features is a list of [..., 2*l+1, n_features] for l = 0, 1, ..., padded_l_max
     # U is dense and [(padded_l_max+1)**2, (padded_l_max+1)**2]
     if len(features) < padded_l_max + 1:
@@ -57,6 +59,7 @@ def tensor_product(
     uncoupled_features_1: List[torch.Tensor],
     uncoupled_features_2: List[torch.Tensor],
 ):
+    # tensor product in the TP (uncoupled) basis
     new_uncoupled_features = []
     for u1, u2 in zip(uncoupled_features_1, uncoupled_features_2, strict=True):
         new_uncoupled_features.append(torch.einsum("...ijf,...jkf->...ikf", u1, u2))
@@ -68,6 +71,7 @@ def couple_features(
     U: torch.Tensor,
     padded_l_max: int,
 ):
+    # TP (uncoupled) to spherical (coupled) basis
     # features is [..., padded_l_max+1, padded_l_max+1, n_features]
     # U is dense and [(padded_l_max+1)**2, (padded_l_max+1)**2]
     split_sizes = [2 * l + 1 for l in range(padded_l_max + 1)]  # noqa: E741
@@ -107,6 +111,8 @@ def uncouple_features_all(
     l_max: int,
     padded_l_list: List[int],
 ) -> List[torch.Tensor]:
+    # spherical (coupled) to TP (uncoupled) basis for a list of ragged spherical
+    # features (different number of channels per l)
     split_features = split_up_features(coupled_features, k_max_l)
     uncoupled_features = []
     for l in range(l_max + 1):  # noqa: E741
@@ -126,6 +132,8 @@ def couple_features_all(
     l_max: int,
     padded_l_list: List[int],
 ) -> List[torch.Tensor]:
+    # TP (uncoupled) to spherical (coupled) basis for a list of ragged TP features
+    # (different number of channels per l)
     coupled_features: List[List[torch.Tensor]] = []
     for l in range(l_max + 1):  # noqa: E741
         coupled_features.append(

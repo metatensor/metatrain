@@ -59,8 +59,6 @@ class InvariantMessagePasser(torch.nn.Module):
             )
             density.append(density_l * self.mp_scaling)
 
-        # TODO: add linear layers here?
-
         if not self.disable_nu_0:
             density[0] = density[0] + initial_center_embedding
 

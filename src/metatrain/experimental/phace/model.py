@@ -21,7 +21,7 @@ from metatrain.experimental.phace.modules.base_model import (
     FakeGradientModel,
     GradientModel,
 )
-from metatrain.experimental.phace.utils import systems_to_batch_direct
+from metatrain.experimental.phace.utils import systems_to_batch
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
@@ -201,7 +201,7 @@ class PhACE(ModelInterface[ModelHypers]):
 
         # Convert systems to batch format
         neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
-        batch = systems_to_batch_direct(systems, neighbor_list_options)
+        batch = systems_to_batch(systems, neighbor_list_options)
 
         # compute sample labels from batch
         samples_values = torch.stack(
@@ -380,7 +380,7 @@ class PhACE(ModelInterface[ModelHypers]):
                             values=torch.tensor([[0], [1], [2]], device=device),
                         )
                     ]
-                    gradient_tensor = -predictions[f"{output_name}__for"][-1]
+                    gradient_tensor = predictions[f"{output_name}__pos"][-1]
                     block.add_gradient(
                         "positions",
                         TensorBlock(
@@ -420,7 +420,7 @@ class PhACE(ModelInterface[ModelHypers]):
                             values=torch.tensor([[0], [1], [2]], device=device),
                         ),
                     ]
-                    gradient_tensor = -predictions[f"{output_name}__vir"][-1]
+                    gradient_tensor = predictions[f"{output_name}__str"][-1]
                     block.add_gradient(
                         "positions",
                         TensorBlock(
