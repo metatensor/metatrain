@@ -2,7 +2,7 @@ from typing import Dict, List
 
 import torch
 
-from .tensor_product import couple_features, split_up_features, uncouple_features
+from .tensor_product import couple_features_all, uncouple_features_all
 
 
 class Linear(torch.nn.Module):
@@ -41,23 +41,9 @@ class LinearList(torch.nn.Module):
         self, features_list: List[torch.Tensor], U_dict: Dict[int, torch.Tensor]
     ) -> List[torch.Tensor]:
         if self.spherical_linear_layers:
-            coupled_features: List[List[torch.Tensor]] = []
-            for l in range(self.l_max + 1):  # noqa: E741
-                coupled_features.append(
-                    couple_features(
-                        features_list[l],
-                        U_dict[self.padded_l_list[l]],
-                        self.padded_l_list[l],
-                    )
-                )
-            features_list = []
-            for l in range(self.l_max + 1):  # noqa: E741
-                features_list.append(
-                    torch.concatenate(
-                        [coupled_features[lp][l] for lp in range(l, self.l_max + 1)],
-                        dim=-1,
-                    )
-                )
+            features_list = couple_features_all(
+                features_list, U_dict, self.l_max, self.padded_l_list
+            )
 
         new_features_list: List[torch.Tensor] = []
         for i, linear in enumerate(self.linears):
@@ -66,16 +52,9 @@ class LinearList(torch.nn.Module):
             new_features_list.append(new_features)
 
         if self.spherical_linear_layers:
-            split_features = split_up_features(new_features_list, self.k_max_l)
-            new_features_list = []
-            for l in range(self.l_max + 1):  # noqa: E741
-                new_features_list.append(
-                    uncouple_features(
-                        split_features[l],
-                        U_dict[self.padded_l_list[l]],
-                        self.padded_l_list[l],
-                    )
-                )
+            new_features_list = uncouple_features_all(
+                new_features_list, self.k_max_l, U_dict, self.l_max, self.padded_l_list
+            )
 
         return new_features_list
 

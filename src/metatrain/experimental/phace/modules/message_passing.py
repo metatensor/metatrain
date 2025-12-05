@@ -5,9 +5,8 @@ import torch
 from .layers import LinearList as Linear
 from .radial_mlp import MLPRadialBasis
 from .tensor_product import (
-    split_up_features,
     tensor_product,
-    uncouple_features,
+    uncouple_features_all,
 )
 
 
@@ -106,16 +105,9 @@ class EquivariantMessagePasser(torch.nn.Module):
             for l in range(self.l_max + 1)  # noqa: E741
         ]
 
-        split_vector_expansion = split_up_features(vector_expansion, self.k_max_l)
-        uncoupled_vector_expansion = []
-        for l in range(self.l_max + 1):  # noqa: E741
-            uncoupled_vector_expansion.append(
-                uncouple_features(
-                    split_vector_expansion[l],
-                    U_dict[self.padded_l_list[l]],
-                    self.padded_l_list[l],
-                )
-            )
+        uncoupled_vector_expansion = uncouple_features_all(
+            vector_expansion, self.k_max_l, U_dict, self.l_max, self.padded_l_list
+        )
 
         n_atoms = features[0].shape[0]
 

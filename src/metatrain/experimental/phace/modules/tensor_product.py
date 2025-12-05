@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List
 
 import torch
 
@@ -98,3 +98,48 @@ def couple_features(
     for l in range(padded_l_max + 1):  # noqa: E741
         coupled_features.append(features_coupled[l])
     return coupled_features
+
+
+def uncouple_features_all(
+    coupled_features: List[torch.Tensor],
+    k_max_l: List[int],
+    U_dict: Dict[int, torch.Tensor],
+    l_max: int,
+    padded_l_list: List[int],
+) -> List[torch.Tensor]:
+    split_features = split_up_features(coupled_features, k_max_l)
+    uncoupled_features = []
+    for l in range(l_max + 1):  # noqa: E741
+        uncoupled_features.append(
+            uncouple_features(
+                split_features[l],
+                U_dict[padded_l_list[l]],
+                padded_l_list[l],
+            )
+        )
+    return uncoupled_features
+
+
+def couple_features_all(
+    uncoupled_features: List[torch.Tensor],
+    U_dict: Dict[int, torch.Tensor],
+    l_max: int,
+    padded_l_list: List[int],
+) -> List[torch.Tensor]:
+    coupled_features: List[List[torch.Tensor]] = []
+    for l in range(l_max + 1):  # noqa: E741
+        coupled_features.append(
+            couple_features(
+                uncoupled_features[l],
+                U_dict[padded_l_list[l]],
+                padded_l_list[l],
+            )
+        )
+    concat_coupled_features = []
+    for l in range(l_max + 1):  # noqa: E741
+        concat_coupled_features.append(
+            torch.concatenate(
+                [coupled_features[lp][l] for lp in range(l, l_max + 1)], dim=-1
+            )
+        )
+    return concat_coupled_features

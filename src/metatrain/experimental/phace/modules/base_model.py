@@ -10,7 +10,7 @@ from .cg_iterator import CGIterator
 from .layers import Linear
 from .message_passing import EquivariantMessagePasser, InvariantMessagePasser
 from .precomputations import Precomputer
-from .tensor_product import couple_features, split_up_features, uncouple_features
+from .tensor_product import couple_features_all, uncouple_features_all
 
 
 class BaseModel(torch.nn.Module):
@@ -18,15 +18,11 @@ class BaseModel(torch.nn.Module):
         super().__init__()
         self.atomic_types = dataset_info.atomic_types
         self.hypers = hypers
-        # Store scaling values for passing to submodules
-        mp_scaling_value = hypers["mp_scaling"]
-        nu_scaling_value = hypers["nu_scaling"]
-        # Register scaling factors as buffers for efficiency
-        self.register_buffer("mp_scaling", torch.tensor(mp_scaling_value))
+
         self.nu_max = hypers["max_correlation_order_per_layer"]
-        self.register_buffer("nu_scaling", torch.tensor(nu_scaling_value))
         self.head_num_layers = hypers["head_num_layers"]
         self.spherical_linear_layers = hypers["spherical_linear_layers"]
+        self.register_buffer("nu_scaling", torch.tensor(hypers["nu_scaling"]))
 
         # A module that precomputes quantities that are useful in all message-passing
         # steps (spherical harmonics, distances)
@@ -40,6 +36,7 @@ class BaseModel(torch.nn.Module):
             use_sphericart=hypers["use_sphericart"],
         )
 
+        # representation sizes
         n_max = self.precomputer.n_max_l
         self.l_max = len(n_max) - 1
         n_channels = hypers["num_element_channels"]
@@ -52,6 +49,8 @@ class BaseModel(torch.nn.Module):
             ]
 
         ################
+        # Transformation matrices from "coupled" (aka spherical) to uncoupled (used for)
+        # tensor products basis and back
         cg_calculator = get_cg_coefficients(2 * ((self.l_max + 1) // 2))
         self.padded_l_list = [2 * ((l + 1) // 2) for l in range(self.l_max + 1)]  # noqa: E741
         U_dict = {}
@@ -91,18 +90,12 @@ class BaseModel(torch.nn.Module):
         # The message passing is invariant for the first layer
         self.invariant_message_passer = InvariantMessagePasser(
             self.atomic_types,
-            mp_scaling_value,
+            hypers["mp_scaling"],
             hypers["disable_nu_0"],
             self.precomputer.n_max_l,
             self.k_max_l,
         )
-
-        cgs = get_cg_coefficients(self.l_max)
-        cgs = {
-            str(l1) + "_" + str(l2) + "_" + str(L): tensor
-            for (l1, l2, L), tensor in cgs._cgs.items()
-        }
-
+        # First CG iterator
         self.cg_iterator = CGIterator(
             self.k_max_l, self.nu_max - 1, self.spherical_linear_layers
         )
@@ -114,7 +107,7 @@ class BaseModel(torch.nn.Module):
             equivariant_message_passer = EquivariantMessagePasser(
                 self.precomputer.n_max_l,
                 self.k_max_l,
-                mp_scaling_value,
+                hypers["mp_scaling"],
                 self.spherical_linear_layers,
             )
             equivariant_message_passers.append(equivariant_message_passer)
@@ -127,6 +120,7 @@ class BaseModel(torch.nn.Module):
         )
         self.generalized_cg_iterators = torch.nn.ModuleList(generalized_cg_iterators)
 
+        # Heads and last layers
         self.head_types = self.hypers["heads"]
         self.heads = torch.nn.ModuleDict()
         self.last_layers = torch.nn.ModuleDict()
@@ -175,7 +169,7 @@ class BaseModel(torch.nn.Module):
         # body-order is scaled by the same factor
         spherical_harmonics = [sh * self.nu_scaling for sh in spherical_harmonics]
 
-        # calculate the center embeddings; these are shared across all layers
+        # calculate the center embeddings; these are shared across all layers for now
         center_species_indices = self.species_to_species_index[batch["species"]]
         center_embeddings = self.embeddings(center_species_indices)
 
@@ -187,7 +181,7 @@ class BaseModel(torch.nn.Module):
         initial_element_embedding = embed_centers(
             [initial_features], center_embeddings
         )[0]
-        # now they are all the same as the center embeddings
+        # (now they are all the same as the center embeddings)
 
         # ACE-like features
         features = self.invariant_message_passer(
@@ -198,18 +192,13 @@ class BaseModel(torch.nn.Module):
             n_atoms,
             initial_element_embedding,
         )
-
-        split_features = split_up_features(features, self.k_max_l)
-        features = []
-        for l in range(self.l_max + 1):  # noqa: E741
-            features.append(
-                uncouple_features(
-                    split_features[l],
-                    self.U_dict[self.padded_l_list[l]],
-                    self.padded_l_list[l],
-                )
-            )
-
+        features = uncouple_features_all(  # from spherical to TP basis
+            features,
+            self.k_max_l,
+            self.U_dict,
+            self.l_max,
+            self.padded_l_list,
+        )
         features = self.cg_iterator(features, self.U_dict)
 
         # message passing
@@ -230,24 +219,13 @@ class BaseModel(torch.nn.Module):
             iterated_features = generalized_cg_iterator(mp_features, self.U_dict)
             features = iterated_features
 
-        coupled_features: List[List[torch.Tensor]] = []
-        for l in range(self.l_max + 1):  # noqa: E741
-            coupled_features.append(
-                couple_features(
-                    features[l],
-                    self.U_dict[self.padded_l_list[l]],
-                    self.padded_l_list[l],
-                )
-            )
-        features = []
-        for l in range(self.l_max + 1):  # noqa: E741
-            features.append(
-                torch.concatenate(
-                    [coupled_features[lp][l] for lp in range(l, self.l_max + 1)], dim=-1
-                )
-            )
+        features = couple_features_all(  # back to spherical basis
+            features,
+            self.U_dict,
+            self.l_max,
+            self.padded_l_list,
+        )
 
-        # TODO: change position?
         features = embed_centers(features, center_embeddings)
 
         # final predictions
@@ -345,8 +323,6 @@ class GradientModel(torch.nn.Module):
     """
     Wrapper around BaseModel that computes gradients with respect to positions and
     strain.
-
-    Uses batched tensor representation for torch.compile compatibility.
     """
 
     def __init__(self, module) -> None:
@@ -431,7 +407,7 @@ class FakeGradientModel(torch.nn.Module):
     """
     Wrapper around BaseModel that does not compute gradients.
 
-    Used during inference when gradients are not needed.
+    Used during inference when returning gradients from inside the model is not needed.
     """
 
     def __init__(self, module) -> None:

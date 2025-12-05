@@ -44,7 +44,7 @@ capabilities of the architectures in metatrain.
    * - PhACE
      - Energy, forces, stress/virial
      - Yes
-     - Only proper tensors (``o3_sigma=1``)
+     - Yes
      - No
 
 
