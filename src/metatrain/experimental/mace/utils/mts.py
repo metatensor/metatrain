@@ -1,4 +1,9 @@
-"""Utilities related to the interaction with metatensor"""
+"""Utilities related to the interaction with metatensor.
+
+These utilities are mainly focused on helping wrapping the outputs
+of MACE (raw torch tensors that correspond to some e3nn irreps) to
+metatensor TensorMaps.
+"""
 
 from typing import List
 
