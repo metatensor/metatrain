@@ -132,8 +132,8 @@ class Precomputer(torch.nn.Module):
         else:
             self.register_buffer("lengthscales", lengthscales)
 
-        self.r_cut = cutoff
-        self.cutoff_width = cutoff_width
+        self.r_cut = float(cutoff)
+        self.cutoff_width = float(cutoff_width)
 
     def forward(
         self,

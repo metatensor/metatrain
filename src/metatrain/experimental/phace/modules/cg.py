@@ -1,24 +1,6 @@
-from typing import Dict
-
 import numpy as np
 import torch
 import wigners
-
-
-def cgs_to_device_dtype(
-    cgs: Dict[str, Dict[str, torch.Tensor]], device: torch.device, dtype: torch.dtype
-):
-    cgs_device: Dict[str, Dict[str, torch.Tensor]] = {}
-    for key, value in cgs.items():
-        cgs_device[key] = {}
-        for k, v in value.items():
-            if k == "split_sizes":
-                cgs_device[key][k] = v
-            elif k == "C":
-                cgs_device[key][k] = v.to(device, dtype)
-            else:
-                cgs_device[key][k] = v.to(device)
-    return cgs_device
 
 
 def get_cg_coefficients(l_max):

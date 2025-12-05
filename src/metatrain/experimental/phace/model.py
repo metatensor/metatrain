@@ -57,7 +57,7 @@ class PhACE(ModelInterface[ModelHypers]):
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = sorted(dataset_info.atomic_types)
 
-        self.cutoff_radius = hypers["cutoff"]
+        self.cutoff_radius = float(hypers["cutoff"])
         self.dataset_info = dataset_info
         self.hypers = hypers
 

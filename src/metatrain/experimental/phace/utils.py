@@ -40,7 +40,7 @@ def systems_to_batch(
     positions_list = []
     species_list = []
     cells_list = []
-    n_atoms_list = []
+    n_atoms_list: List[int] = []
     edge_index_list = []
     cell_shifts_list = []
     centers_list = []
