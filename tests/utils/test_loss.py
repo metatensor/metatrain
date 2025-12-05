@@ -1,5 +1,6 @@
 # tests/test_losses.py
 
+import math
 from pathlib import Path
 
 import pytest
@@ -591,8 +592,6 @@ def test_gaussian_crps_loss_known_values():
     # CRPS = sigma * [z(2Phi(z) - 1) + 2phi(z) - 1/sqrt(pi)]
     # where z=0, Phi(0)=0.5, phi(0)=1/sqrt(2*pi)
     # CRPS = 1 * [0 + 2/sqrt(2*pi) - 1/sqrt(pi)] ≈ 0.2337
-    import math
-
     loss_fn = GaussianCRPSLoss(reduction="none")
 
     # Test case 1: mean=0, var=1, target=0
