@@ -29,6 +29,8 @@ from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 
+from . import checkpoints
+
 
 warnings.filterwarnings(
     "ignore",
@@ -505,6 +507,7 @@ class PhACE(ModelInterface[ModelHypers]):
         )
         state_dict_iterator = iter(model_state_dict.values())
         next(state_dict_iterator)  # skip an int tensor
+        next(state_dict_iterator)  # skip another int tensor
         dtype = next(state_dict_iterator).dtype
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
@@ -599,7 +602,17 @@ class PhACE(ModelInterface[ModelHypers]):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        raise ValueError(
-            "Checkpoint upgrade not implemented for PhACE model. "
-            "Please retrain the model from scratch."
-        )
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
+
+        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current model "
+                f"version is {cls.__checkpoint_version__}."
+            )
+
+        return checkpoint
