@@ -1,19 +1,24 @@
 import torch
 
 
-def cutoff_func(grid: torch.Tensor, r_cut: torch.Tensor, delta: float) -> torch.Tensor:
+def cutoff_func(
+    values: torch.Tensor, cutoff: torch.Tensor, width: float
+) -> torch.Tensor:
     """
-    Cosine cutoff function.
+    Bump cutoff function.
 
     :param grid: Distances at which to evaluate the cutoff function.
-    :param r_cut: Cutoff radius for each node.
-    :param delta: Width of the cutoff region.
+    :param cutoff: Cutoff radius for each node.
+    :param width: Width of the cutoff region.
     :return: Values of the cutoff function at the specified distances.
     """
-    mask_bigger = grid >= r_cut
-    mask_smaller = grid <= r_cut - delta
-    grid = (grid - r_cut + delta) / delta
-    f = 0.5 + 0.5 * torch.cos(torch.pi * grid)
+    mask_bigger = values >= cutoff
+    mask_smaller = values <= cutoff - width
+    scaled_values = (values - (cutoff - width)) / width
+
+    f = 0.5 * (1 + torch.tanh(1 / torch.tan(torch.pi * scaled_values)))
+    # print("bump", values.shape, cutoff.shape, scaled_values.shape)
+    # print("cutoff", cutoff, values, f[0], f[:,0])
 
     f[mask_bigger] = 0.0
     f[mask_smaller] = 1.0
