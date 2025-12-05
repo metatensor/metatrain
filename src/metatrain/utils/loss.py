@@ -674,8 +674,7 @@ class TensorMapLLPREnsembleLoss(BaseTensorMapLoss):
     :param gradient: optional gradient field name.
     :param weight: weight of the loss contribution in the final aggregation.
     :param reduction: reduction mode for torch loss.
-    :param scoring_rule: type of loss to use ("gaussian_nll", "gaussian_crps",
-        "empirical_crps").
+    :param scoring_rule: type of loss to use ("gaussian_nll", "gaussian_crps").
     """
 
     def __init__(
