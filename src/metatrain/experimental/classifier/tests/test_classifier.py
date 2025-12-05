@@ -12,8 +12,8 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 from omegaconf import OmegaConf
 
 from metatrain.experimental.classifier import Classifier
-from metatrain.experimental.pet import PET
-from metatrain.experimental.pet import Trainer as PETTrainer
+from metatrain.pet import PET
+from metatrain.pet import Trainer as PETTrainer
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_generic_target_info
@@ -40,7 +40,7 @@ class TestCheckpoints(CheckpointTests, ClassifierTests):
             dataset_targets, dataset_path
         )
 
-        hypers = copy.deepcopy(get_default_hypers("experimental.pet"))
+        hypers = copy.deepcopy(get_default_hypers("pet"))
 
         pet_model_hypers = hypers["model"]
         pet_model_hypers["d_pet"] = 1
