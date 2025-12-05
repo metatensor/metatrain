@@ -16,6 +16,6 @@ Quickstart
 
 .. note::
 
-  For a more detailed descriptions on the training workflow, check out
+  For a more detailed description of the training workflow, check out
   our :ref:`label_basic_usage` and the rest of the
   documentation.
