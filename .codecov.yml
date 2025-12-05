@@ -4,49 +4,41 @@ coverage:
       default: false
 
       # core package
-      coverage:
-        target: 88%
+      utils_cli:
         paths:
           - "src/metatrain/utils/.*"
           - "src/metatrain/cli/.*"
-        flags:
-          - coverage_tests
+        target: 88%
 
       # stable architectures
-      coverage_gap:
+      gap:
         paths:
           - "src/metatrain/gap/.*"
-        flags:
-          - coverage_gap
-      coverage_pet:
+        component: gap
+      pet:
         paths:
           - "src/metatrain/pet/.*"
-        flags:
-          - coverage_pet
-      coverage_soap_bpnn:
+        component: pet
+      soap_bpnn:
         paths:
           - "src/metatrain/soap_bpnn/.*"
-        flags:
-          - coverage_soap_bpnn
-      coverage_llpr:
+        component: soap_bpnn
+      llpr:
         paths:
           - "src/metatrain/llpr/.*"
-        flags:
-          - coverage_llpr
+        component: llpr
 
       # deprecated architectures
-      coverage_nanopet:
+      nanopet:
         paths:
           - "src/metatrain/deprecated/nanopet/.*"
-        flags:
-          - coverage_nanopet
+        component: nanopet
 
       # experimental architectures
-      coverage_flashmd:
+      flashmd:
         paths:
           - "src/metatrain/experimental/flashmd/.*"
-        flags:
-          - coverage_flashmd
+        component: flashmd
 
     patch:
       default:

@@ -51,4 +51,3 @@ jobs:
       with:
         fail_ci_if_error: false
         files: coverage.xml
-        flags: coverage_${{ matrix.architecture-name }}

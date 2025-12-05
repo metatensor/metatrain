@@ -94,8 +94,9 @@ exclude_lines = [
 ]
 omit = [
     "*/site-packages/*",
-    "tests/*",
-    "src/metatrain/**/tests/*",
+    "*/tests/*",
+    "src/metatrain/*/tests/*",
+    "src/metatrain/*/*/tests/*",
     "src/metatrain/utils/testing/*",
     "examples/*"
 ]

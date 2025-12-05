@@ -2,9 +2,6 @@
 NanoPET (deprecated)
 ======================
 
-.. image:: https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?flag=coverage_nanopet
-   :target: https://codecov.io/gh/metatensor/metatrain/tree/main/src/metatrain/deprecated/nanopet
-
 .. warning::
 
   This is a **deprecated model**. You should not use it for anything important, and
