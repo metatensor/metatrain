@@ -41,7 +41,7 @@ from .model import NanoPET
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 6
+    __checkpoint_version__ = 7
 
     def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)
@@ -99,15 +99,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
-        if self.hypers["remove_composition_contribution"]:
-            logging.info("Calculating composition weights")
-            model.additive_models[0].train_model(  # this is the composition model
-                train_datasets,
-                model.additive_models[1:],
-                self.hypers["batch_size"],
-                is_distributed,
-                self.hypers["fixed_composition_weights"],
-            )
+        logging.info("Calculating composition weights")
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["batch_size"],
+            is_distributed,
+            self.hypers["atomic_baseline"],
+        )
 
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
