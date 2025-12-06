@@ -31,3 +31,14 @@ def trainer_update_v1_v2(checkpoint: dict) -> None:
         }
 
     checkpoint["train_hypers"]["loss"] = new_loss_hypers
+
+
+def trainer_update_v2_v3(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 2 to version 3.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # - Rename ``fixed_composition_weights`` to ``atomic_baseline``.
+    atomic_baseline = checkpoint["train_hypers"].pop("fixed_composition_weights")
+    checkpoint["train_hypers"]["atomic_baseline"] = atomic_baseline
