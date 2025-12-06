@@ -18,6 +18,7 @@ jobs:
           - llpr
           - pet
           - nanopet
+          - phace
           - flashmd
 
     runs-on: ubuntu-22.04

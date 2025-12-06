@@ -48,9 +48,12 @@ class OutputTests(ArchitectureTests):
     """Whether the model supports returning features."""
     supports_last_layer_features: bool = True
     """Whether the model supports returning last-layer features."""
-    is_equivariant_model: bool = True
+    is_equivariant_rotations: bool = True
     """Whether the model is equivariant (i.e. produces outputs that
     transform correctly under rotations by architecture's design)."""
+    is_equivariant_reflections: bool = True
+    """Whether the model is equivariant (i.e. produces outputs that
+    transform correctly under reflections by architecture's design)."""
 
     @pytest.fixture
     def n_features(self) -> Optional[int]:
@@ -530,13 +533,13 @@ class OutputTests(ArchitectureTests):
         assert "energy" in outputs
         assert "mtt::aux::energy_last_layer_features" in outputs
 
-        last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block()
+        last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block(0)
         expected_samples = ["system", "atom"] if per_atom else ["system"]
         assert last_layer_features.samples.names == expected_samples
         assert last_layer_features.properties.names == ["feature"]
         assert last_layer_features.values.shape[0] == (4 if per_atom else 1)
         if n_last_layer_features is not None:
-            assert last_layer_features.values.shape[1] == n_last_layer_features
+            assert last_layer_features.values.shape[-1] == n_last_layer_features
 
     @pytest.mark.parametrize("select_atoms", [[0, 2]])
     def test_output_last_layer_features_selected_atoms(
@@ -588,7 +591,7 @@ class OutputTests(ArchitectureTests):
             ),
         )
         out = model(systems, outputs, selected_atoms=selected_atoms)
-        features = out[output_label].block().samples.values
+        features = out[output_label].block(0).samples.values
         assert features.shape == selected_atoms.values.shape
 
     def test_single_atom(
@@ -626,14 +629,14 @@ class OutputTests(ArchitectureTests):
 
         This test is skipped if the model does not support scalar outputs,
         or if the model is not equivariant by design, i.e., if either
-        ``supports_scalar_outputs`` or ``is_equivariant_model`` is set to
+        ``supports_scalar_outputs`` or ``is_equivariant_rotations`` is set to
         ``False``.
 
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info: Dataset information to initialize the model.
         :param dataset_path: Path to a dataset file to read systems from.
         """
-        if not self.supports_scalar_outputs or not self.is_equivariant_model:
+        if not self.supports_scalar_outputs or not self.is_equivariant_rotations:
             pytest.skip(
                 f"{self.architecture} does not produce invariant scalar outputs."
             )
@@ -675,7 +678,7 @@ class OutputTests(ArchitectureTests):
 
         This test is skipped if the model does not support spherical outputs,
         or if the model is not equivariant by design, i.e., if either
-        ``supports_spherical_outputs`` or ``is_equivariant_model`` is set to
+        ``supports_spherical_outputs`` or ``is_equivariant_rotations`` is set to
         ``False``.
 
         :param model_hypers: Hyperparameters to initialize the model.
@@ -683,7 +686,7 @@ class OutputTests(ArchitectureTests):
         :param dataset_path: Path to a dataset file to read systems from.
         """
 
-        if not self.supports_spherical_outputs or not self.is_equivariant_model:
+        if not self.supports_spherical_outputs or not self.is_equivariant_rotations:
             pytest.skip(
                 f"{self.architecture} does not produce equivariant spherical outputs."
             )
@@ -736,7 +739,7 @@ class OutputTests(ArchitectureTests):
 
         This test is skipped if the model does not support spherical outputs,
         or if the model is not equivariant by design, i.e., if either
-        ``supports_spherical_outputs`` or ``is_equivariant_model`` is set to
+        ``supports_spherical_outputs`` or ``is_equivariant_reflections`` is set to
         ``False``.
 
         :param model_hypers: Hyperparameters to initialize the model.
@@ -746,7 +749,7 @@ class OutputTests(ArchitectureTests):
         :param o3_sigma: The O(3) sigma of the spherical output to test.
         """
 
-        if not self.supports_spherical_outputs or not self.is_equivariant_model:
+        if not self.supports_spherical_outputs or not self.is_equivariant_reflections:
             pytest.skip(
                 f"{self.architecture} does not produce equivariant spherical outputs."
             )
