@@ -3,46 +3,48 @@ coverage:
     project:
       default: false
 
-      # core package
-      utils_cli:
-        paths:
-          - "src/metatrain/utils/.*"
-          - "src/metatrain/cli/.*"
-        target: 88%
+    # core package
+    core:
+      target: 88%
+      paths:
+        - "src/metatrain/utils/.*"
+        - "src/metatrain/cli/.*"
 
-      # stable architectures
-      gap:
-        paths:
-          - "src/metatrain/gap/.*"
-        component: gap
-      pet:
-        paths:
-          - "src/metatrain/pet/.*"
-        component: pet
-      soap_bpnn:
-        paths:
-          - "src/metatrain/soap_bpnn/.*"
-        component: soap_bpnn
-      llpr:
-        paths:
-          - "src/metatrain/llpr/.*"
-        component: llpr
+component_management:
+  individual_components:
 
-      # deprecated architectures
-      nanopet:
-        paths:
-          - "src/metatrain/deprecated/nanopet/.*"
-        component: nanopet
+    # stable architectures
+    - component_id: gap
+      name: GAP
+      paths:
+        - "src/metatrain/gap/.*"
 
-      # experimental architectures
-      flashmd:
-        paths:
-          - "src/metatrain/experimental/flashmd/.*"
-        component: flashmd
+    - component_id: soap_bpnn
+      name: SOAP-BPNN
+      paths:
+        - "src/metatrain/soap_bpnn/.*"
 
-    patch:
-      default:
-        informational: true
+    - component_id: pet
+      name: PET
+      paths:
+        - "src/metatrain/pet/.*"
+
+    - component_id: llpr
+      name: LLPR
+      paths:
+        - "src/metatrain/llpr/.*"
+
+    # deprecated architectures
+    - component_id: nanopet
+      name: NanoPET
+      paths:
+        - "src/metatrain/deprecated/nanopet/.*"
+
+    # experimental architectures
+    - component_id: flashmd
+      name: FlashMD
+      paths:
+        - "src/metatrain/experimental/flashmd/.*"
 
   ignore:
     # no need to report coverage of the test code themself
