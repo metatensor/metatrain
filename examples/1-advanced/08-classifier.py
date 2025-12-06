@@ -172,14 +172,14 @@ plt.ylabel("Accuracy (%)")
 plt.title("Classifier Accuracy per Class")
 plt.ylim(0, 105)
 
-# Add value labels on top of bars
+# Add value labels in the middle of bars
 for bar, acc in zip(bars, accuracies, strict=True):
     plt.text(
         bar.get_x() + bar.get_width() / 2,
-        bar.get_height() + 2,
+        bar.get_height() / 2,
         f"{acc:.0f}%",
         ha="center",
-        va="bottom",
+        va="center",
         fontsize=10,
     )
 
