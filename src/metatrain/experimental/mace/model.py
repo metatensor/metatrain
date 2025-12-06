@@ -56,7 +56,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         }
     )
 
-    # Attributes of the model. We can't uncomment this descriptions because
+    # Attributes of the model. We can't uncomment these descriptions because
     # torchscript complains.
     # cutoff: float
     # """Cutoff radius used in the interactions of the MACE model."""
@@ -104,6 +104,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # ---------------------------
 
         self.loaded_mace = self.hypers["mace_model"] is not None
+        # Atomic baselines and scale extracted from the loaded MACE model (if any).
+        self._loaded_atomic_baseline = None
+        self._loaded_scale = 1.0
 
         if self.loaded_mace:
             # MACE model provided, load it in case it's a path or use it directly
@@ -118,27 +121,41 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     "The 'mace_model' hyper must be a path or a torch.nn.Module"
                 )
 
-            # Remove atomic baseline from the model
-            if self.hypers["mace_model_remove_atomic_baseline"]:
+            # If this is the first time we load this model,
+            # extract atomic baselines and scales from the loaded model,
+            # and set them to zero / identity respectively, since these
+            # will be handled by metatrain's scaler and composition model.
+            if not getattr(self.mace_model, "_metatrain_extracted_scaleshift", False):
                 if hasattr(self.mace_model, "atomic_energies_fn"):
-                    self.mace_model.atomic_energies_fn.atomic_energies[:] = 0.0
-                # Future models that are not meant for the energy might have
-                # atomic baselines stored in other ways. In that case, we
-                # will simply add another if clause here.
-                else:
-                    logging.warning(
-                        "The hypers of the model ask for atomic baselines to be"
-                        " removed, but we couldn't find a module storing atomic"
-                        " baselines inside the loaded MACE model."
+                    self._loaded_atomic_baseline = (
+                        self.mace_model.atomic_energies_fn.atomic_energies.clone()
                     )
 
-            # Remove scale and shift if present
-            if self.hypers["mace_model_remove_scale_shift"] and hasattr(
-                self.mace_model, "scale_shift"
-            ):
-                self.mace_model.scale_shift = FakeScaleShift()
+                    self.mace_model.atomic_energies_fn.atomic_energies[:] = 0.0
+
+                if hasattr(self.mace_model, "scale_shift"):
+                    self._loaded_scale = self.mace_model.scale_shift.scale.item()
+                    added_baseline = self.mace_model.scale_shift.shift.item()
+                    if self._loaded_atomic_baseline is not None:
+                        self._loaded_atomic_baseline = (
+                            self._loaded_atomic_baseline + added_baseline
+                        )
+                    else:
+                        self._loaded_atomic_baseline = torch.full(
+                            (len(self.mace_model.atomic_numbers),),
+                            added_baseline,
+                        )
+
+                    self.mace_model.scale_shift = FakeScaleShift()
+
+                # Signal that we have already extracted the scale and shift
+                # from this model. When this model is stored in a checkpoint
+                # and loaded again, metatrain will not try to extract the
+                # scale and shift again.
+                self.mace_model._metatrain_extracted_scaleshift = True
 
         else:
+            # No MACE model provided, create a new one from hypers
             with warnings.catch_warnings():
                 # Don't show warnings from e3nn to user (these warnings
                 # only appear in old versions of e3nn)
@@ -425,6 +442,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         # At evaluation, we also introduce the scaler and additive contributions
         if not self.training:
+            print("Scaling and adding contributions...")
             return_dict = self.scaler(systems, return_dict)
             self.add_additive_contributions(
                 return_dict, systems, outputs, selected_atoms
@@ -677,3 +695,46 @@ class MetaMACE(ModelInterface[ModelHypers]):
             "best_model_state_dict": model_state_dict,
         }
         return checkpoint
+
+    def get_fixed_composition_weights(self) -> dict[str, dict[int, float]]:
+        """Get composition weights from the loaded MACE model.
+
+        :return: Tensor of shape (N,) with the atomic baselines for each
+          atomic type known by the model, or None if no MACE model was loaded.
+        """
+        if self._loaded_atomic_baseline is None:
+            return {}
+        else:
+            return {
+                self.hypers["mace_head_target"]: {
+                    k: v
+                    for k, v in zip(
+                        self.atomic_types,
+                        self._loaded_atomic_baseline.tolist(),
+                        strict=True,
+                    )
+                }
+            }
+
+    def get_fixed_scaling_weights(self) -> dict[str, float | dict[int, float]]:
+        """Get scaling weights from the loaded MACE model.
+
+        :return: Scale factor used in the loaded MACE model, or None
+          if no MACE model was loaded.
+        """
+        if self._loaded_scale == 1.0:
+            return {}
+        else:
+            # Get info about the mace head target
+            mace_head_target = self.hypers["mace_head_target"]
+            per_atom = self.dataset_info.targets[mace_head_target].per_atom
+
+            # Define scaling weights for the target
+            weights = (
+                {k: self._loaded_scale for k in self.atomic_types}
+                if per_atom
+                else self._loaded_scale
+            )
+
+            # Return dictionary of fixed scaling weights
+            return {mace_head_target: weights}
