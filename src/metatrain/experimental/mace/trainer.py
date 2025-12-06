@@ -206,15 +206,13 @@ class Trainer(TrainerInterface):
         model.scaler.to(dtype=torch.float64)
 
         logging.info("Calculating composition weights")
-
-        if self.hypers["use_atomic_baseline"]:
-            model.additive_models[0].train_model(  # this is the composition model
-                train_datasets,
-                model.additive_models[1:],
-                self.hypers["batch_size"],
-                is_distributed,
-                self.hypers["fixed_composition_weights"],
-            )
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["batch_size"],
+            is_distributed,
+            {**model.get_fixed_composition_weights(), **self.hypers["atomic_baseline"]},
+        )
 
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
@@ -223,7 +221,10 @@ class Trainer(TrainerInterface):
                 model.additive_models,
                 self.hypers["batch_size"],
                 is_distributed,
-                self.hypers["fixed_scaling_weights"],
+                {
+                    **model.get_fixed_scaling_weights(),
+                    **self.hypers["fixed_scaling_weights"],
+                },
             )
 
         logging.info("Setting up data loaders")
