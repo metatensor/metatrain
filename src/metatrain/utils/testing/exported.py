@@ -13,6 +13,9 @@ from .architectures import ArchitectureTests
 class ExportedTests(ArchitectureTests):
     """Test suite to test exported models."""
 
+    avoid_consistency_check: list[str] = []
+    """List of output names for which to avoid consistency checks."""
+
     def test_to(
         self,
         device: torch.device,
@@ -50,9 +53,20 @@ class ExportedTests(ArchitectureTests):
         system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
         system = system.to(device=device, dtype=dtype)
 
-        evaluation_options = ModelEvaluationOptions(
+        strict_evaluation_options = ModelEvaluationOptions(
             length_unit=dataset_info.length_unit,
-            outputs=model.outputs,
+            outputs={
+                k: v
+                for k, v in model.outputs.items()
+                if k not in self.avoid_consistency_check
+            },
         )
 
-        exported([system], evaluation_options, check_consistency=True)
+        exported([system], strict_evaluation_options, check_consistency=True)
+
+        if len(self.avoid_consistency_check) > 0:
+            evaluation_options = ModelEvaluationOptions(
+                length_unit=dataset_info.length_unit,
+                outputs={k: model.outputs[k] for k in self.avoid_consistency_check},
+            )
+            exported([system], evaluation_options, check_consistency=False)
