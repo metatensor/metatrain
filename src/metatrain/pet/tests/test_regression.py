@@ -99,7 +99,7 @@ def test_regression_energies_forces_train(device):
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["scheduler_patience"] = 1
-    hypers["training"]["fixed_composition_weights"] = {}
+    hypers["training"]["atomic_baseline"] = {}
     loss_conf = {"energy": init_with_defaults(LossSpecification)}
     loss_conf["energy"]["gradients"] = {
         "positions": init_with_defaults(LossSpecification)

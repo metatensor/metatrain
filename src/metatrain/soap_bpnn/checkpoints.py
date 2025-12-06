@@ -293,3 +293,26 @@ def trainer_update_v7_v8(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     checkpoint["train_hypers"]["remove_composition_contribution"] = True
+
+
+def trainer_update_v8_v9(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 8 to version 9.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # - Remove the ``remove_composition_contribution`` hyper.
+    # - Rename ``fixed_composition_weights`` to ``atomic_baseline``.
+    # - If ``remove_composition_contribution`` is False, set all atomic baselines
+    #   to 0.0 for all targets.
+    use_atomic_baseline = checkpoint["train_hypers"].pop(
+        "remove_composition_contribution"
+    )
+    atomic_baseline = checkpoint["train_hypers"].pop("fixed_composition_weights")
+
+    if not use_atomic_baseline:
+        # Just set
+        dataset_info = checkpoint["model_data"]["dataset_info"]
+        atomic_baseline = {target_name: 0.0 for target_name in dataset_info.targets}
+
+    checkpoint["train_hypers"]["atomic_baseline"] = atomic_baseline
