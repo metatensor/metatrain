@@ -239,8 +239,9 @@ class PET(ModelInterface):
         self.single_label = Labels.single()
 
         self.finetune_config: Dict[str, Any] = {}
-        print (self.hypers['gap_layer'])
-        self.bandgap_layer = build_sequential_silu(self.hypers['gap_layer'])
+        if self.hypers['gap_layer']:
+            print (self.hypers['gap_layer'])
+            self.bandgap_layer = build_sequential_silu(self.hypers['gap_layer'])
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs

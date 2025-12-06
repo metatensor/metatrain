@@ -422,21 +422,10 @@ class Trainer(TrainerInterface):
                 predictions = average_by_num_atoms(
                     predictions, systems, per_structure_targets
                 )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
-                tensor_map_pred = predictions["mtt::gapdos"]
-                gapdos_predictions = tensor_map_pred[0].values
-                bandgap_predictions = model.bandgap_layer(gapdos_predictions)
-                tensor_map_gap = extra_data["mtt::gap"]
-                true_gap = tensor_map_gap[0].values
-                print (bandgap_predictions)
-                print (true_gap)
-                manual_MSE = torch.mean((bandgap_predictions - true_gap) ** 2)
-                print ("Obtained manually, ", manual_MSE.item())
-
+                # targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                
                 train_loss_batch = loss_fn(predictions, targets, [systems, model, extra_data])
-                print ("Obtained via loss function, ", train_loss_batch.item())
-                assert False
+
                 if is_distributed:
                     # make sure all parameters contribute to the gradient calculation
                     # to make torch DDP happy
@@ -510,7 +499,7 @@ class Trainer(TrainerInterface):
                 predictions = average_by_num_atoms(
                     predictions, systems, per_structure_targets
                 )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                # targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 val_loss_batch = loss_fn(predictions, targets, [systems, model, extra_data])
 
                 if is_distributed:
