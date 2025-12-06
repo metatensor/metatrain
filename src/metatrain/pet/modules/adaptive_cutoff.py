@@ -25,10 +25,15 @@ def get_adaptive_cutoffs(
 
     :param centers: Indices of the center atoms.
     :param edge_distances: Distances between centers and their neighbors.
-    :param num_neighbors_adaptive: Target maximum number of neighbors per atom.
+    :param num_neighbors_adaptive: Target number of neighbors per atom.
     :param num_nodes: Total number of center atoms.
     :param max_cutoff: Maximum cutoff distance to consider.
-    :param grid_spacing: Spacing between probe cutoff distances.
+    :param min_cutoff: Minimum cutoff distance to consider.
+    :param cutoff_width: Width of the smooth cutoff taper region.
+    :param probe_spacing: Spacing between probe cutoffs. If None, it will be
+        automatically determined from the cutoff width.
+    :param weight_width: Width of the cutoff selection weight function. If None, it
+        will be automatically determined from grid spacing and target neighbor number.
     :return: Adapted cutoff distances for each center atom.
     """
 
@@ -82,8 +87,7 @@ def get_effective_num_neighbors(
     :param probe_cutoffs: Probe cutoff distances.
     :param centers: Indices of the center atoms.
     :param num_nodes: Total number of center atoms.
-    :param width: Width of the cutoff function. If None, it will be
-        automatically determined from the probe cutoff spacing.
+    :param width: Width of the cutoff function.
     :return: Effective number of neighbors for each center atom and probe cutoff.
     """
 
@@ -119,7 +123,7 @@ def get_gaussian_cutoff_weights(
     :param effective_num_neighbors: Effective number of neighbors for each center atom
         and probe cutoff.
     :param num_neighbors_adaptive: Target maximum number of neighbors per atom.
-    :param width: Width of the Gaussian function.
+    :param width: Width of the Gaussian cutoff selection function.
     :return: Weights for each probe cutoff.
     """
 
