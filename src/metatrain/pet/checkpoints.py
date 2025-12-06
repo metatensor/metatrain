@@ -247,9 +247,9 @@ def model_update_v9_v10(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to update.
     """
-    # Adding the max_num_neighbors hyperparameter if not present
-    if "max_num_neighbors" not in checkpoint["model_data"]["model_hypers"]:
-        checkpoint["model_data"]["model_hypers"]["max_num_neighbors"] = None
+    # Adding the num_neighbors_adaptive hyperparameter if not present
+    if "num_neighbors_adaptive" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["num_neighbors_adaptive"] = None
 
 
 ###########################

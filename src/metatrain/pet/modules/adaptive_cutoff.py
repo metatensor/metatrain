@@ -2,38 +2,44 @@ from typing import Optional
 
 import torch
 
-from .utilities import cutoff_func
+from .utilities import cutoff_func_bump as cutoff_func
 
 
 DEFAULT_MIN_PROBE_CUTOFF = 0.5
-DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH = 0.5
-DEFAULT_PROBE_CUTOFFS_SPACING = 0.1
+DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH = 1.0
 
 
 def get_adaptive_cutoffs(
     centers: torch.Tensor,
     edge_distances: torch.Tensor,
-    max_num_neighbors: float,
+    num_neighbors_adaptive: float,
     num_nodes: int,
     max_cutoff: float,
     min_cutoff: float = DEFAULT_MIN_PROBE_CUTOFF,
-    grid_spacing: float = DEFAULT_PROBE_CUTOFFS_SPACING,
+    cutoff_width: float = DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH,
+    probe_spacing: float | None = None,
+    weight_width: float | None = None,
 ) -> torch.Tensor:
     """
     Computes the adaptive cutoff values for each center atom.
 
     :param centers: Indices of the center atoms.
     :param edge_distances: Distances between centers and their neighbors.
-    :param max_num_neighbors: Target maximum number of neighbors per atom.
+    :param num_neighbors_adaptive: Target maximum number of neighbors per atom.
     :param num_nodes: Total number of center atoms.
     :param max_cutoff: Maximum cutoff distance to consider.
     :param grid_spacing: Spacing between probe cutoff distances.
     :return: Adapted cutoff distances for each center atom.
     """
+
+    # heuristic for the grid spacing of probe cutoffs, based on a
+    # the smoothness of the cutoff function
+    if probe_spacing is None:
+        probe_spacing = cutoff_width / 4.0
     probe_cutoffs = torch.arange(
         min_cutoff,
         max_cutoff,
-        grid_spacing,
+        probe_spacing,
         device=edge_distances.device,
         dtype=edge_distances.dtype,
     )
@@ -43,12 +49,19 @@ def get_adaptive_cutoffs(
             probe_cutoffs,
             centers,
             num_nodes,
+            width=cutoff_width,
         )
+
+    # heuristic for the Gaussian weight width. this is chosen to ensure that
+    # for typical neighbor distributions the weights are non-zero for multiple
+    # probe cutoffs
+    if weight_width is None:
+        weight_width = 3 * num_neighbors_adaptive * probe_spacing / max_cutoff
     with torch.profiler.record_function("PET::get_cutoff_weights"):
         cutoffs_weights = get_gaussian_cutoff_weights(
             effective_num_neighbors,
-            max_num_neighbors,
-            probe_cutoffs=probe_cutoffs,
+            num_neighbors_adaptive,
+            width=weight_width,
         )
     with torch.profiler.record_function("PET::calculate_adapted_cutoffs"):
         adapted_atomic_cutoffs = probe_cutoffs @ cutoffs_weights.T
@@ -95,9 +108,8 @@ def get_effective_num_neighbors(
 
 def get_gaussian_cutoff_weights(
     effective_num_neighbors: torch.Tensor,
-    max_num_neighbors: float,
+    num_neighbors_adaptive: float,
     width: Optional[float] = None,
-    probe_cutoffs: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
     Computes the weights for each probe cutoff based on
@@ -106,36 +118,33 @@ def get_gaussian_cutoff_weights(
 
     :param effective_num_neighbors: Effective number of neighbors for each center atom
         and probe cutoff.
-    :param max_num_neighbors: Target maximum number of neighbors per atom.
+    :param num_neighbors_adaptive: Target maximum number of neighbors per atom.
     :param width: Width of the Gaussian function.
-    :param probe_cutoffs: Probe cutoff distances.
     :return: Weights for each probe cutoff.
     """
-    if width is None:
-        assert probe_cutoffs is not None, (
-            "Either width or probe_cutoffs must be provided."
-        )
-        # Automatically determine width from probe cutoff spacing
-        delta_r = probe_cutoffs[1] - probe_cutoffs[0]
-        width = float(
-            3 * max_num_neighbors * delta_r.item() / probe_cutoffs.max().item()
-        )
 
-    max_num_neighbors_t = torch.as_tensor(
-        max_num_neighbors, device=effective_num_neighbors.device
+    num_neighbors_adaptive_t = torch.as_tensor(
+        num_neighbors_adaptive, device=effective_num_neighbors.device
     )
 
-    diff = effective_num_neighbors - max_num_neighbors_t
+    diff = effective_num_neighbors - num_neighbors_adaptive_t
+
+    # adds a "baseline" corresponding to uniformly-distributed atoms
+    # this has multiple "good" effects: it pushes the cutoff "out" when
+    # there are few neighbors, and "in" when there are many, and it
+    # stabilizes the weights with respect to variations in the neighbor
+    # distribution when there are empty ranges leading to "flat"
+    # neighbor count distribution
     x = torch.linspace(
         0, 1, effective_num_neighbors.shape[1], device=effective_num_neighbors.device
     )
-    baseline = max_num_neighbors_t * x**3
+    baseline = num_neighbors_adaptive_t * x**3
 
     diff = diff + baseline.unsqueeze(0)
 
     weights = torch.exp(-0.5 * (diff / width) ** 2)
 
-    # row-wise normalization, with small epsilon to avoid division by zero
+    # row-wise normalization of the weights
     weights_sum = weights.sum(dim=1, keepdim=True)
     weights = weights / weights_sum
 

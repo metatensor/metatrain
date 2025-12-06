@@ -17,7 +17,7 @@
         "cutoff_width": {
           "type": "number"
         },
-        "max_num_neighbors": {
+        "num_neighbors_adaptive": {
           "type": [
             "integer",
             "null"

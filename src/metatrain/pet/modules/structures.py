@@ -11,7 +11,7 @@ from .nef import (
     get_corresponding_edges,
     get_nef_indices,
 )
-from .utilities import cutoff_func
+from .utilities import cutoff_func_bump, cutoff_func_cosine
 
 
 def concatenate_structures(
@@ -142,7 +142,7 @@ def systems_to_batch(
     all_species_list: List[int],
     species_to_species_index: torch.Tensor,
     cutoff_width: float,
-    max_num_neighbors: Optional[float] = None,
+    num_neighbors_adaptive: Optional[float] = None,
     selected_atoms: Optional[Labels] = None,
 ) -> Tuple[
     torch.Tensor,
@@ -163,7 +163,7 @@ def systems_to_batch(
     :param all_species_list: List of all atomic species in the dataset.
     :param species_to_species_index: Mapping from atomic species to species indices.
     :param cutoff_width: Width of the cutoff function for a cutoff mask.
-    :param max_num_neighbors: Optional maximum number of neighbors per atom.
+    :param num_neighbors_adaptive: Optional maximum number of neighbors per atom.
         If provided, the adaptive cutoff scheme will be used for each atom to
         approximately select this number of neighbors.
     :param selected_atoms: Optional labels of selected atoms to include in the batch.
@@ -219,15 +219,15 @@ def systems_to_batch(
         num_nodes, device=positions.device, dtype=positions.dtype
     )
 
-    if max_num_neighbors is not None:
+    if num_neighbors_adaptive is not None:
         # Enabling the adaptive cutoff scheme to approximately select
-        # `max_num_neighbors` neighbors for each atom
+        # `num_neighbors_adaptive` neighbors for each atom
 
         with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
             adapted_atomic_cutoffs = get_adaptive_cutoffs(
                 centers,
                 edge_distances,
-                max_num_neighbors,
+                num_neighbors_adaptive,
                 num_nodes,
                 options.cutoff,
             )
@@ -296,9 +296,16 @@ def systems_to_batch(
     reverse_neighbor_index[~nef_mask] = torch.arange(
         int(torch.sum(~nef_mask)), device=reverse_neighbor_index.device
     )
-    cutoff_factors = cutoff_func(
-        edge_distances, atomic_cutoffs.unsqueeze(1), cutoff_width
-    )
+    if num_neighbors_adaptive is not None:
+        # use bump switching function for adaptive cutoff
+        cutoff_factors = cutoff_func_bump(
+            edge_distances, atomic_cutoffs.unsqueeze(1), cutoff_width
+        )
+    else:
+        # backward-compatible cosine swithcing for fixed cutoff
+        cutoff_factors = cutoff_func_cosine(
+            edge_distances, atomic_cutoffs.unsqueeze(1), cutoff_width
+        )
     cutoff_factors[~nef_mask] = 0.0
 
     return (

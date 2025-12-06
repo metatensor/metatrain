@@ -19,7 +19,7 @@ from torch.profiler import record_function
 
 from metatrain.pet.modules.finetuning import apply_finetuning_strategy
 from metatrain.pet.modules.transformer import CartesianTransformer
-from metatrain.pet.modules.utilities import cutoff_func
+from metatrain.pet.modules.utilities import cutoff_func_cosine as cutoff_func
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo

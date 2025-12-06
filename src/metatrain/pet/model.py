@@ -63,9 +63,9 @@ class PET(ModelInterface[ModelHypers]):
         # Cache frequently accessed hyperparameters
         self.cutoff = float(self.hypers["cutoff"])
         self.cutoff_width = float(self.hypers["cutoff_width"])
-        self.max_num_neighbors = (
-            float(self.hypers["max_num_neighbors"])
-            if self.hypers["max_num_neighbors"] is not None
+        self.num_neighbors_adaptive = (
+            float(self.hypers["num_neighbors_adaptive"])
+            if self.hypers["num_neighbors_adaptive"] is not None
             else None
         )
         self.d_pet = self.hypers["d_pet"]
@@ -420,7 +420,7 @@ class PET(ModelInterface[ModelHypers]):
                 self.atomic_types,
                 self.species_to_species_index,
                 self.cutoff_width,
-                self.max_num_neighbors,
+                self.num_neighbors_adaptive,
                 selected_atoms,
             )
 
