@@ -64,9 +64,7 @@ from metatrain.utils.scaler import FixedScalerWeights
 
 
 class RadialBasisHypers(TypedDict):
-    """In some systems and datasets, enabling long-range Coulomb interactions
-    might be beneficial for the accuracy of the model and/or
-    its physical correctness."""
+    """Hyperparameter concerning the radial basis functions used in the model."""
 
     max_eigenvalue: float = 25.0
     """Maximum eigenvalue for the radial basis."""
