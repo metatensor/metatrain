@@ -230,6 +230,7 @@ def systems_to_batch(
                 num_neighbors_adaptive,
                 num_nodes,
                 options.cutoff,
+                cutoff_width=cutoff_width,
             )
 
         with torch.profiler.record_function("PET::adaptive_cutoff_masking"):
@@ -247,6 +248,8 @@ def systems_to_batch(
         )
 
     num_neighbors = torch.bincount(centers)
+    # print("adaptive_cutoffs", *atomic_cutoffs.tolist())
+    # print("num_neighbors", *num_neighbors.tolist())
 
     if num_neighbors.numel() == 0:  # no edges
         max_edges_per_node = 0
