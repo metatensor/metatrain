@@ -40,46 +40,46 @@ from . import checkpoints
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
-def get_scheduler(optimizer, train_hypers):
-    def func_lr_scheduler(epoch):
-        if epoch < 100:
-            return epoch / 100
-        delta = epoch - 100
-        num_blocks = delta // 250
-        return 0.5 ** (num_blocks)
+# def get_scheduler(optimizer, train_hypers):
+#     def func_lr_scheduler(epoch):
+#         if epoch < 100:
+#             return epoch / 100
+#         delta = epoch - 100
+#         num_blocks = delta // 250
+#         return 0.5 ** (num_blocks)
 
-    scheduler = LambdaLR(optimizer, func_lr_scheduler)
-    return scheduler
-
-# def get_scheduler(
-#     optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
-# ) -> LambdaLR:
-#     """
-#     Get a CosineAnnealing learning-rate scheduler with warmup
-
-#     :param optimizer: The optimizer for which to create the scheduler.
-#     :param train_hypers: The training hyperparameters.
-#     :param steps_per_epoch: The number of steps per epoch.
-#     :return: The learning rate scheduler.
-#     """
-#     total_steps = train_hypers["num_epochs"] * steps_per_epoch
-#     warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
-#     min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
-
-#     def lr_lambda(current_step: int) -> float:
-#         if current_step < warmup_steps:
-#             # Linear warmup
-#             return float(current_step) / float(max(1, warmup_steps))
-#         else:
-#             # Cosine decay
-#             progress = (current_step - warmup_steps) / float(
-#                 max(1, total_steps - warmup_steps)
-#             )
-#             cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
-#             return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
-
-#     scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+#     scheduler = LambdaLR(optimizer, func_lr_scheduler)
 #     return scheduler
+
+def get_scheduler(
+    optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
+) -> LambdaLR:
+    """
+    Get a CosineAnnealing learning-rate scheduler with warmup
+
+    :param optimizer: The optimizer for which to create the scheduler.
+    :param train_hypers: The training hyperparameters.
+    :param steps_per_epoch: The number of steps per epoch.
+    :return: The learning rate scheduler.
+    """
+    total_steps = train_hypers["num_epochs"] * steps_per_epoch
+    warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
+    min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
+
+    def lr_lambda(current_step: int) -> float:
+        if current_step < warmup_steps:
+            # Linear warmup
+            return float(current_step) / float(max(1, warmup_steps))
+        else:
+            # Cosine decay
+            progress = (current_step - warmup_steps) / float(
+                max(1, total_steps - warmup_steps)
+            )
+            cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
+
+    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+    return scheduler
 
 
 class Trainer(TrainerInterface):
@@ -359,7 +359,7 @@ class Trainer(TrainerInterface):
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a learning rate scheduler
-        lr_scheduler = get_scheduler(optimizer, self.hypers)#, len(train_dataloader))
+        lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
 
         if self.scheduler_state_dict is not None and not is_finetune:
             # same as the optimizer, try to load the scheduler state dict
@@ -437,7 +437,7 @@ class Trainer(TrainerInterface):
                     model.parameters(), self.hypers["grad_clip_norm"]
                 )
                 optimizer.step()
-                # lr_scheduler.step()
+                lr_scheduler.step()
 
                 if is_distributed:
                     # sum the loss over all processes
@@ -584,25 +584,25 @@ class Trainer(TrainerInterface):
                         (model.module if is_distributed else model),
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
-            lr_scheduler.step()
-            new_lr = lr_scheduler.get_last_lr()[0]
-            if new_lr != old_lr:
-                if new_lr < 1e-7:
-                    logging.info("Learning rate is too small, stopping training")
-                    break
-                else:
-                    if epoch >= 100:
-                        logging.info(
-                            f"Changing learning rate from {old_lr} to {new_lr}"
-                        )
-                    elif epoch == 100 - 1:
-                        logging.info(
-                            "Finished warm-up. "
-                            f"Now training with learning rate {new_lr}"
-                        )
-                    else:  # epoch < 100 - 1:
-                        pass  # we don't clutter the log at every warm-up step
-                    old_lr = new_lr
+            # lr_scheduler.step()
+            # new_lr = lr_scheduler.get_last_lr()[0]
+            # if new_lr != old_lr:
+            #     if new_lr < 1e-7:
+            #         logging.info("Learning rate is too small, stopping training")
+            #         break
+            #     else:
+            #         if epoch >= 100:
+            #             logging.info(
+            #                 f"Changing learning rate from {old_lr} to {new_lr}"
+            #             )
+            #         elif epoch == 100 - 1:
+            #             logging.info(
+            #                 "Finished warm-up. "
+            #                 f"Now training with learning rate {new_lr}"
+            #             )
+            #         else:  # epoch < 100 - 1:
+            #             pass  # we don't clutter the log at every warm-up step
+            #         old_lr = new_lr
 
         # prepare for the checkpoint that will be saved outside the function
         self.epoch = epoch
