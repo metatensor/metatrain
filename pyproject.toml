@@ -109,6 +109,7 @@ source = [
 
 [tool.coverage.run]
 patch = ["subprocess"]
+relative_files = true
 
 [tool.ruff]
 exclude = ["docs/src/examples/**", "src/metatrain/_version.py"]

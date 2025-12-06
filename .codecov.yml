@@ -10,6 +10,10 @@ coverage:
         - "src/metatrain/utils/.*"
         - "src/metatrain/cli/.*"
 
+    patch:
+      default:
+        informational: true
+
 component_management:
   individual_components:
 
