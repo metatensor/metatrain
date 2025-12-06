@@ -346,7 +346,6 @@ class PhACE(ModelInterface[ModelHypers]):
                     return_dict[output_name], ["atom"]
                 )
             for gradient_name in outputs[output_name].explicit_gradients:
-                print(outputs[output_name].explicit_gradients)
                 if gradient_name == "positions":
                     original_block = return_dict[output_name].block()
                     block = TensorBlock(
