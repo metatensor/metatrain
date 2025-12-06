@@ -40,46 +40,46 @@ from . import checkpoints
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
-def get_scheduler(optimizer, train_hypers):
-    def func_lr_scheduler(epoch):
-        if epoch < 100:
-            return epoch / 100
-        delta = epoch - 100
-        num_blocks = delta // 250
-        return 0.5 ** (num_blocks)
+# def get_scheduler(optimizer, train_hypers):
+#     def func_lr_scheduler(epoch):
+#         if epoch < 100:
+#             return epoch / 100
+#         delta = epoch - 100
+#         num_blocks = delta // 250
+#         return 0.5 ** (num_blocks)
 
-    scheduler = LambdaLR(optimizer, func_lr_scheduler)
-    return scheduler
-
-# def get_scheduler(
-#     optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
-# ) -> LambdaLR:
-#     """
-#     Get a CosineAnnealing learning-rate scheduler with warmup
-
-#     :param optimizer: The optimizer for which to create the scheduler.
-#     :param train_hypers: The training hyperparameters.
-#     :param steps_per_epoch: The number of steps per epoch.
-#     :return: The learning rate scheduler.
-#     """
-#     total_steps = train_hypers["num_epochs"] * steps_per_epoch
-#     warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
-#     min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
-
-#     def lr_lambda(current_step: int) -> float:
-#         if current_step < warmup_steps:
-#             # Linear warmup
-#             return float(current_step) / float(max(1, warmup_steps))
-#         else:
-#             # Cosine decay
-#             progress = (current_step - warmup_steps) / float(
-#                 max(1, total_steps - warmup_steps)
-#             )
-#             cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
-#             return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
-
-#     scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+#     scheduler = LambdaLR(optimizer, func_lr_scheduler)
 #     return scheduler
+
+def get_scheduler(
+    optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
+) -> LambdaLR:
+    """
+    Get a CosineAnnealing learning-rate scheduler with warmup
+
+    :param optimizer: The optimizer for which to create the scheduler.
+    :param train_hypers: The training hyperparameters.
+    :param steps_per_epoch: The number of steps per epoch.
+    :return: The learning rate scheduler.
+    """
+    total_steps = train_hypers["num_epochs"] * steps_per_epoch
+    warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
+    min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
+
+    def lr_lambda(current_step: int) -> float:
+        if current_step < warmup_steps:
+            # Linear warmup
+            return float(current_step) / float(max(1, warmup_steps))
+        else:
+            # Cosine decay
+            progress = (current_step - warmup_steps) / float(
+                max(1, total_steps - warmup_steps)
+            )
+            cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
+
+    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+    return scheduler
 
 
 class Trainer(TrainerInterface):
