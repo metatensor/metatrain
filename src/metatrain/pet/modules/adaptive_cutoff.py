@@ -118,7 +118,7 @@ def get_gaussian_cutoff_weights(
         # Automatically determine width from probe cutoff spacing
         delta_r = probe_cutoffs[1] - probe_cutoffs[0]
         width = float(
-            3 * max_num_neighbors * delta_r.item() / max(probe_cutoffs).item()
+            3 * max_num_neighbors * delta_r.item() / probe_cutoffs.max().item()
         )
 
     max_num_neighbors_t = torch.as_tensor(
