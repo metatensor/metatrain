@@ -231,3 +231,57 @@ To use this loss function, you can refer to this code snippet for the ``loss`` s
 :param reduction: reduction mode for torch loss. Options are "mean", "sum", or "none".
 
 The values used in the above example are the ones used for PETMADDOS training and can be a reasonable starting point for other applications.
+
+
+Ensemble Loss Function
+----------------------
+
+An :ref:`architecture-llpr` ensemble can be further trained to improve its uncertainty quantification.
+This is done by using the :py:class:`metatrain.utils.loss.TensorMapLLPREnsembleLoss` function, which implements two proper scoring rules for Gaussian predictive distributions.
+Both losses operate on the ensemble-predicted mean :math:`\mu` and standard deviation :math:`\sigma`, and compare them against the target values.
+
+- The Gaussian Negative Log-Likelihood (NLL) loss maximizes the likelihood of the observed data under a Gaussian predictive model.
+  It encourages sharp predictions and is statistically optimal when the residual noise is well described by a Gaussian distribution.
+  Internally, this option uses :py:class:`torch.nn.GaussianNLLLoss`.
+
+  YAML configuration:
+
+  .. code-block:: yaml
+
+      loss:
+        mtt::target_name:
+          type: llpr_ensemble
+          scoring_rule: gaussian_nll
+
+
+- The Gaussian Continuous Ranked Probability Score (CRPS) measures the integrated squared difference between the predicted and (assumed) Gaussian cumulative distribution functions.
+  The analytical form of the loss function is given by:
+
+  .. math::
+
+        \mathrm{CRPS}(\mu, \sigma; y) =
+        \sigma \left[
+          \frac{1}{\sqrt{\pi}}
+          - 2\phi\left(\frac{y - \mu}{\sigma}\right)
+          - \frac{y - \mu}{\sigma}
+            \left(2\Phi\left(\frac{y - \mu}{\sigma}\right) - 1\right)
+        \right],
+
+  where :math:`\phi` and :math:`\Phi` are the standard normal probability density function and cumulative distribution function.
+
+  YAML configuration:
+
+  .. code-block:: yaml
+
+      loss:
+        mtt::target_name:
+          type: llpr_ensemble
+          scoring_rule: gaussian_crps
+
+
+In practice, both scoring rules are strictly proper and therefore encourage well-calibrated uncertainty estimates.
+
+The Gaussian NLL is quadratic in the residual, which can make it more sensitive to large deviations between the target and the predicted mean.
+
+The Gaussian CRPS grows linearly for large residuals and therefore responds more smoothly to points far from the predicted mean.
+As a result, it may yield slightly smoother uncertainty estimates in settings where the residual distribution deviates from strict Gaussian assumptions.
