@@ -345,16 +345,18 @@ class PhACE(ModelInterface[ModelHypers]):
                 return_dict[output_name] = metatensor.torch.sum_over_samples(
                     return_dict[output_name], ["atom"]
                 )
+            if len(outputs[output_name].explicit_gradients) == 0:
+                continue
+            original_block = return_dict[output_name].block()
+            block = TensorBlock(
+                values=original_block.values,
+                samples=original_block.samples,
+                components=original_block.components,
+                properties=original_block.properties,
+            )
+            device = block.values.device
             for gradient_name in outputs[output_name].explicit_gradients:
                 if gradient_name == "positions":
-                    original_block = return_dict[output_name].block()
-                    block = TensorBlock(
-                        values=original_block.values,
-                        samples=original_block.samples,
-                        components=original_block.components,
-                        properties=original_block.properties,
-                    )
-                    device = block.values.device
                     samples = Labels(
                         names=["sample", "atom"],
                         values=torch.stack(
@@ -383,30 +385,7 @@ class PhACE(ModelInterface[ModelHypers]):
                         )
                     ]
                     gradient_tensor = predictions[f"{output_name}__pos"][-1]
-                    block.add_gradient(
-                        "positions",
-                        TensorBlock(
-                            values=gradient_tensor.unsqueeze(-1),
-                            samples=samples.to(gradient_tensor.device),
-                            components=components,
-                            properties=Labels(
-                                "energy", torch.tensor([[0]], device=device)
-                            ),
-                        ),
-                    )
-                    return_dict[output_name] = TensorMap(
-                        return_dict[output_name].keys,
-                        [block],
-                    )
-                if gradient_name == "strain":
-                    original_block = return_dict[output_name].block()
-                    block = TensorBlock(
-                        values=original_block.values,
-                        samples=original_block.samples,
-                        components=original_block.components,
-                        properties=original_block.properties,
-                    )
-                    device = block.values.device
+                elif gradient_name == "strain":
                     samples = Labels(
                         names=["sample"],
                         values=torch.arange(len(systems), device=device).unsqueeze(-1),
@@ -423,21 +402,25 @@ class PhACE(ModelInterface[ModelHypers]):
                         ),
                     ]
                     gradient_tensor = predictions[f"{output_name}__str"][-1]
-                    block.add_gradient(
-                        "positions",
-                        TensorBlock(
-                            values=gradient_tensor.unsqueeze(-1),
-                            samples=samples.to(gradient_tensor.device),
-                            components=components,
-                            properties=Labels(
-                                "energy", torch.tensor([[0]], device=device)
-                            ),
+                else:
+                    raise ValueError(
+                        f"Unsupported explicit gradient request: {gradient_name}"
+                    )
+                block.add_gradient(
+                    gradient_name,
+                    TensorBlock(
+                        values=gradient_tensor.unsqueeze(-1),
+                        samples=samples.to(gradient_tensor.device),
+                        components=components,
+                        properties=Labels(
+                            "energy", torch.tensor([[0]], device=device)
                         ),
-                    )
-                    return_dict[output_name] = TensorMap(
-                        return_dict[output_name].keys,
-                        [block],
-                    )
+                    ),
+                )
+            return_dict[output_name] = TensorMap(
+                return_dict[output_name].keys,
+                [block],
+            )
 
         # TODO: conversion for L=1 cartesian
 

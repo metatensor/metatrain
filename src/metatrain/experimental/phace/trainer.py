@@ -48,7 +48,7 @@ def _get_requested_outputs(targets, target_info_dict):
             quantity=target_info_dict[name].quantity,
             unit=target_info_dict[name].unit,
             per_atom=target_info_dict[name].per_atom,
-            explicit_gradients=[g for g in target.block(0).gradients_list()],
+            explicit_gradients=target.block(0).gradients_list(),
         )
     return requested_outputs
 
