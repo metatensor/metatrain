@@ -3,7 +3,7 @@ import torch
 
 def cutoff_func_bump(
     values: torch.Tensor, cutoff: torch.Tensor, width: float,
-    eps: float = 1e-8
+    eps: float = 1e-6
 ) -> torch.Tensor:
     """
     Bump cutoff function.
