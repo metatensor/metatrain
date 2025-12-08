@@ -23,14 +23,29 @@ def is_None(*args, **kwargs) -> None:
 
 def test_find_all_architectures():
     all_arches = find_all_architectures()
+<<<<<<< HEAD
+    assert len(all_arches) == 7
+||||||| edcb9ffb
+    assert len(all_arches) == 6
+=======
 
     assert len(all_arches) == 6
+>>>>>>> main
 
     assert "gap" in all_arches
     assert "pet" in all_arches
     assert "soap_bpnn" in all_arches
+<<<<<<< HEAD
+    assert "experimental.nanopet" in all_arches
+    assert "experimental.dpa3" in all_arches
+    assert "deprecated.pet" in all_arches
+||||||| edcb9ffb
+    assert "experimental.nanopet" in all_arches
+    assert "deprecated.pet" in all_arches
+=======
     assert "deprecated.nanopet" in all_arches
     assert "experimental.flashmd" in all_arches
+>>>>>>> main
     assert "llpr" in all_arches
 
 
