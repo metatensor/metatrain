@@ -566,6 +566,7 @@ class Trainer(TrainerInterface):
                 finalized_val_info, self.hypers["best_model_metric"]
             )
             if val_metric < self.best_metric:
+                logging.info(f"New Best model at Epoch: {epoch}")
                 self.best_metric = val_metric
                 self.best_model_state_dict = copy.deepcopy(
                     (model.module if is_distributed else model).state_dict()
