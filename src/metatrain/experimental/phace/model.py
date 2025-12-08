@@ -412,17 +412,13 @@ class PhACE(ModelInterface[ModelHypers]):
                         values=gradient_tensor.unsqueeze(-1),
                         samples=samples.to(gradient_tensor.device),
                         components=components,
-                        properties=Labels(
-                            "energy", torch.tensor([[0]], device=device)
-                        ),
+                        properties=Labels("energy", torch.tensor([[0]], device=device)),
                     ),
                 )
             return_dict[output_name] = TensorMap(
                 return_dict[output_name].keys,
                 [block],
             )
-
-        # TODO: conversion for L=1 cartesian
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
@@ -501,7 +497,11 @@ class PhACE(ModelInterface[ModelHypers]):
         return model
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
-        # TODO: COMMENT
+        # Before exporting, we have to
+        # - set the module to the gradient-free one (torchscript doesn't like grad in
+        #   the functional way they're used in the GradientModel)
+        # - delete the other models: even if the forward function doesn't use them,
+        #   torchscript will try to compile them anyway
         self.module = self.fake_gradient_model
         del self.gradient_model
         del self.fake_gradient_model

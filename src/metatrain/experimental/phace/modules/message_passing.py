@@ -37,8 +37,6 @@ class InvariantMessagePasser(torch.nn.Module):
         n_atoms: int,
         initial_center_embedding,
     ) -> List[torch.Tensor]:
-        # TODO: extract radial basis calculation to a separate module
-        # (e.g. vector expansion) and use the splines once
         radial_basis = self.radial_basis_mlp(radial_basis)
 
         density = []
