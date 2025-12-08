@@ -308,6 +308,13 @@ class BaseModel(torch.nn.Module):
                 l = int(key_values[0])  # noqa: E741
                 # s = int(key_values[1]) is ignored here
                 irreps.append(l)
+                # provide good error if the basis is not big enough
+                if l > self.l_max:
+                    raise ValueError(
+                        f"Target {target_name} requires l={l}, but the model's basis "
+                        f"only goes up to l={self.l_max}. You should increase the "
+                        "``max_eigenvalue`` hyperparameter."
+                    )
             self.last_layers[target_name] = torch.nn.ModuleDict(
                 {
                     str(l): Linear(
