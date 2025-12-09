@@ -28,18 +28,20 @@ def cutoff_func_bump(
     return f
 
 
-def cutoff_func_cosine(grid: torch.Tensor, r_cut: float, delta: float) -> torch.Tensor:
+def cutoff_func_cosine(
+    values: torch.Tensor, cutoff: torch.Tensor, width: float
+) -> torch.Tensor:
     """
     Cosine cutoff function.
 
-    :param grid: Distances at which to evaluate the cutoff function.
-    :param r_cut: Cutoff radius.
-    :param delta: Width of the cutoff region.
+    :param values: Distances at which to evaluate the cutoff function.
+    :param cutoff: Cutoff radius for each node.
+    :param width: Width of the cutoff region.
     :return: Values of the cutoff function at the specified distances.
     """
-    mask_bigger = grid >= r_cut
-    mask_smaller = grid <= r_cut - delta
-    grid = (grid - r_cut + delta) / delta
+    mask_bigger = values >= cutoff
+    mask_smaller = values <= cutoff - width
+    grid = (values - cutoff + width) / width
     f = 0.5 + 0.5 * torch.cos(torch.pi * grid)
 
     f[mask_bigger] = 0.0

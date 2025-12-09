@@ -113,7 +113,7 @@ def get_effective_num_neighbors(
 def get_gaussian_cutoff_weights(
     effective_num_neighbors: torch.Tensor,
     num_neighbors_adaptive: float,
-    width: Optional[float] = None,
+    width: float,
 ) -> torch.Tensor:
     """
     Computes the weights for each probe cutoff based on
