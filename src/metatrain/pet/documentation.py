@@ -90,7 +90,9 @@ class ModelHypers(TypedDict):
     per atom, especially in sparse systems. Setting it to None disables
     this feature and uses all neighbors within the fixed cutoff radius.
     """
-    cutoff_width: float = 0.2
+    cutoff_function: Literal["Cosine", "Bump"] = "Bump"
+    """Type of the smoothing function at the cutoff"""
+    cutoff_width: float = 0.5
     """Width of the smoothing function at the cutoff"""
     d_pet: int = 128
     """Dimension of the edge features.
