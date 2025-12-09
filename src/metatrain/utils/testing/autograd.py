@@ -133,7 +133,9 @@ class AutogradTests(ArchitectureTests):
             energy = output["energy"].block().values.sum()
             return energy
 
-        cell = 1.1*torch.eye(3, dtype=torch.float64, requires_grad=True, device=device)
+        cell = 1.1 * torch.eye(
+            3, dtype=torch.float64, requires_grad=True, device=device
+        )
 
         assert torch.autograd.gradcheck(
             compute, cell, fast_mode=True, nondet_tol=nondet_tolerance

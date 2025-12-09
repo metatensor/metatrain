@@ -141,6 +141,7 @@ def systems_to_batch(
     options: NeighborListOptions,
     all_species_list: List[int],
     species_to_species_index: torch.Tensor,
+    cutoff_function: str,
     cutoff_width: float,
     num_neighbors_adaptive: Optional[float] = None,
     selected_atoms: Optional[Labels] = None,
@@ -162,6 +163,7 @@ def systems_to_batch(
     :param options: Options for the neighbor list.
     :param all_species_list: List of all atomic species in the dataset.
     :param species_to_species_index: Mapping from atomic species to species indices.
+    :param cutoff_function: Type of the smoothing function at the cutoff.
     :param cutoff_width: Width of the cutoff function for a cutoff mask.
     :param num_neighbors_adaptive: Optional maximum number of neighbors per atom.
         If provided, the adaptive cutoff scheme will be used for each atom to
@@ -299,15 +301,20 @@ def systems_to_batch(
     reverse_neighbor_index[~nef_mask] = torch.arange(
         int(torch.sum(~nef_mask)), device=reverse_neighbor_index.device
     )
-    if num_neighbors_adaptive is not None:
+    if cutoff_function.lower() == "bump":
         # use bump switching function for adaptive cutoff
         cutoff_factors = cutoff_func_bump(
             edge_distances, atomic_cutoffs.unsqueeze(1), cutoff_width
         )
-    else:
+    elif cutoff_function.lower() == "cosine":
         # backward-compatible cosine swithcing for fixed cutoff
         cutoff_factors = cutoff_func_cosine(
             edge_distances, atomic_cutoffs.unsqueeze(1), cutoff_width
+        )
+    else:
+        raise ValueError(
+            f"Unknown cutoff function type: {cutoff_function}. "
+            f"Supported types are 'Cosine' and 'Bump'."
         )
     cutoff_factors[~nef_mask] = 0.0
 

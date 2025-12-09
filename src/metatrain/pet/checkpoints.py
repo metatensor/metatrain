@@ -250,6 +250,8 @@ def model_update_v9_v10(checkpoint: dict) -> None:
     # Adding the num_neighbors_adaptive hyperparameter if not present
     if "num_neighbors_adaptive" not in checkpoint["model_data"]["model_hypers"]:
         checkpoint["model_data"]["model_hypers"]["num_neighbors_adaptive"] = None
+    if "cutoff_function" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["cutoff_function"] = "Cosine"
 
 
 ###########################

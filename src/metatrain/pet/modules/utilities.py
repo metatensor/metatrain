@@ -29,7 +29,7 @@ def cutoff_func_bump(
 
 
 def cutoff_func_cosine(
-    values: torch.Tensor, cutoff: torch.Tensor, width: float
+    values: torch.Tensor, cutoff: torch.Tensor, width: float, eps: float = 1e-6
 ) -> torch.Tensor:
     """
     Cosine cutoff function.
@@ -37,14 +37,17 @@ def cutoff_func_cosine(
     :param values: Distances at which to evaluate the cutoff function.
     :param cutoff: Cutoff radius for each node.
     :param width: Width of the cutoff region.
+    :param eps: Avoid computing at values too close to the edges.
     :return: Values of the cutoff function at the specified distances.
     """
-    mask_bigger = values >= cutoff
-    mask_smaller = values <= cutoff - width
-    grid = (values - cutoff + width) / width
-    f = 0.5 + 0.5 * torch.cos(torch.pi * grid)
+    mask_smaller = values <= cutoff - width + eps
+    mask_active = (values > cutoff - width + eps) & (values < cutoff - eps)
 
-    f[mask_bigger] = 0.0
+    scaled_values = (values - (cutoff - width)) / width
+
+    f = torch.zeros_like(scaled_values)
+
+    f[mask_active] = 0.5 + 0.5 * torch.cos(torch.pi * scaled_values[mask_active])
     f[mask_smaller] = 1.0
     return f
 
