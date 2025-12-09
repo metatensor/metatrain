@@ -10,3 +10,6 @@ DATASET_WITH_FORCES_PATH = str(
 
 DEFAULT_HYPERS = get_default_hypers("pet")
 MODEL_HYPERS = DEFAULT_HYPERS["model"]
+
+print("MODEL_HYPERS:", MODEL_HYPERS)
+print(DEFAULT_HYPERS)
