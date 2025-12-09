@@ -155,7 +155,8 @@ class CheckpointTests(ArchitectureTests):
 
             if checkpoint["model_ckpt_version"] != model.__checkpoint_version__:
                 checkpoint = model.__class__.upgrade_checkpoint(checkpoint)
-
+            print(f"Loading checkpoint from {path} in context {context}")
+            print(f"Hypers: {checkpoint['model_data']['model_hypers']}")
             model.load_checkpoint(checkpoint, context)
 
             if context == "restart":
