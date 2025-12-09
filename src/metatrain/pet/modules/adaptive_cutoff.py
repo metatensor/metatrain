@@ -17,8 +17,8 @@ def get_adaptive_cutoffs(
     max_cutoff: float,
     min_cutoff: float = DEFAULT_MIN_PROBE_CUTOFF,
     cutoff_width: float = DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH,
-    probe_spacing: float | None = None,
-    weight_width: float | None = None,
+    probe_spacing: Optional[float] = None,
+    weight_width: Optional[float] = None,
 ) -> torch.Tensor:
     """
     Computes the adaptive cutoff values for each center atom.
@@ -150,6 +150,6 @@ def get_gaussian_cutoff_weights(
 
     # row-wise normalization of the weights
     weights_sum = weights.sum(dim=1, keepdim=True)
-    weights = weights / (weights_sum + 1e-8)   # adds a small regularization
+    weights = weights / (weights_sum + 1e-8)  # adds a small regularization
 
     return weights

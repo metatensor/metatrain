@@ -2,8 +2,7 @@ import torch
 
 
 def cutoff_func_bump(
-    values: torch.Tensor, cutoff: torch.Tensor, width: float,
-    eps: float = 1e-6
+    values: torch.Tensor, cutoff: torch.Tensor, width: float, eps: float = 1e-6
 ) -> torch.Tensor:
     """
     Bump cutoff function.
@@ -15,14 +14,15 @@ def cutoff_func_bump(
     :return: Values of the cutoff function at the specified distances.
     """
 
-    
     mask_smaller = values <= cutoff - width + eps
     mask_active = (values > cutoff - width + eps) & (values < cutoff - eps)
 
     scaled_values = (values - (cutoff - width)) / width
 
     f = torch.zeros_like(scaled_values)
-    f[mask_active] = 0.5 * (1 + torch.tanh(1 / torch.tan(torch.pi * scaled_values[mask_active])))    
+    f[mask_active] = 0.5 * (
+        1 + torch.tanh(1 / torch.tan(torch.pi * scaled_values[mask_active]))
+    )
     f[mask_smaller] = 1.0
 
     return f
