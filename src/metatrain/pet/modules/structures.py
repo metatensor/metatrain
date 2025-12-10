@@ -4,12 +4,14 @@ import torch
 from metatensor.torch import Labels
 from metatomic.torch import NeighborListOptions, System
 
+from .adaptive_cutoff import get_adaptive_cutoffs
 from .nef import (
     compute_reversed_neighbor_list,
     edge_array_to_nef,
     get_corresponding_edges,
     get_nef_indices,
 )
+from .utilities import cutoff_func_bump, cutoff_func_cosine
 
 
 def concatenate_structures(
@@ -139,8 +141,13 @@ def systems_to_batch(
     options: NeighborListOptions,
     all_species_list: List[int],
     species_to_species_index: torch.Tensor,
+    cutoff_function: str,
+    cutoff_width: float,
+    num_neighbors_adaptive: Optional[float] = None,
     selected_atoms: Optional[Labels] = None,
 ) -> Tuple[
+    torch.Tensor,
+    torch.Tensor,
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
@@ -158,6 +165,11 @@ def systems_to_batch(
     :param options: Options for the neighbor list.
     :param all_species_list: List of all atomic species in the dataset.
     :param species_to_species_index: Mapping from atomic species to species indices.
+    :param cutoff_function: Type of the smoothing function at the cutoff.
+    :param cutoff_width: Width of the cutoff function for a cutoff mask.
+    :param num_neighbors_adaptive: Optional maximum number of neighbors per atom.
+        If provided, the adaptive cutoff scheme will be used for each atom to
+        approximately select this number of neighbors.
     :param selected_atoms: Optional labels of selected atoms to include in the batch.
     :return: A tuple containing the batch tensors.
         The batch consists of the following tensors:
@@ -165,11 +177,14 @@ def systems_to_batch(
         - `element_indices_neighbors`: The atomic species of the neighboring atoms
         - `edge_vectors`: The cartesian edge vectors between the central atoms and their
             neighbors
+        - `edge_distances`: The distances between the central atoms and their neighbors
         - `padding_mask`: A padding mask indicating which neighbors are real, and which
             are padded
-        - `neighbors_index`: The indices of the neighboring atoms for each central atom
-        - `num_neighbors`: The number of neighbors for each central atom
-        - `reversed_neighbor_list`: The reversed neighbor list for each central atom
+        - `reverse_neighbor_index`: The reversed neighbor list for each central atom
+        - `cutoff_factors`: The cutoff function values for each edge
+        - `system_indices`: The system index for each atom in the batch
+        - `sample_labels`: Labels indicating the system and atom indices for each atom
+
     """
     (
         positions,
@@ -194,11 +209,7 @@ def systems_to_batch(
             cells[system_indices[centers]],
         )
     edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
-    num_neghbors = torch.bincount(centers)
-    if num_neghbors.numel() == 0:  # no edges
-        max_edges_per_node = 0
-    else:
-        max_edges_per_node = int(torch.max(num_neghbors))
+    edge_distances = torch.norm(edge_vectors, dim=-1) + 1e-15
 
     if selected_atoms is not None:
         if torch.numel(centers) == 0:
@@ -207,6 +218,49 @@ def systems_to_batch(
             num_nodes = int(centers.max()) + 1
     else:
         num_nodes = len(positions)
+
+    atomic_cutoffs = options.cutoff * torch.ones(
+        num_nodes, device=positions.device, dtype=positions.dtype
+    )
+
+    if num_neighbors_adaptive is not None:
+        # Enabling the adaptive cutoff scheme to approximately select
+        # `num_neighbors_adaptive` neighbors for each atom
+
+        with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
+            adapted_atomic_cutoffs = get_adaptive_cutoffs(
+                centers,
+                edge_distances,
+                num_neighbors_adaptive,
+                num_nodes,
+                options.cutoff,
+                cutoff_width=cutoff_width,
+            )
+
+        with torch.profiler.record_function("PET::adaptive_cutoff_masking"):
+            unique_centers = torch.unique(centers)
+            atomic_cutoffs[unique_centers] = adapted_atomic_cutoffs[unique_centers]
+
+            cutoff_mask = edge_distances <= adapted_atomic_cutoffs[centers]
+            centers = centers[cutoff_mask]
+            neighbors = neighbors[cutoff_mask]
+            edge_vectors = edge_vectors[cutoff_mask]
+            cell_shifts = cell_shifts[cutoff_mask]
+    else:
+        atomic_cutoffs = options.cutoff * torch.ones(
+            len(positions), device=positions.device, dtype=positions.dtype
+        )
+
+    num_neighbors = torch.bincount(centers)
+
+    # uncomment these to print out stats on the adaptive cutoff behavior
+    # print("adaptive_cutoffs", *atomic_cutoffs.tolist())
+    # print("num_neighbors", *num_neighbors.tolist())
+
+    if num_neighbors.numel() == 0:  # no edges
+        max_edges_per_node = 0
+    else:
+        max_edges_per_node = int(torch.max(num_neighbors))
 
     # Convert to NEF (Node-Edge-Feature) format:
     nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
@@ -219,6 +273,7 @@ def systems_to_batch(
 
     # Send everything to NEF:
     edge_vectors = edge_array_to_nef(edge_vectors, nef_indices)
+    edge_distances = torch.sqrt(torch.sum(edge_vectors**2, dim=2) + 1e-15)
     element_indices_neighbors = edge_array_to_nef(
         element_indices_neighbors, nef_indices
     )
@@ -250,13 +305,31 @@ def systems_to_batch(
     reverse_neighbor_index[~nef_mask] = torch.arange(
         int(torch.sum(~nef_mask)), device=reverse_neighbor_index.device
     )
+    if cutoff_function.lower() == "bump":
+        # use bump switching function for adaptive cutoff
+        cutoff_factors = cutoff_func_bump(
+            edge_distances, atomic_cutoffs.unsqueeze(1), cutoff_width
+        )
+    elif cutoff_function.lower() == "cosine":
+        # backward-compatible cosine swithcing for fixed cutoff
+        cutoff_factors = cutoff_func_cosine(
+            edge_distances, atomic_cutoffs.unsqueeze(1), cutoff_width
+        )
+    else:
+        raise ValueError(
+            f"Unknown cutoff function type: {cutoff_function}. "
+            f"Supported types are 'Cosine' and 'Bump'."
+        )
+    cutoff_factors[~nef_mask] = 0.0
 
     return (
         element_indices_nodes,
         element_indices_neighbors,
         edge_vectors,
+        edge_distances,
         nef_mask,
         reverse_neighbor_index,
+        cutoff_factors,
         system_indices,
         sample_labels,
         centers,

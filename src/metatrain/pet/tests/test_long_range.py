@@ -82,7 +82,7 @@ def test_long_range_training(use_ewald):
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["scheduler_patience"] = 1
-    hypers["training"]["fixed_composition_weights"] = {}
+    hypers["training"]["atomic_baseline"] = {}
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[6], targets=target_info_dict

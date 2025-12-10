@@ -32,7 +32,6 @@ from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import get_pair_sample_labels, systems_to_batch
 from .modules.transformer import CartesianTransformer
-from .modules.utilities import cutoff_func
 
 
 AVAILABLE_FEATURIZERS = typing.get_args(ModelHypers.__annotations__["featurizer_type"])
@@ -50,7 +49,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 9
+    __checkpoint_version__ = 10
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -64,7 +63,13 @@ class PET(ModelInterface[ModelHypers]):
 
         # Cache frequently accessed hyperparameters
         self.cutoff = float(self.hypers["cutoff"])
+        self.cutoff_function = self.hypers["cutoff_function"]
         self.cutoff_width = float(self.hypers["cutoff_width"])
+        self.num_neighbors_adaptive = (
+            float(self.hypers["num_neighbors_adaptive"])
+            if self.hypers["num_neighbors_adaptive"] is not None
+            else None
+        )
         self.d_pet = self.hypers["d_pet"]
         self.d_node = self.hypers["d_node"]
         self.d_head = self.hypers["d_head"]
@@ -404,8 +409,10 @@ class PET(ModelInterface[ModelHypers]):
             element_indices_nodes,
             element_indices_neighbors,
             edge_vectors,
+            edge_distances,
             padding_mask,
             reverse_neighbor_index,
+            cutoff_factors,
             system_indices,
             sample_labels,
             centers,
@@ -415,8 +422,12 @@ class PET(ModelInterface[ModelHypers]):
             nl_options,
             self.atomic_types,
             self.species_to_species_index,
+            self.cutoff_function,
+            self.cutoff_width,
+            self.num_neighbors_adaptive,
             selected_atoms,
         )
+
         pair_sample_labels = get_pair_sample_labels(
             systems, sample_labels, nl_options, device
         )
@@ -435,150 +446,152 @@ class PET(ModelInterface[ModelHypers]):
         # double backward, so we will use manual attention if needed
         use_manual_attention = edge_vectors.requires_grad and self.training
 
-        edge_distances = torch.sqrt(torch.sum(edge_vectors**2, dim=2) + 1e-15)
-        cutoff_factors = cutoff_func(edge_distances, self.cutoff, self.cutoff_width)
-        cutoff_factors[~padding_mask] = 0.0
-
-        # **Stage 1: Feature Computation via GNN Layers**
-        featurizer_inputs: Dict[str, torch.Tensor] = dict(
-            element_indices_nodes=element_indices_nodes,
-            element_indices_neighbors=element_indices_neighbors,
-            edge_vectors=edge_vectors,
-            reverse_neighbor_index=reverse_neighbor_index,
-            padding_mask=padding_mask,
-            edge_distances=edge_distances,
-            cutoff_factors=cutoff_factors,
-        )
-        for featurizer_input_name, tensor in featurizer_inputs.items():
-            if "mtt::features::" + featurizer_input_name in outputs:
-                return_dict["mtt::features::" + featurizer_input_name] = (
-                    self._create_diagnostic_feature_tensormap(
-                        tensor,
-                        centers,
-                        nef_to_edges_neighbor,
-                        sample_labels,
-                        pair_sample_labels,
-                    )
-                )
-        node_features_list, edge_features_list = self._calculate_features(
-            featurizer_inputs,
-            use_manual_attention=use_manual_attention,
-        )
-
-        # If the long-range module is activated, we add the long-range features
-        # on top of the node features
-
-        if self.long_range:
-            long_range_features = self._calculate_long_range_features(
-                systems, node_features_list, edge_distances, padding_mask
+        with torch.profiler.record_function("PET::_calculate_features"):
+            # **Stage 1: Feature Computation via GNN Layers**
+            featurizer_inputs: Dict[str, torch.Tensor] = dict(
+                element_indices_nodes=element_indices_nodes,
+                element_indices_neighbors=element_indices_neighbors,
+                edge_vectors=edge_vectors,
+                edge_distances=edge_distances,
+                reverse_neighbor_index=reverse_neighbor_index,
+                padding_mask=padding_mask,
+                cutoff_factors=cutoff_factors,
             )
-            for i in range(self.num_readout_layers):
-                node_features_list[i] = (
-                    node_features_list[i] + long_range_features
-                ) * 0.5**0.5
+            for featurizer_input_name, tensor in featurizer_inputs.items():
+                if "mtt::features::" + featurizer_input_name in outputs:
+                    return_dict["mtt::features::" + featurizer_input_name] = (
+                        self._create_diagnostic_feature_tensormap(
+                            featurizer_inputs[featurizer_input_name],
+                            centers,
+                            nef_to_edges_neighbor,
+                            sample_labels,
+                            pair_sample_labels,
+                        )
+                    )
+            node_features_list, edge_features_list = self._calculate_features(
+                featurizer_inputs,
+                use_manual_attention=use_manual_attention,
+            )
+
+            # If the long-range module is activated, we add the long-range features
+            # on top of the node features
+
+            if self.long_range:
+                long_range_features = self._calculate_long_range_features(
+                    systems, node_features_list, edge_distances, padding_mask
+                )
+                for i in range(self.num_readout_layers):
+                    node_features_list[i] = (
+                        node_features_list[i] + long_range_features
+                    ) * 0.5**0.5
 
         # **Stage 2: Intermediate Feature Output (Optional)**
+        with torch.profiler.record_function("PET::_get_output_features"):
+            if "features" in outputs:
+                features_dict = self._get_output_features(
+                    node_features_list,
+                    edge_features_list,
+                    cutoff_factors,
+                    selected_atoms,
+                    sample_labels,
+                    outputs,
+                )
+                # Since return_dict.update(features_dict) is not Torch-Scriptable,
+                # we use a simple iteration over the features_dict items.
+                for k, v in features_dict.items():
+                    return_dict[k] = v
 
-        if "features" in outputs:
-            features_dict = self._get_output_features(
-                node_features_list,
-                edge_features_list,
+        # **Stage 3: Last Layer Feature Computation**
+        with torch.profiler.record_function("PET::_calculate_last_layer_features"):
+            node_last_layer_features_dict, edge_last_layer_features_dict = (
+                self._calculate_last_layer_features(
+                    node_features_list,
+                    edge_features_list,
+                )
+            )
+            last_layer_features_dict = self._get_output_last_layer_features(
+                node_last_layer_features_dict,
+                edge_last_layer_features_dict,
                 cutoff_factors,
                 selected_atoms,
                 sample_labels,
                 outputs,
             )
-            # Since return_dict.update(features_dict) is not Torch-Scriptable,
-            # we use a simple iteration over the features_dict items.
-            for k, v in features_dict.items():
+
+            for k, v in last_layer_features_dict.items():
                 return_dict[k] = v
 
-        # **Stage 3: Last Layer Feature Computation**
-        node_last_layer_features_dict, edge_last_layer_features_dict = (
-            self._calculate_last_layer_features(
-                node_features_list,
-                edge_features_list,
-            )
-        )
-        last_layer_features_dict = self._get_output_last_layer_features(
-            node_last_layer_features_dict,
-            edge_last_layer_features_dict,
-            cutoff_factors,
-            selected_atoms,
-            sample_labels,
-            outputs,
-        )
-
-        for k, v in last_layer_features_dict.items():
-            return_dict[k] = v
-
         # **Stage 4: Atomic Predictions**
-        node_atomic_predictions_dict, edge_atomic_predictions_dict = (
-            self._calculate_atomic_predictions(
-                node_last_layer_features_dict,
-                edge_last_layer_features_dict,
-                padding_mask,
-                cutoff_factors,
-                outputs,
+        with torch.profiler.record_function("PET::_calculate_atomic_predictions"):
+            node_atomic_predictions_dict, edge_atomic_predictions_dict = (
+                self._calculate_atomic_predictions(
+                    node_last_layer_features_dict,
+                    edge_last_layer_features_dict,
+                    padding_mask,
+                    cutoff_factors,
+                    outputs,
+                )
             )
-        )
-        atomic_predictions_dict = self._get_output_atomic_predictions(
-            systems,
-            node_atomic_predictions_dict,
-            edge_atomic_predictions_dict,
-            edge_vectors,
-            system_indices,
-            sample_labels,
-            outputs,
-            selected_atoms,
-        )
+            atomic_predictions_dict = self._get_output_atomic_predictions(
+                systems,
+                node_atomic_predictions_dict,
+                edge_atomic_predictions_dict,
+                edge_vectors,
+                system_indices,
+                sample_labels,
+                outputs,
+                selected_atoms,
+            )
 
-        for k, v in atomic_predictions_dict.items():
-            return_dict[k] = v
+            for k, v in atomic_predictions_dict.items():
+                return_dict[k] = v
 
         # **Post-processing (Evaluation Only)**
 
-        if not self.training:
-            # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(
-                systems, return_dict, selected_atoms=selected_atoms
-            )
-            for additive_model in self.additive_models:
-                outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                for name, output in outputs.items():
-                    if name in additive_model.outputs:
-                        outputs_for_additive_model[name] = output
-                additive_contributions = additive_model(
-                    systems,
-                    outputs_for_additive_model,
-                    selected_atoms,
+        with torch.profiler.record_function("PET::post-processing"):
+            if not self.training:
+                # at evaluation, we also introduce the scaler and additive contributions
+                return_dict = self.scaler(
+                    systems, return_dict, selected_atoms=selected_atoms
                 )
-                for name in additive_contributions:
-                    # TODO: uncomment this after metatensor.torch.add
-                    # is updated to handle sparse sums
-                    # return_dict[name] = metatensor.torch.add(
-                    #     return_dict[name],
-                    #     additive_contributions[name].to(
-                    #         device=return_dict[name].device,
-                    #         dtype=return_dict[name].dtype
-                    #         ),
-                    # )
-                    # TODO: "manual" sparse sum: update to metatensor.torch.add
-                    # after sparse sum is implemented in metatensor.operations
-                    output_blocks: List[TensorBlock] = []
-                    for k, b in return_dict[name].items():
-                        if k in additive_contributions[name].keys:
-                            output_blocks.append(
-                                _add_block_block(
-                                    b,
-                                    additive_contributions[name]
-                                    .block(k)
-                                    .to(device=b.device, dtype=b.dtype),
+                for additive_model in self.additive_models:
+                    outputs_for_additive_model: Dict[str, ModelOutput] = {}
+                    for name, output in outputs.items():
+                        if name in additive_model.outputs:
+                            outputs_for_additive_model[name] = output
+                    additive_contributions = additive_model(
+                        systems,
+                        outputs_for_additive_model,
+                        selected_atoms,
+                    )
+                    for name in additive_contributions:
+                        # TODO: uncomment this after metatensor.torch.add
+                        # is updated to handle sparse sums
+                        # return_dict[name] = metatensor.torch.add(
+                        #     return_dict[name],
+                        #     additive_contributions[name].to(
+                        #         device=return_dict[name].device,
+                        #         dtype=return_dict[name].dtype
+                        #         ),
+                        # )
+                        # TODO: "manual" sparse sum: update to metatensor.torch.add
+                        # after sparse sum is implemented in metatensor.operations
+                        output_blocks: List[TensorBlock] = []
+                        for k, b in return_dict[name].items():
+                            if k in additive_contributions[name].keys:
+                                output_blocks.append(
+                                    _add_block_block(
+                                        b,
+                                        additive_contributions[name]
+                                        .block(k)
+                                        .to(device=b.device, dtype=b.dtype),
+                                    )
                                 )
-                            )
-                        else:
-                            output_blocks.append(b)
-                    return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
+                            else:
+                                output_blocks.append(b)
+                        return_dict[name] = TensorMap(
+                            return_dict[name].keys, output_blocks
+                        )
 
         # remove any diagnostic hooks we registered and attach tokens
         for h in diagnostic_handles:
@@ -595,7 +608,7 @@ class PET(ModelInterface[ModelHypers]):
         centers: torch.Tensor,
         nef_to_edges_neighbor: torch.Tensor,
         sample_labels: Labels,
-        pair_sample_labels: Labels,
+        pair_sample_labels: Dict[str, Labels],
     ) -> TensorMap:
         assert tensor.shape[0] == sample_labels.values.shape[0], (
             "diagnostic feature tensor must be per-atom or per-pair like in shape."
@@ -604,7 +617,7 @@ class PET(ModelInterface[ModelHypers]):
 
         outp = tensor.detach().clone()
 
-        if outp.ndim <= 2:  # can happen if d == 1 or if an output of i.e. a GNN layer
+        if outp.ndim == 1:  # can happen if d == 1
             outp = outp.unsqueeze(1)
 
         if outp.shape[1] == 1:  # node-like, shape (n_atoms, 1, d)
@@ -613,13 +626,13 @@ class PET(ModelInterface[ModelHypers]):
 
         else:  # edge-like, shape (n_atoms, num_neighbors, d)
             outp = outp[centers, nef_to_edges_neighbor]
-            labels = pair_sample_labels
+            labels = pair_sample_labels["offsite"]
 
         if outp.ndim == 1:  # can happen if d == 1
             outp = outp.unsqueeze(1)
 
         return TensorMap(
-            Labels(["_"], torch.tensor([[0]]).to(outp.device)),
+            Labels(["_"], torch.tensor([[0]])),
             [
                 TensorBlock(
                     values=outp,
@@ -627,7 +640,7 @@ class PET(ModelInterface[ModelHypers]):
                     components=[],
                     properties=Labels(
                         ["_"],
-                        torch.arange(outp.shape[1]).reshape(-1, 1).to(outp.device),
+                        torch.arange(outp.shape[1]).reshape(-1, 1),
                     ),
                 )
             ],
@@ -640,23 +653,15 @@ class PET(ModelInterface[ModelHypers]):
         centers: torch.Tensor,
         nef_to_edges_neighbor: torch.Tensor,
         sample_labels: Labels,
-        pair_sample_labels: Labels,
-    ) -> List[RemovableHandle]:
+        pair_sample_labels: Dict[str, Labels],
+    ) -> None:
         """
         Prepare forward hooks to capture diagnostic tokens from internal modules.
-
-        :param outputs: Dictionary of requested outputs.
-        :param return_dict: Dictionary to store captured outputs.
-        :param centers: Tensor mapping center atoms to their indices in the batch.
-        :param nef_to_edges_neighbor: Tensor mapping neighbor edge features to edges.
-        :param sample_labels: node-like (per-atom) sample Labels for the batch.
-        :param pair_sample_labels: edg-like (per-pair) sample Labels for the batch.
-
-        :return: List of removable handles for the registered hooks.
+        :param diagnostic_tokens: Dictionary to store captured tokens.
         """
-        diagnostic_handles: List[RemovableHandle] = []
+        diagnostic_handles = []
 
-        def _resolve_module(path: str) -> Any:
+        def _resolve_module(path: str):
             obj: Any = self
             for part in path.split("."):
                 if part.isdigit():
@@ -669,8 +674,7 @@ class PET(ModelInterface[ModelHypers]):
                     obj = getattr(obj, part)
             return obj
 
-        # Build list of possible module paths that can be captured for these model
-        # hypers.
+        # Build list of possible module paths that can be captured for these model hypers.
         possible_capture_paths: List[str] = []
 
         for i in range(self.num_readout_layers):
@@ -678,11 +682,7 @@ class PET(ModelInterface[ModelHypers]):
         possible_capture_paths.append("edge_embedder")
 
         for i in range(self.num_gnn_layers):
-            # Total GNN layer: special case as returns both node and edge features
-            possible_capture_paths.append(f"gnn_layers.{i}_node")
-            possible_capture_paths.append(f"gnn_layers.{i}_edge")
-            
-            # Finer-grained: embeddings and compressions
+            # embeddings and compressions
             possible_capture_paths.append(f"gnn_layers.{i}.edge_embedder")
             if i > 0:
                 possible_capture_paths.append(f"gnn_layers.{i}.neighbor_embedder")
@@ -690,16 +690,6 @@ class PET(ModelInterface[ModelHypers]):
 
             # transformer layers
             for j in range(self.num_attention_layers):
-
-                # Transformer layer: special case as returns both node and edge features
-                possible_capture_paths.append(
-                    f"gnn_layers.{i}.trans.layers.{j}_node"
-                )
-                possible_capture_paths.append(
-                    f"gnn_layers.{i}.trans.layers.{j}_edge"
-                )
-
-                # Finer-grained: attention and MLP submodules
                 possible_capture_paths.append(
                     f"gnn_layers.{i}.trans.layers.{j}.norm_attention"
                 )
@@ -725,58 +715,25 @@ class PET(ModelInterface[ModelHypers]):
         for path in possible_capture_paths:
             if "mtt::features::" + path not in outputs:
                 continue
-            
-            if "_node" in path:
-                suffix = "_node"
-                path = path.replace(suffix, "")
-            elif "_edge" in path:
-                suffix = "_edge"
-                path = path.replace(suffix, "")
-            else:
-                suffix = ""
 
             try:
                 module = _resolve_module(path)
 
-                def make_hook(p: str, suffix: str) -> Any:
-                    def _hook(
-                        module: torch.nn.Module, inp: torch.Tensor, outp: torch.Tensor
-                    ) -> None:
-
-                        if isinstance(outp, tuple):
-                            assert "_node" in suffix or "_edge" in suffix, (
-                                "When capturing from a module that returns multiple outputs, "
-                                "the requested output must carry the suffix '_node' or '_edge'."
-                            )
-                            if suffix == "_node":
-                                tensor = outp[0]
-                            else:
-                                assert suffix == "_edge"
-                                tensor = outp[1]
-                                
-                            return_dict[
-                                f"mtt::features::{p}{suffix}"
-                            ] = self._create_diagnostic_feature_tensormap(
-                                tensor,
+                def make_hook(p):
+                    def _hook(module, inp, outp):
+                        return_dict["mtt::features::" + p] = (
+                            self._create_diagnostic_feature_tensormap(
+                                outp,
                                 centers,
                                 nef_to_edges_neighbor,
                                 sample_labels,
                                 pair_sample_labels,
                             )
-                        else:
-                            return_dict["mtt::features::" + p] = (
-                                self._create_diagnostic_feature_tensormap(
-                                    outp,
-                                    centers,
-                                    nef_to_edges_neighbor,
-                                    sample_labels,
-                                    pair_sample_labels,
-                                )
-                            )
+                        )
 
                     return _hook
 
-                handle = module.register_forward_hook(make_hook(path, suffix))
+                handle = module.register_forward_hook(make_hook(path))
                 diagnostic_handles.append(handle)
             except Exception:
                 logging.exception(

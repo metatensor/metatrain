@@ -30,6 +30,9 @@ of importance):
   .. autoattribute:: {{model_hypers_path}}.cutoff
       :no-index:
 
+  .. autoattribute:: {{model_hypers_path}}.num_neighbors_adaptive
+      :no-index:
+
   .. autoattribute:: {{trainer_hypers_path}}.learning_rate
       :no-index:
 
@@ -77,7 +80,19 @@ class ModelHypers(TypedDict):
     between atoms is expected to be negligible. A lower cutoff will lead
     to faster models.
     """
-    cutoff_width: float = 0.2
+    num_neighbors_adaptive: Optional[int] = None
+    """Target number of neighbors for the adaptive cutoff scheme.
+
+    This parameter activates the adaptive cutoff functionality.
+    Each atomic environments has a different cutoff, that is chosen
+    such that the number of neighbors is approximately equal to this
+    value. This can be useful to have a more uniform number of neighbors
+    per atom, especially in sparse systems. Setting it to None disables
+    this feature and uses all neighbors within the fixed cutoff radius.
+    """
+    cutoff_function: Literal["Cosine", "Bump"] = "Bump"
+    """Type of the smoothing function at the cutoff"""
+    cutoff_width: float = 0.5
     """Width of the smoothing function at the cutoff"""
     d_pet: int = 128
     """Dimension of the edge features.
@@ -156,20 +171,43 @@ class TrainerHypers(TypedDict):
     """Interval to log metrics."""
     checkpoint_interval: int = 100
     """Interval to save checkpoints."""
+    atomic_baseline: FixedCompositionWeights = {}
+    """The baselines for each target.
+
+    By default, ``metatrain`` will fit a linear model (:class:`CompositionModel
+    <metatrain.utils.additive.composition.CompositionModel>`) to compute the
+    least squares baseline for each atomic species for each target.
+
+    However, this hyperparameter allows you to provide your own baselines.
+    The value of the hyperparameter should be a dictionary where the keys are the
+    target names, and the values are either (1) a single baseline to be used for
+    all atomic types, or (2) a dictionary mapping atomic types to their baselines.
+    For example:
+
+    - ``atomic_baseline: {"energy": {1: -0.5, 6: -10.0}}`` will fix the energy
+      baseline for hydrogen (Z=1) to -0.5 and for carbon (Z=6) to -10.0, while
+      fitting the baselines for the energy of all other atomic types, as well
+      as fitting the baselines for all other targets.
+    - ``atomic_baseline: {"energy": -5.0}`` will fix the energy baseline for
+      all atomic types to -5.0.
+    - ``atomic_baseline: {"mtt:dos": 0.0}`` sets the baseline for the "mtt:dos"
+      target to 0.0, effectively disabling the atomic baseline for that target.
+
+    This atomic baseline is substracted from the targets during training, which
+    avoids the main model needing to learn atomic contributions, and likely makes
+    training easier. When the model is used in evaluation mode, the atomic baseline
+    is added on top of the model predictions automatically.
+
+    .. note::
+
+        This atomic baseline is a per-atom contribution. Therefore, if the property
+        you are predicting is a sum over all atoms (e.g., total energy), the
+        contribution of the atomic baseline to the total property will be the
+        atomic baseline multiplied by the number of atoms of that type in the
+        structure.
+    """
     scale_targets: bool = True
     """Normalize targets to unit std during training."""
-    fixed_composition_weights: FixedCompositionWeights = {}
-    """Weights for atomic contributions.
-
-    This is passed to the ``fixed_weights`` argument of
-    :meth:`CompositionModel.train_model
-    <metatrain.utils.additive.composition.CompositionModel.train_model>`,
-    see its documentation to understand exactly what to pass here.
-    """
-    remove_composition_contribution: bool = True
-    """Whether to remove the atomic composition contribution from the
-    targets by fitting a linear model to the training data before
-    training the neural network."""
     fixed_scaling_weights: FixedScalerWeights = {}
     """Weights for target scaling.
 
@@ -202,5 +240,5 @@ class TrainerHypers(TypedDict):
     }
     """Parameters for fine-tuning trained PET models.
 
-    See :ref:`fine-tuning` for more details.
+    See :ref:`label_fine_tuning_concept` for more details.
     """
