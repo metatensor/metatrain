@@ -250,6 +250,8 @@ def systems_to_batch(
         )
 
     num_neighbors = torch.bincount(centers)
+
+    # uncomment these to print out stats on the adaptive cutoff behavior
     # print("adaptive_cutoffs", *atomic_cutoffs.tolist())
     # print("num_neighbors", *num_neighbors.tolist())
 
