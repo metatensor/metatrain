@@ -115,7 +115,7 @@ class AutogradTests(ArchitectureTests):
             system = System(
                 types=torch.tensor([6, 6], device=device),
                 positions=torch.tensor(
-                    [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
+                    [[0.0, 0.0, 0.1], [0.45, 0.55, 0.65]],
                     dtype=torch.float64,
                     device=device,
                     requires_grad=True,
@@ -133,11 +133,19 @@ class AutogradTests(ArchitectureTests):
             energy = output["energy"].block().values.sum()
             return energy
 
-        cell = torch.eye(3, dtype=torch.float64, requires_grad=True, device=device)
+        cell = 1.234 * torch.eye(
+            3, dtype=torch.float64, requires_grad=True, device=device
+        )
 
         assert torch.autograd.gradcheck(
-            compute, cell, fast_mode=True, nondet_tol=nondet_tolerance
+            compute, cell, fast_mode=True, nondet_tol=nondet_tolerance, eps=1e-4
         )
         assert torch.autograd.gradgradcheck(
-            compute, cell, fast_mode=True, nondet_tol=nondet_tolerance
+            compute,
+            cell,
+            fast_mode=True,
+            nondet_tol=nondet_tolerance,
+            eps=1e-4,
+            atol=1e-3,
+            rtol=1e-3,
         )

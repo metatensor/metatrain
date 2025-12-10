@@ -155,7 +155,6 @@ class CheckpointTests(ArchitectureTests):
 
             if checkpoint["model_ckpt_version"] != model.__checkpoint_version__:
                 checkpoint = model.__class__.upgrade_checkpoint(checkpoint)
-
             model.load_checkpoint(checkpoint, context)
 
             if context == "restart":
