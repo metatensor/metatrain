@@ -4,8 +4,13 @@ import torch
 
 from .utilities import cutoff_func_bump as cutoff_func
 
-
+# minimum value for the probe cutoff. this avoids getting too close
+# to the central atom. in practice it could be also set to a larger value
 DEFAULT_MIN_PROBE_CUTOFF = 0.5
+# recommended smooth cutoff width for effective neighbor number calculation
+# smaller values lead to a more "step-like" behavior, but can be
+# numerically unstable. in practice this will be called with the 
+# same cutoff as the main cutoff function
 DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH = 1.0
 
 
@@ -100,13 +105,10 @@ def get_effective_num_neighbors(
         dtype=edge_distances.dtype,
         device=edge_distances.device,
     )
-    # Vectorized version: use scatter_add_ to accumulate weights for all probe
-    # cutoffs at once
-    centers_expanded = (
-        centers.unsqueeze(0).expand(len(probe_cutoffs), -1).to(torch.int64)
-    )
-    probe_num_neighbors.scatter_add_(1, centers_expanded, weights)
+    # accumulate the weights for all probe cutoffs and center atoms at once
+    probe_num_neighbors.index_add_(1, centers, weights)
     probe_num_neighbors = probe_num_neighbors.T.contiguous()
+    
     return probe_num_neighbors
 
 
