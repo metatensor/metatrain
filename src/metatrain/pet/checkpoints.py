@@ -400,3 +400,18 @@ def trainer_update_v10_v11(checkpoint: dict) -> None:
         atomic_baseline = {target_name: 0.0 for target_name in dataset_info.targets}
 
     checkpoint["train_hypers"]["atomic_baseline"] = atomic_baseline
+
+
+def trainer_update_v11_v12(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 11 to version 12.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Adding the num_workers=0 hyperparameter if not present
+    if "optimizer" not in checkpoint["train_hypers"]:
+        if checkpoint["train_hypers"].get("weight_decay"):
+            optimizer = "AdamW"
+        else:
+            optimizer = "Adam"
+        checkpoint["train_hypers"]["optimizer"] = optimizer

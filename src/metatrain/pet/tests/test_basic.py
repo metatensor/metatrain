@@ -68,7 +68,13 @@ class TestTorchscript(TorchscriptTests, PETTests):
 class TestExported(ExportedTests, PETTests): ...
 
 
-class TestTraining(TrainingTests, PETTests): ...
+class TestTraining(TrainingTests, PETTests):
+    @pytest.fixture(params=["Adam", "Muon"])
+    def default_hypers(self, request):
+        hypers = get_default_hypers(self.architecture)
+        hypers = copy.deepcopy(hypers)
+        hypers["training"]["optimizer"] = request.param
+        return hypers
 
 
 class TestCheckpoints(CheckpointTests, PETTests):

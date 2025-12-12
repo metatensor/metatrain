@@ -1,11 +1,9 @@
 import copy
 import logging
-import math
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
-from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
@@ -40,43 +38,11 @@ from . import checkpoints
 from .documentation import TrainerHypers
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
-
-
-def get_scheduler(
-    optimizer: torch.optim.Optimizer,
-    train_hypers: TrainerHypers,
-    steps_per_epoch: int,
-) -> LambdaLR:
-    """
-    Get a CosineAnnealing learning-rate scheduler with warmup
-
-    :param optimizer: The optimizer for which to create the scheduler.
-    :param train_hypers: The training hyperparameters.
-    :param steps_per_epoch: The number of steps per epoch.
-    :return: The learning rate scheduler.
-    """
-    total_steps = train_hypers["num_epochs"] * steps_per_epoch
-    warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
-    min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
-
-    def lr_lambda(current_step: int) -> float:
-        if current_step < warmup_steps:
-            # Linear warmup
-            return float(current_step) / float(max(1, warmup_steps))
-        else:
-            # Cosine decay
-            progress = (current_step - warmup_steps) / float(
-                max(1, total_steps - warmup_steps)
-            )
-            cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
-            return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
-
-    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
-    return scheduler
+from .modules.optimizer import get_optimizer, get_scheduler
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 11
+    __checkpoint_version__ = 12
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -324,16 +290,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             for grad, ginfo in info["gradients"].items():
                 logging.info(f"\t{name}::{grad}: {ginfo}")
 
-        if self.hypers["weight_decay"] is not None:
-            optimizer = torch.optim.AdamW(
-                model.parameters(),
-                lr=self.hypers["learning_rate"],
-                weight_decay=self.hypers["weight_decay"],
-            )
-        else:
-            optimizer = torch.optim.Adam(
-                model.parameters(), lr=self.hypers["learning_rate"]
-            )
+        optimizer = get_optimizer(model, self.hypers)
 
         if self.optimizer_state_dict is not None and not is_finetune:
             # try to load the optimizer state dict, but this is only possible
