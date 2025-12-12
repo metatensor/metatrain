@@ -66,7 +66,7 @@ class OutputTests(ArchitectureTests):
         return None
 
     @pytest.fixture
-    def n_last_layer_features(self) -> Optional[int | list[int]]:
+    def n_last_layer_features(self) -> Optional[int]:
         """Fixture that returns the number of last-layer features produced
         by the model.
 
@@ -494,7 +494,7 @@ class OutputTests(ArchitectureTests):
         model_hypers: dict,
         dataset_info: DatasetInfo,
         per_atom: bool,
-        n_last_layer_features: Optional[int | list[int]],
+        n_last_layer_features: Optional[int],
     ) -> None:
         """Tests that the model can output its last layer features.
 

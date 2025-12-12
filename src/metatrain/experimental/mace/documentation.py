@@ -130,6 +130,10 @@ class ModelHypers(TypedDict):
     However, MACE models have themselves a head. This hyperparameter specifies which
     metatrain target corresponds to the MACE head. For this target, no new head will be
     added, and the output of MACE's head will be used directly.
+
+    .. note::
+        MACE models with multiple heads also exist, but ``metatrain`` only supports
+        using this hyperparameter to deal with single-head MACE models for now.
     """
     r_max: float = 5.0
     """Cutoff radius for neighbor search.
@@ -169,7 +173,7 @@ class ModelHypers(TypedDict):
     tensor with higher order), the effective number of message passing steps for
     that target will be ``num_interactions - 1``.
     """
-    hidden_irreps: Optional[str] = "128x0e + 128x1o + 128x2e"
+    hidden_irreps: str = "128x0e + 128x1o + 128x2e"
     r"""Irreps for hidden node features.
 
     This defines the shape of the node features at each layer of the MACE model
