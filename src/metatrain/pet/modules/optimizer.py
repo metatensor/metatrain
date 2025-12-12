@@ -32,6 +32,12 @@ def get_optimizer(model: PET, hypers: TrainerHypers) -> torch.optim.Optimizer:
             weight_decay=weight_decay,
         )
     elif hypers["optimizer"].lower() == "muon":
+        # Separate parameters into Muon and Adam groups.
+        # By design, Muon should only be used for the matrix-type parameters
+        # (i. e. those with ndim >= 2), and only for optimizing the hidden
+        # layers of the model (in our case, the GNN layers). All other parameters
+        # including biases, embeddings, and readout layers (heads) should be
+        # optimized with Adam or AdamW.
         muon_params = []
         adam_params = []
         for n, p in model.named_parameters():
@@ -41,7 +47,7 @@ def get_optimizer(model: PET, hypers: TrainerHypers) -> torch.optim.Optimizer:
                 adam_params.append(p)
         adam_group = dict(params=adam_params, use_muon=False)
         muon_group = dict(params=muon_params, use_muon=True)
-        optimizer = MuonWithAuxAdam(
+        optimizer = MuonWithAuxAdamW(
             [muon_group, adam_group],
             lr=lr,
             weight_decay=weight_decay,
@@ -88,7 +94,7 @@ def get_scheduler(
     return scheduler
 
 
-class MuonWithAuxAdam(torch.optim.Optimizer):
+class MuonWithAuxAdamW(torch.optim.Optimizer):
     def __init__(
         self,
         param_groups,
