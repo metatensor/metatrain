@@ -46,6 +46,11 @@ def get_optimizer(model: PET, hypers: TrainerHypers) -> torch.optim.Optimizer:
             lr=lr,
             weight_decay=weight_decay,
         )
+    else:
+        raise ValueError(
+            f"Unknown optimizer: {hypers['optimizer']}. Please choose Adam, "
+            f"AdamW or Muon."
+        )
 
     return optimizer
 
