@@ -758,16 +758,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         # float64
         self.to(dtype)
 
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This function moves them:
-        try:
-            self.model.additive_models[0]._move_weights_to_device_and_dtype(
-                torch.device("cpu"), torch.float64
-            )
-        except Exception:
-            # no weights to move
-            pass
-
         metadata = merge_metadata(
             merge_metadata(self.__default_metadata__, metadata),
             self.model.export().metadata(),
