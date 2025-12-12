@@ -34,7 +34,7 @@ from .modules.heads import MACEHeadWrapper, NonLinearHead
 from .modules.scale_shift import FakeScaleShift
 from .utils.mts import (
     e3nn_to_tensormap,
-    get_e3nn_target_info,
+    get_e3nn_mts_layout,
     get_samples_labels,
     target_info_to_e3nn_irreps,
 )
@@ -83,12 +83,12 @@ class MetaMACE(ModelInterface[ModelHypers]):
     # """Irreps of the concatenated features from all MACE message passing steps."""
     # heads: torch.nn.ModuleDict
     # """Dictionary of output heads for each target."""
-    # target_infos: Dict[str, TargetInfo]
-    # """Dictionary of TargetInfo for each supported output of the model.
+    # layouts: Dict[str, TensorMap]
+    # """Dictionary of TensorMap for each supported output of the model.
 
     # This includes targets, features and last layer features.
 
-    # Each TargetInfo contains the information needed to build the tensormap
+    # Each TensorMap contains the layout needed to build the tensormap
     # corresponding to that output, from the raw torch tensor produced by the model.
     # """
     # additive_models: torch.nn.ModuleList
@@ -235,13 +235,13 @@ class MetaMACE(ModelInterface[ModelHypers]):
         #    Add heads for targets
         # ---------------------------
 
-        # Create heads for each target, store the target info for each of them.
+        # Create heads for each target, store the layout for each of them.
         self.heads = torch.nn.ModuleDict()
-        self.target_infos: Dict[str, TargetInfo] = {}
+        self.layouts: Dict[str, TensorMap] = {}
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
-        self.target_infos["features"] = get_e3nn_target_info(
+        self.layouts["features"] = get_e3nn_mts_layout(
             "features",
             {
                 "type": {"spherical": {"irreps": self.features_irreps}},
@@ -250,13 +250,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
             },
         )
 
+        targets = dataset_info.targets
         self.outputs = {
             k: ModelOutput(
-                quantity=target_info.quantity,
-                unit=target_info.unit,
+                quantity=targets[k].quantity if k in targets else "",
+                unit=targets[k].unit if k in targets else "",
                 per_atom=True,
             )
-            for k, target_info in self.target_infos.items()
+            for k in self.layouts
         }
 
         # ---------------------------
@@ -340,10 +341,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # torchscript, so we do the necessary operations here.
         # Get device and dtype from the first system
         device = systems[0].device
-        # Move target infos to the correct device
-        self.target_infos = {
-            k: v.to(device=device) for k, v in self.target_infos.items()
-        }
+        # Move layouts to the correct device
+        self.layouts = {k: v.to(device=device) for k, v in self.layouts.items()}
 
         # --------------------------
         #  Prepare inputs for MACE
@@ -422,7 +421,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             per_atom_output = e3nn_to_tensormap(
                 model_output,
                 samples=samples,
-                target_info=self.target_infos[output_name],
+                layout=self.layouts[output_name],
             )
 
             if selected_atoms is not None:
@@ -617,7 +616,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     "MetaMACE does not support Cartesian tensors with rank > 1."
                 )
 
-        self.target_infos[target_name] = target_info
+        self.layouts[target_name] = target_info.layout
 
         if target_name == self.hypers["mace_head_target"]:
             # Fake head that will not compute the target, but will help
@@ -637,7 +636,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         llf_irreps = self.heads[target_name].last_layer_features_irreps
 
-        self.target_infos[self._llf_name(target_name)] = get_e3nn_target_info(
+        self.layouts[self._llf_name(target_name)] = get_e3nn_mts_layout(
             f"{target_name}_last_layer_features",
             {
                 "type": {"spherical": {"irreps": llf_irreps}},

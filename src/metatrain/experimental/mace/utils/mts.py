@@ -18,7 +18,7 @@ from metatrain.utils.data import TargetInfo
 def e3nn_to_tensormap(
     target_values: torch.Tensor,
     samples: Labels,
-    target_info: TargetInfo,
+    layout: TensorMap,
 ) -> TensorMap:
     """Convert the e3nn torch tensor outputs to a metatensor TensorMap.
 
@@ -26,17 +26,24 @@ def e3nn_to_tensormap(
         containing the target values, with ``dim`` being the flattened
         dimension containing all irreps.
     :param samples: ``Labels`` for the samples argument of ``TensorBlock``.
-    :param target_info: ``TargetInfo`` object containing the layout of the
-        e3nn irreps in the shape of a ``TensorMap``. This has probably
-        been obtained with ``get_e3nn_target_info``.
+    :param layout: ``TensorMap`` object containing the layout of the
+        e3nn irreps. This has probably been obtained with
+        ``get_e3nn_target_info``.
 
     :return: A ``TensorMap`` containing the target values.
     """
+    # Check if this is a cartesian target
+    is_cartesian = (
+        len(layout) > 0
+        and len(layout.block(0).components) > 0
+        and layout.block(0).components[0].names[0].startswith("xyz")
+    )
+
     blocks: list[TensorBlock] = []
     pointer = 0
-    for i in range(len(target_info.component_labels)):
-        components = target_info.component_labels[i]
-        properties = target_info.property_labels[i]
+    for block in layout.blocks():
+        components = block.components
+        properties = block.properties
 
         has_components = len(components) > 0
         n_components = len(components[0]) if has_components else 1
@@ -54,7 +61,7 @@ def e3nn_to_tensormap(
             .transpose(1, 2)
         )
 
-        if target_info.is_cartesian and n_components == 3:
+        if is_cartesian and n_components == 3:
             # Go back from YZX to XYZ
             values = values[:, [2, 0, 1], :]
 
@@ -72,15 +79,19 @@ def e3nn_to_tensormap(
         )
         pointer = end
 
-    return TensorMap(keys=target_info.layout.keys, blocks=blocks)
+    return TensorMap(keys=layout.keys, blocks=blocks)
 
 
-def get_e3nn_target_info(target_name: str, target: dict) -> TargetInfo:
-    """Get the target info corresponding to some e3nn irreps.
+def get_e3nn_mts_layout(target_name: str, target: dict) -> TensorMap:
+    """Get the tensormap layout corresponding to some e3nn irreps.
+
+    This function follows the API of the ``get_generic_target_info``
+    function of ``metatrain.utils.data.target_info``, because at some
+    point it can be converted to return a ``TargetInfo``.
 
     :param target_name: Name of the target.
     :param target: Target dictionary containing the irreps and other info.
-    :return: The corresponding TargetInfo object.
+    :return: The corresponding ``TensorMap`` object.
     """
     sample_names = ["system"]
     if target["per_atom"]:
@@ -129,12 +140,7 @@ def get_e3nn_target_info(target_name: str, target: dict) -> TargetInfo:
         blocks=blocks,
     )
 
-    target_info = TargetInfo(
-        quantity=target.get("quantity", ""),
-        unit=target.get("unit", ""),
-        layout=layout,
-    )
-    return target_info
+    return layout
 
 
 def target_info_to_e3nn_irreps(target_info: TargetInfo) -> o3.Irreps:

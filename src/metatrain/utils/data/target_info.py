@@ -183,10 +183,7 @@ class TargetInfo:
                 )
 
         if self.is_spherical:
-            if len(layout.keys.names) < 2 or layout.keys.names[:2] != [
-                "o3_lambda",
-                "o3_sigma",
-            ]:
+            if layout.keys.names != ["o3_lambda", "o3_sigma"]:
                 raise ValueError(
                     "The layout ``TensorMap`` of a spherical tensor target "
                     "should have  two keys named 'o3_lambda' and 'o3_sigma'."
