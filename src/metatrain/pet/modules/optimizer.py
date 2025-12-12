@@ -1,6 +1,6 @@
 import logging
 import math
-from typing import Tuple, Union
+from typing import Dict, Tuple, Union
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
@@ -102,9 +102,20 @@ def get_scheduler(
 
 
 class MuonWithAuxAdamW(torch.optim.Optimizer):
+    """
+    Combined optimizer with Muon and AdamW for different parameter groups.
+
+    :param param_groups: Parameter groups for the optimizer.
+    :param lr: Learning rate.
+    :param weight_decay: Weight decay.
+    :param momentum: Momentum for Muon.
+    :param eps: Epsilon for AdamW.
+    :param betas: Betas for AdamW.
+    """
+
     def __init__(
         self,
-        param_groups,
+        param_groups: list,
         lr: Union[float, torch.Tensor] = 0.001,
         weight_decay: float = 0.0,
         momentum: float = 0.95,
@@ -143,19 +154,19 @@ class MuonWithAuxAdamW(torch.optim.Optimizer):
                 )
 
     @torch.no_grad()
-    def step(self, closure=None):
+    def step(self) -> None:
         self.muon_optimizer.step()
         self.adamw_optimizer.step()
 
-    def zero_grad(self, set_to_none: bool = True):
+    def zero_grad(self, set_to_none: bool = True) -> None:
         self.muon_optimizer.zero_grad(set_to_none=set_to_none)
         self.adamw_optimizer.zero_grad(set_to_none=set_to_none)
 
-    def load_state_dict(self, state_dict):
+    def load_state_dict(self, state_dict: Dict) -> None:
         self.muon_optimizer.load_state_dict(state_dict["muon_optimizer"])
         self.adamw_optimizer.load_state_dict(state_dict["adamw_optimizer"])
 
-    def state_dict(self):
+    def state_dict(self) -> Dict:
         return {
             "muon_optimizer": self.muon_optimizer.state_dict(),
             "adamw_optimizer": self.adamw_optimizer.state_dict(),
