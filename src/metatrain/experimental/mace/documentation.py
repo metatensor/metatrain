@@ -18,8 +18,8 @@ layer (or MLP for invariant targets) to obtain the final predictions.
 
 One important feature is that the architecture is ready to take a pretrained MACE model
 file as input. The heads required to predict the targets will be added on top of the
-MACE model, so one can continue training for arbitrary targets. See
-:data:`ModelHypers.mace_model` for more details. For simply exporting a foundation MACE
+MACE model, so one can continue training for arbitrary targets. See the
+``mace_model`` hyperparameter for more details. For simply exporting a foundation MACE
 model to use as a ``metatomic`` model (e.g. in ASE or LAMMPS), see :ref:`exporting a
 foundation MACE model <architecture-mace_export_foundation_model>`.
 
