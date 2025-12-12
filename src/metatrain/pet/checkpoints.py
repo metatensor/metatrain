@@ -415,3 +415,6 @@ def trainer_update_v11_v12(checkpoint: dict) -> None:
         else:
             optimizer = "Adam"
         checkpoint["train_hypers"]["optimizer"] = optimizer
+
+    if "min_learning_rate" not in checkpoint["train_hypers"]:
+        checkpoint["train_hypers"]["min_learning_rate"] = 0.0
