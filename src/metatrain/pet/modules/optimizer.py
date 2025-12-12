@@ -1,3 +1,4 @@
+import logging
 import math
 from typing import Tuple, Union
 
@@ -32,6 +33,12 @@ def get_optimizer(model: PET, hypers: TrainerHypers) -> torch.optim.Optimizer:
             weight_decay=weight_decay,
         )
     elif hypers["optimizer"].lower() == "muon":
+        logging.warning(
+            "Using the Muon optimizer with auxiliary AdamW for non-matrix "
+            "parameters. This feature is experimental and so far not well tested. "
+            "Please use it with caution or set the optimizer to Adam or AdamW in the "
+            "options.yaml."
+        )
         # Separate parameters into Muon and Adam groups.
         # By design, Muon should only be used for the matrix-type parameters
         # (i. e. those with ndim >= 2), and only for optimizing the hidden
