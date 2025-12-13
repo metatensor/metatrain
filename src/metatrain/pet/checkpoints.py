@@ -254,6 +254,23 @@ def model_update_v9_v10(checkpoint: dict) -> None:
         checkpoint["model_data"]["model_hypers"]["cutoff_function"] = "Cosine"
 
 
+def model_update_v10_v11(checkpoint: dict) -> None:
+    """
+    Update a v10 checkpoint to v11.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                # Replacing the nn.Sequential MLP with a custom FeedForward module
+                if "gnn_layers" in k and ".edge_embedder." in k:
+                    k = k.replace(".edge_embedder.", ".edge_linear.")
+                new_state_dict[k] = v
+            checkpoint[key] = new_state_dict
+
+
 ###########################
 # TRAINER #################
 ###########################
