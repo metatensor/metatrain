@@ -237,7 +237,7 @@ Ensemble Loss Function
 ----------------------
 
 An :ref:`architecture-llpr` ensemble can be further trained to improve its uncertainty quantification.
-This is done by using the :py:class:`metatrain.utils.loss.TensorMapLLPREnsembleLoss` function, which implements two proper scoring rules for Gaussian predictive distributions.
+This is done by using the :py:class:`metatrain.utils.loss.TensorMapEnsembleLoss` function, which implements two proper scoring rules for Gaussian predictive distributions.
 Both losses operate on the ensemble-predicted mean :math:`\mu` and standard deviation :math:`\sigma`, and compare them against the target values.
 
 - The Gaussian Negative Log-Likelihood (NLL) loss maximizes the likelihood of the observed data under a Gaussian predictive model.
@@ -250,8 +250,7 @@ Both losses operate on the ensemble-predicted mean :math:`\mu` and standard devi
 
       loss:
         mtt::target_name:
-          type: llpr_ensemble
-          scoring_rule: gaussian_nll
+          type: gaussian_nll
 
 
 - The Gaussian Continuous Ranked Probability Score (CRPS) measures the integrated squared difference between the predicted and (assumed) Gaussian cumulative distribution functions.
@@ -275,8 +274,7 @@ Both losses operate on the ensemble-predicted mean :math:`\mu` and standard devi
 
       loss:
         mtt::target_name:
-          type: llpr_ensemble
-          scoring_rule: gaussian_crps
+          type: gaussian_crps
 
 
 In practice, both scoring rules are strictly proper and therefore encourage well-calibrated uncertainty estimates.

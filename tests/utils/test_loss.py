@@ -12,8 +12,9 @@ from metatrain.utils.loss import (
     GaussianCRPSLoss,
     LossAggregator,
     LossType,
+    TensorMapGaussianCRPSLoss,
+    TensorMapGaussianNLLLoss,
     TensorMapHuberLoss,
-    TensorMapLLPREnsembleLoss,
     TensorMapMAELoss,
     TensorMapMaskedHuberLoss,
     TensorMapMaskedMAELoss,
@@ -660,9 +661,6 @@ def test_gaussian_crps_loss_variance_clamping():
     assert torch.isfinite(result).all()
 
 
-# ===== Tests for TensorMapLLPREnsembleLoss =====
-
-
 @pytest.fixture
 def ensemble_tensor_maps():
     """Create tensor maps for ensemble loss testing."""
@@ -716,14 +714,13 @@ def ensemble_tensor_maps():
     }
 
 
-def test_tensormap_llpr_ensemble_loss_gaussian_nll(ensemble_tensor_maps):
-    """Test TensorMapLLPREnsembleLoss with gaussian_nll scoring rule."""
-    loss_fn = TensorMapLLPREnsembleLoss(
+def test_tensormap_gaussian_nll_loss(ensemble_tensor_maps):
+    """Test TensorMapGaussianNLLLoss."""
+    loss_fn = TensorMapGaussianNLLLoss(
         name="energy",
         gradient=None,
         weight=1.0,
         reduction="mean",
-        scoring_rule="gaussian_nll",
     )
 
     predictions = {
@@ -737,14 +734,13 @@ def test_tensormap_llpr_ensemble_loss_gaussian_nll(ensemble_tensor_maps):
     assert torch.isfinite(result)
 
 
-def test_tensormap_llpr_ensemble_loss_gaussian_crps(ensemble_tensor_maps):
-    """Test TensorMapLLPREnsembleLoss with gaussian_crps scoring rule."""
-    loss_fn = TensorMapLLPREnsembleLoss(
+def test_tensormap_gaussian_crps_loss(ensemble_tensor_maps):
+    """Test TensorMapGaussianCRPSLoss."""
+    loss_fn = TensorMapGaussianCRPSLoss(
         name="energy",
         gradient=None,
         weight=1.0,
         reduction="mean",
-        scoring_rule="gaussian_crps",
     )
 
     predictions = {
@@ -757,48 +753,3 @@ def test_tensormap_llpr_ensemble_loss_gaussian_crps(ensemble_tensor_maps):
     result = loss_fn.compute(predictions, targets)
     assert torch.isfinite(result)
     assert result.item() >= 0.0  # CRPS should be non-negative
-
-
-def test_tensormap_llpr_ensemble_loss_invalid_scoring_rule():
-    """Test that invalid scoring rule raises ValueError."""
-    with pytest.raises(
-        ValueError, match="Unknown LLPREnsembleLoss scoring rule: invalid_rule"
-    ):
-        TensorMapLLPREnsembleLoss(
-            name="energy",
-            gradient=None,
-            weight=1.0,
-            reduction="mean",
-            scoring_rule="invalid_rule",
-        )
-
-
-def test_tensormap_llpr_ensemble_loss_scoring_rules_differ(ensemble_tensor_maps):
-    """Test that different scoring rules produce different loss values."""
-    predictions = {
-        "energy": ensemble_tensor_maps["mean"],
-        "energy_ensemble": ensemble_tensor_maps["ensemble"],
-    }
-    targets = {"energy": ensemble_tensor_maps["target"]}
-
-    loss_nll = TensorMapLLPREnsembleLoss(
-        name="energy",
-        gradient=None,
-        weight=1.0,
-        reduction="mean",
-        scoring_rule="gaussian_nll",
-    )
-
-    loss_crps = TensorMapLLPREnsembleLoss(
-        name="energy",
-        gradient=None,
-        weight=1.0,
-        reduction="mean",
-        scoring_rule="gaussian_crps",
-    )
-
-    result_nll = loss_nll.compute(predictions, targets)
-    result_crps = loss_crps.compute(predictions, targets)
-
-    # The two scoring rules should produce different values
-    assert result_nll.item() != pytest.approx(result_crps.item())

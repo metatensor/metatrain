@@ -595,75 +595,7 @@ class MaskedDOSLoss(LossInterface):
         return dos_loss + gradient_loss + int_MSE
 
 
-class GaussianCRPSLoss(torch.nn.Module):
-    """
-    Gaussian CRPS loss.
-
-    This implements the closed-form expression for the CRPS of a Gaussian predictive
-    distribution N(mu, sigma^2) evaluated at a target value x:
-
-        CRPS(x; mu, sigma) = sigma * [ z(2Phi(z) - 1) + 2phi(z) - 1/sqrt(pi) ]
-
-    where z = (x - mu)/sigma, Phi is the standard normal CDF and phi is the standard
-    normal PDF.
-
-    The interface mirrors torch.nn.GaussianNLLLoss:
-
-        forward(input=mu, target=x, var=sigma^2)
-
-    :param reduction: 'none', 'mean', or 'sum'.
-    :param eps: small constant for numerical stability on variance.
-    """
-
-    def __init__(self, reduction: str = "mean", eps: float = 1e-12):
-        super().__init__()
-        self.reduction = reduction
-        self.eps = eps
-
-    def forward(
-        self,
-        input: torch.Tensor,
-        target: torch.Tensor,
-        var: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Compute the Gaussian CRPS loss.
-
-        :param input: Mean predictions.
-        :param target: Target values.
-        :param var: Variance of the predictions.
-        :return: Value of the loss.
-        """
-
-        var_clamped = torch.clamp(var, min=self.eps)
-        sigma = torch.sqrt(var_clamped)
-
-        # z = (x - mu) / sigma
-        z = (target - input) / sigma
-
-        # standard normal pdf and cdf
-        # Phi(z) = 0.5 * (1 + erf(z / sqrt(2)))
-        # phi(z) = 1/sqrt(2*pi) * exp(-z^2 / 2)
-        sqrt_2 = math.sqrt(2.0)
-        inv_sqrt_2pi = 1.0 / math.sqrt(2.0 * math.pi)
-        inv_sqrt_pi = 1.0 / math.sqrt(math.pi)
-
-        phi = inv_sqrt_2pi * torch.exp(-0.5 * z**2)
-        Phi = 0.5 * (1.0 + torch.erf(z / sqrt_2))
-
-        crps = sigma * (z * (2.0 * Phi - 1.0) + 2.0 * phi - inv_sqrt_pi)
-
-        if self.reduction == "mean":
-            return crps.mean()
-        elif self.reduction == "sum":
-            return crps.sum()
-        elif self.reduction == "none":
-            return crps
-        else:
-            raise ValueError(self.reduction + " is not valid")
-
-
-class TensorMapLLPREnsembleLoss(BaseTensorMapLoss):
+class TensorMapEnsembleLoss(BaseTensorMapLoss):
     """
     Loss for ensembles based on :py:class:`TensorMap` entries.
     Assumes that ensemble is the outermost dimension of :py:class:`TensorBlock`
@@ -673,7 +605,7 @@ class TensorMapLLPREnsembleLoss(BaseTensorMapLoss):
     :param gradient: optional gradient field name.
     :param weight: weight of the loss contribution in the final aggregation.
     :param reduction: reduction mode for torch loss.
-    :param scoring_rule: type of loss to use ("gaussian_nll", "gaussian_crps").
+    :param loss_fn: pre-instantiated torch.nn loss.
     """
 
     def __init__(
@@ -682,15 +614,8 @@ class TensorMapLLPREnsembleLoss(BaseTensorMapLoss):
         gradient: Optional[str],
         weight: float,
         reduction: str,
-        scoring_rule: str,
+        loss_fn: torch.nn.Module,
     ):
-        if scoring_rule == "gaussian_nll":
-            loss_fn = torch.nn.GaussianNLLLoss(reduction=reduction)
-        elif scoring_rule == "gaussian_crps":
-            loss_fn = GaussianCRPSLoss(reduction=reduction)
-        else:
-            raise ValueError(f"Unknown LLPREnsembleLoss scoring rule: {scoring_rule}")
-
         super().__init__(
             name,
             gradient,
@@ -828,6 +753,126 @@ class TensorMapLLPREnsembleLoss(BaseTensorMapLoss):
 
         # Note that we're ignoring all gradients for now. This can be extended later.
         return self.compute_flattened(tmap_pred_mean, tmap_targ, tmap_pred_var)
+
+
+class GaussianCRPSLoss(torch.nn.Module):
+    """
+    Gaussian CRPS loss.
+
+    This implements the closed-form expression for the CRPS of a Gaussian predictive
+    distribution N(mu, sigma^2) evaluated at a target value x:
+
+        CRPS(x; mu, sigma) = sigma * [ z(2Phi(z) - 1) + 2phi(z) - 1/sqrt(pi) ]
+
+    where z = (x - mu)/sigma, Phi is the standard normal CDF and phi is the standard
+    normal PDF.
+
+    The interface mirrors torch.nn.GaussianNLLLoss:
+
+        forward(input=mu, target=x, var=sigma^2)
+
+    :param reduction: 'none', 'mean', or 'sum'.
+    :param eps: small constant for numerical stability on variance.
+    """
+
+    def __init__(self, reduction: str = "mean", eps: float = 1e-12):
+        super().__init__()
+        self.reduction = reduction
+        self.eps = eps
+
+    def forward(
+        self,
+        input: torch.Tensor,
+        target: torch.Tensor,
+        var: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Compute the Gaussian CRPS loss.
+
+        :param input: Mean predictions.
+        :param target: Target values.
+        :param var: Variance of the predictions.
+        :return: Value of the loss.
+        """
+
+        var_clamped = torch.clamp(var, min=self.eps)
+        sigma = torch.sqrt(var_clamped)
+
+        # z = (x - mu) / sigma
+        z = (target - input) / sigma
+
+        # standard normal pdf and cdf
+        # Phi(z) = 0.5 * (1 + erf(z / sqrt(2)))
+        # phi(z) = 1/sqrt(2*pi) * exp(-z^2 / 2)
+        sqrt_2 = math.sqrt(2.0)
+        inv_sqrt_2pi = 1.0 / math.sqrt(2.0 * math.pi)
+        inv_sqrt_pi = 1.0 / math.sqrt(math.pi)
+
+        phi = inv_sqrt_2pi * torch.exp(-0.5 * z**2)
+        Phi = 0.5 * (1.0 + torch.erf(z / sqrt_2))
+
+        crps = sigma * (z * (2.0 * Phi - 1.0) + 2.0 * phi - inv_sqrt_pi)
+
+        if self.reduction == "mean":
+            return crps.mean()
+        elif self.reduction == "sum":
+            return crps.sum()
+        elif self.reduction == "none":
+            return crps
+        else:
+            raise ValueError(self.reduction + " is not valid")
+
+
+class TensorMapGaussianNLLLoss(TensorMapEnsembleLoss):
+    """
+    Gaussian negative log-likelihood loss for :py:class:`TensorMap` entries.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for torch loss.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_fn=torch.nn.GaussianNLLLoss(reduction=reduction),
+        )
+
+
+class TensorMapGaussianCRPSLoss(TensorMapEnsembleLoss):
+    """
+    Gaussian CRPS loss for :py:class:`TensorMap` entries.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for torch loss.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_fn=GaussianCRPSLoss(reduction=reduction),
+        )
 
 
 # --- aggregator -----------------------------------------------------------------------
@@ -997,7 +1042,8 @@ class LossType(Enum):
     POINTWISE = ("pointwise", BaseTensorMapLoss)
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
     MASKED_DOS = ("masked_dos", MaskedDOSLoss)
-    LLPR_ENSEMBLE = ("llpr_ensemble", TensorMapLLPREnsembleLoss)
+    GAUSSIAN_NLL = ("gaussian_nll", TensorMapGaussianNLLLoss)
+    GAUSSIAN_CRPS = ("gaussian_crps", TensorMapGaussianCRPSLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key
