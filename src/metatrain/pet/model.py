@@ -16,6 +16,7 @@ from metatomic.torch import (
     NeighborListOptions,
     System,
 )
+from torch.utils.hooks import RemovableHandle
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
@@ -29,7 +30,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 from . import checkpoints
 from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
-from .modules.structures import systems_to_batch
+from .modules.structures import get_pair_sample_labels, systems_to_batch
 from .modules.transformer import CartesianTransformer
 
 
@@ -403,28 +404,43 @@ class PET(ModelInterface[ModelHypers]):
         if self.single_label.values.device != device:
             self._move_labels_to_device(device)
 
-        with torch.profiler.record_function("PET::systems_to_batch"):
-            # **Stage 0: Input Preparation**
-            (
-                element_indices_nodes,
-                element_indices_neighbors,
-                edge_vectors,
-                edge_distances,
-                padding_mask,
-                reverse_neighbor_index,
-                cutoff_factors,
-                system_indices,
-                sample_labels,
-            ) = systems_to_batch(
-                systems,
-                nl_options,
-                self.atomic_types,
-                self.species_to_species_index,
-                self.cutoff_function,
-                self.cutoff_width,
-                self.num_neighbors_adaptive,
-                selected_atoms,
-            )
+        # **Stage 0: Input Preparation**
+        (
+            element_indices_nodes,
+            element_indices_neighbors,
+            edge_vectors,
+            edge_distances,
+            padding_mask,
+            reverse_neighbor_index,
+            cutoff_factors,
+            system_indices,
+            sample_labels,
+            centers,
+            nef_to_edges_neighbor,
+        ) = systems_to_batch(
+            systems,
+            nl_options,
+            self.atomic_types,
+            self.species_to_species_index,
+            self.cutoff_function,
+            self.cutoff_width,
+            self.num_neighbors_adaptive,
+            selected_atoms,
+        )
+
+        pair_sample_labels = get_pair_sample_labels(
+            systems, sample_labels, nl_options, device
+        )
+
+        # Optional diagnostic token capture: register temporary module hooks
+        diagnostic_handles: List[RemovableHandle] = self._prepare_diagnostic_handles(
+            outputs,
+            return_dict,
+            centers,
+            nef_to_edges_neighbor,
+            sample_labels,
+            pair_sample_labels,
+        )
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
@@ -441,6 +457,17 @@ class PET(ModelInterface[ModelHypers]):
                 padding_mask=padding_mask,
                 cutoff_factors=cutoff_factors,
             )
+            for featurizer_input_name, tensor in featurizer_inputs.items():
+                if "mtt::features::" + featurizer_input_name in outputs:
+                    return_dict["mtt::features::" + featurizer_input_name] = (
+                        self._create_diagnostic_feature_tensormap(
+                            tensor,
+                            centers,
+                            nef_to_edges_neighbor,
+                            sample_labels,
+                            pair_sample_labels,
+                        )
+                    )
             node_features_list, edge_features_list = self._calculate_features(
                 featurizer_inputs,
                 use_manual_attention=use_manual_attention,
@@ -566,7 +593,197 @@ class PET(ModelInterface[ModelHypers]):
                             return_dict[name].keys, output_blocks
                         )
 
+        # remove any diagnostic hooks we registered and attach tokens
+        for h in diagnostic_handles:
+            h.remove()
+
         return return_dict
+
+    def _create_diagnostic_feature_tensormap(
+        self,
+        tensor: torch.Tensor,
+        centers: torch.Tensor,
+        nef_to_edges_neighbor: torch.Tensor,
+        sample_labels: Labels,
+        pair_sample_labels: Labels,
+    ) -> TensorMap:
+        assert tensor.shape[0] == sample_labels.values.shape[0], (
+            "diagnostic feature tensor must be per-atom or per-pair like in shape."
+            f" Got tensor.shape = {tensor.shape}, "
+        )
+
+        outp = tensor.detach().clone()
+
+        if outp.ndim == 1:  # can happen if d == 1
+            outp = outp.unsqueeze(1)
+
+        if outp.shape[1] == 1:  # node-like, shape (n_atoms, 1, d)
+            outp = outp.squeeze(1)
+            labels = sample_labels
+
+        else:  # edge-like, shape (n_atoms, num_neighbors, d)
+            outp = outp[centers, nef_to_edges_neighbor]
+            labels = pair_sample_labels
+
+        if outp.ndim == 1:  # can happen if d == 1
+            outp = outp.unsqueeze(1)
+
+        return TensorMap(
+            Labels(["_"], torch.tensor([[0]])),
+            [
+                TensorBlock(
+                    values=outp,
+                    samples=labels,
+                    components=[],
+                    properties=Labels(
+                        ["_"],
+                        torch.arange(outp.shape[1]).reshape(-1, 1),
+                    ),
+                )
+            ],
+        )
+
+    def _prepare_diagnostic_handles(
+        self,
+        outputs: Dict[str, ModelOutput],
+        return_dict: Dict[str, Any],
+        centers: torch.Tensor,
+        nef_to_edges_neighbor: torch.Tensor,
+        sample_labels: Labels,
+        pair_sample_labels: Dict[str, Labels],
+    ) -> List[RemovableHandle]:
+        """
+        Prepare forward hooks to capture diagnostic tokens from internal modules.
+
+        :param outputs: Dictionary of requested outputs.
+        :param return_dict: Dictionary to store captured tokens.
+        :param centers: Tensor mapping center atoms to their indices.
+        :param nef_to_edges_neighbor: Tensor mapping neighbor edges to their indices.
+        :param sample_labels: Labels for individual atoms.
+        :param pair_sample_labels: Labels for atom pairs.
+
+        :return: List of removable handles for the registered hooks.
+        """
+        diagnostic_handles = []
+
+        def _resolve_module(path: str) -> Any:
+            obj: Any = self
+            for part in path.split("."):
+                if part.isdigit():
+                    obj = obj[int(part)]
+                else:
+                    if not hasattr(obj, part):
+                        raise AttributeError(
+                            f"Module path '{path}' not found at '{part}'"
+                        )
+                    obj = getattr(obj, part)
+            return obj
+
+        # Build list of possible module paths that can be captured for these model
+        # hypers.
+        possible_capture_paths: List[str] = []
+
+        for i in range(self.num_readout_layers):
+            possible_capture_paths.append(f"node_embedders.{i}")
+        possible_capture_paths.append("edge_embedder")
+
+        for i in range(self.num_gnn_layers):
+            # Total GNN layer: special case as returns both node and edge features
+            possible_capture_paths.append(f"gnn_layers.{i}_node")
+            possible_capture_paths.append(f"gnn_layers.{i}_edge")
+
+            # Finer-grained: embeddings and compressions
+            possible_capture_paths.append(f"gnn_layers.{i}.edge_embedder")
+            if i > 0:
+                possible_capture_paths.append(f"gnn_layers.{i}.neighbor_embedder")
+            possible_capture_paths.append(f"gnn_layers.{i}.compress")
+
+            # transformer layers
+            for j in range(self.num_attention_layers):
+                # Transformer layer: special case as returns both node and edge features
+                possible_capture_paths.append(f"gnn_layers.{i}.trans.layers.{j}_node")
+                possible_capture_paths.append(f"gnn_layers.{i}.trans.layers.{j}_edge")
+
+                # Finer-grained: attention and MLP submodules
+                possible_capture_paths.append(
+                    f"gnn_layers.{i}.trans.layers.{j}.norm_attention"
+                )
+                possible_capture_paths.append(
+                    f"gnn_layers.{i}.trans.layers.{j}.attention"
+                )
+                possible_capture_paths.append(
+                    f"gnn_layers.{i}.trans.layers.{j}.center_contraction"
+                )
+                possible_capture_paths.append(
+                    f"gnn_layers.{i}.trans.layers.{j}.center_mlp"
+                )
+                possible_capture_paths.append(
+                    f"gnn_layers.{i}.trans.layers.{j}.norm_mlp"
+                )
+                possible_capture_paths.append(f"gnn_layers.{i}.trans.layers.{j}.mlp")
+
+        # TODO: this is subtle, depending on whether the featurizer is feedforward or
+        # residual. To fix later.
+        # possible_capture_paths.append(f"combination_norms")
+        # possible_capture_paths.append(f"combination_mlps")
+
+        for path in possible_capture_paths:
+            if "mtt::features::" + path not in outputs:
+                continue
+
+            if "_node" in path:
+                suffix = "_node"
+                path = path.replace(suffix, "")
+            elif "_edge" in path:
+                suffix = "_edge"
+                path = path.replace(suffix, "")
+            else:
+                suffix = ""
+
+            module = _resolve_module(path)
+
+            def make_hook(p: str, suffix: str) -> Any:
+                def _hook(
+                    module: torch.nn.Module, inp: torch.Tensor, outp: torch.Tensor
+                ) -> None:
+                    if isinstance(outp, tuple):
+                        assert "_node" in suffix or "_edge" in suffix, (
+                            "When capturing from a module that returns multiple "
+                            "outputs, the requested output must carry the suffix "
+                            "'_node' or '_edge'."
+                        )
+                        if suffix == "_node":
+                            tensor = outp[0]
+                        else:
+                            assert suffix == "_edge"
+                            tensor = outp[1]
+
+                        return_dict[f"mtt::features::{p}{suffix}"] = (
+                            self._create_diagnostic_feature_tensormap(
+                                tensor,
+                                centers,
+                                nef_to_edges_neighbor,
+                                sample_labels,
+                                pair_sample_labels,
+                            )
+                        )
+                    else:
+                        return_dict["mtt::features::" + p] = (
+                            self._create_diagnostic_feature_tensormap(
+                                outp,
+                                centers,
+                                nef_to_edges_neighbor,
+                                sample_labels,
+                                pair_sample_labels,
+                            )
+                        )
+
+                return _hook
+
+            handle = module.register_forward_hook(make_hook(path, suffix))
+            diagnostic_handles.append(handle)
+
+        return diagnostic_handles
 
     def _calculate_features(
         self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
