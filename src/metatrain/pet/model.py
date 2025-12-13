@@ -595,10 +595,7 @@ class PET(ModelInterface[ModelHypers]):
 
         # remove any diagnostic hooks we registered and attach tokens
         for h in diagnostic_handles:
-            try:
-                h.remove()
-            except Exception:
-                logging.exception("Error while removing diagnostic hook")
+            h.remove()
 
         return return_dict
 
@@ -682,6 +679,7 @@ class PET(ModelInterface[ModelHypers]):
         possible_capture_paths.append("edge_embedder")
 
         for i in range(self.num_gnn_layers):
+            possible_capture_paths.append(f"gnn_layers.{i}")
             # embeddings and compressions
             possible_capture_paths.append(f"gnn_layers.{i}.edge_embedder")
             if i > 0:
@@ -690,6 +688,9 @@ class PET(ModelInterface[ModelHypers]):
 
             # transformer layers
             for j in range(self.num_attention_layers):
+                possible_capture_paths.append(
+                    f"gnn_layers.{i}.trans.layers.{j}"
+                )
                 possible_capture_paths.append(
                     f"gnn_layers.{i}.trans.layers.{j}.norm_attention"
                 )
@@ -716,29 +717,26 @@ class PET(ModelInterface[ModelHypers]):
             if "mtt::features::" + path not in outputs:
                 continue
 
-            try:
-                module = _resolve_module(path)
+            module = _resolve_module(path)
 
-                def make_hook(p):
-                    def _hook(module, inp, outp):
-                        return_dict["mtt::features::" + p] = (
-                            self._create_diagnostic_feature_tensormap(
-                                outp,
-                                centers,
-                                nef_to_edges_neighbor,
-                                sample_labels,
-                                pair_sample_labels,
-                            )
+            def make_hook(p: str) -> Any:
+                def _hook(
+                    module: torch.nn.Module, inp: torch.Tensor, outp: torch.Tensor
+                ) -> None:
+                    return_dict["mtt::features::" + p] = (
+                        self._create_diagnostic_feature_tensormap(
+                            outp,
+                            centers,
+                            nef_to_edges_neighbor,
+                            sample_labels,
+                            pair_sample_labels,
                         )
+                    )
 
-                    return _hook
+                return _hook
 
-                handle = module.register_forward_hook(make_hook(path))
-                diagnostic_handles.append(handle)
-            except Exception:
-                logging.exception(
-                    f"Unable to register diagnostic hook for path '{path}'"
-                )
+            handle = module.register_forward_hook(make_hook(path))
+            diagnostic_handles.append(handle)
 
         return diagnostic_handles
 
