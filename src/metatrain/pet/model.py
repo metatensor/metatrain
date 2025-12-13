@@ -461,7 +461,7 @@ class PET(ModelInterface[ModelHypers]):
                 if "mtt::features::" + featurizer_input_name in outputs:
                     return_dict["mtt::features::" + featurizer_input_name] = (
                         self._create_diagnostic_feature_tensormap(
-                            featurizer_inputs[featurizer_input_name],
+                            tensor,
                             centers,
                             nef_to_edges_neighbor,
                             sample_labels,
@@ -651,14 +651,22 @@ class PET(ModelInterface[ModelHypers]):
         nef_to_edges_neighbor: torch.Tensor,
         sample_labels: Labels,
         pair_sample_labels: Dict[str, Labels],
-    ) -> None:
+    ) -> List[RemovableHandle]:
         """
         Prepare forward hooks to capture diagnostic tokens from internal modules.
-        :param diagnostic_tokens: Dictionary to store captured tokens.
+
+        :param outputs: Dictionary of requested outputs.
+        :param return_dict: Dictionary to store captured tokens.
+        :param centers: Tensor mapping center atoms to their indices.
+        :param nef_to_edges_neighbor: Tensor mapping neighbor edges to their indices.
+        :param sample_labels: Labels for individual atoms.
+        :param pair_sample_labels: Labels for atom pairs.
+
+        :return: List of removable handles for the registered hooks.
         """
         diagnostic_handles = []
 
-        def _resolve_module(path: str):
+        def _resolve_module(path: str) -> Any:
             obj: Any = self
             for part in path.split("."):
                 if part.isdigit():
@@ -671,7 +679,8 @@ class PET(ModelInterface[ModelHypers]):
                     obj = getattr(obj, part)
             return obj
 
-        # Build list of possible module paths that can be captured for these model hypers.
+        # Build list of possible module paths that can be captured for these model
+        # hypers.
         possible_capture_paths: List[str] = []
 
         for i in range(self.num_readout_layers):
@@ -688,9 +697,7 @@ class PET(ModelInterface[ModelHypers]):
 
             # transformer layers
             for j in range(self.num_attention_layers):
-                possible_capture_paths.append(
-                    f"gnn_layers.{i}.trans.layers.{j}"
-                )
+                possible_capture_paths.append(f"gnn_layers.{i}.trans.layers.{j}")
                 possible_capture_paths.append(
                     f"gnn_layers.{i}.trans.layers.{j}.norm_attention"
                 )
