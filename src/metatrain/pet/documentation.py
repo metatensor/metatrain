@@ -165,7 +165,16 @@ class TrainerHypers(TypedDict):
     """Fraction of training steps used for learning rate warmup."""
     learning_rate: float = 1e-4
     """Learning rate."""
+    min_learning_rate: float = 0.0
+    """Minimum learning rate for the scheduler.
+
+    Cosine annealing will decay to this LR. Setting greater than zero is useful if
+    training and validation metrics stagnate in the later stages of training.
+    """
+    optimizer: Literal["Adam", "AdamW", "Muon"] = "Adam"
+    """Optimizer to use for training the model."""
     weight_decay: Optional[float] = None
+    """Weight decay coefficient. If None, no weight decay is used."""
 
     log_interval: int = 1
     """Interval to log metrics."""

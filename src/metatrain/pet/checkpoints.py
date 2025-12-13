@@ -254,6 +254,23 @@ def model_update_v9_v10(checkpoint: dict) -> None:
         checkpoint["model_data"]["model_hypers"]["cutoff_function"] = "Cosine"
 
 
+def model_update_v10_v11(checkpoint: dict) -> None:
+    """
+    Update a v10 checkpoint to v11.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                # Replacing the nn.Sequential MLP with a custom FeedForward module
+                if "gnn_layers" in k and ".edge_embedder." in k:
+                    k = k.replace(".edge_embedder.", ".edge_linear.")
+                new_state_dict[k] = v
+            checkpoint[key] = new_state_dict
+
+
 ###########################
 # TRAINER #################
 ###########################
@@ -400,3 +417,21 @@ def trainer_update_v10_v11(checkpoint: dict) -> None:
         atomic_baseline = {target_name: 0.0 for target_name in dataset_info.targets}
 
     checkpoint["train_hypers"]["atomic_baseline"] = atomic_baseline
+
+
+def trainer_update_v11_v12(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 11 to version 12.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Adding the num_workers=0 hyperparameter if not present
+    if "optimizer" not in checkpoint["train_hypers"]:
+        if checkpoint["train_hypers"].get("weight_decay"):
+            optimizer = "AdamW"
+        else:
+            optimizer = "Adam"
+        checkpoint["train_hypers"]["optimizer"] = optimizer
+
+    if "min_learning_rate" not in checkpoint["train_hypers"]:
+        checkpoint["train_hypers"]["min_learning_rate"] = 0.0

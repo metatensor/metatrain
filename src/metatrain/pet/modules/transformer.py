@@ -386,7 +386,7 @@ class CartesianTransformer(torch.nn.Module):
             transformer_type=transformer_type,
         )
 
-        self.edge_embedder = nn.Linear(4, d_model)
+        self.edge_linear = nn.Linear(4, d_model)
 
         if not is_first:
             n_merge = 3
@@ -442,7 +442,7 @@ class CartesianTransformer(torch.nn.Module):
         node_embeddings = input_node_embeddings
         edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
         edge_embeddings = torch.cat(edge_embeddings, dim=2)
-        edge_embeddings = self.edge_embedder(edge_embeddings)
+        edge_embeddings = self.edge_linear(edge_embeddings)
 
         if not self.is_first:
             neighbor_elements_embeddings = self.neighbor_embedder(
