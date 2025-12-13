@@ -48,7 +48,10 @@ def get_optimizer(model: PET, hypers: TrainerHypers) -> torch.optim.Optimizer:
         muon_params = []
         adam_params = []
         for n, p in model.named_parameters():
-            if p.ndim >= 2 and "gnn_layers" in n and "neighbor_embedder" not in n:
+            if p.ndim >= 2 and (
+                ("gnn_layers" in n and "neighbor_embedder" not in n)
+                or "combination_mlps" in n
+            ):
                 muon_params.append(p)
             else:
                 adam_params.append(p)
