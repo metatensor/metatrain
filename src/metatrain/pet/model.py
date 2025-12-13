@@ -31,7 +31,6 @@ from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
-from .modules.utilities import cutoff_func
 
 
 AVAILABLE_FEATURIZERS = typing.get_args(ModelHypers.__annotations__["featurizer_type"])
@@ -49,7 +48,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 9
+    __checkpoint_version__ = 10
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -63,7 +62,13 @@ class PET(ModelInterface[ModelHypers]):
 
         # Cache frequently accessed hyperparameters
         self.cutoff = float(self.hypers["cutoff"])
+        self.cutoff_function = self.hypers["cutoff_function"]
         self.cutoff_width = float(self.hypers["cutoff_width"])
+        self.num_neighbors_adaptive = (
+            float(self.hypers["num_neighbors_adaptive"])
+            if self.hypers["num_neighbors_adaptive"] is not None
+            else None
+        )
         self.d_pet = self.hypers["d_pet"]
         self.d_node = self.hypers["d_node"]
         self.d_head = self.hypers["d_head"]
@@ -398,160 +403,168 @@ class PET(ModelInterface[ModelHypers]):
         if self.single_label.values.device != device:
             self._move_labels_to_device(device)
 
-        # **Stage 0: Input Preparation**
-        (
-            element_indices_nodes,
-            element_indices_neighbors,
-            edge_vectors,
-            padding_mask,
-            reverse_neighbor_index,
-            system_indices,
-            sample_labels,
-        ) = systems_to_batch(
-            systems,
-            nl_options,
-            self.atomic_types,
-            self.species_to_species_index,
-            selected_atoms,
-        )
+        with torch.profiler.record_function("PET::systems_to_batch"):
+            # **Stage 0: Input Preparation**
+            (
+                element_indices_nodes,
+                element_indices_neighbors,
+                edge_vectors,
+                edge_distances,
+                padding_mask,
+                reverse_neighbor_index,
+                cutoff_factors,
+                system_indices,
+                sample_labels,
+            ) = systems_to_batch(
+                systems,
+                nl_options,
+                self.atomic_types,
+                self.species_to_species_index,
+                self.cutoff_function,
+                self.cutoff_width,
+                self.num_neighbors_adaptive,
+                selected_atoms,
+            )
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
         use_manual_attention = edge_vectors.requires_grad and self.training
 
-        edge_distances = torch.sqrt(torch.sum(edge_vectors**2, dim=2) + 1e-15)
-        cutoff_factors = cutoff_func(edge_distances, self.cutoff, self.cutoff_width)
-        cutoff_factors[~padding_mask] = 0.0
-
-        # **Stage 1: Feature Computation via GNN Layers**
-        featurizer_inputs: Dict[str, torch.Tensor] = dict(
-            element_indices_nodes=element_indices_nodes,
-            element_indices_neighbors=element_indices_neighbors,
-            edge_vectors=edge_vectors,
-            reverse_neighbor_index=reverse_neighbor_index,
-            padding_mask=padding_mask,
-            edge_distances=edge_distances,
-            cutoff_factors=cutoff_factors,
-        )
-        node_features_list, edge_features_list = self._calculate_features(
-            featurizer_inputs,
-            use_manual_attention=use_manual_attention,
-        )
-
-        # If the long-range module is activated, we add the long-range features
-        # on top of the node features
-
-        if self.long_range:
-            long_range_features = self._calculate_long_range_features(
-                systems, node_features_list, edge_distances, padding_mask
+        with torch.profiler.record_function("PET::_calculate_features"):
+            # **Stage 1: Feature Computation via GNN Layers**
+            featurizer_inputs: Dict[str, torch.Tensor] = dict(
+                element_indices_nodes=element_indices_nodes,
+                element_indices_neighbors=element_indices_neighbors,
+                edge_vectors=edge_vectors,
+                edge_distances=edge_distances,
+                reverse_neighbor_index=reverse_neighbor_index,
+                padding_mask=padding_mask,
+                cutoff_factors=cutoff_factors,
             )
-            for i in range(self.num_readout_layers):
-                node_features_list[i] = (
-                    node_features_list[i] + long_range_features
-                ) * 0.5**0.5
+            node_features_list, edge_features_list = self._calculate_features(
+                featurizer_inputs,
+                use_manual_attention=use_manual_attention,
+            )
+
+            # If the long-range module is activated, we add the long-range features
+            # on top of the node features
+
+            if self.long_range:
+                long_range_features = self._calculate_long_range_features(
+                    systems, node_features_list, edge_distances, padding_mask
+                )
+                for i in range(self.num_readout_layers):
+                    node_features_list[i] = (
+                        node_features_list[i] + long_range_features
+                    ) * 0.5**0.5
 
         # **Stage 2: Intermediate Feature Output (Optional)**
+        with torch.profiler.record_function("PET::_get_output_features"):
+            if "features" in outputs:
+                features_dict = self._get_output_features(
+                    node_features_list,
+                    edge_features_list,
+                    cutoff_factors,
+                    selected_atoms,
+                    sample_labels,
+                    outputs,
+                )
+                # Since return_dict.update(features_dict) is not Torch-Scriptable,
+                # we use a simple iteration over the features_dict items.
+                for k, v in features_dict.items():
+                    return_dict[k] = v
 
-        if "features" in outputs:
-            features_dict = self._get_output_features(
-                node_features_list,
-                edge_features_list,
+        # **Stage 3: Last Layer Feature Computation**
+        with torch.profiler.record_function("PET::_calculate_last_layer_features"):
+            node_last_layer_features_dict, edge_last_layer_features_dict = (
+                self._calculate_last_layer_features(
+                    node_features_list,
+                    edge_features_list,
+                )
+            )
+            last_layer_features_dict = self._get_output_last_layer_features(
+                node_last_layer_features_dict,
+                edge_last_layer_features_dict,
                 cutoff_factors,
                 selected_atoms,
                 sample_labels,
                 outputs,
             )
-            # Since return_dict.update(features_dict) is not Torch-Scriptable,
-            # we use a simple iteration over the features_dict items.
-            for k, v in features_dict.items():
+
+            for k, v in last_layer_features_dict.items():
                 return_dict[k] = v
 
-        # **Stage 3: Last Layer Feature Computation**
-        node_last_layer_features_dict, edge_last_layer_features_dict = (
-            self._calculate_last_layer_features(
-                node_features_list,
-                edge_features_list,
-            )
-        )
-        last_layer_features_dict = self._get_output_last_layer_features(
-            node_last_layer_features_dict,
-            edge_last_layer_features_dict,
-            cutoff_factors,
-            selected_atoms,
-            sample_labels,
-            outputs,
-        )
-
-        for k, v in last_layer_features_dict.items():
-            return_dict[k] = v
-
         # **Stage 4: Atomic Predictions**
-        node_atomic_predictions_dict, edge_atomic_predictions_dict = (
-            self._calculate_atomic_predictions(
-                node_last_layer_features_dict,
-                edge_last_layer_features_dict,
-                padding_mask,
-                cutoff_factors,
-                outputs,
+        with torch.profiler.record_function("PET::_calculate_atomic_predictions"):
+            node_atomic_predictions_dict, edge_atomic_predictions_dict = (
+                self._calculate_atomic_predictions(
+                    node_last_layer_features_dict,
+                    edge_last_layer_features_dict,
+                    padding_mask,
+                    cutoff_factors,
+                    outputs,
+                )
             )
-        )
-        atomic_predictions_dict = self._get_output_atomic_predictions(
-            systems,
-            node_atomic_predictions_dict,
-            edge_atomic_predictions_dict,
-            edge_vectors,
-            system_indices,
-            sample_labels,
-            outputs,
-            selected_atoms,
-        )
+            atomic_predictions_dict = self._get_output_atomic_predictions(
+                systems,
+                node_atomic_predictions_dict,
+                edge_atomic_predictions_dict,
+                edge_vectors,
+                system_indices,
+                sample_labels,
+                outputs,
+                selected_atoms,
+            )
 
-        for k, v in atomic_predictions_dict.items():
-            return_dict[k] = v
+            for k, v in atomic_predictions_dict.items():
+                return_dict[k] = v
 
         # **Post-processing (Evaluation Only)**
 
-        if not self.training:
-            # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(
-                systems, return_dict, selected_atoms=selected_atoms
-            )
-            for additive_model in self.additive_models:
-                outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                for name, output in outputs.items():
-                    if name in additive_model.outputs:
-                        outputs_for_additive_model[name] = output
-                additive_contributions = additive_model(
-                    systems,
-                    outputs_for_additive_model,
-                    selected_atoms,
+        with torch.profiler.record_function("PET::post-processing"):
+            if not self.training:
+                # at evaluation, we also introduce the scaler and additive contributions
+                return_dict = self.scaler(
+                    systems, return_dict, selected_atoms=selected_atoms
                 )
-                for name in additive_contributions:
-                    # TODO: uncomment this after metatensor.torch.add
-                    # is updated to handle sparse sums
-                    # return_dict[name] = metatensor.torch.add(
-                    #     return_dict[name],
-                    #     additive_contributions[name].to(
-                    #         device=return_dict[name].device,
-                    #         dtype=return_dict[name].dtype
-                    #         ),
-                    # )
-                    # TODO: "manual" sparse sum: update to metatensor.torch.add
-                    # after sparse sum is implemented in metatensor.operations
-                    output_blocks: List[TensorBlock] = []
-                    for k, b in return_dict[name].items():
-                        if k in additive_contributions[name].keys:
-                            output_blocks.append(
-                                _add_block_block(
-                                    b,
-                                    additive_contributions[name]
-                                    .block(k)
-                                    .to(device=b.device, dtype=b.dtype),
+                for additive_model in self.additive_models:
+                    outputs_for_additive_model: Dict[str, ModelOutput] = {}
+                    for name, output in outputs.items():
+                        if name in additive_model.outputs:
+                            outputs_for_additive_model[name] = output
+                    additive_contributions = additive_model(
+                        systems,
+                        outputs_for_additive_model,
+                        selected_atoms,
+                    )
+                    for name in additive_contributions:
+                        # TODO: uncomment this after metatensor.torch.add
+                        # is updated to handle sparse sums
+                        # return_dict[name] = metatensor.torch.add(
+                        #     return_dict[name],
+                        #     additive_contributions[name].to(
+                        #         device=return_dict[name].device,
+                        #         dtype=return_dict[name].dtype
+                        #         ),
+                        # )
+                        # TODO: "manual" sparse sum: update to metatensor.torch.add
+                        # after sparse sum is implemented in metatensor.operations
+                        output_blocks: List[TensorBlock] = []
+                        for k, b in return_dict[name].items():
+                            if k in additive_contributions[name].keys:
+                                output_blocks.append(
+                                    _add_block_block(
+                                        b,
+                                        additive_contributions[name]
+                                        .block(k)
+                                        .to(device=b.device, dtype=b.dtype),
+                                    )
                                 )
-                            )
-                        else:
-                            output_blocks.append(b)
-                    return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
+                            else:
+                                output_blocks.append(b)
+                        return_dict[name] = TensorMap(
+                            return_dict[name].keys, output_blocks
+                        )
 
         return return_dict
 
