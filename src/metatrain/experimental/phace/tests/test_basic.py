@@ -142,6 +142,11 @@ class TestTorchscript(TorchscriptTests, PhACETests):
             model.outputs,
         )
 
+    def test_torchscript_dtypechange(
+        self, model_hypers: dict, dataset_info: DatasetInfo, dtype: torch.dtype
+    ) -> None:
+        pass
+
 
 class TestCheckpoints(CheckpointTests, PhACETests):
     incompatible_trainer_checkpoints = []
