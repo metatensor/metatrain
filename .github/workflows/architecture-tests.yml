@@ -13,13 +13,14 @@ jobs:
       fail-fast: false
       matrix:
         architecture-name:
-          - gap
-          - soap-bpnn
-          - llpr
-          - pet
-          - nanopet
-          - phace
           - flashmd
+          - gap
+          - llpr
+          - mace
+          - nanopet
+          - pet
+          - phace
+          - soap-bpnn        
 
     runs-on: ubuntu-22.04
 

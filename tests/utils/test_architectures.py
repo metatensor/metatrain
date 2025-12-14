@@ -33,6 +33,7 @@ def test_find_all_architectures():
     assert "experimental.flashmd" in all_arches
     assert "experimental.phace" in all_arches
     assert "llpr" in all_arches
+    assert "experimental.mace" in all_arches
 
 
 def test_get_architecture_path():

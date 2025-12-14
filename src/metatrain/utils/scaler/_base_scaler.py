@@ -440,7 +440,7 @@ class BaseScaler(torch.nn.Module):
                     if len(output_block.gradients_list()) > 0:
                         raise NotImplementedError(
                             "scaling of gradients is not implemented for per-atom "
-                            "targets"
+                            f"target '{output_name}'"
                         )
 
                     # Scale the values of the output block
@@ -488,11 +488,13 @@ class BaseScaler(torch.nn.Module):
         # difficult to allow in the yaml files.
         if len(self.scales[target_name]) > 1:
             raise NotImplementedError(
-                "Multiple blocks are not supported for fixed weights in `Scaler`."
+                "Multiple blocks are not supported for fixed weights in `Scaler` "
+                f"for target '{target_name}'"
             )
         if len(self.scales[target_name].block().properties) > 1:
             raise NotImplementedError(
-                "Multiple properties are not supported for fixed weights in `Scaler`."
+                f"Multiple properties are not supported for fixed weights in `Scaler` "
+                f"for target '{target_name}'"
             )
 
         Y2_block = self.Y2[target_name].block()
@@ -509,26 +511,28 @@ class BaseScaler(torch.nn.Module):
                 if self.sample_kinds[target_name] == "per_structure":
                     raise ValueError(
                         "Fixed weights as a dict are not supported for per-structure "
-                        "targets."
+                        f"target '{target_name}'"
                     )
                 # Error out if any atomic types are missing
                 if int(atomic_type) not in weights:
                     raise ValueError(
                         f"Atomic type {atomic_type} is missing from the fixed scaling "
-                        f"weights for target {target_name}."
+                        f"weights for target '{target_name}'"
                     )
                 for atom_type, weight in weights.items():
                     block.values[self.type_to_index[atom_type], 0] = weight
         elif isinstance(weights, float):
             if self.sample_kinds[target_name] == "per_atom":
                 logging.info(
-                    "Fixed weights provided as a single float for a per-atom "
-                    "target. The same weight will be applied to all atomic types."
+                    "Fixed weights provided as a single float for per-atom "
+                    f"target '{target_name}'. The same weight will be applied to "
+                    "all atomic types."
                 )
             block.values[:] = weights
         else:
             raise ValueError(
-                "weights must be either a float or a dict of int to float."
+                f"weights for '{target_name}' must be either a float or a dict of "
+                "int to float."
             )
 
         self.scales[target_name] = TensorMap(

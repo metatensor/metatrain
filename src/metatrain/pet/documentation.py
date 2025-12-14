@@ -30,6 +30,9 @@ of importance):
   .. autoattribute:: {{model_hypers_path}}.cutoff
       :no-index:
 
+  .. autoattribute:: {{model_hypers_path}}.num_neighbors_adaptive
+      :no-index:
+
   .. autoattribute:: {{trainer_hypers_path}}.learning_rate
       :no-index:
 
@@ -77,7 +80,19 @@ class ModelHypers(TypedDict):
     between atoms is expected to be negligible. A lower cutoff will lead
     to faster models.
     """
-    cutoff_width: float = 0.2
+    num_neighbors_adaptive: Optional[int] = None
+    """Target number of neighbors for the adaptive cutoff scheme.
+
+    This parameter activates the adaptive cutoff functionality.
+    Each atomic environments has a different cutoff, that is chosen
+    such that the number of neighbors is approximately equal to this
+    value. This can be useful to have a more uniform number of neighbors
+    per atom, especially in sparse systems. Setting it to None disables
+    this feature and uses all neighbors within the fixed cutoff radius.
+    """
+    cutoff_function: Literal["Cosine", "Bump"] = "Bump"
+    """Type of the smoothing function at the cutoff"""
+    cutoff_width: float = 0.5
     """Width of the smoothing function at the cutoff"""
     d_pet: int = 128
     """Dimension of the edge features.

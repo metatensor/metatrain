@@ -57,10 +57,10 @@ mtt train options-basic.yaml
 
 # %%
 #
-# The functions saves the final model `model.pt` to the current output folder for later
-# evaluation. An `extensions/` folder, which contains the compiled extensions for the
-# model, might also be saved depending on the architecture. All command line flags of
-# the train sub-command can be listed via
+# The functions saves the final model ``model.pt`` to the current output folder for
+# later evaluation. An ``extensions/`` folder, which contains the compiled extensions
+# for the model, might also be saved depending on the architecture. All command line
+# flags of the train sub-command can be listed via
 #
 
 mtt train --help

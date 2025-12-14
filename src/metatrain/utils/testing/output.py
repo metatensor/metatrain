@@ -56,7 +56,7 @@ class OutputTests(ArchitectureTests):
     transform correctly under reflections by architecture's design)."""
 
     @pytest.fixture
-    def n_features(self) -> Optional[int]:
+    def n_features(self) -> Optional[int | list[int]]:
         """Fixture that returns the number of features produced by the model.
 
         By default this is set to ``None``, which skips checking the number
@@ -131,6 +131,7 @@ class OutputTests(ArchitectureTests):
         if outputs is None:
             outputs = list(model.outputs.keys())
 
+        model = model.to(system.positions.dtype)
         return model([system], {k: ModelOutput(per_atom=per_atom) for k in outputs})
 
     def test_output_scalar(
@@ -275,15 +276,18 @@ class OutputTests(ArchitectureTests):
 
         assert len(outputs["spherical_tensor"]) == 3
 
-        if per_atom:
-            assert outputs["spherical_tensor"].block(0).samples.names == [
-                "system",
-                "atom",
-            ]
-            assert outputs["spherical_tensor"].block(0).values.shape[0] == 4
-        else:
-            assert outputs["spherical_tensor"].block(0).samples.names == ["system"]
-            assert outputs["spherical_tensor"].block(0).values.shape[0] == 1
+        for i in range(len(outputs["spherical_tensor"])):
+            spherical_target_block = outputs["spherical_tensor"].block(i)
+
+            if per_atom:
+                assert spherical_target_block.samples.names == [
+                    "system",
+                    "atom",
+                ]
+                assert spherical_target_block.values.shape[0] == 4
+            else:
+                assert spherical_target_block.samples.names == ["system"]
+                assert spherical_target_block.values.shape[0] == 1
 
     def test_prediction_energy_subset_elements(
         self, model_hypers: dict, dataset_info: DatasetInfo
@@ -310,6 +314,7 @@ class OutputTests(ArchitectureTests):
         system = get_system_with_neighbor_lists(
             system, model.requested_neighbor_lists()
         )
+        model = model.to(system.positions.dtype)
         model(
             [system],
             {"energy": model.outputs["energy"]},
@@ -417,7 +422,7 @@ class OutputTests(ArchitectureTests):
         model_hypers: dict,
         dataset_info: DatasetInfo,
         per_atom: bool,
-        n_features: Optional[int],
+        n_features: Optional[int | list[int]],
     ) -> None:
         """Tests that the model can output its learned features.
 
@@ -456,6 +461,7 @@ class OutputTests(ArchitectureTests):
             unit="unitless",
             per_atom=per_atom,
         )
+        model = model.to(system.positions.dtype)
         outputs = model(
             [system],
             {
@@ -466,14 +472,24 @@ class OutputTests(ArchitectureTests):
         assert "energy" in outputs
         assert "features" in outputs
 
-        features = outputs["features"].block()
+        features_outputs = outputs["features"]
+        for i in range(len(features_outputs)):
+            features = features_outputs.block(i)
 
-        expected_samples = ["system", "atom"] if per_atom else ["system"]
-        assert features.samples.names == expected_samples
-        assert features.properties.names == ["feature"]
-        assert features.values.shape[0] == (4 if per_atom else 1)
-        if n_features is not None:
-            assert features.values.shape[1] == n_features
+            expected_samples = ["system", "atom"] if per_atom else ["system"]
+            assert features.samples.names == expected_samples
+            assert features.properties.names == ["feature"]
+            assert features.values.shape[0] == (4 if per_atom else 1)
+            if isinstance(n_features, int):
+                assert features.values.shape[-1] == n_features, (
+                    f"Block {i}, expected {n_features} features "
+                    f"but got {features.values.shape[-1]}"
+                )
+            elif isinstance(n_features, list):
+                assert features.values.shape[-1] == n_features[i], (
+                    f"Block {i}, expected {n_features[i]} features "
+                    f"but got {features.values.shape[-1]}"
+                )
 
     @pytest.mark.parametrize("per_atom", [True, False])
     def test_output_last_layer_features(
@@ -523,6 +539,7 @@ class OutputTests(ArchitectureTests):
             unit="unitless",
             per_atom=per_atom,
         )
+        model = model.to(system.positions.dtype)
         outputs = model(
             [system],
             {
@@ -590,6 +607,7 @@ class OutputTests(ArchitectureTests):
                 [(n, i) for n in range(len(systems)) for i in select_atoms]
             ),
         )
+        model = model.to(systems[0].positions.dtype)
         out = model(systems, outputs, selected_atoms=selected_atoms)
         features = out[output_label].block(0).samples.values
         assert features.shape == selected_atoms.values.shape
@@ -618,6 +636,7 @@ class OutputTests(ArchitectureTests):
         system = get_system_with_neighbor_lists(
             system, model.requested_neighbor_lists()
         )
+        model = model.to(system.positions.dtype)
         outputs = model([system], {"energy": ModelOutput(per_atom=False)})
         if single_atom_energy is not None:
             assert outputs["energy"].block().values.item() == single_atom_energy
@@ -646,22 +665,19 @@ class OutputTests(ArchitectureTests):
         system: System = read(dataset_path)
         original_system = copy.deepcopy(system)
         system.rotate(48, "y")
+        original_system = systems_to_torch(original_system)
+        system = systems_to_torch(system)
 
         requested_neighbor_lists = get_requested_neighbor_lists(model)
+
+        model = model.to(original_system.positions.dtype)
+
         original_output = model(
-            [
-                get_system_with_neighbor_lists(
-                    systems_to_torch(original_system), requested_neighbor_lists
-                )
-            ],
+            [get_system_with_neighbor_lists(original_system, requested_neighbor_lists)],
             {"energy": model.outputs["energy"]},
         )
         rotated_output = model(
-            [
-                get_system_with_neighbor_lists(
-                    systems_to_torch(system), requested_neighbor_lists
-                )
-            ],
+            [get_system_with_neighbor_lists(system, requested_neighbor_lists)],
             {"energy": model.outputs["energy"]},
         )
 
@@ -705,6 +721,8 @@ class OutputTests(ArchitectureTests):
         rotated_system = get_system_with_neighbor_lists(
             rotated_system, requested_neighbor_lists
         )
+
+        model = model.to(original_system.positions.dtype)
 
         original_output = model(
             [original_system],
@@ -772,6 +790,8 @@ class OutputTests(ArchitectureTests):
         inverted_system = get_system_with_neighbor_lists(
             inverted_system, requested_neighbor_lists
         )
+
+        model = model.to(original_system.positions.dtype)
 
         original_output = model(
             [original_system],
