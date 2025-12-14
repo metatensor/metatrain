@@ -217,8 +217,46 @@ class TrainerHypers(TypedDict):
     scale_targets: bool = True
     """Whether to scale targets during training."""
 
-    fixed_composition_weights: FixedCompositionWeights = {}
-    """Fixed weights for atomic composition during training."""
+    atomic_baseline: FixedCompositionWeights = {}
+    """The baselines for each target.
+
+    By default, ``metatrain`` will fit a linear model (:class:`CompositionModel
+    <metatrain.utils.additive.composition.CompositionModel>`) to compute the
+    least squares baseline for each atomic species for each target.
+
+    However, this hyperparameter allows you to provide your own baselines.
+    The value of the hyperparameter should be a dictionary where the keys are the
+    target names, and the values are either (1) a single baseline to be used for
+    all atomic types, or (2) a dictionary mapping atomic types to their baselines.
+    For example:
+
+    - ``atomic_baseline: {"energy": {1: -0.5, 6: -10.0}}`` will fix the energy
+      baseline for hydrogen (Z=1) to -0.5 and for carbon (Z=6) to -10.0, while
+      fitting the baselines for the energy of all other atomic types, as well
+      as fitting the baselines for all other targets.
+    - ``atomic_baseline: {"energy": -5.0}`` will fix the energy baseline for
+      all atomic types to -5.0.
+    - ``atomic_baseline: {"mtt:dos": 0.0}`` sets the baseline for the "mtt:dos"
+      target to 0.0, effectively disabling the atomic baseline for that target.
+
+    This atomic baseline is substracted from the targets during training, which
+    avoids the main model needing to learn atomic contributions, and likely makes
+    training easier. When the model is used in evaluation mode, the atomic baseline
+    is added on top of the model predictions automatically.
+
+    .. note::
+        This atomic baseline is a per-atom contribution. Therefore, if the property
+        you are predicting is a sum over all atoms (e.g., total energy), the
+        contribution of the atomic baseline to the total property will be the
+        atomic baseline multiplied by the number of atoms of that type in the
+        structure.
+
+    .. note::
+        If a MACE model is loaded through the ``mace_model`` hyperparameter, the
+        atomic baselines in the MACE model are used by default for the target
+        indicated in ``mace_head_target``. If you want to override them, you need
+        to set explicitly the baselines for that target in this hyperparameter.
+    """
 
     fixed_scaling_weights: FixedScalerWeights = {}
     """Fixed scaling weights for the model."""

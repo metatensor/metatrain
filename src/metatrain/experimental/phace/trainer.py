@@ -196,7 +196,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             model.additive_models[1:],
             self.hypers["batch_size"],
             is_distributed,
-            self.hypers["fixed_composition_weights"],
+            self.hypers["atomic_baseline"],
         )
 
         if self.hypers["scale_targets"]:
