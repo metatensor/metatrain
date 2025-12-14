@@ -267,21 +267,13 @@ class Trainer(TrainerInterface):
         model.scaler.to(device)
         model.scaler.scales_to(device=device, dtype=torch.float64)
 
-        # Create collate functions:
+        # Create a collate function:
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
         requested_neighbor_lists = get_requested_neighbor_lists(model)
-        collate_fn_train = CollateFn(
+        collate_fn = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
-            ],
-        )
-        collate_fn_val = CollateFn(
-            target_keys=list(train_targets.keys()),
-            callables=[  # no augmentation for validation
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
@@ -323,7 +315,7 @@ class Trainer(TrainerInterface):
                         # the sampler takes care of this (if present)
                         train_sampler is None
                     ),
-                    collate_fn=collate_fn_train,
+                    collate_fn=collate_fn,
                     num_workers=num_workers,
                 )
             )
@@ -346,7 +338,7 @@ class Trainer(TrainerInterface):
                     sampler=val_sampler,
                     shuffle=False,
                     drop_last=False,
-                    collate_fn=collate_fn_val,
+                    collate_fn=collate_fn,
                     num_workers=num_workers,
                 )
             )
