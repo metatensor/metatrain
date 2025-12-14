@@ -444,15 +444,20 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
 
+                if is_distributed:
+                    # make sure all parameters contribute to the gradient calculation
+                    # to make sure all parameters have a gradient
+                    for param in model.parameters():
+                        train_loss_batch += 0.0 * param.sum()
+
                 train_loss_batch.backward()
 
                 # In distributed training, manually average gradients across processes
                 # instead of using DDP to avoid gradient bucketing breaking the graph
                 if is_distributed:
                     for param in model.parameters():
-                        if param.grad is not None:
-                            torch.distributed.all_reduce(param.grad)
-                            param.grad /= world_size
+                        torch.distributed.all_reduce(param.grad)
+                        param.grad /= world_size
 
                 if self.hypers["gradient_clipping"] is not None:
                     torch.nn.utils.clip_grad_norm_(
