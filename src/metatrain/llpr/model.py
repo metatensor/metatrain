@@ -468,11 +468,13 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 [len(system.positions) for system in systems], device=device
             )
             systems = [system.to(device=device, dtype=dtype) for system in systems]
-            outputs_for_targets = {name: ModelOutput() for name in targets.keys()}
+            outputs_for_targets = {
+                name: ModelOutput(per_atom="atom" in target.block(0).samples.names)
+                for name, target in targets.items()
+            }
             outputs_for_features = {
-                f"mtt::aux::{name.replace('mtt::', '')}"
-                "_last_layer_features": ModelOutput()
-                for name in targets.keys()
+                f"mtt::aux::{n.replace('mtt::', '')}_last_layer_features": o
+                for n, o in outputs_for_targets.items()
             }
             output = self.forward(
                 systems, {**outputs_for_targets, **outputs_for_features}
@@ -483,7 +485,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ]
                 # TODO: interface ll_feat calculation with the loss function,
                 # paying attention to normalization w.r.t. n_atoms
-                ll_feats = ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(1)
+                if not outputs_for_targets[name].per_atom:
+                    ll_feats = ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(
+                        1
+                    )
                 uncertainty_name = _get_uncertainty_name(name)
                 covariance = self._get_covariance(uncertainty_name)
                 covariance += ll_feats.T @ ll_feats
@@ -559,13 +564,12 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 name: target.to(device=device, dtype=dtype)
                 for name, target in targets.items()
             }
-            # evaluate the targets and their uncertainties, not per atom
-            # TODO: make per_atom follow the actual target
             requested_outputs = {}
             for name in targets:
-                requested_outputs[name] = ModelOutput()
+                per_atom = "atom" in targets[name].block(0).samples.names
+                requested_outputs[name] = ModelOutput(per_atom=per_atom)
                 uncertainty_name = _get_uncertainty_name(name)
-                requested_outputs[uncertainty_name] = ModelOutput()
+                requested_outputs[uncertainty_name] = ModelOutput(per_atom=per_atom)
             outputs = self.forward(systems, requested_outputs)
             for name, target in targets.items():
                 uncertainty_name = _get_uncertainty_name(name)
@@ -590,9 +594,15 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         for name in all_predictions:
             # compute the uncertainty multiplier
             residuals = all_predictions[name] - all_targets[name]
+            squared_residuals = residuals**2
+            # squared residuals need to be summed over component dimensions,
+            # i.e., all but the first and last dimensions
+            squared_residuals = torch.sum(
+                squared_residuals, dim=tuple(range(1, squared_residuals.ndim - 1))
+            )
             uncertainty_name = _get_uncertainty_name(name)
             uncertainties = all_uncertainties[uncertainty_name]
-            ratios = residuals**2 / uncertainties**2  # can be multi-dimensional
+            ratios = squared_residuals / uncertainties**2  # can be multi-dimensional
             multiplier = self._get_multiplier(uncertainty_name)
             multiplier[:] = torch.sqrt(torch.mean(ratios, dim=0))  # only along samples
 

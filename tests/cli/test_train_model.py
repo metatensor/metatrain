@@ -1158,7 +1158,7 @@ def test_train_density_of_states(monkeypatch, tmp_path):
         }
     }
     options["architecture"]["training"]["scale_targets"] = False
-    options["architecture"]["training"]["remove_composition_contribution"] = False
+    options["architecture"]["training"]["atomic_baseline"] = {"mtt::dos": 0.0}
 
     train_model(options)
 

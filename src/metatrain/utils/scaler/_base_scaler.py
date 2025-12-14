@@ -577,7 +577,7 @@ class BaseScaler(torch.nn.Module):
                     if len(output_block.gradients_list()) > 0:
                         raise NotImplementedError(
                             "scaling of gradients is not implemented for per-atom "
-                            "targets"
+                            f"target '{output_name}'"
                         )
 
                     # Scale the values of the output block
@@ -674,6 +674,7 @@ class BaseScaler(torch.nn.Module):
         :param weights: Either a single float value to be applied to all atomic types,
             or a dict mapping atomic type (int) to weight (float).
         """
+
         Y2_block = self.Y2[target_name].block()
         block = TensorBlock(
             values=torch.empty_like(Y2_block.values),  # [1, 1] or [n_types, 1]
@@ -688,26 +689,28 @@ class BaseScaler(torch.nn.Module):
                 if self.sample_kinds[target_name] == "per_structure":
                     raise ValueError(
                         "Fixed weights as a dict are not supported for per-structure "
-                        "targets."
+                        f"target '{target_name}'"
                     )
                 # Error out if any atomic types are missing
                 if int(atomic_type) not in weights:
                     raise ValueError(
                         f"Atomic type {atomic_type} is missing from the fixed scaling "
-                        f"weights for target {target_name}."
+                        f"weights for target '{target_name}'"
                     )
                 for atom_type, weight in weights.items():
                     block.values[self.type_to_index[atom_type], 0] = weight
         elif isinstance(weights, float):
             if self.sample_kinds[target_name] == "per_atom":
                 logging.info(
-                    "Fixed weights provided as a single float for a per-atom "
-                    "target. The same weight will be applied to all atomic types."
+                    "Fixed weights provided as a single float for per-atom "
+                    f"target '{target_name}'. The same weight will be applied to "
+                    "all atomic types."
                 )
             block.values[:] = weights
         else:
             raise ValueError(
-                "weights must be either a float or a dict of int to float."
+                f"weights for '{target_name}' must be either a float or a dict of "
+                "int to float."
             )
 
         self.scales_global[target_name] = TensorMap(

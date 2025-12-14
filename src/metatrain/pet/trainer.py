@@ -80,7 +80,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 10
+    __checkpoint_version__ = 11
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -169,15 +169,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
         extra_data_info = dataset_info.extra_data
         requested_neighbor_lists = get_requested_neighbor_lists(model)
 
-        if self.hypers["remove_composition_contribution"]:
-            logging.info("Calculating composition weights")
-            model.additive_models[0].train_model(  # this is the composition model
-                train_datasets,
-                model.additive_models[1:],
-                self.hypers["batch_size"],
-                is_distributed,
-                self.hypers["fixed_composition_weights"],
-            )
+        logging.info("Calculating composition weights")
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["batch_size"],
+            is_distributed,
+            self.hypers["atomic_baseline"],
+        )
 
         if self.hypers["use_global_scales"] or self.hypers["use_property_scales"]:
             if self.hypers["use_global_scales"] and self.hypers["use_property_scales"]:
