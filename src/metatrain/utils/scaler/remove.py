@@ -58,3 +58,73 @@ def get_remove_scale_transform(
         return systems, new_targets, extra
 
     return transform
+
+def get_remove_scale_transform_with_logging(
+    scaler: torch.nn.Module,
+    use_global_scales: bool,
+    use_property_scales: bool,
+    rescale_prediction_properties: bool,
+    logging: torch.nn.Module,
+) -> List[Callable]:
+    """Handles the logic of which remove scale transforms to use based on
+    the scaling hyperparameters, with logging for clarity."""
+    if use_global_scales:
+        if use_property_scales:
+            if rescale_prediction_properties:
+                logging.info(
+                    "Training with global and per-property scaling. Prediction"
+                    "  properties will be rescaled before loss calculation."
+                )
+                remove_scale_transform = [
+                    get_remove_scale_transform(
+                        scaler,
+                        use_global_scales=True,
+                        use_property_scales=False,  # predictions rescaled
+                    )
+                ]
+            else:
+                logging.info("Training with global and per-property scaling.")
+                remove_scale_transform = [
+                    get_remove_scale_transform(
+                        scaler,
+                        use_global_scales=True,
+                        use_property_scales=True,  # targets scaled
+                    )
+                ]
+        else:
+            logging.info("Training with global scaling.")
+            remove_scale_transform = [
+                get_remove_scale_transform(
+                    scaler,
+                    use_global_scales=True,
+                    use_property_scales=False,  # no per-property scaling
+                )
+            ]
+    else:
+        if use_property_scales:
+            if rescale_prediction_properties:
+                logging.info("Training with per-property scaling.")
+                remove_scale_transform = [
+                    get_remove_scale_transform(
+                        scaler,
+                        use_global_scales=False,
+                        use_property_scales=False,  # predictions rescaled
+                    )
+                ]
+            else:
+                logging.info(
+                    "Training with per-property scaling. Prediction"
+                    "  properties will be rescaled before loss calculation."
+                )
+                remove_scale_transform = [
+                    get_remove_scale_transform(
+                        scaler,
+                        use_global_scales=False,
+                        use_property_scales=True,  # targets rescaled
+                    )
+                ]
+        else:
+            logging.info("No target scaling.")
+            remove_scale_transform = []  # no scaling
+
+    return remove_scale_transform

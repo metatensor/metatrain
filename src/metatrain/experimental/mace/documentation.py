@@ -316,8 +316,6 @@ class TrainerHypers(TypedDict):
     """Interval to log metrics."""
     checkpoint_interval: int = 100
     """Interval to save checkpoints."""
-    scale_targets: bool = True
-    """Normalize targets to unit std during training."""
     atomic_baseline: FixedCompositionWeights = {}
     """The baselines for each target.
 
@@ -357,6 +355,14 @@ class TrainerHypers(TypedDict):
         atomic baselines in the MACE model are used by default for the target
         indicated in ``mace_head_target``. If you want to override them, you need
         to set explicitly the baselines for that target in this hyperparameter.
+    """
+    use_global_scales: bool = True
+    """Whether to use global scaling for target properties."""
+    use_property_scales: bool = True
+    """Whether to use per-property scaling for target properties."""
+    rescale_prediction_properties: bool = True
+    """
+    Whether to rescale prediction properties before computing the loss.
     """
     fixed_scaling_weights: FixedScalerWeights = {}
     """Weights for target scaling.

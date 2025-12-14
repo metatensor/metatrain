@@ -33,7 +33,7 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists_transform,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
-from metatrain.utils.scaler import get_remove_scale_transform
+from metatrain.utils.scaler import get_remove_scale_transform_with_logging
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
@@ -242,64 +242,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
             target_info_dict=train_targets, extra_data_info_dict=extra_data_info
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
-        if self.hypers["use_global_scales"]:
-            if self.hypers["use_property_scales"]:
-                if self.hypers["rescale_prediction_properties"]:
-                    logging.info(
-                        "Training with global and per-property scaling. Prediction"
-                        "  properties will be rescaled before loss calculation."
-                    )
-                    remove_scale_transform = [
-                        get_remove_scale_transform(
-                            scaler,
-                            use_global_scales=True,
-                            use_property_scales=False,  # predictions rescaled
-                        )
-                    ]
-                else:
-                    logging.info("Training with global and per-property scaling.")
-                    remove_scale_transform = [
-                        get_remove_scale_transform(
-                            scaler,
-                            use_global_scales=True,
-                            use_property_scales=True,  # targets scaled
-                        )
-                    ]
-            else:
-                logging.info("Training with global scaling.")
-                remove_scale_transform = [
-                    get_remove_scale_transform(
-                        scaler,
-                        use_global_scales=True,
-                        use_property_scales=False,  # no per-property scaling
-                    )
-                ]
-        else:
-            if self.hypers["use_property_scales"]:
-                if self.hypers["rescale_prediction_properties"]:
-                    logging.info("Training with per-property scaling.")
-                    remove_scale_transform = [
-                        get_remove_scale_transform(
-                            scaler,
-                            use_global_scales=False,
-                            use_property_scales=False,  # predictions rescaled
-                        )
-                    ]
-                else:
-                    logging.info(
-                        "Training with per-property scaling. Prediction"
-                        "  properties will be rescaled before loss calculation."
-                    )
-                    remove_scale_transform = [
-                        get_remove_scale_transform(
-                            scaler,
-                            use_global_scales=False,
-                            use_property_scales=True,  # targets rescaled
-                        )
-                    ]
-            else:
-                logging.info("No target scaling.")
-                remove_scale_transform = []  # no scaling
+        remove_scale_transform = get_remove_scale_transform_with_logging(
+            scaler,
+            self.hypers["use_global_scales"],
+            self.hypers["use_property_scales"],
+            self.hypers["rescale_prediction_properties"],
+            logging,
+        )
 
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),

@@ -180,8 +180,14 @@ class TrainerHypers(TypedDict):
         atomic baseline multiplied by the number of atoms of that type in the
         structure.
     """
-    scale_targets: bool = True
-    """Normalize targets to unit std during training."""
+    use_global_scales: bool = True
+    """Whether to use global scaling for target properties."""
+    use_property_scales: bool = True
+    """Whether to use per-property scaling for target properties."""
+    rescale_prediction_properties: bool = True
+    """
+    Whether to rescale prediction properties before computing the loss.
+    """
     fixed_scaling_weights: FixedScalerWeights = {}
     """Weights for target scaling.
 
