@@ -59,6 +59,7 @@ def get_remove_scale_transform(
 
     return transform
 
+
 def get_remove_scale_transform_with_logging(
     scaler: torch.nn.Module,
     use_global_scales: bool,

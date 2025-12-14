@@ -289,7 +289,8 @@ class Trainer(TrainerInterface):
             callables=[
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
-            ] + remove_scale_transform,
+            ]
+            + remove_scale_transform,
         )
 
         # Create dataloader for the training datasets:

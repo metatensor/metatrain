@@ -438,7 +438,6 @@ class BaseScaler(torch.nn.Module):
         remove: bool,
         selected_atoms: Optional[Labels],
     ) -> Dict[str, TensorMap]:
-
         device = list(outputs.values())[0][0].values.device
         dtype = list(outputs.values())[0][0].values.dtype
         self._sync_device_dtype(device, dtype)

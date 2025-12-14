@@ -340,7 +340,12 @@ class Scaler(torch.nn.Module):
         self.scales_to(device, dtype)
 
         scaled_outputs = self.model.forward(
-            systems, outputs, remove, selected_atoms, use_global_scales, use_property_scales
+            systems,
+            outputs,
+            remove,
+            selected_atoms,
+            use_global_scales,
+            use_property_scales,
         )
 
         return scaled_outputs

@@ -179,7 +179,6 @@ class TrainerHypers(TypedDict):
     min_lr_ratio: float = 0.0
     """Ratio of minimum to initial learning rate."""
 
-
     log_interval: int = 1
     """Interval to log metrics."""
     checkpoint_interval: int = 100

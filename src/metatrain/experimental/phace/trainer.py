@@ -199,14 +199,20 @@ class Trainer(TrainerInterface[TrainerHypers]):
             self.hypers["atomic_baseline"],
         )
 
-        if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
+        if self.hypers["use_global_scales"] or self.hypers["use_property_scales"]:
+            if self.hypers["use_global_scales"] and self.hypers["use_property_scales"]:
+                logging.info("Calculating both global and per-property scaling weights")
+            elif self.hypers["use_global_scales"]:
+                logging.info("Calculating global scaling weights only")
+            else:
+                logging.info("Calculating per-property scaling weights only")
             model.scaler.train_model(
                 train_datasets,
                 model.additive_models,
                 self.hypers["batch_size"],
                 is_distributed,
                 self.hypers["fixed_scaling_weights"],
+                fit_property_scales=self.hypers["use_property_scales"],
             )
 
         logging.info("Setting up data loaders")
@@ -452,7 +458,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     self.hypers["use_property_scales"]
                     and self.hypers["rescale_prediction_properties"]
                 ):
-                    predictions = (model.module if is_distributed else model).scaler(
+                    predictions = model.scaler(
                         systems,
                         predictions,
                         use_global_scales=False,  # never applied for loss
@@ -460,8 +466,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
 
                 # average by the number of atoms before entering the loss (but don't
-                # store, as the global scaler needs to be applied before averaging for
-                # metric calculation)
+                # store, as the global scaler needs to be applied before averaging
+                # for metric calculation)
                 train_loss_batch = loss_fn(
                     average_by_num_atoms(predictions, systems, per_structure_targets),
                     average_by_num_atoms(targets, systems, per_structure_targets),
@@ -497,7 +503,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 # Now ensure the targets and predictions are in physical units for
                 # calculation of metrics
-                predictions = (model.module if is_distributed else model).scaler(
+                predictions = model.scaler(
                     systems,
                     predictions,
                     use_global_scales=True,  # always applied for metrics
@@ -506,7 +512,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         and not self.hypers["rescale_prediction_properties"]
                     ),
                 )
-                targets = (model.module if is_distributed else model).scaler(
+                targets = model.scaler(
                     systems,
                     targets,
                     use_global_scales=True,  # always for metrics
@@ -554,7 +560,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         self.hypers["use_property_scales"]
                         and self.hypers["rescale_prediction_properties"]
                     ):
-                        predictions = (model.module if is_distributed else model).scaler(
+                        predictions = model.scaler(
                             systems,
                             predictions,
                             use_global_scales=False,  # never applied for loss
@@ -562,10 +568,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         )
 
                     # average by the number of atoms before entering the loss (but don't
-                    # store, as the global scaler needs to be applied before averaging for
-                    # metric calculation)
+                    # store, as the global scaler needs to be applied before averaging
+                    # for metric calculation)
                     val_loss_batch = loss_fn(
-                        average_by_num_atoms(predictions, systems, per_structure_targets),
+                        average_by_num_atoms(
+                            predictions, systems, per_structure_targets
+                        ),
                         average_by_num_atoms(targets, systems, per_structure_targets),
                         extra_data,
                     )
@@ -577,7 +585,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                     # Now ensure the targets and predictions are in physical units for
                     # calculation of metrics
-                    predictions = (model.module if is_distributed else model).scaler(
+                    predictions = model.scaler(
                         systems,
                         predictions,
                         use_global_scales=True,  # always applied for metrics
@@ -586,7 +594,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                             and not self.hypers["rescale_prediction_properties"]
                         ),
                     )
-                    targets = (model.module if is_distributed else model).scaler(
+                    targets = model.scaler(
                         systems,
                         targets,
                         use_global_scales=True,  # always apply for metrics
@@ -599,7 +607,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     predictions = average_by_num_atoms(
                         predictions, systems, per_structure_targets
                     )
-                    targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                    targets = average_by_num_atoms(
+                        targets, systems, per_structure_targets
+                    )
 
                     val_rmse_calculator.update(predictions, targets, extra_data)
                     if self.hypers["log_mae"]:

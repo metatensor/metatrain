@@ -1075,7 +1075,9 @@ class PET(ModelInterface[ModelHypers]):
                             key
                         ] + (node_atomic_predictions + edge_atomic_predictions)
 
-                if output_name == "non_conservative_stress" or "_sym" in output_name:  # TODO: variants
+                if (
+                    output_name == "non_conservative_stress" or "_sym" in output_name
+                ):  # TODO: variants
                     block_key = list(atomic_predictions_by_block.keys())[0]
                     output_shapes_values = list(
                         self.output_shapes[output_name].values()
@@ -1506,6 +1508,7 @@ def process_non_conservative_stress(
     ) / 2.0
 
     return tensor_as_three_by_three
+
 
 def process_symmetric_rank_2(
     tensor: torch.Tensor,
