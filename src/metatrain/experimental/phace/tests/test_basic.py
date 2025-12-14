@@ -53,7 +53,9 @@ class TestTorchscript(TorchscriptTests, PhACETests):
         "radial_basis.max_eigenvalue",
     ]
 
-    def test_torchscript(self, model_hypers: dict, dataset_info: DatasetInfo) -> None:
+    def test_torchscript(
+        self, model_hypers: dict, dataset_info: DatasetInfo, dtype: Any
+    ) -> None:
         model = self.model_cls(model_hypers, dataset_info)
         system = System(
             types=torch.tensor([6, 1, 8, 7]),
@@ -139,6 +141,11 @@ class TestTorchscript(TorchscriptTests, PhACETests):
             [system],
             model.outputs,
         )
+
+    def test_torchscript_dtypechange(
+        self, model_hypers: dict, dataset_info: DatasetInfo, dtype: torch.dtype
+    ) -> None:
+        pass
 
 
 class TestCheckpoints(CheckpointTests, PhACETests):

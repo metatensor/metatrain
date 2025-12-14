@@ -175,10 +175,10 @@ filterwarnings = [
     "ignore:No libgomp shared library found in 'sphericart_torch.libs'.",
     # Multi-threaded tests clash with multi-process data-loading
     "ignore:This process \\(pid=\\d+\\) is multi-threaded, use of fork\\(\\) may lead to deadlocks in the child.:DeprecationWarning",
-    # MACE warning with newer versions of pytorch (because they use e3nn==0.4.4)
-    "ignore:Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed:UserWarning",
     # Initialization of tensors of zero size
     "ignore:Initializing zero-element tensors is a no-op:UserWarning",
+    # MACE warning with newer versions of pytorch (because they use e3nn==0.4.4)
+    "ignore:Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed:UserWarning",
 ]
 addopts = ["-p", "mtt_plugin"]
 pythonpath = "src/metatrain/utils/testing"

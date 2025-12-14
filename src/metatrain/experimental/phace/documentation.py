@@ -242,7 +242,6 @@ class TrainerHypers(TypedDict):
     is added on top of the model predictions automatically.
 
     .. note::
-
         This atomic baseline is a per-atom contribution. Therefore, if the property
         you are predicting is a sum over all atoms (e.g., total energy), the
         contribution of the atomic baseline to the total property will be the

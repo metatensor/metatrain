@@ -273,7 +273,7 @@ class Trainer(TrainerInterface):
         model.scaler.to(device)
         model.scaler.scales_to(device=device, dtype=torch.float64)
 
-        # Create collate functions:
+        # Create a collate function:
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
         requested_neighbor_lists = get_requested_neighbor_lists(model)

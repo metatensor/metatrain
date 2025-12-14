@@ -52,7 +52,6 @@ capabilities of the architectures in metatrain.
      - Yes
      - Only rank-1 (vectors)
 
-
 Preparing generic targets for reading by metatrain
 --------------------------------------------------
 
