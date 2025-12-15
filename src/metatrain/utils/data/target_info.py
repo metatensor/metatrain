@@ -44,6 +44,7 @@ class TargetInfo:
         self.is_scalar = False
         self.is_cartesian = False
         self.is_spherical = False
+        self.is_basis = False
 
         self._check_layout(layout)
         self.layout = layout
@@ -107,15 +108,31 @@ class TargetInfo:
         :param layout: The layout TensorMap to check.
         """
 
+        valid_sample_names = [
+            ["system"],
+            [
+                "system",
+                "atom",
+            ],
+            [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ],
+        ]
+
+        if layout.sample_names not in valid_sample_names:
+            raise ValueError(
+                "The layout ``TensorMap`` of a target should only have samples "
+                f"named as one of: {valid_sample_names}, but found "
+                f"'{layout.sample_names}' instead."
+            )
+
         # examine basic properties of all blocks
         for block in layout.blocks():
-            for sample_name in block.samples.names:
-                if sample_name not in ["system", "atom"]:
-                    raise ValueError(
-                        "The layout ``TensorMap`` of a target should only have samples "
-                        "named 'system' or 'atom', but found "
-                        f"'{sample_name}' instead."
-                    )
             if len(block.values) != 0:
                 raise ValueError(
                     "The layout ``TensorMap`` of a target should have 0 "
@@ -140,6 +157,10 @@ class TargetInfo:
             and components_first_block[0].names[0] == "o3_mu"
         ):
             self.is_spherical = True
+        elif len(components_first_block) == 2 and components_first_block[0].names[
+            0
+        ].endswith("basis_function"):
+            self.is_basis = True
         else:
             raise ValueError(
                 "The layout ``TensorMap`` of a target should be "
@@ -393,16 +414,22 @@ def get_generic_target_info(target_name: str, target: DictConfig) -> TargetInfo:
 
     :return: A `TargetInfo` with the layout of the target.
     """
-    if target["type"] == "scalar":
-        return _get_scalar_target_info(target_name, target)
-    elif len(target["type"]) == 1 and next(iter(target["type"])).lower() == "cartesian":
-        return _get_cartesian_target_info(target_name, target)
-    elif len(target["type"]) == 1 and next(iter(target["type"])) == "spherical":
-        return _get_spherical_target_info(target_name, target)
+    if isinstance(target["type"], str):
+        target_type = target["type"].lower()
+    elif len(target["type"]) == 1 and isinstance(next(iter(target["type"])), str):
+        target_type = next(iter(target["type"])).lower()
+    else:
+        raise ValueError(
+            "Couldn't infer target type from the 'type' field of the target configuration."
+            f" Found: {target['type']}"
+        )
+
+    if target_type in _REGISTERED_TARGET_TYPES:
+        return _REGISTERED_TARGET_TYPES[target_type](target_name, target)
     else:
         raise ValueError(
             f"Target type {target['type']} is not supported. "
-            "Supported types are 'scalar', 'cartesian' and 'spherical'."
+            f"Supported types are {list(_REGISTERED_TARGET_TYPES.keys())}."
         )
 
 
@@ -543,6 +570,13 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
         unit=target["unit"],
         description=target.get("description", ""),
     )
+
+
+_REGISTERED_TARGET_TYPES = {
+    "scalar": _get_scalar_target_info,
+    "cartesian": _get_cartesian_target_info,
+    "spherical": _get_spherical_target_info,
+}
 
 
 def is_auxiliary_output(name: str) -> bool:
