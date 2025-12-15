@@ -155,6 +155,7 @@ class Scaler(torch.nn.Module):
             dict mapping atomic type (int) to weight (float). If not provided, all
             scales will be computed based on the accumulated quantities.
         """
+        import tqdm
 
         if not isinstance(datasets, list):
             datasets = [datasets]
@@ -170,7 +171,7 @@ class Scaler(torch.nn.Module):
         device = self.dummy_buffer.device
 
         # accumulate
-        for batch in dataloader:
+        for batch in tqdm.tqdm(dataloader, description="computing scale weights"):
             systems, targets, extra_data = unpack_batch(batch)
             systems, targets, extra_data = batch_to(
                 systems, targets, extra_data, device=device
