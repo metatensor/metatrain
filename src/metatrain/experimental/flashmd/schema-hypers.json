@@ -101,6 +101,9 @@
             "null"
           ]
         },
+        "grad_accum_steps": {
+          "type": "integer"
+        },
         "masses": {
           "type": "object",
           "propertyNames": {

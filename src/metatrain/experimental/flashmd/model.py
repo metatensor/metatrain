@@ -260,7 +260,7 @@ class FlashMD(ModelInterface):
 
         # register new outputs as new last layers
         for target_name, target in new_targets.items():
-            if "mtt::delta_" in target_name:
+            if "mtt::delta_" in target_name or "delta_" in target_name:
                 # delta learning targets are not directly predicted by the model
                 continue
             self.target_names.append(target_name)
@@ -462,7 +462,7 @@ class FlashMD(ModelInterface):
             )
         momenta_for_diff = momenta.clone()
         momenta_for_diff.requires_grad_(True)
-        momenta = momenta_for_diff * 2.5
+        momenta = momenta_for_diff #* 2.5
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
@@ -567,7 +567,7 @@ class FlashMD(ModelInterface):
             for k, v in atomic_predictions_dict.items():
                 return_dict[k] = v
 
-        generating_function_sum = return_dict["mtt::S3"].block().values.sum() * 15.0
+        generating_function_sum = return_dict["mtt::S3"].block().values.sum() #* 15.0
         dSdq_opt, dSdp_opt = torch.autograd.grad(
             [generating_function_sum],
             [positions_for_diff, momenta_for_diff],
@@ -595,7 +595,7 @@ class FlashMD(ModelInterface):
                         )
                     ],
                     properties=Labels(
-                        names="delta_q", values=torch.tensor([[0]], device=device)
+                        names="_", values=torch.tensor([[0]], device=device)
                     ),
                 )
             ],
@@ -613,13 +613,13 @@ class FlashMD(ModelInterface):
                         )
                     ],
                     properties=Labels(
-                        names="delta_p", values=torch.tensor([[0]], device=device)
+                        names="_", values=torch.tensor([[0]], device=device)
                     ),
                 )
             ],
         )
         if was_s3_added:
-            outputs["mtt::delta_positions"] = positions_output
+            outputs["mtt::delta_q"] = positions_output
             outputs["mtt::delta_p"] = momenta_output
             outputs.pop("mtt::S3")
             return_dict.pop("mtt::S3")
@@ -1506,14 +1506,15 @@ def verify_masses(systems: list[System], masses: torch.Tensor):
             # (compare them to the ones stored in the model)
             system_masses = system.get_data("masses").block(0).values.squeeze(-1)
             expected_system_masses = masses[system.types]
-            if not torch.allclose(system_masses, expected_system_masses):
+            # NOTE: 1e-3 is a bit rough, but it covers the case that someone is using the wrong isotope
+            if not torch.allclose(system_masses, expected_system_masses, rtol=1e-3):
                 # find which atom has the wrong mass
                 for atom_index in range(len(system)):
                     # get the (model's expected) mass for this atom
                     atomic_number = system.types[atom_index]
                     model_mass = masses[atomic_number]
                     # get the mass stored in the system
-                    system_mass = system_masses[atom_index, 0]
+                    system_mass = system_masses[atom_index]
                     if not torch.allclose(model_mass, system_mass):
                         raise ValueError(
                             f"The mass of atom {atom_index} in system {system_index} "
