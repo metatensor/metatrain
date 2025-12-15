@@ -3,6 +3,7 @@ import math
 from typing import Dict, Tuple, Union
 
 import torch
+from packaging import version
 from torch.optim.lr_scheduler import LambdaLR
 
 from ..documentation import TrainerHypers
@@ -33,6 +34,13 @@ def get_optimizer(model: PET, hypers: TrainerHypers) -> torch.optim.Optimizer:
             weight_decay=weight_decay,
         )
     elif hypers["optimizer"].lower() == "muon":
+        if version.parse(torch.__version__) < version.parse("2.9.1"):
+            raise ValueError(
+                f"The Muon optimizer requires PyTorch >= 2.9.1, but you have "
+                f"{torch.__version__}. This feature is experimental and so far "
+                "not well tested. Please manually update PyTorch to use the "
+                "Muon optimizer."
+            )
         logging.warning(
             "Using the Muon optimizer with auxiliary AdamW for non-matrix "
             "parameters. This feature is experimental and so far not well tested. "

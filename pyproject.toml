@@ -68,9 +68,7 @@ soap-bpnn = [
     "torch-spex>=0.1,<0.2",
     "wigners",
 ]
-pet = [
-    "torch >= 2.9.1",
-]
+pet = []
 nanopet = []
 gap = [
     "featomic-torch >=0.7,<0.8",
