@@ -69,7 +69,7 @@ class AutogradTests(ArchitectureTests):
             return energy
 
         positions = torch.tensor(
-            [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
+            [[0.0, 0.0, 0.0], [0.49, 0.49, 0.49]],
             dtype=torch.float64,
             requires_grad=True,
             device=device,
