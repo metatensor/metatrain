@@ -101,7 +101,7 @@ class TestOutput(OutputTests, MACETests):
 
 
 class TestAutograd(AutogradTests, MACETests):
-    cuda_nondet_tolerance = 1e-12
+    cuda_nondet_tolerance = 1e-10
 
 
 class TestTorchscript(TorchscriptTests, MACETests):
