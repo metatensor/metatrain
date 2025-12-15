@@ -179,7 +179,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     num_elements=len(dataset_info.atomic_types),
                     hidden_irreps=o3.Irreps(self.hypers["hidden_irreps"]),
                     edge_irreps=o3.Irreps(self.hypers["edge_irreps"])
-                    if "edge_irreps" in self.hypers
+                    if self.hypers["edge_irreps"] is not None
                     else None,
                     atomic_energies=torch.zeros(len(dataset_info.atomic_types)),
                     apply_cutoff=self.hypers["apply_cutoff"],
