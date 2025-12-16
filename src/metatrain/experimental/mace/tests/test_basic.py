@@ -103,6 +103,7 @@ class TestOutput(OutputTests, MACETests):
 class TestAutograd(AutogradTests, MACETests):
     cuda_nondet_tolerance = 1e-12
 
+
 class TestTorchscript(TorchscriptTests, MACETests):
     float_hypers = ["r_max"]
 

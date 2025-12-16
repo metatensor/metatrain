@@ -21,13 +21,13 @@ class AutogradTests(ArchitectureTests):
     tolerance for ``gradcheck`` and ``gradgradcheck`` when running on CUDA.
     """
 
-    positions = [[0.,0.,0.], [0.9, 0.9, 0.9]]
+    positions = [[0.0, 0.0, 0.0], [0.9, 0.9, 0.9]]
     """Positions used to create the system for testing autograd.
 
     We create a system with two carbon atoms in these positions.
     """
 
-    cell_param = 2.
+    cell_param = 2.0
     """The system created for testing autograd is a cubic cell.
 
     These parameter controls the size of each cell vector.
