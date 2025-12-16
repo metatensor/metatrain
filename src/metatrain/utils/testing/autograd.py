@@ -21,6 +21,18 @@ class AutogradTests(ArchitectureTests):
     tolerance for ``gradcheck`` and ``gradgradcheck`` when running on CUDA.
     """
 
+    positions = [[0.,0.,0.], [0.9, 0.9, 0.9]]
+    """Positions used to create the system for testing autograd.
+
+    We create a system with two carbon atoms in these positions.
+    """
+
+    cell_param = 2.
+    """The system created for testing autograd is a cubic cell.
+
+    These parameter controls the size of each cell vector.
+    """
+
     def test_autograd_positions(
         self, device: torch.device, model_hypers: dict, dataset_info: DatasetInfo
     ) -> None:
@@ -55,7 +67,7 @@ class AutogradTests(ArchitectureTests):
             system = System(
                 types=torch.tensor([6, 6], device=device),
                 positions=positions,
-                cell=torch.eye(3, dtype=torch.float64, device=device),
+                cell=torch.eye(3, dtype=torch.float64, device=device) * self.cell_param,
                 pbc=torch.tensor([True, True, True], device=device),
             )
 
@@ -69,7 +81,7 @@ class AutogradTests(ArchitectureTests):
             return energy
 
         positions = torch.tensor(
-            [[0.0, 0.0, 0.0], [0.49, 0.49, 0.49]],
+            self.positions,
             dtype=torch.float64,
             requires_grad=True,
             device=device,
@@ -115,7 +127,7 @@ class AutogradTests(ArchitectureTests):
             system = System(
                 types=torch.tensor([6, 6], device=device),
                 positions=torch.tensor(
-                    [[0.0, 0.0, 0.1], [0.45, 0.55, 0.65]],
+                    self.positions,
                     dtype=torch.float64,
                     device=device,
                     requires_grad=True,
@@ -133,7 +145,7 @@ class AutogradTests(ArchitectureTests):
             energy = output["energy"].block().values.sum()
             return energy
 
-        cell = 1.234 * torch.eye(
+        cell = self.cell_param * torch.eye(
             3, dtype=torch.float64, requires_grad=True, device=device
         )
 
