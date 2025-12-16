@@ -50,6 +50,8 @@ class TestOutput(OutputTests, SoapBPNNTests):
 
 class TestAutograd(AutogradTests, SoapBPNNTests):
     cuda_nondet_tolerance = 1e-12
+    positions = [[0, 0, 0.0], [0.5, 0.5, 0.5]]
+    cell_param = 1
 
 
 class TestTorchscript(TorchscriptTests, SoapBPNNTests):
