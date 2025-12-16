@@ -176,9 +176,6 @@ class TrainerHypers(TypedDict):
     learning_rate: float = 1e-4
     """Learning rate."""
     weight_decay: Optional[float] = None
-    min_lr_ratio: float = 0.0
-    """Ratio of minimum to initial learning rate."""
-
     log_interval: int = 1
     """Interval to log metrics."""
     checkpoint_interval: int = 100
@@ -245,10 +242,7 @@ class TrainerHypers(TypedDict):
     best_model_metric: Literal["rmse_prod", "mae_prod", "loss"] = "mae_prod"
     """Metric used to select best checkpoint (e.g., ``rmse_prod``)"""
     grad_clip_norm: float = 1.0
-    """Maximum gradient norm value, by default inf (no clipping)"""
-    schedule_grad_clip_norm: bool = False
-    """Whether to schedule the increase of `grad_clip_norm` during warmup and part of
-    the hold phase"""
+    """Maximum gradient norm value, by default 1.0."""
     loss: str | dict[str, LossSpecification | str] = "mse"
     """This section describes the loss function to be used. See the
     :ref:`loss-functions` for more details."""

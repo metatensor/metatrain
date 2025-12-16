@@ -58,7 +58,7 @@ def get_scheduler(
     total_steps = train_hypers["num_epochs"] * steps_per_epoch
     warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
     hold_steps = int(train_hypers["hold_fraction"] * total_steps)
-    min_lr_ratio = train_hypers["min_lr_ratio"]
+    min_lr_ratio = 1e-4
 
     def lr_lambda(current_step: int) -> float:
         if current_step < warmup_steps:
@@ -440,29 +440,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 train_loss_batch.backward()
 
-                if self.hypers["schedule_grad_clip_norm"]:
-                    # Set the gradient clipping:
-                    #   - 0.25x during warmup
-                    #   - 0.5x during half of the hold phase
-                    #   - 1.0x afterwards
-                    warmup_epochs = int(
-                        self.hypers["warmup_fraction"] * self.hypers["num_epochs"]
-                    )
-                    half_hold_epochs = int(
-                        self.hypers["hold_fraction"] * self.hypers["num_epochs"] / 2
-                    )
-                    base_clip = self.hypers["grad_clip_norm"]
-
-                    if epoch < warmup_epochs:
-                        grad_clip_norm = base_clip * 0.25
-                    elif epoch < warmup_epochs + half_hold_epochs:
-                        grad_clip_norm = base_clip * 0.5
-                    else:
-                        grad_clip_norm = base_clip
-                else:
-                    grad_clip_norm = self.hypers["grad_clip_norm"]
-
-                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), self.hypers["grad_clip_norm"])
                 optimizer.step()
                 lr_scheduler.step()
 
