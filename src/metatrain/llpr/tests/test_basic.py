@@ -31,6 +31,7 @@ class TestCheckpoints(CheckpointTests, LLPRTests):
         pet_model_hypers = hypers["model"]
         pet_model_hypers["d_pet"] = 1
         pet_model_hypers["d_head"] = 1
+        pet_model_hypers["d_node"] = 1
         pet_model_hypers["d_feedforward"] = 1
         pet_model_hypers["num_heads"] = 1
         pet_model_hypers["num_attention_layers"] = 1
