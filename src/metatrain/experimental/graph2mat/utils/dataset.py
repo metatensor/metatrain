@@ -113,8 +113,6 @@ def get_graph2mat_transform(
             graph2mat_processors[target_name].basis_table
         )
 
-        print(converters[target_name])
-
     def transform(
         systems: list[System],
         targets: dict[str, TensorMap],

@@ -55,12 +55,23 @@ def create_batch(
         system_cell_shifts = shifts.T.to(dtype) @ system.cell
 
         # Get the edge types
-        system_edge_types = data_processor.basis_table.point_type_to_edge_type(
-            system_atom_types[system_edge_index]
+        edge_type = torch.tensor(data_processor.basis_table.edge_type).to(
+            device, torch.int64
         )
+        edge_atoms = system_atom_types[system_edge_index]
+        system_edge_types = edge_type[edge_atoms[0], edge_atoms[1]]
 
         # Check if there are any edges
         any_edges = system_edge_index.shape[1] > 0
+
+        edge_index.append(system_edge_index + start_index)
+        edge_types.append(system_edge_types)
+        cell_shifts.append(system_cell_shifts)
+        unit_shifts.append(shifts.T)
+
+        n_atoms = len(system)
+        batch.append(torch.full((n_atoms,), system_i))
+        system_start_index.append(start_index + n_atoms)
 
         # Get the number of supercells needed along each direction to account for all interactions
         if any_edges:
@@ -70,21 +81,11 @@ def create_batch(
 
         # Then build the supercell that encompasses all of those atoms, so that we can get the
         # array that converts from sc shifts (3D) to a single supercell index. This is isc_off.
-        supercell = sisl.Lattice(system.cell, nsc=nsc)
-
-        edge_index.append(system_edge_index + start_index)
-        edge_types.append(torch.from_numpy(system_edge_types).to(torch.int64))
-        cell_shifts.append(system_cell_shifts)
-        unit_shifts.append(shifts.T)
+        supercell = sisl.Lattice(system.cell.cpu(), nsc=nsc.cpu())
 
         # Then, get the supercell index of each interaction.
-        neigh_isc.append(
-            torch.tensor(supercell.isc_off[shifts[0], shifts[1], shifts[2]])
-        )
-
-        n_atoms = len(system)
-        batch.append(torch.full((n_atoms,), system_i))
-        system_start_index.append(start_index + n_atoms)
+        isc_off = torch.from_numpy(supercell.isc_off).to(device)
+        neigh_isc.append(isc_off[shifts[0], shifts[1], shifts[2]])
 
     return {
         "positions": torch.vstack([s.positions for s in systems]),

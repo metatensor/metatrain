@@ -77,11 +77,12 @@ def _wrap_in_tensorblock(data_values, i):
         samples=Labels(
             names=["system", "matrix_element"],
             values=torch.tensor(
-                [[i] * data_values.shape[0], torch.arange(data_values.shape[0])]
+                [[i] * data_values.shape[0], torch.arange(data_values.shape[0])],
+                device=data_values.device,
             ).T,
         ),
         components=[],
-        properties=Labels(["_"], torch.tensor([[0]])),
+        properties=Labels(["_"], torch.tensor([[0]], device=data_values.device)),
     )
 
 
@@ -89,7 +90,10 @@ def g2m_labels_to_tensormap(
     node_labels: torch.Tensor, edge_labels: torch.Tensor, i: int = 0
 ) -> TensorMap:
     return TensorMap(
-        keys=Labels(["graph2mat_point_or_edge"], torch.tensor([[0], [1]])),
+        keys=Labels(
+            ["graph2mat_point_or_edge"],
+            torch.tensor([[0], [1]], device=node_labels.device),
+        ),
         blocks=[
             _wrap_in_tensorblock(node_labels, i),
             _wrap_in_tensorblock(edge_labels, i),
