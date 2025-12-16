@@ -94,12 +94,13 @@ def get_scheduler(
     """
     total_steps = train_hypers["num_epochs"] * steps_per_epoch
     warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
-    min_lr_ratio = train_hypers["min_learning_rate"] / train_hypers["learning_rate"]
+    min_lr_ratio = 1e-4  # hardcode minimum LR ratio
 
     logging.info(
         f"Using cosine decay from {train_hypers['learning_rate']} to "
-        f"{train_hypers['min_learning_rate']} after {warmup_steps} warmup "
-        f"optimizer steps and {total_steps} total steps."
+        f"{train_hypers['learning_rate'] * min_lr_ratio} after "
+        f"{warmup_steps} warmup optimizer steps and {total_steps} "
+        "total steps."
     )
 
     def lr_lambda(current_step: int) -> float:
