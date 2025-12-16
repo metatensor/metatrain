@@ -69,6 +69,9 @@ class MACETests(ArchitectureTests):
         if mace_init_mode == "from_hypers":
             hypers["hidden_irreps"] = "1x0e + 1x1o"
             hypers["num_interactions"] = 1
+            hypers["max_ell"] = 1
+            hypers["correlation"] = 1
+            hypers["radial_MLP"] = [1, 1, 1]
         else:
             hypers["mace_model"] = Path(__file__).parent / "mace_small.model"
         return hypers
