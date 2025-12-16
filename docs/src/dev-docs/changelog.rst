@@ -30,6 +30,8 @@ Changed
 - SOAP-BPNN and MCoV now use species embeddings by default, allowing for better
   scalability and speed. The traditional SOAP-BPNN (and associated MCoV) architecture
   can be accessed by setting ``legacy: True``
+- A minimum learning rate ratio has been added to PET LR scheduling. This is set to
+  1e-4 of the maximum LR.
 
 Version 2025.12 - 2025-11-25
 ----------------------------
@@ -53,6 +55,7 @@ Added
   base target (i.e. ``energy``).
 - The ``LLPR`` architecture now allows training LLPR ensembles by backpropagation after
   their creation from the LLPR covariance. This includes support for multi-GPU training.
+- An experimental Muon optimizer has been added for the PET architecture.
 
 Changed
 #######
