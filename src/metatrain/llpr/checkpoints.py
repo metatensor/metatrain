@@ -62,3 +62,18 @@ def trainer_update_v1_v2(checkpoint: dict) -> None:
     if "train_hypers" in checkpoint:
         checkpoint["train_hypers"]["distributed"] = False
         checkpoint["train_hypers"]["distributed_port"] = 39591
+
+
+def trainer_update_v2_v3(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 2 to version 3.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Adding the num_workers=0 hyperparameter if not present
+    if "optimizer" not in checkpoint["train_hypers"]:
+        if checkpoint["train_hypers"].get("weight_decay"):
+            optimizer = "AdamW"
+        else:
+            optimizer = "Adam"
+        checkpoint["train_hypers"]["optimizer"] = optimizer

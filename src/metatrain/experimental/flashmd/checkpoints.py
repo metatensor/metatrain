@@ -11,6 +11,23 @@ def model_update_v1_v2(checkpoint: dict) -> None:
             target.unit = "(eV*u)^(1/2)"
 
 
+def model_update_v2_v3(checkpoint: dict) -> None:
+    """
+    Update a v2 checkpoint to v3.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                # Replacing the nn.Sequential MLP with a custom FeedForward module
+                if "gnn_layers" in k and ".edge_embedder." in k:
+                    k = k.replace(".edge_embedder.", ".edge_linear.")
+                new_state_dict[k] = v
+            checkpoint[key] = new_state_dict
+
+
 def trainer_update_v1_v2(checkpoint: dict) -> None:
     """
     Update trainer checkpoint from version 1 to version 2.
@@ -42,3 +59,18 @@ def trainer_update_v2_v3(checkpoint: dict) -> None:
     # - Rename ``fixed_composition_weights`` to ``atomic_baseline``.
     atomic_baseline = checkpoint["train_hypers"].pop("fixed_composition_weights")
     checkpoint["train_hypers"]["atomic_baseline"] = atomic_baseline
+
+
+def trainer_update_v3_v4(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 3 to version 4.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Adding the num_workers=0 hyperparameter if not present
+    if "optimizer" not in checkpoint["train_hypers"]:
+        if checkpoint["train_hypers"].get("weight_decay"):
+            optimizer = "AdamW"
+        else:
+            optimizer = "Adam"
+        checkpoint["train_hypers"]["optimizer"] = optimizer
