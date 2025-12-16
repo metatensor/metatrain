@@ -82,7 +82,7 @@ mace = [
 ]
 flashmd = []
 graph2mat = [
-    "graph2mat",
+    "graph2mat[e3nn]",
     "e3nn",
     "sisl",
 ]
