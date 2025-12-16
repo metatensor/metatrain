@@ -23,6 +23,7 @@ class PETTests(ArchitectureTests):
         hypers = get_default_hypers(self.architecture)["model"]
         hypers = copy.deepcopy(hypers)
         hypers["d_pet"] = 1
+        hypers["d_node"] = 1
         hypers["d_head"] = 1
         hypers["d_feedforward"] = 1
         hypers["num_heads"] = 1
