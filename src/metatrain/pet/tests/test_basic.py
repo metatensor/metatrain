@@ -36,7 +36,8 @@ class TestInput(InputTests, PETTests): ...
 
 
 class TestOutput(OutputTests, PETTests):
-    is_equivariant_model = False
+    is_equivariant_rotations = False
+    is_equivariant_reflections = False
 
     @pytest.fixture
     def n_features(self, model_hypers):

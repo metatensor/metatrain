@@ -41,7 +41,7 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Generator:
             tb = longrepr.reprtraceback
 
             message = (
-                f"\nCheckout this test's documentation to understand it: \n{doc_url}\n"
+                f"\nCheck out this test's documentation to understand it: \n{doc_url}\n"
             )
 
             # Add our link *inside* the traceback display
