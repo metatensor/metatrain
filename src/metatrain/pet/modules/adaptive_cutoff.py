@@ -153,6 +153,6 @@ def get_gaussian_cutoff_weights(
 
     # row-wise normalization of the weights
     weights_sum = weights.sum(dim=1, keepdim=True)
-    weights = weights / (weights_sum + 1e-8)  # adds a small regularization
+    weights = weights / weights_sum
 
     return weights
