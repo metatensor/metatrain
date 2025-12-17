@@ -6,7 +6,7 @@ FlashMD is a method for the direct prediction of positions and momenta in a mole
 dynamics simulation, presented in :footcite:p:`bigi_flashmd_2025`. When compared to
 traditional molecular dynamics methods, it predicts the positions and momenta of atoms
 after a long time interval, allowing the use of much larger time steps. Therefore, it
-achieves a significant speedup (10-30x) compared to molecular dynamics using MLIPs.
+achieves a significant speedup (up to 60-90x) compared to molecular dynamics using MLIPs.
 The FlashMD architecture implemented in metatrain is based on the
 :ref:`PET architecture <architecture-pet>`.
 
