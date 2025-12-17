@@ -148,8 +148,9 @@ def get_gaussian_cutoff_weights(
     baseline = num_neighbors_adaptive_t * x**3
 
     diff = diff + baseline.unsqueeze(0)
+    logw = -0.5 * (diff / width) ** 2
 
-    weights = torch.exp(-0.5 * (diff / width) ** 2)
+    weights = torch.exp(logw - logw.max())
 
     # row-wise normalization of the weights
     weights_sum = weights.sum(dim=1, keepdim=True)
