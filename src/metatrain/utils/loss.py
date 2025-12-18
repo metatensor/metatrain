@@ -4,9 +4,9 @@ from typing import Any, Dict, Optional, Type
 
 import metatensor.torch as mts
 import torch
-from metatensor.torch import TensorMap
+from metatensor.torch import TensorMap, Labels
 from torch.nn.modules.loss import _Loss
-
+import numpy as np
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.output_gradient import compute_gradient
 
@@ -638,7 +638,7 @@ class BandgapLoss(LossInterface):
 
         bandgap_predictions = model.bandgap_layer(gapdos_predictions)
         if self.force:
-             gap_force_predictions = torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True))
+             gap_force_predictions = torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True, destroy_graph= False))
         if self.print:
             print ("Printing Shapes")
             print ("Gapdos predictions:", gapdos_predictions.shape)
@@ -687,6 +687,14 @@ class HOMOLUMOLoss(LossInterface):
         self.force = force
         self.print = True
 
+    def smoothmax(self, tensor, alpha=1.0, dim = 0):
+        """
+        Computes the Log-Sum-Exp smoothmax.
+        alpha > 0: approximates max
+        alpha < 0: approximates min
+        """
+        return torch.logsumexp(alpha * tensor, dim = dim) / alpha
+        
     def compute(
         self,
         model_predictions: Dict[str, TensorMap],
@@ -721,16 +729,26 @@ class HOMOLUMOLoss(LossInterface):
         if self.force:
             tensor_map_gapforce = extra_data[gapforce_key]
             true_gapforce = tensor_map_gapforce.block().values
-            
-        # Should be atomwise, need to check the shapes
-        HOMO_prediction = model_predictions['mtt::HOMO'].block().values
-        LUMO_prediction = model_predictions['mtt::LUMO'].block().values
-        # Need to test iteratively
-        print (HOMO_prediction.shape)
-        print (LUMO_prediction.shape)
 
         # Use logsumexp to get smoothmax
-        assert False
+        gaps = []
+        for i in range(len(systems)):
+            structural_HOMO_i = mts.slice(model_predictions['mtt::HOMO'], axis = 'samples', selection = Labels(names=['system'], values = torch.tensor([[i]])))
+            structural_LUMO_i = mts.slice(model_predictions['mtt::LUMO'], axis = 'samples', selection = Labels(names=['system'], values = torch.tensor([[i]])))
+            max_HOMO = self.smoothmax(structural_HOMO_i.block().values, alpha = 20).squeeze()
+            min_LUMO = self.smoothmax(structural_LUMO_i.block().values, alpha = -20).squeeze()
+            pred_gap_i = min_LUMO - max_HOMO
+            gaps.append(pred_gap_i)
+        gaps = torch.vstack(gaps)
+        true_gaps = tensor_map_gap.block().values
+        gap_MSE = torch.mean((gaps - true_gaps)**2)
+        if self.force:
+            gap_force_predictions = torch.vstack(compute_gradient(gaps, [system.positions for system in systems], is_training=True, destroy_graph= False))
+            gap_force_MSE = torch.mean((gap_force_predictions - true_gapforce.squeeze())**2)
+            gap_MSE += self.force_weight * gap_force_MSE
+
+
+        return gap_MSE
 
 
 class NoLoss(LossInterface):
@@ -756,9 +774,6 @@ class NoLoss(LossInterface):
             weight,
             reduction,
         )
-        self.force_weight = force_weight
-        self.force = force
-        self.print = True
     def compute(
         self,
         model_predictions: Dict[str, TensorMap],
