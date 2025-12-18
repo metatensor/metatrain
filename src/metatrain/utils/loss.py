@@ -729,12 +729,12 @@ class HOMOLUMOLoss(LossInterface):
         if self.force:
             tensor_map_gapforce = extra_data[gapforce_key]
             true_gapforce = tensor_map_gapforce.block().values
-
+        device = model_predictions['mtt::HOMO'].block().values.device
         # Use logsumexp to get smoothmax
         gaps = []
         for i in range(len(systems)):
-            structural_HOMO_i = mts.slice(model_predictions['mtt::HOMO'], axis = 'samples', selection = Labels(names=['system'], values = torch.tensor([[i]])))
-            structural_LUMO_i = mts.slice(model_predictions['mtt::LUMO'], axis = 'samples', selection = Labels(names=['system'], values = torch.tensor([[i]])))
+            structural_HOMO_i = mts.slice(model_predictions['mtt::HOMO'], axis = 'samples', selection = Labels(names=['system'], values = torch.tensor([[i]]).to(device)))
+            structural_LUMO_i = mts.slice(model_predictions['mtt::LUMO'], axis = 'samples', selection = Labels(names=['system'], values = torch.tensor([[i]]).to(device)))
             max_HOMO = self.smoothmax(structural_HOMO_i.block().values, alpha = 20).squeeze()
             min_LUMO = self.smoothmax(structural_LUMO_i.block().values, alpha = -20).squeeze()
             pred_gap_i = min_LUMO - max_HOMO
@@ -746,7 +746,6 @@ class HOMOLUMOLoss(LossInterface):
             gap_force_predictions = torch.vstack(compute_gradient(gaps, [system.positions for system in systems], is_training=True, destroy_graph= False))
             gap_force_MSE = torch.mean((gap_force_predictions - true_gapforce.squeeze())**2)
             gap_MSE += self.force_weight * gap_force_MSE
-
 
         return gap_MSE
 
