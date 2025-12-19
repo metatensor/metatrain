@@ -11,19 +11,27 @@ arbitrarty targets, and a faster inference due to the ``fast attention``.
 
 {{SECTION_INSTALLATION}}
 
+Additional outputs
+------------------
+
+In addition to the targets defined in the dataset, the PET architecture can also output
+the following additional quantity:
+
+- ``features``: the internal PET features, before the different heads for each target.
+- :ref:`mtt-aux-target-last-layer-features`: The features for a given target, taken
+  before the last linear layer of the corresponding head.
+
 {{SECTION_DEFAULT_HYPERS}}
 
 Tuning hyperparameters
 ----------------------
 
-The default hyperparameters above will work well in most cases, but they
-may not be optimal for your specific dataset. There is good number of
-parameters to tune, both for the
-:ref:`model <architecture-{{architecture}}_model_hypers>` and the
-:ref:`trainer <architecture-{{architecture}}_trainer_hypers>`. Since seeing them
-for the first time might be overwhelming, here we provide a **list of the
-parameters that are in general the most important** (in decreasing order
-of importance):
+The default hyperparameters above will work well in most cases, but they may not be
+optimal for your specific dataset. There is good number of parameters to tune, both for
+the :ref:`model <arch-{{architecture}}_model_hypers>` and the :ref:`trainer
+<arch-{{architecture}}_trainer_hypers>`. Since seeing them for the first time might be
+overwhelming, here we provide a **list of the parameters that are in general the most
+important** (in decreasing order of importance):
 
 .. container:: mtt-hypers-remove-classname
 
