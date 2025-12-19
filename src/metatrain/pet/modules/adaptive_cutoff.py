@@ -39,7 +39,7 @@ def get_adaptive_cutoffs(
     :param probe_spacing: Spacing between probe cutoffs. If None, it will be
         automatically determined from the cutoff width.
     :param weight_width: Width of the cutoff selection weight function. If None, it
-        will be automatically determined from grid spacing and target neighbor number.
+        will be automatically determined from the empirical neighbor counts.
     :return: Adapted cutoff distances for each center atom.
     """
 
@@ -66,8 +66,9 @@ def get_adaptive_cutoffs(
     # heuristic for the Gaussian weight width. this is chosen to ensure that
     # for typical neighbor distributions the weights are non-zero for multiple
     # probe cutoffs
-    if weight_width is None:
-        weight_width = 3 * num_neighbors_adaptive * probe_spacing / max_cutoff
+    # if weight_width is None:
+    #    weight_width = 3 * num_neighbors_adaptive * probe_spacing / max_cutoff
+    #
     with torch.profiler.record_function("PET::get_cutoff_weights"):
         cutoffs_weights = get_gaussian_cutoff_weights(
             effective_num_neighbors,
@@ -116,7 +117,7 @@ def get_effective_num_neighbors(
 def get_gaussian_cutoff_weights(
     effective_num_neighbors: torch.Tensor,
     num_neighbors_adaptive: float,
-    width: float,
+    width: Optional[float] = None,
 ) -> torch.Tensor:
     """
     Computes the weights for each probe cutoff based on
@@ -131,7 +132,9 @@ def get_gaussian_cutoff_weights(
     """
 
     num_neighbors_adaptive_t = torch.as_tensor(
-        num_neighbors_adaptive, device=effective_num_neighbors.device
+        num_neighbors_adaptive,
+        device=effective_num_neighbors.device,
+        dtype=effective_num_neighbors.dtype,
     )
 
     diff = effective_num_neighbors - num_neighbors_adaptive_t
@@ -143,12 +146,34 @@ def get_gaussian_cutoff_weights(
     # distribution when there are empty ranges leading to "flat"
     # neighbor count distribution
     x = torch.linspace(
-        0, 1, effective_num_neighbors.shape[1], device=effective_num_neighbors.device
+        0,
+        1,
+        effective_num_neighbors.shape[1],
+        device=effective_num_neighbors.device,
+        dtype=effective_num_neighbors.dtype,
     )
     baseline = num_neighbors_adaptive_t * x**3
 
     diff = diff + baseline.unsqueeze(0)
-    logw = -0.5 * (diff / width) ** 2
+    if width is None:
+        # adaptive width from neighbor-count slope along probe axis (last dim)
+        eps = 1e-12
+        if diff.shape[-1] == 1:
+            width_t = diff * 0.5
+        elif diff.shape[-1] == 2:
+            w = (diff[..., 1] - diff[..., 0]).abs().clamp_min(eps)
+            width_t = torch.stack([w, w], dim=-1)
+        else:
+            width_t = torch.empty_like(diff)
+            # centered difference
+            width_t[..., 1:-1] = 0.5 * (diff[..., 2:] - diff[..., :-2])
+            width_t[..., 0] = diff[..., 1] - diff[..., 0]  # forward diff
+            width_t[..., -1] = diff[..., -1] - diff[..., -2]  # backward diff
+            width_t = width_t.abs().clamp_min(eps)
+    else:
+        width_t = torch.ones_like(diff) * width
+
+    logw = -0.5 * (diff / width_t) ** 2
 
     weights = torch.exp(logw - logw.max())
 
