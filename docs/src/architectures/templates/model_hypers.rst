@@ -1,4 +1,4 @@
-.. _architecture-{{architecture}}_model_hypers:
+.. _arch-{{architecture}}_model_hypers:
 
 Model hyperparameters
 ------------------------
