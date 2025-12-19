@@ -1,6 +1,6 @@
 """
-FlashMD
-=======
+FlashMD (Experimental)
+======================
 
 FlashMD is a method for the direct prediction of positions and momenta in a molecular
 dynamics simulation, presented in :footcite:p:`bigi_flashmd_2025`. When compared to

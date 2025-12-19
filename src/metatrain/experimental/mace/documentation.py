@@ -1,6 +1,6 @@
 """
-MACE
-====
+MACE (Experimental)
+===================
 
 Higher order equivariant message passing graph neural network
 :footcite:p:`batatia2022mace`.
