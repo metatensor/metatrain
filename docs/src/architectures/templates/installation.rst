@@ -1,4 +1,4 @@
-.. _architecture-{{architecture}}_installation:
+.. _arch-{{architecture}}_installation:
 
 Installation
 ------------

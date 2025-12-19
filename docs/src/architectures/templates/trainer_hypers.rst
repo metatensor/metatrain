@@ -1,4 +1,4 @@
-.. _architecture-{{architecture}}_trainer_hypers:
+.. _arch-{{architecture}}_trainer_hypers:
 
 Trainer hyperparameters
 -------------------------
