@@ -13,7 +13,7 @@ from metatomic.torch import (
     ModelOutput,
     System,
 )
-from skmatter._selection import _FPS as _FPS_skmatter
+from skmatter._selection import _FPS as _FPS_skmatter_original
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
@@ -21,6 +21,38 @@ from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.metadata import merge_metadata
 
 from .documentation import ModelHypers
+
+
+class _FPS_skmatter(_FPS_skmatter_original):
+    """
+    Patched version of skmatter's _FPS class to fix numpy deprecation warning.
+    
+    This class overrides the _update_hausdorff method to use the modern numpy API
+    with the `out=` keyword argument instead of the deprecated three-argument form.
+    """
+    
+    def _update_hausdorff(self, X, y, last_selected):
+        """
+        Update Hausdorff distances using modern numpy API.
+        
+        This method fixes the deprecated usage of np.minimum with three positional
+        arguments. The old form `np.minimum(a, b, c)` is replaced with the modern
+        form `np.minimum(a, b, out=c)`.
+        """
+        self.hausdorff_at_select_[last_selected] = self.hausdorff_[last_selected]
+
+        # distances of all points to the new point
+        if self._axis == 1:
+            new_dist = (
+                self.norms_ + self.norms_[last_selected] - 2 * X[:, last_selected].T @ X
+            )
+        else:
+            new_dist = (
+                self.norms_ + self.norms_[last_selected] - 2 * X[last_selected] @ X.T
+            )
+
+        # update in-place the Hausdorff distance list using modern numpy API
+        np.minimum(self.hausdorff_, new_dist, out=self.hausdorff_)
 
 
 class GAP(ModelInterface[ModelHypers]):
