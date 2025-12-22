@@ -29,9 +29,18 @@ class _FPS_skmatter(_FPS_skmatter_original):
     
     This class overrides the _update_hausdorff method to use the modern numpy API
     with the `out=` keyword argument instead of the deprecated three-argument form.
+    
+    This patch can be removed once skmatter addresses the numpy deprecation warning
+    in their codebase (currently using skmatter 0.3.2). See the upstream issue:
+    https://github.com/lab-cosmo/scikit-matter/issues/
+    
+    The fix replaces `np.minimum(a, b, c)` with `np.minimum(a, b, out=c)` which is
+    the recommended approach in numpy 2.0+.
     """
     
-    def _update_hausdorff(self, X, y, last_selected):
+    def _update_hausdorff(
+        self, X: np.ndarray, y: Optional[np.ndarray], last_selected: int
+    ) -> None:
         """
         Update Hausdorff distances using modern numpy API.
         
