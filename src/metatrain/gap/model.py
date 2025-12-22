@@ -31,8 +31,8 @@ class _FPS_skmatter(_FPS_skmatter_original):
     with the `out=` keyword argument instead of the deprecated three-argument form.
     
     This patch can be removed once skmatter addresses the numpy deprecation warning
-    in their codebase (currently using skmatter 0.3.2). See the upstream issue:
-    https://github.com/lab-cosmo/scikit-matter/issues/
+    in their codebase (currently using skmatter 0.3.2). The issue is being tracked
+    upstream at: https://github.com/lab-cosmo/scikit-matter
     
     The fix replaces `np.minimum(a, b, c)` with `np.minimum(a, b, out=c)` which is
     the recommended approach in numpy 2.0+.
