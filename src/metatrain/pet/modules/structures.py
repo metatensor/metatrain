@@ -141,6 +141,7 @@ def systems_to_batch(
     options: NeighborListOptions,
     all_species_list: List[int],
     species_to_species_index: torch.Tensor,
+    species_to_radius: torch.Tensor,
     cutoff_function: str,
     cutoff_width: float,
     num_neighbors_adaptive: Optional[float] = None,
@@ -226,14 +227,7 @@ def systems_to_batch(
         # `num_neighbors_adaptive` neighbors for each atom
 
         with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
-            adapted_atomic_cutoffs = get_adaptive_cutoffs(
-                centers,
-                edge_distances,
-                num_neighbors_adaptive,
-                num_nodes,
-                options.cutoff,
-                cutoff_width=cutoff_width,
-            )
+            adapted_atomic_cutoffs = species_to_radius[species]
 
         with torch.profiler.record_function("PET::adaptive_cutoff_masking"):
             unique_centers = torch.unique(centers)

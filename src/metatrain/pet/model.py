@@ -36,6 +36,28 @@ from .modules.transformer import CartesianTransformer
 AVAILABLE_FEATURIZERS = typing.get_args(ModelHypers.__annotations__["featurizer_type"])
 
 
+import math
+from mendeleev import element
+
+def vdw_radius_mendeleev(z: int, unit: str = "A") -> float:
+    if not isinstance(z, int):
+        raise TypeError("z must be an int")
+    if z < 1 or z > 118:
+        raise ValueError("z must be in 1..118")
+
+    r_pm = element(z).vdw_radius  # pm or None
+    if r_pm is None:
+        return math.nan
+
+    r_pm = float(r_pm)
+    if unit.lower() in ("pm",):
+        return r_pm
+    if unit.lower() in ("a", "å", "angstrom", "angstroms"):
+        return r_pm / 100.0  # 1 Å = 100 pm
+
+    raise ValueError('unit must be "A" (angstrom) or "pm"')
+
+
 class PET(ModelInterface[ModelHypers]):
     """
     Metatrain-native implementation of the PET architecture.
@@ -169,6 +191,13 @@ class PET(ModelInterface[ModelHypers]):
         )
         for i, species in enumerate(self.atomic_types):
             self.species_to_species_index[species] = i
+
+        self.register_buffer(
+            "species_to_radius",
+            torch.full((max(self.atomic_types) + 1,), -1.0),
+        )
+        for species in self.atomic_types:
+            self.species_to_radius[species] = vdw_radius_mendeleev(species) / 2 * 4.5
 
         # long-range module
         if self.hypers["long_range"]["enable"]:
@@ -420,6 +449,7 @@ class PET(ModelInterface[ModelHypers]):
                 nl_options,
                 self.atomic_types,
                 self.species_to_species_index,
+                self.species_to_radius,
                 self.cutoff_function,
                 self.cutoff_width,
                 self.num_neighbors_adaptive,
