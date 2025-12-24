@@ -241,10 +241,12 @@ def systems_to_batch(
             ) / 2.0
 
             cutoff_mask = edge_distances <= atomic_cutoffs
+            atomic_cutoffs = atomic_cutoffs[cutoff_mask]
             centers = centers[cutoff_mask]
             neighbors = neighbors[cutoff_mask]
             edge_vectors = edge_vectors[cutoff_mask]
             cell_shifts = cell_shifts[cutoff_mask]
+            edge_distances = edge_distances[cutoff_mask]
     else:
         atomic_cutoffs = options.cutoff * torch.ones(
             len(positions), device=positions.device, dtype=positions.dtype
