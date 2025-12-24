@@ -218,7 +218,7 @@ def systems_to_batch(
         num_nodes = len(positions)
 
     atomic_cutoffs = options.cutoff * torch.ones(
-        num_nodes, device=positions.device, dtype=positions.dtype
+        len(centers), device=positions.device, dtype=positions.dtype
     )
 
     if num_neighbors_adaptive is not None:
@@ -236,10 +236,11 @@ def systems_to_batch(
             )
 
         with torch.profiler.record_function("PET::adaptive_cutoff_masking"):
-            unique_centers = torch.unique(centers)
-            atomic_cutoffs[unique_centers] = adapted_atomic_cutoffs[unique_centers]
+            atomic_cutoffs = (
+                adapted_atomic_cutoffs[centers] + adapted_atomic_cutoffs[neighbors]
+            ) / 2.0
 
-            cutoff_mask = edge_distances <= adapted_atomic_cutoffs[centers]
+            cutoff_mask = edge_distances <= atomic_cutoffs
             centers = centers[cutoff_mask]
             neighbors = neighbors[cutoff_mask]
             edge_vectors = edge_vectors[cutoff_mask]
@@ -260,6 +261,20 @@ def systems_to_batch(
     else:
         max_edges_per_node = int(torch.max(num_neighbors))
 
+    if cutoff_function.lower() == "bump":
+        # use bump switching function for adaptive cutoff
+        cutoff_factors = cutoff_func_bump(edge_distances, atomic_cutoffs, cutoff_width)
+    elif cutoff_function.lower() == "cosine":
+        # backward-compatible cosine swithcing for fixed cutoff
+        cutoff_factors = cutoff_func_cosine(
+            edge_distances, atomic_cutoffs, cutoff_width
+        )
+    else:
+        raise ValueError(
+            f"Unknown cutoff function type: {cutoff_function}. "
+            f"Supported types are 'Cosine' and 'Bump'."
+        )
+
     # Convert to NEF (Node-Edge-Feature) format:
     nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
         centers, num_nodes, max_edges_per_node
@@ -275,6 +290,7 @@ def systems_to_batch(
     element_indices_neighbors = edge_array_to_nef(
         element_indices_neighbors, nef_indices
     )
+    cutoff_factors = edge_array_to_nef(cutoff_factors, nef_indices)
 
     corresponding_edges = get_corresponding_edges(
         torch.concatenate(
@@ -303,21 +319,6 @@ def systems_to_batch(
     reverse_neighbor_index[~nef_mask] = torch.arange(
         int(torch.sum(~nef_mask)), device=reverse_neighbor_index.device
     )
-    if cutoff_function.lower() == "bump":
-        # use bump switching function for adaptive cutoff
-        cutoff_factors = cutoff_func_bump(
-            edge_distances, atomic_cutoffs.unsqueeze(1), cutoff_width
-        )
-    elif cutoff_function.lower() == "cosine":
-        # backward-compatible cosine swithcing for fixed cutoff
-        cutoff_factors = cutoff_func_cosine(
-            edge_distances, atomic_cutoffs.unsqueeze(1), cutoff_width
-        )
-    else:
-        raise ValueError(
-            f"Unknown cutoff function type: {cutoff_function}. "
-            f"Supported types are 'Cosine' and 'Bump'."
-        )
     cutoff_factors[~nef_mask] = 0.0
 
     return (
