@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+import warnings
 
 import featomic.torch
 import metatensor.torch as mts
@@ -13,7 +14,7 @@ from metatomic.torch import (
     ModelOutput,
     System,
 )
-from skmatter._selection import _FPS as _FPS_skmatter_original
+from skmatter._selection import _FPS as _FPS_skmatter
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
@@ -21,47 +22,6 @@ from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.metadata import merge_metadata
 
 from .documentation import ModelHypers
-
-
-class _FPS_skmatter(_FPS_skmatter_original):
-    """
-    Patched version of skmatter's _FPS class to fix numpy deprecation warning.
-    
-    This class overrides the _update_hausdorff method to use the modern numpy API
-    with the `out=` keyword argument instead of the deprecated three-argument form.
-    
-    This patch can be removed once skmatter addresses the numpy deprecation warning
-    in their codebase (currently using skmatter 0.3.2). The issue is being tracked
-    upstream at: https://github.com/lab-cosmo/scikit-matter
-    
-    The fix replaces `np.minimum(a, b, c)` with `np.minimum(a, b, out=c)` which is
-    the recommended approach in numpy 2.0+.
-    """
-    
-    def _update_hausdorff(
-        self, X: np.ndarray, y: Optional[np.ndarray], last_selected: int
-    ) -> None:
-        """
-        Update Hausdorff distances using modern numpy API.
-        
-        This method fixes the deprecated usage of np.minimum with three positional
-        arguments. The old form `np.minimum(a, b, c)` is replaced with the modern
-        form `np.minimum(a, b, out=c)`.
-        """
-        self.hausdorff_at_select_[last_selected] = self.hausdorff_[last_selected]
-
-        # distances of all points to the new point
-        if self._axis == 1:
-            new_dist = (
-                self.norms_ + self.norms_[last_selected] - 2 * X[:, last_selected].T @ X
-            )
-        else:
-            new_dist = (
-                self.norms_ + self.norms_[last_selected] - 2 * X[last_selected] @ X.T
-            )
-
-        # update in-place the Hausdorff distance list using modern numpy API
-        np.minimum(self.hausdorff_, new_dist, out=self.hausdorff_)
 
 
 class GAP(ModelInterface[ModelHypers]):
@@ -603,7 +563,17 @@ class _FPS:
                 full=False,
                 selection_type=self._selection_type,
             )
-            selector.fit(block.values, warm_start=False)
+            # Suppress numpy deprecation warning from skmatter's use of np.minimum
+            # with three positional arguments. This is a known issue in skmatter
+            # that will be addressed upstream.
+            # See: https://github.com/lab-cosmo/scikit-matter
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message="Passing more than 2 positional arguments to np.maximum and np.minimum is deprecated",
+                    category=DeprecationWarning,
+                )
+                selector.fit(block.values, warm_start=False)
             mask = selector.get_support()
 
             if self._selection_type == "feature":
