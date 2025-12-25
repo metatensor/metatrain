@@ -217,16 +217,11 @@ def systems_to_batch(
     else:
         num_nodes = len(positions)
 
-    atomic_cutoffs = options.cutoff * torch.ones(
-        num_nodes, device=positions.device, dtype=positions.dtype
-    )
-
     if num_neighbors_adaptive is not None:
-        # Enabling the adaptive cutoff scheme to approximately select
-        # `num_neighbors_adaptive` neighbors for each atom
-
         with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
-            adapted_atomic_cutoffs = get_adaptive_cutoffs(
+            # Adaptive cutoff scheme to approximately select `num_neighbors_adaptive`
+            # neighbors for each atom
+            atomic_cutoffs = get_adaptive_cutoffs(
                 centers,
                 edge_distances,
                 num_neighbors_adaptive,
@@ -234,12 +229,11 @@ def systems_to_batch(
                 options.cutoff,
                 cutoff_width=cutoff_width,
             )
-
         with torch.profiler.record_function("PET::adaptive_cutoff_masking"):
-            unique_centers = torch.unique(centers)
-            atomic_cutoffs[unique_centers] = adapted_atomic_cutoffs[unique_centers]
-
-            cutoff_mask = edge_distances <= adapted_atomic_cutoffs[centers]
+            # NOTE: this assumes that `get_adaptive_cutoffs` handles isolated atoms
+            # correctly by assigning them a reasonable cutoff. This is the case at the
+            # moment due to the baseline density; see `get_gaussian_cutoff_weights()`.
+            cutoff_mask = edge_distances <= atomic_cutoffs[centers]
             centers = centers[cutoff_mask]
             neighbors = neighbors[cutoff_mask]
             edge_vectors = edge_vectors[cutoff_mask]

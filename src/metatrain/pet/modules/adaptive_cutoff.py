@@ -109,7 +109,7 @@ def get_effective_num_neighbors(
     )
     # accumulate the weights for all probe cutoffs and center atoms at once
     probe_num_neighbors.index_add_(1, centers, weights)
-    probe_num_neighbors = probe_num_neighbors.T.contiguous()
+    probe_num_neighbors = probe_num_neighbors.T
 
     return probe_num_neighbors
 
@@ -130,14 +130,7 @@ def get_gaussian_cutoff_weights(
     :param width: Width of the Gaussian cutoff selection function.
     :return: Weights for each probe cutoff.
     """
-
-    num_neighbors_adaptive_t = torch.as_tensor(
-        num_neighbors_adaptive,
-        device=effective_num_neighbors.device,
-        dtype=effective_num_neighbors.dtype,
-    )
-
-    diff = effective_num_neighbors - num_neighbors_adaptive_t
+    diff = effective_num_neighbors - num_neighbors_adaptive
 
     # adds a "baseline" corresponding to uniformly-distributed atoms
     # this has multiple "good" effects: it pushes the cutoff "out" when
@@ -152,7 +145,7 @@ def get_gaussian_cutoff_weights(
         device=effective_num_neighbors.device,
         dtype=effective_num_neighbors.dtype,
     )
-    baseline = num_neighbors_adaptive_t * x**3
+    baseline = num_neighbors_adaptive * x**3
 
     diff = diff + baseline.unsqueeze(0)
     if width is None:
