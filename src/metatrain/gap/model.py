@@ -1,5 +1,5 @@
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 import warnings
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import featomic.torch
 import metatensor.torch as mts
@@ -570,7 +570,10 @@ class _FPS:
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
-                    message="Passing more than 2 positional arguments to np.maximum and np.minimum is deprecated",
+                    message=(
+                        "Passing more than 2 positional arguments to "
+                        "np.maximum and np.minimum is deprecated"
+                    ),
                     category=DeprecationWarning,
                 )
                 selector.fit(block.values, warm_start=False)
