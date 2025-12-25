@@ -563,9 +563,9 @@ class _FPS:
                 full=False,
                 selection_type=self._selection_type,
             )
-            # Suppress numpy deprecation warning from skmatter's use of np.minimum
-            # with three positional arguments. This is a known issue in skmatter
-            # that will be addressed upstream.
+            # TODO: Remove this warning suppression once skmatter releases a new
+            # version that fixes the numpy deprecation warning from using np.minimum
+            # with three positional arguments.
             # See: https://github.com/lab-cosmo/scikit-matter
             with warnings.catch_warnings():
                 warnings.filterwarnings(
