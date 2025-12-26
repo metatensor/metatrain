@@ -426,8 +426,6 @@ def train_model(
         atomic_types=atomic_types,
         targets=target_info_dict,
         extra_data=extra_data_info_dict,
-        min_atoms_per_batch=options.get("min_atoms_per_batch"),
-        max_atoms_per_batch=options.get("max_atoms_per_batch"),
     )
 
     ###########################

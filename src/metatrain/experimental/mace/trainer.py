@@ -281,16 +281,13 @@ class Trainer(TrainerInterface):
         )
 
         # Wrap with batch bounds checking if specified
-        if (
-            dataset_info.min_atoms_per_batch is not None
-            or dataset_info.max_atoms_per_batch is not None
-        ):
+        batch_atom_bounds = self.hypers.get("batch_atom_bounds", [None, None])
+        if batch_atom_bounds != [None, None]:
             from metatrain.utils.data import CollateFnWithBatchBounds
 
             collate_fn = CollateFnWithBatchBounds(
                 collate_fn=base_collate_fn,
-                min_atoms_per_batch=dataset_info.min_atoms_per_batch,
-                max_atoms_per_batch=dataset_info.max_atoms_per_batch,
+                batch_atom_bounds=batch_atom_bounds,
             )
         else:
             collate_fn = base_collate_fn
@@ -420,6 +417,10 @@ class Trainer(TrainerInterface):
 
             train_loss = 0.0
             for batch in train_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if batch is None:
+                    continue
+                    
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = unpack_batch(batch)
@@ -487,6 +488,10 @@ class Trainer(TrainerInterface):
 
             val_loss = 0.0
             for batch in val_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if batch is None:
+                    continue
+                    
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device

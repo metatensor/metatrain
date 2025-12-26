@@ -81,8 +81,6 @@ class DatasetInfo:
     :param targets: Information about targets in the dataset.
     :param extra_data: Optional dictionary containing additional data that is not
         used as a target, but is still relevant to the dataset.
-    :param min_atoms_per_batch: Optional minimum number of atoms allowed in a batch.
-    :param max_atoms_per_batch: Optional maximum number of atoms allowed in a batch.
     """
 
     def __init__(
@@ -91,8 +89,6 @@ class DatasetInfo:
         atomic_types: List[int],
         targets: Dict[str, TargetInfo],
         extra_data: Optional[Dict[str, TargetInfo]] = None,
-        min_atoms_per_batch: Optional[int] = None,
-        max_atoms_per_batch: Optional[int] = None,
     ):
         # verify that `length_unit` and `atomic_types` are valid for metatomic
         _ = ModelCapabilities(
@@ -107,8 +103,6 @@ class DatasetInfo:
         self.extra_data: Dict[str, TargetInfo] = (
             extra_data if extra_data is not None else {}
         )
-        self.min_atoms_per_batch = min_atoms_per_batch
-        self.max_atoms_per_batch = max_atoms_per_batch
 
     @property
     def atomic_types(self) -> List[int]:
@@ -454,73 +448,63 @@ class CollateFnWithBatchBounds:
     
     This class wraps a CollateFn and adds validation to ensure that batches
     only contain a number of atoms within specified bounds. When a batch falls
-    outside these bounds, a RuntimeError is raised. Note that PyTorch DataLoader
-    does not automatically skip batches that raise errors during collation; the
-    error will propagate and interrupt training. This behavior is intentional to
-    alert users when batches are being rejected, so they can adjust their batch
-    size or bounds accordingly.
+    outside these bounds, None is returned instead of the collated batch, allowing
+    the training loop to skip invalid batches gracefully.
     
     :param collate_fn: The underlying CollateFn to use for collation.
-    :param min_atoms_per_batch: Minimum number of atoms allowed in a batch.
-        If None, no lower bound is enforced.
-    :param max_atoms_per_batch: Maximum number of atoms allowed in a batch.
-        If None, no upper bound is enforced.
+    :param batch_atom_bounds: A list [min_atoms, max_atoms] specifying bounds.
+        Use None for either value to disable that bound. Defaults to [None, None].
     """
 
     def __init__(
         self,
         collate_fn: CollateFn,
-        min_atoms_per_batch: Optional[int] = None,
-        max_atoms_per_batch: Optional[int] = None,
+        batch_atom_bounds: Optional[List[Optional[int]]] = None,
     ):
         self.collate_fn = collate_fn
-        self.min_atoms_per_batch = min_atoms_per_batch
-        self.max_atoms_per_batch = max_atoms_per_batch
+        if batch_atom_bounds is None:
+            batch_atom_bounds = [None, None]
+        
+        self.min_atoms_per_batch = batch_atom_bounds[0]
+        self.max_atoms_per_batch = batch_atom_bounds[1]
 
         # Validate the bounds
-        if min_atoms_per_batch is not None and min_atoms_per_batch < 1:
+        if self.min_atoms_per_batch is not None and self.min_atoms_per_batch < 1:
             raise ValueError(
-                f"min_atoms_per_batch must be at least 1, got {min_atoms_per_batch}"
+                f"min_atoms_per_batch must be at least 1, got {self.min_atoms_per_batch}"
             )
-        if max_atoms_per_batch is not None and max_atoms_per_batch < 1:
+        if self.max_atoms_per_batch is not None and self.max_atoms_per_batch < 1:
             raise ValueError(
-                f"max_atoms_per_batch must be at least 1, got {max_atoms_per_batch}"
+                f"max_atoms_per_batch must be at least 1, got {self.max_atoms_per_batch}"
             )
         if (
-            min_atoms_per_batch is not None
-            and max_atoms_per_batch is not None
-            and min_atoms_per_batch > max_atoms_per_batch
+            self.min_atoms_per_batch is not None
+            and self.max_atoms_per_batch is not None
+            and self.min_atoms_per_batch > self.max_atoms_per_batch
         ):
             raise ValueError(
-                f"min_atoms_per_batch ({min_atoms_per_batch}) must be less than or "
-                f"equal to max_atoms_per_batch ({max_atoms_per_batch})"
+                f"min_atoms_per_batch ({self.min_atoms_per_batch}) must be less than or "
+                f"equal to max_atoms_per_batch ({self.max_atoms_per_batch})"
             )
 
     def __call__(
         self,
         batch: List[Dict[str, Any]],
-    ) -> Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]:
+    ) -> Optional[Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]]:
         """
         Collate a batch and validate atom count bounds.
         
         :param batch: A batch of samples from the dataset.
-        :return: The collated batch if it passes validation.
-        :raises RuntimeError: If the batch has too few or too many atoms.
+        :return: The collated batch if it passes validation, None otherwise.
         """
         # Count total atoms in the batch
         total_atoms = sum(len(sample["system"]) for sample in batch)
 
-        # Check bounds
+        # Check bounds - return None if outside bounds
         if self.min_atoms_per_batch is not None and total_atoms < self.min_atoms_per_batch:
-            raise RuntimeError(
-                f"Batch has {total_atoms} atoms, which is less than the minimum "
-                f"of {self.min_atoms_per_batch} atoms. Skipping this batch."
-            )
+            return None
         if self.max_atoms_per_batch is not None and total_atoms > self.max_atoms_per_batch:
-            raise RuntimeError(
-                f"Batch has {total_atoms} atoms, which is more than the maximum "
-                f"of {self.max_atoms_per_batch} atoms. Skipping this batch."
-            )
+            return None
 
         # If validation passes, use the underlying collate function
         return self.collate_fn(batch)

@@ -13,21 +13,21 @@ def test_collate_fn_with_batch_bounds_creation():
 
     # Test with both bounds
     wrapper = CollateFnWithBatchBounds(
-        collate_fn=base_collate, min_atoms_per_batch=5, max_atoms_per_batch=100
+        collate_fn=base_collate, batch_atom_bounds=[5, 100]
     )
     assert wrapper.min_atoms_per_batch == 5
     assert wrapper.max_atoms_per_batch == 100
 
     # Test with only min bound
     wrapper = CollateFnWithBatchBounds(
-        collate_fn=base_collate, min_atoms_per_batch=5
+        collate_fn=base_collate, batch_atom_bounds=[5, None]
     )
     assert wrapper.min_atoms_per_batch == 5
     assert wrapper.max_atoms_per_batch is None
 
     # Test with only max bound
     wrapper = CollateFnWithBatchBounds(
-        collate_fn=base_collate, max_atoms_per_batch=100
+        collate_fn=base_collate, batch_atom_bounds=[None, 100]
     )
     assert wrapper.min_atoms_per_batch is None
     assert wrapper.max_atoms_per_batch == 100
@@ -45,19 +45,19 @@ def test_collate_fn_with_batch_bounds_invalid_bounds():
     # Test min > max
     with pytest.raises(ValueError, match="must be less than or equal to"):
         CollateFnWithBatchBounds(
-            collate_fn=base_collate, min_atoms_per_batch=100, max_atoms_per_batch=50
+            collate_fn=base_collate, batch_atom_bounds=[100, 50]
         )
 
     # Test negative min
     with pytest.raises(ValueError, match="must be at least 1"):
         CollateFnWithBatchBounds(
-            collate_fn=base_collate, min_atoms_per_batch=0, max_atoms_per_batch=100
+            collate_fn=base_collate, batch_atom_bounds=[0, 100]
         )
 
     # Test negative max
     with pytest.raises(ValueError, match="must be at least 1"):
         CollateFnWithBatchBounds(
-            collate_fn=base_collate, min_atoms_per_batch=5, max_atoms_per_batch=0
+            collate_fn=base_collate, batch_atom_bounds=[5, 0]
         )
 
 
@@ -70,7 +70,7 @@ def test_collate_fn_with_batch_bounds_filtering():
 
     # Create wrapper with bounds
     wrapper = CollateFnWithBatchBounds(
-        collate_fn=mock_collate, min_atoms_per_batch=10, max_atoms_per_batch=50
+        collate_fn=mock_collate, batch_atom_bounds=[10, 50]
     )
 
     # Create a batch with too few atoms (5 atoms)
@@ -84,9 +84,9 @@ def test_collate_fn_with_batch_bounds_filtering():
     )
     batch_small = [{"system": system_small}]
 
-    # Should raise RuntimeError for too few atoms
-    with pytest.raises(RuntimeError, match="less than the minimum"):
-        wrapper(batch_small)
+    # Should return None for too few atoms
+    result = wrapper(batch_small)
+    assert result is None
 
     # Create a batch with too many atoms (60 atoms)
     positions_large = torch.tensor([[0.0, 0.0, 0.0]] * 60, dtype=torch.float64)
@@ -99,9 +99,9 @@ def test_collate_fn_with_batch_bounds_filtering():
     )
     batch_large = [{"system": system_large}]
 
-    # Should raise RuntimeError for too many atoms
-    with pytest.raises(RuntimeError, match="more than the maximum"):
-        wrapper(batch_large)
+    # Should return None for too many atoms
+    result = wrapper(batch_large)
+    assert result is None
 
     # Create a batch with the right number of atoms (20 atoms)
     positions_ok = torch.tensor([[0.0, 0.0, 0.0]] * 20, dtype=torch.float64)
@@ -114,7 +114,7 @@ def test_collate_fn_with_batch_bounds_filtering():
     )
     batch_ok = [{"system": system_ok}]
 
-    # Should not raise an error for atom count
+    # Should not return None for valid atom count
     result = wrapper(batch_ok)
     assert result == "collated"
 
@@ -127,7 +127,7 @@ def test_collate_fn_with_batch_bounds_multiple_systems():
 
     # Create wrapper with bounds
     wrapper = CollateFnWithBatchBounds(
-        collate_fn=mock_collate, min_atoms_per_batch=15, max_atoms_per_batch=30
+        collate_fn=mock_collate, batch_atom_bounds=[15, 30]
     )
 
     # Create two systems with 8 atoms each (total: 16 atoms)
