@@ -25,6 +25,7 @@ from metatrain.utils.data import (
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
+from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
@@ -271,7 +272,7 @@ class Trainer(TrainerInterface):
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
         requested_neighbor_lists = get_requested_neighbor_lists(model)
-        batch_atom_bounds = self.hypers.get("batch_atom_bounds", [None, None])
+        batch_atom_bounds = self.hypers["batch_atom_bounds"]
         
         collate_fn = CollateFn(
             target_keys=list(train_targets.keys()),
@@ -410,7 +411,7 @@ class Trainer(TrainerInterface):
             for batch in train_dataloader:
                 # Skip None batches (those outside batch_atom_bounds)
                 # In distributed mode, synchronize rejection across all processes
-                if should_skip_batch_distributed(batch, is_distributed, device):
+                if should_skip_batch(batch, is_distributed, device):
                     continue
                     
                 optimizer.zero_grad()
@@ -482,7 +483,7 @@ class Trainer(TrainerInterface):
             for batch in val_dataloader:
                 # Skip None batches (those outside batch_atom_bounds)
                 # In distributed mode, synchronize rejection across all processes
-                if should_skip_batch_distributed(batch, is_distributed, device):
+                if should_skip_batch(batch, is_distributed, device):
                     continue
                     
                 systems, targets, extra_data = unpack_batch(batch)

@@ -5,7 +5,7 @@ from typing import Any, Optional
 import torch
 
 
-def should_skip_batch_distributed(
+def should_skip_batch(
     batch: Optional[Any], is_distributed: bool, device: torch.device
 ) -> bool:
     """
