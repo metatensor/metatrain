@@ -465,6 +465,13 @@ class CollateFnWithBatchBounds:
         if batch_atom_bounds is None:
             batch_atom_bounds = [None, None]
         
+        # Validate batch_atom_bounds format
+        if not isinstance(batch_atom_bounds, list) or len(batch_atom_bounds) != 2:
+            raise ValueError(
+                f"batch_atom_bounds must be a list of exactly 2 elements [min, max], "
+                f"got {batch_atom_bounds}"
+            )
+        
         self.min_atoms_per_batch = batch_atom_bounds[0]
         self.max_atoms_per_batch = batch_atom_bounds[1]
 

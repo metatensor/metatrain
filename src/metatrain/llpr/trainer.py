@@ -22,6 +22,7 @@ from metatrain.utils.data import (
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
+from metatrain.utils.distributed.batch_utils import should_skip_batch_distributed
 from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension, model_from_checkpoint
@@ -454,13 +455,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             for batch in train_dataloader:
                 # Skip None batches (those outside batch_atom_bounds)
                 # In distributed mode, synchronize rejection across all processes
-                if is_distributed:
-                    # Broadcast whether this batch should be skipped
-                    batch_valid = torch.tensor([1 if batch is not None else 0], device=device)
-                    torch.distributed.all_reduce(batch_valid, op=torch.distributed.ReduceOp.MIN)
-                    if batch_valid.item() == 0:
-                        continue
-                elif batch is None:
+                if should_skip_batch_distributed(batch, is_distributed, device):
                     continue
                     
                 optimizer.zero_grad()
@@ -529,13 +524,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             for batch in val_dataloader:
                 # Skip None batches (those outside batch_atom_bounds)
                 # In distributed mode, synchronize rejection across all processes
-                if is_distributed:
-                    # Broadcast whether this batch should be skipped
-                    batch_valid = torch.tensor([1 if batch is not None else 0], device=device)
-                    torch.distributed.all_reduce(batch_valid, op=torch.distributed.ReduceOp.MIN)
-                    if batch_valid.item() == 0:
-                        continue
-                elif batch is None:
+                if should_skip_batch_distributed(batch, is_distributed, device):
                     continue
                     
                 systems, targets, extra_data = unpack_batch(batch)
