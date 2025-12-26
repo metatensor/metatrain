@@ -229,3 +229,15 @@ class BaseHypers(TypedDict):
     """Specification of the validation dataset."""
     test_set: NotRequired[DatasetSpec | Annotated[float, Interval(ge=0.0, lt=1.0)]]
     """Specification of the test dataset."""
+    min_atoms_per_batch: NotRequired[int]
+    """Minimum number of atoms allowed in a batch.
+    
+    If specified, batches with fewer atoms than this threshold will be rejected
+    during training and validation. This is useful for ensuring computational
+    efficiency and avoiding batches that are too small."""
+    max_atoms_per_batch: NotRequired[int]
+    """Maximum number of atoms allowed in a batch.
+    
+    If specified, batches with more atoms than this threshold will be rejected
+    during training and validation. This is useful for avoiding out-of-memory
+    errors and ensuring consistent batch sizes."""
