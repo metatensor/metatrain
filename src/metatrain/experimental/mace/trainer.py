@@ -271,7 +271,7 @@ class Trainer(TrainerInterface):
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
         requested_neighbor_lists = get_requested_neighbor_lists(model)
-        collate_fn = CollateFn(
+        base_collate_fn = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
@@ -279,6 +279,21 @@ class Trainer(TrainerInterface):
                 get_remove_scale_transform(scaler),
             ],
         )
+
+        # Wrap with batch bounds checking if specified
+        if (
+            dataset_info.min_atoms_per_batch is not None
+            or dataset_info.max_atoms_per_batch is not None
+        ):
+            from metatrain.utils.data import CollateFnWithBatchBounds
+
+            collate_fn = CollateFnWithBatchBounds(
+                collate_fn=base_collate_fn,
+                min_atoms_per_batch=dataset_info.min_atoms_per_batch,
+                max_atoms_per_batch=dataset_info.max_atoms_per_batch,
+            )
+        else:
+            collate_fn = base_collate_fn
 
         # Create dataloader for the training datasets:
         if self.hypers["num_workers"] is None:

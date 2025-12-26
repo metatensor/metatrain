@@ -253,7 +253,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             target_info_dict=train_targets, extra_data_info_dict=extra_data_info
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
-        collate_fn_train = CollateFn(
+        base_collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
                 rotational_augmenter.apply_random_augmentations,
@@ -262,7 +262,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_scale_transform(scaler),
             ],
         )
-        collate_fn_val = CollateFn(
+        base_collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[  # no augmentation for validation
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
@@ -270,6 +270,27 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_scale_transform(scaler),
             ],
         )
+
+        # Wrap with batch bounds checking if specified
+        if (
+            dataset_info.min_atoms_per_batch is not None
+            or dataset_info.max_atoms_per_batch is not None
+        ):
+            from metatrain.utils.data import CollateFnWithBatchBounds
+
+            collate_fn_train = CollateFnWithBatchBounds(
+                collate_fn=base_collate_fn_train,
+                min_atoms_per_batch=dataset_info.min_atoms_per_batch,
+                max_atoms_per_batch=dataset_info.max_atoms_per_batch,
+            )
+            collate_fn_val = CollateFnWithBatchBounds(
+                collate_fn=base_collate_fn_val,
+                min_atoms_per_batch=dataset_info.min_atoms_per_batch,
+                max_atoms_per_batch=dataset_info.max_atoms_per_batch,
+            )
+        else:
+            collate_fn_train = base_collate_fn_train
+            collate_fn_val = base_collate_fn_val
 
         # Create dataloader for the training datasets:
         if self.hypers["num_workers"] is None:

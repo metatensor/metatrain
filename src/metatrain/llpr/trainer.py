@@ -143,7 +143,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Create a collate function:
         targets_keys = list(model.dataset_info.targets.keys())
-        collate_fn = CollateFn(
+        base_collate_fn = CollateFn(
             target_keys=targets_keys,
             callables=[
                 get_system_with_neighbor_lists_transform(
@@ -151,6 +151,21 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 ),
             ],
         )
+
+        # Wrap with batch bounds checking if specified
+        if (
+            model.dataset_info.min_atoms_per_batch is not None
+            or model.dataset_info.max_atoms_per_batch is not None
+        ):
+            from metatrain.utils.data import CollateFnWithBatchBounds
+
+            collate_fn = CollateFnWithBatchBounds(
+                collate_fn=base_collate_fn,
+                min_atoms_per_batch=model.dataset_info.min_atoms_per_batch,
+                max_atoms_per_batch=model.dataset_info.max_atoms_per_batch,
+            )
+        else:
+            collate_fn = base_collate_fn
 
         # Create dataloader for the training datasets:
         train_dataloaders = []
