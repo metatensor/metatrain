@@ -144,26 +144,17 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Create a collate function:
         targets_keys = list(model.dataset_info.targets.keys())
-        base_collate_fn = CollateFn(
+        batch_atom_bounds = self.hypers.get("batch_atom_bounds", [None, None])
+        
+        collate_fn = CollateFn(
             target_keys=targets_keys,
             callables=[
                 get_system_with_neighbor_lists_transform(
                     get_requested_neighbor_lists(model)
                 ),
             ],
+            batch_atom_bounds=batch_atom_bounds,
         )
-
-        # Wrap with batch bounds checking if specified
-        batch_atom_bounds = self.hypers.get("batch_atom_bounds", [None, None])
-        if batch_atom_bounds != [None, None]:
-            from metatrain.utils.data import CollateFnWithBatchBounds
-
-            collate_fn = CollateFnWithBatchBounds(
-                collate_fn=base_collate_fn,
-                batch_atom_bounds=batch_atom_bounds,
-            )
-        else:
-            collate_fn = base_collate_fn
 
         # Create dataloader for the training datasets:
         train_dataloaders = []

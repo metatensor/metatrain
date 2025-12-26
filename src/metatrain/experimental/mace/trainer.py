@@ -271,26 +271,17 @@ class Trainer(TrainerInterface):
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
         requested_neighbor_lists = get_requested_neighbor_lists(model)
-        base_collate_fn = CollateFn(
+        batch_atom_bounds = self.hypers.get("batch_atom_bounds", [None, None])
+        
+        collate_fn = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=batch_atom_bounds,
         )
-
-        # Wrap with batch bounds checking if specified
-        batch_atom_bounds = self.hypers.get("batch_atom_bounds", [None, None])
-        if batch_atom_bounds != [None, None]:
-            from metatrain.utils.data import CollateFnWithBatchBounds
-
-            collate_fn = CollateFnWithBatchBounds(
-                collate_fn=base_collate_fn,
-                batch_atom_bounds=batch_atom_bounds,
-            )
-        else:
-            collate_fn = base_collate_fn
 
         # Create dataloader for the training datasets:
         if self.hypers["num_workers"] is None:
@@ -419,13 +410,7 @@ class Trainer(TrainerInterface):
             for batch in train_dataloader:
                 # Skip None batches (those outside batch_atom_bounds)
                 # In distributed mode, synchronize rejection across all processes
-                if is_distributed:
-                    # Broadcast whether this batch should be skipped
-                    batch_valid = torch.tensor([1 if batch is not None else 0], device=device)
-                    torch.distributed.all_reduce(batch_valid, op=torch.distributed.ReduceOp.MIN)
-                    if batch_valid.item() == 0:
-                        continue
-                elif batch is None:
+                if should_skip_batch_distributed(batch, is_distributed, device):
                     continue
                     
                 optimizer.zero_grad()
@@ -497,13 +482,7 @@ class Trainer(TrainerInterface):
             for batch in val_dataloader:
                 # Skip None batches (those outside batch_atom_bounds)
                 # In distributed mode, synchronize rejection across all processes
-                if is_distributed:
-                    # Broadcast whether this batch should be skipped
-                    batch_valid = torch.tensor([1 if batch is not None else 0], device=device)
-                    torch.distributed.all_reduce(batch_valid, op=torch.distributed.ReduceOp.MIN)
-                    if batch_valid.item() == 0:
-                        continue
-                elif batch is None:
+                if should_skip_batch_distributed(batch, is_distributed, device):
                     continue
                     
                 systems, targets, extra_data = unpack_batch(batch)

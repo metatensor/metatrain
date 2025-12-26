@@ -1,7 +1,6 @@
 from .combine_dataloaders import CombinedDataLoader  # noqa: F401
 from .dataset import (  # noqa: F401
     CollateFn,
-    CollateFnWithBatchBounds,
     Dataset,
     DatasetInfo,
     DiskDataset,
