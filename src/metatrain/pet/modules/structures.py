@@ -229,7 +229,7 @@ def systems_to_batch(
                 options.cutoff,
                 cutoff_width=cutoff_width,
             )
-            # symmetrize the cutoffs between pairs of atoms (PET needs this symmetry
+            # Symmetrize the cutoffs between pairs of atoms (PET needs this symmetry
             # due to its corresponding edge indexing ij -> ji)
             pair_cutoffs = (atomic_cutoffs[centers] + atomic_cutoffs[neighbors]) / 2.0
         with torch.profiler.record_function("PET::adaptive_cutoff_masking"):
@@ -266,9 +266,7 @@ def systems_to_batch(
         cutoff_factors = cutoff_func_bump(edge_distances, pair_cutoffs, cutoff_width)
     elif cutoff_function.lower() == "cosine":
         # backward-compatible cosine swithcing for fixed cutoff
-        cutoff_factors = cutoff_func_cosine(
-            edge_distances, pair_cutoffs, cutoff_width
-        )
+        cutoff_factors = cutoff_func_cosine(edge_distances, pair_cutoffs, cutoff_width)
     else:
         raise ValueError(
             f"Unknown cutoff function type: {cutoff_function}. "
