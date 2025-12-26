@@ -453,9 +453,12 @@ class CollateFnWithBatchBounds:
     A wrapper around CollateFn that validates batch bounds based on atom count.
     
     This class wraps a CollateFn and adds validation to ensure that batches
-    only contain a number of atoms within specified bounds. Batches that fall
-    outside these bounds will raise an exception, causing the dataloader to
-    skip them.
+    only contain a number of atoms within specified bounds. When a batch falls
+    outside these bounds, a RuntimeError is raised. Note that PyTorch DataLoader
+    does not automatically skip batches that raise errors during collation; the
+    error will propagate and interrupt training. This behavior is intentional to
+    alert users when batches are being rejected, so they can adjust their batch
+    size or bounds accordingly.
     
     :param collate_fn: The underlying CollateFn to use for collation.
     :param min_atoms_per_batch: Minimum number of atoms allowed in a batch.

@@ -63,7 +63,6 @@ def test_collate_fn_with_batch_bounds_invalid_bounds():
 
 def test_collate_fn_with_batch_bounds_filtering():
     """Test that batches are correctly filtered based on atom counts."""
-    from metatrain.utils.data.dataset import CollateFnWithBatchBounds
 
     # Create a mock collate function that doesn't actually collate
     def mock_collate(batch):
