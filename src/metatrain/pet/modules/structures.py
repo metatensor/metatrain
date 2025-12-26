@@ -233,12 +233,9 @@ def systems_to_batch(
             # due to its corresponding edge indexing ij -> ji)
             pair_cutoffs = (atomic_cutoffs[centers] + atomic_cutoffs[neighbors]) / 2.0
         with torch.profiler.record_function("PET::adaptive_cutoff_masking"):
-            # NOTE: this assumes that `get_adaptive_cutoffs` handles isolated atoms
-            # correctly by assigning them a reasonable cutoff. This is the case at the
-            # moment due to the baseline density; see `get_gaussian_cutoff_weights()`.
-            cutoff_mask = edge_distances <= pair_cutoffs[centers]
-
+            # Apply cutoff mask
             cutoff_mask = edge_distances <= pair_cutoffs
+
             pair_cutoffs = pair_cutoffs[cutoff_mask]
             centers = centers[cutoff_mask]
             neighbors = neighbors[cutoff_mask]
@@ -250,16 +247,12 @@ def systems_to_batch(
             len(centers), device=positions.device, dtype=positions.dtype
         )
 
-    num_neighbors = torch.bincount(centers)
+    num_neighbors = torch.bincount(centers, minlength=num_nodes)
+    max_edges_per_node = int(torch.max(num_neighbors))
 
     # uncomment these to print out stats on the adaptive cutoff behavior
     # print("adaptive_cutoffs", *pair_cutoffs.tolist())
     # print("num_neighbors", *num_neighbors.tolist())
-
-    if num_neighbors.numel() == 0:  # no edges
-        max_edges_per_node = 0
-    else:
-        max_edges_per_node = int(torch.max(num_neighbors))
 
     if cutoff_function.lower() == "bump":
         # use bump switching function for adaptive cutoff
