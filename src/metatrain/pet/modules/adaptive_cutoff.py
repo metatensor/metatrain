@@ -149,19 +149,14 @@ def get_gaussian_cutoff_weights(
 
     diff = diff + baseline.unsqueeze(0)
     if width is None:
-        # adaptive width from neighbor-count slope along probe axis (last dim)
         eps = 1e-12
         if diff.shape[-1] == 1:
-            width_t = diff * 0.5
-        elif diff.shape[-1] == 2:
-            w = (diff[..., 1] - diff[..., 0]).abs().clamp_min(eps)
-            width_t = torch.stack([w, w], dim=-1)
+            # Can't compute gradient from single point; use scaled diff as proxy
+            width_t = diff.abs() * 0.5 + eps
         else:
-            width_t = torch.empty_like(diff)
-            # centered difference
-            width_t[..., 1:-1] = 0.5 * (diff[..., 2:] - diff[..., :-2])
-            width_t[..., 0] = diff[..., 1] - diff[..., 0]  # forward diff
-            width_t[..., -1] = diff[..., -1] - diff[..., -2]  # backward diff
+            # Compute numerical gradient: centered differences for interior,
+            # one-sided differences at boundaries
+            (width_t,) = torch.gradient(diff, dim=-1)
             width_t = width_t.abs().clamp_min(eps)
     else:
         width_t = torch.ones_like(diff) * width
