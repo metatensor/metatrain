@@ -21,6 +21,7 @@ from metatrain.utils.data import (
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
+from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
@@ -166,6 +167,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
             target_info_dict=train_targets, extra_data_info_dict=extra_data_info
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
+        batch_atom_bounds = self.hypers["batch_atom_bounds"]
+        
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
@@ -174,6 +177,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=batch_atom_bounds,
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
@@ -182,6 +186,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=batch_atom_bounds,
         )
 
         # Create dataloader for the training datasets:
@@ -318,6 +323,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             train_loss = 0.0
             for batch in train_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                # In distributed mode, synchronize rejection across all processes
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+                    
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = unpack_batch(batch)
@@ -381,6 +391,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             val_loss = 0.0
             for batch in val_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                # In distributed mode, synchronize rejection across all processes
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+                    
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device
