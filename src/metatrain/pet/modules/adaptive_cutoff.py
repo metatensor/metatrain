@@ -63,12 +63,6 @@ def get_adaptive_cutoffs(
             width=cutoff_width,
         )
 
-    # heuristic for the Gaussian weight width. this is chosen to ensure that
-    # for typical neighbor distributions the weights are non-zero for multiple
-    # probe cutoffs
-    # if weight_width is None:
-    #    weight_width = 3 * num_neighbors_adaptive * probe_spacing / max_cutoff
-    #
     with torch.profiler.record_function("PET::get_cutoff_weights"):
         cutoffs_weights = get_gaussian_cutoff_weights(
             effective_num_neighbors,
