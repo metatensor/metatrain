@@ -146,17 +146,16 @@ def get_gaussian_cutoff_weights(
         eps = 1e-12
         if diff.shape[-1] == 1:
             # Can't compute gradient from single point; use scaled diff as proxy
-            width = diff.abs() * 0.5 + eps
+            width_t = diff.abs() * 0.5 + eps
         else:
             # Compute numerical gradient: centered differences for interior,
             # one-sided differences at boundaries
-            (width,) = torch.gradient(diff, dim=-1)
-            width = width.abs().clamp_min(eps)
+            (width_t,) = torch.gradient(diff, dim=-1)
+            width_t = width_t.abs().clamp_min(eps)
     else:
-        width = torch.ones_like(diff) * width
+        width_t = torch.ones_like(diff) * width
 
-    logw = -0.5 * (diff / width) ** 2
-
+    logw = -0.5 * (diff / width_t) ** 2
     weights = torch.exp(logw - logw.max())
 
     # row-wise normalization of the weights
