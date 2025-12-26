@@ -354,7 +354,15 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             for batch in train_dataloader:
                 # Skip None batches (those outside batch_atom_bounds)
-                if batch is None:
+                # In distributed mode, synchronize rejection across all processes
+                if is_distributed:
+                    # Broadcast whether this batch should be skipped
+                    # 1 if batch should be kept, 0 if it should be skipped
+                    batch_valid = torch.tensor([1 if batch is not None else 0], device=device)
+                    torch.distributed.all_reduce(batch_valid, op=torch.distributed.ReduceOp.MIN)
+                    if batch_valid.item() == 0:
+                        continue
+                elif batch is None:
                     continue
                     
                 optimizer.zero_grad()
@@ -425,7 +433,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
             val_loss = 0.0
             for batch in val_dataloader:
                 # Skip None batches (those outside batch_atom_bounds)
-                if batch is None:
+                # In distributed mode, synchronize rejection across all processes
+                if is_distributed:
+                    # Broadcast whether this batch should be skipped
+                    batch_valid = torch.tensor([1 if batch is not None else 0], device=device)
+                    torch.distributed.all_reduce(batch_valid, op=torch.distributed.ReduceOp.MIN)
+                    if batch_valid.item() == 0:
+                        continue
+                elif batch is None:
                     continue
                     
                 systems, targets, extra_data = unpack_batch(batch)
