@@ -229,30 +229,51 @@ def systems_to_batch(
                 options.cutoff,
                 cutoff_width=cutoff_width,
             )
+            # symmetrize the cutoffs between pairs of atoms (PET needs this symmetry
+            # due to its corresponding edge indexing ij -> ji)
+            pair_cutoffs = (atomic_cutoffs[centers] + atomic_cutoffs[neighbors]) / 2.0
         with torch.profiler.record_function("PET::adaptive_cutoff_masking"):
             # NOTE: this assumes that `get_adaptive_cutoffs` handles isolated atoms
             # correctly by assigning them a reasonable cutoff. This is the case at the
             # moment due to the baseline density; see `get_gaussian_cutoff_weights()`.
-            cutoff_mask = edge_distances <= atomic_cutoffs[centers]
+            cutoff_mask = edge_distances <= pair_cutoffs[centers]
+
+            cutoff_mask = edge_distances <= pair_cutoffs
+            pair_cutoffs = pair_cutoffs[cutoff_mask]
             centers = centers[cutoff_mask]
             neighbors = neighbors[cutoff_mask]
             edge_vectors = edge_vectors[cutoff_mask]
             cell_shifts = cell_shifts[cutoff_mask]
+            edge_distances = edge_distances[cutoff_mask]
     else:
-        atomic_cutoffs = options.cutoff * torch.ones(
-            len(positions), device=positions.device, dtype=positions.dtype
+        pair_cutoffs = options.cutoff * torch.ones(
+            len(centers), device=positions.device, dtype=positions.dtype
         )
 
     num_neighbors = torch.bincount(centers)
 
     # uncomment these to print out stats on the adaptive cutoff behavior
-    # print("adaptive_cutoffs", *atomic_cutoffs.tolist())
+    # print("adaptive_cutoffs", *pair_cutoffs.tolist())
     # print("num_neighbors", *num_neighbors.tolist())
 
     if num_neighbors.numel() == 0:  # no edges
         max_edges_per_node = 0
     else:
         max_edges_per_node = int(torch.max(num_neighbors))
+
+    if cutoff_function.lower() == "bump":
+        # use bump switching function for adaptive cutoff
+        cutoff_factors = cutoff_func_bump(edge_distances, pair_cutoffs, cutoff_width)
+    elif cutoff_function.lower() == "cosine":
+        # backward-compatible cosine swithcing for fixed cutoff
+        cutoff_factors = cutoff_func_cosine(
+            edge_distances, pair_cutoffs, cutoff_width
+        )
+    else:
+        raise ValueError(
+            f"Unknown cutoff function type: {cutoff_function}. "
+            f"Supported types are 'Cosine' and 'Bump'."
+        )
 
     # Convert to NEF (Node-Edge-Feature) format:
     nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
@@ -269,6 +290,7 @@ def systems_to_batch(
     element_indices_neighbors = edge_array_to_nef(
         element_indices_neighbors, nef_indices
     )
+    cutoff_factors = edge_array_to_nef(cutoff_factors, nef_indices, nef_mask, 0.0)
 
     corresponding_edges = get_corresponding_edges(
         torch.concatenate(
@@ -297,22 +319,6 @@ def systems_to_batch(
     reverse_neighbor_index[~nef_mask] = torch.arange(
         int(torch.sum(~nef_mask)), device=reverse_neighbor_index.device
     )
-    if cutoff_function.lower() == "bump":
-        # use bump switching function for adaptive cutoff
-        cutoff_factors = cutoff_func_bump(
-            edge_distances, atomic_cutoffs.unsqueeze(1), cutoff_width
-        )
-    elif cutoff_function.lower() == "cosine":
-        # backward-compatible cosine swithcing for fixed cutoff
-        cutoff_factors = cutoff_func_cosine(
-            edge_distances, atomic_cutoffs.unsqueeze(1), cutoff_width
-        )
-    else:
-        raise ValueError(
-            f"Unknown cutoff function type: {cutoff_function}. "
-            f"Supported types are 'Cosine' and 'Bump'."
-        )
-    cutoff_factors[~nef_mask] = 0.0
 
     return (
         element_indices_nodes,
