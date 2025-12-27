@@ -386,29 +386,31 @@ class CollateFn:
         self.target_keys: Set[str] = set(target_keys)
         self.callables: List[Callable] = callables if callables is not None else []
         self.join_kwargs: Dict[str, Any] = join_kwargs or {"different_keys": "union"}
-        
+
         # Handle batch_atom_bounds
         if batch_atom_bounds is None:
             batch_atom_bounds = [None, None]
-        
+
         # Validate batch_atom_bounds format
         if not isinstance(batch_atom_bounds, list) or len(batch_atom_bounds) != 2:
             raise ValueError(
                 f"batch_atom_bounds must be a list of exactly 2 elements [min, max], "
                 f"got {batch_atom_bounds}"
             )
-        
+
         self.min_atoms_per_batch = batch_atom_bounds[0]
         self.max_atoms_per_batch = batch_atom_bounds[1]
 
         # Validate the bounds
         if self.min_atoms_per_batch is not None and self.min_atoms_per_batch < 1:
             raise ValueError(
-                f"min_atoms_per_batch must be at least 1, got {self.min_atoms_per_batch}"
+                "min_atoms_per_batch must be at least 1, got "
+                f"{self.min_atoms_per_batch}"
             )
         if self.max_atoms_per_batch is not None and self.max_atoms_per_batch < 1:
             raise ValueError(
-                f"max_atoms_per_batch must be at least 1, got {self.max_atoms_per_batch}"
+                "max_atoms_per_batch must be at least 1, got "
+                f"{self.max_atoms_per_batch}"
             )
         if (
             self.min_atoms_per_batch is not None
@@ -416,14 +418,16 @@ class CollateFn:
             and self.min_atoms_per_batch > self.max_atoms_per_batch
         ):
             raise ValueError(
-                f"min_atoms_per_batch ({self.min_atoms_per_batch}) must be less than or "
-                f"equal to max_atoms_per_batch ({self.max_atoms_per_batch})"
+                f"min_atoms_per_batch ({self.min_atoms_per_batch}) must be less than "
+                f"or equal to max_atoms_per_batch ({self.max_atoms_per_batch})"
             )
 
     def __call__(
         self,
         batch: List[Dict[str, Any]],
-    ) -> Optional[Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]]:
+    ) -> Optional[
+        Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]
+    ]:
         """
         :param batch: A batch
         :return: A tuple containing:
@@ -433,18 +437,24 @@ class CollateFn:
             - a list with the sizes of each target buffer
             - a list with the names of each extra data
             - a list with the sizes of each extra data buffer
-            
+
             Returns None if the batch is outside the specified atom count bounds.
         """
         # Check batch atom bounds if specified
         if self.min_atoms_per_batch is not None or self.max_atoms_per_batch is not None:
             total_atoms = sum(len(sample["system"]) for sample in batch)
-            
-            if self.min_atoms_per_batch is not None and total_atoms < self.min_atoms_per_batch:
+
+            if (
+                self.min_atoms_per_batch is not None
+                and total_atoms < self.min_atoms_per_batch
+            ):
                 return None
-            if self.max_atoms_per_batch is not None and total_atoms > self.max_atoms_per_batch:
+            if (
+                self.max_atoms_per_batch is not None
+                and total_atoms > self.max_atoms_per_batch
+            ):
                 return None
-        
+
         # group & join
         collated = group_and_join(batch, join_kwargs=self.join_kwargs)
         data = collated._asdict()

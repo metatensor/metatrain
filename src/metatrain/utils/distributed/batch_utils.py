@@ -10,11 +10,11 @@ def should_skip_batch(
 ) -> bool:
     """
     Check if a batch should be skipped in distributed training.
-    
+
     In distributed mode, synchronizes across all processes to ensure
     all processes agree on whether to skip the batch. If any process
     has a None batch, all processes will skip.
-    
+
     :param batch: The batch to check (None if invalid).
     :param is_distributed: Whether distributed training is enabled.
     :param device: The device to use for distributed communication.

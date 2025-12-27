@@ -9,7 +9,7 @@ from metatrain.utils.data import CollateFn
 
 def test_collate_fn_with_batch_bounds_creation():
     """Test that CollateFn can be created with batch_atom_bounds parameter."""
-    
+
     # Test with both bounds
     collate_fn = CollateFn(target_keys=["energy"], batch_atom_bounds=[5, 100])
     assert collate_fn.min_atoms_per_batch == 5
@@ -33,7 +33,7 @@ def test_collate_fn_with_batch_bounds_creation():
 
 def test_collate_fn_with_batch_bounds_invalid_bounds():
     """Test that CollateFn rejects invalid bounds."""
-    
+
     # Test min > max
     with pytest.raises(ValueError, match="must be less than or equal to"):
         CollateFn(target_keys=["energy"], batch_atom_bounds=[100, 50])
@@ -45,7 +45,7 @@ def test_collate_fn_with_batch_bounds_invalid_bounds():
     # Test negative max
     with pytest.raises(ValueError, match="must be at least 1"):
         CollateFn(target_keys=["energy"], batch_atom_bounds=[5, 0])
-    
+
     # Test invalid format
     with pytest.raises(ValueError, match="must be a list of exactly 2 elements"):
         CollateFn(target_keys=["energy"], batch_atom_bounds=[5])
@@ -53,7 +53,7 @@ def test_collate_fn_with_batch_bounds_invalid_bounds():
 
 def test_collate_fn_with_batch_bounds_filtering():
     """Test that batches are correctly filtered based on atom counts."""
-    
+
     # Create a collate function with bounds
     collate_fn = CollateFn(target_keys=["energy"], batch_atom_bounds=[10, 50])
 
@@ -99,7 +99,7 @@ def test_collate_fn_with_batch_bounds_filtering():
     )
     batch_ok = [{"system": system_ok, "energy": torch.tensor([1.0])}]
 
-    # Should not return None for valid atom count (will fail on missing data but that's OK)
+    # Should not return None for valid atom count, will fail on missing data as expected
     try:
         result = collate_fn(batch_ok)
         # If it doesn't raise and doesn't return None, the bounds check passed
@@ -111,7 +111,7 @@ def test_collate_fn_with_batch_bounds_filtering():
 
 def test_collate_fn_with_batch_bounds_multiple_systems():
     """Test batch bounds with multiple systems in a batch."""
-    
+
     # Create a collate function with bounds
     collate_fn = CollateFn(target_keys=["energy"], batch_atom_bounds=[15, 30])
 
@@ -132,7 +132,7 @@ def test_collate_fn_with_batch_bounds_multiple_systems():
     )
     batch = [
         {"system": system1, "energy": torch.tensor([1.0])},
-        {"system": system2, "energy": torch.tensor([2.0])}
+        {"system": system2, "energy": torch.tensor([2.0])},
     ]
 
     # Should not return None for valid atom count (total = 16, within bounds)

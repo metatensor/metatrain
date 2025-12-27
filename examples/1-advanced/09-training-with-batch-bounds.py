@@ -13,7 +13,6 @@ Batch bounds are specified in the architecture's training options and apply to b
 training and validation dataloaders.
 """
 
-import metatrain
 
 # %%
 # First, let's create a configuration that includes batch bounds.
