@@ -254,7 +254,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
             target_info_dict=train_targets, extra_data_info_dict=extra_data_info
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
-
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
@@ -411,7 +410,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
             train_loss = 0.0
             for batch in train_dataloader:
                 # Skip None batches (those outside batch_atom_bounds)
-                # In distributed mode, synchronize rejection across all processes
                 if should_skip_batch(batch, is_distributed, device):
                     continue
 
@@ -477,7 +475,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
             val_loss = 0.0
             for batch in val_dataloader:
                 # Skip None batches (those outside batch_atom_bounds)
-                # In distributed mode, synchronize rejection across all processes
                 if should_skip_batch(batch, is_distributed, device):
                     continue
 
