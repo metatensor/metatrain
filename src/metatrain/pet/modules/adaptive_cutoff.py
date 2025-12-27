@@ -143,6 +143,7 @@ def get_gaussian_cutoff_weights(
 
     diff = diff + baseline.unsqueeze(0)
     if width is None:
+        # adaptive width from neighbor-count slope along probe axis (last dim)
         eps = 1e-12
         if diff.shape[-1] == 1:
             # Can't compute gradient from single point; use scaled diff as proxy
