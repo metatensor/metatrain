@@ -22,6 +22,7 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
@@ -129,7 +130,7 @@ def get_optimizer_and_scheduler(
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __hypers_cls__ = TrainerHypers
 
     def __init__(self, hypers: TrainerHypers) -> None:
@@ -278,6 +279,7 @@ class Trainer(TrainerInterface):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
 
         # Create dataloader for the training datasets:
@@ -405,6 +407,10 @@ class Trainer(TrainerInterface):
 
             train_loss = 0.0
             for batch in train_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = unpack_batch(batch)
@@ -472,6 +478,10 @@ class Trainer(TrainerInterface):
 
             val_loss = 0.0
             for batch in val_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device

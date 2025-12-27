@@ -10,3 +10,12 @@ def model_update_v1_v2(checkpoint: dict) -> None:
     # retrain, because the v1 situation was very bad.
     if checkpoint["model_data"]["hypers"]["edge_irreps"] is None:
         checkpoint["model_data"]["hypers"]["edge_irreps"] = ""
+
+
+def trainer_update_v1_v2(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 1 to version 2.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"]["batch_atom_bounds"] = [None, None]
