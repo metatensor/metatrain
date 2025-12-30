@@ -168,6 +168,7 @@ def get_gaussian_cutoff_weights(
 
     logw = -0.5 * (diff / width_t) ** 2
 
+    logw = -0.5 * (diff / width_t) ** 2
     weights = torch.exp(logw - logw.max())
 
     # row-wise normalization of the weights
