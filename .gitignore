@@ -186,3 +186,6 @@ docs/src/architectures/default_hypers/*
 node_modules/
 package-lock.json
 package.json
+
+# caching githash
+.data_version.txt
