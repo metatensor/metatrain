@@ -129,6 +129,8 @@ class ModelHypers(TypedDict):
     """Layer normalization type."""
     activation: Literal["SiLU", "SwiGLU"] = "SwiGLU"
     """Activation function."""
+    attention_temperature: float = 1.0
+    """The temperature scaling factor for attention scores."""
     transformer_type: Literal["PreLN", "PostLN"] = "PreLN"
     """The order in which the layer normalization and attention
     are applied in a transformer block. Available options are ``PreLN``
