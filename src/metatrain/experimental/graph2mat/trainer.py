@@ -299,7 +299,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
 
         per_structure_targets = [
-            *model.graph2mat_dataset_info.targets,
+            *(model.module if is_distributed else model).graph2mat_dataset_info.targets,
             *self.hypers["per_structure_targets"],
         ]
 
