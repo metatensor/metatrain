@@ -92,6 +92,7 @@ class FlashMD(ModelInterface[ModelHypers]):
                     self.num_attention_layers,
                     self.normalization,
                     self.activation,
+                    1.0,  # temperature scaling is fixed to 1.0
                     self.transformer_type,
                     num_atomic_species,
                     layer_index == 0,  # is first layer
