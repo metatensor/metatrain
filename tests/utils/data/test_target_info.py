@@ -129,6 +129,25 @@ def test_layout_cartesian(cartesian_target_config):
     assert target_info.device == target_info.layout.device
 
 
+def test_layout_cartesian_with_variant(cartesian_target_config):
+    """Test that cartesian targets with variant names (containing '/') work correctly.
+    
+    The '/' character is not accepted in Labels, so the variant part should be
+    removed when creating the properties labels.
+    """
+    # Use a target name with a variant (e.g., "dipole/variant1")
+    target_info = get_generic_target_info("dipole/variant1", cartesian_target_config)
+    assert target_info.quantity == "dipole"
+    assert target_info.unit == "D"
+    assert target_info.per_atom is True
+    assert target_info.gradients == []
+    
+    # Check that the properties labels were created correctly without the variant part
+    # The properties label should be "dipole", not "dipole/variant1"
+    block = target_info.layout.block()
+    assert block.properties.names == ["dipole"]
+
+
 def test_layout_spherical(spherical_target_config):
     target_info = get_generic_target_info("spherical", spherical_target_config)
     assert target_info.quantity == "spherical"
