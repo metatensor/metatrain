@@ -182,7 +182,7 @@ def systems_to_batch(
 
         # Convert to NEF (Node-Edge-Feature) format:
         nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
-            centers, num_nodes, max_edges_per_node
+            centers, num_nodes, max_edges_per_node, assume_sorted=True
         )
 
         # Element indices
@@ -199,7 +199,8 @@ def systems_to_batch(
             torch.concatenate(
                 [centers.unsqueeze(-1), neighbors.unsqueeze(-1), cell_shifts],
                 dim=-1,
-            )
+            ),
+            assume_sorted=True,
         )
 
     with record_function("compute reversed neighbor list"):

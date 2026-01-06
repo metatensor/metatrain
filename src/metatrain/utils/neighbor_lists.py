@@ -190,6 +190,15 @@ def _compute_single_neighbor_list(
 
         distances[n_pairs:] = -nl_D[selected]
 
+    # We need to sort the samples by the first atom index to ensure that
+    # the neighbor list is sorted by center atom. This is required for
+    # efficient batching in some models (e.g. FlashMD).
+    # We use a stable sort to preserve the relative order of neighbors
+    # (though not strictly required).
+    sort_indices = np.argsort(samples[:, 0], kind="stable")
+    samples = samples[sort_indices]
+    distances = distances[sort_indices]
+
     distances = torch.from_numpy(distances)
     return TensorBlock(
         values=distances.reshape(-1, 3, 1),
