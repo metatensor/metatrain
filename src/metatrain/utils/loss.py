@@ -578,9 +578,9 @@ class MaskedDOSLoss(LossInterface):
             gradient_loss = 0.0
         if self.int_weight > 0:
             int_predictions = torch.cumulative_trapezoid(
-                aligned_predictions**2, dx=0.05, dim=1
+                aligned_predictions, dx=0.05, dim=1
             )
-            int_target = torch.cumulative_trapezoid(target**2, dx=0.05, dim=1)
+            int_target = torch.cumulative_trapezoid(target, dx=0.05, dim=1)
             int_error = (int_predictions - int_target) ** 2
             int_error = int_error * mask[:, 1:].unsqueeze(
                 dim=1
