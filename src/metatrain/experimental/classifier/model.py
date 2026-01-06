@@ -51,7 +51,7 @@ class Classifier(ModelInterface[ModelHypers]):
 
         self.dataset_info = dataset_info
         self.hidden_sizes = hypers["hidden_sizes"]
-        self.feature_layer_idx = hypers["feature_layer_idx"]
+        self.feature_layer_index = hypers["feature_layer_index"]
 
     def set_wrapped_model(self, model: ModelInterface) -> None:
         """Set and freeze the wrapped pre-trained model.
@@ -153,14 +153,14 @@ class Classifier(ModelInterface[ModelHypers]):
         features = averaged_features.block().values
 
         # Resolve the feature layer index
-        feature_layer_idx = self.feature_layer_idx
+        feature_layer_index = self.feature_layer_index
         num_layers = len(self.mlp)
-        if feature_layer_idx < 0:
-            feature_layer_idx += num_layers
+        if feature_layer_index < 0:
+            feature_layer_index += num_layers
 
-        if not (0 <= feature_layer_idx < num_layers):
+        if not (0 <= feature_layer_index < num_layers):
             raise ValueError(
-                f"feature_layer_idx {self.feature_layer_idx} "
+                f"feature_layer_index {self.feature_layer_index} "
                 f"is out of bounds for an MLP with {num_layers} layers."
             )
 
@@ -170,7 +170,7 @@ class Classifier(ModelInterface[ModelHypers]):
 
         for i, layer in enumerate(self.mlp):
             current_tensor = layer(current_tensor)
-            if i == feature_layer_idx:
+            if i == feature_layer_index:
                 features_for_output = current_tensor
 
         # Perform classification on the final output

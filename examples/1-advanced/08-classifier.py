@@ -192,6 +192,8 @@ plt.show()
 # Having only 2 dimensions allows us to easily visualize them. A low dimensionality
 # is also necessary if we want to use these features as collective variables in enhanced
 # sampling simulations.
+# By default the last layer before the output is used as bottleneck, but this can be
+# configured with the model hyperparameter ``feature_layer_index``.
 
 # Extract features
 bottleneck_features = []

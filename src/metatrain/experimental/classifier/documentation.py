@@ -39,7 +39,7 @@ class ModelHypers(TypedDict):
     (generally one or two) if the goal is to extract collective variables.
     """
 
-    feature_layer_idx: int = -1
+    feature_layer_index: int = -1
     """Index of the MLP layer to be mapped to the 'features' output.
     Can be negative to index from the end. Default is -1 (the output layer).
     """
