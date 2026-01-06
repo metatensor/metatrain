@@ -135,7 +135,7 @@ def test_layout_cartesian(cartesian_target_config):
 )
 def test_layout_cartesian_with_variant(cartesian_target_config, target_name):
     """Test that cartesian targets with variant names and/or mtt:: prefix work correctly.
-    
+
     The '/' character is not accepted in Labels, so the variant part should be
     removed when creating the properties labels. The 'mtt::' prefix should also be
     removed.
@@ -145,7 +145,7 @@ def test_layout_cartesian_with_variant(cartesian_target_config, target_name):
     assert target_info.unit == "D"
     assert target_info.per_atom is True
     assert target_info.gradients == []
-    
+
     # Check that the properties labels were created correctly without the variant part
     # and mtt:: prefix. The properties label should be "dipole" in all cases.
     block = target_info.layout.block()
