@@ -158,8 +158,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         # Setup optimizer
+        # The backbone parameters have requires_grad=False, so they are excluded.
         optimizer = torch.optim.Adam(
-            model.mlp.parameters(),
+            model.parameters(),
             lr=self.hypers["learning_rate"],
         )
 

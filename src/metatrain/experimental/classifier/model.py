@@ -49,8 +49,9 @@ class Classifier(ModelInterface[ModelHypers]):
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
-        self.hypers = hypers
         self.dataset_info = dataset_info
+        self.hidden_sizes = hypers["hidden_sizes"]
+        self.feature_layer_idx = hypers["feature_layer_idx"]
 
     def set_wrapped_model(self, model: ModelInterface) -> None:
         """Set and freeze the wrapped pre-trained model.
@@ -103,16 +104,23 @@ class Classifier(ModelInterface[ModelHypers]):
 
     def build_mlp(self, feature_size: int, num_classes: int) -> None:
         """Build the MLP classifier based on the feature size."""
-        layers = []
+        # Use a ModuleList to allow accessing intermediate layers for feature extraction
+        self.mlp = torch.nn.ModuleList()
         current_size = feature_size
-        # Hidden layers (the last one acts as a bottleneck for feature extraction)
-        for i, hidden_size in enumerate(self.hypers["hidden_sizes"]):
-            if i != len(self.hypers["hidden_sizes"]) - 1:
-                layers.append(torch.nn.LayerNorm(current_size))
-            layers.append(torch.nn.Linear(current_size, hidden_size))
-            layers.append(torch.nn.SiLU())
+        n_layers = len(self.hidden_sizes)
+
+        for i, hidden_size in enumerate(self.hidden_sizes):
+            block_layers = []
+            # Add LayerNorm if it's not the last layer
+            if i != n_layers - 1:
+                block_layers.append(torch.nn.LayerNorm(current_size))
+
+            block_layers.append(torch.nn.Linear(current_size, hidden_size))
+            block_layers.append(torch.nn.SiLU())
+
+            self.mlp.append(torch.nn.Sequential(*block_layers))
             current_size = hidden_size
-        self.mlp = torch.nn.Sequential(*layers)
+
         # Final classification layer
         self.linear = torch.nn.Linear(current_size, num_classes, bias=False)
 
@@ -144,26 +152,47 @@ class Classifier(ModelInterface[ModelHypers]):
         )
         features = averaged_features.block().values
 
-        # Forward through MLP
-        features_after_mlp = self.mlp(features)
+        # Resolve the feature layer index
+        feature_layer_idx = self.feature_layer_idx
+        num_layers = len(self.mlp)
+        if feature_layer_idx < 0:
+            feature_layer_idx += num_layers
 
+        if not (0 <= feature_layer_idx < num_layers):
+            raise ValueError(
+                f"feature_layer_idx {self.feature_layer_idx} "
+                f"is out of bounds for an MLP with {num_layers} layers."
+            )
+
+        # Forward through MLP layers
+        current_tensor = features
+        features_for_output = current_tensor
+
+        for i, layer in enumerate(self.mlp):
+            current_tensor = layer(current_tensor)
+            if i == feature_layer_idx:
+                features_for_output = current_tensor
+
+        # Perform classification on the final output
+        logits = self.linear(current_tensor)
+
+        # Store features output if requested
         if "features" in outputs:
-            # Store the features after MLP as output
             output_tmap = TensorMap(
                 keys=Labels(
                     names=["_"],
-                    values=torch.tensor([[0]], device=features_after_mlp.device),
+                    values=torch.tensor([[0]], device=features_for_output.device),
                 ),
                 blocks=[
                     TensorBlock(
-                        values=features_after_mlp,
+                        values=features_for_output,
                         samples=averaged_features.block().samples,
                         components=[],
                         properties=Labels(
                             names=["feature"],
                             values=torch.arange(
-                                features_after_mlp.shape[-1],
-                                device=features_after_mlp.device,
+                                features_for_output.shape[-1],
+                                device=features_for_output.device,
                             ).reshape(-1, 1),
                             assume_unique=True,
                         ),
@@ -171,8 +200,6 @@ class Classifier(ModelInterface[ModelHypers]):
                 ],
             )
             return_dict["features"] = output_tmap
-
-        logits = self.linear(features_after_mlp)
 
         # Apply softmax to get probabilities
         probabilities = torch.nn.functional.softmax(logits, dim=-1)
@@ -250,14 +277,28 @@ class Classifier(ModelInterface[ModelHypers]):
         elif context == "export":
             classifier_model = cls(**checkpoint["model_data"])
             classifier_model.set_wrapped_model(model)
-            classifier_model.build_mlp(
-                checkpoint["state_dict"]["mlp.1.weight"].shape[1],
-                checkpoint["state_dict"]["linear.weight"].shape[0],
-            )
+
+            state_dict = checkpoint["state_dict"]
+            input_feat_size = None
+
+            # Check the first layer of the first block (mlp.0.0)
+            if "mlp.0.0.weight" in state_dict:
+                w = state_dict["mlp.0.0.weight"]
+                # If LayerNorm (1D), the size is shape[0]
+                # If Linear (2D), the input size is shape[1]
+                input_feat_size = w.shape[0] if w.ndim == 1 else w.shape[1]
+
+            if input_feat_size is None:
+                raise ValueError(
+                    "Could not detect input feature size from checkpoint state_dict."
+                )
+
+            num_classes = state_dict["linear.weight"].shape[0]
+
+            classifier_model.build_mlp(input_feat_size, num_classes)
+
             dtype = next(model.parameters()).dtype
-            classifier_model.to(dtype).load_state_dict(
-                checkpoint["state_dict"], strict=False
-            )
+            classifier_model.to(dtype).load_state_dict(state_dict, strict=False)
             return classifier_model
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
