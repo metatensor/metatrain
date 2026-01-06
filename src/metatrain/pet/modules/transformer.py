@@ -50,7 +50,7 @@ class AttentionBlock(nn.Module):
 
     :param total_dim: The total dimension of the input and output tensors.
     :param num_heads: The number of attention heads.
-    :param scale_factor: An additional scaling factor for attention scores.
+    :param temperature: An additional scaling factor for attention scores.
            This is combined with the standard scaling by the square root of
            the head dimension.
     :param epsilon: A small value to avoid division by zero.
@@ -60,7 +60,7 @@ class AttentionBlock(nn.Module):
         self,
         total_dim: int,
         num_heads: int,
-        scale_factor: float,
+        temperature: float,
         epsilon: float = 1e-15,
     ) -> None:
         super(AttentionBlock, self).__init__()
@@ -70,7 +70,7 @@ class AttentionBlock(nn.Module):
 
         self.num_heads = num_heads
         self.epsilon = epsilon
-        self.scale_factor = scale_factor
+        self.temperature = temperature
         if total_dim % num_heads != 0:
             raise ValueError("total dimension is not divisible by the number of heads")
         self.head_dim = total_dim // num_heads
@@ -101,14 +101,14 @@ class AttentionBlock(nn.Module):
         attn_weights = torch.clamp(cutoff_factors[:, None, :, :], self.epsilon)
         attn_weights = torch.log(attn_weights)
         if use_manual_attention:
-            x = manual_attention(queries, keys, values, attn_weights, self.scale_factor)
+            x = manual_attention(queries, keys, values, attn_weights, self.temperature)
         else:
             x = torch.nn.functional.scaled_dot_product_attention(
                 queries,
                 keys,
                 values,
                 attn_mask=attn_weights,
-                scale=1.0 / (self.head_dim**0.5 * self.scale_factor),
+                scale=1.0 / (self.head_dim**0.5 * self.temperature),
             )
         x = x.transpose(1, 2).reshape(initial_shape)
         x = self.output_linear(x)
@@ -126,7 +126,7 @@ class TransformerLayer(torch.nn.Module):
     :param norm: The normalization type, either "LayerNorm" or "RMSNorm".
     :param activation: The activation function, either "SiLU" or "SwiGLU".
     :param transformer_type: The type of transformer, either "PostLN" or "PreLN".
-    :param scale_factor: An additional scaling factor for attention scores.
+    :param temperature: An additional scaling factor for attention scores.
     """
 
     def __init__(
@@ -138,10 +138,10 @@ class TransformerLayer(torch.nn.Module):
         norm: str = "LayerNorm",
         activation: str = "SiLU",
         transformer_type: str = "PostLN",
-        scale_factor: float = 1.0,
+        temperature: float = 1.0,
     ) -> None:
         super(TransformerLayer, self).__init__()
-        self.attention = AttentionBlock(d_model, n_heads, scale_factor)
+        self.attention = AttentionBlock(d_model, n_heads, temperature)
         self.transformer_type = transformer_type
         self.d_model = d_model
         norm_class = getattr(nn, norm)
@@ -318,7 +318,7 @@ class Transformer(torch.nn.Module):
                     norm=norm,
                     activation=activation,
                     transformer_type=transformer_type,
-                    scale_factor=attention_temperature,
+                    temperature=attention_temperature,
                 )
                 for _ in range(num_layers)
             ]
@@ -526,7 +526,7 @@ def manual_attention(
     k: torch.Tensor,
     v: torch.Tensor,
     attn_mask: torch.Tensor,
-    scale_factor: float,
+    temperature: float,
 ) -> torch.Tensor:
     """
     Implements the attention operation manually, using basic PyTorch operations.
@@ -537,11 +537,11 @@ def manual_attention(
     :param k: The keys
     :param v: The values
     :param attn_mask: The attention mask
-    :param scale_factor: An additional scaling factor for attention scores.
+    :param temperature: An additional scaling factor for attention scores.
     :return: The result of the attention operation
     """
     attention_weights = (
-        torch.matmul(q, k.transpose(-2, -1)) / (k.size(-1) ** 0.5 * scale_factor)
+        torch.matmul(q, k.transpose(-2, -1)) / (k.size(-1) ** 0.5 * temperature)
     ) + attn_mask
     attention_weights = attention_weights.softmax(dim=-1)
     attention_output = torch.matmul(attention_weights, v)

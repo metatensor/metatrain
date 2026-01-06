@@ -46,7 +46,7 @@ class FlashMD(ModelInterface[ModelHypers]):
     For more information, you can refer to https://arxiv.org/abs/2505.19350.
     """
 
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -70,6 +70,7 @@ class FlashMD(ModelInterface[ModelHypers]):
         self.num_attention_layers = self.hypers["num_attention_layers"]
         self.normalization = self.hypers["normalization"]
         self.activation = self.hypers["activation"]
+        self.attention_temperature = self.hypers["attention_temperature"]
         self.transformer_type = self.hypers["transformer_type"]
         self.featurizer_type = self.hypers["featurizer_type"]
 
@@ -92,7 +93,7 @@ class FlashMD(ModelInterface[ModelHypers]):
                     self.num_attention_layers,
                     self.normalization,
                     self.activation,
-                    1.0,  # temperature scaling is fixed to 1.0
+                    self.attention_temperature,
                     self.transformer_type,
                     num_atomic_species,
                     layer_index == 0,  # is first layer

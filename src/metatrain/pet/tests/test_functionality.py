@@ -74,9 +74,9 @@ def test_consistency():
     num_neighbors_per_center = 50
     hidden_size = 128
     num_heads = 4
-    scale_factor = 2.0
+    temperature = 2.0
 
-    attention = AttentionBlock(hidden_size, num_heads, scale_factor)
+    attention = AttentionBlock(hidden_size, num_heads, temperature)
 
     inputs = torch.randn(num_centers, num_neighbors_per_center, hidden_size)
     radial_mask = torch.rand(

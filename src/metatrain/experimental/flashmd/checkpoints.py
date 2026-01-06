@@ -17,9 +17,9 @@ def model_update_v2_v3(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to update.
     """
-    # Add missing activation_temperature hyperparameter with default value
-    if "activation_temperature" not in checkpoint["model_hypers"]:
-        checkpoint["model_hypers"]["activation_temperature"] = 1.0
+    # Adding the attention_temperature hyperparameter if not present
+    if "attention_temperature" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["attention_temperature"] = 1.0
 
 
 def trainer_update_v1_v2(checkpoint: dict) -> None:
