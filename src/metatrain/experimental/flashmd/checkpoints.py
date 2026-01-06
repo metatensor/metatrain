@@ -11,6 +11,17 @@ def model_update_v1_v2(checkpoint: dict) -> None:
             target.unit = "(eV*u)^(1/2)"
 
 
+def model_update_v2_v3(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 2 to version 3.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Add missing activation_temperature hyperparameter with default value
+    if "activation_temperature" not in checkpoint["model_hypers"]:
+        checkpoint["model_hypers"]["activation_temperature"] = 1.0
+
+
 def trainer_update_v1_v2(checkpoint: dict) -> None:
     """
     Update trainer checkpoint from version 1 to version 2.
