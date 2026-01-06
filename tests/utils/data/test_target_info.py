@@ -129,6 +129,29 @@ def test_layout_cartesian(cartesian_target_config):
     assert target_info.device == target_info.layout.device
 
 
+@pytest.mark.parametrize(
+    "target_name",
+    ["dipole/variant1", "mtt::dipole", "mtt::dipole/variant1"],
+)
+def test_layout_cartesian_with_variant(cartesian_target_config, target_name):
+    """Test that cartesian targets with variant names and/or mtt:: prefix work correctly.
+    
+    The '/' character is not accepted in Labels, so the variant part should be
+    removed when creating the properties labels. The 'mtt::' prefix should also be
+    removed.
+    """
+    target_info = get_generic_target_info(target_name, cartesian_target_config)
+    assert target_info.quantity == "dipole"
+    assert target_info.unit == "D"
+    assert target_info.per_atom is True
+    assert target_info.gradients == []
+    
+    # Check that the properties labels were created correctly without the variant part
+    # and mtt:: prefix. The properties label should be "dipole" in all cases.
+    block = target_info.layout.block()
+    assert block.properties.names == ["dipole"]
+
+
 def test_layout_spherical(spherical_target_config):
     target_info = get_generic_target_info("spherical", spherical_target_config)
     assert target_info.quantity == "spherical"
