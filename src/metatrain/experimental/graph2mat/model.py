@@ -386,17 +386,11 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
         model = cls(**model_data)
         # Infer dtype
         dtype = None
-        # Otherwise, just look at the weights in the state dict
-        for k, v in model_state_dict.items():
-            if k.endswith(".weight"):
-                dtype = v.dtype
-                break
-        else:
-            raise ValueError("Couldn't infer dtype from the checkpoint file")
 
         # Set up composition and scaler models
         # model.additive_models[0].sync_tensor_maps()
         # model.scaler.sync_tensor_maps()
+        model.load_state_dict(model_state_dict)
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
