@@ -51,10 +51,8 @@ jobs:
         uv pip install coverage[toml]
         uv tool install tox --with tox-uv
 
-    - name: run Python tests and collect coverage
-      run: |
-        tox -e tests
-        coverage xml --data-file tests/.coverage
+    - name: run Python tests
+      run: tox -e tests
       env:
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
