@@ -9,6 +9,8 @@ from torch.nn.modules.loss import _Loss
 import numpy as np
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.output_gradient import compute_gradient
+import scipy
+from scipy.ndimage import gaussian_filter1d
 
 class LossInterface(ABC):
     """
@@ -878,7 +880,7 @@ class GapDOSLoss(LossInterface):
         pred_CDOS = torch.cumulative_trapezoid(dos_predictions, dx=0.05, dim=1) + cdos_start_prediction.unsqueeze(dim=1) # shape 700
         CDOS_MSE = 0
         for index_i, shift_i in enumerate(shift):
-            pred_CDOS_i = pred_CDOS[index_i][shift_i : shift_i + len(true_CDOS[0])]
+            pred_CDOS_i = pred_CDOS[index_i][shift_i + 1 : shift_i + 1 + len(true_CDOS[0])]
             CDOS_loss_i = torch.trapezoid((pred_CDOS_i - true_CDOS[index_i])**2, dx =0.05)
             CDOS_MSE += CDOS_loss_i
 
@@ -996,7 +998,7 @@ class FocusedDOSLoss(LossInterface):
         pred_CDOS = torch.cumulative_trapezoid(dos_predictions, dx=0.05, dim=1) + cdos_start_prediction.unsqueeze(dim=1) # shape 700
         CDOS_MSE = 0
         for index_i, shift_i in enumerate(shift):
-            pred_CDOS_i = pred_CDOS[index_i][shift_i : shift_i + len(true_CDOS[0])]
+            pred_CDOS_i = pred_CDOS[index_i][shift_i + 1: shift_i + 1 + len(true_CDOS[0])]
             CDOS_loss_i = torch.trapezoid((pred_CDOS_i - true_CDOS[index_i])**2, dx =0.05)
             CDOS_MSE += CDOS_loss_i
 
@@ -1024,6 +1026,397 @@ class FocusedDOSLoss(LossInterface):
         total_loss = total_dos_loss
         return total_loss
 
+
+class DifferentiableDenoiser(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        # Calculate kernel parameters
+        # Sigma from your code: 0.5 / 0.05 = 10.0
+        sigma = 10.0
+        
+        # SciPy's gaussian_filter1d defaults to truncating at 4.0 sigmas
+        truncate = 4.0
+        radius = int(truncate * sigma + 0.5)
+        
+        # Generate the Gaussian kernel
+        x_coord = torch.arange(-radius, radius + 1).float()
+        kernel = torch.exp(-0.5 * (x_coord / sigma) ** 2)
+        kernel = kernel / kernel.sum()  # Normalize
+        
+        # Reshape for conv1d: (Out_channels, In_channels, Kernel_size)
+        # We register it as a buffer so it is saved with the model but not trained
+        self.register_buffer('kernel', kernel.view(1, 1, -1))
+        self.pad_size = radius
+
+    def denoise(self, x):
+        """
+        x: Input tensor (Length,) or (Batch, Length)
+        """
+        # 1. Reshape input to (Batch, Channel, Length) for conv1d
+        is_1d = x.dim() == 1
+        if is_1d:
+            x_input = x.view(1, 1, -1)
+        elif x.dim() == 2:
+            x_input = x.unsqueeze(1)
+        else:
+            x_input = x
+
+        # 2. Pad using 'replicate' (equivalent to nearest-neighbor padding)
+        x_padded = torch.nn.functional.pad(
+            x_input, 
+            (self.pad_size, self.pad_size), 
+            mode='replicate'
+        )
+
+        # 3. Apply Gaussian filter (differentiable)
+        a = torch.nn.functional.conv1d(x_padded, self.kernel)
+
+        # 4. Restore original shape
+        if is_1d:
+            a = a.squeeze()
+        elif x.dim() == 2:
+            a = a.squeeze(1)
+
+        # 5. Apply Sigmoid and multiply
+        # Removed torch.tensor() wrapper to preserve gradients
+        return x * torch.sigmoid((a - 0.1) * 100)
+
+def get_gap_differentiable(doses: torch.Tensor, cdos_starts: torch.Tensor, n_elecs: torch.Tensor, tol=0.1, dx=0.05, temp=100.0):
+    """
+    Calculates band gaps in a fully vectorized, differentiable way.
+    'temp' controls the sharpness of the gap detection mask.
+    Lower temp (e.g. 100) = Smoother gradients.
+    Higher temp (e.g. 10000) = Sharper, binary-like cutoffs.
+    """
+    cdoses = torch.cumsum(doses, dim=1) * dx + cdos_starts.view(-1,1)
+    
+    # We detach this index calculation because discrete indexing is not differentiable.
+    # Gradients flow through the gap *width*, not the *position* of Ef.
+    Ef_indices = torch.argmax((cdoses > n_elecs.unsqueeze(1)).float(), dim=1).detach()
+
+    # Soft mask: Sigmoid. 
+    # If dose < tol -> val is ~1.0 (Gap). If dose > tol -> val is ~0.0 (No Gap).
+    is_gap = torch.sigmoid(temp * (tol - doses))
+
+    batch_size, n_grid = doses.shape
+    device = doses.device
+    
+    # Create grid indices
+    grid_indices = torch.arange(n_grid, device=device).unsqueeze(0).expand(batch_size, -1)
+    Ef_indices_expanded = Ef_indices.unsqueeze(1)
+
+    # Positional Masks
+    mask_right = grid_indices >= Ef_indices_expanded # Include Ef in right sweep
+    mask_left = grid_indices < Ef_indices_expanded   # Exclude Ef in left sweep
+
+    # --- Right Side Sweep ---
+    # Set everything to the LEFT of Ef to 1.0 so they don't block the cumprod flow
+    right_input = is_gap.clone()
+    right_input[~mask_right] = 1.0 
+    
+    # Cumprod flows Left -> Right. It stops multiplying (becomes 0) once it hits a high DOS region.
+    right_connectivity = torch.cumprod(right_input, dim=1)
+    right_gap_width = torch.sum(right_connectivity * mask_right, dim=1) * dx
+
+    # --- Left Side Sweep ---
+    # Set everything to the RIGHT of Ef to 1.0
+    left_input = is_gap.clone()
+    left_input[~mask_left] = 1.0
+    
+    # Cumprod flows Right -> Left (using flip)
+    left_connectivity = torch.cumprod(left_input.flip(1), dim=1).flip(1)
+    left_gap_width = torch.sum(left_connectivity * mask_left, dim=1) * dx
+
+    return left_gap_width + right_gap_width
+
+class PhysicalGapDOSLoss(LossInterface):
+    """
+    Focused DOS loss on :py:class:`TensorMap` entries.
+
+    :param name: key for the dos in the prediction/target dictionary.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param force_weight: Multiplier for the forces of the gap.
+    :param force: Whether to apply the force term.
+    :param reduction: reduction mode for torch loss.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        int_weight: float,
+        gap_weight: float,
+        extra_targets: int,
+        reduction: str,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+        )
+        self.int_weight = int_weight
+        self.gap_weight = gap_weight
+        self.extra_targets = extra_targets # should be 300 for this exercise
+        self.sigmoid = torch.nn.Sigmoid()
+
+        self.print = True
+        self.denoiser = DifferentiableDenoiser()
+
+        
+    def compute(
+        self,
+        model_predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        """
+        """
+        gap_key = f"mtt::gap"
+        CDOS_key = f"mtt::cdos"
+        mask_key = f"mtt::mask"
+        elec_key = f"mtt::nelec"
+        systems, model, extra_data = extra_data
+        if extra_data is None or gap_key not in extra_data:
+            raise ValueError(
+                f"Expected extra_data to contain TensorMap under '{gap_key}'"
+            )
+        if CDOS_key not in extra_data:
+            raise ValueError(
+                f"Expected extra_data to contain TensorMap under '{CDOS_key}'"
+            )
+        if mask_key not in extra_data:
+            raise ValueError(
+                f"Expected extra_data to contain TensorMap under '{mask_key}'"
+            )
+        if elec_key not in extra_data:
+            raise ValueError(
+                f"Expected extra_data to contain TensorMap under '{elec_key}'"
+            )
+        
+        tensor_map_pred = model_predictions[self.target] # should be the dos prediction (Normalized already)
+        tensor_map_gap = extra_data[gap_key]
+        tensor_map_CDOS = extra_data[CDOS_key]
+        tensor_map_mask = extra_data[mask_key]
+        tensor_map_elec = extra_data[elec_key]
+        tensor_map_targ = targets[self.target]
+        # LAST DOS VALUE IS START OF CDOS
+        # There should only be one block
+        dos_predictions = self.denoiser.denoise(tensor_map_pred.block().values[:,:-1])
+        cdos_start_prediction = tensor_map_pred.block().values[:,-1]
+        true_gap = tensor_map_gap.block().values # Already Normalized wrt atoms
+        true_dos = tensor_map_targ.block().values[:, self.extra_targets+1:] # Already normalized wrt atoms
+        true_CDOS = tensor_map_CDOS.block().values[:, self.extra_targets:] # Already Normalized wrt atoms
+        mask = tensor_map_mask.block().values.bool()[:, self.extra_targets:]
+        true_n_electrons = tensor_map_elec.block().values.squeeze()
+
+        # Evaluate error on DOS
+        device = dos_predictions.device
+        predictions_unfolded = dos_predictions.unfold(1, len(true_dos[0]), 1)
+        target_expanded = true_dos[:, None, :]
+        delta = target_expanded - predictions_unfolded
+        dynamic_delta = delta * mask.unsqueeze(dim=1)
+        losses = torch.trapezoid(dynamic_delta * dynamic_delta, dx=0.05, dim=2)
+        front_tail = torch.cumulative_trapezoid(dos_predictions**2, dx=0.05, dim=1)
+        additional_error = torch.hstack(
+            [
+                torch.zeros(len(dos_predictions), device=device).reshape(-1, 1),
+                front_tail[:, : self.extra_targets],
+            ]
+        )
+        total_losses = losses + additional_error
+        final_loss, shift = torch.min(total_losses, dim=1)
+        dos_loss = torch.mean(final_loss)
+
+        # CDOS loss
+        pred_CDOS = torch.cumulative_trapezoid(dos_predictions, dx=0.05, dim=1) + cdos_start_prediction.unsqueeze(dim=1) # shape 700
+        CDOS_MSE = 0
+        for index_i, shift_i in enumerate(shift):
+            pred_CDOS_i = pred_CDOS[index_i][shift_i + 1: shift_i + 1 + len(true_CDOS[0])]
+            CDOS_loss_i = torch.trapezoid((pred_CDOS_i - true_CDOS[index_i])**2, dx =0.05)
+            CDOS_MSE += CDOS_loss_i
+
+        CDOS_MSE = CDOS_MSE / len(systems)
+        total_dos_loss = dos_loss + CDOS_MSE * self.int_weight
+
+        # Bandgap loss
+        # Get gap
+        bandgap_predictions  = get_gap_differentiable(doses=dos_predictions, cdos_starts=cdos_start_prediction, n_elecs=true_n_electrons, tol=0.1, dx=0.05, temp=100.0)
+
+        # if self.force:
+        #      gap_force_predictions = torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True, destroy_graph= False))
+        if self.print:
+            print ("Printing Shapes")
+            print ("Mask shape:", mask.shape)
+            print ("DOS predictions shape:", dos_predictions.shape)
+            print ("True DOS shape:", true_dos.shape)
+            print ("CDOS predictions shape:", pred_CDOS.shape)
+            print ("true_CDOS shape:", true_CDOS.shape)
+            print("Bandgap predictions:", bandgap_predictions.shape)
+            print("Bandgap targets:", true_gap.shape)
+            # if self.force:
+            #     print("Gap force predictions:", gap_force_predictions.shape)
+            #     print("Gap force targets:", true_gapforce.shape)
+            self.print = False
+        
+        gap_loss = torch.mean((bandgap_predictions.view(-1,1) - true_gap) ** 2)
+        # if self.force:
+        #     gapforce_loss = torch.mean((gap_force_predictions - true_gapforce) ** 2) 
+        #     gap_loss += gapforce_loss * self.force_weight
+        total_loss = total_dos_loss + gap_loss * self.gap_weight
+        return total_loss
+    
+class PhysicalGapPDOSLoss(LossInterface):
+    """
+    Focused DOS loss on :py:class:`TensorMap` entries.
+
+    :param name: key for the dos in the prediction/target dictionary.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param force_weight: Multiplier for the forces of the gap.
+    :param force: Whether to apply the force term.
+    :param reduction: reduction mode for torch loss.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        int_weight: float,
+        gap_weight: float,
+        extra_targets: int,
+        reduction: str,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+        )
+        self.int_weight = int_weight
+        self.gap_weight = gap_weight
+        self.extra_targets = extra_targets # should be 300 for this exercise
+        self.sigmoid = torch.nn.Sigmoid()
+
+        self.print = True
+        self.denoiser = DifferentiableDenoiser()
+
+        
+    def compute(
+        self,
+        model_predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        """
+        """
+        gap_key = f"mtt::gap"
+        CDOS_key = f"mtt::cdos"
+        DOS_key = f"mtt::tdos"
+        mask_key = f"mtt::mask"
+        elec_key = f"mtt::nelec"
+        systems, model, extra_data = extra_data
+        if extra_data is None or gap_key not in extra_data:
+            raise ValueError(
+                f"Expected extra_data to contain TensorMap under '{gap_key}'"
+            )
+        if CDOS_key not in extra_data:
+            raise ValueError(
+                f"Expected extra_data to contain TensorMap under '{CDOS_key}'"
+            )
+        if mask_key not in extra_data:
+            raise ValueError(
+                f"Expected extra_data to contain TensorMap under '{mask_key}'"
+            )
+        if elec_key not in extra_data:
+            raise ValueError(
+                f"Expected extra_data to contain TensorMap under '{elec_key}'"
+            )
+        if DOS_key not in extra_data:
+            raise ValueError(
+                f"Expected extra_data to contain TensorMap under '{DOS_key}'"
+            )
+
+        tensor_map_pred = model_predictions[self.target] # should be the dos prediction (Normalized already)
+        tensor_map_gap = extra_data[gap_key]
+        tensor_map_CDOS = extra_data[CDOS_key]
+        tensor_map_mask = extra_data[mask_key]
+        tensor_map_elec = extra_data[elec_key]
+        tensor_map_targ = extra_data[DOS_key]
+        # LAST DOS VALUE IS START OF CDOS
+        # There should only be one block
+        denoised_dos_predictions = self.denoiser.denoise(tensor_map_pred.block().values[:,:-1])
+        atomstructure_index = tensor_map_pred.block().samples['system']
+        n_structures = len(systems)
+        dos_predictions = torch.zeros((n_structures, denoised_dos_predictions.shape[1]), device=denoised_dos_predictions.device)
+        dos_predictions.index_add_(0, atomstructure_index, denoised_dos_predictions)
+        tensor_map_pred = mts.sum_over_samples(tensor_map_pred, sample_names='atom')
+        cdos_start_prediction = tensor_map_pred.block().values[:,-1]
+        true_gap = tensor_map_gap.block().values # Already Normalized wrt atoms
+        true_dos = tensor_map_targ.block().values[:, self.extra_targets+1:] # Already normalized wrt atoms
+        true_CDOS = tensor_map_CDOS.block().values[:, self.extra_targets:] # Already Normalized wrt atoms
+        mask = tensor_map_mask.block().values.bool()[:, self.extra_targets:]
+        true_n_electrons = tensor_map_elec.block().values.squeeze()
+
+        # Evaluate error on DOS
+        device = dos_predictions.device
+        predictions_unfolded = dos_predictions.unfold(1, len(true_dos[0]), 1)
+        target_expanded = true_dos[:, None, :]
+        delta = target_expanded - predictions_unfolded
+        dynamic_delta = delta * mask.unsqueeze(dim=1)
+        losses = torch.trapezoid(dynamic_delta * dynamic_delta, dx=0.05, dim=2)
+        front_tail = torch.cumulative_trapezoid(dos_predictions**2, dx=0.05, dim=1)
+        additional_error = torch.hstack(
+            [
+                torch.zeros(len(dos_predictions), device=device).reshape(-1, 1),
+                front_tail[:, : self.extra_targets],
+            ]
+        )
+        total_losses = losses + additional_error
+        final_loss, shift = torch.min(total_losses, dim=1)
+        dos_loss = torch.mean(final_loss)
+
+        # CDOS loss
+        pred_CDOS = torch.cumulative_trapezoid(dos_predictions, dx=0.05, dim=1) + cdos_start_prediction.unsqueeze(dim=1) # shape 700
+        CDOS_MSE = 0
+        for index_i, shift_i in enumerate(shift):
+            pred_CDOS_i = pred_CDOS[index_i][shift_i + 1: shift_i + 1 + len(true_CDOS[0])]
+            CDOS_loss_i = torch.trapezoid((pred_CDOS_i - true_CDOS[index_i])**2, dx =0.05)
+            CDOS_MSE += CDOS_loss_i
+
+        CDOS_MSE = CDOS_MSE / len(systems)
+        total_dos_loss = dos_loss + CDOS_MSE * self.int_weight
+
+        # Bandgap loss
+        # Get gap
+        bandgap_predictions  = get_gap_differentiable(doses=dos_predictions, cdos_starts=cdos_start_prediction, n_elecs=true_n_electrons, tol=0.1, dx=0.05, temp=100.0)
+
+        # if self.force:
+        #      gap_force_predictions = torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True, destroy_graph= False))
+        if self.print:
+            print ("Printing Shapes")
+            print ("Mask shape:", mask.shape)
+            print ("DOS predictions shape:", dos_predictions.shape)
+            print ("True DOS shape:", true_dos.shape)
+            print ("CDOS predictions shape:", pred_CDOS.shape)
+            print ("true_CDOS shape:", true_CDOS.shape)
+            print("Bandgap predictions:", bandgap_predictions.shape)
+            print("Bandgap targets:", true_gap.shape)
+            # if self.force:
+            #     print("Gap force predictions:", gap_force_predictions.shape)
+            #     print("Gap force targets:", true_gapforce.shape)
+            self.print = False
+        
+        gap_loss = torch.mean((bandgap_predictions.view(-1,1) - true_gap) ** 2)
+        # if self.force:
+        #     gapforce_loss = torch.mean((gap_force_predictions - true_gapforce) ** 2) 
+        #     gap_loss += gapforce_loss * self.force_weight
+        total_loss = total_dos_loss + gap_loss * self.gap_weight
+        return total_loss
+    
 # --- aggregator -----------------------------------------------------------------------
 
 
@@ -1192,6 +1585,8 @@ class LossType(Enum):
     noloss = ("noloss", NoLoss)
     gapdosloss = ("gapdosloss", GapDOSLoss)
     focuseddosloss = ("focuseddosloss", FocusedDOSLoss)
+    physicalgapdosloss = ("pgapdosloss", PhysicalGapDOSLoss)
+    physicalgappdosloss = ("pgappdosloss", PhysicalGapPDOSLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key
