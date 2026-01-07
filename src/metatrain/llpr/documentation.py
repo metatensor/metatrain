@@ -121,3 +121,6 @@ class TrainerHypers(TypedDict):
 
     grad_clip_norm: float = 1.0
     """Maximum gradient norm value, by default inf (no clipping)"""
+
+    calibration_method: Literal["crps", "nll"] = "nll"
+    """Method used to calibrate the LLPR uncertainty via a multiplicative factor."""

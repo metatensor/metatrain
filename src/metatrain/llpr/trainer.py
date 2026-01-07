@@ -195,10 +195,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         if start_epoch == 0:
-            logging.info("Starting LLPR preparation and calibration")
+            logging.info(
+                "Starting LLPR preparation and calibration "
+                f"using {self.hypers['calibration_method'].upper()}"
+            )
             model.compute_covariance(train_dataloader)
             model.compute_inverse_covariance(self.hypers["regularizer"])
-            model.calibrate(val_dataloader)
+            model.calibrate(val_dataloader, self.hypers["calibration_method"])
             model.generate_ensemble()
             logging.info("LLPR calibration complete")
 

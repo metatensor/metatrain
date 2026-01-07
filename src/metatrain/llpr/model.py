@@ -536,19 +536,23 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                         inv_covariance[:] = (inverse + inverse.T) / 2.0
                         break
 
-    def calibrate(self, valid_loader: DataLoader) -> None:
+    def calibrate(self, valid_loader: DataLoader, calibration_method: str) -> None:
         """
         Calibrate the LLPR model.
 
         This function computes the calibration constants (one for each output)
         that are used to scale the uncertainties in the LLPR model. The
-        calibration is performed in a simple way by computing the calibration
+        calibration is performed in a simple way by computing either the calibration
         constant as the mean of the squared residuals divided by the mean of
-        the non-calibrated uncertainties.
+        the non-calibrated uncertainties (i.e., by minimizing the NLL as a function of
+        the calibration constant), or by minimizing the CRPS as a function of the
+        calibration constant.
 
         :param valid_loader: A data loader with the validation data.
             This data loader should be generated from a dataset from the
             ``Dataset`` class in ``metatrain.utils.data``.
+        :param calibration_method: The method to use for calibration. Supported methods
+            are "crps" and "nll".
         """
         # calibrate the LLPR
         device = next(iter(self.buffers())).device
@@ -594,17 +598,37 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         for name in all_predictions:
             # compute the uncertainty multiplier
             residuals = all_predictions[name] - all_targets[name]
-            squared_residuals = residuals**2
-            # squared residuals need to be summed over component dimensions,
-            # i.e., all but the first and last dimensions
-            squared_residuals = torch.sum(
-                squared_residuals, dim=tuple(range(1, squared_residuals.ndim - 1))
-            )
             uncertainty_name = _get_uncertainty_name(name)
             uncertainties = all_uncertainties[uncertainty_name]
-            ratios = squared_residuals / uncertainties**2  # can be multi-dimensional
             multiplier = self._get_multiplier(uncertainty_name)
-            multiplier[:] = torch.sqrt(torch.mean(ratios, dim=0))  # only along samples
+
+            if calibration_method == "nll":
+                squared_residuals = residuals**2
+                # squared residuals need to be summed over component dimensions,
+                # i.e., all but the first and last dimensions
+                squared_residuals = torch.sum(
+                    squared_residuals, dim=tuple(range(1, squared_residuals.ndim - 1))
+                )
+                ratios = (
+                    squared_residuals / uncertainties**2
+                )  # can be multi-dimensional
+                multiplier[:] = torch.sqrt(
+                    torch.mean(ratios, dim=0)
+                )  # only along samples
+
+            elif calibration_method == "crps":
+                alpha_opt = _solve_alpha_crps(
+                    residuals.cpu().numpy(), uncertainties.cpu().numpy()
+                )
+                multiplier[:] = torch.from_numpy(alpha_opt).to(
+                    device=device, dtype=dtype
+                )
+
+            else:
+                raise ValueError(
+                    f"Unknown calibration method '{calibration_method}'! "
+                    "Supported methods are 'crps' and 'nll'."
+                )
 
     def generate_ensemble(self) -> None:
         """Generate an ensemble of weights for the model.
@@ -846,3 +870,131 @@ def _get_uncertainty_name(name: str) -> str:
     else:
         uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
     return uncertainty_name
+
+
+def _crps_alpha_equation(
+    alpha: float, residuals: np.ndarray, sigma: np.ndarray
+) -> np.ndarray:
+    from scipy.stats import norm
+
+    alpha = float(alpha)
+    sigma = np.asarray(sigma)
+    residuals = np.asarray(residuals)
+
+    # Broadcast sigma
+    while sigma.ndim < residuals.ndim:
+        sigma = sigma[:, None]
+
+    z = residuals / sigma
+    u = z / alpha
+
+    phi_u = norm.pdf(u)
+    Phi_u = norm.cdf(u)
+
+    F_u = (1.0 / np.sqrt(np.pi)) - 2 * phi_u - u * (2 * Phi_u - 1)
+
+    axes = tuple(range(residuals.ndim - 1))
+    return np.sum(sigma * (F_u - u * (1 - 2 * Phi_u)), axis=axes)
+
+
+# def _crps_beta_equation(
+#     beta: float, residuals: np.ndarray, sigma: np.ndarray
+# ) -> np.ndarray:
+#     """
+#     Computes the CRPS calibration equation in terms of beta, where alpha = exp(beta).
+
+#     :param beta: Log-scale parameter. The variance scale is alpha = exp(beta).
+#     :param residuals: Residuals between predicted means and target values.
+#     :param sigma: Non-calibrated standard deviations.
+#     :return: Value of the optimality equation f(beta). The root corresponds to the
+#         CRPS-optimal scaling factor alpha = exp(beta).
+#     """
+
+#     from scipy.stats import norm
+
+#     beta = np.asarray(beta)  # shape (M,)
+#     beta = np.clip(beta, -20.0, 20.0)
+#     sigma = np.asarray(sigma)  # shape (N, M)
+#     residuals = np.asarray(residuals)  # shape (N, ..., M)
+
+#     # Expand beta to match residuals
+#     # beta has shape (M,)  -> u has shape (N, ..., M)
+#     inv_alpha = np.exp(-beta)[None, None, ...]  # broadcast to last axis
+
+#     # Normalize by sigma
+#     # sigma: (N, M) -> reshape into (N, 1, 1, ..., M)
+#     # so it can broadcast to residuals shape
+#     while sigma.ndim < residuals.ndim:
+#         sigma = sigma[:, None, :]
+
+#     z = residuals / sigma  # shape (N, ..., M)
+#     u = z * inv_alpha  # shape (N, ..., M)
+
+#     phi_u = norm.pdf(u)
+#     Phi_u = norm.cdf(u)
+
+#     F_u = (1.0 / np.sqrt(np.pi)) - 2.0 * phi_u - u * (2.0 * Phi_u - 1.0)
+
+#     # LHS sum: sum over all axes except last dimension M
+#     # That axis must remain because we want M separate equations
+#     axes = tuple(range(residuals.ndim - 1))
+#     lhs = np.sum(sigma * (F_u - u * (1.0 - 2.0 * Phi_u)), axis=axes)
+
+#     return lhs  # shape (M,)
+
+
+# def _solve_alpha_crps(residuals: np.ndarray, sigma: np.ndarray) -> np.ndarray:
+#     from scipy.optimize import root_scalar
+
+#     P = residuals.shape[-1]
+#     beta_opt = np.zeros(P)
+
+#     for p in range(P):
+#         # Extract property channel
+#         res_p = residuals[..., p : p + 1]
+#         sig_p = sigma[:, p : p + 1]
+
+#         # Solve scalar equation
+#         sol = root_scalar(
+#             lambda b: float(_crps_beta_equation(np.array([b]), res_p, sig_p)[0]),
+#             x0=0.0,
+#             x1=0.1,
+#             method="secant",
+#         )
+#         beta_opt[p] = sol.root
+#     return np.exp(beta_opt)
+
+
+def _solve_alpha_crps(residuals: np.ndarray, sigma: np.ndarray) -> np.ndarray:
+    from scipy.optimize import root_scalar
+
+    P = residuals.shape[-1]
+    alpha_opt = np.zeros(P)
+
+    for p in range(P):
+        res_p = residuals[..., p : p + 1]
+        sig_p = sigma[:, p : p + 1]
+
+        def _f(a: float, res_p: np.ndarray = res_p, sig_p: np.ndarray = sig_p) -> float:
+            return float(_crps_alpha_equation(a, res_p, sig_p))
+
+        # Safe bracket
+        a_lo, a_hi = 1e-4, 1e4
+
+        # Ensure sign change
+        f_lo = _f(a_lo)
+        f_hi = _f(a_hi)
+
+        if f_lo * f_hi > 0:
+            # Expand bracket
+            for _ in range(100):
+                a_lo /= 10
+                a_hi *= 10
+                f_lo, f_hi = _f(a_lo), _f(a_hi)
+                if f_lo * f_hi <= 0:
+                    break
+
+        sol = root_scalar(_f, bracket=[a_lo, a_hi], method="brentq")
+        alpha_opt[p] = sol.root
+
+    return alpha_opt
