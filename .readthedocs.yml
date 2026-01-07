@@ -11,7 +11,7 @@ build:
   tools:
     python: "3.13"
     rust: "1.75"
-  jobs:
+  jobs
     pre_build:
       - set -e && for f in $(find examples -name '*.sh'); do cd $(dirname $f); bash $(basename $f); cd -; done
 
