@@ -81,8 +81,12 @@ class TestInput(InputTests, MACETests): ...
 
 
 class TestOutput(OutputTests, MACETests):
+    supports_features = False
+
     @pytest.fixture
     def n_features(self, model_hypers: dict) -> list[int]:
+        """Features output was renamed to mtt::aux:mace_features so
+        for now this is not used."""
         hidden_irreps = o3.Irreps(model_hypers["hidden_irreps"])
         num_interactions = model_hypers["num_interactions"]
 
@@ -114,12 +118,7 @@ class TestTorchscript(TorchscriptTests, MACETests):
         return torch.jit.script(e3nn.util.jit.compile(model))
 
 
-class TestExported(ExportedTests, MACETests):
-    # For now, AtomisticModel does not consider the possibility that
-    # the "features" output can have a well defined equivariant
-    # behavior, and therefore checking consistency when returning
-    # this output raises an error.
-    avoid_consistency_check = ["features"]
+class TestExported(ExportedTests, MACETests): ...
 
 
 class TestTraining(TrainingTests, MACETests): ...
