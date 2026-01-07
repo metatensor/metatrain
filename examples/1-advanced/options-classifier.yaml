@@ -16,7 +16,7 @@ training_set:
     read_from: carbon_allotropes.xyz
     length_unit: angstrom
   targets:
-    mtt::class:
+    mtt::class_probabilities:
       key: class
       num_subtargets: 3
 

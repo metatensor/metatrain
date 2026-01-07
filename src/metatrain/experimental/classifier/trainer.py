@@ -1,9 +1,12 @@
 import copy
 import logging
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
+import metatensor.torch as mts
 import torch
+from metatomic.torch import ModelOutput
 from torch.utils.data import DataLoader
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
@@ -88,9 +91,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         logging.info(f"Number of classes detected: {num_classes}")
 
         # Get feature size by doing a forward pass on one sample
-        import metatensor.torch as mts
-        from metatomic.torch import ModelOutput
-
         sample = train_datasets[0][0]
         system = sample["system"].to(device=device, dtype=dtype)
         with torch.no_grad():
@@ -164,12 +164,30 @@ class Trainer(TrainerInterface[TrainerHypers]):
             lr=self.hypers["learning_rate"],
         )
 
+        # Setup learning rate scheduler with warmup
+        total_steps = len(train_dataloader) * self.hypers["num_epochs"]
+        warmup_steps = int(self.hypers["warmup_fraction"] * total_steps)
+        
+        def get_lr_schedule(step):
+            if step < warmup_steps:
+                # Linear warmup
+                return step / max(1, warmup_steps)
+            else:
+                # Cosine annealing after warmup
+                progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+                return 0.5 * (1.0 + math.cos(math.pi * progress))
+        
+        lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, get_lr_schedule)
+
         # Log the initial learning rate:
-        logging.info(f"Learning rate: {self.hypers['learning_rate']}")
+        logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
+        logging.info(f"Warmup steps: {warmup_steps} / {total_steps}")
 
         # Train the model:
         logging.info("Starting training")
         target_name = list(model.dataset_info.targets.keys())[0]
+        # Use logits for training with CrossEntropyLoss
+        target_name_logits = target_name.replace("probabilities", "logits")
 
         best_val_loss = float("inf")
         best_epoch = 0
@@ -192,29 +210,30 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     for name, target in targets.items()
                 }
 
-                # Forward pass
+                # Forward pass - request logits for training
                 outputs = model(
                     systems,
-                    {target_name: ModelOutput(quantity="", unit="", per_atom=False)},
+                    {target_name_logits: ModelOutput(quantity="", unit="", per_atom=False)},
                     None,
                 )
 
-                probabilities = outputs[target_name].block().values
+                logits = outputs[target_name_logits].block().values
                 # Get target probabilities (supports both one-hot and soft targets)
                 target_probs = targets[target_name].block().values
 
-                # Compute cross-entropy loss with soft targets
-                # CE = -sum(target_probs * log(predicted_probs))
-                # Add small epsilon to avoid log(0)
-                log_probs = torch.log(probabilities + 1e-10)
-                loss = -torch.sum(target_probs * log_probs, dim=-1).mean()
+                # Use PyTorch's CrossEntropyLoss which accepts soft targets
+                # Note: CrossEntropyLoss expects logits as input
+                loss_fn = torch.nn.CrossEntropyLoss()
+                loss = loss_fn(logits, target_probs)
 
                 # Backward pass
                 loss.backward()
                 optimizer.step()
+                lr_scheduler.step()
 
                 train_loss += loss.item()
                 # For accuracy, compare predicted class with target's most likely class
+                probabilities = torch.nn.functional.softmax(logits, dim=-1)
                 _, predicted = torch.max(probabilities, 1)
                 _, target_class = torch.max(target_probs, 1)
                 train_total += target_class.size(0)
@@ -240,28 +259,27 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         for name, target in targets.items()
                     }
 
-                    # Forward pass
+                    # Forward pass - use logits for validation too
                     outputs = model(
                         systems,
                         {
-                            target_name: ModelOutput(
+                            target_name_logits: ModelOutput(
                                 quantity="", unit="", per_atom=False
                             )
                         },
                         None,
                     )
 
-                    probabilities = outputs[target_name].block().values
+                    logits = outputs[target_name_logits].block().values
                     # Get target probabilities (supports both one-hot and soft targets)
                     target_probs = targets[target_name].block().values
 
-                    # Compute cross-entropy loss with soft targets
-                    # CE = -sum(target_probs * log(predicted_probs))
-                    log_probs = torch.log(probabilities + 1e-10)
-                    loss = -torch.sum(target_probs * log_probs, dim=-1).mean()
+                    # Compute loss using CrossEntropyLoss
+                    loss = loss_fn(logits, target_probs)
 
                     val_loss += loss.item()
                     # For accuracy, compare predicted with target's most likely class
+                    probabilities = torch.nn.functional.softmax(logits, dim=-1)
                     _, predicted = torch.max(probabilities, 1)
                     _, target_class = torch.max(target_probs, 1)
                     val_total += target_class.size(0)
@@ -294,6 +312,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 metric_logger.log(
                     metrics=[finalized_train_info, finalized_val_info],
                     epoch=epoch,
+                    learning_rate=optimizer.param_groups[0]["lr"],
                 )
 
             # Save checkpoint

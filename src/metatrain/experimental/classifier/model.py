@@ -202,36 +202,60 @@ class Classifier(ModelInterface[ModelHypers]):
             )
             return_dict["features"] = output_tmap
 
-        # Apply softmax to get probabilities
-        probabilities = torch.nn.functional.softmax(logits, dim=-1)
-
-        # Create output TensorMap
+        # Handle logits output (for training with CrossEntropyLoss)
         for name in outputs:
             if name == "features":
                 continue  # Skip features output
-            # Create TensorMap with probabilities
-            # For classification, we output probabilities for each class
-            output_tmap = TensorMap(
-                keys=Labels(
-                    names=["_"],
-                    values=torch.tensor([[0]], device=probabilities.device),
-                ),
-                blocks=[
-                    TensorBlock(
-                        values=probabilities,
-                        samples=averaged_features.block().samples,
-                        components=[],
-                        properties=Labels(
-                            names=["class"],
-                            values=torch.arange(
-                                probabilities.shape[-1], device=probabilities.device
-                            ).reshape(-1, 1),
-                            assume_unique=True,
-                        ),
-                    )
-                ],
-            )
-            return_dict[name] = output_tmap
+            
+            # Check if logits are requested (for training)
+            if "logits" in name:
+                # Return raw logits for CrossEntropyLoss
+                output_tmap = TensorMap(
+                    keys=Labels(
+                        names=["_"],
+                        values=torch.tensor([[0]], device=logits.device),
+                    ),
+                    blocks=[
+                        TensorBlock(
+                            values=logits,
+                            samples=averaged_features.block().samples,
+                            components=[],
+                            properties=Labels(
+                                names=["class"],
+                                values=torch.arange(
+                                    logits.shape[-1], device=logits.device
+                                ).reshape(-1, 1),
+                                assume_unique=True,
+                            ),
+                        )
+                    ],
+                )
+                return_dict[name] = output_tmap
+            else:
+                # Apply softmax to get probabilities
+                probabilities = torch.nn.functional.softmax(logits, dim=-1)
+                # Return probabilities for prediction
+                output_tmap = TensorMap(
+                    keys=Labels(
+                        names=["_"],
+                        values=torch.tensor([[0]], device=probabilities.device),
+                    ),
+                    blocks=[
+                        TensorBlock(
+                            values=probabilities,
+                            samples=averaged_features.block().samples,
+                            components=[],
+                            properties=Labels(
+                                names=["class"],
+                                values=torch.arange(
+                                    probabilities.shape[-1], device=probabilities.device
+                                ).reshape(-1, 1),
+                                assume_unique=True,
+                            ),
+                        )
+                    ],
+                )
+                return_dict[name] = output_tmap
 
         return return_dict
 

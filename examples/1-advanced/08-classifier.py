@@ -35,6 +35,30 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 
 # %%
 #
+# Helper function to convert class labels to one-hot encodings
+# ----------------------------------------------------------
+#
+# This function converts string class labels (e.g., "diamond", "graphite", "graphene")
+# into one-hot encoded probability vectors that the classifier can use for training.
+
+
+def class_to_onehot(class_label: str, class_names: list[str]) -> list[float]:
+    """Convert a class label string to a one-hot encoded probability vector.
+
+    :param class_label: The class label as a string (e.g., "diamond")
+    :param class_names: List of all possible class names in order
+    :return: One-hot encoded probability vector (e.g., [1.0, 0.0, 0.0])
+    """
+    if class_label not in class_names:
+        raise ValueError(f"Unknown class label: {class_label}")
+    
+    onehot = [0.0] * len(class_names)
+    onehot[class_names.index(class_label)] = 1.0
+    return onehot
+
+
+# %%
+#
 # We generate structures for three carbon allotropes:
 #
 # - Diamond (class 0)
@@ -43,6 +67,9 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 
 np.random.seed(42)
 
+# Define class names for the classifier
+class_names = ["diamond", "graphite", "graphene"]
+
 structures = []
 
 # Generate 10 diamond structures with small random perturbations
@@ -50,8 +77,9 @@ for i in range(10):
     diamond = bulk("C", "diamond", a=3.57)
     diamond = diamond * (2, 2, 2)  # Make it bigger
     diamond.rattle(stdev=0.5, seed=i)  # Add random perturbations
-    # One-hot encoding for diamond (class 0): [1.0, 0.0, 0.0]
-    diamond.info["class"] = [1.0, 0.0, 0.0]
+    # Store string label in info, then convert to one-hot
+    diamond.info["class_label"] = "diamond"
+    diamond.info["class"] = class_to_onehot("diamond", class_names)
     structures.append(diamond)
 
 # Generate 10 graphite structures (using layered graphene-like structures)
@@ -64,16 +92,18 @@ for i in range(10):
     graphite.extend(layer2)
     graphite.set_cell([graphite.cell[0], graphite.cell[1], [0, 0, 6.7]])
     graphite.rattle(stdev=0.5, seed=i)
-    # One-hot encoding for graphite (class 1): [0.0, 1.0, 0.0]
-    graphite.info["class"] = [0.0, 1.0, 0.0]
+    # Store string label in info, then convert to one-hot
+    graphite.info["class_label"] = "graphite"
+    graphite.info["class"] = class_to_onehot("graphite", class_names)
     structures.append(graphite)
 
 # Generate 10 graphene structures (single layer)
 for i in range(10):
     graphene_struct = graphene(formula="C2", size=(3, 3, 1), a=2.46, vacuum=10.0)
     graphene_struct.rattle(stdev=0.5, seed=i)
-    # One-hot encoding for graphene (class 2): [0.0, 0.0, 1.0]
-    graphene_struct.info["class"] = [0.0, 0.0, 1.0]
+    # Store string label in info, then convert to one-hot
+    graphene_struct.info["class_label"] = "graphene"
+    graphene_struct.info["class"] = class_to_onehot("graphene", class_names)
     structures.append(graphene_struct)
 
 # Save the structures to a file (these will be used for training)
@@ -143,8 +173,8 @@ for structure in structures:
     probabilities = (
         calc.run_model(
             structure,
-            {"mtt::class": ModelOutput(per_atom=False)},
-        )["mtt::class"]
+            {"mtt::class_probabilities": ModelOutput(per_atom=False)},
+        )["mtt::class_probabilities"]
         .block()
         .values.cpu()
         .squeeze(0)
@@ -211,8 +241,8 @@ for structure in structures:
     probs = (
         calc.run_model(
             structure,
-            {"mtt::class": ModelOutput(per_atom=False)},
-        )["mtt::class"]
+            {"mtt::class_probabilities": ModelOutput(per_atom=False)},
+        )["mtt::class_probabilities"]
         .block()
         .values.cpu()
         .squeeze(0)

@@ -14,7 +14,7 @@ training_set:
     read_from: qm9_reduced_100.xyz
     length_unit: angstrom
   targets:
-    mtt::class:
+    mtt::class_probabilities:
       key: class_label
       num_subtargets: 3
 
