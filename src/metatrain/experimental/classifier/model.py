@@ -206,7 +206,7 @@ class Classifier(ModelInterface[ModelHypers]):
         for name in outputs:
             if name == "features":
                 continue  # Skip features output
-            
+
             # Check if logits are requested (for training)
             if "logits" in name:
                 # Return raw logits for CrossEntropyLoss

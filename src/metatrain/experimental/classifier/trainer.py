@@ -167,7 +167,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Setup learning rate scheduler with warmup
         total_steps = len(train_dataloader) * self.hypers["num_epochs"]
         warmup_steps = int(self.hypers["warmup_fraction"] * total_steps)
-        
+
         def get_lr_schedule(step):
             if step < warmup_steps:
                 # Linear warmup
@@ -176,18 +176,21 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # Cosine annealing after warmup
                 progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
                 return 0.5 * (1.0 + math.cos(math.pi * progress))
-        
+
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, get_lr_schedule)
 
         # Log the initial learning rate:
         logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
-        logging.info(f"Warmup steps: {warmup_steps} / {total_steps}")
 
         # Train the model:
         logging.info("Starting training")
         target_name = list(model.dataset_info.targets.keys())[0]
         # Use logits for training with CrossEntropyLoss
         target_name_logits = target_name.replace("probabilities", "logits")
+
+        # Use PyTorch's CrossEntropyLoss which accepts soft targets
+        # Note: CrossEntropyLoss expects logits as input
+        loss_fn = torch.nn.CrossEntropyLoss()
 
         best_val_loss = float("inf")
         best_epoch = 0
@@ -213,17 +216,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # Forward pass - request logits for training
                 outputs = model(
                     systems,
-                    {target_name_logits: ModelOutput(quantity="", unit="", per_atom=False)},
+                    {
+                        target_name_logits: ModelOutput(
+                            quantity="", unit="", per_atom=False
+                        )
+                    },
                     None,
                 )
 
                 logits = outputs[target_name_logits].block().values
-                # Get target probabilities (supports both one-hot and soft targets)
                 target_probs = targets[target_name].block().values
-
-                # Use PyTorch's CrossEntropyLoss which accepts soft targets
-                # Note: CrossEntropyLoss expects logits as input
-                loss_fn = torch.nn.CrossEntropyLoss()
                 loss = loss_fn(logits, target_probs)
 
                 # Backward pass
@@ -271,10 +273,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
 
                     logits = outputs[target_name_logits].block().values
-                    # Get target probabilities (supports both one-hot and soft targets)
                     target_probs = targets[target_name].block().values
-
-                    # Compute loss using CrossEntropyLoss
                     loss = loss_fn(logits, target_probs)
 
                     val_loss += loss.item()

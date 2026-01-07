@@ -36,10 +36,11 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 # %%
 #
 # Helper function to convert class labels to one-hot encodings
-# ----------------------------------------------------------
+# ------------------------------------------------------------
 #
 # This function converts string class labels (e.g., "diamond", "graphite", "graphene")
 # into one-hot encoded probability vectors that the classifier can use for training.
+# You can use it yourself to prepare datasets if you're starting from string labels.
 
 
 def class_to_onehot(class_label: str, class_names: list[str]) -> list[float]:
@@ -51,7 +52,7 @@ def class_to_onehot(class_label: str, class_names: list[str]) -> list[float]:
     """
     if class_label not in class_names:
         raise ValueError(f"Unknown class label: {class_label}")
-    
+
     onehot = [0.0] * len(class_names)
     onehot[class_names.index(class_label)] = 1.0
     return onehot
