@@ -124,9 +124,8 @@ subprocess.run(
 # Using the Trained Classifier
 # ----------------------------
 #
-# Once the classifier is trained, we can use it to:
-# 1. Predict class labels for new structures
-# 2. Extract bottleneck features (collective variables)
+# Once the classifier is trained, we can use it to predict class labels for new
+# structures or to extract bottleneck features (collective variables).
 #
 # Let's test the classifier on some structures:
 
