@@ -242,8 +242,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
-        self.layouts["features"] = get_e3nn_mts_layout(
-            "features",
+        self.layouts["mtt::aux::mace_features"] = get_e3nn_mts_layout(
+            "mtt::aux::mace_features",
             {
                 "type": {"spherical": {"irreps": self.features_irreps}},
                 "per_atom": True,
@@ -384,8 +384,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
         model_outputs: dict[str, torch.Tensor] = {}
 
         # Add features if requested
-        if "features" in outputs:
-            model_outputs["features"] = node_features
+        if "mtt::aux::mace_features" in outputs:
+            model_outputs["mtt::aux::mace_features"] = node_features
 
         # Run heads
         for output_name, head in self.heads.items():

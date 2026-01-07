@@ -35,6 +35,8 @@ class OutOfMemoryError(Exception):
             f"{exception}\n\n"
             "The error above likely means that the model ran out of memory during "
             "training. You can try to reduce the batch size or reduce the model size "
-            "(e.g., reduce the number of features or layers). If available check the "
-            "architecture's documentation for more suggestions."
+            "(e.g., reduce the number of features or layers). If available, check the "
+            "architecture's documentation for more suggestions. For example, many "
+            "architectures also support batch bounds to limit the maximum number of "
+            "atoms per batch (see the documentation)."
         )
