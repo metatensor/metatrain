@@ -11,7 +11,6 @@ from e3nn import o3
 from metatrain.experimental.mace.model import MetaMACE
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.architectures import get_default_hypers
-from metatrain.utils.data import DatasetInfo
 from metatrain.utils.testing import (
     ArchitectureTests,
     AutogradTests,
@@ -70,6 +69,9 @@ class MACETests(ArchitectureTests):
         if mace_init_mode == "from_hypers":
             hypers["hidden_irreps"] = "1x0e + 1x1o"
             hypers["num_interactions"] = 1
+            hypers["max_ell"] = 1
+            hypers["correlation"] = 1
+            hypers["radial_MLP"] = [1, 1, 1]
         else:
             hypers["mace_model"] = Path(__file__).parent / "mace_small.model"
         return hypers
@@ -103,30 +105,6 @@ class TestOutput(OutputTests, MACETests):
 
 class TestAutograd(AutogradTests, MACETests):
     cuda_nondet_tolerance = 1e-12
-
-    def test_autograd_positions(
-        self,
-        device: torch.device,
-        model_hypers: dict,
-        dataset_info: DatasetInfo,
-        mace_init_mode: str,
-    ) -> None:
-        if mace_init_mode == "from_file":
-            pytest.skip("Skipping autograd test when loading MACE model from file.")
-
-        super().test_autograd_positions(device, model_hypers, dataset_info)
-
-    def test_autograd_cell(
-        self,
-        device: torch.device,
-        model_hypers: dict,
-        dataset_info: DatasetInfo,
-        mace_init_mode: str,
-    ) -> None:
-        if mace_init_mode == "from_file":
-            pytest.skip("Skipping autograd test when loading MACE model from file.")
-
-        super().test_autograd_cell(device, model_hypers, dataset_info)
 
 
 class TestTorchscript(TorchscriptTests, MACETests):

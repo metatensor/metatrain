@@ -227,7 +227,7 @@ class TrainerHypers(TypedDict):
     best_model_metric: Literal["rmse_prod", "mae_prod", "loss"] = "mae_prod"
     """Metric used to select best checkpoint (e.g., ``rmse_prod``)"""
     grad_clip_norm: float = 1.0
-    """Maximum gradient norm value, by default inf (no clipping)"""
+    """Maximum gradient norm value."""
     loss: str | dict[str, LossSpecification | str] = "mse"
     """This section describes the loss function to be used. See the
     :ref:`loss-functions` for more details."""
