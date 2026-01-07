@@ -12,3 +12,4 @@ such as output naming, auxiliary outputs, and wrapper models.
    fine-tuning
    loss-functions
    auxiliary-outputs
+   batch-bounds
