@@ -39,8 +39,9 @@ class Classifier(ModelInterface[ModelHypers]):
 
     This model takes a pre-trained checkpoint, freezes its backbone, and trains
     a multi-layer perceptron on top of the features extracted from the backbone.
-    The targets should be class labels specified as floats (0.0, 1.0, 2.0, etc.).
-    The loss function is a negative log-likelihood (NLL) classification loss.
+    The targets should be class probabilities as vectors, supporting both one-hot
+    encodings (e.g., [1.0, 0.0, 0.0]) and soft/fractional targets (e.g., [0.7, 0.2,
+    0.1]). The loss function is a standard cross-entropy loss for classification.
 
     :param hypers: Model hyperparameters
     :param dataset_info: Dataset information
