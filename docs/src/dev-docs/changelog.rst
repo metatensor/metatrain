@@ -36,14 +36,18 @@ Fixed
 Added
 #####
 
+- Metatrain now features the ``experimental.mace`` architecture.
+- Most architectures now support bounds on the number of atoms in a single batch via the
+  ``batch_bounds`` hyperparameter.
 - The PET architecture now supports an adaptive cutoff functionality to make the
   number of neighbors more uniform across different atoms and environments.
-- Metatrain now features the ``experimental.mace`` architecture.
+- The PET architecture now features a temperature hyperparameter for the softmax
+  operation in attention.
 
 Changed
 #######
 
-- SOAP-BPNN and MCoV now use species embeddings by default, allowing for better.
+- SOAP-BPNN and MCoV now use species embeddings by default, allowing for better
   scalability and speed. The traditional SOAP-BPNN (and associated MCoV) architecture.
   can be accessed by setting ``legacy: True``
 - Metatrain won't error if the validation set is smaller than the batch size.
