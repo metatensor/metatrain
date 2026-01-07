@@ -24,12 +24,31 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Version 2026.1 - 2026-01-07
+---------------------------
+
+Fixed
+#####
+
+- Uncertainty quantification is now possible on non-conservative forces.
+- Fixed a small bug in the implementation of the density of states (DOS) loss function.
+
+Added
+#####
+
+- The PET architecture now supports an adaptive cutoff functionality to make the
+  number of neighbors more uniform across different atoms and environments.
+- Metatrain now features the ``experimental.mace`` architecture.
+
 Changed
 #######
 
-- SOAP-BPNN and MCoV now use species embeddings by default, allowing for better
-  scalability and speed. The traditional SOAP-BPNN (and associated MCoV) architecture
+- SOAP-BPNN and MCoV now use species embeddings by default, allowing for better.
+  scalability and speed. The traditional SOAP-BPNN (and associated MCoV) architecture.
   can be accessed by setting ``legacy: True``
+- Metatrain won't error if the validation set is smaller than the batch size.
+- Composition model settings have been consolidated under the ``atomic_baseline``
+  hyperparameter.
 
 Version 2025.12 - 2025-11-25
 ----------------------------
