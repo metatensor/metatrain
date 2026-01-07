@@ -420,7 +420,11 @@ def _get_scalar_target_info(target_name: str, target: DictConfig) -> TargetInfo:
         ),
         components=[],
         properties=Labels.range(
-            target_name.replace("mtt::", ""), target["num_subtargets"]
+            # remove variant and/or mtt:: prefix from target name
+            (target_name.split("/")[0] if "/" in target_name else target_name).replace(
+                "mtt::", ""
+            ),
+            target["num_subtargets"],
         ),
     )
     layout = TensorMap(
@@ -518,7 +522,11 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
             ),
             components=components,
             properties=Labels.range(
-                target_name.replace("mtt::", ""), target["num_subtargets"]
+                # remove variant and/or mtt:: prefix from target name
+                (
+                    target_name.split("/")[0] if "/" in target_name else target_name
+                ).replace("mtt::", ""),
+                target["num_subtargets"],
             ),
         )
         keys.append([irrep["o3_lambda"], irrep["o3_sigma"]])
