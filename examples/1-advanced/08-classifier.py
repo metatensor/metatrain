@@ -24,7 +24,6 @@ where the class membership is uncertain.
 
 import subprocess
 
-import ase
 import ase.io
 import chemiscope
 import matplotlib.pyplot as plt
