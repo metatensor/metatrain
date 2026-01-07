@@ -36,7 +36,7 @@ Therefore:
 - If you're here because you ran **out of memory**, you can ignore the minimum bound and
   only set the maximum bound to a value that fits your hardware. For example, start with
   a large threshold (e.g. ``[None, 1000]``) and lower the maximum bound until training
-  succeeds without running out of memory. 
+  succeeds without running out of memory.
 
 
 Setting batch bounds
