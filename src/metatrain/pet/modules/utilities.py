@@ -1,4 +1,5 @@
 import torch
+from metatensor.torch.learn.nn import Module
 
 
 def cutoff_func_bump(
@@ -52,7 +53,7 @@ def cutoff_func_cosine(
     return f
 
 
-class DummyModule(torch.nn.Module):
+class DummyModule(Module):
     """Dummy torch module to make torchscript happy.
     This model should never be run"""
 
