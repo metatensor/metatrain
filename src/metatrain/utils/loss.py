@@ -1067,9 +1067,10 @@ class DifferentiableDenoiser(torch.nn.Module):
             (self.pad_size, self.pad_size), 
             mode='replicate'
         )
+        device = x.device
 
         # 3. Apply Gaussian filter (differentiable)
-        a = torch.nn.functional.conv1d(x_padded, self.kernel)
+        a = torch.nn.functional.conv1d(x_padded, self.kernel.to(device))
 
         # 4. Restore original shape
         if is_1d:
