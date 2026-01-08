@@ -48,7 +48,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 10
+    __checkpoint_version__ = 11
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -78,6 +78,7 @@ class PET(ModelInterface[ModelHypers]):
         self.num_attention_layers = self.hypers["num_attention_layers"]
         self.normalization = self.hypers["normalization"]
         self.activation = self.hypers["activation"]
+        self.attention_temperature = self.hypers["attention_temperature"]
         self.transformer_type = self.hypers["transformer_type"]
         self.featurizer_type = self.hypers["featurizer_type"]
 
@@ -100,6 +101,7 @@ class PET(ModelInterface[ModelHypers]):
                     self.num_attention_layers,
                     self.normalization,
                     self.activation,
+                    self.attention_temperature,
                     self.transformer_type,
                     num_atomic_species,
                     layer_index == 0,  # is first layer

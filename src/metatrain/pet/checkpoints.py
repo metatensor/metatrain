@@ -254,6 +254,17 @@ def model_update_v9_v10(checkpoint: dict) -> None:
         checkpoint["model_data"]["model_hypers"]["cutoff_function"] = "Cosine"
 
 
+def model_update_v10_v11(checkpoint: dict) -> None:
+    """
+    Update a v10 checkpoint to v11.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Adding the attention_temperature hyperparameter if not present
+    if "attention_temperature" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["attention_temperature"] = 1.0
+
+
 ###########################
 # TRAINER #################
 ###########################
@@ -400,3 +411,12 @@ def trainer_update_v10_v11(checkpoint: dict) -> None:
         atomic_baseline = {target_name: 0.0 for target_name in dataset_info.targets}
 
     checkpoint["train_hypers"]["atomic_baseline"] = atomic_baseline
+
+
+def trainer_update_v11_v12(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 11 to version 12.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"]["batch_atom_bounds"] = [None, None]
