@@ -5,8 +5,10 @@ FlashMD
 FlashMD is a method for the direct prediction of positions and momenta in a molecular
 dynamics simulation, presented in :footcite:p:`bigi_flashmd_2025`. When compared to
 traditional molecular dynamics methods, it predicts the positions and momenta of atoms
-after a long time interval, allowing the use of much larger time steps. Therefore, it
-achieves a significant speedup (10-30x) compared to molecular dynamics using MLIPs.
+after a long time interval, allowing the use of much larger time steps, and does so
+in a way that does not require computing forces by backpropagation. Overall, it
+achieves a significant speedup (up to 60-90x) compared to molecular dynamics using
+an MLIP with similar architecture and number of parameters.
 The FlashMD architecture implemented in metatrain is based on the
 :ref:`PET architecture <architecture-pet>`.
 
@@ -108,6 +110,8 @@ class ModelHypers(TypedDict):
     """Layer normalization type."""
     activation: Literal["SiLU", "SwiGLU"] = "SwiGLU"
     """Activation function."""
+    attention_temperature: float = 1.0
+    """The temperature scaling factor for attention scores."""
     transformer_type: Literal["PreLN", "PostLN"] = "PreLN"
     """The order in which the layer normalization and attention
     are applied in a transformer block. Available options are ``PreLN``
