@@ -102,7 +102,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         assert dtype in PET.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
-        is_finetune = "finetune" in self.hypers
+        is_finetune = self.hypers["finetune"]["read_from"] is not None
 
         if is_distributed:
             if len(devices) > 1:

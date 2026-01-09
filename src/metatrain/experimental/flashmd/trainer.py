@@ -131,7 +131,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.set_masses(atomic_mass_dict)
 
         is_distributed = self.hypers["distributed"]
-        is_finetune = "finetune" in self.hypers
+        is_finetune = self.hypers["finetune"]["read_from"] is not None
 
         if is_distributed:
             distr_env = DistributedEnvironment(self.hypers["distributed_port"])
@@ -153,9 +153,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
             device_number = distr_env.local_rank % torch.cuda.device_count()
             device = torch.device("cuda", device_number)
         else:
-            device = devices[
-                0
-            ]  # only one device, as we don't support multi-gpu for now
+            device = devices[0]
+            # only one device, as we don't support non-distributed multi-gpu for now
 
         if is_distributed:
             logging.info(f"Training on {world_size} devices with dtype {dtype}")
