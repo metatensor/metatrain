@@ -40,9 +40,9 @@ they might have different default values.
 
 from typing import Literal, Optional
 
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import TypedDict
 
-from metatrain.pet.modules.finetuning import FinetuneHypers
+from metatrain.pet.modules.finetuning import FinetuneHypers, NoFinetuneHypers
 from metatrain.utils.additive import FixedCompositionWeights
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.long_range import LongRangeHypers
@@ -242,8 +242,13 @@ class TrainerHypers(TypedDict):
     either value to disable that bound. This is useful for preventing out-of-memory
     errors and ensuring consistent computational load. Default: ``[None, None]``."""
 
-    finetune: NotRequired[FinetuneHypers]
-    """Finetuning parameters for PET models pretrained on large datasets.
+    finetune: NoFinetuneHypers | FinetuneHypers = {
+        "read_from": None,
+        "method": "full",
+        "config": {},
+        "inherit_heads": {},
+    }
+    """Parameters for fine-tuning trained FlashMD models.
 
     See :ref:`fine-tuning` for more details.
     """
