@@ -1470,7 +1470,7 @@ class PET(ModelInterface[ModelHypers]):
                         key: torch.nn.Linear(
                             self.d_head,
                             prod(shape),
-                            bias=True,
+                            bias=("o3_lambda_0" in key and "o3_sigma_1" in key),
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }
@@ -1486,7 +1486,7 @@ class PET(ModelInterface[ModelHypers]):
                         key: torch.nn.Linear(
                             self.d_head,
                             prod(shape),
-                            bias=True,
+                            bias=("o3_lambda_0" in key and "o3_sigma_1" in key),
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }
