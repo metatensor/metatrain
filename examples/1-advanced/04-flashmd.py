@@ -4,7 +4,7 @@ Training a FlashMD model
 
 This tutorial demonstrates how to train a FlashMD model for the direct prediction
 of molecular dynamics. This type of model affords faster MD simulations compared to
-MLIPs by a factor between 10 and 30 (https://arxiv.org/abs/2505.19350).
+MLIPs by one or two orders of magnitude (https://arxiv.org/abs/2505.19350).
 """
 
 # %%
