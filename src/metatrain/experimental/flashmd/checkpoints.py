@@ -62,3 +62,19 @@ def trainer_update_v3_v4(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     checkpoint["train_hypers"]["batch_atom_bounds"] = [None, None]
+
+
+def trainer_update_v4_v5(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 4 to version 5.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Adding the empty finetune config if not present
+    if "finetune" not in checkpoint["train_hypers"]:
+        checkpoint["train_hypers"]["finetune"] = {
+            "read_from": None,
+            "method": "full",
+            "config": {},
+            "inherit_heads": {},
+        }
