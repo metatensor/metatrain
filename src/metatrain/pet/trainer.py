@@ -444,33 +444,33 @@ class Trainer(TrainerInterface):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                scaled_predictions = (model.module if is_distributed else model).scaler(
-                    systems, predictions
-                )
-                scaled_targets = (model.module if is_distributed else model).scaler(
-                    systems, targets
-                )
-                train_rmse_calculator.update(
-                    scaled_predictions, scaled_targets, extra_data
-                )
-                if self.hypers["log_mae"]:
-                    train_mae_calculator.update(
-                        scaled_predictions, scaled_targets, extra_data
-                    )
+                # scaled_predictions = (model.module if is_distributed else model).scaler(
+                #     systems, predictions
+                # )
+                # scaled_targets = (model.module if is_distributed else model).scaler(
+                #     systems, targets
+                # )
+                # train_rmse_calculator.update(
+                #     scaled_predictions, scaled_targets, extra_data
+                # )
+                # if self.hypers["log_mae"]:
+                #     train_mae_calculator.update(
+                #         scaled_predictions, scaled_targets, extra_data
+                #     )
 
-            finalized_train_info = train_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets,
-                is_distributed=is_distributed,
-                device=device,
-            )
-            if self.hypers["log_mae"]:
-                finalized_train_info.update(
-                    train_mae_calculator.finalize(
-                        not_per_atom=["positions_gradients"] + per_structure_targets,
-                        is_distributed=is_distributed,
-                        device=device,
-                    )
-                )
+            # finalized_train_info = train_rmse_calculator.finalize(
+            #     not_per_atom=["positions_gradients"] + per_structure_targets,
+            #     is_distributed=is_distributed,
+            #     device=device,
+            # )
+            # if self.hypers["log_mae"]:
+            #     finalized_train_info.update(
+            #         train_mae_calculator.finalize(
+            #             not_per_atom=["positions_gradients"] + per_structure_targets,
+            #             is_distributed=is_distributed,
+            #             device=device,
+            #         )
+            #     )
 
             val_loss = 0.0
             for batch in val_dataloader:
@@ -507,44 +507,44 @@ class Trainer(TrainerInterface):
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
 
-                scaled_predictions = predictions
-                # (model.module if is_distributed else model).scaler(
-                #     systems, predictions
+                # scaled_predictions = predictions
+                # # (model.module if is_distributed else model).scaler(
+                # #     systems, predictions
+                # # )
+                # scaled_targets = targets
+                # # (model.module if is_distributed else model).scaler(
+                # #     systems, targets
+                # # )
+                # val_rmse_calculator.update(
+                #     scaled_predictions, scaled_targets, extra_data
                 # )
-                scaled_targets = targets
-                # (model.module if is_distributed else model).scaler(
-                #     systems, targets
-                # )
-                val_rmse_calculator.update(
-                    scaled_predictions, scaled_targets, extra_data
-                )
-                if self.hypers["log_mae"]:
-                    val_mae_calculator.update(
-                        scaled_predictions, scaled_targets, extra_data
-                    )
+                # if self.hypers["log_mae"]:
+                #     val_mae_calculator.update(
+                #         scaled_predictions, scaled_targets, extra_data
+                #     )
 
-            finalized_val_info = val_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets,
-                is_distributed=is_distributed,
-                device=device,
-            )
-            if self.hypers["log_mae"]:
-                finalized_val_info.update(
-                    val_mae_calculator.finalize(
-                        not_per_atom=["positions_gradients"] + per_structure_targets,
-                        is_distributed=is_distributed,
-                        device=device,
-                    )
-                )
+            # finalized_val_info = val_rmse_calculator.finalize(
+            #     not_per_atom=["positions_gradients"] + per_structure_targets,
+            #     is_distributed=is_distributed,
+            #     device=device,
+            # )
+            # if self.hypers["log_mae"]:
+            #     finalized_val_info.update(
+            #         val_mae_calculator.finalize(
+            #             not_per_atom=["positions_gradients"] + per_structure_targets,
+            #             is_distributed=is_distributed,
+            #             device=device,
+            #         )
+            #     )
 
             # Now we log the information:
             finalized_train_info = {
                 "loss": train_loss,
-                **finalized_train_info,
+                # **finalized_train_info,
             }
             finalized_val_info = {
                 "loss": val_loss,
-                **finalized_val_info,
+                # **finalized_val_info,
             }
 
             if epoch == start_epoch:
