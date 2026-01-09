@@ -49,7 +49,7 @@ Changed
 #######
 
 - SOAP-BPNN and MCoV now use species embeddings by default, allowing for better
-  scalability and speed. The traditional SOAP-BPNN (and associated MCoV) architecture.
+  scalability and speed. The traditional SOAP-BPNN (and associated MCoV) architecture
   can be accessed by setting ``legacy: True``
 - Metatrain won't error if the validation set is smaller than the batch size.
 - Composition model settings have been consolidated under the ``atomic_baseline``
