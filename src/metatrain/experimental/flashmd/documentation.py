@@ -248,7 +248,4 @@ class TrainerHypers(TypedDict):
         "config": {},
         "inherit_heads": {},
     }
-    """Parameters for fine-tuning trained FlashMD models.
-
-    See :ref:`fine-tuning` for more details.
-    """
+    """Parameters for fine-tuning trained FlashMD models."""
