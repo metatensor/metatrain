@@ -995,7 +995,9 @@ class MemmapDataset(TorchDataset):
         self.a = MemmapArray(path / "a.bin", (self.na[-1],), "int32", mode="r")
         self.c = MemmapArray(path / "c.bin", (self.ns, 3, 3), "float32", mode="r")
         if os.path.exists(path / "momenta.bin"):  # for FlashMD
-            self.momenta = MemmapArray(path / "momenta.bin", (self.na[-1], 3), "float32", mode="r")
+            self.momenta = MemmapArray(
+                path / "momenta.bin", (self.na[-1], 3), "float32", mode="r"
+            )
 
         # Register arrays pointing to the targets
         self.target_arrays = {}

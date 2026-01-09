@@ -164,6 +164,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Apply fine-tuning strategy if provided
         if is_finetune:
+            assert self.hypers["finetune"]["read_from"] is not None  # for mypy
             model = apply_finetuning_strategy(model, self.hypers["finetune"])
             method = self.hypers["finetune"]["method"]
             num_params = sum(p.numel() for p in model.parameters())
