@@ -354,13 +354,31 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Log the initial learning rate:
         logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
 
-        start_epoch = 0 if self.epoch is None else self.epoch + 1
+        start_epoch = -1 if self.epoch is None else self.epoch
+        epoch = start_epoch
 
-        # Train the model:
+        # Save the untrained model checkpoint:
         if self.best_metric is None:
             self.best_metric = float("inf")
+        logging.info("Saving untrained model checkpoint")
+        self.best_model_state_dict = copy.deepcopy(
+            (model.module if is_distributed else model).state_dict()
+        )
+        self.best_epoch = epoch
+        self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
+        if is_distributed:
+            torch.distributed.barrier()
+        self.optimizer_state_dict = optimizer.state_dict()
+        self.scheduler_state_dict = lr_scheduler.state_dict()
+        if rank == 0:
+            self.save_checkpoint(
+                (model.module if is_distributed else model),
+                Path(checkpoint_dir) / f"model_untrained.ckpt",
+            )
+
+        # Train the model:
         logging.info("Starting training")
-        epoch = start_epoch
+        start_epoch = start_epoch + 1
 
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             if is_distributed:

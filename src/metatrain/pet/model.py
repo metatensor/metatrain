@@ -433,14 +433,16 @@ class PET(ModelInterface[ModelHypers]):
         )
 
         # Optional diagnostic token capture: register temporary module hooks
-        diagnostic_handles: List[RemovableHandle] = self._prepare_diagnostic_handles(
-            outputs,
-            return_dict,
-            centers,
-            nef_to_edges_neighbor,
-            sample_labels,
-            pair_sample_labels,
-        )
+        diagnostic_handles = torch.jit.annotate(List[Any], [])
+        if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
+            diagnostic_handles = self._prepare_diagnostic_handles(
+                outputs,
+                return_dict,
+                centers,
+                nef_to_edges_neighbor,
+                sample_labels,
+                pair_sample_labels,
+            )
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
@@ -594,8 +596,9 @@ class PET(ModelInterface[ModelHypers]):
                         )
 
         # remove any diagnostic hooks we registered and attach tokens
-        for h in diagnostic_handles:
-            h.remove()
+        if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
+            for h in diagnostic_handles:
+                h.remove()
 
         return return_dict
 
@@ -611,6 +614,8 @@ class PET(ModelInterface[ModelHypers]):
             "diagnostic feature tensor must be per-atom or per-pair like in shape."
             f" Got tensor.shape = {tensor.shape}, "
         )
+
+        device = tensor.device
 
         outp = tensor.detach().clone()
 
@@ -629,20 +634,21 @@ class PET(ModelInterface[ModelHypers]):
             outp = outp.unsqueeze(1)
 
         return TensorMap(
-            Labels(["_"], torch.tensor([[0]])),
+            Labels(["_"], torch.tensor([[0]])).to(device=device),
             [
                 TensorBlock(
                     values=outp,
-                    samples=labels,
+                    samples=labels.to(device=device),
                     components=[],
                     properties=Labels(
                         ["_"],
                         torch.arange(outp.shape[1]).reshape(-1, 1),
-                    ),
+                    ).to(device=device),
                 )
             ],
         )
 
+    @torch.jit.ignore
     def _prepare_diagnostic_handles(
         self,
         outputs: Dict[str, ModelOutput],
@@ -650,8 +656,8 @@ class PET(ModelInterface[ModelHypers]):
         centers: torch.Tensor,
         nef_to_edges_neighbor: torch.Tensor,
         sample_labels: Labels,
-        pair_sample_labels: Dict[str, Labels],
-    ) -> List[RemovableHandle]:
+        pair_sample_labels: Labels,
+    ) -> List[Any]:
         """
         Prepare forward hooks to capture diagnostic tokens from internal modules.
 
@@ -744,7 +750,7 @@ class PET(ModelInterface[ModelHypers]):
 
             def make_hook(p: str, suffix: str) -> Any:
                 def _hook(
-                    module: torch.nn.Module, inp: torch.Tensor, outp: torch.Tensor
+                    module: torch.nn.Module, inp: Any, outp: Any
                 ) -> None:
                     if isinstance(outp, tuple):
                         assert "_node" in suffix or "_edge" in suffix, (
