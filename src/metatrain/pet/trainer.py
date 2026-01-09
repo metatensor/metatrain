@@ -238,16 +238,16 @@ class Trainer(TrainerInterface):
             callables=[
                 rotational_augmenter.apply_random_augmentations,
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
+                # get_remove_additive_transform(additive_models, train_targets),
+                # get_remove_scale_transform(scaler),
             ],
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[  # no augmentation for validation
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
+                # get_remove_additive_transform(additive_models, train_targets),
+                # get_remove_scale_transform(scaler),
             ],
         )
 
