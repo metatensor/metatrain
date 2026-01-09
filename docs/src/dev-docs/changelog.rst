@@ -43,6 +43,7 @@ Added
   number of neighbors more uniform across different atoms and environments.
 - The PET architecture now features a temperature hyperparameter for the softmax
   operation in attention.
+- The FlashMD architecture added fine-tuning capabilities similar to those of PET.
 
 Changed
 #######
