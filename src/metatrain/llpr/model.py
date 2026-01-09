@@ -599,7 +599,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 # squared residuals need to be summed over component dimensions,
                 # i.e., all but the first and last dimensions
                 squared_residuals = torch.sum(
-                    squared_residuals, 
+                    squared_residuals,
                     dim=tuple(range(1, squared_residuals.ndim - 1)),
                 )
             uncertainty_name = _get_uncertainty_name(name)
