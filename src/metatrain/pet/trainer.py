@@ -507,12 +507,14 @@ class Trainer(TrainerInterface):
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
 
-                scaled_predictions = (model.module if is_distributed else model).scaler(
-                    systems, predictions
-                )
-                scaled_targets = (model.module if is_distributed else model).scaler(
-                    systems, targets
-                )
+                scaled_predictions = predictions
+                # (model.module if is_distributed else model).scaler(
+                #     systems, predictions
+                # )
+                scaled_targets = targets
+                # (model.module if is_distributed else model).scaler(
+                #     systems, targets
+                # )
                 val_rmse_calculator.update(
                     scaled_predictions, scaled_targets, extra_data
                 )

@@ -1370,7 +1370,7 @@ class PhysicalGapPDOSLoss(LossInterface):
         true_dos = tensor_map_targ.block().values[:, self.extra_targets+1:] # Already normalized wrt atoms
         true_CDOS = tensor_map_CDOS.block().values[:, self.extra_targets:] # Already Normalized wrt atoms
         mask = tensor_map_mask.block().values.bool()[:, self.extra_targets:]
-        true_n_electrons = tensor_map_elec.block().values.squeeze()
+        true_n_electrons = tensor_map_elec.block().values.squeeze() 
 
         # Evaluate error on DOS
         device = dos_predictions.device
