@@ -880,7 +880,7 @@ class GapDOSLoss(LossInterface):
         pred_CDOS = torch.cumulative_trapezoid(dos_predictions, dx=0.05, dim=1) + cdos_start_prediction.unsqueeze(dim=1) # shape 700
         CDOS_MSE = 0
         for index_i, shift_i in enumerate(shift):
-            pred_CDOS_i = pred_CDOS[index_i][shift_i : shift_i + len(true_CDOS[0])]
+            pred_CDOS_i = pred_CDOS[index_i][shift_i + 1 : shift_i + 1 + len(true_CDOS[0])]
             CDOS_loss_i = torch.trapezoid((pred_CDOS_i - true_CDOS[index_i])**2, dx =0.05)
             CDOS_MSE += CDOS_loss_i
 
@@ -998,7 +998,12 @@ class FocusedDOSLoss(LossInterface):
         pred_CDOS = torch.cumulative_trapezoid(dos_predictions, dx=0.05, dim=1) + cdos_start_prediction.unsqueeze(dim=1) # shape 700
         CDOS_MSE = 0
         for index_i, shift_i in enumerate(shift):
-            pred_CDOS_i = pred_CDOS[index_i][shift_i: shift_i + len(true_CDOS[0])]
+            pred_CDOS_i = pred_CDOS[index_i][shift_i + 1: shift_i + 1 + len(true_CDOS[0])]
+            if len(pred_CDOS_i) < len(true_CDOS[0]):
+                # Pad pred_CDOS_i with last value
+                pad_size = len(true_CDOS[0]) - len(pred_CDOS_i)
+                pad_values = pred_CDOS_i[-1].repeat(pad_size)
+                pred_CDOS_i = torch.cat([pred_CDOS_i, pad_values], dim=0)
             CDOS_loss_i = torch.trapezoid((pred_CDOS_i - true_CDOS[index_i])**2, dx =0.05)
             CDOS_MSE += CDOS_loss_i
 
@@ -1235,7 +1240,12 @@ class PhysicalGapDOSLoss(LossInterface):
         pred_CDOS = torch.cumulative_trapezoid(dos_predictions, dx=0.05, dim=1) + cdos_start_prediction.unsqueeze(dim=1) # shape 700
         CDOS_MSE = 0
         for index_i, shift_i in enumerate(shift):
-            pred_CDOS_i = pred_CDOS[index_i][shift_i: shift_i + len(true_CDOS[0])]
+            pred_CDOS_i = pred_CDOS[index_i][shift_i + 1: shift_i + 1 + len(true_CDOS[0])]
+            if len(pred_CDOS_i) < len(true_CDOS[0]):
+                # Pad pred_CDOS_i with last value
+                pad_size = len(true_CDOS[0]) - len(pred_CDOS_i)
+                pad_values = pred_CDOS_i[-1].repeat(pad_size)
+                pred_CDOS_i = torch.cat([pred_CDOS_i, pad_values], dim=0)
             CDOS_loss_i = torch.trapezoid((pred_CDOS_i - true_CDOS[index_i])**2, dx =0.05)
             CDOS_MSE += CDOS_loss_i
 
@@ -1384,7 +1394,12 @@ class PhysicalGapPDOSLoss(LossInterface):
         pred_CDOS = torch.cumulative_trapezoid(dos_predictions, dx=0.05, dim=1) + cdos_start_prediction.unsqueeze(dim=1) # shape 700
         CDOS_MSE = 0
         for index_i, shift_i in enumerate(shift):
-            pred_CDOS_i = pred_CDOS[index_i][shift_i: shift_i + len(true_CDOS[0])]
+            pred_CDOS_i = pred_CDOS[index_i][shift_i + 1: shift_i + 1 + len(true_CDOS[0])]
+            if len(pred_CDOS_i) < len(true_CDOS[0]):
+                # Pad pred_CDOS_i with last value
+                pad_size = len(true_CDOS[0]) - len(pred_CDOS_i)
+                pad_values = pred_CDOS_i[-1].repeat(pad_size)
+                pred_CDOS_i = torch.cat([pred_CDOS_i, pad_values], dim=0)
             CDOS_loss_i = torch.trapezoid((pred_CDOS_i - true_CDOS[index_i])**2, dx =0.05)
             CDOS_MSE += CDOS_loss_i
 
