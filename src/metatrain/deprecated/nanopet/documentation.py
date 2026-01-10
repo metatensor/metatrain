@@ -1,12 +1,12 @@
 """
 NanoPET (deprecated)
-======================
+====================
 
 .. warning::
 
   This is a **deprecated model**. You should not use it for anything important, and
   support for it will be removed in future versions of metatrain. Please use the
-  :ref:`PET model <architecture-pet>` instead.
+  :ref:`PET model <arch-pet>` instead.
 """
 
 from typing import Literal, Optional

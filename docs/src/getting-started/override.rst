@@ -14,7 +14,7 @@ parameters.
 First, familiarize yourself with the specific parameters of the architecture you intend
 to use. We provide a list of all architectures and their parameters in the
 :ref:`available-architectures` section. For example, the parameters of the SOAP-BPNN
-models are detailed at :ref:`architecture-soap_bpnn`.
+models are detailed at :ref:`arch-soap_bpnn`.
 
 Modifying Parameters (yaml)
 ---------------------------
