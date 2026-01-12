@@ -21,6 +21,7 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
@@ -77,7 +78,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 5
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -130,7 +131,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.set_masses(atomic_mass_dict)
 
         is_distributed = self.hypers["distributed"]
-        is_finetune = "finetune" in self.hypers
+        is_finetune = self.hypers["finetune"]["read_from"] is not None
 
         if is_distributed:
             distr_env = DistributedEnvironment(self.hypers["distributed_port"])
@@ -152,9 +153,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
             device_number = distr_env.local_rank % torch.cuda.device_count()
             device = torch.device("cuda", device_number)
         else:
-            device = devices[
-                0
-            ]  # only one device, as we don't support multi-gpu for now
+            device = devices[0]
+            # only one device, as we don't support non-distributed multi-gpu for now
 
         if is_distributed:
             logging.info(f"Training on {world_size} devices with dtype {dtype}")
@@ -163,6 +163,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Apply fine-tuning strategy if provided
         if is_finetune:
+            assert self.hypers["finetune"]["read_from"] is not None  # for mypy
             model = apply_finetuning_strategy(model, self.hypers["finetune"])
             method = self.hypers["finetune"]["method"]
             num_params = sum(p.numel() for p in model.parameters())
@@ -261,6 +262,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
@@ -269,6 +271,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
 
         # Create dataloader for the training datasets:
@@ -406,6 +409,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             train_loss = 0.0
             for batch in train_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = unpack_batch(batch)
@@ -467,6 +474,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             val_loss = 0.0
             for batch in val_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device

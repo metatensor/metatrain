@@ -122,5 +122,11 @@ class TrainerHypers(TypedDict):
     grad_clip_norm: float = 1.0
     """Maximum gradient norm value, by default inf (no clipping)"""
 
+    batch_atom_bounds: list[Optional[int]] = [None, None]
+    """Bounds for the number of atoms per batch as [min, max]. Batches with atom
+    counts outside these bounds will be skipped during training. Use ``None`` for
+    either value to disable that bound. This is useful for preventing out-of-memory
+    errors and ensuring consistent computational load. Default: ``[None, None]``."""
+
     calibration_method: Literal["crps", "nll"] = "nll"
     """Method used to calibrate the LLPR uncertainty via a multiplicative factor."""

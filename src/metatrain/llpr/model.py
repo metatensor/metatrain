@@ -604,11 +604,13 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
             if calibration_method == "nll":
                 squared_residuals = residuals**2
-                # squared residuals need to be summed over component dimensions,
-                # i.e., all but the first and last dimensions
-                squared_residuals = torch.sum(
-                    squared_residuals, dim=tuple(range(1, squared_residuals.ndim - 1))
-                )
+                if squared_residuals.ndim > 2:
+                    # squared residuals need to be summed over component dimensions,
+                    # i.e., all but the first and last dimensions
+                    squared_residuals = torch.sum(
+                        squared_residuals,
+                        dim=tuple(range(1, squared_residuals.ndim - 1)),
+                    )
                 ratios = (
                     squared_residuals / uncertainties**2
                 )  # can be multi-dimensional
