@@ -237,8 +237,10 @@ Ensemble Loss Function
 ----------------------
 
 An :ref:`architecture-llpr` ensemble can be further trained to improve its uncertainty quantification.
-This is done by using the :py:class:`metatrain.utils.loss.TensorMapEnsembleLoss` function, which implements two proper scoring rules for Gaussian predictive distributions.
-Both losses operate on the ensemble-predicted mean :math:`\mu` and standard deviation :math:`\sigma`, and compare them against the target values.
+This is done by using the :py:class:`metatrain.utils.loss.TensorMapEnsembleLoss` function, which implements strictly proper scoring rules for probabilistic regression.
+
+Two of the available losses assume a Gaussian predictive distribution and operate only on the ensemble-predicted mean :math:`\mu` and standard deviation :math:`\sigma`.
+The third option, the empirical CRPS, uses the full ensemble of predictions and does not rely on any parametric assumption.
 
 - The Gaussian Negative Log-Likelihood (NLL) loss maximizes the likelihood of the observed data under a Gaussian predictive model.
   It encourages sharp predictions and is statistically optimal when the residual noise is well described by a Gaussian distribution.
@@ -253,8 +255,8 @@ Both losses operate on the ensemble-predicted mean :math:`\mu` and standard devi
           type: gaussian_nll
 
 
-- The Gaussian Continuous Ranked Probability Score (CRPS) measures the integrated squared difference between the predicted and (assumed) Gaussian cumulative distribution functions.
-  The analytical form of the loss function is given by:
+- The analytical Gaussian Continuous Ranked Probability Score (CRPS) evaluates the integrated squared difference between the predicted and (assumed) Gaussian cumulative distribution functions.
+  It is given by
 
   .. math::
 
@@ -266,7 +268,7 @@ Both losses operate on the ensemble-predicted mean :math:`\mu` and standard devi
             \left(2\Phi\left(\frac{y - \mu}{\sigma}\right) - 1\right)
         \right],
 
-  where :math:`\phi` and :math:`\Phi` are the standard normal probability density function and cumulative distribution function.
+  where :math:`\phi` and :math:`\Phi` denote the standard normal density and cumulative distribution functions.
 
   YAML configuration:
 
@@ -277,9 +279,28 @@ Both losses operate on the ensemble-predicted mean :math:`\mu` and standard devi
           type: gaussian_crps
 
 
-In practice, both scoring rules are strictly proper and therefore encourage well-calibrated uncertainty estimates.
+- The empirical Continuous Ranked Probability Score does **not** assume a Gaussian predictive distribution.
+  Instead, it evaluates the CRPS directly from the ensemble predictions :math:`\{x_j\}_{j=1}^M`.
+  For a target value :math:`y`, the empirical CRPS is
 
-The Gaussian NLL is quadratic in the residual, which can make it more sensitive to large deviations between the target and the predicted mean.
+  .. math::
 
-The Gaussian CRPS grows linearly for large residuals and therefore responds more smoothly to points far from the predicted mean.
-As a result, it may yield slightly smoother uncertainty estimates in settings where the residual distribution deviates from strict Gaussian assumptions.
+        \mathrm{CRPS}_{\mathrm{emp}}(\{x_j\}, y)
+        = \frac{1}{M} \sum_{j=1}^M |x_j - y|
+          - \frac{1}{2 M^2} \sum_{j=1}^M \sum_{k=1}^M |x_j - x_k|.
+
+  This scoring rule is strictly proper for arbitrary predictive distributions and therefore leverages the full ensemble to learn non-Gaussian forms of uncertainty.
+
+  YAML configuration:
+
+  .. code-block:: yaml
+
+      loss:
+        mtt::target_name:
+          type: empirical_crps
+
+
+In practice, all three scoring rules encourage calibrated uncertainty estimates, but with different characteristics.
+The Gaussian NLL is quadratic in the residual and therefore more sensitive to large deviations.
+The analytical Gaussian CRPS grows linearly with the residual and often yields smoother behaviour when the residual distribution departs from strict Gaussianity.
+The empirical CRPS is fully non-parametric and can in principle capture skewness, multimodality, or other non-Gaussian features present in the ensemble predictions.
