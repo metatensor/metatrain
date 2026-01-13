@@ -756,20 +756,20 @@ class TensorMapEnsembleLoss(BaseTensorMapLoss):
 
 
 class GaussianCRPSLoss(torch.nn.Module):
-    """
+    r"""
     Gaussian CRPS loss.
 
     This implements the closed-form expression for the CRPS of a Gaussian predictive
-    distribution N(mu, sigma^2) evaluated at a target value x:
+    distribution :math:`\mathcal{N}(\mu, \sigma^2)` evaluated at a target value
+    :math:`x`:
 
-        CRPS(x; mu, sigma) = sigma * [ z(2Phi(z) - 1) + 2phi(z) - 1/sqrt(pi) ]
+    .. math::
 
-    where z = (x - mu)/sigma, Phi is the standard normal CDF and phi is the standard
-    normal PDF.
+        \text{CRPS}(x; \mu, \sigma) =
+        \sigma \left[ z(2\Phi(z) - 1) + 2\phi(z) - \frac{1}{\sqrt{\pi}} \right]
 
-    The interface mirrors torch.nn.GaussianNLLLoss:
-
-        forward(input=mu, target=x, var=sigma^2)
+    where :math:`z = \frac{x - \mu}{\sigma}`, :math:`\Phi` is the standard normal CDF,
+    and :math:`\phi` is the standard normal PDF.
 
     :param reduction: 'none', 'mean', or 'sum'.
     :param eps: small constant for numerical stability on variance.
@@ -824,28 +824,23 @@ class GaussianCRPSLoss(torch.nn.Module):
 
 
 class EmpiricalCRPSLoss(torch.nn.Module):
-    """
+    r"""
     Empirical CRPS loss for ensemble predictions.
 
-    The ensemble predictions {Y_i}_{i=1}^M for each data point define
+    The ensemble predictions :math:`\{Y_i\}_{i=1}^M` for each data point define
     an empirical predictive distribution:
 
-        F_M(y) = (1/M) sum_i 1_{Y_i <= y}
+    .. math::
 
-    The CRPS of this empirical distribution at observation z has the
+        F_M(y) = \frac{1}{M} \sum_{i=1}^M \mathbb{1}_{Y_i \le y}
+
+    The CRPS of this empirical distribution at observation :math:`z` has the
     closed form:
 
-        CRPS(F_M, z) =
-            (1/M) * sum_i |Y_i - z|
-            - (1 / (2 M^2)) * sum_{i,j} |Y_i - Y_j|.
+    .. math::
 
-    This module assumes:
-
-        forward(ensemble, target)
-
-    where
-        ensemble: shape (B, M)  - B points, M ensemble members
-        target:   shape (B,)    - scalar targets
+        \text{CRPS}(F_M, z) =
+        \frac{1}{M} \sum_{i=1}^M |Y_i - z| - \frac{1}{2 M^2} \sum_{i,j} |Y_i - Y_j|
 
     :param reduction: 'none', 'mean', or 'sum'.
     """
