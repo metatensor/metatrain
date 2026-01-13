@@ -77,7 +77,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -315,11 +315,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     sampler=train_sampler,
                     shuffle=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     collate_fn=collate_fn_train,
                     num_workers=num_workers,
