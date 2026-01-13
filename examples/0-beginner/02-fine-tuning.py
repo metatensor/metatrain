@@ -220,8 +220,7 @@ plt.show()
 #
 # .. code-block:: lammps
 #
-#   pair_style metatomic variant energy finetune
-#   pair_coeff * * model-ft.pt 6 1
+#   pair_style metatomic [...other arguments...] variant finetune
 #
 # More details on using variants in simulation engines can be found in the
 # `metatomic ASE documentation <https://docs.metatensor.org/metatomic/latest/engines/ase.html>`_

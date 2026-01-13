@@ -112,11 +112,7 @@ via the ``variants`` parameter. For example, if you fine-tuned with the variant
 
   from metatomic.torch.ase_calculator import MetatomicCalculator
 
-  calc = MetatomicCalculator(
-      "model-ft.pt",
-      variants={"energy": "finetune"},
-      extensions_directory=None
-  )
+  calc = MetatomicCalculator("model-ft.pt", variants={"energy": "finetune"})
   atoms.calc = calc
 
 The ``variants`` dictionary maps the target quantity (e.g., ``energy``) to the variant
@@ -131,11 +127,10 @@ LAMMPS input script using the ``variant`` keyword:
 
 .. code-block:: lammps
 
-  pair_style metatomic variant energy finetune
-  pair_coeff * * 6 1
+  pair_style metatomic [...other arguments...] variant finetune
 
 Replace ``finetune`` with the name of your variant (the part after ``energy/`` in your
-training configuration). The syntax ``variant energy finetune`` tells LAMMPS to use
+training configuration). The syntax ``variant finetune`` tells LAMMPS to use
 the ``energy/finetune`` variant for energy and force calculations.
 
 For more details on using variants in simulation engines, see the
