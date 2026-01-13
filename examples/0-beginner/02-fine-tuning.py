@@ -218,7 +218,7 @@ plt.show()
 #
 # For LAMMPS simulations, you would specify the variant in your LAMMPS input script:
 #
-# .. code-block:: lammps
+# .. code-block::
 #
 #   pair_style metatomic [...other arguments...] variant finetune
 #

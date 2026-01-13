@@ -125,7 +125,7 @@ Using variants with LAMMPS
 When using a fine-tuned model in LAMMPS, you need to specify the variant in your
 LAMMPS input script using the ``variant`` keyword:
 
-.. code-block:: lammps
+.. code-block::
 
   pair_style metatomic [...other arguments...] variant finetune
 
