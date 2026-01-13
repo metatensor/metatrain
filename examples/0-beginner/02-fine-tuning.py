@@ -204,6 +204,30 @@ plt.show()
 #
 
 # %%
+#
+# Using the fine-tuned model with ASE
+# -----------------------------------
+#
+# When using a fine-tuned model with ASE, you need to specify which variant to use.
+# Since we trained with the ``energy/finetune`` variant, we pass
+# ``variants={"energy": "finetune"}`` to the ``MetatomicCalculator``. This tells the
+# calculator to use the fine-tuned energy head instead of the default ``energy`` head.
+#
+# If you fine-tuned with a different variant name (e.g., ``energy/pbe``), you would use
+# ``variants={"energy": "pbe"}`` instead.
+#
+# For LAMMPS simulations, you would specify the variant in your LAMMPS input script:
+#
+# .. code-block:: lammps
+#
+#   pair_style metatomic variant energy finetune
+#   pair_coeff * * model-ft.pt H C O
+#
+# More details on using variants in simulation engines can be found in the
+# `metatomic ASE documentation <https://docs.metatensor.org/metatomic/latest/engines/ase.html>`_
+# and `metatomic LAMMPS documentation <https://docs.metatensor.org/metatomic/latest/engines/lammps.html>`_.
+
+# %%
 # sphinx_gallery_capture_repr_block = ()
 np.seterr()
 targets = ase.io.read(
@@ -214,7 +238,6 @@ targets = ase.io.read(
 calc_ft = MetatomicCalculator(
     "model-ft.pt", variants={"energy": "finetune"}, extensions_directory=None
 )
-# specify variant suffix here
 with np.errstate(invalid="ignore"):
     e_targets = np.array(
         [frame.get_total_energy() / len(frame) for frame in targets]
