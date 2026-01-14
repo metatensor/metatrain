@@ -79,7 +79,7 @@ The core workflow follows this sequence:
 
 ## General Coding Guidelines
 
-- **Line length**: Use 88 character line length in **all** files
+- **Line length**: Use 88 character for comments and multi line strings in **all** files. Code lines will be formatted by the formatter.
 - **Imports**: Use relative imports in library (`from .utils...`), and absolute imports in tests
 - **Type hints**: Required in `src/metatrain/cli/`, `src/metatrain/utils/`, and architecture folders (enforced by `lint_strict_folders` in `tox.ini`)
 - **Docstrings**: All public functions must have docstrings. Use `pydoclint` checks on strict folders
