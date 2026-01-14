@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import metatensor.torch as mts
 import numpy as np
@@ -12,13 +12,23 @@ from metatomic.torch import (
     ModelOutput,
     System,
 )
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.data import DatasetInfo, unpack_batch
+from metatrain.utils.data import (
+    CollateFn,
+    CombinedDataLoader,
+    Dataset,
+    DatasetInfo,
+    unpack_batch,
+)
 from metatrain.utils.data.target_info import is_auxiliary_output
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists_transform,
+)
 
 from . import checkpoints
 from .documentation import ModelHypers
@@ -234,6 +244,85 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         self.model.restart(dataset_info)
 
         return self
+
+    def _get_dataloader(
+        self,
+        datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        batch_size: int,
+        is_distributed: bool,
+    ) -> DataLoader:
+        """
+        Create a DataLoader for the provided datasets. As the dataloader is only used to
+        accumulate the quantities needed for LLPR calibration, there is no need to
+        shuffle or drop the last non-full batch. Distributed sampling can be used or
+        not, based on the `is_distributed` argument, and training with double
+        precision is enforced.
+
+        :param datasets: List of datasets to create the dataloader from.
+        :param batch_size: Batch size to use for the dataloader.
+        :param is_distributed: Whether to use distributed sampling or not.
+        :return: The created DataLoader.
+        """
+        # Create the collate function
+        targets_keys = list(self.dataset_info.targets.keys())
+        requested_neighbor_lists = get_requested_neighbor_lists(self)
+        collate_fn = CollateFn(
+            target_keys=targets_keys,
+            callables=[
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists)
+            ],
+        )
+
+        # Validate dtype from datasets
+        if len(datasets) == 0:
+            raise ValueError(
+                "Cannot create dataloader from empty datasets list. "
+                "Please provide non-empty datasets for LLPR calibration."
+            )
+        if len(datasets[0]) == 0:
+            raise ValueError(
+                "Cannot create dataloader from empty dataset. "
+                "Please provide non-empty datasets for LLPR calibration."
+            )
+
+        # Build the dataloaders
+        if is_distributed:
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
+            samplers = [
+                DistributedSampler(
+                    dataset,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=False,
+                    drop_last=False,
+                )
+                for dataset in datasets
+            ]
+        else:
+            samplers = [None] * len(datasets)
+
+        dataloaders = []
+        for dataset, sampler in zip(datasets, samplers, strict=True):
+            if len(dataset) < batch_size:
+                raise ValueError(
+                    f"A dataset has fewer samples "
+                    f"({len(dataset)}) than the batch size "
+                    f"({batch_size}). "
+                    "Please reduce the batch size."
+                )
+            dataloaders.append(
+                DataLoader(
+                    dataset=dataset,
+                    batch_size=batch_size,
+                    sampler=sampler,
+                    shuffle=False,
+                    drop_last=False,
+                    collate_fn=collate_fn,
+                )
+            )
+
+        return CombinedDataLoader(dataloaders, shuffle=False)
 
     def forward(
         self,
@@ -451,15 +540,25 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
         return return_dict
 
-    def compute_covariance(self, train_loader: DataLoader) -> None:
+    def compute_covariance(
+        self,
+        datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        batch_size: int,
+        is_distributed: bool,
+    ) -> None:
         """A function to compute the covariance matrix for a training set.
 
         The covariance is stored as a buffer in the model.
 
-        :param train_loader: A PyTorch DataLoader with the training data.
-            The individual samples need to be compatible with the ``Dataset``
-            class in ``metatrain``.
+        :param datasets: List of datasets to use for covariance calculation.
+        :param batch_size: Batch size to use for the dataloader.
+        :param is_distributed: Whether to use distributed sampling or not.
         """
+        # Create dataloader for the training datasets
+        train_loader = self._get_dataloader(
+            datasets, batch_size, is_distributed=is_distributed
+        )
+
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
         for batch in train_loader:
@@ -489,9 +588,20 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     ll_feats = ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(
                         1
                     )
+                else:
+                    # For per-atom targets, use the features directly
+                    ll_feats = ll_feat_tmap.block().values.detach()
                 uncertainty_name = _get_uncertainty_name(name)
                 covariance = self._get_covariance(uncertainty_name)
                 covariance += ll_feats.T @ ll_feats
+
+        if is_distributed:
+            torch.distributed.barrier()
+            # All-reduce the covariance matrices across all processes
+            for name in self.outputs_list:
+                uncertainty_name = _get_uncertainty_name(name)
+                covariance = self._get_covariance(uncertainty_name)
+                torch.distributed.all_reduce(covariance)
 
     def compute_inverse_covariance(self, regularizer: Optional[float] = None) -> None:
         """A function to compute the inverse covariance matrix.
@@ -536,7 +646,12 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                         inv_covariance[:] = (inverse + inverse.T) / 2.0
                         break
 
-    def calibrate(self, valid_loader: DataLoader) -> None:
+    def calibrate(
+        self,
+        datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        batch_size: int,
+        is_distributed: bool,
+    ) -> None:
         """
         Calibrate the LLPR model.
 
@@ -546,10 +661,15 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         constant as the mean of the squared residuals divided by the mean of
         the non-calibrated uncertainties.
 
-        :param valid_loader: A data loader with the validation data.
-            This data loader should be generated from a dataset from the
-            ``Dataset`` class in ``metatrain.utils.data``.
+        :param datasets: List of datasets to use for calibration.
+        :param batch_size: Batch size to use for the dataloader.
+        :param is_distributed: Whether to use distributed sampling or not.
         """
+        # Create dataloader for the validation datasets
+        valid_loader = self._get_dataloader(
+            datasets, batch_size, is_distributed=is_distributed
+        )
+
         # calibrate the LLPR
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
@@ -590,6 +710,44 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             all_uncertainties[uncertainty_name] = torch.cat(
                 all_uncertainties[uncertainty_name], dim=0
             )
+
+        if is_distributed:
+            torch.distributed.barrier()
+            # All-reduce the accumulated statistics across all processes
+            world_size = torch.distributed.get_world_size()
+
+            for name in all_predictions:
+                # We need to gather all predictions, targets, and uncertainties
+                # across processes. For simplicity, we concatenate them.
+
+                # Prepare lists for gathering
+                gathered_predictions = [
+                    torch.zeros_like(all_predictions[name]) for _ in range(world_size)
+                ]
+                gathered_targets = [
+                    torch.zeros_like(all_targets[name]) for _ in range(world_size)
+                ]
+                uncertainty_name = _get_uncertainty_name(name)
+                gathered_uncertainties = [
+                    torch.zeros_like(all_uncertainties[uncertainty_name])
+                    for _ in range(world_size)
+                ]
+
+                # All-gather the tensors
+                torch.distributed.all_gather(
+                    gathered_predictions, all_predictions[name]
+                )
+                torch.distributed.all_gather(gathered_targets, all_targets[name])
+                torch.distributed.all_gather(
+                    gathered_uncertainties, all_uncertainties[uncertainty_name]
+                )
+
+                # Concatenate gathered tensors
+                all_predictions[name] = torch.cat(gathered_predictions, dim=0)
+                all_targets[name] = torch.cat(gathered_targets, dim=0)
+                all_uncertainties[uncertainty_name] = torch.cat(
+                    gathered_uncertainties, dim=0
+                )
 
         for name in all_predictions:
             # compute the uncertainty multiplier
