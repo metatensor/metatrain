@@ -120,6 +120,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # For the initial LLPR calibration, use a single device
         # Distributed training will be initialized after calibration
+        # TODO: make multi-GPU calibration available
         device = devices[0]
         rank = 0
 
@@ -312,11 +313,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     sampler=train_sampler,
                     shuffle=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     collate_fn=collate_fn_train,
                     num_workers=num_workers,
