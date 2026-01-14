@@ -19,6 +19,7 @@ jobs:
           - mace
           - nanopet
           - pet
+          - phace
           - soap-bpnn        
 
     runs-on: ubuntu-22.04
