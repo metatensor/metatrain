@@ -171,7 +171,7 @@ class Scaler(torch.nn.Module):
         device = self.dummy_buffer.device
 
         # accumulate
-        for batch in tqdm.tqdm(dataloader, description="computing scale weights"):
+        for batch in tqdm.tqdm(dataloader, desc="computing scale weights"):
             systems, targets, extra_data = unpack_batch(batch)
             systems, targets, extra_data = batch_to(
                 systems, targets, extra_data, device=device
