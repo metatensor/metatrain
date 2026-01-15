@@ -94,7 +94,9 @@ for i in range(0, len(trajectory) - time_lag, spacing):
     s = get_structure_for_dataset(frame_now, frame_ahead)
     structures_for_dataset.append(s)
 
-    # Here, we also add the time-reversed pair (optional)
+    # Here, we also add the time-reversed pair (optional). This is
+    # generally a good idea because it is data we get for "free", as
+    # the underlying dynamics are time-reversible.
     frame_now_trev = copy.deepcopy(frame_now)
     frame_ahead_trev = copy.deepcopy(frame_ahead)
     frame_now_trev.set_momenta(-frame_now_trev.get_momenta())
