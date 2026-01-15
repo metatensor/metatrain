@@ -127,7 +127,7 @@ LAMMPS input script using the ``variant`` keyword:
 
 .. code-block::
 
-  pair_style metatomic [...other arguments...] variant finetune
+  pair_style metatomic model-ft.pt [...other arguments...] variant finetune
 
 Replace ``finetune`` with the name of your variant (the part after ``energy/`` in your
 training configuration). The syntax ``variant finetune`` tells LAMMPS to use

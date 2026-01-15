@@ -220,7 +220,7 @@ plt.show()
 #
 # .. code-block::
 #
-#   pair_style metatomic [...other arguments...] variant finetune
+#   pair_style metatomic model-ft.pt [...other arguments...] variant finetune
 #
 # More details on using variants in simulation engines can be found in the
 # `metatomic ASE documentation <https://docs.metatensor.org/metatomic/latest/torch/reference/ase.html#metatomic.torch.ase_calculator.MetatomicCalculator>`_
