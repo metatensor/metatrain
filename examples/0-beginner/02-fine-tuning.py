@@ -223,8 +223,8 @@ plt.show()
 #   pair_style metatomic [...other arguments...] variant finetune
 #
 # More details on using variants in simulation engines can be found in the
-# `metatomic ASE documentation <https://docs.metatensor.org/metatomic/latest/engines/ase.html>`_
-# and `metatomic LAMMPS documentation <https://docs.metatensor.org/metatomic/latest/engines/lammps.html>`_.
+# `metatomic ASE documentation <https://docs.metatensor.org/metatomic/latest/torch/reference/ase.html#metatomic.torch.ase_calculator.MetatomicCalculator>`_
+# and `metatomic LAMMPS documentation <https://docs.metatensor.org/metatomic/latest/engines/lammps.html#how-to-use-the-code>`_.
 
 # %%
 # sphinx_gallery_capture_repr_block = ()
