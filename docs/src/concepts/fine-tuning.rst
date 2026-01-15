@@ -137,7 +137,7 @@ For more details on using variants in simulation engines, see the
 :ref:`tutorial <sphx_glr_generated_examples_0-beginner_02-fine-tuning.py>` and the
 `metatomic ASE documentation`_ and `metatomic LAMMPS documentation`_.
 
-.. _metatomic ASE documentation: https://docs.metatensor.org/metatomic/latest/engines/ase.html
+.. _metatomic ASE documentation: https://docs.metatensor.org/metatomic/latest/torch/reference/ase.html#metatomic.torch.ase_calculator.MetatomicCalculator
 .. _metatomic LAMMPS documentation: https://docs.metatensor.org/metatomic/latest/engines/lammps.html
 
 
