@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, Iterator, List, Literal, Optional, Union
 
 import metatensor.torch as mts
 import numpy as np
@@ -12,7 +12,7 @@ from metatomic.torch import (
     ModelOutput,
     System,
 )
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import (
@@ -286,16 +286,17 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             )
 
         # Build the dataloaders
+        samplers: List[torch.utils.data.Sampler | None]
         if is_distributed:
             world_size = torch.distributed.get_world_size()
             rank = torch.distributed.get_rank()
             samplers = [
-                DistributedSampler(
+                NoPadDistributedSampler(
                     dataset,
                     num_replicas=world_size,
                     rank=rank,
                     shuffle=False,
-                    drop_last=False,
+                    seed=0,
                 )
                 for dataset in datasets
             ]
@@ -316,13 +317,12 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     dataset=dataset,
                     batch_size=batch_size,
                     sampler=sampler,
-                    shuffle=False,
                     drop_last=False,
                     collate_fn=collate_fn,
                 )
             )
 
-        return CombinedDataLoader(dataloaders, shuffle=False)
+        return CombinedDataLoader(dataloaders, shuffle=True)
 
     def forward(
         self,
@@ -671,100 +671,78 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         )
 
         # calibrate the LLPR
+        self.eval()
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
-        all_predictions = {}  # type: ignore
-        all_targets = {}  # type: ignore
-        all_uncertainties = {}  # type: ignore
 
-        for batch in valid_loader:
-            systems, targets, extra_data = unpack_batch(batch)
-            systems = [system.to(device=device, dtype=dtype) for system in systems]
-            targets = {
-                name: target.to(device=device, dtype=dtype)
-                for name, target in targets.items()
-            }
-            requested_outputs = {}
-            for name in targets:
-                per_atom = "atom" in targets[name].block(0).samples.names
-                requested_outputs[name] = ModelOutput(per_atom=per_atom)
-                uncertainty_name = _get_uncertainty_name(name)
-                requested_outputs[uncertainty_name] = ModelOutput(per_atom=per_atom)
-            outputs = self.forward(systems, requested_outputs)
-            for name, target in targets.items():
-                uncertainty_name = _get_uncertainty_name(name)
-                if name not in all_predictions:
-                    all_predictions[name] = []
-                    all_targets[name] = []
-                    all_uncertainties[uncertainty_name] = []
-                all_predictions[name].append(outputs[name].block().values.detach())
-                all_targets[name].append(target.block().values)
-                all_uncertainties[uncertainty_name].append(
-                    outputs[uncertainty_name].block().values.detach()
-                )
+        sums = {}  # type: ignore
+        counts = {}  # type: ignore
 
-        for name in all_predictions:
-            all_predictions[name] = torch.cat(all_predictions[name], dim=0)
-            all_targets[name] = torch.cat(all_targets[name], dim=0)
-            uncertainty_name = _get_uncertainty_name(name)
-            all_uncertainties[uncertainty_name] = torch.cat(
-                all_uncertainties[uncertainty_name], dim=0
-            )
+        with torch.no_grad():
+            for batch in valid_loader:
+                systems, targets, extra_data = unpack_batch(batch)
+                systems = [system.to(device=device, dtype=dtype) for system in systems]
+                targets = {
+                    name: target.to(device=device, dtype=dtype)
+                    for name, target in targets.items()
+                }
+                requested_outputs = {}
+                for name in targets:
+                    per_atom = "atom" in targets[name].block(0).samples.names
+                    requested_outputs[name] = ModelOutput(per_atom=per_atom)
+                    uncertainty_name = _get_uncertainty_name(name)
+                    requested_outputs[uncertainty_name] = ModelOutput(per_atom=per_atom)
+
+                outputs = self.forward(systems, requested_outputs)
+
+                for name, target in targets.items():
+                    uncertainty_name = _get_uncertainty_name(name)
+
+                    pred = outputs[name].block().values.detach()
+                    targ = target.block().values
+                    unc = outputs[uncertainty_name].block().values.detach()
+
+                    # compute the uncertainty multiplier
+                    residuals = pred - targ
+                    squared_residuals = residuals**2
+                    if squared_residuals.ndim > 2:
+                        # squared residuals need to be summed over component dimensions,
+                        # i.e., all but the first and last dimensions
+                        squared_residuals = torch.sum(
+                            squared_residuals,
+                            dim=tuple(range(1, squared_residuals.ndim - 1)),
+                        )
+
+                    ratios = squared_residuals / unc**2  # can be multi-dimensional
+
+                    ratios_sum64 = torch.sum(ratios.to(torch.float64), dim=0)
+                    count = torch.tensor(
+                        ratios.shape[0], dtype=torch.long, device=device
+                    )
+
+                    if uncertainty_name not in sums:
+                        sums[uncertainty_name] = ratios_sum64
+                        counts[uncertainty_name] = count
+                    else:
+                        sums[uncertainty_name] = sums[uncertainty_name] + ratios_sum64
+                        counts[uncertainty_name] = counts[uncertainty_name] + count
 
         if is_distributed:
-            torch.distributed.barrier()
             # All-reduce the accumulated statistics across all processes
-            world_size = torch.distributed.get_world_size()
-
-            for name in all_predictions:
-                # We need to gather all predictions, targets, and uncertainties
-                # across processes. For simplicity, we concatenate them.
-
-                # Prepare lists for gathering
-                gathered_predictions = [
-                    torch.zeros_like(all_predictions[name]) for _ in range(world_size)
-                ]
-                gathered_targets = [
-                    torch.zeros_like(all_targets[name]) for _ in range(world_size)
-                ]
-                uncertainty_name = _get_uncertainty_name(name)
-                gathered_uncertainties = [
-                    torch.zeros_like(all_uncertainties[uncertainty_name])
-                    for _ in range(world_size)
-                ]
-
-                # All-gather the tensors
-                torch.distributed.all_gather(
-                    gathered_predictions, all_predictions[name]
+            for uncertainty_name in sums:
+                torch.distributed.all_reduce(
+                    sums[uncertainty_name], op=torch.distributed.ReduceOp.SUM
                 )
-                torch.distributed.all_gather(gathered_targets, all_targets[name])
-                torch.distributed.all_gather(
-                    gathered_uncertainties, all_uncertainties[uncertainty_name]
+                torch.distributed.all_reduce(
+                    counts[uncertainty_name], op=torch.distributed.ReduceOp.SUM
                 )
 
-                # Concatenate gathered tensors
-                all_predictions[name] = torch.cat(gathered_predictions, dim=0)
-                all_targets[name] = torch.cat(gathered_targets, dim=0)
-                all_uncertainties[uncertainty_name] = torch.cat(
-                    gathered_uncertainties, dim=0
-                )
-
-        for name in all_predictions:
-            # compute the uncertainty multiplier
-            residuals = all_predictions[name] - all_targets[name]
-            squared_residuals = residuals**2
-            if squared_residuals.ndim > 2:
-                # squared residuals need to be summed over component dimensions,
-                # i.e., all but the first and last dimensions
-                squared_residuals = torch.sum(
-                    squared_residuals,
-                    dim=tuple(range(1, squared_residuals.ndim - 1)),
-                )
-            uncertainty_name = _get_uncertainty_name(name)
-            uncertainties = all_uncertainties[uncertainty_name]
-            ratios = squared_residuals / uncertainties**2  # can be multi-dimensional
+        for uncertainty_name in sums:
+            global_mean64 = sums[uncertainty_name] / counts[uncertainty_name].to(
+                torch.float64
+            )
             multiplier = self._get_multiplier(uncertainty_name)
-            multiplier[:] = torch.sqrt(torch.mean(ratios, dim=0))  # only along samples
+            multiplier[:] = torch.sqrt(global_mean64).to(multiplier.dtype)
 
     def generate_ensemble(self) -> None:
         """Generate an ensemble of weights for the model.
@@ -1006,3 +984,37 @@ def _get_uncertainty_name(name: str) -> str:
     else:
         uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
     return uncertainty_name
+
+
+class NoPadDistributedSampler(torch.utils.data.Sampler[int]):
+    def __init__(
+        self,
+        dataset: torch.utils.data.Dataset,
+        num_replicas: int,
+        rank: int,
+        shuffle: bool = False,
+        seed: int = 0,
+    ):
+        self.dataset = dataset
+        self.num_replicas = num_replicas
+        self.rank = rank
+        self.shuffle = shuffle
+        self.seed = seed
+        self.epoch = 0
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
+
+    def __iter__(self) -> Iterator[int]:
+        n = len(self.dataset)
+        indices = torch.arange(n, dtype=torch.long)
+        if self.shuffle:
+            g = torch.Generator()
+            g.manual_seed(self.seed + self.epoch)
+            indices = indices[torch.randperm(n, generator=g)]
+        # Key property: no padding, no dropping
+        return iter(indices[self.rank :: self.num_replicas].tolist())
+
+    def __len__(self) -> int:
+        n = len(self.dataset)
+        return (n - self.rank + self.num_replicas - 1) // self.num_replicas
