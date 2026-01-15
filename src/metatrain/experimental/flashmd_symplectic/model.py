@@ -19,7 +19,7 @@ from torch.profiler import record_function
 
 from metatrain.pet.modules.finetuning import apply_finetuning_strategy
 from metatrain.pet.modules.transformer import CartesianTransformer
-from metatrain.pet.modules.utilities import cutoff_func
+from metatrain.pet.modules.utilities import cutoff_func_bump as cutoff_func
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
@@ -71,6 +71,7 @@ class FlashMD(ModelInterface):
         self.normalization = self.hypers["normalization"]
         self.activation = self.hypers["activation"]
         self.transformer_type = self.hypers["transformer_type"]
+        self.attention_temperature = self.hypers["attention_temperature"]
         self.featurizer_type = self.hypers["featurizer_type"]
 
         self.atomic_types = dataset_info.atomic_types
@@ -92,6 +93,7 @@ class FlashMD(ModelInterface):
                     self.num_attention_layers,
                     self.normalization,
                     self.activation,
+                    self.attention_temperature,
                     self.transformer_type,
                     num_atomic_species,
                     layer_index == 0,  # is first layer
@@ -200,19 +202,6 @@ class FlashMD(ModelInterface):
                 },
             ),
         )
-        position_additive = PositionAdditive(
-            hypers={"also_momenta": self.hypers["predict_momenta_as_difference"]},
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if PositionAdditive.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        # additive_models = [composition_model, position_additive]
         additive_models = [composition_model]
 
         self.additive_models = torch.nn.ModuleList(additive_models)
@@ -462,14 +451,20 @@ class FlashMD(ModelInterface):
             )
         momenta_for_diff = momenta.clone()
         momenta_for_diff.requires_grad_(True)
-        momenta = momenta_for_diff #* 2.5
+        momenta = momenta_for_diff  # * 2.5
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
         use_manual_attention = edge_vectors.requires_grad and self.training
 
         edge_distances = torch.sqrt(torch.sum(edge_vectors**2, dim=2) + 1e-15)
-        cutoff_factors = cutoff_func(edge_distances, self.cutoff, self.cutoff_width)
+        cutoff_factors = cutoff_func(
+            edge_distances,
+            torch.tensor(
+                self.cutoff, device=edge_distances.device, dtype=edge_distances.dtype
+            ),
+            self.cutoff_width,
+        )
         cutoff_factors[~padding_mask] = 0.0
 
         # **Stage 1: Feature Computation via GNN Layers**
@@ -567,7 +562,7 @@ class FlashMD(ModelInterface):
             for k, v in atomic_predictions_dict.items():
                 return_dict[k] = v
 
-        generating_function_sum = return_dict["mtt::S3"].block().values.sum() #* 15.0
+        generating_function_sum = return_dict["mtt::S3"].block().values.sum()  # * 15.0
         dSdq_opt, dSdp_opt = torch.autograd.grad(
             [generating_function_sum],
             [positions_for_diff, momenta_for_diff],
@@ -1506,7 +1501,8 @@ def verify_masses(systems: list[System], masses: torch.Tensor):
             # (compare them to the ones stored in the model)
             system_masses = system.get_data("masses").block(0).values.squeeze(-1)
             expected_system_masses = masses[system.types]
-            # NOTE: 1e-3 is a bit rough, but it covers the case that someone is using the wrong isotope
+            # NOTE: 1e-3 is a bit rough, but it covers the case that someone is using
+            # the wrong isotope
             if not torch.allclose(system_masses, expected_system_masses, rtol=1e-3):
                 # find which atom has the wrong mass
                 for atom_index in range(len(system)):

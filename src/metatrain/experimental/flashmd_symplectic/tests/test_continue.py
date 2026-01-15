@@ -15,9 +15,15 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from metatrain.utils.omegaconf import CONF_LOSS
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
+
+
+CONF_LOSS = {
+    "type": "mse",
+    "weight": 1.0,
+    "reduction": "mean",
+}
 
 
 DEFAULT_HYPERS = copy.deepcopy(DEFAULT_HYPERS)

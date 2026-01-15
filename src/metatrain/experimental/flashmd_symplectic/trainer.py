@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
 import ase.data
-import torch, torch.profiler
-from torch.profiler import record_function
+import torch
+import torch.profiler
 from torch.optim.lr_scheduler import LambdaLR
+from torch.profiler import record_function
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.pet.modules.finetuning import apply_finetuning_strategy
@@ -88,7 +89,7 @@ class Trainer(TrainerInterface):
         self.best_model_state_dict: Optional[Dict[str, Any]] = None
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
 
-    #@profile
+    # @profile
     def train(
         self,
         model: FlashMD,
@@ -407,94 +408,99 @@ class Trainer(TrainerInterface):
                 )
                 val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
-            #with torch.profiler.profile(
-            #    activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
-            #    on_trace_ready=torch.profiler.tensorboard_trace_handler('./log_dir'),
-            #):
-            if True:
-                train_loss = 0.0
-                optimizer.zero_grad()
-                for i, batch in enumerate(train_dataloader):
-                    with record_function("unpack batch"):
-                        systems, targets, extra_data = unpack_batch(batch)
-                    
-                    with record_function("batch to device"):
-                        systems, targets, extra_data = batch_to(
-                            systems, targets, extra_data, dtype=dtype, device=device
-                        )
-                    
-                    with record_function("model forward"):
-                        predictions = evaluate_model(
-                            model,
-                            systems,
-                            {key: train_targets[key] for key in targets.keys()},
-                            is_training=True,
+            train_loss = 0.0
+            optimizer.zero_grad()
+            for i, batch in enumerate(train_dataloader):
+                with record_function("unpack batch"):
+                    systems, targets, extra_data = unpack_batch(batch)
+
+                with record_function("batch to device"):
+                    systems, targets, extra_data = batch_to(
+                        systems, targets, extra_data, dtype=dtype, device=device
+                    )
+
+                with record_function("model forward"):
+                    predictions = evaluate_model(
+                        model,
+                        systems,
+                        {key: train_targets[key] for key in targets.keys()},
+                        is_training=True,
+                    )
+
+                # print(predictions["mtt::delta_q"].block().values.std())
+                # print(predictions["mtt::delta_p"].block().values.std())
+                # print()
+                # print(targets["mtt::delta_q"].block().values.std())
+                # print(targets["mtt::delta_p"].block().values.std())
+                # print("----")
+
+                with record_function("loss computation"):
+                    # average by the number of atoms
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(
+                        targets, systems, per_structure_targets
+                    )
+                    train_loss_batch = loss_fn(predictions, targets, extra_data)
+
+                    if is_distributed:
+                        # Fix for "marked as ready twice" error: ensure all parameters
+                        # are used in the graph without relying on
+                        # find_unused_parameters=True
+                        train_loss_batch += 0.0 * sum(
+                            p.sum() for p in model.parameters() if p.requires_grad
                         )
 
-                    # print(predictions["mtt::delta_q"].block().values.std())
-                    # print(predictions["mtt::delta_p"].block().values.std())
-                    # print()
-                    # print(targets["mtt::delta_q"].block().values.std())
-                    # print(targets["mtt::delta_p"].block().values.std())
-                    # print("----")
+                    # We divide by ACCUM_STEPS so the gradients average out,
+                    # rather than sum up.
+                    loss_for_backward = train_loss_batch / ACCUM_STEPS
 
-                    with record_function("loss computation"):
-                        # average by the number of atoms
-                        predictions = average_by_num_atoms(
-                            predictions, systems, per_structure_targets
+                with record_function("backward step"):
+                    # Check if we should update weights (Last step of accumulation OR
+                    # end of dataloader)
+                    is_update_step = ((i + 1) % ACCUM_STEPS == 0) or (
+                        (i + 1) == len(train_dataloader)
+                    )
+                    # print(f"{is_update_step=}, {(i + 1)=}, {len(train_dataloader)=}")
+
+                    # We use model.no_sync() to prevent GPUs from talking to each other
+                    # until the very last accumulation step. This saves massive time.
+                    if is_distributed and not is_update_step:
+                        with model.no_sync():
+                            loss_for_backward.backward()
+                    else:
+                        # Syncs gradients on the update step
+                        loss_for_backward.backward()
+
+                with record_function("optimizer step"):
+                    if is_update_step:
+                        torch.nn.utils.clip_grad_norm_(
+                            model.parameters(), self.hypers["grad_clip_norm"]
                         )
-                        targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                        train_loss_batch = loss_fn(predictions, targets, extra_data)
+                        optimizer.step()
+                        lr_scheduler.step()
+                        optimizer.zero_grad()
 
-                        if is_distributed:
-                            # Fix for "marked as ready twice" error: ensure all parameters are used
-                            # in the graph without relying on find_unused_parameters=True
-                            train_loss_batch += 0.0 * sum(p.sum() for p in model.parameters() if p.requires_grad)
-                        
-                        # We divide by ACCUM_STEPS so the gradients average out, rather than sum up.
-                        loss_for_backward = train_loss_batch / ACCUM_STEPS
-                    
-                    with record_function("backward step"):
-                        # Check if we should update weights (Last step of accumulation OR end of dataloader)
-                        is_update_step = ((i + 1) % ACCUM_STEPS == 0) or ((i + 1) == len(train_dataloader))
-                        #print(f"{is_update_step=}, {(i + 1)=}, {len(train_dataloader)=}")
+                    if is_distributed:
+                        # sum the loss over all processes
+                        torch.distributed.all_reduce(train_loss_batch)
+                    train_loss += train_loss_batch.item()
 
-                        # We use model.no_sync() to prevent GPUs from talking to each other 
-                        # until the very last accumulation step. This saves massive time.
-                        if is_distributed and not is_update_step:
-                            with model.no_sync():
-                                loss_for_backward.backward()
-                        else:
-                            loss_for_backward.backward() # Syncs gradients on the update step
-                    
-                    with record_function("optimizer step"):
-                        if is_update_step:
-                            torch.nn.utils.clip_grad_norm_(
-                                model.parameters(), self.hypers["grad_clip_norm"]
-                            )
-                            optimizer.step()
-                            lr_scheduler.step()
-                            optimizer.zero_grad()
-
-                        if is_distributed:
-                            # sum the loss over all processes
-                            torch.distributed.all_reduce(train_loss_batch)
-                        train_loss += train_loss_batch.item()
-                    
-                    with record_function("metrics update"):
-                        scaled_predictions = (model.module if is_distributed else model).scaler(
-                            systems, predictions
-                        )
-                        scaled_targets = (model.module if is_distributed else model).scaler(
-                            systems, targets
-                        )
-                        train_rmse_calculator.update(
+                with record_function("metrics update"):
+                    scaled_predictions = (
+                        model.module if is_distributed else model
+                    ).scaler(systems, predictions)
+                    scaled_targets = (model.module if is_distributed else model).scaler(
+                        systems, targets
+                    )
+                    train_rmse_calculator.update(
+                        scaled_predictions, scaled_targets, extra_data
+                    )
+                    if self.hypers["log_mae"]:
+                        train_mae_calculator.update(
                             scaled_predictions, scaled_targets, extra_data
                         )
-                        if self.hypers["log_mae"]:
-                            train_mae_calculator.update(
-                                scaled_predictions, scaled_targets, extra_data
-                            )
 
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,

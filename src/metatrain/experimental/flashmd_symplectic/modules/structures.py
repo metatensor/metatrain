@@ -1,9 +1,9 @@
 from typing import List, Optional
 
 import torch
-from torch.profiler import record_function
 from metatensor.torch import Labels
 from metatomic.torch import NeighborListOptions, System
+from torch.profiler import record_function
 
 from metatrain.pet.modules.nef import (
     compute_reversed_neighbor_list,
