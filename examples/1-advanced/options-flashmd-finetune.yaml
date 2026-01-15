@@ -4,7 +4,7 @@ architecture:
   name: experimental.flashmd
   training:
     finetune:
-      read_from: flashmd_pet-omatpes_32fs.ckpt
+      read_from: flashmd_pet-omatpes-v2_32fs.ckpt
     timestep: 32  # in this case 32 (time lag) * 1 fs (timestep of reference MD)
     batch_size: 2  # to be increased in a production scenario
     num_epochs: 1  # to be increased (at least 1000-10000) in a production scenario
