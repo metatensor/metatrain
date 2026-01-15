@@ -15,6 +15,7 @@ def energy_target_config() -> DictConfig:
         {
             "quantity": "energy",
             "unit": "eV",
+            "description": "Total potential energy of the system",
             "per_atom": False,
             "num_subtargets": 1,
             "type": "scalar",
@@ -77,6 +78,7 @@ def test_layout_energy(energy_target_config):
     assert target_info.quantity == "energy"
     assert target_info.unit == "eV"
     assert target_info.per_atom is False
+    assert target_info.description == "Total potential energy of the system"
     assert target_info.gradients == []
     assert target_info.device == target_info.layout.device
 
@@ -100,6 +102,13 @@ def test_layout_energy(energy_target_config):
     assert target_info.per_atom is False
     assert target_info.gradients == ["positions", "strain"]
     assert target_info.device == target_info.layout.device
+
+    repr_str = repr(target_info)
+    reprs = (
+        f"TargetInfo(layout={target_info.layout}, quantity='{target_info.quantity}', "
+        f"unit='{target_info.unit}', description='{target_info.description}')"
+    )
+    assert reprs == repr_str
 
 
 def test_layout_scalar(scalar_target_config):
@@ -170,3 +179,92 @@ def test_instance_torchscript_compatible(target_config, request):
         "target_name", request.getfixturevalue(target_config)
     )
     torch.jit.script(target_info)
+
+
+def test_invalid_unit():
+    conf = DictConfig(
+        {
+            "quantity": "energy",
+            "unit": "fooo",
+            "description": "Total potential energy of the system",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "type": "scalar",
+        }
+    )
+
+    with pytest.raises(ValueError, match="fooo"):
+        get_generic_target_info("energy", conf)
+
+
+def warn_unknown_quantity():
+    conf = DictConfig(
+        {
+            "quantity": "fooo",
+            "unit": "fooo",
+            "description": "Some description",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "type": "scalar",
+        }
+    )
+
+    with pytest.warns(UserWarning, match="unknown quantity 'fooo'"):
+        get_generic_target_info("some_target", conf)
+
+
+@pytest.mark.parametrize(
+    "target_name",
+    ["scalar/variant1", "mtt::scalar", "mtt::scalar/variant1"],
+)
+def test_layout_scalar_with_variant(scalar_target_config, target_name):
+    """Test that scalar targets with variant names and/or mtt:: prefix work correctly.
+
+    The '/' character is not accepted in Labels, so the variant part should be
+    removed when creating the properties labels. The 'mtt::' prefix should also be
+    removed.
+    """
+    target_info = get_generic_target_info(target_name, scalar_target_config)
+    assert target_info.quantity == "scalar"
+    assert target_info.unit == ""
+    assert target_info.per_atom is False
+    assert target_info.gradients == []
+
+    # Check that the properties labels were created correctly without the variant part
+    # and mtt:: prefix. The properties label should be "scalar" in all cases.
+    block = target_info.layout.block()
+    assert block.properties.names == ["scalar"]
+
+
+@pytest.mark.parametrize(
+    "target_name",
+    ["dipole/variant1", "mtt::dipole", "mtt::dipole/variant1"],
+)
+def test_layout_cartesian_with_variant(cartesian_target_config, target_name):
+    target_info = get_generic_target_info(target_name, cartesian_target_config)
+    assert target_info.quantity == "dipole"
+    assert target_info.unit == "D"
+    assert target_info.per_atom is True
+    assert target_info.gradients == []
+
+    # Check that the properties labels were created correctly without the variant part
+    # and mtt:: prefix. The properties label should be "dipole" in all cases.
+    block = target_info.layout.block()
+    assert block.properties.names == ["dipole"]
+
+
+@pytest.mark.parametrize(
+    "target_name",
+    ["spherical/variant1", "mtt::spherical", "mtt::spherical/variant1"],
+)
+def test_layout_spherical_with_variant(spherical_target_config, target_name):
+    target_info = get_generic_target_info(target_name, spherical_target_config)
+    assert target_info.quantity == "spherical"
+    assert target_info.unit == ""
+    assert target_info.per_atom is False
+    assert target_info.gradients == []
+
+    # Check that the properties labels were created correctly without the variant part
+    # and mtt:: prefix. The properties label should be "spherical" in all cases.
+    for block in target_info.layout.blocks():
+        assert block.properties.names == ["spherical"]

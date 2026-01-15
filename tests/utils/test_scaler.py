@@ -2,6 +2,7 @@ import copy
 import math
 from pathlib import Path
 
+import metatensor.torch
 import metatensor.torch as mts
 import pytest
 import torch
@@ -497,6 +498,25 @@ def test_scaler_cartesian_per_atom(batch_size, fixed_scaling_weights):
         fake_output["forces"].block().values / expected_scales,
     )
 
+    # IMPORTANT: also test selected atoms (see pull request #903)
+    selected_atoms = Labels(
+        names=["system", "atom"],
+        values=torch.tensor([[1, 2], [1, 0]]),
+    )
+    fake_output["forces"] = metatensor.torch.slice(
+        fake_output["forces"],
+        "samples",
+        selected_atoms,
+    )
+    fake_output_after_scaling = scaler(
+        systems, fake_output, selected_atoms=selected_atoms
+    )
+    scales = (
+        fake_output_after_scaling["forces"].block().values
+        / fake_output["forces"].block().values
+    )
+    torch.testing.assert_close(scales, expected_scales[[3, 1]])
+
 
 @pytest.mark.parametrize("batch_size", [1, 2])
 def test_scaler_spherical(batch_size):
@@ -815,12 +835,12 @@ def test_scaler_spherical_per_atom(batch_size):
         atomic_types=[1, 8],
         targets={
             "spherical": TargetInfo(
-                quantity="spherical",
                 layout=mts.slice(
                     spherical[0],
                     "samples",
                     Labels(["system"], torch.tensor([[-1]])),
                 ),
+                quantity="mtt::spherical",
                 unit="",
             )
         },

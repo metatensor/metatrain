@@ -3,7 +3,7 @@ seed: 42
 architecture:
   name: experimental.flashmd
   training:
-    timestep: 30  # in this case 30 (time lag) * 1 fs (timestep of reference MD)
+    timestep: 32  # in this case 32 (time lag) * 1 fs (timestep of reference MD)
     batch_size: 2  # to be increased in a production scenario
     num_epochs: 5  # to be increased (at least 1000-10000) in a production scenario
     log_interval: 1
@@ -33,7 +33,7 @@ training_set:
     momenta:
       key: future_momenta
       quantity: momentum
-      unit: (eV*u)^1/2
+      unit: (eV*u)^(1/2)
       type:
         cartesian:
           rank: 1

@@ -2,7 +2,7 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
@@ -19,6 +19,7 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
@@ -26,7 +27,7 @@ from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import LossAggregator
+from metatrain.utils.loss import LossAggregator, LossSpecification
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -37,12 +38,15 @@ from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
+from .documentation import TrainerHypers
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
 
 def get_scheduler(
-    optimizer: torch.optim.Optimizer, train_hypers: Dict[str, Any], steps_per_epoch: int
+    optimizer: torch.optim.Optimizer,
+    train_hypers: TrainerHypers,
+    steps_per_epoch: int,
 ) -> LambdaLR:
     """
     Get a CosineAnnealing learning-rate scheduler with warmup
@@ -72,10 +76,10 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface):
-    __checkpoint_version__ = 10
+class Trainer(TrainerInterface[TrainerHypers]):
+    __checkpoint_version__ = 12
 
-    def __init__(self, hypers: Dict[str, Any]) -> None:
+    def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
 
         self.optimizer_state_dict: Optional[Dict[str, Any]] = None
@@ -127,6 +131,7 @@ class Trainer(TrainerInterface):
 
         # Apply fine-tuning strategy if provided
         if is_finetune:
+            assert self.hypers["finetune"]["read_from"] is not None  # for mypy
             model = apply_finetuning_strategy(model, self.hypers["finetune"])
             method = self.hypers["finetune"]["method"]
             num_params = sum(p.numel() for p in model.parameters())
@@ -155,15 +160,14 @@ class Trainer(TrainerInterface):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
-        if self.hypers["remove_composition_contribution"]:
-            logging.info("Calculating composition weights")
-            model.additive_models[0].train_model(  # this is the composition model
-                train_datasets,
-                model.additive_models[1:],
-                self.hypers["batch_size"],
-                is_distributed,
-                self.hypers["fixed_composition_weights"],
-            )
+        logging.info("Calculating composition weights")
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["batch_size"],
+            is_distributed,
+            self.hypers["atomic_baseline"],
+        )
 
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
@@ -231,6 +235,7 @@ class Trainer(TrainerInterface):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
@@ -239,6 +244,7 @@ class Trainer(TrainerInterface):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
 
         # Create dataloader for the training datasets:
@@ -285,13 +291,6 @@ class Trainer(TrainerInterface):
         # Create dataloader for the validation datasets:
         val_dataloaders = []
         for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
-            if len(val_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A validation dataset has fewer samples "
-                    f"({len(val_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
             val_dataloaders.append(
                 DataLoader(
                     dataset=val_dataset,
@@ -315,11 +314,8 @@ class Trainer(TrainerInterface):
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
         # Create a loss function:
-        loss_hypers = self.hypers["loss"]
-        loss_fn = LossAggregator(
-            targets=train_targets,
-            config=loss_hypers,
-        )
+        loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
+        loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
         logging.info("Using the following loss functions:")
         for name, info in loss_fn.metadata.items():
             logging.info(f"{name}:")
@@ -383,6 +379,10 @@ class Trainer(TrainerInterface):
 
             train_loss = 0.0
             for batch in train_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = unpack_batch(batch)
@@ -451,6 +451,10 @@ class Trainer(TrainerInterface):
 
             val_loss = 0.0
             for batch in val_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device
@@ -586,7 +590,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: TrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
         trainer = cls(hypers)

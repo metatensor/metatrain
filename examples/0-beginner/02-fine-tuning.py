@@ -1,170 +1,275 @@
 r"""
-.. _fine-tuning:
 
-Fine-tune a pre-trained model
-=============================
+Fine-tuning a pre-trained model
+===============================
 
 .. warning::
 
-  This section of the documentation is only relevant for PET model so far.
+  Finetuning is currently only available for the PET architecture.
 
-This section describes the process of fine-tuning a pre-trained model to
-adapt it to new tasks or datasets. Fine-tuning is a common technique used
-in machine learning, where a model is trained on a large dataset and then
-fine-tuned on a smaller dataset to improve its performance on specific tasks.
-So far the fine-tuning capabilities are only available for PET model.
 
-There is a complete example in :ref:`Fine-tune example <fine-tuning-example>`.
+This is a simple example for fine-tuning PET-MAD (or a general PET model), that
+can be used as a template for general fine-tuning with metatrain.
+Fine-tuning a pretrained model allows you to obtain a model better suited for
+your specific system. You need to provide a dataset of structures that have
+been evaluated at a higher reference level of theory, usually DFT. Fine-tuning
+a universal model such as PET-MAD allows for reasonable model performance even if little
+training data is available.
+It requires using a pre-trained model checkpoint with the ``mtt train`` command and
+setting the new targets corresponding to the new level of theory in the ``options.yaml``
+file.
+
+
+
+We start by setting up the ``options.yaml`` file. Here we specify to fine-tune on a
+small model dataset containing structures of ethanol, labelled with energies and
+forces. We can specify the fine-tuning method in the ``finetune`` block in the
+``training`` options of the ``architecture``. Here, the basic ``full`` option is
+chosen, which finetunes all weights of the model. All available fine-tuning methods
+are found in the concepts page :ref:`Fine-tuning <label_fine_tuning_concept>`. This
+section discusses implementation details, options and recommended use cases. Other
+fine-tuning options can be simply substituted in this script, by changing the
+``finetune`` block.
 
 .. note::
 
-  Please note that the fine-tuning recommendations in this section are not universal
-  and require testing on your specific dataset to achieve the best results. You might
-  need to experiment with different fine-tuning strategies depending on your needs.
+  Since our dataset has energies and forces obtained from reference calculations,
+  different from the reference of the pretrained model, it is recommended to create a
+  new energy head. Using this so-called energy variant can be simply invoked by
+  requesting a new target in the options file. Follow the nomenclature
+  ``energy/{yourname}``.
 
 
-Basic Fine-tuning
------------------
+Furthermore, you need to specify the checkpoint, that you want to fine-tune in
+the ``read_from`` option.
 
-The basic way to fine-tune a model is to use the ``mtt train`` command with the
-available pre-trained model defined in an ``options.yaml`` file. In this case, all the
-weights of the model will be adapted to the new dataset. In contrast to to the
-training continuation, the optimizer and scheduler state will be reset. You can still
-adjust the training hyperparameters in the ``options.yaml`` file, but the model
-architecture will be taken from the checkpoint.
+A simple ``options-ft.yaml`` file for this task could look like this:
 
-To set the path to the pre-trained model checkpoint, you need to specify the
-``read_from`` parameter in the ``options.yaml`` file:
+.. literalinclude:: options-ft.yaml
+  :language: yaml
 
-.. code-block:: yaml
+In this example, we specified a low number of :attr:`num_epochs` and a relatively high
+:attr:`learning_rate`, for short compilation time. Usually, the ``learning_rate`` is
+chosen to be relatively low. Typically lower, than the ``learning_rate`` that the model
+has been per-trained on.
+to stabilise training.
 
-  architecture:
-    training:
-      finetune:
-        method: "full" # This stands for the full fine-tuning
-        read_from: path/to/checkpoint.ckpt
+.. warning::
 
-We recommend to use a lower learning rate than the one used for the original training,
-as this will help stabilizing the training process. I.e. if the default learning rate is
-``1e-4``, you can set it to ``1e-5`` or even lower, using the following in the
-``options.yaml`` file:
-
-.. code-block:: yaml
-
-  architecture:
-    training:
-      learning_rate: 1e-5
-
-Please note, that in the case of the basic fine-tuning, the composition model weights
-will be taken from the checkpoint and not adapted to the new dataset.
-
-The basic fine-tuning strategy is a good choice in the case when the level of theory
-which is used for the original training is the same, or at least similar to the one used
-for the new dataset. However, since this is not always the case, we also provide more
-advanced fine-tuning strategies described below.
+  Note that in ``targets`` we use the ``energy/finetune`` head, differing from the
+  default ``energy`` head. This means, that the model creates a new head with a new
+  composition model for the new reference energies provided in your dataset. While
+  the old energy reference is still available, it is rendered useless, as we trained
+  all weights of the model. If you want to obtain a model with multiple energy heads,
+  you can simply train on multiple energy references simultaneously. This and other
+  more advanced fine-tuning strategies are discussed in
+  :ref:`Fine-tuning concepts <label_fine_tuning_concept>`.
 
 
-Fine-tuning model Heads
------------------------
+We assumed that the pre-trained model is trained on the dataset
+``ethanol_reduced_100.xyz`` in which energies are written in the ``energy`` key of
+the ``info`` dictionary of the dataset.
+Additionally, forces should be provided with corresponding keys
+which you can specify in the ``options-ft.yaml`` file under ``targets``.
+Further information on specifying targets can be found in the :ref:`data section of
+the Training YAML Reference <data-section>`.
 
-Adapting all the model weights to a new dataset is not always the best approach. If the
-new dataset consist of the same or similar data computed with a slightly different level
-of theory compared to the pre-trained models' dataset, you might want to keep the
-learned representations of the crystal structures and only adapt the readout layers
-(i.e. the model heads) to the new dataset.
+.. note::
 
-In this case, the ``mtt train`` command needs to be accompanied by the specific training
-options in the ``options.yaml`` file. The following options need to be set:
-
-.. code-block:: yaml
-
-  architecture:
-    training:
-      finetune:
-        method: "heads"
-        read_from: path/to/checkpoint.ckpt
-        config:
-          head_modules: ['node_heads', 'edge_heads']
-          last_layer_modules: ['node_last_layers', 'edge_last_layers']
+  It is important that the ``length_unit`` is set to ``angstrom`` and the ``energy``
+  ``unit`` is ``eV`` in order to match the units of your reference data.
 
 
-The ``method`` parameter specifies the fine-tuning method to be used and the
-``read_from`` parameter specifies the path to the pre-trained model checkpoint. The
-``head_modules`` and ``last_layer_modules`` parameters specify the modules to be
-fine-tuned. Here, the ``node_*`` and ``edge_*`` modules represent different parts of the
-model readout layers related to the atom-based and bond-based features. The
-``*_last_layer`` modules are the last layers of the corresponding heads, implemented as
-multi-layer perceptron (MLPs). You can select different combinations of the node and
-edge heads and last layers to be fine-tuned.
+After setting up your ``options-ft.yaml`` file, you can then simply run:
 
-We recommend to first start the fine-tuning including all the modules listed above and
-experiment with their different combinations if needed. You might also consider using a
-lower learning rate, e.g. ``1e-5`` or even lower, to stabilize the training process.
+.. code-block:: bash
 
+  mtt train options-ft.yaml -o model-ft.pt
 
-LoRA Fine-tuning
-----------------
-
-If the conceptually new type of structures is introduced in the new dataset, tuning only
-the model heads might not be sufficient. In this case, you might need to adapt the
-internal representations of the crystal structures. This can be done using the LoRA
-technique. However, in this case the model heads will be not adapted to the new dataset,
-so conceptually the level of theory should be consistent with the one used for the
-pre-trained model.
-
-What is LoRA?
-^^^^^^^^^^^^^
-
-LoRA (Low-Rank Adaptation) stands for a Parameter-Efficient Fine-Tuning (PEFT)
-technique used to adapt pre-trained models to new tasks by introducing low-rank
-matrices into the model's architecture.
-
-Given a pre-trained model with the weights matrix :math:`W_0`, LoRA introduces
-low-rank matrices :math:`A` and :math:`B` of a rank :math:`r` such that the
-new weights matrix :math:`W` is computed as:
-
-.. math::
-
-  W = W_0 + \frac{\alpha}{r} A B
-
-where :math:`\alpha` is a regularization factor that controls the influence
-of the low-rank matrices on the model's weights. By adjusting the rank :math:`r`
-and the regularization factor :math:`\alpha`, you can fine-tune the model
-to achieve better performance on specific tasks.
-
-To use LoRA for fine-tuning, you need to provide the pre-trained model checkpoint with
-the ``mtt train`` command and specify the LoRA parameters in the ``options.yaml`` file:
-
-.. code-block:: yaml
-
-  architecture:
-    training:
-      finetune:
-        method: "lora"
-        read_from: path/to/pre-trained-model.ckpt
-        config:
-          alpha: 0.1
-          rank: 4
-
-These parameters control the rank of the low-rank matrices introduced by LoRA
-(``rank``), and the regularization factor for the low-rank matrices (``alpha``).
-By selecting the LoRA rank and the regularization factor, you can control the
-amount of adaptation to the new dataset. Using lower values of the rank and
-the regularization factor will lead to a more conservative adaptation, which can help
-balancing the performance of the model on the original and new datasets.
-
-We recommend to start with the LoRA parameters listed above and experiment with
-different values if needed. You might also consider using a lower learning rate,
-e.g. ``1e-5`` or even lower, to stabilize the training process.
-
-
-Fine-tuning on a new level of theory
-------------------------------------
-
-If the new dataset is computed with a totally different level of theory compared to the
-pre-trained model, which includes, for instance, the different composition energies, or
-you want to fine-tune the model on a completely new target, you might need to consider
-the transfer learning approach and introduce a new target in the ``options.yaml`` file.
-More details about this approach can be found in the :ref:`Transfer Learning
-<transfer-learning>` section of the documentation.
+You can check finetuning training curves by parsing the ``train.csv`` that is written
+by ``mtt train``. We remove the old outputs folder from other examples, which
+is not necessary for the normal usage.
 """
+
+# %%
+#
+import glob
+import subprocess
+
+import ase.io
+import matplotlib.pyplot as plt
+import numpy as np
+from metatomic.torch.ase_calculator import MetatomicCalculator
+
+
+# %%
+#
+
+# In order to obtain a pretrained model, you can use a PET-MAD checkpoint from
+# huggingface. Here, we get the PET-MAD ckpt, run ``mtt train`` as a subprocess, and
+# delete the old outputs folder and old model checkpoints.
+
+# %%
+#
+subprocess.run(["rm", "-rf", "outputs"], check=True)
+subprocess.run(
+    [
+        "wget",
+        "https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.1.0/models/pet-mad-v1.1.0.ckpt",
+    ],
+    check=True,
+)
+
+subprocess.run(["mtt", "train", "options-ft.yaml", "-o", "model-ft.pt"], check=True)
+subprocess.run(["rm", "-rf", "pet-mad-v1.1.0.ckpt"], check=True)
+# %%
+#
+# After training, we can check if finetuning was successful.
+# First we check the training curves, that are saved in ``train.csv`` in the outputs
+# folder. We start with parsing the csv file.
+csv_path = glob.glob("outputs/*/*/train.csv")[-1]
+with open(csv_path, "r") as f:
+    header = f.readline().strip().split(",")
+    f.readline()  # skip units row
+
+# Build dtype
+dtype = [(h, float) for h in header]
+
+# Load data as plain float array
+data = np.loadtxt(csv_path, delimiter=",", skiprows=2)
+
+# Convert to structured
+structured = np.zeros(data.shape[0], dtype=dtype)
+for i, h in enumerate(header):
+    structured[h] = data[:, i]
+
+# %%
+#
+# Now, let's plot the learning curves.
+
+training_energy_RMSE = structured["training energy/finetune RMSE (per atom)"]
+training_forces_MAE = structured["training forces[energy/finetune] MAE"]
+validation_energy_RMSE = structured["validation energy/finetune RMSE (per atom)"]
+validation_forces_MAE = structured["validation forces[energy/finetune] MAE"]
+
+fig, axs = plt.subplots(1, 2, figsize=((8, 3.5)))
+
+axs[0].plot(training_energy_RMSE, label="training energy RMSE")
+axs[0].plot(validation_energy_RMSE, label="validation energy RMSE")
+axs[0].set_xlabel("Epochs")
+axs[0].set_ylabel("energy / meV")
+axs[0].set_xscale("log")
+axs[0].set_yscale("log")
+axs[0].legend()
+axs[1].plot(training_forces_MAE, label="training forces MAE")
+axs[1].plot(validation_forces_MAE, label="validation forces MAE")
+axs[1].set_ylabel("force / meV/A")
+axs[1].set_xlabel("Epochs")
+axs[1].set_xscale("log")
+axs[1].set_yscale("log")
+axs[1].legend()
+plt.tight_layout()
+plt.show()
+
+# %%
+#
+# You can see that the validation loss still decreases, however, for the sake of brevity
+# of this exercise we only finetuned for a few epochs. As further check for how well
+# your fine-tuned model performs on a dataset of choice, we can check the parity plots
+# for energy and force
+# (see :ref:`sphx_glr_generated_examples_0-beginner_04-parity_plot.py`).
+# For evaluation, we can compare performance of our fine-tuned model and the base model
+# PET-MAD. Using ``mtt eval`` we can simply evaluate our new energy head, by specifying
+# it in the options-ft-eval.yaml:
+#
+# .. code-block:: yaml
+#
+#   systems: ethanol_reduced_100.xyz
+#   targets:
+#     energy/finetune:
+#       key: energy
+#       unit: eV
+#       forces:
+#         key: forces
+#
+# and then run
+#
+# .. code-block:: bash
+#
+#  mtt eval model-ft.pt options-ft-eval.yaml -o output-ft.xyz
+#
+# Then you can simply read the predicted energies in the headers of the xyz file.
+# Another possibility is to load your fine-tuned model ``model-ft.pt`` as ``metatomic``
+# model and evaluate energies and forces with ASE in Python.
+#
+
+# %%
+# sphinx_gallery_capture_repr_block = ()
+np.seterr()
+targets = ase.io.read(
+    "ethanol_reduced_100.xyz",
+    format="extxyz",
+    index=":",
+)
+calc_ft = MetatomicCalculator(
+    "model-ft.pt", variants={"energy": "finetune"}, extensions_directory=None
+)
+# specify variant suffix here
+with np.errstate(invalid="ignore"):
+    e_targets = np.array(
+        [frame.get_total_energy() / len(frame) for frame in targets]
+    )  # target energies
+    f_targets = np.array(
+        [frame.get_forces().flatten() for frame in targets]
+    ).flatten()  # target forces
+
+    for frame in targets:
+        frame.calc = calc_ft
+
+    e_predictions = np.array(
+        [frame.get_total_energy() / len(frame) for frame in targets]
+    )  # predicted energies
+    f_predictions = np.array(
+        [frame.get_forces().flatten() for frame in targets]
+    ).flatten()  # predicted forces
+
+fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+
+# Parity plot for energies
+axs[0].scatter(e_targets, e_predictions, label="FT")
+axs[0].axline((np.min(e_targets), np.min(e_targets)), slope=1, ls="--", color="red")
+axs[0].set_xlabel("Target energy / meV")
+axs[0].set_ylabel("Predicted energy / meV")
+min_e = np.min(np.array([e_targets, e_predictions])) - 2
+max_e = np.max(np.array([e_targets, e_predictions])) + 2
+axs[0].set_title("Energy Parity Plot")
+axs[0].set_xlim(min_e, max_e)
+axs[0].set_ylim(min_e, max_e)
+
+# Parity plot for forces
+axs[1].scatter(f_targets, f_predictions, alpha=0.5, label="FT")
+axs[1].axline((np.min(f_targets), np.min(f_targets)), slope=1, ls="--", color="red")
+axs[1].set_xlabel("Target force / meV/Å")
+axs[1].set_ylabel("Predicted force / meV/Å")
+min_f = np.min(np.array([f_targets, f_predictions])) - 2
+max_f = np.max(np.array([f_targets, f_predictions])) + 2
+axs[1].set_title("Force Parity Plot")
+axs[1].set_xlim(min_f, max_f)
+axs[1].set_ylim(min_f, max_f)
+fig.tight_layout()
+plt.show()
+
+# %%
+#
+# We see that the fine-tuning gives reasonable predictions on energies and forces.
+# Since the training was limited to 10 epochs in this example, the results can be
+# obviously improved by training for more epochs and optimizing training
+# hyperparameters.
+
+# %%
+#
+# .. note::
+#
+#   To learn about more elaborate fine-tuning strategies and tools, check out the
+#   fine-tuning examples in the
+#   `AtomisticCookbook <https://atomistic-cookbook.org/examples/pet-finetuning/pet-ft.html>`_

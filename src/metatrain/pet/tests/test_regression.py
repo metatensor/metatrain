@@ -14,8 +14,9 @@ from metatrain.utils.data.readers import (
 )
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.hypers import init_with_defaults
+from metatrain.utils.loss import LossSpecification
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
-from metatrain.utils.omegaconf import CONF_LOSS
 
 from . import DATASET_PATH, DATASET_WITH_FORCES_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -98,9 +99,11 @@ def test_regression_energies_forces_train(device):
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["scheduler_patience"] = 1
-    hypers["training"]["fixed_composition_weights"] = {}
-    loss_conf = {"energy": CONF_LOSS.copy()}
-    loss_conf["energy"]["gradients"] = {"positions": CONF_LOSS.copy()}
+    hypers["training"]["atomic_baseline"] = {}
+    loss_conf = {"energy": init_with_defaults(LossSpecification)}
+    loss_conf["energy"]["gradients"] = {
+        "positions": init_with_defaults(LossSpecification)
+    }
     loss_conf = OmegaConf.create(loss_conf)
     OmegaConf.resolve(loss_conf)
     hypers["training"]["loss"] = loss_conf
@@ -130,21 +133,21 @@ def test_regression_energies_forces_train(device):
 
     expected_output = torch.tensor(
         [
-            [25.199459075928],
-            [25.222875595093],
-            [25.237026214600],
-            [25.187496185303],
-            [25.231588363647],
+            [23.681182861328],
+            [24.079591751099],
+            [23.690107345581],
+            [24.619163513184],
+            [24.360023498535],
         ],
         device=device,
     )
 
     expected_gradients_output = torch.tensor(
-        [0.268817871809, -0.137333616614, -0.344198584557], device=device
+        [0.141418337822, 0.238168984652, -0.696541965008], device=device
     )
 
-    # # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
+    # if you need to change the hardcoded values:
+    # torch.set_printoptions(precision=12)
     # print(output["energy"].block().values)
     # print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
 

@@ -24,18 +24,6 @@ for the training. Let's take the
 :ref:`sphx_glr_generated_examples_0-beginner_03-train_from_scratch.py` example and
 adjust the ``options.yaml`` file.
 
-To know if the model supports multi-GPU training, please check
-:ref:`available-architectures` and see if the default hyperparameters have the
-``distributed`` option.
-
-Input file
-----------
-
-To do this, you only need to switch on the ``distributed`` option in the ``.yaml`` file
-for the training. Let's take the
-:ref:`sphx_glr_generated_examples_0-beginner_03-train_from_scratch.py` example and
-adjust the ``options.yaml`` file.
-
 .. literalinclude:: options-distributed.yaml
    :language: yaml
    :linenos:

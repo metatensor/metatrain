@@ -50,16 +50,16 @@ def test_read_unknonw_library():
 
 
 def test_unsupported_target_name():
-    conf = {
-        "free_energy": {
-            "quantity": "energy",
-        }
-    }
-
+    conf = {"free_energy": {"quantity": "energy"}}
     with pytest.raises(
-        ValueError,
-        match="start with `mtt::`",
+        ValueError, match="Invalid name for model output: 'free_energy'"
     ):
+        read_targets(OmegaConf.create(conf))
+
+
+def test_non_mtt_prefix():
+    conf = {"foo::free_energy": {"quantity": "energy"}}
+    with pytest.raises(ValueError, match="only allowed with the 'mtt::' prefix."):
         read_targets(OmegaConf.create(conf))
 
 
@@ -247,20 +247,18 @@ def test_read_targets_generic_1(key, monkeypatch, tmp_path):
         "per_atom": False,
         "num_subtargets": 3,
     }
-    conf = {"stress": stress_section}
-    with pytest.warns(UserWarning, match="should not be its own top-level target"):
-        with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
-            read_targets(OmegaConf.create(conf))
+    match = "Target name 'stress' resembles to a gradient of `energies`."
+    with pytest.raises(ValueError, match=match):
+        read_targets(OmegaConf.create({"stress": stress_section}))
+
+    # should work fine
+    conf = {"non_conservative_stress": stress_section}
+    read_targets(OmegaConf.create(conf))
 
     # this will trigger a shape error
-    conf["stress"]["type"]["cartesian"]["rank"] = 2
-    with pytest.raises(
-        RuntimeError,
-        match="shape",
-    ):
-        with pytest.warns(UserWarning, match="should not be its own top-level target"):
-            with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
-                read_targets(OmegaConf.create(conf))
+    conf["non_conservative_stress"]["type"]["cartesian"]["rank"] = 2
+    with pytest.raises(RuntimeError, match="shape"):
+        read_targets(OmegaConf.create(conf))
 
 
 @pytest.mark.parametrize("key", ["stress-3x3", "stress-9"])
@@ -286,20 +284,12 @@ def test_read_targets_generic_2(key, monkeypatch, tmp_path):
         "per_atom": False,
         "num_subtargets": 1,
     }
-    conf = {"stress": stress_section}
-    with pytest.warns(UserWarning, match="should not be its own top-level target"):
-        with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
-            read_targets(OmegaConf.create(conf))
+    conf = {"non_conservative_stress": stress_section}
+    read_targets(OmegaConf.create(conf))
 
-    # this will trigger a shape error
-    conf["stress"]["type"]["cartesian"]["rank"] = 1
-    with pytest.raises(
-        RuntimeError,
-        match="shape",
-    ):
-        with pytest.warns(UserWarning, match="should not be its own top-level target"):
-            with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
-                read_targets(OmegaConf.create(conf))
+    conf["non_conservative_stress"]["type"]["cartesian"]["rank"] = 1
+    with pytest.raises(RuntimeError, match="shape"):
+        read_targets(OmegaConf.create(conf))
 
 
 @pytest.mark.parametrize("key", ["stress-3x3", "stress-9"])
@@ -321,10 +311,8 @@ def test_read_targets_generic_3(key, monkeypatch, tmp_path):
         "per_atom": False,
         "num_subtargets": 9,
     }
-    conf = {"stress": stress_section}
-    with pytest.warns(UserWarning, match="should not be its own top-level target"):
-        with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
-            read_targets(OmegaConf.create(conf))
+    conf = {"non_conservative_stress": stress_section}
+    read_targets(OmegaConf.create(conf))
 
 
 def test_read_targets_generic_errors(monkeypatch, tmp_path):
@@ -352,11 +340,8 @@ def test_read_targets_generic_errors(monkeypatch, tmp_path):
         "per_atom": False,
         "num_subtargets": 9,
     }
-    conf = {"stress": stress_section}
     with pytest.raises(ValueError, match="use the metatensor reader"):
-        with pytest.warns(UserWarning, match="should not be its own top-level target"):
-            with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
-                read_targets(OmegaConf.create(conf))
+        read_targets(OmegaConf.create({"non_conservative_stress": stress_section}))
 
 
 def test_read_extra_data(monkeypatch, tmp_path):

@@ -121,6 +121,11 @@ def trainer_update_v1_v2(checkpoint: Dict[str, Any]) -> None:
 
 
 def trainer_update_v2_v3(checkpoint):
+    """
+    Update trainer checkpoint from version 2 to version 3.
+
+    :param checkpoint: The checkpoint to be updated.
+    """
     # num_workers=0 means that the main process will do the data loading, which is
     # equivalent to not setting it (this was the behavior before v3)
     checkpoint["train_hypers"]["num_workers"] = 0
@@ -164,3 +169,35 @@ def trainer_update_v5_v6(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     checkpoint["train_hypers"]["remove_composition_contribution"] = True
+
+
+def trainer_update_v6_v7(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 6 to version 7.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # - Remove the ``remove_composition_contribution`` hyper.
+    # - Rename ``fixed_composition_weights`` to ``atomic_baseline``.
+    # - If ``remove_composition_contribution`` is False, set all atomic baselines
+    #   to 0.0 for all targets.
+    use_atomic_baseline = checkpoint["train_hypers"].pop(
+        "remove_composition_contribution"
+    )
+    atomic_baseline = checkpoint["train_hypers"].pop("fixed_composition_weights")
+
+    if not use_atomic_baseline:
+        # Just set
+        dataset_info = checkpoint["model_data"]["dataset_info"]
+        atomic_baseline = {target_name: 0.0 for target_name in dataset_info.targets}
+
+    checkpoint["train_hypers"]["atomic_baseline"] = atomic_baseline
+
+
+def trainer_update_v7_v8(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 7 to version 8.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"]["batch_atom_bounds"] = [None, None]

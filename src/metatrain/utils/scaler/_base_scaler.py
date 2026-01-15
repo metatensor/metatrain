@@ -11,6 +11,9 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
 
+FixedScalerWeights = dict[str, Union[float, dict[int, float]]]
+
+
 class BaseScaler(torch.nn.Module):
     """
     Fits a scaler for a dict of targets. Scales are computed as the per-property (and
@@ -243,7 +246,7 @@ class BaseScaler(torch.nn.Module):
 
     def fit(
         self,
-        fixed_weights: Optional[Dict[str, Union[float, Dict[int, float]]]] = None,
+        fixed_weights: Optional[FixedScalerWeights] = None,
         targets_to_fit: Optional[List[str]] = None,
     ) -> None:
         """
@@ -318,6 +321,7 @@ class BaseScaler(torch.nn.Module):
         systems: List[System],
         outputs: Dict[str, TensorMap],
         remove: bool,
+        selected_atoms: Optional[Labels],
     ) -> Dict[str, TensorMap]:
         """
         Scales the targets based on the stored standard deviations.
@@ -328,6 +332,7 @@ class BaseScaler(torch.nn.Module):
             subset of the target names used during fitting.
         :param remove: If True, removes the scaling (i.e., divides by the scales). If
             False, applies the scaling (i.e., multiplies by the scales).
+        :param selected_atoms: Optional labels for selected atoms.
         :returns: A dictionary with the scaled outputs for each system.
 
         :raises ValueError: If no scales have been computed or if `outputs` keys
@@ -358,8 +363,6 @@ class BaseScaler(torch.nn.Module):
                     f"for key {key}."
                 )
 
-                # Scale each atomic type separately
-                output_block_types = torch.cat([system.types for system in systems])
                 scaled_vals = output_block.values
 
                 # unsqueeze scales_block.values to make broadcasting work
@@ -412,11 +415,32 @@ class BaseScaler(torch.nn.Module):
                 else:
                     assert self.sample_kinds[output_name] == "per_atom"
 
+                    output_block_types = torch.cat([system.types for system in systems])
+                    if selected_atoms is not None:
+                        # Scale each atomic type separately, also handling selected
+                        # atoms and/or potential reordering
+                        system_indices = output_block.samples.values[:, 0]
+                        atom_indices = output_block.samples.values[:, 1]
+                        system_lengths = torch.tensor(
+                            [len(s.types) for s in systems],
+                            dtype=torch.long,
+                            device=device,
+                        )
+                        offset = torch.cat(
+                            [
+                                torch.zeros(1, dtype=torch.long, device=device),
+                                torch.cumsum(system_lengths[:-1], dim=0),
+                            ]
+                        )
+                        output_block_types = output_block_types[
+                            offset[system_indices] + atom_indices
+                        ]
+
                     # TODO: gradients of per-atom targets are not supported
                     if len(output_block.gradients_list()) > 0:
                         raise NotImplementedError(
                             "scaling of gradients is not implemented for per-atom "
-                            "targets"
+                            f"target '{output_name}'"
                         )
 
                     # Scale the values of the output block
@@ -464,11 +488,13 @@ class BaseScaler(torch.nn.Module):
         # difficult to allow in the yaml files.
         if len(self.scales[target_name]) > 1:
             raise NotImplementedError(
-                "Multiple blocks are not supported for fixed weights in `Scaler`."
+                "Multiple blocks are not supported for fixed weights in `Scaler` "
+                f"for target '{target_name}'"
             )
         if len(self.scales[target_name].block().properties) > 1:
             raise NotImplementedError(
-                "Multiple properties are not supported for fixed weights in `Scaler`."
+                f"Multiple properties are not supported for fixed weights in `Scaler` "
+                f"for target '{target_name}'"
             )
 
         Y2_block = self.Y2[target_name].block()
@@ -485,26 +511,28 @@ class BaseScaler(torch.nn.Module):
                 if self.sample_kinds[target_name] == "per_structure":
                     raise ValueError(
                         "Fixed weights as a dict are not supported for per-structure "
-                        "targets."
+                        f"target '{target_name}'"
                     )
                 # Error out if any atomic types are missing
                 if int(atomic_type) not in weights:
                     raise ValueError(
                         f"Atomic type {atomic_type} is missing from the fixed scaling "
-                        f"weights for target {target_name}."
+                        f"weights for target '{target_name}'"
                     )
                 for atom_type, weight in weights.items():
                     block.values[self.type_to_index[atom_type], 0] = weight
         elif isinstance(weights, float):
             if self.sample_kinds[target_name] == "per_atom":
                 logging.info(
-                    "Fixed weights provided as a single float for a per-atom "
-                    "target. The same weight will be applied to all atomic types."
+                    "Fixed weights provided as a single float for per-atom "
+                    f"target '{target_name}'. The same weight will be applied to "
+                    "all atomic types."
                 )
             block.values[:] = weights
         else:
             raise ValueError(
-                "weights must be either a float or a dict of int to float."
+                f"weights for '{target_name}' must be either a float or a dict of "
+                "int to float."
             )
 
         self.scales[target_name] = TensorMap(

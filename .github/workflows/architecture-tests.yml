@@ -13,17 +13,18 @@ jobs:
       fail-fast: false
       matrix:
         architecture-name:
-          - gap
-          - soap-bpnn
-          - llpr
-          - pet
-          - nanopet
           - flashmd
+          - gap
+          - llpr
+          - mace
+          - nanopet
+          - pet
+          - soap-bpnn        
 
     runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7

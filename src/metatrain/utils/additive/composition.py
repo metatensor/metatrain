@@ -15,9 +15,12 @@ from metatrain.utils.data import (
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists_transform
 
 from ..data import DatasetInfo, TargetInfo, unpack_batch
-from ..jsonschema import validate
 from ..transfer import batch_to
-from ._base_composition import BaseCompositionModel, _include_key
+from ._base_composition import (
+    BaseCompositionModel,
+    FixedCompositionWeights,
+    _include_key,
+)
 from .remove import remove_additive
 
 
@@ -39,10 +42,11 @@ class CompositionModel(torch.nn.Module):
         super().__init__()
 
         # `hypers` should be an empty dictionary
-        validate(
-            instance=hypers,
-            schema={"type": "object", "additionalProperties": False},
-        )
+        if not (isinstance(hypers, dict) and len(hypers) == 0):
+            raise ValueError(
+                f"{self.__class__.__name__} hypers takes an empty dictionary. "
+                f"Got: {hypers}."
+            )
 
         self.dataset_info = dataset_info
         """An :py:class:`DatasetInfo` containing information about the dataset,
@@ -175,7 +179,7 @@ class CompositionModel(torch.nn.Module):
         additive_models: List[torch.nn.Module],
         batch_size: int,
         is_distributed: bool,
-        fixed_weights: Optional[Dict[str, Dict[int, float]]] = None,
+        fixed_weights: Optional[FixedCompositionWeights] = None,
     ) -> None:
         """
         Train the composition model on the provided training data in the ``datasets``.
@@ -193,10 +197,12 @@ class CompositionModel(torch.nn.Module):
             removed from the targets before training.
         :param batch_size: The batch size to use for training.
         :param is_distributed: Whether to use distributed sampling for the dataloader.
-        :param fixed_weights: A dictionary specifying which targets should be treated as
-            fixed weights during training. The keys are target names, and the values are
-            dictionaries mapping atomic types to their fixed weights. If None, no
-            weights are treated as fixed.
+        :param fixed_weights: Optional dict of target names to either (1) a single
+            weight for all atomic_types or (2) a dict of atomic types to weights.
+            If provided, these weights will be fixed instead of being fitted.
+            If a dict of weights is provided for a target, all atomic types handled
+            by the model must have a weight specified.
+            If ``None``, all weights will be fitted normally.
         """
 
         if not isinstance(datasets, list):
@@ -367,6 +373,7 @@ class CompositionModel(torch.nn.Module):
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
+            description=target_info.description,
         )
 
         # Create a fake weights buffer for the target, filtering the blocks that will

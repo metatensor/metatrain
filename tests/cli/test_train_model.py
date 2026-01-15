@@ -26,6 +26,7 @@ from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.pydantic import MetatrainValidationError
 from metatrain.utils.testing._utils import WANDB_AVAILABLE
 
 from . import (
@@ -226,19 +227,16 @@ def test_train_unknown_arch_options(monkeypatch, tmp_path):
             length_unit: angstrom
         targets:
             energy:
-            key: U0
-            unit: eV
+                key: U0
+                unit: eV
 
     test_set: 0.5
     validation_set: 0.1
     """
     options = OmegaConf.create(options_str)
 
-    match = (
-        r"Unrecognized options \('num_epoch' was unexpected\). "
-        r"Did you mean 'num_epochs'?"
-    )
-    with pytest.raises(ValueError, match=match):
+    match = r"Unrecognized option 'training\.num_epoch'"
+    with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
 
 
@@ -396,11 +394,11 @@ def test_wrong_test_split_size(split, monkeypatch, tmp_path, options):
     options["test_set"] = split
 
     if split > 1:
-        match = rf"{split} is greater than or equal to the maximum of 1"
+        match = r"Input should be less than 1"
     if split < 0:
-        match = rf"{split} is less than the minimum of 0"
+        match = r"Input should be greater than or equal to 0"
 
-    with pytest.raises(ValueError, match=match):
+    with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
 
 
@@ -415,11 +413,11 @@ def test_wrong_validation_split_size(split, monkeypatch, tmp_path, options):
     options["test_set"] = 0.1
 
     if split > 1:
-        match = rf"{split} is greater than or equal to the maximum of 1"
+        match = r"Input should be less than 1"
     if split <= 0:
-        match = rf"{split} is less than or equal to the minimum of 0"
+        match = r"Input should be greater than 0"
 
-    with pytest.raises(ValueError, match=match):
+    with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
 
 
@@ -432,6 +430,26 @@ def test_empty_test_set(caplog, monkeypatch, tmp_path, options):
 
     options["validation_set"] = 0.4
     options["test_set"] = 0.0
+
+    match = "Requested dataset of zero length. This dataset will be empty."
+    with pytest.warns(UserWarning, match=match):
+        train_model(options)
+
+    # check if the logging is correct
+    assert "This dataset is empty. No evaluation" in caplog.text
+
+
+def test_default_test_set(caplog, monkeypatch, tmp_path, options):
+    """Test that test_set defaults to 0.0 when omitted."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["validation_set"] = 0.4
+    # Remove test_set from options to test default behavior
+    if "test_set" in options:
+        del options["test_set"]
 
     match = "Requested dataset of zero length. This dataset will be empty."
     with pytest.warns(UserWarning, match=match):
@@ -573,8 +591,8 @@ def test_conflicting_info_between_training_sets(
         msg = (
             r"(?s)"  # now "." matches newlines
             r"Target information for key energy differs between training sets\.\s*"
-            r"Got TargetInfo\(quantity='foo'.*?"
-            r"and TargetInfo\(quantity='bar'.*?\)\."
+            r"Got TargetInfo\(layout=.*?"
+            r"and TargetInfo\(layout=.*?\)\."
         )
         with pytest.raises(ValueError, match=msg):
             train_model(options_extra)
@@ -585,8 +603,8 @@ def test_conflicting_info_between_training_sets(
         msg = (
             r"(?s)"  # now "." matches newlines
             r"Extra data information for key extra differs between training sets\.\s*"
-            r"Got TargetInfo\(quantity='foo'.*?"
-            r"and TargetInfo\(quantity='bar'.*?\)\."
+            r"Got TargetInfo\(layout=.*?"
+            r"and TargetInfo\(layout=.*?\)\."
         )
         with pytest.raises(ValueError, match=msg):
             train_model(options_extra)
@@ -710,6 +728,36 @@ def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
         "energy"
     )
     options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"]["forces"] = {
+        "key": "forces",
+    }
+    shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet_transfer_learn)
+
+    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+
+
+def test_transfer_learn_variant(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn = copy.deepcopy(options_pet)
+    options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+    }
+    options_pet_transfer_learn["training_set"]["systems"]["read_from"] = (
+        "ethanol_reduced_100.xyz"
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"] = (
+        options_pet_transfer_learn["training_set"]["targets"].pop("energy")
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"]["key"] = (
+        "energy"
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"][
+        "forces"
+    ] = {
         "key": "forces",
     }
     shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
@@ -890,17 +938,25 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     for tensor_name in m1["model_state_dict"]:
         if "type_to_index" in tensor_name or "spliner" in tensor_name:
             continue  # these are always the same for both models
+
         if "buffer" in tensor_name and (
             "additive" in tensor_name or "scaler" in tensor_name
         ):
             continue  # these are not comparable in general
+
+        if "_mts_helper" in tensor_name:
+            # empty tensor
+            continue
+
         tensor1 = m1["model_state_dict"][tensor_name]
         tensor2 = m2["model_state_dict"][tensor_name]
 
-        if seed is None:
-            assert not torch.allclose(tensor1, tensor2)
-        else:
-            torch.testing.assert_close(tensor1, tensor2)
+        # only compare tensors
+        if isinstance(tensor1, torch.Tensor) and isinstance(tensor2, torch.Tensor):
+            if seed is None:
+                assert not torch.allclose(tensor1, tensor2)
+            else:
+                torch.testing.assert_close(tensor1, tensor2)
 
 
 def test_base_validation(options, monkeypatch, tmp_path):
@@ -909,8 +965,8 @@ def test_base_validation(options, monkeypatch, tmp_path):
 
     options["base_precision"] = 67
 
-    match = r"67 is not one of \[16, 32, 64\]"
-    with pytest.raises(ValueError, match=match):
+    match = r"Input should be 16, 32 or 64"
+    with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
 
 
@@ -1102,7 +1158,7 @@ def test_train_density_of_states(monkeypatch, tmp_path):
         }
     }
     options["architecture"]["training"]["scale_targets"] = False
-    options["architecture"]["training"]["remove_composition_contribution"] = False
+    options["architecture"]["training"]["atomic_baseline"] = {"mtt::dos": 0.0}
 
     train_model(options)
 
@@ -1314,7 +1370,7 @@ def test_train_wandb_logger(monkeypatch, tmp_path):
     with open("wandb/latest-run/logs/debug.log") as f:
         file_log = f.read()
 
-    assert "'base_precision': 64" in file_log
+    assert "'base_precision': 32" in file_log
     assert "'seed': 42" in file_log
 
 
@@ -1454,3 +1510,169 @@ def _write_dataset_to_memmap(structures, filename):
     e_mm.flush()
     f_mm.flush()
     s_mm.flush()
+
+
+@pytest.mark.parametrize(
+    "batch_size,validation_samples",
+    [
+        (5, 2),  # 2 validation samples with batch size 5
+        (10, 3),  # 3 validation samples with batch size 10
+    ],
+)
+def test_small_validation_set_with_large_batch_size(
+    monkeypatch, tmp_path, batch_size, validation_samples
+):
+    """Test that training works with validation sets smaller than batch size.
+
+    This test verifies that the fix for issue #711 works correctly -
+    validation datasets with fewer samples than the batch size should not
+    raise a ValueError and training should complete successfully.
+
+    Before the fix, this would fail with:
+    ValueError: A validation dataset has fewer samples (X) than the batch size (Y).
+    Please reduce the batch size.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    # Read the original dataset
+    systems = read(DATASET_PATH_QM9, ":")
+
+    # Create training set with enough samples for training
+    training_samples = max(
+        15, batch_size + validation_samples + 5
+    )  # Ensure we have enough samples
+
+    # Write training dataset
+    ase.io.write("training.xyz", systems[:training_samples])
+
+    # Write validation dataset with exact number of samples we want to test
+    ase.io.write(
+        "validation.xyz",
+        systems[training_samples : training_samples + validation_samples],
+    )
+
+    # Create options with explicit file-based datasets and PET architecture
+    options = OmegaConf.create(
+        {
+            "seed": 42,
+            "architecture": {
+                "name": "pet",
+                "training": {
+                    "batch_size": batch_size,
+                    "num_epochs": 1,  # Just one epoch to verify it works
+                },
+            },
+            "training_set": {
+                "systems": {
+                    "read_from": "training.xyz",
+                    "length_unit": "angstrom",
+                },
+                "targets": {
+                    "energy": {
+                        "key": "U0",
+                        "unit": "eV",
+                    }
+                },
+            },
+            "validation_set": {
+                "systems": {
+                    "read_from": "validation.xyz",
+                    "length_unit": "angstrom",
+                },
+                "targets": {
+                    "energy": {
+                        "key": "U0",
+                        "unit": "eV",
+                    }
+                },
+            },
+            "test_set": 0.0,  # No test set needed for this test
+        }
+    )
+
+    OmegaConf.save(config=options, f="options.yaml")
+
+    # Training should complete successfully without ValueError
+    # The test_set=0.0 may generate a UserWarning, which is expected
+    with pytest.warns(UserWarning, match="Requested dataset of zero length"):
+        train_model(options)
+
+
+def test_regression_validation_batch_size_constraint_removed():
+    """Test that demonstrates the validation batch size constraint was removed.
+
+    This test verifies that the specific validation constraint from issue #711
+    was removed, while preserving training dataset constraints.
+    """
+    # Check that validation constraint was removed but training constraint remains
+
+    repo_root = Path(__file__).resolve().parents[2]
+    trainer_files = [
+        repo_root / "src/metatrain/pet/trainer.py",
+        repo_root / "src/metatrain/soap_bpnn/trainer.py",
+        repo_root / "src/metatrain/deprecated/nanopet/trainer.py",
+        repo_root / "src/metatrain/experimental/flashmd/trainer.py",
+    ]
+
+    for trainer_file in trainer_files:
+        if os.path.exists(trainer_file):
+            with open(trainer_file, "r") as f:
+                content = f.read()
+
+            # Verify validation constraint was removed
+            # (Look for validation-specific patterns)
+            validation_section_start = content.find(
+                "# Create dataloader for the validation datasets:"
+            )
+            validation_section_end = content.find(
+                "# Create dataloader for the test datasets:"
+            )
+            if validation_section_end == -1:
+                # Look for other section markers
+                validation_section_end = content.find(
+                    "val_dataloaders.append(", validation_section_start
+                )
+                if validation_section_end != -1:
+                    # Find the end of the validation section
+                    validation_section_end = (
+                        content.find(")", validation_section_end) + 1
+                    )
+
+            if validation_section_start != -1 and validation_section_end != -1:
+                validation_section = content[
+                    validation_section_start:validation_section_end
+                ]
+
+                # Verify no batch size constraint in validation section
+                assert "fewer samples" not in validation_section, (
+                    f"Validation batch size constraint was not removed from "
+                    f"{trainer_file}"
+                )
+                assert (
+                    "batch_size" not in validation_section
+                    or "len(" not in validation_section
+                ), (
+                    f"Validation batch size constraint logic still present in "
+                    f"{trainer_file}"
+                )
+
+            # Verify training constraint still exists (this should remain)
+            training_section_start = content.find(
+                "# Create dataloader for the training datasets:"
+            )
+            if training_section_start != -1:
+                training_section_end = content.find(
+                    "# Create dataloader for the validation datasets:",
+                    training_section_start,
+                )
+                if training_section_end != -1:
+                    training_section = content[
+                        training_section_start:training_section_end
+                    ]
+                    # Training constraint should still be there
+                    assert "training dataset has fewer samples" in training_section, (
+                        f"Training batch size constraint was incorrectly removed from "
+                        f"{trainer_file}"
+                    )
+        else:
+            raise ValueError(f"Trainer file {trainer_file} does not exist.")

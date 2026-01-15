@@ -13,7 +13,7 @@ mtt --help
 # %%
 #
 # We now demonstrate how to ``train`` and ``evaluate`` a model from the command line.
-# For this example we use the :ref:`architecture-soap-bpnn` architecture and a subset of
+# For this example we use the :ref:`architecture-soap_bpnn` architecture and a subset of
 # the `QM9 dataset <https://www.nature.com/articles/sdata201422>`_. You can obtain the
 # dataset for this example here: :download:`qm9_reduced_100.xyz <qm9_reduced_100.xyz>`.
 #
@@ -57,10 +57,10 @@ mtt train options-basic.yaml
 
 # %%
 #
-# The functions saves the final model `model.pt` to the current output folder for later
-# evaluation. An `extensions/` folder, which contains the compiled extensions for the
-# model, might also be saved depending on the architecture. All command line flags of
-# the train sub-command can be listed via
+# The functions saves the final model ``model.pt`` to the current output folder for
+# later evaluation. An ``extensions/`` folder, which contains the compiled extensions
+# for the model, might also be saved depending on the architecture. All command line
+# flags of the train sub-command can be listed via
 #
 
 mtt train --help

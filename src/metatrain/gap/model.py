@@ -1,6 +1,6 @@
+import warnings
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-import featomic
 import featomic.torch
 import metatensor.torch as mts
 import numpy as np
@@ -21,8 +21,10 @@ from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.metadata import merge_metadata
 
+from .documentation import ModelHypers
 
-class GAP(ModelInterface):
+
+class GAP(ModelInterface[ModelHypers]):
     __checkpoint_version__ = 1
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
@@ -38,7 +40,7 @@ class GAP(ModelInterface):
         }
     )
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         if len(dataset_info.targets) > 1:
@@ -71,6 +73,7 @@ class GAP(ModelInterface):
                 quantity=value.quantity,
                 unit=value.unit,
                 per_atom=False,
+                description=value.description,
             )
             for key, value in dataset_info.targets.items()
         }
@@ -560,7 +563,20 @@ class _FPS:
                 full=False,
                 selection_type=self._selection_type,
             )
-            selector.fit(block.values, warm_start=False)
+            # TODO: Remove this warning suppression once skmatter releases a new
+            # version that fixes the numpy deprecation warning from using np.minimum
+            # with three positional arguments.
+            # See: https://github.com/lab-cosmo/scikit-matter
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=(
+                        "Passing more than 2 positional arguments to "
+                        "np.maximum and np.minimum is deprecated"
+                    ),
+                    category=DeprecationWarning,
+                )
+                selector.fit(block.values, warm_start=False)
             mask = selector.get_support()
 
             if self._selection_type == "feature":

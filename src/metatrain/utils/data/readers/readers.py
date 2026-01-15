@@ -1,13 +1,12 @@
 import importlib
 import logging
-import warnings
 from functools import lru_cache
 from pathlib import Path
 from types import ModuleType
 from typing import Callable, Dict, List, Optional, Tuple
 
 from metatensor.torch import TensorMap
-from metatomic.torch import System
+from metatomic.torch import ModelCapabilities, ModelOutput, System
 from omegaconf import DictConfig
 
 from ..target_info import TargetInfo
@@ -187,39 +186,28 @@ def _read_conf_section(
     return data_dict, info_dict
 
 
-# Callbacks for targets
-_standard_outputs_list = {
-    "energy",
-    "non_conservative_forces",
-    "non_conservative_stress",
-    "positions",
-    "momenta",
-}
-
-
 def _validate_target(key: str, entry: DictConfig) -> None:
-    if key not in _standard_outputs_list and not key.startswith("mtt::"):
-        if key.lower() in {"force", "forces", "virial", "stress"}:
-            warnings.warn(
-                f"{key!r} should not be its own top-level target, "
-                "but rather a sub-section of the 'energy' target",
-                stacklevel=2,
+    # use `ModelCapabilities` to verify if `key` is valid
+    try:
+        _ = ModelCapabilities({key: ModelOutput()})
+    except ValueError as e:
+        # adjust error message for gradients
+        if any(name in key.lower() for name in ("force", "virial", "stress")):
+            message = (
+                f"Target name '{key}' resembles to a gradient of `energies`."
+                "Gradient targets must be either specified as sub-entries of an "
+                "`energy` quantity or if they are a direct target prefixed with "
+                "non_conservative_<gradient>."
             )
         else:
-            raise ValueError(
-                f"Target name ({key}) must either be one of "
-                f"{_standard_outputs_list} or start with `mtt::`."
-            )
-    if (
-        any(name in key.lower() for name in ("force", "virial", "stress"))
-        and "non_conservative" not in key
-    ):
-        warnings.warn(
-            f"the name of {key!r} resembles to a gradient of "
-            "energies; it should probably not be its own top-level target, "
-            "but rather a gradient sub-section of a target with the "
-            "`energy` quantity",
-            stacklevel=2,
+            message = e.args[0]
+
+        raise ValueError(message) from e
+
+    if "::" in key and "mtt" not in key.split("::")[0]:
+        raise ValueError(
+            f"Target name '{key}' is not valid. Non-standard names "
+            "(using '::' notation) are only allowed with the 'mtt::' prefix."
         )
 
 
