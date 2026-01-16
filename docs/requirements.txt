@@ -4,7 +4,7 @@ jinja2
 matplotlib
 myst-parser
 pytest
-sphinx >= 7
+sphinx < 9.0
 sphinxcontrib-bibtex
 sphinx-gallery
 sphinx-copybutton
