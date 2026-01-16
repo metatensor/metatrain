@@ -292,14 +292,15 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 # special case for energy_ensemble
                 ll_features_name = "mtt::aux::energy_last_layer_features"
             ll_features = return_dict[ll_features_name]
+            ll_feats_vals = self.get_ll_feats_vals(ll_features)
 
             # compute PRs
             # the code is the same for PR and LPR
             one_over_pr_values = torch.einsum(
                 "ij, jk, ik -> i",
-                ll_features.block().values,
+                ll_feats_vals,
                 self._get_inv_covariance(uncertainty_name),
-                ll_features.block().values,
+                ll_feats_vals,
             ).unsqueeze(1)
 
             original_name = self._get_original_name(uncertainty_name)
@@ -323,7 +324,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     TensorBlock(
                         values=torch.sqrt(one_over_pr_values.expand((-1, num_prop))),
                         samples=ll_features.block().samples,
-                        components=ll_features.block().components,
+                        components=[],
                         properties=cur_prop,
                     )
                 ],
@@ -344,7 +345,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                             one_over_pr_values.shape[0], num_prop
                         ),
                         samples=ll_features.block().samples,
-                        components=ll_features.block().components,
+                        components=[],
                         properties=cur_prop,
                     )
                 ],
@@ -434,7 +435,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     TensorBlock(
                         values=ensemble_values,
                         samples=ll_features.block().samples,
-                        components=ll_features.block().components,
+                        components=[],
                         properties=ens_prop,
                     ),
                 ],
@@ -486,9 +487,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 # TODO: interface ll_feat calculation with the loss function,
                 # paying attention to normalization w.r.t. n_atoms
                 if not outputs_for_targets[name].per_atom:
-                    ll_feats = ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(
-                        1
-                    )
+                    ll_feats = self.get_ll_feats_vals(
+                        ll_feat_tmap
+                    ).detach() / n_atoms.unsqueeze(1)
                 uncertainty_name = _get_uncertainty_name(name)
                 covariance = self._get_covariance(uncertainty_name)
                 covariance += ll_feats.T @ ll_feats
@@ -607,6 +608,26 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             ratios = squared_residuals / uncertainties**2  # can be multi-dimensional
             multiplier = self._get_multiplier(uncertainty_name)
             multiplier[:] = torch.sqrt(torch.mean(ratios, dim=0))  # only along samples
+
+    def get_ll_feats_vals(self, ll_features_tmap: TensorMap) -> torch.Tensor:
+        """Get the last-layer features values from a TensorMap.
+
+        It ensures that the last-layer features are scalars and
+        makes sure that the values have no component dimension.
+
+        :param ll_features_tmap: A TensorMap containing last-layer features.
+        :return: A tensor with the last-layer features values.
+        """
+        block = ll_features_tmap.block()
+        block_shape = block.values.shape
+        if len(block_shape) > 3 or (len(block_shape) == 3 and block_shape[1] != 1):
+            raise ValueError(
+                "Can't use last layer features other than scalars. Received "
+                f"last layer features are:\n{block}"
+            )
+        # Make sure there is no component dimension
+        ll_feats_vals = block.values.reshape(block_shape[0], -1)
+        return ll_feats_vals
 
     def generate_ensemble(self) -> None:
         """Generate an ensemble of weights for the model.
@@ -769,6 +790,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         except Exception:
             # no weights to move
             pass
+
+        self.model = self.model.export().module
 
         metadata = merge_metadata(
             merge_metadata(self.__default_metadata__, metadata),
