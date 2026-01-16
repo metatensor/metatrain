@@ -207,9 +207,14 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         self.llpr_ensemble_layers = torch.nn.ModuleDict()
         for name, value in self.ensemble_weight_sizes.items():
             # create the linear layer for ensemble members
+            tensor_names = self.model.last_layer_parameter_names[name]
+            n_properties = torch.concatenate(
+                [self.model.state_dict()[tn] for tn in tensor_names],
+                axis=-1,
+            ).shape[0]  # type: ignore
             self.llpr_ensemble_layers[name] = torch.nn.Linear(
                 self.ll_feat_size,
-                value,
+                value * n_properties,
                 bias=False,
             )
 
@@ -783,9 +788,14 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             ensemble_weights = []
 
             for ii in range(weights.shape[0]):
+                # TODO: this isn't good enough for multi-target equivariant
+                if cur_multiplier.shape[0] > 1:  # unconstrained models
+                    multiplier = cur_multiplier[ii].item()
+                else:  # equivariant models
+                    multiplier = cur_multiplier.item()
                 cur_ensemble_weights = rng.multivariate_normal(
                     weights[ii].clone().detach().cpu().numpy(),
-                    cur_inv_covariance * cur_multiplier[ii].item() ** 2,
+                    cur_inv_covariance * multiplier**2,
                     size=self.ensemble_weight_sizes[name],
                     method="svd",
                 ).T
