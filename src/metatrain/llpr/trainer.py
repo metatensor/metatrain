@@ -150,7 +150,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 f"Supported dtypes are {wrapped_model.__class__.__supported_dtypes__}"
             )
 
-        logging.info(f"Training on device {device} with dtype {dtype}")
+        if is_distributed:
+            logging.info(f"Training on {world_size} devices with dtype {dtype}")
+        else:
+            logging.info(f"Training on device {device} with dtype {dtype}")
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
@@ -166,13 +169,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
             logging.info("LLPR calibration complete")
 
         if self.hypers["num_epochs"] is None:
-            logging.info(
-                "num_epochs is None, skipping ensemble weight training and "
-                "proceeding to model export"
-            )
             if is_distributed:
                 torch.distributed.destroy_process_group()
             return
+        else:
+            logging.info("`num_epochs` is set: starting LLPR ensemble weight training")
 
         # Continue with ensemble training if num_epochs is not None
         # (distributed environment is already initialized if needed)
