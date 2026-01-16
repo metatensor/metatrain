@@ -1,3 +1,4 @@
+import copy
 import logging
 from typing import Any, Dict, List, Literal, Optional
 
@@ -791,14 +792,20 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             # no weights to move
             pass
 
-        self.model = self.model.export().module
+        # Make sure the wrapped model is ready to be exported, for that
+        # we shallow-copy the LLPR model and replace the wrapped model
+        # in this shallow copy with the exported version of the
+        # wrapped model
+        to_export = copy.copy(self.eval())
+        exported_wrapped = self.model.export()
+        to_export.model = exported_wrapped.module
 
         metadata = merge_metadata(
             merge_metadata(self.__default_metadata__, metadata),
-            self.model.export().metadata(),
+            exported_wrapped.metadata(),
         )
 
-        return AtomisticModel(self.eval(), metadata, self.capabilities)
+        return AtomisticModel(to_export, metadata, self.capabilities)
 
     def _get_covariance(self, name: str) -> torch.Tensor:
         name = "covariance_" + name
