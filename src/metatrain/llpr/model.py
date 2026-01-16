@@ -561,39 +561,40 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
-        for batch in train_loader:
-            systems, targets, extra_data = unpack_batch(batch)
-            n_atoms = torch.tensor(
-                [len(system.positions) for system in systems], device=device
-            )
-            systems = [system.to(device=device, dtype=dtype) for system in systems]
-            outputs_for_targets = {
-                name: ModelOutput(per_atom="atom" in target.block(0).samples.names)
-                for name, target in targets.items()
-            }
-            outputs_for_features = {
-                f"mtt::aux::{n.replace('mtt::', '')}_last_layer_features": o
-                for n, o in outputs_for_targets.items()
-            }
-            output = self.forward(
-                systems, {**outputs_for_targets, **outputs_for_features}
-            )
-            for name in targets.keys():
-                ll_feat_tmap = output[
-                    f"mtt::aux::{name.replace('mtt::', '')}_last_layer_features"
-                ]
-                # TODO: interface ll_feat calculation with the loss function,
-                # paying attention to normalization w.r.t. n_atoms
-                if not outputs_for_targets[name].per_atom:
-                    ll_feats = ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(
-                        1
-                    )
-                else:
-                    # For per-atom targets, use the features directly
-                    ll_feats = ll_feat_tmap.block().values.detach()
-                uncertainty_name = _get_uncertainty_name(name)
-                covariance = self._get_covariance(uncertainty_name)
-                covariance += ll_feats.T @ ll_feats
+        with torch.no_grad():
+            for batch in train_loader:
+                systems, targets, _ = unpack_batch(batch)
+                n_atoms = torch.tensor(
+                    [len(system.positions) for system in systems], device=device
+                )
+                systems = [system.to(device=device, dtype=dtype) for system in systems]
+                outputs_for_targets = {
+                    name: ModelOutput(per_atom="atom" in target.block(0).samples.names)
+                    for name, target in targets.items()
+                }
+                outputs_for_features = {
+                    f"mtt::aux::{n.replace('mtt::', '')}_last_layer_features": o
+                    for n, o in outputs_for_targets.items()
+                }
+                output = self.forward(
+                    systems, {**outputs_for_targets, **outputs_for_features}
+                )
+                for name in targets.keys():
+                    ll_feat_tmap = output[
+                        f"mtt::aux::{name.replace('mtt::', '')}_last_layer_features"
+                    ]
+                    # TODO: interface ll_feat calculation with the loss function,
+                    # paying attention to normalization w.r.t. n_atoms
+                    if not outputs_for_targets[name].per_atom:
+                        ll_feats = (
+                            ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(1)
+                        )
+                    else:
+                        # For per-atom targets, use the features directly
+                        ll_feats = ll_feat_tmap.block().values.detach()
+                    uncertainty_name = _get_uncertainty_name(name)
+                    covariance = self._get_covariance(uncertainty_name)
+                    covariance += ll_feats.T @ ll_feats
 
         if is_distributed:
             torch.distributed.barrier()
