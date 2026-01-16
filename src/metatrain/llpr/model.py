@@ -671,7 +671,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         )
 
         # calibrate the LLPR
-        self.eval()
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
 
