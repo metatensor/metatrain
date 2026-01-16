@@ -94,7 +94,9 @@ for i in range(0, len(trajectory) - time_lag, spacing):
     s = get_structure_for_dataset(frame_now, frame_ahead)
     structures_for_dataset.append(s)
 
-    # Here, we also add the time-reversed pair (optional)
+    # Here, we also add the time-reversed pair (optional). This is
+    # generally a good idea because it is data we get for "free", as
+    # the underlying dynamics are time-reversible.
     frame_now_trev = copy.deepcopy(frame_now)
     frame_ahead_trev = copy.deepcopy(frame_ahead)
     frame_now_trev.set_momenta(-frame_now_trev.get_momenta())
@@ -136,15 +138,22 @@ subprocess.run(["mtt", "train", "options-flashmd.yaml"], check=True)
 # .. literalinclude:: options-flashmd-finetune.yaml
 #    :language: yaml
 
-# We download the pre-trained model checkpoint from HuggingFace. Make sure the time
-# lag of the pre-trained model matches the one you used to generate your dataset!
+# If you have the flashmd package installed, you can simply get the pre-trained
+# checkpoint file in your current directory by running:
+#
+# from flashmd import save_checkpoint
+# save_checkpoint("pet-omatpes-v2", time_lag)
+
+# Here, we instead download the pre-trained model checkpoint using the HuggingFace
+# library. In any case, make sure the time lag of the pre-trained model matches the one
+# you used to generate your dataset!
 file_path = hf_hub_download(
     repo_id="lab-cosmo/flashmd",
-    filename=f"flashmd_pet-omatpes_{time_lag}fs.ckpt",
+    filename=f"flashmd_pet-omatpes-v2_{time_lag}fs.ckpt",
     local_dir=".",
     local_dir_use_symlinks=False,
 )
 
-# Here, we run training as a subprocess, in reality you would run this from the command
-# line as ``mtt train options-flashmd-finetune.yaml``.
+# In this script, we run training as a subprocess; in reality you would run this from
+# the command line as ``mtt train options-flashmd-finetune.yaml``.
 subprocess.run(["mtt", "train", "options-flashmd-finetune.yaml"], check=True)
