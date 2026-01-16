@@ -778,7 +778,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 .cpu()
                 .numpy()
             )
-            rng = np.random.default_rng()
+            rng = np.random.default_rng(42)
 
             ensemble_weights = []
 
