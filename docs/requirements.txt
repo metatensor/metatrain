@@ -10,4 +10,3 @@ sphinx-gallery
 sphinx-copybutton
 sphinx-sitemap
 sphinx-toggleprompt
-tomli
