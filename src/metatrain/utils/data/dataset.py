@@ -992,6 +992,12 @@ class MemmapDataset(TorchDataset):
         self.ns = np.load(path / "ns.npy")
         self.na = np.load(path / "na.npy")
         self.x = MemmapArray(path / "x.bin", (self.na[-1], 3), "float32", mode="r")
+        self.momenta = MemmapArray(
+            path / "momenta.bin", (self.na[-1], 3), "float32", mode="r"
+        )
+        self.masses = MemmapArray(
+            path / "masses.bin", (self.na[-1],), "float32", mode="r"
+        )
         self.a = MemmapArray(path / "a.bin", (self.na[-1],), "int32", mode="r")
         self.c = MemmapArray(path / "c.bin", (self.ns, 3, 3), "float32", mode="r")
         if os.path.exists(path / "momenta.bin"):  # for FlashMD
@@ -1066,6 +1072,12 @@ class MemmapDataset(TorchDataset):
     def __getitem__(self, i: int) -> Any:
         a = torch.tensor(self.a[self.na[i] : self.na[i + 1]], dtype=torch.int32)
         x = torch.tensor(self.x[self.na[i] : self.na[i + 1]], dtype=torch.float64)
+        momenta = torch.tensor(
+            self.momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
+        )
+        masses = torch.tensor(
+            self.masses[self.na[i] : self.na[i + 1]], dtype=torch.float64
+        )
         c = torch.tensor(self.c[i], dtype=torch.float64)
 
         system = System(
@@ -1074,6 +1086,50 @@ class MemmapDataset(TorchDataset):
             cell=c,
             pbc=torch.logical_not(torch.all(c == 0.0, dim=1)),
         )
+
+        # attach momenta and the masses to the system
+        system.add_data(
+            "momenta",
+            TensorMap(
+                keys=Labels.single(),
+                blocks=[
+                    TensorBlock(
+                        values=momenta.unsqueeze(-1),
+                        samples=Labels(
+                            names=["system", "atom"],
+                            values=torch.tensor(
+                                [[i, j] for j in range(self.na[i], self.na[i + 1])],
+                                dtype=torch.int32,
+                            ),
+                        ),
+                        components=[Labels.range("xyz", 3)],
+                        properties=Labels.single(),
+                    )
+                ],
+            ),
+        )
+        if False:
+            system.add_data(
+                "masses",
+                TensorMap(
+                    keys=Labels.single(),
+                    blocks=[
+                        TensorBlock(
+                            values=masses.unsqueeze(-1),
+                            samples=Labels(
+                                names=["system", "atom"],
+                                values=torch.tensor(
+                                    [[i, j] for j in range(self.na[i], self.na[i + 1])],
+                                    dtype=torch.int32,
+                                ),
+                            ),
+                            # samples=Labels.range("atom", len(system)),
+                            components=[],
+                            properties=Labels.single(),
+                        )
+                    ],
+                ),
+            )
 
         target_dict = {}
         for target_key, target_options in self.target_config.items():
@@ -1114,7 +1170,8 @@ class MemmapDataset(TorchDataset):
                 ),
                 samples=samples,
                 components=components,
-                properties=Labels.range(target_key, target_array.shape[-1]),
+                # TODO:
+                properties=Labels.range("_", target_array.shape[-1]),
             )
 
             # handle energy gradients

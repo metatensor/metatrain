@@ -19,7 +19,10 @@ import torch
 
 
 def get_nef_indices(
-    centers: torch.Tensor, n_nodes: int, n_edges_per_node: int
+    centers: torch.Tensor,
+    n_nodes: int,
+    n_edges_per_node: int,
+    assume_sorted: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Computes tensors of indices useful to convert between edge
@@ -32,6 +35,8 @@ def get_nef_indices(
         being the "i" node in an "i -> j" edge.
     :param n_nodes: The number of nodes in the graph.
     :param n_edges_per_node: The maximum number of edges per node.
+    :param assume_sorted: If True, assumes that the centers are already
+        sorted. This can speed up the computation significantly.
 
     :return: A tuple with three tensors (nef_indices, nef_to_edges_neighbor, nef_mask).
         In particular:
@@ -48,7 +53,10 @@ def get_nef_indices(
     arange_expanded = arange.view(1, -1).expand(n_nodes, -1)
     nef_mask = arange_expanded < bincount.view(-1, 1)
 
-    argsort = torch.argsort(centers, stable=True)
+    if assume_sorted:
+        argsort = torch.arange(centers.shape[0], device=centers.device)
+    else:
+        argsort = torch.argsort(centers, stable=True)
 
     nef_indices = torch.zeros(
         (n_nodes, n_edges_per_node), dtype=torch.long, device=centers.device
@@ -61,7 +69,9 @@ def get_nef_indices(
     return nef_indices, nef_to_edges_neighbor, nef_mask
 
 
-def get_corresponding_edges(array: torch.Tensor) -> torch.Tensor:
+def get_corresponding_edges(
+    array: torch.Tensor, assume_sorted: bool = False
+) -> torch.Tensor:
     """
     Computes the corresponding edge (i.e., the edge that goes in the
     opposite direction) for each edge in the array; this is useful
@@ -72,6 +82,9 @@ def get_corresponding_edges(array: torch.Tensor) -> torch.Tensor:
         the second column contains the index of the neighbor node j,
         and the last three columns contain the cell shifts along x, y, and z
         directions, respectively.
+    :param assume_sorted: If True, assumes that the edges are already
+        sorted by center, neighbor, and cell shifts. This can speed up
+        the computation significantly.
 
     :return: A 1D tensor of shape (n_edges,) containing, for each edge,
         the index of the corresponding edge (i.e., the edge that goes
@@ -137,7 +150,10 @@ def get_corresponding_edges(array: torch.Tensor) -> torch.Tensor:
         + negative_cell_shifts_z
     )
 
-    unique_id_argsort = unique_id.argsort()
+    if assume_sorted:
+        unique_id_argsort = torch.arange(unique_id.shape[0], device=unique_id.device)
+    else:
+        unique_id_argsort = unique_id.argsort()
     unique_id_inverse_argsort = unique_id_inverse.argsort()
 
     corresponding_edges = torch.empty_like(centers)
