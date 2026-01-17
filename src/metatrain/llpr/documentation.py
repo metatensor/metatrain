@@ -68,10 +68,11 @@ class TrainerHypers(TypedDict):
     architecture must comply with the requirement that the last-layer features are
     exposed under the convention defined by metatrain."""
 
-    loss: str | dict[str, LossSpecification] = "ensemble_nll"
+    loss: str | dict[str, LossSpecification] = "gaussian_nll"
     """This section describes the loss function to be used during LLPR ensemble
-    weight calibration. We strongly suggest only using "ensemble_nll" loss. see
-    :ref:`loss-functions` for more details of the rest of the hypers."""
+    weight calibration. We strongly suggest only using ensemble-specific loss functions.
+    Please refer to the :ref:`loss-functions` documentation for more details of the rest
+    of the hypers."""
 
     num_epochs: Optional[int] = None
     """Number of epochs for which the LLPR ensemble weight calibration should
@@ -126,3 +127,6 @@ class TrainerHypers(TypedDict):
     counts outside these bounds will be skipped during training. Use ``None`` for
     either value to disable that bound. This is useful for preventing out-of-memory
     errors and ensuring consistent computational load. Default: ``[None, None]``."""
+
+    calibration_method: Literal["crps", "nll"] = "nll"
+    """Method used to calibrate the LLPR uncertainty via a multiplicative factor."""
