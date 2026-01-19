@@ -31,8 +31,8 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
-from .modules.encoder import NodeEncoder
-from .modules.structures import systems_to_batch
+from metatrain.experimental.flashmd.modules.encoder import NodeEncoder
+from metatrain.experimental.flashmd.modules.structures import systems_to_batch
 
 
 AVAILABLE_FEATURIZERS = ["feedforward", "residual"]
