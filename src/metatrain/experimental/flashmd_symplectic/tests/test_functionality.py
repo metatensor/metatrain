@@ -4,7 +4,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 
-from metatrain.experimental.flashmd.model import FlashMD
+from metatrain.experimental.flashmd_symplectic.model import FlashMDSymplectic
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import TargetInfo
 from metatrain.utils.neighbor_lists import (
@@ -51,7 +51,7 @@ def test_forward():
     )
 
     # create a FlashMD model and attach a (random) raw PET model
-    model = FlashMD(model_hypers, dataset_info)
+    model = FlashMDSymplectic(model_hypers, dataset_info)
 
     # define example systems
     dtype = torch.float32

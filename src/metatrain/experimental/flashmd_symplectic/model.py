@@ -39,7 +39,7 @@ from .modules.structures import systems_to_batch
 AVAILABLE_FEATURIZERS = ["feedforward", "residual"]
 
 
-class FlashMD(ModelInterface):
+class FlashMDSymplectic(ModelInterface):
     """
     Implementation of the FlashMD architecture.
 
@@ -203,7 +203,6 @@ class FlashMD(ModelInterface):
             ),
         )
         additive_models = [composition_model]
-
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
@@ -228,7 +227,7 @@ class FlashMD(ModelInterface):
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
-    def restart(self, dataset_info: DatasetInfo) -> "FlashMD":
+    def restart(self, dataset_info: DatasetInfo) -> "FlashMDSymplectic":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -403,13 +402,13 @@ class FlashMD(ModelInterface):
         """
         if "mtt::S3" not in outputs:
             outputs["mtt::S3"] = ModelOutput()
-            positions_output = outputs.pop("mtt::delta_q")
-            momenta_output = outputs.pop("mtt::delta_p")
-            was_s3_added = True
+            positions_output = outputs.pop("positions")
+            momenta_output = outputs.pop("momenta")
+            s3_requested = False
         else:
             positions_output = ModelOutput()
             momenta_output = ModelOutput()
-            was_s3_added = False
+            s3_requested = True 
 
         device = systems[0].device
         return_dict: Dict[str, TensorMap] = {}
@@ -562,7 +561,7 @@ class FlashMD(ModelInterface):
             for k, v in atomic_predictions_dict.items():
                 return_dict[k] = v
 
-        generating_function_sum = return_dict["mtt::S3"].block().values.sum()  # * 15.0
+        generating_function_sum = return_dict["mtt::S3"].block().values.sum()
         dSdq_opt, dSdp_opt = torch.autograd.grad(
             [generating_function_sum],
             [positions_for_diff, momenta_for_diff],
@@ -577,7 +576,7 @@ class FlashMD(ModelInterface):
             dSdp = dSdp_opt
         else:
             raise ValueError("Error dSdp :(")
-        return_dict["mtt::delta_q"] = TensorMap(
+        return_dict["positions"] = TensorMap(
             keys=self.single_label,
             blocks=[
                 TensorBlock(
@@ -590,12 +589,12 @@ class FlashMD(ModelInterface):
                         )
                     ],
                     properties=Labels(
-                        names="_", values=torch.tensor([[0]], device=device)
+                        names="positions", values=torch.tensor([[0]], device=device)
                     ),
                 )
             ],
         )
-        return_dict["mtt::delta_p"] = TensorMap(
+        return_dict["momenta"] = TensorMap(
             keys=self.single_label,
             blocks=[
                 TensorBlock(
@@ -608,16 +607,15 @@ class FlashMD(ModelInterface):
                         )
                     ],
                     properties=Labels(
-                        names="_", values=torch.tensor([[0]], device=device)
+                        names="momenta", values=torch.tensor([[0]], device=device)
                     ),
                 )
             ],
         )
-        if was_s3_added:
-            outputs["mtt::delta_q"] = positions_output
-            outputs["mtt::delta_p"] = momenta_output
-            outputs.pop("mtt::S3")
-            return_dict.pop("mtt::S3")
+            #outputs["mtt::delta_q"] = positions_output
+            #outputs["mtt::delta_p"] = momenta_output
+            #outputs.pop("mtt::S3")
+            #return_dict.pop("mtt::S3")
 
         # **Post-processing (Evaluation Only)**
 
@@ -669,6 +667,10 @@ class FlashMD(ModelInterface):
         # print("q", return_dict["mtt::delta_q"].block().values.flatten().std())
         # print()
         # exit()
+        if s3_requested:
+            return_dict["mtt::S3"] = outputs["mtt::S3"]
+        else:
+            return_dict.pop("mtt::S3")
 
         return return_dict
 

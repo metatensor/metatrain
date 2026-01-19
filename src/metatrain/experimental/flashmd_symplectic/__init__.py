@@ -1,8 +1,8 @@
-from metatrain.experimental.flashmd.model import FlashMD
-from metatrain.experimental.flashmd.trainer import Trainer
+from metatrain.experimental.flashmd_symplectic.model import FlashMDSymplectic
+from metatrain.experimental.flashmd_symplectic.trainer import Trainer
 
 
-__model__ = FlashMD
+__model__ = FlashMDSymplectic
 __trainer__ = Trainer
 
 __authors__ = [

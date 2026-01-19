@@ -6,7 +6,6 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, NeighborListOptions, System
 
 from metatrain.utils.data import DatasetInfo, TargetInfo
-from metatrain.utils.jsonschema import validate
 
 
 class PositionAdditive(torch.nn.Module):
@@ -20,17 +19,6 @@ class PositionAdditive(torch.nn.Module):
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
 
-        validate(
-            instance=hypers,
-            schema={
-                "type": "object",
-                "properties": {
-                    "also_momenta": {"type": "boolean"},
-                },
-                "required": ["also_momenta"],
-                "additionalProperties": False,
-            },
-        )
         self.do_momenta = hypers["also_momenta"]
 
         self.dataset_info = dataset_info

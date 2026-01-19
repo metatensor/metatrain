@@ -41,7 +41,7 @@ from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
-from .model import FlashMD
+from .model import FlashMDSymplectic
 
 
 def get_scheduler(
@@ -76,7 +76,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 1
 
     def __init__(self, hypers: Dict[str, Any]) -> None:
         super().__init__(hypers)
@@ -89,17 +89,16 @@ class Trainer(TrainerInterface):
         self.best_model_state_dict: Optional[Dict[str, Any]] = None
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
 
-    # @profile
     def train(
         self,
-        model: FlashMD,
+        model: FlashMDSymplectic,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        assert dtype in FlashMD.__supported_dtypes__
+        assert dtype in FlashMDSymplectic.__supported_dtypes__
 
         # Set time step for the model
         if self.hypers["timestep"] is None:
@@ -192,7 +191,7 @@ class Trainer(TrainerInterface):
             model.additive_models[1:],
             self.hypers["batch_size"],
             is_distributed,
-            self.hypers["fixed_composition_weights"],
+            self.hypers["atomic_baseline"],
         )
 
         if self.hypers["scale_targets"]:

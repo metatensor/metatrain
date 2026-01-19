@@ -105,7 +105,7 @@ class ModelHypers(TypedDict):
 
 
 class TrainerHypers(TypedDict):
-    """Hyperparameters for training FlashMD models."""
+    """Hyperparameters for training symplectic FlashMD models."""
 
     timestep: Optional[float] = None
     """The time interval (in fs) between the current and the future positions
@@ -126,6 +126,8 @@ class TrainerHypers(TypedDict):
     module will be used. These correspond to masses averaged over the natural
     isotopic abundance of each element.
     """
+    grad_accum_steps: int = 1
+    """Number of gradient accumulation steps."""
     distributed: bool = False
     """Whether to use distributed training"""
     distributed_port: int = 39591

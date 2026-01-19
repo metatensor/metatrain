@@ -7,7 +7,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from omegaconf import OmegaConf
 
-from metatrain.experimental.flashmd import FlashMD, Trainer
+from metatrain.experimental.flashmd_symplectic import FlashMDSymplectic, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.io import model_from_checkpoint
@@ -70,7 +70,7 @@ def test_continue(monkeypatch, tmp_path):
         },
     )
 
-    model = FlashMD(MODEL_HYPERS, dataset_info)
+    model = FlashMDSymplectic(MODEL_HYPERS, dataset_info)
     requested_neighbor_lists = get_requested_neighbor_lists(model)
     systems = [
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
@@ -147,7 +147,7 @@ def test_continue(monkeypatch, tmp_path):
     trainer.save_checkpoint(model, "temp.ckpt")
     checkpoint = torch.load("temp.ckpt", weights_only=False, map_location="cpu")
     model_after = model_from_checkpoint(checkpoint, context="restart")
-    assert isinstance(model_after, FlashMD)
+    assert isinstance(model_after, FlashMDSymplectic)
     model_after.restart(dataset_info)
 
     hypers["training"]["num_epochs"] = 0

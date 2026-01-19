@@ -3,7 +3,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 from metatrain.utils.architectures import get_default_hypers
-from metatrain.experimental.flashmd import FlashMD
+from metatrain.experimental.flashmd_symplectic import FlashMDSymplectic
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import TargetInfo
 from metatrain.utils.neighbor_lists import (
@@ -52,7 +52,7 @@ def test_torchscript():
     )
 
     # create a FlashMD model and attach a (random) raw PET model
-    model = FlashMD(model_hypers, dataset_info)
+    model = FlashMDSymplectic(model_hypers, dataset_info)
 
     # define example systems
     dtype = torch.float32
@@ -128,7 +128,7 @@ def test_torchscript_save_load(tmpdir):
             for name in ["positions", "momenta"]
         },
     )
-    model = FlashMD(MODEL_HYPERS, dataset_info)
+    model = FlashMDSymplectic(MODEL_HYPERS, dataset_info)
     model.to(torch.float64)
     model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
     model.scaler.scales_to(device="cpu", dtype=torch.float64)

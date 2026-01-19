@@ -5,7 +5,7 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from metatrain.experimental.flashmd import FlashMD, Trainer
+from metatrain.experimental.flashmd_symplectic import FlashMDSymplectic, Trainer
 from metatrain.utils.data import (
     DatasetInfo,
     get_atomic_types,
@@ -31,9 +31,9 @@ DEFAULT_HYPERS["training"]["batch_size"] = 1
 
 
 @pytest.fixture(scope="module")
-def model_trainer():
+def model_trainer_():
     positions_target = {
-        "quantity": "position",
+        "quantity": "length",
         "read_from": "data/flashmd.xyz",
         "reader": "ase",
         "key": "future_positions",
@@ -91,7 +91,7 @@ def model_trainer():
     hypers["num_attention_layers"] = 1
     hypers["num_gnn_layers"] = 1
 
-    model = FlashMD(hypers, dataset_info)
+    model = FlashMDSymplectic(hypers, dataset_info)
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 1
@@ -122,7 +122,7 @@ class TestCheckpoints(CheckpointTests):
     @pytest.fixture
     def model_trainer(self):
         positions_target = {
-            "quantity": "position",
+            "quantity": "length",
             "read_from": "data/flashmd.xyz",
             "reader": "ase",
             "key": "future_positions",
@@ -180,7 +180,7 @@ class TestCheckpoints(CheckpointTests):
         hypers["num_attention_layers"] = 1
         hypers["num_gnn_layers"] = 1
 
-        model = FlashMD(hypers, dataset_info)
+        model = FlashMDSymplectic(hypers, dataset_info)
 
         hypers = copy.deepcopy(DEFAULT_HYPERS)
         hypers["training"]["num_epochs"] = 1
@@ -215,11 +215,11 @@ def test_get_checkpoint(context, caplog):
         atomic_types=[1, 6, 7, 8],
         targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
     )
-    model = FlashMD(MODEL_HYPERS, dataset_info)
+    model = FlashMDSymplectic(MODEL_HYPERS, dataset_info)
     checkpoint = model.get_checkpoint()
 
     caplog.set_level(logging.INFO)
-    FlashMD.load_checkpoint(checkpoint, context)
+    FlashMDSymplectic.load_checkpoint(checkpoint, context)
 
     if context == "restart":
         assert "Using latest model from epoch None" in caplog.text
@@ -233,8 +233,8 @@ def test_failed_checkpoint_upgrade(cls_type):
     checkpoint = {f"{cls_type}_ckpt_version": 9999}
 
     if cls_type == "model":
-        cls = FlashMD
-        version = FlashMD.__checkpoint_version__
+        cls = FlashMDSymplectic
+        version = FlashMDSymplectic.__checkpoint_version__
     else:
         cls = Trainer
         version = Trainer.__checkpoint_version__
