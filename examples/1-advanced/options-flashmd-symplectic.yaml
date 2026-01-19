@@ -4,7 +4,7 @@ base_precision: 32
 architecture:
   name: experimental.flashmd_symplectic
   training:
-    timestep: 30  # in this case 30 (time lag) * 1 fs (timestep of reference MD)
+    timestep: 32  # in this case 30 (time lag) * 1 fs (timestep of reference MD)
     batch_size: 8  # to be increased in a production scenario
     num_epochs: 3  # to be increased (at least 1000-10000) in a production scenario
     log_interval: 1
