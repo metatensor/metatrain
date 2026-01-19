@@ -518,6 +518,11 @@ class OutputTests(ArchitectureTests):
 
         model = self.model_cls(model_hypers, dataset_info)
 
+        assert hasattr(model, "last_layer_feature_size"), (
+            f"{self.architecture} does not have the attribute "
+            "`last_layer_feature_size`."
+        )
+
         system = System(
             types=torch.tensor([6, 1, 8, 7]),
             positions=torch.tensor(
