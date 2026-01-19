@@ -1,10 +1,10 @@
-from metatrain.utils.architectures import get_default_hypers
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 
 from metatrain.experimental.flashmd_symplectic.model import FlashMDSymplectic
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import TargetInfo
 from metatrain.utils.neighbor_lists import (
@@ -18,7 +18,7 @@ def test_forward():
     "Run a forward pass of FlashMD on two small systems and verify the output shapes."
 
     # load default hyper parameters for FlashMD
-    full_hypers =  get_default_hypers("experimental.flashmd_symplectic")
+    full_hypers = get_default_hypers("experimental.flashmd_symplectic")
     model_hypers = full_hypers["model"]
 
     # define dataset (especially the targets)

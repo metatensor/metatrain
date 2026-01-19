@@ -1237,7 +1237,7 @@ class MemmapDataset(TorchDataset):
             )
             target_dict[target_key] = target_tensormap
 
-        #if momenta is not None:
+        # if momenta is not None:
         #    momenta = torch.tensor(
         #        self.momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
         #    )

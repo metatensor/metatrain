@@ -2,8 +2,9 @@ import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
-from metatrain.utils.architectures import get_default_hypers
+
 from metatrain.experimental.flashmd_symplectic import FlashMDSymplectic
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import TargetInfo
 from metatrain.utils.neighbor_lists import (
@@ -19,7 +20,7 @@ def test_torchscript():
     """Tests that the model can be jitted."""
 
     # load default hyper parameters for FlashMD
-    full_hypers =  get_default_hypers("experimental.flashmd_symplectic")
+    full_hypers = get_default_hypers("experimental.flashmd_symplectic")
     model_hypers = full_hypers["model"]
 
     # define dataset (especially the targets)

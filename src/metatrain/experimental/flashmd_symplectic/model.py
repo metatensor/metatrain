@@ -402,13 +402,9 @@ class FlashMDSymplectic(ModelInterface):
         """
         if "mtt::S3" not in outputs:
             outputs["mtt::S3"] = ModelOutput()
-            positions_output = outputs.pop("positions")
-            momenta_output = outputs.pop("momenta")
             s3_requested = False
         else:
-            positions_output = ModelOutput()
-            momenta_output = ModelOutput()
-            s3_requested = True 
+            s3_requested = True
 
         device = systems[0].device
         return_dict: Dict[str, TensorMap] = {}
@@ -612,10 +608,10 @@ class FlashMDSymplectic(ModelInterface):
                 )
             ],
         )
-            #outputs["mtt::delta_q"] = positions_output
-            #outputs["mtt::delta_p"] = momenta_output
-            #outputs.pop("mtt::S3")
-            #return_dict.pop("mtt::S3")
+        # outputs["mtt::delta_q"] = positions_output
+        # outputs["mtt::delta_p"] = momenta_output
+        # outputs.pop("mtt::S3")
+        # return_dict.pop("mtt::S3")
 
         # **Post-processing (Evaluation Only)**
 
@@ -1223,7 +1219,7 @@ class FlashMDSymplectic(ModelInterface):
         cls,
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
-    ) -> "FlashMD":
+    ) -> "FlashMDSymplectic":
         if context == "restart":
             logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
