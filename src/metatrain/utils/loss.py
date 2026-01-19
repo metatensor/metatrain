@@ -640,7 +640,7 @@ class BandgapLoss(LossInterface):
 
         bandgap_predictions = model.bandgap_layer(gapdos_predictions)
         if self.force:
-             gap_force_predictions = torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True, destroy_graph= False))
+             gap_force_predictions = -1 * torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True, destroy_graph= False))
         if self.print:
             print ("Printing Shapes")
             print ("Gapdos predictions:", gapdos_predictions.shape)
@@ -745,7 +745,7 @@ class HOMOLUMOLoss(LossInterface):
         true_gaps = tensor_map_gap.block().values
         gap_MSE = torch.mean((gaps - true_gaps)**2)
         if self.force:
-            gap_force_predictions = torch.vstack(compute_gradient(gaps, [system.positions for system in systems], is_training=True, destroy_graph= False))
+            gap_force_predictions = -1 * torch.vstack(compute_gradient(gaps, [system.positions for system in systems], is_training=True, destroy_graph= False))
             gap_force_MSE = torch.mean((gap_force_predictions - true_gapforce.squeeze())**2)
             gap_MSE += self.force_weight * gap_force_MSE
 
@@ -890,7 +890,7 @@ class GapDOSLoss(LossInterface):
         # Bandgap loss
         bandgap_predictions = model.bandgap_layer(dos_predictions)
         # if self.force:
-        #      gap_force_predictions = torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True, destroy_graph= False))
+        #      gap_force_predictions = -1 * torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True, destroy_graph= False))
         if self.print:
             print ("Printing Shapes")
             print ("Mask shape:", mask.shape)
@@ -1012,7 +1012,7 @@ class FocusedDOSLoss(LossInterface):
 
         # Bandgap loss
         # if self.force:
-        #      gap_force_predictions = torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True, destroy_graph= False))
+        #      gap_force_predictions = -1 * torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True, destroy_graph= False))
         if self.print:
             print ("Printing Shapes")
             print ("Mask shape:", mask.shape)
@@ -1411,7 +1411,7 @@ class PhysicalGapPDOSLoss(LossInterface):
         bandgap_predictions  = get_gap_differentiable(doses=dos_predictions, cdos_starts=cdos_start_prediction, n_elecs=true_n_electrons, tol=0.1, dx=0.05, temp=100.0)
 
         # if self.force:
-        #      gap_force_predictions = torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True, destroy_graph= False))
+        #      gap_force_predictions = -1 * torch.vstack(compute_gradient(bandgap_predictions, [system.positions for system in systems], is_training=True, destroy_graph= False))
         if self.print:
             print ("Printing Shapes")
             print ("Mask shape:", mask.shape)
