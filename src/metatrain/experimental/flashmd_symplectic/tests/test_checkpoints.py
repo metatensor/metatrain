@@ -34,7 +34,7 @@ DEFAULT_HYPERS["training"]["batch_size"] = 1
 def model_trainer_():
     positions_target = {
         "quantity": "length",
-        "read_from": "data/flashmd.xyz",
+        "read_from": "../../flashmd/tests/data/flashmd.xyz",
         "reader": "ase",
         "key": "future_positions",
         "unit": "A",
@@ -49,7 +49,7 @@ def model_trainer_():
 
     momenta_target = {
         "quantity": "momentum",
-        "read_from": "data/flashmd.xyz",
+        "read_from": "../../flashmd/tests/data/flashmd.xyz",
         "reader": "ase",
         "key": "future_momenta",
         "unit": "(eV*u)^1/2",
@@ -65,7 +65,7 @@ def model_trainer_():
     dataset, targets_info, _ = get_dataset(
         {
             "systems": {
-                "read_from": "data/flashmd.xyz",
+                "read_from": "../../flashmd/tests/data/flashmd.xyz",
                 "reader": "ase",
             },
             "targets": {
@@ -123,7 +123,7 @@ class TestCheckpoints(CheckpointTests):
     def model_trainer(self):
         positions_target = {
             "quantity": "length",
-            "read_from": "data/flashmd.xyz",
+            "read_from": "../../flashmd/tests/data/flashmd.xyz",
             "reader": "ase",
             "key": "future_positions",
             "unit": "A",
@@ -138,7 +138,7 @@ class TestCheckpoints(CheckpointTests):
 
         momenta_target = {
             "quantity": "momentum",
-            "read_from": "data/flashmd.xyz",
+            "read_from": "../../flashmd/tests/data/flashmd.xyz",
             "reader": "ase",
             "key": "future_momenta",
             "unit": "(eV*u)^(1/2)",
@@ -154,7 +154,7 @@ class TestCheckpoints(CheckpointTests):
         dataset, targets_info, _ = get_dataset(
             {
                 "systems": {
-                    "read_from": "data/flashmd.xyz",
+                    "read_from": "../../flashmd/tests/data/flashmd.xyz",
                     "reader": "ase",
                 },
                 "targets": {
