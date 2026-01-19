@@ -992,17 +992,17 @@ class MemmapDataset(TorchDataset):
         self.ns = np.load(path / "ns.npy")
         self.na = np.load(path / "na.npy")
         self.x = MemmapArray(path / "x.bin", (self.na[-1], 3), "float32", mode="r")
-        self.momenta = MemmapArray(
-            path / "momenta.bin", (self.na[-1], 3), "float32", mode="r"
-        )
-        self.masses = MemmapArray(
-            path / "masses.bin", (self.na[-1],), "float32", mode="r"
-        )
         self.a = MemmapArray(path / "a.bin", (self.na[-1],), "int32", mode="r")
         self.c = MemmapArray(path / "c.bin", (self.ns, 3, 3), "float32", mode="r")
+        self.momenta = None
         if os.path.exists(path / "momenta.bin"):  # for FlashMD
             self.momenta = MemmapArray(
                 path / "momenta.bin", (self.na[-1], 3), "float32", mode="r"
+            )
+        self.masses = None
+        if os.path.exists(path / "masses.bin"):
+            self.masses = MemmapArray(
+                path / "masses.bin", (self.na[-1],), "float32", mode="r"
             )
 
         # Register arrays pointing to the targets
@@ -1072,12 +1072,16 @@ class MemmapDataset(TorchDataset):
     def __getitem__(self, i: int) -> Any:
         a = torch.tensor(self.a[self.na[i] : self.na[i + 1]], dtype=torch.int32)
         x = torch.tensor(self.x[self.na[i] : self.na[i + 1]], dtype=torch.float64)
-        momenta = torch.tensor(
-            self.momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
-        )
-        masses = torch.tensor(
-            self.masses[self.na[i] : self.na[i + 1]], dtype=torch.float64
-        )
+        momenta = None
+        if self.momenta is not None:
+            momenta = torch.tensor(
+                self.momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
+            )
+        masses = None
+        if self.masses is not None:
+            masses = torch.tensor(
+                self.masses[self.na[i] : self.na[i + 1]], dtype=torch.float64
+            )
         c = torch.tensor(self.c[i], dtype=torch.float64)
 
         system = System(
@@ -1087,27 +1091,28 @@ class MemmapDataset(TorchDataset):
             pbc=torch.logical_not(torch.all(c == 0.0, dim=1)),
         )
 
-        # attach momenta and the masses to the system
-        system.add_data(
-            "momenta",
-            TensorMap(
-                keys=Labels.single(),
-                blocks=[
-                    TensorBlock(
-                        values=momenta.unsqueeze(-1),
-                        samples=Labels(
-                            names=["system", "atom"],
-                            values=torch.tensor(
-                                [[i, j] for j in range(self.na[i], self.na[i + 1])],
-                                dtype=torch.int32,
+        # attach momenta to the system
+        if momenta is not None:
+            system.add_data(
+                "momenta",
+                TensorMap(
+                    keys=Labels.single(),
+                    blocks=[
+                        TensorBlock(
+                            values=momenta.unsqueeze(-1),
+                            samples=Labels(
+                                names=["system", "atom"],
+                                values=torch.tensor(
+                                    [[i, j] for j in range(self.na[i], self.na[i + 1])],
+                                    dtype=torch.int32,
+                                ),
                             ),
-                        ),
-                        components=[Labels.range("xyz", 3)],
-                        properties=Labels.single(),
-                    )
-                ],
-            ),
-        )
+                            components=[Labels.range("xyz", 3)],
+                            properties=Labels.single(),
+                        )
+                    ],
+                ),
+            )
         if False:
             system.add_data(
                 "masses",
@@ -1161,6 +1166,14 @@ class MemmapDataset(TorchDataset):
                 # Scalar
                 components = []
 
+            # Check if it is an energy target to set the correct property label name
+            is_energy = (
+                target_options["quantity"] == "energy"
+                and not target_options["per_atom"]
+                and target_options["num_subtargets"] == 1
+            )
+            property_name = "energy" if is_energy else "_"
+
             target_block = TensorBlock(
                 values=torch.tensor(
                     target_array[None, i]
@@ -1171,15 +1184,11 @@ class MemmapDataset(TorchDataset):
                 samples=samples,
                 components=components,
                 # TODO:
-                properties=Labels.range("_", target_array.shape[-1]),
+                properties=Labels.range(property_name, target_array.shape[-1]),
             )
 
             # handle energy gradients
-            if (
-                target_options["quantity"] == "energy"
-                and not target_options["per_atom"]
-                and target_options["num_subtargets"] == 1
-            ):
+            if is_energy:
                 if target_options["forces"]:
                     f = torch.tensor(
                         self.target_arrays[f"{target_key}_forces"][
@@ -1198,7 +1207,7 @@ class MemmapDataset(TorchDataset):
                                 ),
                             ),
                             components=[Labels.range("xyz", 3)],
-                            properties=Labels.range("energy", 1),
+                            properties=target_block.properties,
                         ),
                     )
                 if target_options["stress"]:
@@ -1218,7 +1227,7 @@ class MemmapDataset(TorchDataset):
                                 Labels.range("xyz_1", 3),
                                 Labels.range("xyz_2", 3),
                             ],
-                            properties=Labels.range("energy", 1),
+                            properties=target_block.properties,
                         ),
                     )
 
@@ -1228,30 +1237,30 @@ class MemmapDataset(TorchDataset):
             )
             target_dict[target_key] = target_tensormap
 
-        if hasattr(self, "momenta"):
-            momenta = torch.tensor(
-                self.momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
-            )
-            system.add_data(
-                "momenta",
-                TensorMap(
-                    keys=Labels.single(),
-                    blocks=[
-                        TensorBlock(
-                            values=momenta.unsqueeze(-1),
-                            samples=Labels(
-                                names=["system", "atom"],
-                                values=torch.tensor(
-                                    [[i, j] for j in range(self.na[i], self.na[i + 1])],
-                                    dtype=torch.int32,
-                                ),
-                            ),
-                            components=[Labels.range("xyz", 3)],
-                            properties=Labels.range("momentum", 1),
-                        ),
-                    ],
-                ),
-            )
+        #if momenta is not None:
+        #    momenta = torch.tensor(
+        #        self.momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
+        #    )
+        #    system.add_data(
+        #        "momenta",
+        #       TensorMap(
+        #           keys=Labels.single(),
+        #           blocks=[
+        #               TensorBlock(
+        #                   values=momenta.unsqueeze(-1),
+        #                   samples=Labels(
+        #                       names=["system", "atom"],
+        #                       values=torch.tensor(
+        #                           [[i, j] for j in range(self.na[i], self.na[i + 1])],
+        #                           dtype=torch.int32,
+        #                       ),
+        #                   ),
+        #                   components=[Labels.range("xyz", 3)],
+        #                   properties=Labels.range("momentum", 1),
+        #               ),
+        #           ],
+        #       ),
+        #   )
 
         sample = self.sample_class(**{"system": system, **target_dict})
         return sample
