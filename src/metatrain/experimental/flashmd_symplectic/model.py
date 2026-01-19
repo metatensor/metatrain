@@ -41,7 +41,7 @@ AVAILABLE_FEATURIZERS = ["feedforward", "residual"]
 
 class FlashMDSymplectic(ModelInterface):
     """
-    Implementation of the FlashMD architecture.
+    Implementation of the symplectic FlashMD architecture.
 
     For more information, you can refer to https://arxiv.org/abs/2505.19350.
     """
@@ -400,6 +400,7 @@ class FlashMDSymplectic(ModelInterface):
             predictions (depending on the ModelOutput configuration) with appropriate
             metatensor metadata (samples, components, properties).
         """
+        outputs = dict(outputs)  # make a copy to avoid modifying input
         if "mtt::S3" not in outputs:
             outputs["mtt::S3"] = ModelOutput()
             s3_requested = False
@@ -663,9 +664,7 @@ class FlashMDSymplectic(ModelInterface):
         # print("q", return_dict["mtt::delta_q"].block().values.flatten().std())
         # print()
         # exit()
-        if s3_requested:
-            return_dict["mtt::S3"] = outputs["mtt::S3"]
-        else:
+        if not s3_requested:
             return_dict.pop("mtt::S3")
 
         return return_dict
@@ -1414,7 +1413,7 @@ class FlashMDSymplectic(ModelInterface):
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {
-            "architecture_name": "experimental.flashmd",
+            "architecture_name": "experimental.flashmd_symplectic",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {
