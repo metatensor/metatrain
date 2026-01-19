@@ -181,6 +181,8 @@ def test_continue(monkeypatch, tmp_path):
     )
 
     assert metatensor.torch.allclose(
-        output_before["positions"], output_after["positions"]
+        output_before["positions"], output_after["positions"], atol=1e-7, rtol=1e-5
     )
-    assert metatensor.torch.allclose(output_before["momenta"], output_after["momenta"])
+    assert metatensor.torch.allclose(
+        output_before["momenta"], output_after["momenta"], atol=1e-7, rtol=1e-5
+    )

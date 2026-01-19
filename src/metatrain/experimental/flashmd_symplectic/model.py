@@ -31,7 +31,6 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
-from .modules.additive import PositionAdditive
 from .modules.encoder import NodeEncoder
 from .modules.structures import systems_to_batch
 
@@ -256,7 +255,7 @@ class FlashMDSymplectic(ModelInterface):
 
         self.dataset_info = merged_info
 
-        # restart the composition and scaler models
+        # restart the composition models
         self.additive_models[0] = self.additive_models[0].restart(
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
@@ -265,17 +264,6 @@ class FlashMDSymplectic(ModelInterface):
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
                     if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        self.additive_models[1] = self.additive_models[1].restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if PositionAdditive.is_valid_target(target_name, target_info)
                 },
             ),
         )
@@ -585,9 +573,9 @@ class FlashMDSymplectic(ModelInterface):
                             values=torch.tensor([[0], [1], [2]], device=device),
                         )
                     ],
-                    properties=Labels(
-                        names="positions", values=torch.tensor([[0]], device=device)
-                    ),
+                    properties=self.dataset_info.targets["positions"]
+                    .layout.block(0)
+                    .properties.to(device),
                 )
             ],
         )
@@ -603,9 +591,9 @@ class FlashMDSymplectic(ModelInterface):
                             values=torch.tensor([[0], [1], [2]], device=device),
                         )
                     ],
-                    properties=Labels(
-                        names="momenta", values=torch.tensor([[0]], device=device)
-                    ),
+                    properties=self.dataset_info.targets["momenta"]
+                    .layout.block(0)
+                    .properties.to(device),
                 )
             ],
         )
