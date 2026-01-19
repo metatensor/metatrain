@@ -21,6 +21,7 @@ CONF_LOSS = {
     "type": "mse",
     "weight": 1.0,
     "reduction": "mean",
+    "gradients": {},
 }
 
 
@@ -114,7 +115,10 @@ def model_trainer():
     return model, trainer
 
 
+@pytest.mark.filterwarnings("ignore:custom data")
 class TestCheckpoints(CheckpointTests):
+    architecture = "experimental.flashmd_symplectic"
+
     @pytest.fixture
     def model_trainer(self):
         positions_target = {

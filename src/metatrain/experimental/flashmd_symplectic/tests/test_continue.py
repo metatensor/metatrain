@@ -23,6 +23,7 @@ CONF_LOSS = {
     "type": "mse",
     "weight": 1.0,
     "reduction": "mean",
+    "gradients": {},
 }
 
 
