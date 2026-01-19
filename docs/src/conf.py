@@ -3,11 +3,11 @@ import subprocess
 import sys
 from datetime import datetime
 
-import tomli  # Replace by tomllib from std library once docs are build with Python 3.11
+import tomllib
 
 
-# When importing metatensor-torch, this will change the definition of the classes
-# to include the documentation
+# When importing metatensor-torch, this will change the definition of the classes to
+# include the documentation
 os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
 os.environ["METATOMIC_IMPORT_FOR_SPHINX"] = "1"
 os.environ["PYTORCH_JIT"] = "0"
@@ -36,7 +36,7 @@ from src.architectures.generate import setup_architectures_docs  # noqa
 master_doc = "index"
 
 with open(os.path.join(ROOT, "pyproject.toml"), "rb") as fp:
-    project_dict = tomli.load(fp)["project"]
+    project_dict = tomllib.load(fp)["project"]
 
 project = project_dict["name"]
 author = ", ".join(a["name"] for a in project_dict["authors"])
@@ -131,7 +131,7 @@ html_extra_path = ["robots.txt"]  # extra files to move
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
-#
+html_title = "Metatrain"
 html_theme = "furo"
 
 # Add any paths that contain custom static files (such as style sheets) here,
