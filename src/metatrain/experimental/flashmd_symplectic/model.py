@@ -17,6 +17,8 @@ from metatomic.torch import (
 )
 from torch.profiler import record_function
 
+from metatrain.experimental.flashmd.modules.encoder import NodeEncoder
+from metatrain.experimental.flashmd.modules.structures import systems_to_batch
 from metatrain.pet.modules.finetuning import apply_finetuning_strategy
 from metatrain.pet.modules.transformer import CartesianTransformer
 from metatrain.pet.modules.utilities import cutoff_func_bump as cutoff_func
@@ -31,8 +33,6 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
-from metatrain.experimental.flashmd.modules.encoder import NodeEncoder
-from metatrain.experimental.flashmd.modules.structures import systems_to_batch
 
 
 AVAILABLE_FEATURIZERS = ["feedforward", "residual"]

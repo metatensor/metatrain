@@ -13,6 +13,7 @@ stable simulations over extended periods.
 
 import copy
 import subprocess
+
 import ase
 import ase.build
 import ase.io
@@ -22,15 +23,16 @@ from ase.md import VelocityVerlet
 from ase.md.langevin import Langevin
 from ase.md.velocitydistribution import MaxwellBoltzmannDistribution
 
+
 # %%
 #
 # Dataset Creation
 # ----------------
-# 
+#
 # We will create a dataset of molecular dynamics trajectories using ASE and its built-in
 # EMT potential. The dataset will consist of atomic configurations, forces, and energies
-# obtained from NVE simulations. In reality, you might want to use a more accurate baseline such as
-# ab initio MD or a machine-learned interatomic potential (MLIP).
+# obtained from NVE simulations. In reality, you might want to use a more accurate
+# baseline such as ab initio MD or a machine-learned interatomic potential (MLIP).
 
 # We start by creating a simple system (a small box of aluminum).
 atoms = ase.build.bulk("Al", "fcc", cubic=True) * (2, 2, 2)
@@ -59,7 +61,7 @@ dyn.run(2000)  # 2 ps NVE run
 #
 # Data Preparation
 # ----------------
-# 
+#
 # Note that the data preparation process is similar to the one in the `04-flashmd.py`
 # example, with one key difference. Instead of storing a phase-space coordinate and its
 # future state after one time step, we store the input to the symplectic fixed-point
@@ -68,6 +70,7 @@ dyn.run(2000)  # 2 ps NVE run
 
 time_lag = 32
 spacing = 200
+
 
 def get_structure_for_dataset(frame_now, frame_ahead):
     s = copy.deepcopy(frame_now)
@@ -78,6 +81,7 @@ def get_structure_for_dataset(frame_now, frame_ahead):
     s.set_positions(0.5 * (frame_now.get_positions() + frame_ahead.get_positions()))
     s.set_momenta(0.5 * (frame_now.get_momenta() + frame_ahead.get_momenta()))
     return s
+
 
 structures_for_dataset = []
 for i in range(0, len(trajectory) - time_lag, spacing):
