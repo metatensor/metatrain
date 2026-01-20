@@ -610,7 +610,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
         metadata = merge_metadata(self.metadata, metadata)
 
         if self.hypers["mace_model"] is not None:
-            to_export = copy.deepcopy(self.eval())
+            to_export = copy.copy(self.eval().to(device="cpu"))
+            to_export.mace_model = copy.deepcopy(to_export.mace_model)
         else:
             to_export = self.eval()
 
