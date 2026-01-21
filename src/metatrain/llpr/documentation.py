@@ -68,7 +68,7 @@ class TrainerHypers(TypedDict):
     architecture must comply with the requirement that the last-layer features are
     exposed under the convention defined by metatrain."""
 
-    loss: str | dict[str, LossSpecification] = "gaussian_nll"
+    loss: str | dict[str, LossSpecification] = "gaussian_nll_ensemble"
     """This section describes the loss function to be used during LLPR ensemble
     weight calibration. We strongly suggest only using ensemble-specific loss functions.
     Please refer to the :ref:`loss-functions` documentation for more details of the rest

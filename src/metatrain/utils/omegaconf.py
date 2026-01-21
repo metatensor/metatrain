@@ -83,7 +83,7 @@ def default_llpr_ensemble_scoring_rule() -> str:
 
     :return: The default scoring rule for the llpr ensemble loss.
     """
-    return "gaussian_nll"
+    return "gaussian_nll_ensemble"
 
 
 # Register custom resolvers

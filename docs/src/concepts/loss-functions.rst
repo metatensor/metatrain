@@ -252,7 +252,7 @@ The third option, the empirical CRPS, uses the full ensemble of predictions and 
 
       loss:
         mtt::target_name:
-          type: gaussian_nll
+          type: gaussian_nll_ensemble
 
 
 - The analytical Gaussian Continuous Ranked Probability Score (CRPS) evaluates the integrated squared difference between the predicted and (assumed) Gaussian cumulative distribution functions.
@@ -276,7 +276,7 @@ The third option, the empirical CRPS, uses the full ensemble of predictions and 
 
       loss:
         mtt::target_name:
-          type: gaussian_crps
+          type: gaussian_crps_ensemble
 
 
 - The empirical Continuous Ranked Probability Score does **not** assume a Gaussian predictive distribution.
@@ -297,7 +297,7 @@ The third option, the empirical CRPS, uses the full ensemble of predictions and 
 
       loss:
         mtt::target_name:
-          type: empirical_crps
+          type: empirical_crps_ensemble
 
 
 In practice, all three scoring rules encourage calibrated uncertainty estimates, but with different characteristics.

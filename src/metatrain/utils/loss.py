@@ -1182,9 +1182,9 @@ class LossType(Enum):
     POINTWISE = ("pointwise", BaseTensorMapLoss)
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
     MASKED_DOS = ("masked_dos", MaskedDOSLoss)
-    GAUSSIAN_NLL = ("gaussian_nll", TensorMapGaussianNLLLoss)
-    GAUSSIAN_CRPS = ("gaussian_crps", TensorMapGaussianCRPSLoss)
-    EMPIRICAL_CRPS = ("empirical_crps", TensorMapEmpiricalCRPSLoss)
+    GAUSSIAN_NLL = ("gaussian_nll_ensemble", TensorMapGaussianNLLLoss)
+    GAUSSIAN_CRPS = ("gaussian_crps_ensemble", TensorMapGaussianCRPSLoss)
+    EMPIRICAL_CRPS = ("empirical_crps_ensemble", TensorMapEmpiricalCRPSLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key
