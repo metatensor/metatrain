@@ -220,10 +220,15 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
             # create the linear layer for ensemble members
             tensor_names = self.model.last_layer_parameter_names[name]
-            n_properties = torch.concatenate(
+            temp_n_properties = torch.concatenate(
                 [self.model.state_dict()[tn] for tn in tensor_names],
                 axis=-1,
-            ).shape[0]  # type: ignore
+            )
+            # TODO: Hack for missing dimension in MACE, must be fixed later
+            if len(temp_n_properties.shape) == 1:
+                n_properties = 1
+            else:
+                n_properties = temp_n_properties.shape[0]  # type: ignore
             self.llpr_ensemble_layers[name] = torch.nn.Linear(
                 cur_ll_feat_size,
                 value * n_properties,
@@ -829,11 +834,17 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         weight_tensors = {}  # type: ignore
         for name in self.ensemble_weight_sizes:
             tensor_names = self.model.last_layer_parameter_names[name]
+            weight_list = []
+            for tn in tensor_names:
+                cur_weight = self.model.state_dict()[tn]
+                if len(cur_weight.shape) == 1:
+                    cur_weight = cur_weight.unsqueeze(0)
+                weight_list.append(cur_weight)
             weight_tensors[name] = torch.concatenate(
-                [self.model.state_dict()[tn] for tn in tensor_names],
+                weight_list,
                 axis=-1,
             )  # type: ignore
-
+            
         # sampling; each member is sampled from a multivariate normal distribution
         # with mean given by the input weights and covariance given by the inverse
         # covariance matrix
@@ -853,7 +864,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             rng = np.random.default_rng(42)
 
             ensemble_weights = []
-
             for ii in range(weights.shape[0]):
                 # TODO: this isn't good enough for multi-target equivariant
                 if cur_multiplier.shape[0] > 1:  # unconstrained models
@@ -879,6 +889,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ensemble_weights.shape[0],
                 -1,
             )  # shape: (ll_feat, n_ens * n_subtarget)
+
             # assign the generated weights
             with torch.no_grad():
                 self.llpr_ensemble_layers[name].weight.copy_(ensemble_weights.T)

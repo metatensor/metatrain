@@ -708,45 +708,88 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
 
         # number of ensembles extracted from TensorMaps
         n_ens = (
-            tmap_pred_ens.block(0).values.shape[1]
-            // tmap_pred_orig.block(0).values.shape[1]
+            tmap_pred_ens.block(0).values.shape[-1]
+            // tmap_pred_orig.block(0).values.shape[-1]
         )
 
         ens_pred_values = tmap_pred_ens.block().values  # shape: samples, properties
 
-        ens_pred_values = ens_pred_values.reshape(ens_pred_values.shape[0], n_ens, -1)
-        ens_pred_mean = ens_pred_values.mean(dim=1)
-        ens_pred_var = ens_pred_values.var(dim=1, unbiased=True)
+        if len(ens_pred_values.shape) == 2:
+            ens_pred_values = ens_pred_values.reshape(ens_pred_values.shape[0], n_ens, -1)
+            ens_pred_mean = ens_pred_values.mean(dim=1)
+            ens_pred_var = ens_pred_values.var(dim=1, unbiased=True)
 
-        tmap_pred_mean = TensorMap(
-            keys=Labels(
-                names=["_"],
-                values=torch.tensor([[0]], device=tmap_targ.block().values.device),
-            ),
-            blocks=[
-                TensorBlock(
-                    values=ens_pred_mean,
-                    samples=tmap_targ.block().samples,
-                    components=tmap_targ.block().components,
-                    properties=tmap_targ.block().properties,
+            tmap_pred_mean = TensorMap(
+                keys=Labels(
+                    names=["_"],
+                    values=torch.tensor([[0]], device=tmap_targ.block().values.device),
                 ),
-            ],
-        )
+                blocks=[
+                    TensorBlock(
+                        values=ens_pred_mean,
+                        samples=tmap_targ.block().samples,
+                        components=tmap_targ.block().components,
+                        properties=tmap_targ.block().properties,
+                    ),
+                ],
+            )
 
-        tmap_pred_var = TensorMap(
-            keys=Labels(
-                names=["_"],
-                values=torch.tensor([[0]], device=tmap_targ.block().values.device),
-            ),
-            blocks=[
-                TensorBlock(
-                    values=ens_pred_var,
-                    samples=tmap_targ.block().samples,
-                    components=tmap_targ.block().components,
-                    properties=tmap_targ.block().properties,
+            tmap_pred_var = TensorMap(
+                keys=Labels(
+                    names=["_"],
+                    values=torch.tensor([[0]], device=tmap_targ.block().values.device),
                 ),
-            ],
-        )
+                blocks=[
+                    TensorBlock(
+                        values=ens_pred_var,
+                        samples=tmap_targ.block().samples,
+                        components=tmap_targ.block().components,
+                        properties=tmap_targ.block().properties,
+                    ),
+                ],
+            )
+
+        ## account for component dimension
+        else:
+            ens_pred_values = ens_pred_values.reshape(
+                    ens_pred_values.shape[0],
+                    ens_pred_values.shape[1],
+                    n_ens,
+                    -1,
+            )
+            ens_pred_mean = ens_pred_values.mean(dim=2)
+            ens_pred_var = ens_pred_values.var(dim=2, unbiased=True)
+ 
+            tmap_pred_mean = TensorMap(
+                keys=Labels(
+                    names=["_"],
+                    values=torch.tensor([[0]], device=tmap_targ.block().values.device),
+                ),
+                blocks=[
+                    TensorBlock(
+                        values=ens_pred_mean,
+                        samples=tmap_targ.block().samples,
+                        components=tmap_targ.block().components,
+                        properties=tmap_targ.block().properties,
+                    ),
+                ],
+            )
+
+            tmap_pred_var = TensorMap(
+                keys=Labels(
+                    names=["_"],
+                    values=torch.tensor([[0]], device=tmap_targ.block().values.device),
+                ),
+                blocks=[
+                    TensorBlock(
+                        values=ens_pred_var,
+                        samples=tmap_targ.block().samples,
+                        components=tmap_targ.block().components,
+                        properties=tmap_targ.block().properties,
+                    ),
+                ],
+            )
+
 
         # Note that we're ignoring all gradients for now. This can be extended later.
         return self.compute_flattened(tmap_pred_mean, tmap_targ, tmap_pred_var)
