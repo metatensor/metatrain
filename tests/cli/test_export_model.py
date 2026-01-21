@@ -19,16 +19,14 @@ from metatrain.cli.export import export_model
 from metatrain.utils.architectures import find_all_architectures
 from metatrain.utils.io import load_model
 
-from ..conftest import RESOURCES_PATH
-
 
 @pytest.mark.parametrize("path", [Path("exported.pt"), "exported.pt"])
-def test_export(monkeypatch, tmp_path, path, caplog):
+def test_export(monkeypatch, tmp_path, path, caplog, MODEL_PATH_64_BIT):
     """Tests the export_model function."""
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.INFO)
 
-    checkpoint_path = RESOURCES_PATH / "model-64-bit.ckpt"
+    checkpoint_path = MODEL_PATH_64_BIT.with_suffix(".ckpt")
     export_model(checkpoint_path, path)
 
     # Test if extensions are saved
@@ -43,20 +41,28 @@ def test_export(monkeypatch, tmp_path, path, caplog):
 
 @pytest.mark.parametrize("output", [None, "exported.pt"])
 @pytest.mark.parametrize("model_type", ["32-bit", "64-bit", "pet"])
-def test_export_cli(monkeypatch, tmp_path, output, model_type):
+def test_export_cli(request, monkeypatch, tmp_path, output, model_type):
     """Test that the export cli runs without an error raise."""
     monkeypatch.chdir(tmp_path)
+
+    fixture_name = {
+        "32-bit": "MODEL_PATH",
+        "64-bit": "MODEL_PATH_64_BIT",
+        "pet": "MODEL_PATH_PET",
+    }.get(model_type)
+
+    model_path = request.getfixturevalue(fixture_name)
 
     command = [
         "mtt",
         "export",
-        str(RESOURCES_PATH / f"model-{model_type}.ckpt"),
+        str(model_path.with_suffix(".ckpt")),
     ]
 
     if output is not None:
         command += ["-o", output]
     else:
-        output = f"model-{model_type}.pt"
+        output = model_path.name
 
     subprocess.check_call(command)
     assert Path(output).is_file()
@@ -83,21 +89,21 @@ def test_export_cli(monkeypatch, tmp_path, output, model_type):
     assert next(model.parameters()).device.type == "cpu"
 
 
-def test_export_with_env(monkeypatch, tmp_path):
+def test_export_with_env(monkeypatch, tmp_path, MODEL_PATH):
     """Test that export with env variable works for local file."""
     monkeypatch.chdir(tmp_path)
 
     command = [
         "mtt",
         "export",
-        str(RESOURCES_PATH / "model-32-bit.ckpt"),
+        str(MODEL_PATH.with_suffix(".ckpt")),
     ]
 
     env = os.environ.copy()
     env["HF_TOKEN"] = "1234"
 
     subprocess.check_call(command, env=env)
-    assert Path("model-32-bit.pt").is_file()
+    assert Path(MODEL_PATH.name).is_file()
 
 
 def test_export_cli_unknown_architecture(tmpdir):
@@ -113,11 +119,11 @@ def test_export_cli_unknown_architecture(tmpdir):
             assert architecture_name in stdout
 
 
-def test_reexport(monkeypatch, tmp_path):
+def test_reexport(monkeypatch, tmp_path, MODEL_PATH_64_BIT):
     """Test that an already exported model can be loaded and again exported."""
     monkeypatch.chdir(tmp_path)
 
-    checkpoint_path = RESOURCES_PATH / "model-64-bit.ckpt"
+    checkpoint_path = MODEL_PATH_64_BIT.with_suffix(".ckpt")
     export_model(checkpoint_path, "exported.pt")
     export_model("exported.pt", "exported_new.pt")
 
@@ -200,7 +206,7 @@ def test_token_env_error():
         subprocess.check_call(command, env=env)
 
 
-def test_metadata(monkeypatch, tmp_path):
+def test_metadata(monkeypatch, tmp_path, MODEL_PATH):
     """Test that the export cli does inject metadata."""
     monkeypatch.chdir(tmp_path)
 
@@ -211,17 +217,17 @@ def test_metadata(monkeypatch, tmp_path):
     command = [
         "mtt",
         "export",
-        str(RESOURCES_PATH / "model-32-bit.ckpt"),
+        str(MODEL_PATH.with_suffix(".ckpt")),
         "--metadata=metadata.yaml",
     ]
 
     subprocess.check_call(command)
-    model = load_model("model-32-bit.pt", extensions_directory="extensions/")
+    model = load_model(MODEL_PATH.name, extensions_directory="extensions/")
 
     assert f"This is the {model_name} model" in str(model.metadata())
 
 
-def test_export_checkpoint_with_metadata(monkeypatch, tmp_path):
+def test_export_checkpoint_with_metadata(monkeypatch, tmp_path, MODEL_PATH):
     """Tests that the metadata is correctly assigned to the exported
     model if the checkpoint has the metadata inside."""
 
@@ -234,7 +240,7 @@ def test_export_checkpoint_with_metadata(monkeypatch, tmp_path):
     command = [
         "mtt",
         "export",
-        str(RESOURCES_PATH / "model-32-bit.ckpt"),
+        str(MODEL_PATH.with_suffix(".ckpt")),
         "-o=model-32-bit-with-metadata.ckpt",
         "--metadata=metadata.yaml",
     ]

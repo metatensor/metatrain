@@ -31,7 +31,7 @@ fi
 echo "Clearing previous generated files..."
 # Clean previous generated files
 rm $ROOT_DIR/model-$MODE-*.pt $ROOT_DIR/model-$MODE-*.ckpt || true
-rm $ROOT_DIR/$MODE-*.lock || true
+rm $ROOT_DIR/$MODE-*.trainlock || true
 
 echo "Generating data for testing..."
 
@@ -43,7 +43,7 @@ if [ "$MODE" == "32-bit" ]; then
 elif [ "$MODE" == "64-bit" ]; then
     mtt train options.yaml -o model-64-bit-$TRAIN_ID.pt -r base_precision=64
 elif [ "$MODE" == "pet" ]; then
-    mtt train options-pet.yaml -o model-pet-$TRAIN_ID.ckpt -r base_precision=pet
+    mtt train options-pet.yaml -o model-pet-$TRAIN_ID.pt
 else
     echo "Error: Unknown training mode (first argument): '$MODE'"
     echo " Please set it to '32-bit', '64-bit' or 'pet'"
