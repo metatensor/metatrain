@@ -696,13 +696,17 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
     #     :param is_distributed: Whether to use distributed sampling or not.
     #     :param use_absolute_residuals: Whether to use absolute residuals as opposed
     #         to squared residuals for the calibration. In both cases, a Gaussian
-    #         error distribution is assumed in order to derive the calibration constants,
+    #         error distribution is assumed in order to derive the calibration
+    # constants,
     #         but using absolute residuals can help reduce the effect of large outliers.
-    #     :param calibration_method: The method to use for calibration. Supported methods
+    #     :param calibration_method: The method to use for calibration. Supported
+    # methods
     #         are "squared_residuals", "absolute_residuals", and "crps". All methods
-    #         assume Gaussian errors. The "squared_residuals" method minimize the negative
+    #         assume Gaussian errors. The "squared_residuals" method minimize the
+    # negative
     #         log-likelihood (NLL) as a function of the calibration constant.
-    #         The "absolute_residuals" method estimates the calibration constant based on
+    #         The "absolute_residuals" method estimates the calibration constant based
+    # on
     #         the mean absolute residuals, which can help reduce the effect of large
     #         outliers.
     #         The "crps" method minimizes the Continuous Ranked Probability Score (CRPS)
@@ -753,7 +757,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
     #                     residuals = pred - targ
     #                     abs_residuals = torch.abs(residuals)
     #                     if abs_residuals.ndim > 2:
-    #                         # squared residuals need to be summed over component dimensions,
+    #                         # squared residuals need to be summed over component
+    # dimensions,
     #                         # i.e., all but the first and last dimensions
     #                         abs_residuals = torch.sum(
     #                             abs_residuals,
@@ -777,7 +782,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
     #                         sums[uncertainty_name] = (
     #                             sums[uncertainty_name] + ratios_sum64
     #                         )
-    #                         counts[uncertainty_name] = counts[uncertainty_name] + count
+    #                         counts[uncertainty_name] = counts[uncertainty_name] +
+    # count
 
     #         if is_distributed:
     #             # All-reduce the accumulated statistics across all processes
@@ -818,7 +824,37 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
     #             "Supported methods are 'crps' and 'nll'."
     #         )
 
-    def calibrate(self, datasets, batch_size, is_distributed, calibration_method):
+    def calibrate(
+        self,
+        datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        batch_size: int,
+        is_distributed: bool,
+        calibration_method: str,
+    ) -> None:
+        """
+        Calibrate the LLPR model.
+
+        This function computes the calibration constants (one for each output)
+        that are used to scale the uncertainties in the LLPR model. The
+        calibration is performed in a simple way by computing either the calibration
+        constant as the mean of the squared residuals divided by the mean of
+        the non-calibrated uncertainties (i.e., by minimizing the NLL as a function of
+        the calibration constant), or by minimizing the CRPS as a function of the
+        calibration constant.
+
+        :param datasets: List of datasets to use for calibration.
+        :param batch_size: Batch size to use for the dataloader.
+        :param is_distributed: Whether to use distributed sampling or not.
+        :param calibration_method: The method to use for calibration. Supported methods
+            are "squared_residuals", "absolute_residuals", and "crps". All methods
+            assume Gaussian errors. The "squared_residuals" method minimize the negative
+            log-likelihood (NLL) as a function of the calibration constant.
+            The "absolute_residuals" method estimates the calibration constant based on
+            the mean absolute residuals, which can help reduce the effect of large
+            outliers.
+            The "crps" method minimizes the Continuous Ranked Probability Score (CRPS)
+            as a function of the calibration constant.
+        """
         # Create dataloader for the validation datasets
         valid_loader = self._get_dataloader(
             datasets, batch_size, is_distributed=is_distributed
@@ -832,7 +868,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         counts = {}  # type: ignore
 
         # Storage for CRPS calibration
-        crps_store = {"residuals": [], "uncertainties": []}
+        crps_store: dict[str, list[torch.Tensor]] = {
+            "residuals": [],
+            "uncertainties": [],
+        }
 
         with torch.no_grad():
             for batch in valid_loader:
@@ -870,6 +909,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     else:
                         abs_residuals = torch.abs(residuals)
                         if abs_residuals.ndim > 2:
+                            # squared residuals need to be summed over component
+                            # dimensions,
+                            # i.e., all but the first and last dimensions
                             abs_residuals = torch.sum(
                                 abs_residuals,
                                 dim=tuple(range(1, abs_residuals.ndim - 1)),
@@ -1218,14 +1260,20 @@ def _prod(list_of_int: List[int]) -> int:
     return result
 
 
-def _accumulate_local_crps_inputs(residuals, uncertainties, storage):
+def _accumulate_local_crps_inputs(
+    residuals: torch.Tensor,
+    uncertainties: torch.Tensor,
+    storage: dict[str, list[torch.Tensor]],
+) -> None:
     res = residuals.reshape(residuals.shape[0], -1).detach().cpu()
     unc = uncertainties.reshape(uncertainties.shape[0], -1).detach().cpu()
     storage["residuals"].append(res)
     storage["uncertainties"].append(unc)
 
 
-def _distributed_crps_derivative(alpha, local_residuals, local_uncertainties):
+def _distributed_crps_derivative(
+    alpha: float, local_residuals: torch.Tensor, local_uncertainties: torch.Tensor
+) -> float:
     res = local_residuals
     unc = local_uncertainties
     alpha = float(alpha)
@@ -1245,10 +1293,12 @@ def _distributed_crps_derivative(alpha, local_residuals, local_uncertainties):
     return lhs_local.item()
 
 
-def _solve_alpha_crps_distributed(local_residuals, local_uncertainties):
+def _solve_alpha_crps_distributed(
+    local_residuals: torch.Tensor, local_uncertainties: torch.Tensor
+) -> float:
     from scipy.optimize import root_scalar
 
-    def f(alpha):
+    def f(alpha: float) -> float:
         return _distributed_crps_derivative(alpha, local_residuals, local_uncertainties)
 
     rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
@@ -1301,7 +1351,8 @@ def _solve_alpha_crps_distributed(local_residuals, local_uncertainties):
 #         res_p = residuals[..., p : p + 1]
 #         sig_p = sigma[:, p : p + 1]
 
-#         def _f(a: float, res_p: np.ndarray = res_p, sig_p: np.ndarray = sig_p) -> float:
+#         def _f(a: float, res_p: np.ndarray = res_p, sig_p: np.ndarray = sig_p) ->
+# float:
 #             return float(_crps_alpha_equation(a, res_p, sig_p))
 
 #         # Safe bracket
