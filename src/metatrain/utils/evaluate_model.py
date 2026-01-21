@@ -152,12 +152,11 @@ def evaluate_model(
                 n_ens = model_outputs[ens_name].block().properties.values.shape[0]
                 all_ens_grads = []                
                 for ens_i in range(n_ens):
-                    print("ens_i", ens_i)
                     cur_ens_grad = compute_gradient(
                         ens_preds[:, ens_i],
                         [system.positions for system in systems],
                         is_training=is_training,
-                        destroy_graph=((index == len(energy_targets_with_gradients) - 1) and (ens_i == n_ens - 1)),
+                        destroy_graph=False, #((index == len(energy_targets_with_gradients) - 1) and (ens_i == n_ens - 1)),
                     )
 
                     all_ens_grads.append(cur_ens_grad)
