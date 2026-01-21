@@ -12,7 +12,6 @@ from metatomic.torch import (
     ModelOutput,
     System,
 )
-from scipy.stats import norm
 from torch.utils.data import DataLoader
 
 from metatrain.utils.abc import ModelInterface
@@ -212,9 +211,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             n_properties = torch.concatenate(
                 [self.model.state_dict()[tn] for tn in tensor_names],
                 axis=-1,
-            ).shape[
-                0
-            ]  # type: ignore
+            ).shape[0]  # type: ignore
             self.llpr_ensemble_layers[name] = torch.nn.Linear(
                 self.ll_feat_size,
                 value * n_properties,
@@ -675,157 +672,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                         inv_covariance[:] = (inverse + inverse.T) / 2.0
                         break
 
-    # def calibrate(
-    #     self,
-    #     datasets: List[Union[Dataset, torch.utils.data.Subset]],
-    #     batch_size: int,
-    #     is_distributed: bool,
-    #     calibration_method: str,
-    # ) -> None:
-    #     """
-    #     Calibrate the LLPR model.
-
-    #     This function computes the calibration constants (one for each output)
-    #     that are used to scale the uncertainties in the LLPR model. The
-    #     calibration is performed in a simple way by computing either the calibration
-    #     constant as the mean of the squared residuals divided by the mean of
-    #     the non-calibrated uncertainties (i.e., by minimizing the NLL as a function of
-    #     the calibration constant), or by minimizing the CRPS as a function of the
-    #     calibration constant.
-
-    #     :param datasets: List of datasets to use for calibration.
-    #     :param batch_size: Batch size to use for the dataloader.
-    #     :param is_distributed: Whether to use distributed sampling or not.
-    #     :param use_absolute_residuals: Whether to use absolute residuals as opposed
-    #         to squared residuals for the calibration. In both cases, a Gaussian
-    #         error distribution is assumed in order to derive the calibration
-    # constants,
-    #         but using absolute residuals can help reduce the effect of large outliers.
-    #     :param calibration_method: The method to use for calibration. Supported
-    # methods
-    #         are "squared_residuals", "absolute_residuals", and "crps". All methods
-    #         assume Gaussian errors. The "squared_residuals" method minimize the
-    # negative
-    #         log-likelihood (NLL) as a function of the calibration constant.
-    #         The "absolute_residuals" method estimates the calibration constant based
-    # on
-    #         the mean absolute residuals, which can help reduce the effect of large
-    #         outliers.
-    #         The "crps" method minimizes the Continuous Ranked Probability Score (CRPS)
-    #         as a function of the calibration constant.
-    #     """
-    #     # Create dataloader for the validation datasets
-    #     valid_loader = self._get_dataloader(
-    #         datasets, batch_size, is_distributed=is_distributed
-    #     )
-
-    #     # infer device and dtype
-    #     device = next(iter(self.buffers())).device
-    #     dtype = next(iter(self.buffers())).dtype
-
-    #     sums = {}  # type: ignore
-    #     counts = {}  # type: ignore
-
-    #     if calibration_method in ["nll", "absolute_residuals"]:
-    #         with torch.no_grad():
-    #             for batch in valid_loader:
-    #                 systems, targets, _ = unpack_batch(batch)
-    #                 systems = [
-    #                     system.to(device=device, dtype=dtype) for system in systems
-    #                 ]
-    #                 targets = {
-    #                     name: target.to(device=device, dtype=dtype)
-    #                     for name, target in targets.items()
-    #                 }
-    #                 requested_outputs = {}
-    #                 for name in targets:
-    #                     per_atom = "atom" in targets[name].block(0).samples.names
-    #                     requested_outputs[name] = ModelOutput(per_atom=per_atom)
-    #                     uncertainty_name = _get_uncertainty_name(name)
-    #                     requested_outputs[uncertainty_name] = ModelOutput(
-    #                         per_atom=per_atom
-    #                     )
-
-    #                 outputs = self.forward(systems, requested_outputs)
-
-    #                 for name, target in targets.items():
-    #                     uncertainty_name = _get_uncertainty_name(name)
-
-    #                     pred = outputs[name].block().values.detach()
-    #                     targ = target.block().values
-    #                     unc = outputs[uncertainty_name].block().values.detach()
-
-    #                     # compute the uncertainty multiplier
-    #                     residuals = pred - targ
-    #                     abs_residuals = torch.abs(residuals)
-    #                     if abs_residuals.ndim > 2:
-    #                         # squared residuals need to be summed over component
-    # dimensions,
-    #                         # i.e., all but the first and last dimensions
-    #                         abs_residuals = torch.sum(
-    #                             abs_residuals,
-    #                             dim=tuple(range(1, abs_residuals.ndim - 1)),
-    #                         )
-
-    #                     if calibration_method == "absolute_residuals":
-    #                         ratios = abs_residuals / unc  # can be multi-dimensional
-    #                     else:
-    #                         ratios = (residuals**2) / (unc**2)
-
-    #                     ratios_sum64 = torch.sum(ratios.to(torch.float64), dim=0)
-    #                     count = torch.tensor(
-    #                         ratios.shape[0], dtype=torch.long, device=device
-    #                     )
-
-    #                     if uncertainty_name not in sums:
-    #                         sums[uncertainty_name] = ratios_sum64
-    #                         counts[uncertainty_name] = count
-    #                     else:
-    #                         sums[uncertainty_name] = (
-    #                             sums[uncertainty_name] + ratios_sum64
-    #                         )
-    #                         counts[uncertainty_name] = counts[uncertainty_name] +
-    # count
-
-    #         if is_distributed:
-    #             # All-reduce the accumulated statistics across all processes
-    #             for uncertainty_name in sums:
-    #                 torch.distributed.all_reduce(sums[uncertainty_name])
-    #                 torch.distributed.all_reduce(counts[uncertainty_name])
-
-    #         for uncertainty_name in sums:
-    #             if calibration_method == "absolute_residuals":
-    #                 # "MAE"-style calibration
-    #                 global_mean64 = sums[uncertainty_name] / counts[
-    #                     uncertainty_name
-    #                 ].to(torch.float64)
-    #                 # apply absolute correction factor (inverse of integral of abs(x)
-    #                 # over Gaussian, i.e., sqrt(pi/2))
-    #                 correction = np.sqrt(np.pi / 2.0)
-    #             else:
-    #                 # "RMSE"-style calibration
-    #                 global_mean64 = torch.sqrt(
-    #                     sums[uncertainty_name]
-    #                     / counts[uncertainty_name].to(torch.float64)
-    #                 )
-    #                 # no correction needed
-    #                 correction = 1.0
-    #             multiplier = self._get_multiplier(uncertainty_name)
-
-    #             multiplier[:] = (global_mean64 * correction).to(multiplier.dtype)
-
-    #     elif calibration_method == "crps":
-    #         alpha_opt = _solve_alpha_crps(
-    #             residuals.cpu().numpy(), uncertainties.cpu().numpy()
-    #         )
-    #         multiplier[:] = torch.from_numpy(alpha_opt).to(device=device, dtype=dtype)
-
-    #     else:
-    #         raise ValueError(
-    #             f"Unknown calibration method '{calibration_method}'! "
-    #             "Supported methods are 'crps' and 'nll'."
-    #         )
-
     def calibrate(
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -970,7 +816,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 uncertainty_name = _get_uncertainty_name(name)
                 multiplier = self._get_multiplier(uncertainty_name)
                 multiplier[:] = alpha.to(device=device, dtype=multiplier.dtype)
-        print(f"Calibrated multiplier for {uncertainty_name}: {multiplier}")
 
     def generate_ensemble(self) -> None:
         """Generate an ensemble of weights for the model.
@@ -1299,85 +1144,30 @@ def _accumulate_local_crps_inputs(
     storage["uncertainties"].append(unc)
 
 
-# def _crps_derivative(
-#     alpha: float, local_residuals: torch.Tensor, local_uncertainties: torch.Tensor
-# ) -> float:
-#     res = local_residuals
-#     unc = local_uncertainties
-#     alpha = float(alpha)
-
-#     u = res / (alpha * unc)
-#     phi_u = norm.pdf(u)
-#     Phi_u = norm.cdf(u)
-#     F_u = (
-#         (1.0 / (torch.sqrt(torch.tensor(torch.pi))))
-#         - 2.0 * phi_u
-#         - u * (2.0 * Phi_u - 1.0)
-#     )
-
-#     lhs_local = torch.sum(unc * (F_u - u * (1.0 - 2.0 * Phi_u)))
-
-#     if torch.distributed.is_available() and torch.distributed.is_initialized():
-#         torch.distributed.all_reduce(lhs_local, op=torch.distributed.ReduceOp.SUM)
-#     return lhs_local.item()
-
-
-# def _solve_alpha_crps(
-#     local_residuals: torch.Tensor, local_uncertainties: torch.Tensor
-# ) -> float:
-#     from scipy.optimize import root_scalar
-
-#     def f(alpha: float) -> float:
-#         return _crps_derivative(alpha, local_residuals, local_uncertainties)
-
-#     if torch.distributed.is_available() and torch.distributed.is_initialized():
-#         rank = torch.distributed.get_rank()
-#         if rank == 0:
-#             sol = root_scalar(f, bracket=[1e-10, 50.0], method="brentq")
-#             alpha = sol.root
-#         else:
-#             alpha = 0.0
-
-#         alpha_tensor = torch.tensor(
-#             alpha, dtype=torch.float64, device=local_residuals.device
-#         )
-#         torch.distributed.broadcast(alpha_tensor, src=0)
-#         alpha = float(alpha_tensor.item())
-#     else:
-#         sol = root_scalar(f, bracket=[1e-10, 50.0], method="brentq")
-#         alpha = sol.root
-
-
 #     return alpha
 def _crps_derivative_channel(
     alpha: float,
-    res_ch: torch.Tensor,  # (N,)
-    unc_ch: torch.Tensor,  # (N,)
+    res_ch: torch.Tensor,
+    unc_ch: torch.Tensor,
 ) -> float:
-    """
-    Derivative of the Gaussian CRPS objective wrt alpha for one channel.
-    Fully torch-based (GPU-safe). Optionally performs an all-reduce on the scalar.
-    """
+    # Derivative of the Gaussian CRPS objective wrt alpha for one channel.
+    # Fully torch-based (GPU-safe). Optionally performs an all-reduce on the scalar.
+
     import math
 
     alpha = float(alpha)
     # Avoid division by zero and keep alpha positive.
     alpha = max(alpha, 1e-20)
 
-    # u = r / (alpha * sigma)
     u = res_ch / (alpha * unc_ch)
 
     # Standard normal PDF and CDF in torch
-    # phi(u) = (1/sqrt(2pi)) exp(-u^2/2)
     phi = (1.0 / math.sqrt(2.0 * math.pi)) * torch.exp(-0.5 * u * u)
-    # Phi(u) = 0.5 * (1 + erf(u/sqrt(2)))
     Phi = 0.5 * (1.0 + torch.erf(u / math.sqrt(2.0)))
 
-    # F(u) from your analytical CRPS expression
     inv_sqrt_pi = 1.0 / math.sqrt(math.pi)
     F_u = inv_sqrt_pi - 2.0 * phi - u * (2.0 * Phi - 1.0)
 
-    # LHS of the optimality condition for alpha
     lhs_local = torch.sum(unc_ch * (F_u - u * (1.0 - 2.0 * Phi)))
 
     if torch.distributed.is_available() and torch.distributed.is_initialized():
@@ -1387,14 +1177,13 @@ def _crps_derivative_channel(
 
 
 def _solve_alpha_crps(
-    local_residuals: torch.Tensor,  # (N, M)
-    local_uncertainties: torch.Tensor,  # (N, M)
+    local_residuals: torch.Tensor,
+    local_uncertainties: torch.Tensor,
     bracket: tuple[float, float] = (1e-10, 50.0),
 ) -> torch.Tensor:
-    """
-    Solve for alpha per channel (M,) by minimizing Gaussian CRPS.
-    Distributed-safe: root finding runs on ALL ranks so collectives in f() are matched.
-    """
+    # Solve for alpha per channel (M,) by minimizing Gaussian CRPS
+    # Root finding runs on all ranks
+
     from scipy.optimize import root_scalar
 
     if local_residuals.ndim != 2 or local_uncertainties.ndim != 2:
@@ -1410,15 +1199,17 @@ def _solve_alpha_crps(
         res_ch = local_residuals[:, m]
         unc_ch = local_uncertainties[:, m]
 
-        def f(a: float) -> float:
+        def f(
+            a: float, res_ch: torch.Tensor = res_ch, unc_ch: torch.Tensor = unc_ch
+        ) -> float:
             return _crps_derivative_channel(a, res_ch, unc_ch)
 
-        # Brent requires a sign change; we try to find one deterministically.
+        # Brent requires a sign change
         a_lo, a_hi = bracket
         f_lo = f(a_lo)
         f_hi = f(a_hi)
 
-        # Expand bracket if needed (deterministic; uses global f via all-reduce)
+        # Expand bracket if needed
         if f_lo * f_hi > 0.0:
             # Try expanding upper bound first
             a_lo2, a_hi2 = a_lo, a_hi
@@ -1438,72 +1229,11 @@ def _solve_alpha_crps(
                         a_lo, f_lo = a_lo2, f_lo2
                         break
                 else:
-                    # As a last resort, fall back to the initial bracket and let it raise.
-                    # (This indicates the derivative did not cross zero in a wide range.)
+                    # As a last resort, fall back to the initial bracket and let it
+                    # raise.
                     pass
 
         sol = root_scalar(f, bracket=[a_lo, a_hi], method="brentq")
         alphas[m] = float(sol.root)
 
     return alphas
-
-
-# def _crps_alpha_equation(
-#     alpha: float, residuals: np.ndarray, sigma: np.ndarray
-# ) -> np.ndarray:
-#     from scipy.stats import norm
-
-#     alpha = float(alpha)
-#     sigma = np.asarray(sigma)
-#     residuals = np.asarray(residuals)
-
-#     # Broadcast sigma
-#     while sigma.ndim < residuals.ndim:
-#         sigma = sigma[:, None]
-
-#     z = residuals / sigma
-#     u = z / alpha
-
-#     phi_u = norm.pdf(u)
-#     Phi_u = norm.cdf(u)
-
-#     F_u = (1.0 / np.sqrt(np.pi)) - 2 * phi_u - u * (2 * Phi_u - 1)
-
-#     axes = tuple(range(residuals.ndim - 1))
-#     return np.sum(sigma * (F_u - u * (1 - 2 * Phi_u)), axis=axes)
-
-
-# def _solve_alpha_crps(residuals: np.ndarray, sigma: np.ndarray) -> np.ndarray:
-#     from scipy.optimize import root_scalar
-
-#     P = residuals.shape[-1]
-#     alpha_opt = np.zeros(P)
-
-#     for p in range(P):
-#         res_p = residuals[..., p : p + 1]
-#         sig_p = sigma[:, p : p + 1]
-
-#         def _f(a: float, res_p: np.ndarray = res_p, sig_p: np.ndarray = sig_p) ->
-# float:
-#             return float(_crps_alpha_equation(a, res_p, sig_p))
-
-#         # Safe bracket
-#         a_lo, a_hi = 1e-4, 1e4
-
-#         # Ensure sign change
-#         f_lo = _f(a_lo)
-#         f_hi = _f(a_hi)
-
-#         if f_lo * f_hi > 0:
-#             # Expand bracket
-#             for _ in range(100):
-#                 a_lo /= 10
-#                 a_hi *= 10
-#                 f_lo, f_hi = _f(a_lo), _f(a_hi)
-#                 if f_lo * f_hi <= 0:
-#                     break
-
-#         sol = root_scalar(_f, bracket=[a_lo, a_hi], method="brentq")
-#         alpha_opt[p] = sol.root
-
-#     return alpha_opt
