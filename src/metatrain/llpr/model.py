@@ -212,7 +212,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             n_properties = torch.concatenate(
                 [self.model.state_dict()[tn] for tn in tensor_names],
                 axis=-1,
-            ).shape[0]  # type: ignore
+            ).shape[
+                0
+            ]  # type: ignore
             self.llpr_ensemble_layers[name] = torch.nn.Linear(
                 self.ll_feat_size,
                 value * n_properties,
@@ -1311,7 +1313,9 @@ def _solve_alpha_crps(
         else:
             alpha = 0.0
 
-        alpha_tensor = torch.tensor(alpha, dtype=torch.float64)
+        alpha_tensor = torch.tensor(
+            alpha, dtype=torch.float64, device=local_residuals.device
+        )
         torch.distributed.broadcast(alpha_tensor, src=0)
         alpha = float(alpha_tensor.item())
     else:
