@@ -635,16 +635,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         self.layouts[target_name] = target_info.layout
 
+        self.last_layer_feature_size = 128
+
         if target_name == self.hypers["mace_head_target"]:
             # Fake head that will not compute the target, but will help
             # us extract the last layer features from MACE internal head.
             self.heads[target_name] = MACEHeadWrapper(
                 self.mace_model.readouts, self.per_layer_irreps
             )
-
-            self.last_layer_feature_size = self.heads[
-                target_name
-            ].last_layer_features_irreps.dim
         else:
             head = NonLinearHead(
                 irreps_in=self.features_irreps,
