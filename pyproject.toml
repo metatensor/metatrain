@@ -76,6 +76,7 @@ gap = [
     "scipy",
 ]
 llpr = []
+classifier = []
 mace = [
     "mace-torch >=0.3.14",
     "e3nn"
