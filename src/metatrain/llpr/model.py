@@ -35,7 +35,7 @@ from .documentation import ModelHypers
 
 
 class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 3
 
     # all torch devices and dtypes are supported, if they are supported by the wrapped
     # the check is performed in the trainer
