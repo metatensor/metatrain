@@ -962,7 +962,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             local_residuals = torch.cat(crps_store["residuals"], dim=0)
             local_uncertainties = torch.cat(crps_store["uncertainties"], dim=0)
 
-            alpha = _solve_alpha_crps_distributed(local_residuals, local_uncertainties)
+            alpha = _solve_alpha_crps(local_residuals, local_uncertainties)
 
             for name in targets:
                 uncertainty_name = _get_uncertainty_name(name)
@@ -970,6 +970,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 multiplier[:] = torch.tensor(
                     alpha, device=device, dtype=multiplier.dtype
                 )
+        print(f"Calibrated multiplier for {uncertainty_name}: {multiplier.item()}")
 
     def generate_ensemble(self) -> None:
         """Generate an ensemble of weights for the model.
@@ -1271,7 +1272,7 @@ def _accumulate_local_crps_inputs(
     storage["uncertainties"].append(unc)
 
 
-def _distributed_crps_derivative(
+def _crps_derivative(
     alpha: float, local_residuals: torch.Tensor, local_uncertainties: torch.Tensor
 ) -> float:
     res = local_residuals
@@ -1289,29 +1290,33 @@ def _distributed_crps_derivative(
 
     lhs_local = torch.sum(unc * (F_u - u * (1.0 - 2.0 * Phi_u)))
 
-    torch.distributed.all_reduce(lhs_local, op=torch.distributed.ReduceOp.SUM)
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        torch.distributed.all_reduce(lhs_local, op=torch.distributed.ReduceOp.SUM)
     return lhs_local.item()
 
 
-def _solve_alpha_crps_distributed(
+def _solve_alpha_crps(
     local_residuals: torch.Tensor, local_uncertainties: torch.Tensor
 ) -> float:
     from scipy.optimize import root_scalar
 
     def f(alpha: float) -> float:
-        return _distributed_crps_derivative(alpha, local_residuals, local_uncertainties)
+        return _crps_derivative(alpha, local_residuals, local_uncertainties)
 
-    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-    if rank == 0:
-        sol = root_scalar(f, bracket=[1e-6, 50.0])
-        alpha = sol.root
-    else:
-        alpha = 0.0
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        rank = torch.distributed.get_rank()
+        if rank == 0:
+            sol = root_scalar(f, bracket=[1e-10, 50.0], method="brentq")
+            alpha = sol.root
+        else:
+            alpha = 0.0
 
-    if torch.distributed.is_initialized():
         alpha_tensor = torch.tensor(alpha, dtype=torch.float64)
         torch.distributed.broadcast(alpha_tensor, src=0)
         alpha = float(alpha_tensor.item())
+    else:
+        sol = root_scalar(f, bracket=[1e-10, 50.0], method="brentq")
+        alpha = sol.root
 
     return alpha
 

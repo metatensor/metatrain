@@ -47,21 +47,6 @@ class TrainerHypers(TypedDict):
     """This defines the batch size used in the computation of last-layer
     features, covariance matrix, etc."""
 
-    calibrate_with_absolute_residuals: bool = True
-    r"""This determines how to calculate the calibration factor :math:`\alpha` in
-    Eq. 24 of Bigi et al :footcite:p:`bigi_mlst_2024`:
-
-    .. math::
-
-        \sigma^2_\star = \alpha^2 \boldsymbol{\mathrm{f}}^{\mathrm{T}}_\star
-        (\boldsymbol{\mathrm{F}}^{\mathrm{T}} \boldsymbol{\mathrm{F}} + \varsigma^2
-        \boldsymbol{\mathrm{I}})^{-1} \boldsymbol{\mathrm{f}}_\star
-
-    In any case, a Gaussian error distribution is assumed. If set to ``False``, the
-    calibration factor is computed based on the squared residuals, if set to ``True``,
-    the absolute residuals are used. The latter choice is more robust to outliers and we
-    recommend using it for large and/or uncurated datasets."""
-
     regularizer: Optional[float] = None
     r"""This is the regularizer value :math:`\varsigma` that is used in
     applying Eq. 24 of Bigi et al :footcite:p:`bigi_mlst_2024`:
@@ -143,5 +128,23 @@ class TrainerHypers(TypedDict):
     either value to disable that bound. This is useful for preventing out-of-memory
     errors and ensuring consistent computational load. Default: ``[None, None]``."""
 
-    calibration_method: Literal["crps", "nll"] = "nll"
-    """Method used to calibrate the LLPR uncertainty via a multiplicative factor."""
+    calibration_method: Literal["squared_residuals", "absolute_residuals", "crps"] = (
+        "squared_residuals"
+    )
+    r"""This determines how to calculate the calibration factor :math:`\alpha` in
+    Eq. 24 of Bigi et al :footcite:p:`bigi_mlst_2024`:
+
+    .. math::
+
+        \sigma^2_\star = \alpha^2 \boldsymbol{\mathrm{f}}^{\mathrm{T}}_\star
+        (\boldsymbol{\mathrm{F}}^{\mathrm{T}} \boldsymbol{\mathrm{F}} + \varsigma^2
+        \boldsymbol{\mathrm{I}})^{-1} \boldsymbol{\mathrm{f}}_\star
+
+    In any case, a Gaussian error distribution is assumed. If set to
+    ``squared_residuals``, the calibration factor is computed minimizing the negative
+    log-likelihood. If set to ``absolute_residuals``, the calibration factor is computed
+    from mean absolute error assuming Gaussian errors.The latter choice is more robust
+    to outliers and we recommend using it for large and/or uncurated datasets.
+    If set to ``crps``, continuous ranked probability score (CRPS) is minimized to find
+    the calibration factor. This approach also assumes Gaussian errors and is more
+    robust to outliers compared to the ``squared_residuals`` method."""
