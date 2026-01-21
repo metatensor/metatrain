@@ -171,26 +171,18 @@ def _compute_single_neighbor_list(
             )
         )
         selected = np.logical_not(reject_condition)
-        n_pairs = selected.sum()
+        nl_i = nl_i[selected]
+        nl_j = nl_j[selected]
+        nl_S = nl_S[selected]
+        nl_D = nl_D[selected]
 
-        distances = np.empty((2 * n_pairs, 3), dtype=np.float64)
-        samples = np.empty((2 * n_pairs, 5), dtype=np.int32)
-        samples[:n_pairs, 0] = nl_i[selected]
-        samples[:n_pairs, 1] = nl_j[selected]
-        samples[:n_pairs, 2:] = nl_S[selected]
+    samples = np.concatenate(
+        [nl_i[:, None], nl_j[:, None], nl_S], axis=-1, dtype=np.int32
+    )
 
-        samples[n_pairs:, 0] = nl_j[selected]
-        samples[n_pairs:, 1] = nl_i[selected]
-        samples[n_pairs:, 2:] = -nl_S[selected]
-
-    else:
-        samples = np.concatenate(
-            [nl_i[:, None], nl_j[:, None], nl_S], axis=-1, dtype=np.int32
-        )
-        distances = nl_D.astype(np.float64)
-
-    distances = torch.from_numpy(distances)
     samples = torch.from_numpy(samples)
+    distances = torch.from_numpy(nl_D)
+
     return TensorBlock(
         values=distances.reshape(-1, 3, 1),
         samples=Labels(
