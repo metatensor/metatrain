@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Literal, Union
 import metatensor.torch as mts
 import torch
 
-from metatrain.utils.abc import TrainerInterface
+from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import remove_additive
 from metatrain.utils.data import Dataset, check_datasets
 from metatrain.utils.neighbor_lists import (
@@ -14,12 +14,13 @@ from metatrain.utils.neighbor_lists import (
 )
 
 from . import GAP
+from .documentation import TrainerHypers
 
 
-class Trainer(TrainerInterface):
+class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 1
 
-    def __init__(self, hypers):
+    def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)
 
     def train(
@@ -30,7 +31,7 @@ class Trainer(TrainerInterface):
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
-    ):
+    ) -> None:
         # checks
         assert dtype in GAP.__supported_dtypes__
         assert devices == [torch.device("cpu")]
@@ -69,9 +70,7 @@ class Trainer(TrainerInterface):
             )
         train_dataset = train_datasets[0]
         train_y = mts.join(
-            [sample[output_name] for sample in train_dataset],
-            axis="samples",
-            remove_tensor_name=True,
+            [sample[output_name] for sample in train_dataset], axis="samples"
         )
         model._keys = train_y.keys
         train_structures = [sample["system"] for sample in train_dataset]
@@ -114,6 +113,7 @@ class Trainer(TrainerInterface):
 
         logging.info("Selecting sparse points")
         lens = len(train_tensor[0].values)
+        assert model._sampler._n_to_select is not None
         if model._sampler._n_to_select > lens:
             raise ValueError(
                 f"Number of sparse points ({model._sampler._n_to_select}) "
@@ -140,7 +140,9 @@ class Trainer(TrainerInterface):
             model._subset_of_regressors.export_torch_script_model()
         )
 
-    def save_checkpoint(self, model, checkpoint_dir: Union[str, Path]):
+    def save_checkpoint(
+        self, model: ModelInterface, checkpoint_dir: Union[str, Path]
+    ) -> None:
         # GAP won't save a checkpoint since it
         # doesn't support restarting training
         return
@@ -149,7 +151,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: TrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "GAP":
         raise ValueError("GAP does not allow restarting training")

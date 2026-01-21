@@ -1,19 +1,19 @@
 import argparse
 import itertools
-import json
 import logging
 import os
 import random
 import re
 import shutil
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
 
-from .. import PACKAGE_ROOT
+from metatrain.utils.data import Dataset
+
 from ..utils.abc import ModelInterface, TrainerInterface
 from ..utils.architectures import (
     check_architecture_options,
@@ -37,7 +37,6 @@ from ..utils.io import (
     model_from_checkpoint,
     trainer_from_checkpoint,
 )
-from ..utils.jsonschema import validate
 from ..utils.logging import ROOT_LOGGER, WandbHandler, human_readable
 from ..utils.omegaconf import (
     BASE_OPTIONS,
@@ -45,13 +44,17 @@ from ..utils.omegaconf import (
     expand_dataset_config,
     expand_loss_config,
 )
+from ..utils.pydantic import validate_base_options
 from .eval import _eval_targets
 from .export import _has_extensions
 from .formatter import CustomHelpFormatter
 
 
 def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
-    """Add `train_model` paramaters to an argparse (sub)-parser."""
+    """Add `train_model` paramaters to an argparse (sub)-parser.
+
+    :param subparser: The argparse (sub)-parser to add the parameters to.
+    """
 
     if train_model.__doc__ is not None:
         description = train_model.__doc__.split(r":param")[0]
@@ -114,7 +117,10 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 
 def _prepare_train_model_args(args: argparse.Namespace) -> None:
-    """Prepare arguments for train_model."""
+    """Prepare arguments for train_model.
+
+    :param args: The argparse.Namespace containing the arguments.
+    """
     args.options = OmegaConf.load(args.options)
     # merge/override file options with command line options
     override_options = args.__dict__.pop("override_options")
@@ -154,6 +160,7 @@ def train_model(
 
     :param options: DictConfig containing the training options
     :param output: Path to save the final model
+    :param extensions: Path to save the model extensions, if any
     :param checkpoint_dir: Path to save checkpoints and other intermediate output files
         like the fully expanded training options for a later restart.
     :param restart_from: File to continue training from.
@@ -170,20 +177,17 @@ def train_model(
     # Training, test and validation set options are verified within the
     # `expand_dataset_config()` function.
 
-    with open(PACKAGE_ROOT / "share/schema-base.json", "r") as f:
-        schema_base = json.load(f)
-
-    validate(instance=OmegaConf.to_container(options), schema=schema_base)
+    validate_base_options(OmegaConf.to_container(options))
 
     ###########################
     # LOAD ARCHITECTURE #######
     ###########################
 
     architecture_name = options["architecture"]["name"]
-    check_architecture_options(
-        name=architecture_name, options=OmegaConf.to_container(options["architecture"])
-    )
-    architecture = import_architecture(architecture_name)
+    try:
+        architecture = import_architecture(architecture_name)
+    except ImportError as e:
+        raise ArchitectureError(e) from e
 
     logging.info(f"Running training for {architecture_name!r} architecture")
 
@@ -209,6 +213,10 @@ def train_model(
         BASE_OPTIONS,
         {"architecture": get_default_hypers(architecture_name)},
         options,
+    )
+
+    check_architecture_options(
+        name=architecture_name, options=OmegaConf.to_container(options["architecture"])
     )
 
     ###########################
@@ -392,7 +400,7 @@ def train_model(
 
     # Expand loss options and finalize the hypers
     options = expand_loss_config(options)
-    hypers = OmegaConf.to_container(options["architecture"])
+    hypers = OmegaConf.to_container(options["architecture"], resolve=True)
 
     ############################################
     # SAVE TRAIN, VALIDATION, TEST INDICES #####
@@ -424,31 +432,15 @@ def train_model(
     # PRINT DATASET STATS #####
     ###########################
 
-    for i, train_dataset in enumerate(train_datasets):
-        if len(train_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
+    if sum(len(d) for d in train_datasets + val_datasets + test_datasets) < 1_000_000:
+        # only print stats if the datasets are not too large (avoids hanging)
+        _print_stats("Training", train_datasets, dataset_info)
+        _print_stats("Validation", val_datasets, dataset_info)
+        _print_stats("Test", test_datasets, dataset_info)
+    else:
         logging.info(
-            f"Training dataset{index}:\n    {get_stats(train_dataset, dataset_info)}"
-        )
-
-    for i, val_dataset in enumerate(val_datasets):
-        if len(val_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
-        logging.info(
-            f"Validation dataset{index}:\n    {get_stats(val_dataset, dataset_info)}"
-        )
-
-    for i, test_dataset in enumerate(test_datasets):
-        if len(test_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
-        logging.info(
-            f"Test dataset{index}:\n    {get_stats(test_dataset, dataset_info)}"
+            "Datasets are too large (>1M total structures) to calculate statistics "
+            "quickly. Skipping statistics."
         )
 
     ###########################
@@ -690,3 +682,14 @@ def _get_batch_size_from_hypers(hypers: Union[Dict, DictConfig]) -> Optional[int
         ):
             return value
     return None
+
+
+def _print_stats(name: str, datasets: List[Dataset], dataset_info: DatasetInfo) -> None:
+    # Prints statistics about the datasets
+
+    for i, dataset in enumerate(datasets):
+        if len(datasets) == 1:
+            index = ""
+        else:
+            index = f" {i}"
+        logging.info(f"{name} dataset{index}:\n    {get_stats(dataset, dataset_info)}")

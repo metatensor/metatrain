@@ -9,8 +9,9 @@ from metatrain.deprecated.nanopet import NanoPET, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.hypers import init_with_defaults
+from metatrain.utils.loss import LossSpecification
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
-from metatrain.utils.omegaconf import CONF_LOSS
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -87,7 +88,7 @@ def test_regression_train():
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
-    loss_conf = OmegaConf.create({"mtt::U0": CONF_LOSS.copy()})
+    loss_conf = OmegaConf.create({"mtt::U0": init_with_defaults(LossSpecification)})
     OmegaConf.resolve(loss_conf)
     hypers["training"]["loss"] = loss_conf
 
@@ -97,6 +98,7 @@ def test_regression_train():
     model = NanoPET(MODEL_HYPERS, dataset_info)
 
     hypers["training"]["num_epochs"] = 1
+    hypers["training"]["num_workers"] = 0  # for reproducibility (data augmentation)
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model,
@@ -118,16 +120,16 @@ def test_regression_train():
 
     expected_output = torch.tensor(
         [
-            [0.455122888088],
-            [0.315268576145],
-            [0.192309319973],
-            [0.293905109167],
-            [0.153771340847],
+            [0.268485903740],
+            [0.259194970131],
+            [0.157716870308],
+            [-0.023659171537],
+            [0.001811845228],
         ]
     )
 
     # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["mtt::U0"].block().values)
+    # torch.set_printoptions(precision=12)
+    # print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)

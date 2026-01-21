@@ -66,6 +66,14 @@ supported tox environments please use
 
   tox list
 
+.. note::
+
+    Within the ``tox`` environments, ``pip`` does not exist by default,
+    we recommend that users use ``uv pip``. Alternatively
+    ``python -m ensurepip`` within the environment will setup ``pip``.
+
+.. _contributing-running-tests:
+
 Running the tests
 -----------------
 The testsuite is implemented using `pytest`_ framework and should be set-up
@@ -95,7 +103,7 @@ If you want to test a specific archicture you can also do it. For example
 
       tox -e soap-bpnn-tests
 
-Will run the unit and regression tests for the :ref:`SOAP-BPNN <architecture-soap-bpnn>`
+Will run the unit and regression tests for the :ref:`SOAP-BPNN <architecture-soap_bpnn>`
 model. Note that architecture tests are not run by default if you just type ``tox``.
 
 .. _pytest: https://pytest.org

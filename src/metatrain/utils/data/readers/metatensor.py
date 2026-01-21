@@ -16,18 +16,34 @@ def read_systems(filename: str) -> List[System]:
 
     :raises NotImplementedError: Serialization of systems is not yet
         available in metatensor.
+    :return: list of :py:class:`~metatomic.torch.System` objects
     """
     raise NotImplementedError("Reading metatensor systems is not yet implemented.")
 
 
-def _wrapped_metatensor_read(filename) -> TensorMap:
+def _wrapped_metatensor_read(filename: str) -> TensorMap:
     try:
         return mts.load(filename)
     except Exception as e:
         raise ValueError(f"Failed to read '{filename}' with torch: {e}") from e
 
 
-def read_energy(target_name: str, target: DictConfig) -> Tuple[TensorMap, TargetInfo]:
+def read_energy(
+    target_name: str, target: DictConfig
+) -> Tuple[List[TensorMap], TargetInfo]:
+    """
+    Read an energy target information using metatensor.
+
+    :param target_name: Name of the target to read.
+    :param target: Configuration settings for the target.
+
+    :return: The function returns two outputs:
+
+        1. A list of `TensorMap` objects, each of them being the energy target for a
+            single system.
+        2. A `TargetInfo` object containing metadata about the target.
+
+    """
     tensor_map = _wrapped_metatensor_read(target["read_from"])
 
     if len(tensor_map) != 1:
@@ -61,6 +77,19 @@ def read_energy(target_name: str, target: DictConfig) -> Tuple[TensorMap, Target
 def read_generic(
     target_name: str, target: DictConfig
 ) -> Tuple[List[TensorMap], TargetInfo]:
+    """
+    Read target information using metatensor.
+
+    :param target_name: Name of the target to read.
+    :param target: Configuration settings for the target.
+
+    :return: The function returns two outputs:
+
+        1. A list of `TensorMap` objects, each of them being the target for a
+            single system.
+        2. A `TargetInfo` object containing metadata about the target.
+
+    """
     tensor_map = _wrapped_metatensor_read(target["read_from"])
 
     for block in tensor_map.blocks():
@@ -85,7 +114,7 @@ def read_generic(
     return tensor_maps, target_info
 
 
-def _check_tensor_map_metadata(tensor_map: TensorMap, layout: TensorMap):
+def _check_tensor_map_metadata(tensor_map: TensorMap, layout: TensorMap) -> None:
     if tensor_map.keys != layout.keys:
         raise ValueError(
             f"Unexpected keys in metatensor targets: "

@@ -3,11 +3,11 @@ import subprocess
 import sys
 from datetime import datetime
 
-import tomli  # Replace by tomllib from std library once docs are build with Python 3.11
+import tomllib
 
 
-# When importing metatensor-torch, this will change the definition of the classes
-# to include the documentation
+# When importing metatensor-torch, this will change the definition of the classes to
+# include the documentation
 os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
 os.environ["METATOMIC_IMPORT_FOR_SPHINX"] = "1"
 os.environ["PYTORCH_JIT"] = "0"
@@ -27,6 +27,7 @@ ROOT = os.path.abspath(os.path.join("..", ".."))
 # We register and use the same sphinx gallery configuration as in the pseudo project.
 sys.path.append(os.path.join(ROOT, "docs"))
 from generate_examples.conf import sphinx_gallery_conf  # noqa
+from src.architectures.generate import setup_architectures_docs  # noqa
 
 
 # -- Project information -----------------------------------------------------
@@ -35,7 +36,7 @@ from generate_examples.conf import sphinx_gallery_conf  # noqa
 master_doc = "index"
 
 with open(os.path.join(ROOT, "pyproject.toml"), "rb") as fp:
-    project_dict = tomli.load(fp)["project"]
+    project_dict = tomllib.load(fp)["project"]
 
 project = project_dict["name"]
 author = ", ".join(a["name"] for a in project_dict["authors"])
@@ -66,6 +67,7 @@ def generate_examples():
 
 def setup(app):
     generate_examples()
+    setup_architectures_docs()
 
 
 # Add any Sphinx extension module names here, as strings. They can be
@@ -76,9 +78,12 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
+    "sphinx_sitemap",
     "sphinxcontrib.bibtex",
+    "sphinx_copybutton",
     "sphinx_toggleprompt",
     "sphinx_gallery.gen_gallery",
+    "chemiscope.sphinx",
 ]
 
 # List of patterns, relative to source directory, that match files and
@@ -90,6 +95,8 @@ exclude_patterns = [
     "examples/sg_execution_times.rst",
     "examples/ase/index.rst",
     "sg_execution_times.rst",
+    "architectures/templates/*",
+    "architectures/README.md",
 ]
 
 
@@ -103,10 +110,11 @@ autodoc_typehints_format = "short"
 intersphinx_mapping = {
     "ase": ("https://ase-lib.org/", None),
     "python": ("https://docs.python.org/3", None),
-    "torch": ("https://pytorch.org/docs/stable/", None),
+    "torch": ("https://docs.pytorch.org/docs/stable/", None),
     "metatensor": ("https://docs.metatensor.org/latest/", None),
     "metatomic": ("https://docs.metatensor.org/metatomic/latest/", None),
     "omegaconf": ("https://omegaconf.readthedocs.io/en/latest/", None),
+    "pydantic": ("https://docs.pydantic.dev/latest", None),
 }
 
 # The path to the bibtex file
@@ -114,11 +122,16 @@ bibtex_bibfiles = ["../static/refs.bib"]
 bibtex_default_style = "unsrt"
 bibtex_reference_style = "author_year"
 
+# sitemap/SEO settings
+html_baseurl = "https://docs.metatensor.org/metatrain/latest/"  # prefix for the sitemap
+sitemap_url_scheme = "{link}"  # avoids language settings
+html_extra_path = ["robots.txt"]  # extra files to move
+
 # -- Options for HTML output -------------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
-#
+html_title = "Metatrain"
 html_theme = "furo"
 
 # Add any paths that contain custom static files (such as style sheets) here,
@@ -146,4 +159,5 @@ html_css_files = [
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/fontawesome.min.css",
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/solid.min.css",
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/brands.min.css",
+    "styles.css",
 ]

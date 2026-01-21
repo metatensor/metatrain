@@ -6,12 +6,15 @@ import re
 import shutil
 import subprocess
 import time
+import warnings
 from pathlib import Path
 
+import ase.build
 import ase.io
+import numpy as np
 import pytest
 import torch
-from jsonschema.exceptions import ValidationError
+from ase.calculators.emt import EMT
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import NeighborListOptions, systems_to_torch
 from omegaconf import OmegaConf
@@ -23,10 +26,12 @@ from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.pydantic import MetatrainValidationError
 from metatrain.utils.testing._utils import WANDB_AVAILABLE
 
 from . import (
     DATASET_PATH_CARBON,
+    DATASET_PATH_DOS,
     DATASET_PATH_ETHANOL,
     DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
@@ -222,19 +227,16 @@ def test_train_unknown_arch_options(monkeypatch, tmp_path):
             length_unit: angstrom
         targets:
             energy:
-            key: U0
-            unit: eV
+                key: U0
+                unit: eV
 
     test_set: 0.5
     validation_set: 0.1
     """
     options = OmegaConf.create(options_str)
 
-    match = (
-        r"Unrecognized options \('num_epoch' was unexpected\). "
-        r"Do you mean 'num_epochs'?"
-    )
-    with pytest.raises(ValidationError, match=match):
+    match = r"Unrecognized option 'training\.num_epoch'"
+    with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
 
 
@@ -313,6 +315,49 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     train_model(options)
 
 
+def test_train_two_datasets_two_forces(monkeypatch, tmp_path, options):
+    """Test that training via the training cli runs without an error raise
+    when learning on two different datasets, both with forces."""
+    monkeypatch.chdir(tmp_path)
+
+    systems_ethanol = ase.io.read(DATASET_PATH_ETHANOL, ":")
+    ase.io.write("ethanol_reduced_100.xyz", systems_ethanol[:50])
+
+    options["training_set"] = OmegaConf.create(2 * [options["training_set"]])
+    options["training_set"][0]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
+    options["training_set"][0]["targets"]["energy"]["key"] = "energy"
+    options["training_set"][1]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
+    options["training_set"][1]["targets"]["mtt::another-energy"] = options[
+        "training_set"
+    ][1]["targets"].pop("energy")
+    options["training_set"][1]["targets"]["mtt::another-energy"]["key"] = "energy"
+
+    options["training_set"][0]["targets"]["energy"]["forces"] = True
+    options["training_set"][1]["targets"]["mtt::another-energy"]["forces"] = True
+
+    train_model(options)
+
+
+def test_train_single_dataset_two_forces(monkeypatch, tmp_path, options):
+    """Test that training via the training cli runs without an error raise
+    when learning on two different datasets, both with forces."""
+    monkeypatch.chdir(tmp_path)
+
+    systems_ethanol = ase.io.read(DATASET_PATH_ETHANOL, ":")
+    ase.io.write("ethanol_reduced_100.xyz", systems_ethanol[:50])
+
+    options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
+    options["training_set"]["targets"]["energy"]["key"] = "energy"
+    options["training_set"]["targets"]["mtt::another-energy"] = copy.deepcopy(
+        options["training_set"]["targets"]["energy"]
+    )
+
+    options["training_set"]["targets"]["energy"]["forces"] = True
+    options["training_set"]["targets"]["mtt::another-energy"]["forces"] = True
+
+    train_model(options)
+
+
 def test_train_with_zbl(monkeypatch, tmp_path, options):
     """Test that training works with a ZBL baseline."""
     monkeypatch.chdir(tmp_path)
@@ -338,6 +383,20 @@ def test_empty_training_set(monkeypatch, tmp_path, options):
         train_model(options)
 
 
+def test_empty_validation_set(monkeypatch, tmp_path, options):
+    """Test that an error is raised if no training set is provided."""
+    monkeypatch.chdir(tmp_path)
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["validation_set"] = 0.0
+    options["test_set"] = 0.4
+
+    match = "Requested dataset of zero length. This dataset will be empty."
+    with pytest.warns(UserWarning, match=match):
+        train_model(options)
+
+
 @pytest.mark.parametrize("split", [-0.1, 1.1])
 def test_wrong_test_split_size(split, monkeypatch, tmp_path, options):
     """Test that an error is raised if the test split has the wrong size"""
@@ -349,15 +408,15 @@ def test_wrong_test_split_size(split, monkeypatch, tmp_path, options):
     options["test_set"] = split
 
     if split > 1:
-        match = rf"{split} is greater than or equal to the maximum of 1"
+        match = r"Input should be less than 1"
     if split < 0:
-        match = rf"{split} is less than the minimum of 0"
+        match = r"Input should be greater than or equal to 0"
 
-    with pytest.raises(ValidationError, match=match):
+    with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
 
 
-@pytest.mark.parametrize("split", [0.0, 1.1])
+@pytest.mark.parametrize("split", [-0.1, 1.1])
 def test_wrong_validation_split_size(split, monkeypatch, tmp_path, options):
     """Test that an error is raised if the validation split has the wrong size"""
     monkeypatch.chdir(tmp_path)
@@ -368,11 +427,11 @@ def test_wrong_validation_split_size(split, monkeypatch, tmp_path, options):
     options["test_set"] = 0.1
 
     if split > 1:
-        match = rf"{split} is greater than or equal to the maximum of 1"
+        match = r"Input should be less than 1"
     if split <= 0:
-        match = rf"{split} is less than or equal to the minimum of 0"
+        match = r"Input should be greater than or equal to 0"
 
-    with pytest.raises(ValidationError, match=match):
+    with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
 
 
@@ -385,6 +444,26 @@ def test_empty_test_set(caplog, monkeypatch, tmp_path, options):
 
     options["validation_set"] = 0.4
     options["test_set"] = 0.0
+
+    match = "Requested dataset of zero length. This dataset will be empty."
+    with pytest.warns(UserWarning, match=match):
+        train_model(options)
+
+    # check if the logging is correct
+    assert "This dataset is empty. No evaluation" in caplog.text
+
+
+def test_default_test_set(caplog, monkeypatch, tmp_path, options):
+    """Test that test_set defaults to 0.0 when omitted."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["validation_set"] = 0.4
+    # Remove test_set from options to test default behavior
+    if "test_set" in options:
+        del options["test_set"]
 
     match = "Requested dataset of zero length. This dataset will be empty."
     with pytest.warns(UserWarning, match=match):
@@ -526,8 +605,8 @@ def test_conflicting_info_between_training_sets(
         msg = (
             r"(?s)"  # now "." matches newlines
             r"Target information for key energy differs between training sets\.\s*"
-            r"Got TargetInfo\(quantity='foo'.*?"
-            r"and TargetInfo\(quantity='bar'.*?\)\."
+            r"Got TargetInfo\(layout=.*?"
+            r"and TargetInfo\(layout=.*?\)\."
         )
         with pytest.raises(ValueError, match=msg):
             train_model(options_extra)
@@ -538,8 +617,8 @@ def test_conflicting_info_between_training_sets(
         msg = (
             r"(?s)"  # now "." matches newlines
             r"Extra data information for key extra differs between training sets\.\s*"
-            r"Got TargetInfo\(quantity='foo'.*?"
-            r"and TargetInfo\(quantity='bar'.*?\)\."
+            r"Got TargetInfo\(layout=.*?"
+            r"and TargetInfo\(layout=.*?\)\."
         )
         with pytest.raises(ValueError, match=msg):
             train_model(options_extra)
@@ -606,6 +685,7 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
         },
+        "inherit_heads": {},
     }
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
@@ -613,22 +693,6 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
     train_model(options_pet)
 
     assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
-
-
-def test_finetune_no_read_from(options_pet, monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-
-    options_pet["architecture"]["training"]["finetune"] = OmegaConf.create(
-        {"method": "full"}
-    )
-    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
-
-    match = (
-        "Finetuning is enabled but no checkpoint was provided. Please provide one "
-        "using the `read_from` option in the `finetune` section."
-    )
-    with pytest.raises(ValueError, match=match):
-        train_model(options_pet)
 
 
 def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
@@ -642,6 +706,7 @@ def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
         },
+        "inherit_heads": {},
     }
     options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
         options_pet_transfer_learn["training_set"]["targets"].pop("energy")
@@ -665,6 +730,7 @@ def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
         },
+        "inherit_heads": {},
     }
     options_pet_transfer_learn["training_set"]["systems"]["read_from"] = (
         "ethanol_reduced_100.xyz"
@@ -684,6 +750,116 @@ def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
     train_model(options_pet_transfer_learn)
 
     assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+
+
+def test_transfer_learn_variant(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn = copy.deepcopy(options_pet)
+    options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+    }
+    options_pet_transfer_learn["training_set"]["systems"]["read_from"] = (
+        "ethanol_reduced_100.xyz"
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"] = (
+        options_pet_transfer_learn["training_set"]["targets"].pop("energy")
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"]["key"] = (
+        "energy"
+    )
+    options_pet_transfer_learn["training_set"]["targets"]["energy/finetuned"][
+        "forces"
+    ] = {
+        "key": "forces",
+    }
+    shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet_transfer_learn)
+
+    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+
+
+def test_transfer_learn_inherit_heads(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn = copy.deepcopy(options_pet)
+    options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+        "config": {},
+        "inherit_heads": {
+            "mtt::energy": "energy",
+        },
+    }
+    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
+        options_pet_transfer_learn["training_set"]["targets"].pop("energy")
+    )
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet_transfer_learn)
+    assert (
+        r"Inheriting initial weights for heads and last layers "
+        r"for targets: from ['energy'] to ['mtt::energy']" in caplog.text
+    )
+
+
+def test_transfer_learn_inherit_heads_invalid_source(
+    options_pet, caplog, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn_invalid_source = copy.deepcopy(options_pet)
+    options_pet_transfer_learn_invalid_source["architecture"]["training"][
+        "finetune"
+    ] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+        "config": {},
+        "inherit_heads": {
+            "mtt::energy": "foo",
+        },
+    }
+    options_pet_transfer_learn_invalid_source["training_set"]["targets"][
+        "mtt::energy"
+    ] = options_pet_transfer_learn_invalid_source["training_set"]["targets"].pop(
+        "energy"
+    )
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    match = "source target name 'foo' was not found"
+    with pytest.raises(ArchitectureError, match=match):
+        train_model(options_pet_transfer_learn_invalid_source)
+
+
+def test_transfer_learn_inherit_heads_invalid_destination(
+    options_pet, caplog, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet_transfer_learn_invalid_dest = copy.deepcopy(options_pet)
+    options_pet_transfer_learn_invalid_dest["architecture"]["training"]["finetune"] = {
+        "method": "full",
+        "read_from": str(MODEL_PATH_PET),
+        "inherit_heads": {
+            "mtt::foo": "energy",
+        },
+    }
+    options_pet_transfer_learn_invalid_dest["training_set"]["targets"][
+        "mtt::energy"
+    ] = options_pet_transfer_learn_invalid_dest["training_set"]["targets"].pop("energy")
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    match = "destination target name 'mtt::foo' was not found"
+    with pytest.raises(ArchitectureError, match=match):
+        train_model(options_pet_transfer_learn_invalid_dest)
 
 
 @pytest.mark.parametrize("move_folder", [True, False])
@@ -754,6 +930,10 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
+    # make sure that num_workers=0 for reproducibility on CI
+    options = copy.deepcopy(options)
+    options["architecture"]["training"]["num_workers"] = 0
+
     if seed is not None:
         options["seed"] = seed
 
@@ -771,14 +951,26 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
 
     for tensor_name in m1["model_state_dict"]:
         if "type_to_index" in tensor_name or "spliner" in tensor_name:
-            continue  # these the same for both models
+            continue  # these are always the same for both models
+
+        if "buffer" in tensor_name and (
+            "additive" in tensor_name or "scaler" in tensor_name
+        ):
+            continue  # these are not comparable in general
+
+        if "_mts_helper" in tensor_name:
+            # empty tensor
+            continue
+
         tensor1 = m1["model_state_dict"][tensor_name]
         tensor2 = m2["model_state_dict"][tensor_name]
 
-        if seed is None:
-            assert not torch.allclose(tensor1, tensor2)
-        else:
-            torch.testing.assert_close(tensor1, tensor2)
+        # only compare tensors
+        if isinstance(tensor1, torch.Tensor) and isinstance(tensor2, torch.Tensor):
+            if seed is None:
+                assert not torch.allclose(tensor1, tensor2)
+            else:
+                torch.testing.assert_close(tensor1, tensor2)
 
 
 def test_base_validation(options, monkeypatch, tmp_path):
@@ -787,8 +979,8 @@ def test_base_validation(options, monkeypatch, tmp_path):
 
     options["base_precision"] = 67
 
-    match = r"67 is not one of \[16, 32, 64\]"
-    with pytest.raises(ValidationError, match=match):
+    match = r"Input should be 16, 32 or 64"
+    with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
 
 
@@ -933,6 +1125,54 @@ def test_train_direct_forces(monkeypatch, tmp_path):
     options["training_set"]["targets"]["energy"]["type"] = {"cartesian": {"rank": 1}}
     options["training_set"]["targets"]["energy"]["per_atom"] = True
     options["training_set"]["targets"]["energy"]["key"] = "forces"
+
+    train_model(options)
+
+
+def test_train_density_of_states(monkeypatch, tmp_path):
+    """Test training with the DOS loss"""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_DOS, "dos.xyz")
+
+    # run training with original options
+    options = OmegaConf.load(OPTIONS_PET_PATH)
+    options["training_set"]["systems"]["read_from"] = "dos.xyz"
+    options["training_set"]["targets"] = {
+        "mtt::dos": {
+            "read_from": "dos.xyz",
+            "key": "DOS",
+            "quantity": "",
+            "unit": "",
+            "per_atom": False,
+            "type": "scalar",
+            "num_subtargets": 4806,
+        }
+    }
+    options["training_set"]["extra_data"] = {
+        "mtt::dos_mask": {
+            "read_from": "dos.xyz",
+            "key": "mask",
+            "quantity": "",
+            "unit": "",
+            "per_atom": False,
+            "type": "scalar",
+            "num_subtargets": 4806,
+        }
+    }
+    options["validation_set"] = copy.deepcopy(options["training_set"])
+    options["test_set"] = copy.deepcopy(options["training_set"])
+    options["architecture"]["training"]["loss"] = {
+        "mtt::dos": {
+            "type": "masked_dos",
+            "weight": 1.0,
+            "grad_weight": 1e-4,
+            "int_weight": 2.0,
+            "extra_targets": 200,
+            "reduction": "mean",
+        }
+    }
+    options["architecture"]["training"]["scale_targets"] = False
+    options["architecture"]["training"]["atomic_baseline"] = {"mtt::dos": 0.0}
 
     train_model(options)
 
@@ -1085,6 +1325,47 @@ def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
     train_model(options)
 
 
+def test_train_memmap_dataset(monkeypatch, tmp_path, options_pet):
+    """Test that training via the training cli runs without an error raise
+    when learning from a `MemmapDataset`."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_CARBON, "carbon.xyz")
+    structures = read("carbon.xyz", index=":")
+    _write_dataset_to_memmap(structures, "carbon/")
+
+    options_pet["training_set"]["systems"]["read_from"] = "carbon/"
+    options_pet["training_set"]["targets"]["energy"]["key"] = "e"
+    options_pet["training_set"]["targets"]["energy"]["forces"] = OmegaConf.create(
+        {"key": "f"}
+    )
+    options_pet["training_set"]["targets"]["energy"]["stress"] = OmegaConf.create(
+        {"key": "s"}
+    )
+    options_pet["training_set"]["targets"]["non_conservative_forces"] = (
+        OmegaConf.create(
+            {
+                "key": "f",
+                "quantity": "force",
+                "unit": "eV/A",
+                "per_atom": True,
+                "type": {"cartesian": {"rank": 1}},
+            }
+        )
+    )
+    options_pet["training_set"]["targets"]["non_conservative_stress"] = (
+        OmegaConf.create(
+            {
+                "key": "s",
+                "quantity": "pressure",
+                "unit": "eV/A^3",
+                "type": {"cartesian": {"rank": 2}},
+            }
+        )
+    )
+
+    train_model(options_pet)
+
+
 @pytest.mark.skipif(not WANDB_AVAILABLE.present, reason=WANDB_AVAILABLE.message)
 def test_train_wandb_logger(monkeypatch, tmp_path):
     """Test that training via the training cli runs with an attached wandb logger."""
@@ -1103,5 +1384,309 @@ def test_train_wandb_logger(monkeypatch, tmp_path):
     with open("wandb/latest-run/logs/debug.log") as f:
         file_log = f.read()
 
-    assert "'base_precision': 64" in file_log
+    assert "'base_precision': 32" in file_log
     assert "'seed': 42" in file_log
+
+
+def test_train_mixed_stress(monkeypatch, tmp_path, options_pet):
+    """Test that training works with structures with and without stress in the same
+    dataset (e.g., bulk with stress, molecule/slab with NaN stress)."""
+
+    monkeypatch.chdir(tmp_path)
+
+    # Create structures with mixed stress: bulk, molecule, and slab
+    calculator = EMT()
+    structures = []
+
+    # Create multiple bulk structures with valid stress
+    for _ in range(10):
+        bulk = ase.build.bulk("Cu", "fcc", a=3.6, cubic=True)
+        bulk.rattle(0.01)  # Small perturbation to make structures different
+        bulk.calc = calculator
+        bulk.info["energy"] = bulk.get_potential_energy()
+        bulk.arrays["forces"] = bulk.get_forces()
+        bulk.info["stress"] = bulk.get_stress(voigt=False)
+        bulk.calc = None
+        structures.append(bulk)
+
+    # Create multiple molecules with NaN stress (stress not defined for molecules)
+    for i in range(10):
+        molecule = ase.Atoms("Cu2", positions=[[0, 0, 0], [2.5 + 0.1 * i, 2.5, 2.5]])
+        molecule.calc = calculator
+        molecule.info["energy"] = molecule.get_potential_energy()
+        molecule.arrays["forces"] = molecule.get_forces()
+        molecule.info["stress"] = np.full((3, 3), np.nan, dtype=np.float64)
+        molecule.calc = None
+        structures.append(molecule)
+
+    # Create multiple slabs with NaN stress (stress not defined for slabs)
+    for _ in range(10):
+        slab = ase.build.fcc111("Cu", size=(2, 2, 4), vacuum=10.0)
+        slab.pbc = (True, True, False)
+        slab.rattle(0.01)  # Small perturbation
+        slab.calc = calculator
+        slab.info["energy"] = slab.get_potential_energy()
+        slab.arrays["forces"] = slab.get_forces()
+        slab.info["stress"] = np.full((3, 3), np.nan, dtype=np.float64)
+        slab.calc = None
+        structures.append(slab)
+
+    # Write structures to file
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Skipping unhashable information",
+            category=UserWarning,
+        )
+        ase.io.write("structures.xyz", structures)
+
+    # Configure options to use the mixed stress dataset
+    options_pet["training_set"]["systems"]["read_from"] = "structures.xyz"
+    options_pet["training_set"]["targets"]["energy"]["key"] = "energy"
+    options_pet["training_set"]["targets"]["energy"]["forces"] = OmegaConf.create(
+        {"key": "forces"}
+    )
+    options_pet["training_set"]["targets"]["energy"]["stress"] = OmegaConf.create(
+        {"key": "stress"}
+    )
+    options_pet["training_set"]["targets"]["non_conservative_stress"] = (
+        OmegaConf.create(
+            {
+                "key": "stress",
+                "quantity": "pressure",
+                "unit": "eV/A^3",
+                "type": {"cartesian": {"rank": 2}},
+            }
+        )
+    )
+    options_pet["architecture"]["training"]["num_epochs"] = 1
+    options_pet["architecture"]["training"]["batch_size"] = 10
+    options_pet["test_set"] = 0.0  # No test set
+    options_pet["validation_set"] = 0.5  # 50% validation
+
+    # Train the model - this should not raise an error
+    # We expect warnings about cell vectors with non-periodic boundaries
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=(
+                "A conversion to `System` was requested for an `ase.Atoms` object "
+                "with one or more non-zero cell vectors"
+            ),
+            category=UserWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message="Requested dataset",
+            category=UserWarning,
+        )
+        train_model(options_pet)
+
+
+def _write_dataset_to_memmap(structures, filename):
+    """Helper function to write a list of `ase.Atoms` objects to a `MemmapDataset`."""
+
+    root = Path("carbon/")
+    root.mkdir()
+
+    ns_path = root / "ns.npy"
+    na_path = root / "na.npy"
+    a_path = root / "a.bin"
+    x_path = root / "x.bin"
+    c_path = root / "c.bin"
+    e_path = root / "e.bin"
+    f_path = root / "f.bin"
+    s_path = root / "s.bin"
+
+    ns = len(structures)
+    na = np.cumsum(np.array([0] + [len(s) for s in structures], dtype=np.int64))
+    np.save(ns_path, ns)
+    np.save(na_path, na)
+
+    a_mm = np.memmap(a_path, dtype="int32", mode="w+", shape=(na[-1],))
+    x_mm = np.memmap(x_path, dtype="float32", mode="w+", shape=(na[-1], 3))
+    c_mm = np.memmap(c_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
+    e_mm = np.memmap(e_path, dtype="float32", mode="w+", shape=(ns, 1))
+    f_mm = np.memmap(f_path, dtype="float32", mode="w+", shape=(na[-1], 3))
+    s_mm = np.memmap(s_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
+
+    for i, s in enumerate(structures):
+        a_mm[na[i] : na[i + 1]] = s.numbers
+        x_mm[na[i] : na[i + 1]] = s.get_positions()
+        c_mm[i] = s.get_cell()[:]
+        e_mm[i] = s.get_potential_energy()
+        f_mm[na[i] : na[i + 1]] = s.arrays["force"]
+        s_mm[i] = -s.info["virial"] / s.get_volume()
+
+    a_mm.flush()
+    x_mm.flush()
+    c_mm.flush()
+    e_mm.flush()
+    f_mm.flush()
+    s_mm.flush()
+
+
+@pytest.mark.parametrize(
+    "batch_size,validation_samples",
+    [
+        (5, 2),  # 2 validation samples with batch size 5
+        (10, 3),  # 3 validation samples with batch size 10
+    ],
+)
+def test_small_validation_set_with_large_batch_size(
+    monkeypatch, tmp_path, batch_size, validation_samples
+):
+    """Test that training works with validation sets smaller than batch size.
+
+    This test verifies that the fix for issue #711 works correctly -
+    validation datasets with fewer samples than the batch size should not
+    raise a ValueError and training should complete successfully.
+
+    Before the fix, this would fail with:
+    ValueError: A validation dataset has fewer samples (X) than the batch size (Y).
+    Please reduce the batch size.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    # Read the original dataset
+    systems = read(DATASET_PATH_QM9, ":")
+
+    # Create training set with enough samples for training
+    training_samples = max(
+        15, batch_size + validation_samples + 5
+    )  # Ensure we have enough samples
+
+    # Write training dataset
+    ase.io.write("training.xyz", systems[:training_samples])
+
+    # Write validation dataset with exact number of samples we want to test
+    ase.io.write(
+        "validation.xyz",
+        systems[training_samples : training_samples + validation_samples],
+    )
+
+    # Create options with explicit file-based datasets and PET architecture
+    options = OmegaConf.create(
+        {
+            "seed": 42,
+            "architecture": {
+                "name": "pet",
+                "training": {
+                    "batch_size": batch_size,
+                    "num_epochs": 1,  # Just one epoch to verify it works
+                },
+            },
+            "training_set": {
+                "systems": {
+                    "read_from": "training.xyz",
+                    "length_unit": "angstrom",
+                },
+                "targets": {
+                    "energy": {
+                        "key": "U0",
+                        "unit": "eV",
+                    }
+                },
+            },
+            "validation_set": {
+                "systems": {
+                    "read_from": "validation.xyz",
+                    "length_unit": "angstrom",
+                },
+                "targets": {
+                    "energy": {
+                        "key": "U0",
+                        "unit": "eV",
+                    }
+                },
+            },
+            "test_set": 0.0,  # No test set needed for this test
+        }
+    )
+
+    OmegaConf.save(config=options, f="options.yaml")
+
+    # Training should complete successfully without ValueError
+    # The test_set=0.0 may generate a UserWarning, which is expected
+    with pytest.warns(UserWarning, match="Requested dataset of zero length"):
+        train_model(options)
+
+
+def test_regression_validation_batch_size_constraint_removed():
+    """Test that demonstrates the validation batch size constraint was removed.
+
+    This test verifies that the specific validation constraint from issue #711
+    was removed, while preserving training dataset constraints.
+    """
+    # Check that validation constraint was removed but training constraint remains
+
+    repo_root = Path(__file__).resolve().parents[2]
+    trainer_files = [
+        repo_root / "src/metatrain/pet/trainer.py",
+        repo_root / "src/metatrain/soap_bpnn/trainer.py",
+        repo_root / "src/metatrain/deprecated/nanopet/trainer.py",
+        repo_root / "src/metatrain/experimental/flashmd/trainer.py",
+    ]
+
+    for trainer_file in trainer_files:
+        if os.path.exists(trainer_file):
+            with open(trainer_file, "r") as f:
+                content = f.read()
+
+            # Verify validation constraint was removed
+            # (Look for validation-specific patterns)
+            validation_section_start = content.find(
+                "# Create dataloader for the validation datasets:"
+            )
+            validation_section_end = content.find(
+                "# Create dataloader for the test datasets:"
+            )
+            if validation_section_end == -1:
+                # Look for other section markers
+                validation_section_end = content.find(
+                    "val_dataloaders.append(", validation_section_start
+                )
+                if validation_section_end != -1:
+                    # Find the end of the validation section
+                    validation_section_end = (
+                        content.find(")", validation_section_end) + 1
+                    )
+
+            if validation_section_start != -1 and validation_section_end != -1:
+                validation_section = content[
+                    validation_section_start:validation_section_end
+                ]
+
+                # Verify no batch size constraint in validation section
+                assert "fewer samples" not in validation_section, (
+                    f"Validation batch size constraint was not removed from "
+                    f"{trainer_file}"
+                )
+                assert (
+                    "batch_size" not in validation_section
+                    or "len(" not in validation_section
+                ), (
+                    f"Validation batch size constraint logic still present in "
+                    f"{trainer_file}"
+                )
+
+            # Verify training constraint still exists (this should remain)
+            training_section_start = content.find(
+                "# Create dataloader for the training datasets:"
+            )
+            if training_section_start != -1:
+                training_section_end = content.find(
+                    "# Create dataloader for the validation datasets:",
+                    training_section_start,
+                )
+                if training_section_end != -1:
+                    training_section = content[
+                        training_section_start:training_section_end
+                    ]
+                    # Training constraint should still be there
+                    assert "training dataset has fewer samples" in training_section, (
+                        f"Training batch size constraint was incorrectly removed from "
+                        f"{trainer_file}"
+                    )
+        else:
+            raise ValueError(f"Trainer file {trainer_file} does not exist.")

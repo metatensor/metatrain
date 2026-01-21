@@ -1,12 +1,12 @@
 import importlib
 import logging
-import warnings
 from functools import lru_cache
 from pathlib import Path
+from types import ModuleType
 from typing import Callable, Dict, List, Optional, Tuple
 
 from metatensor.torch import TensorMap
-from metatomic.torch import System
+from metatomic.torch import ModelCapabilities, ModelOutput, System
 from omegaconf import DictConfig
 
 from ..target_info import TargetInfo
@@ -34,9 +34,7 @@ def read_systems(
     :param filename: name of the file to read
     :param reader: reader library for parsing the file. If :py:obj:`None` the library is
         is tried to determined from the file extension.
-    :param dtype: desired data type of returned tensor
-    :returns: list of systems
-        determined from the file extension.
+    :return: list of :py:class:`System` objects determined from the file extension.
     :raises ValueError: if no reader is found or data not in double precision
     """
     # Determine reader if not provided
@@ -88,7 +86,7 @@ def read_targets(
     added. Other gradients are silently ignored.
 
     :param conf: config containing the keys for what should be read.
-    :returns: Dictionary containing a list of TensorMaps for each target section in the
+    :return: Dictionary containing a list of TensorMaps for each target section in the
         config as well as a ``Dict[str, TargetInfo]`` object containing the metadata of
         the targets.
 
@@ -114,7 +112,7 @@ def read_extra_data(
     that might be useful for training or evaluation.
 
     :param conf: config containing the keys for what should be read.
-    :returns: Dictionary containing a list of TensorMaps for each extra data section in
+    :return: Dictionary containing a list of TensorMaps for each extra data section in
         the config as well as a ``Dict[str, TargetInfo]`` object containing the metadata
         of the extra data.
     """
@@ -136,7 +134,7 @@ def _read_conf_section(
     :param conf:          mapping of section names to entry configs
     :param decide_reader: callback(key, entry) -> either "energy" or "generic"
     :param validate_key:  callback(key, entry) -> None (may raise or log)
-    :returns: (data_dict, info_dict)
+    :return: (data_dict, info_dict)
     :raises ValueError: on unsupported file types, readers, or dtype mismatch
     """
     data_dict: Dict[str, List[TensorMap]] = {}
@@ -188,36 +186,28 @@ def _read_conf_section(
     return data_dict, info_dict
 
 
-# Callbacks for targets
-_standard_outputs_list = {
-    "energy",
-    "non_conservative_forces",
-    "non_conservative_stress",
-    "positions",
-    "momenta",
-}
-
-
 def _validate_target(key: str, entry: DictConfig) -> None:
-    if key not in _standard_outputs_list and not key.startswith("mtt::"):
-        if key.lower() in {"force", "forces", "virial", "stress"}:
-            warnings.warn(
-                f"{key!r} should not be its own top-level target, "
-                "but rather a sub-section of the 'energy' target",
-                stacklevel=2,
+    # use `ModelCapabilities` to verify if `key` is valid
+    try:
+        _ = ModelCapabilities({key: ModelOutput()})
+    except ValueError as e:
+        # adjust error message for gradients
+        if any(name in key.lower() for name in ("force", "virial", "stress")):
+            message = (
+                f"Target name '{key}' resembles to a gradient of `energies`."
+                "Gradient targets must be either specified as sub-entries of an "
+                "`energy` quantity or if they are a direct target prefixed with "
+                "non_conservative_<gradient>."
             )
         else:
-            raise ValueError(
-                f"Target name ({key}) must either be one of "
-                f"{_standard_outputs_list} or start with `mtt::`."
-            )
-    if any(name in key.lower() for name in ("force", "virial", "stress")):
-        warnings.warn(
-            f"the name of {key!r} resembles to a gradient of "
-            "energies; it should probably not be its own top-level target, "
-            "but rather a gradient sub-section of a target with the "
-            "`energy` quantity",
-            stacklevel=2,
+            message = e.args[0]
+
+        raise ValueError(message) from e
+
+    if "::" in key and "mtt" not in key.split("::")[0]:
+        raise ValueError(
+            f"Target name '{key}' is not valid. Non-standard names "
+            "(using '::' notation) are only allowed with the 'mtt::' prefix."
         )
 
 
@@ -237,14 +227,24 @@ def _no_validate(key: str, entry: DictConfig) -> None:
 
 
 def _decide_generic_reader(key: str, entry: DictConfig) -> str:
+    """
+    Return "generic" for any input.
+
+    :param key: target name
+    :param entry: target config
+    :return: always "generic"
+    """
     return "generic"
 
 
 @lru_cache(maxsize=None)
-def _load_reader_module(reader_name: str):
+def _load_reader_module(reader_name: str) -> ModuleType:
     """
     Load (and cache) a reader module by name.
     Raises ValueError if the module cannot be imported.
+
+    :param reader_name: Name of the reader module to load.
+    :return: The imported module.
     """
     module_path = f"metatrain.utils.data.readers.{reader_name}"
     try:

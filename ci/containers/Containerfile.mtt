@@ -5,8 +5,8 @@ FROM $BASE_IMAGE
 # The repo is cloned by CI (GIT_STRATEGY: clone)
 COPY . /metatrain/
 
-RUN python3 -m venv /mtt-venv && \
+RUN uv venv /mtt-venv && \
 	. /mtt-venv/bin/activate && \
-	python -m pip install torch==2.7.1+cu128 setuptools wheel cmake>=3.30 && \
-	python -m pip install --no-build-isolation sphericart-torch==1.0.2 && \ 
-	python -m pip install /metatrain[soap-bpnn]
+	uv pip install --no-cache-dir torch==2.8.0+cu129 setuptools wheel cmake>=3.30 && \
+	uv pip install --no-cache-dir --no-build-isolation sphericart-torch && \
+	uv pip install --no-cache-dir /metatrain[soap-bpnn]

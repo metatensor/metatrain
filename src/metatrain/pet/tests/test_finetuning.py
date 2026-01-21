@@ -11,8 +11,9 @@ from metatrain.pet.modules.finetuning import (
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import model_from_checkpoint
-from metatrain.utils.omegaconf import CONF_LOSS
+from metatrain.utils.loss import LossSpecification
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -29,12 +30,14 @@ def test_lora_finetuning_functionality():
     model = PET(MODEL_HYPERS, dataset_info)
 
     finetuning_strategy = {
+        "read_from": None,
         "method": "lora",
         "config": {
             "target_modules": ["input_linear", "output_linear"],
             "rank": 4,
             "alpha": 8,
         },
+        "inherit_heads": {},
     }
 
     model = apply_finetuning_strategy(model, finetuning_strategy)
@@ -59,12 +62,14 @@ def test_lora_finetuning_device(device):
     model = PET(MODEL_HYPERS, dataset_info).to(device)
 
     finetuning_strategy = {
+        "read_from": None,
         "method": "lora",
         "config": {
             "target_modules": ["input_linear", "output_linear"],
             "rank": 4,
             "alpha": 8,
         },
+        "inherit_heads": {},
     }
 
     model = apply_finetuning_strategy(model, finetuning_strategy)
@@ -84,11 +89,13 @@ def test_heads_finetuning_functionality():
     model = PET(MODEL_HYPERS, dataset_info)
 
     finetuning_strategy = {
+        "read_from": None,
         "method": "heads",
         "config": {
             "head_modules": ["input_linear", "output_linear"],
             "last_layer_modules": ["last_layers", "bond_last_layers"],
         },
+        "inherit_heads": {},
     }
 
     model = apply_finetuning_strategy(model, finetuning_strategy)
@@ -144,7 +151,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
 
     hypers["training"]["num_epochs"] = 1
 
-    loss_conf = OmegaConf.create({"mtt::U0": CONF_LOSS.copy()})
+    loss_conf = OmegaConf.create({"mtt::U0": init_with_defaults(LossSpecification)})
     OmegaConf.resolve(loss_conf)
     hypers["training"]["loss"] = loss_conf
 
@@ -171,12 +178,14 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     hypers["training"]["num_epochs"] = 0
 
     hypers["training"]["finetune"] = {
+        "read_from": "tmp.ckpt",
         "method": "lora",
         "config": {
             "target_modules": ["input_linear", "output_linear"],
             "rank": 4,
             "alpha": 8,
         },
+        "inherit_heads": {},
     }
 
     trainer = Trainer(hypers["training"])
@@ -208,11 +217,13 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     hypers["training"]["num_epochs"] = 0
 
     hypers["training"]["finetune"] = {
+        "read_from": "finetuned.ckpt",
         "method": "heads",
         "config": {
             "head_modules": ["input_linear", "output_linear"],
             "last_layer_modules": ["last_layers", "bond_last_layers"],
         },
+        "inherit_heads": {},
     }
 
     trainer = Trainer(hypers["training"])

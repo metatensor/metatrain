@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -24,6 +25,7 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
+from .documentation import ModelHypers
 from .modules.encoder import Encoder
 from .modules.nef import (
     edge_array_to_nef,
@@ -36,7 +38,7 @@ from .modules.structures import concatenate_structures
 from .modules.transformer import Transformer
 
 
-class NanoPET(ModelInterface):
+class NanoPET(ModelInterface[ModelHypers]):
     """
     Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302).
 
@@ -53,14 +55,14 @@ class NanoPET(ModelInterface):
     and the third to the features.
     """
 
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.new_outputs = list(dataset_info.targets.keys())
@@ -111,10 +113,10 @@ class NanoPET(ModelInterface):
 
         self.last_layer_feature_size = self.hypers["d_pet"]
 
+        # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(unit="", per_atom=True)
-        }  # the model is always capable of outputting the internal features
-
+            "features": ModelOutput(per_atom=True, description="internal features")
+        }
         self.heads = torch.nn.ModuleDict()
         self.head_types = self.hypers["heads"]
         self.last_layers = torch.nn.ModuleDict()
@@ -209,7 +211,7 @@ class NanoPET(ModelInterface):
         self.dataset_info = merged_info
 
         # restart the composition and scaler models
-        self.additive_models[0].restart(
+        self.additive_models[0] = self.additive_models[0].restart(
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
@@ -220,7 +222,7 @@ class NanoPET(ModelInterface):
                 },
             ),
         )
-        self.scaler.restart(dataset_info)
+        self.scaler = self.scaler.restart(dataset_info)
 
         return self
 
@@ -469,6 +471,9 @@ class NanoPET(ModelInterface):
                     volumes = torch.stack(
                         [torch.abs(torch.det(system.cell)) for system in systems]
                     )
+                    # Zero volume can happen due to metatomic's convention of zero cell
+                    # vectors for non-periodic directions. The actual volume is +inf
+                    volumes[volumes == 0.0] = torch.inf
                     volumes_by_atom = (
                         volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
                     )
@@ -515,7 +520,9 @@ class NanoPET(ModelInterface):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(return_dict)
+            return_dict = self.scaler(
+                systems, return_dict, selected_atoms=selected_atoms
+            )
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
                 for name, output in outputs.items():
@@ -527,10 +534,31 @@ class NanoPET(ModelInterface):
                     selected_atoms,
                 )
                 for name in additive_contributions:
-                    return_dict[name] = mts.add(
-                        return_dict[name],
-                        additive_contributions[name],
-                    )
+                    # TODO: uncomment this after metatensor.torch.add
+                    # is updated to handle sparse sums
+                    # return_dict[name] = metatensor.torch.add(
+                    #     return_dict[name],
+                    #     additive_contributions[name].to(
+                    #         device=return_dict[name].device,
+                    #         dtype=return_dict[name].dtype
+                    #         ),
+                    # )
+                    # TODO: "manual" sparse sum: update to metatensor.torch.add
+                    # after sparse sum is implemented in metatensor.operations
+                    output_blocks: List[TensorBlock] = []
+                    for k, b in return_dict[name].items():
+                        if k in additive_contributions[name].keys:
+                            output_blocks.append(
+                                _add_block_block(
+                                    b,
+                                    additive_contributions[name]
+                                    .block(k)
+                                    .to(device=b.device, dtype=b.dtype),
+                                )
+                            )
+                        else:
+                            output_blocks.append(b)
+                    return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
 
         return return_dict
 
@@ -565,6 +593,7 @@ class NanoPET(ModelInterface):
         dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
+        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -630,6 +659,7 @@ class NanoPET(ModelInterface):
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
+            description=target_info.description,
         )
         if (
             target_name not in self.head_types  # default to MLP
@@ -656,7 +686,9 @@ class NanoPET(ModelInterface):
         ll_features_name = (
             f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
         )
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+        self.outputs[ll_features_name] = ModelOutput(
+            per_atom=True, description=f"last-layer features for {target_name}"
+        )
 
         self.last_layers[target_name] = torch.nn.ModuleDict(
             {
@@ -702,7 +734,14 @@ class NanoPET(ModelInterface):
 
 
 def manual_prod(shape: List[int]) -> int:
-    # prod from standard library not supported in torchscript
+    """
+    Compute the product of a list of integers, since prod from standard library not
+    supported in torchscript
+
+    :param shape: list of integers
+    :return: product of the integers
+    """
+
     result = 1
     for dim in shape:
         result *= dim

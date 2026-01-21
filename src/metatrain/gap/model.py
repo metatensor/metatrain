@@ -1,6 +1,6 @@
+import warnings
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-import featomic
 import featomic.torch
 import metatensor.torch as mts
 import numpy as np
@@ -21,8 +21,10 @@ from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.metadata import merge_metadata
 
+from .documentation import ModelHypers
 
-class GAP(ModelInterface):
+
+class GAP(ModelInterface[ModelHypers]):
     __checkpoint_version__ = 1
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
@@ -38,7 +40,7 @@ class GAP(ModelInterface):
         }
     )
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         if len(dataset_info.targets) > 1:
@@ -71,6 +73,7 @@ class GAP(ModelInterface):
                 quantity=value.quantity,
                 unit=value.unit,
                 per_atom=False,
+                description=value.description,
             )
             for key, value in dataset_info.targets.items()
         }
@@ -389,10 +392,12 @@ class _SorKernelSolver:
         self._weights = weights
 
     @property
-    def weights(self):
+    def weights(self) -> Union[torch.Tensor, np.ndarray]:
         return self._weights
 
-    def predict(self, KTM):
+    def predict(
+        self, KTM: Union[torch.Tensor, np.ndarray]
+    ) -> Union[torch.Tensor, np.ndarray]:
         return KTM @ self._weights
 
 
@@ -402,7 +407,7 @@ class AggregateKernel(torch.nn.Module):
     the sum as aggregate function
 
     :param aggregate_names:
-
+    :param structurewise_aggregate: Whether to perform structure-wise aggregation
     """
 
     def __init__(
@@ -450,7 +455,7 @@ class AggregatePolynomial(AggregateKernel):
         super().__init__(aggregate_names, structurewise_aggregate)
         self._degree = degree
 
-    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap):
+    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap) -> TensorMap:
         return mts.pow(mts.dot(tensor1, tensor2), self._degree)
 
 
@@ -460,6 +465,7 @@ class TorchAggregateKernel(torch.nn.Module):
     the sum as aggregate function
 
     :param aggregate_names:
+    :param structurewise_aggregate: Whether to perform structure-wise aggregation
     """
 
     def __init__(
@@ -508,7 +514,7 @@ class TorchAggregatePolynomial(TorchAggregateKernel):
         super().__init__(aggregate_names, structurewise_aggregate)
         self._degree = degree
 
-    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap):
+    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap) -> TensorMap:
         return mts.pow(mts.dot(tensor1, tensor2), self._degree)
 
 
@@ -517,12 +523,15 @@ class _FPS:
     Transformer that performs Greedy Sample Selection using Farthest Point Sampling.
 
     Refer to :py:class:`skmatter.sample_selection.FPS` for full documentation.
+
+    :param n_to_select: The number of samples to select. If None, all samples are
+        selected.
     """
 
     def __init__(
         self,
-        n_to_select=None,
-    ):
+        n_to_select: Optional[int] = None,
+    ) -> None:
         self._n_to_select = n_to_select
         self._selector_class = _FPS_skmatter
         self._selection_type = "sample"
@@ -536,11 +545,11 @@ class _FPS:
 
         return self._support
 
-    def fit(self, X: TensorMap):  # -> GreedySelector:
+    def fit(self, X: TensorMap) -> "_FPS":
         """Learn the features to select.
 
-        :param X:
-            Training vectors.
+        :param X: Training vectors.
+        :return: The fitted selector.
         """
         if len(X.component_names) != 0:
             raise ValueError("Only blocks with no components are supported.")
@@ -554,7 +563,20 @@ class _FPS:
                 full=False,
                 selection_type=self._selection_type,
             )
-            selector.fit(block.values, warm_start=False)
+            # TODO: Remove this warning suppression once skmatter releases a new
+            # version that fixes the numpy deprecation warning from using np.minimum
+            # with three positional arguments.
+            # See: https://github.com/lab-cosmo/scikit-matter
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=(
+                        "Passing more than 2 positional arguments to "
+                        "np.maximum and np.minimum is deprecated"
+                    ),
+                    category=DeprecationWarning,
+                )
+                selector.fit(block.values, warm_start=False)
             mask = selector.get_support()
 
             if self._selection_type == "feature":
@@ -591,7 +613,7 @@ class _FPS:
 
         :param X:
             The input tensor.
-        :returns:
+        :return:
             The selected subset of the input.
         """
         blocks = []
@@ -611,8 +633,8 @@ class _FPS:
     def fit_transform(self, X: TensorMap) -> TensorMap:
         """Fit to data, then transform it.
 
-        :param X:
-            Training vectors.
+        :param X: Training vectors.
+        :return: The transformed input.
         """
         return self.fit(X).transform(X)
 
@@ -640,7 +662,7 @@ class SubsetOfRegressors:
         y: TensorMap,
         alpha: float = 1.0,
         alpha_forces: Optional[float] = None,
-    ):
+    ) -> None:
         r"""
         :param X:
             features
@@ -766,6 +788,9 @@ class SubsetOfRegressors:
         :param T:
             features
             if kernel type "precomputed" is used, the kernel k_tm is assumed
+
+        :return:
+            TensorMap with the predictions
         """
         if self._weights is None:
             raise ValueError(
@@ -778,7 +803,7 @@ class SubsetOfRegressors:
             k_tm = self._kernel(T, self._X_pseudo, are_pseudo_points=(False, True))
         return mts.dot(k_tm, self._weights)
 
-    def export_torch_script_model(self):
+    def export_torch_script_model(self) -> "TorchSubsetofRegressors":
         return TorchSubsetofRegressors(
             self._weights,
             self._X_pseudo,
@@ -807,6 +832,9 @@ class TorchSubsetofRegressors(torch.nn.Module):
         :param T:
             features
             if kernel type "precomputed" is used, the kernel k_tm is assumed
+
+        :return:
+            TensorMap with the predictions
         """
         # move weights and X_pseudo to the same device as T
         self._weights = self._weights.to(T.device)

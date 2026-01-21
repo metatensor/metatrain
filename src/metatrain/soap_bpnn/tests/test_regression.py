@@ -11,11 +11,12 @@ from metatrain.soap_bpnn import SoapBpnn, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo, get_dataset
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.hypers import init_with_defaults
+from metatrain.utils.loss import LossSpecification
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from metatrain.utils.omegaconf import CONF_LOSS
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS, SPHERICAL_DISK_DATASET_PATH
 
@@ -50,11 +51,11 @@ def test_regression_init():
 
     expected_output = torch.tensor(
         [
-            [0.115978844464],
-            [0.074449732900],
-            [-0.024028975517],
-            [0.192573457956],
-            [-0.221303701401],
+            [0.020396940410],
+            [0.205079227686],
+            [-0.079411268234],
+            [-0.356125712395],
+            [0.124165497720],
         ]
     )
 
@@ -97,8 +98,9 @@ def test_regression_train(device):
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
-    loss_conf = OmegaConf.create({"mtt::U0": CONF_LOSS.copy()})
-    OmegaConf.resolve(loss_conf)
+    hypers["training"]["num_workers"] = 0  # for reproducibility
+
+    loss_conf = OmegaConf.create({"mtt::U0": init_with_defaults(LossSpecification)})
     hypers["training"]["loss"] = loss_conf
 
     dataset_info = DatasetInfo(
@@ -131,11 +133,11 @@ def test_regression_train(device):
 
     expected_output = torch.tensor(
         [
-            [1.313830614090],
-            [4.282801628113],
-            [5.629218101501],
-            [4.297008991241],
-            [2.226550817490],
+            [0.643570721149],
+            [0.332709670067],
+            [1.661988496780],
+            [5.535595417023],
+            [0.667372345924],
         ],
         device=device,
     )
@@ -197,6 +199,7 @@ def test_regression_train_spherical(device):
     requested_neighbor_lists = get_requested_neighbor_lists(model)
 
     hypers["training"]["num_epochs"] = 1
+    hypers["training"]["num_workers"] = 0  # for reproducibility
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model,
@@ -226,31 +229,31 @@ def test_regression_train_spherical(device):
     expected_output = torch.tensor(
         [
             [
-                -0.057801067829,
-                -0.022922841832,
-                -0.013157465495,
-                0.003876133356,
-                0.008559819311,
-                0.039749406278,
-                0.013140974566,
+                -2.524306625128e-02,
+                -3.088477998972e-03,
+                2.597707323730e-03,
+                2.428465336561e-02,
+                -8.708849549294e-03,
+                9.260149672627e-04,
+                7.949978462420e-04,
             ],
             [
-                0.000000000000,
-                0.000000000000,
-                0.000000000000,
-                0.000000000000,
-                0.000000000000,
-                0.000000000000,
-                0.000000000000,
+                0.000000000000e00,
+                0.000000000000e00,
+                0.000000000000e00,
+                0.000000000000e00,
+                0.000000000000e00,
+                0.000000000000e00,
+                0.000000000000e00,
             ],
             [
-                0.020274644718,
-                0.005657686852,
-                0.001842519501,
-                -0.014781145379,
-                0.003011089284,
-                -0.011008090340,
-                -0.012492593378,
+                1.080770511180e-03,
+                2.896221820265e-03,
+                -1.021256321110e-03,
+                -8.835283108056e-03,
+                2.086037304252e-03,
+                1.631022314541e-03,
+                -8.865811832948e-05,
             ],
         ],
         device=device,

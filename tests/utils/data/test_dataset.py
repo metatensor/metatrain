@@ -110,20 +110,22 @@ def layout_cartesian():
 
 
 def test_target_info_scalar(layout_scalar):
-    target_info = TargetInfo(quantity="energy", unit="kcal/mol", layout=layout_scalar)
+    target_info = TargetInfo(layout=layout_scalar, quantity="energy", unit="kcal/mol")
 
     assert target_info.quantity == "energy"
     assert target_info.unit == "kcal/mol"
     assert target_info.gradients == []
     assert not target_info.per_atom
 
-    expected_start = "TargetInfo(quantity='energy', unit='kcal/mol'"
+    expected_start = f"TargetInfo(layout={layout_scalar}, quantity='energy', "
     assert target_info.__repr__()[: len(expected_start)] == expected_start
 
 
 def test_target_info_spherical(layout_spherical):
     target_info = TargetInfo(
-        quantity="mtt::spherical", unit="kcal/mol", layout=layout_spherical
+        layout=layout_spherical,
+        quantity="mtt::spherical",
+        unit="kcal/mol",
     )
 
     assert target_info.quantity == "mtt::spherical"
@@ -131,13 +133,15 @@ def test_target_info_spherical(layout_spherical):
     assert target_info.gradients == []
     assert not target_info.per_atom
 
-    expected_start = "TargetInfo(quantity='mtt::spherical', unit='kcal/mol'"
+    expected_start = f"TargetInfo(layout={layout_spherical}, quantity='mtt::spherical',"
     assert target_info.__repr__()[: len(expected_start)] == expected_start
 
 
 def test_target_info_cartesian(layout_cartesian):
     target_info = TargetInfo(
-        quantity="mtt::cartesian", unit="kcal/mol", layout=layout_cartesian
+        layout=layout_cartesian,
+        quantity="mtt::cartesian",
+        unit="kcal/mol",
     )
 
     assert target_info.quantity == "mtt::cartesian"
@@ -145,38 +149,44 @@ def test_target_info_cartesian(layout_cartesian):
     assert target_info.gradients == []
     assert not target_info.per_atom
 
-    expected_start = "TargetInfo(quantity='mtt::cartesian', unit='kcal/mol'"
+    expected_start = f"TargetInfo(layout={layout_cartesian}, quantity='mtt::cartesian',"
     assert target_info.__repr__()[: len(expected_start)] == expected_start
 
 
 def test_unit_none_conversion(layout_scalar):
-    info = TargetInfo(quantity="energy", unit=None, layout=layout_scalar)
+    info = TargetInfo(
+        layout=layout_scalar,
+        quantity="energy",
+        unit="",
+    )
     assert info.unit == ""
 
 
-def test_length_unit_none_conversion(layout_scalar):
-    dataset_info = DatasetInfo(
-        length_unit=None,
-        atomic_types=[1, 2, 3],
-        targets={
-            "energy": TargetInfo(
-                quantity="energy", unit="kcal/mol", layout=layout_scalar
-            )
-        },
-    )
-    assert dataset_info.length_unit == ""
+def test_metadata_error(layout_scalar):
+    with pytest.raises(ValueError, match="foo"):
+        DatasetInfo(
+            length_unit="foo",
+            atomic_types=[1, 6, 8],
+            targets={
+                "energy": TargetInfo(
+                    layout=layout_scalar,
+                    quantity="energy",
+                    unit="kcal/mol",
+                )
+            },
+        )
 
 
 def test_target_info_eq(layout_scalar):
-    info1 = TargetInfo(quantity="energy", unit="kcal/mol", layout=layout_scalar)
-    info2 = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
+    info1 = TargetInfo(layout=layout_scalar, quantity="energy", unit="kcal/mol")
+    info2 = TargetInfo(layout=layout_scalar, quantity="energy", unit="eV")
 
     assert info1 == info1
     assert info1 != info2
 
 
 def test_target_info_eq_other_objects(layout_scalar):
-    info = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
+    info = TargetInfo(layout=layout_scalar, quantity="energy", unit="eV")
 
     assert not info == [1, 2, 3]
 
@@ -185,10 +195,16 @@ def test_dataset_info(layout_scalar):
     """Tests the DatasetInfo class."""
 
     targets = {
-        "energy": TargetInfo(quantity="energy", unit="kcal/mol", layout=layout_scalar)
+        "energy": TargetInfo(
+            layout=layout_scalar,
+            quantity="energy",
+            unit="kcal/mol",
+        )
     }
     targets["mtt::U0"] = TargetInfo(
-        quantity="energy", unit="kcal/mol", layout=layout_scalar
+        layout=layout_scalar,
+        quantity="energy",
+        unit="kcal/mol",
     )
 
     dataset_info = DatasetInfo(
@@ -212,10 +228,12 @@ def test_dataset_info(layout_scalar):
 
 def test_set_atomic_types(layout_scalar):
     targets = {
-        "energy": TargetInfo(quantity="energy", unit="kcal/mol", layout=layout_scalar)
+        "energy": TargetInfo(layout=layout_scalar, quantity="energy", unit="kcal/mol")
     }
     targets["mtt::U0"] = TargetInfo(
-        quantity="energy", unit="kcal/mol", layout=layout_scalar
+        layout=layout_scalar,
+        quantity="energy",
+        unit="kcal/mol",
     )
 
     dataset_info = DatasetInfo(
@@ -231,9 +249,9 @@ def test_set_atomic_types(layout_scalar):
 
 def test_dataset_info_copy(layout_scalar, layout_cartesian):
     targets = {}
-    targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
+    targets["energy"] = TargetInfo(layout=layout_scalar, quantity="energy", unit="eV")
     targets["mtt::my-target"] = TargetInfo(
-        quantity="mtt::my-target", unit="eV/Angstrom", layout=layout_cartesian
+        layout=layout_cartesian, quantity="mtt::my-target", unit="eV/Angstrom"
     )
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
@@ -245,13 +263,13 @@ def test_dataset_info_copy(layout_scalar, layout_cartesian):
 
 def test_dataset_info_update(layout_scalar, layout_spherical):
     targets = {}
-    targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
+    targets["energy"] = TargetInfo(layout=layout_scalar, quantity="energy", unit="eV")
 
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
     targets2 = targets.copy()
     targets2["mtt::my-target"] = TargetInfo(
-        quantity="mtt::my-target", unit="eV/Angstrom", layout=layout_spherical
+        layout=layout_spherical, quantity="mtt::my-target", unit="eV/Angstrom"
     )
 
     info2 = DatasetInfo(length_unit="angstrom", atomic_types=[8], targets=targets2)
@@ -264,13 +282,13 @@ def test_dataset_info_update(layout_scalar, layout_spherical):
 
 def test_dataset_info_update_non_matching_length_unit(layout_scalar):
     targets = {}
-    targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
+    targets["energy"] = TargetInfo(layout=layout_scalar, quantity="energy", unit="eV")
 
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
     targets2 = targets.copy()
     targets2["mtt::my-target"] = TargetInfo(
-        quantity="mtt::my-target", unit="eV/Angstrom", layout=layout_scalar
+        layout=layout_scalar, quantity="mtt::my-target", unit="eV/Angstrom"
     )
 
     info2 = DatasetInfo(length_unit="nanometer", atomic_types=[8], targets=targets2)
@@ -286,13 +304,13 @@ def test_dataset_info_update_non_matching_length_unit(layout_scalar):
 
 def test_dataset_info_eq(layout_scalar):
     targets = {}
-    targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
+    targets["energy"] = TargetInfo(layout=layout_scalar, quantity="energy", unit="eV")
 
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
     targets2 = targets.copy()
     targets2["my-target"] = TargetInfo(
-        quantity="mtt::my-target", unit="eV/Angstrom", layout=layout_scalar
+        layout=layout_scalar, quantity="mtt::my-target", unit="eV/Angstrom"
     )
     info2 = DatasetInfo(length_unit="nanometer", atomic_types=[8], targets=targets2)
 
@@ -302,7 +320,7 @@ def test_dataset_info_eq(layout_scalar):
 
 def test_dataset_info_eq_other_objects(layout_scalar):
     targets = {}
-    targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
+    targets["energy"] = TargetInfo(layout=layout_scalar, quantity="energy", unit="eV")
 
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
@@ -310,16 +328,12 @@ def test_dataset_info_eq_other_objects(layout_scalar):
 
 
 def test_dataset_info_update_different_target_info(layout_scalar):
-    targets = {}
-    targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
-
+    targets = {"energy": TargetInfo(layout=layout_scalar, quantity="energy", unit="eV")}
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
-    targets2 = {}
-    targets2["energy"] = TargetInfo(
-        quantity="energy", unit="eV/Angstrom", layout=layout_scalar
-    )
-
+    targets2 = {
+        "energy": TargetInfo(layout=layout_scalar, quantity="mtt::energy", unit="eV")
+    }
     info2 = DatasetInfo(length_unit="angstrom", atomic_types=[8], targets=targets2)
 
     match = (
@@ -332,15 +346,15 @@ def test_dataset_info_update_different_target_info(layout_scalar):
 def test_dataset_info_union(layout_scalar, layout_cartesian):
     """Tests the union method."""
     targets = {}
-    targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
+    targets["energy"] = TargetInfo(layout=layout_scalar, quantity="energy", unit="eV")
     targets["forces"] = TargetInfo(
-        quantity="mtt::forces", unit="eV/Angstrom", layout=layout_scalar
+        layout=layout_scalar, quantity="mtt::forces", unit="eV/Angstrom"
     )
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
     other_targets = targets.copy()
     other_targets["mtt::stress"] = TargetInfo(
-        quantity="mtt::stress", unit="GPa", layout=layout_cartesian
+        layout=layout_cartesian, quantity="mtt::stress", unit="GPa"
     )
 
     other_info = DatasetInfo(
@@ -615,7 +629,7 @@ def test_collate_fn():
     batch = unpack_batch(batch)
 
     assert len(batch) == 3
-    assert isinstance(batch[0], tuple)
+    assert isinstance(batch[0], list)
     assert len(batch[0]) == 3
     assert isinstance(batch[1], dict)
     assert isinstance(batch[2], dict)
@@ -665,8 +679,8 @@ def test_get_stats(layout_scalar):
         length_unit="angstrom",
         atomic_types=[1, 6],
         targets={
-            "mtt::U0": TargetInfo(quantity="energy", unit="eV", layout=layout_scalar),
-            "energy": TargetInfo(quantity="energy", unit="eV", layout=layout_scalar),
+            "mtt::U0": TargetInfo(layout=layout_scalar, quantity="energy", unit="eV"),
+            "energy": TargetInfo(layout=layout_scalar, quantity="energy", unit="eV"),
         },
     )
 
@@ -687,11 +701,13 @@ def test_get_stats(layout_scalar):
 
 def test_instance_torchscript_compatible(layout_scalar):
     dataset_info = DatasetInfo(
-        length_unit=None,
+        length_unit="",
         atomic_types=[1, 2, 3],
         targets={
             "energy": TargetInfo(
-                quantity="energy", unit="kcal/mol", layout=layout_scalar
+                layout=layout_scalar,
+                quantity="energy",
+                unit="kcal/mol",
             )
         },
     )

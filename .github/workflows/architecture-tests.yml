@@ -13,22 +13,31 @@ jobs:
       fail-fast: false
       matrix:
         architecture-name:
+          - classifier
+          - flashmd
           - gap
-          - soap-bpnn
           - llpr
-          - pet
+          - mace
           - nanopet
+          - pet
+          - soap-bpnn
 
     runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
       with:
+        version: "0.9.0"
         python-version: "3.13"
-    - run: pip install tox
+        enable-cache: true
+        activate-environment: true
+
+    - name: Setup dependencies
+      run: |
+        uv tool install tox --with tox-uv
 
     - name: run architecture tests
       run: tox -e ${{ matrix.architecture-name }}-tests

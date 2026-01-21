@@ -2,13 +2,13 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Union
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
-from metatrain.utils.abc import TrainerInterface
+from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
@@ -19,6 +19,7 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
@@ -26,7 +27,7 @@ from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import LossAggregator
+from metatrain.utils.loss import LossAggregator, LossSpecification
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -37,16 +38,29 @@ from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
+from .documentation import TrainerHypers
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
 
-def get_scheduler(optimizer, train_hypers, steps_per_epoch):
+def get_scheduler(
+    optimizer: torch.optim.Optimizer,
+    train_hypers: TrainerHypers,
+    steps_per_epoch: int,
+) -> LambdaLR:
+    """
+    Get a CosineAnnealing learning-rate scheduler with warmup
+
+    :param optimizer: The optimizer for which to create the scheduler.
+    :param train_hypers: The training hyperparameters.
+    :param steps_per_epoch: The number of steps per epoch.
+    :return: The learning rate scheduler.
+    """
     total_steps = train_hypers["num_epochs"] * steps_per_epoch
     warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
     min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
 
-    def lr_lambda(current_step: int):
+    def lr_lambda(current_step: int) -> float:
         if current_step < warmup_steps:
             # Linear warmup
             return float(current_step) / float(max(1, warmup_steps))
@@ -62,19 +76,19 @@ def get_scheduler(optimizer, train_hypers, steps_per_epoch):
     return scheduler
 
 
-class Trainer(TrainerInterface):
-    __checkpoint_version__ = 6
+class Trainer(TrainerInterface[TrainerHypers]):
+    __checkpoint_version__ = 12
 
-    def __init__(self, hypers):
+    def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
 
-        self.optimizer_state_dict = None
-        self.scheduler_state_dict = None
-        self.epoch = None
-        self.best_epoch = None
-        self.best_metric = None
-        self.best_model_state_dict = None
-        self.best_optimizer_state_dict = None
+        self.optimizer_state_dict: Optional[Dict[str, Any]] = None
+        self.scheduler_state_dict: Optional[Dict[str, Any]] = None
+        self.epoch: Optional[int] = None
+        self.best_epoch: Optional[int] = None
+        self.best_metric: Optional[float] = None
+        self.best_model_state_dict: Optional[Dict[str, Any]] = None
+        self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
 
     def train(
         self,
@@ -84,35 +98,31 @@ class Trainer(TrainerInterface):
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
-    ):
+    ) -> None:
         assert dtype in PET.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
-        is_finetune = "finetune" in self.hypers
-
-        if is_distributed:
-            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
-            torch.distributed.init_process_group(backend="nccl")
-            world_size = torch.distributed.get_world_size()
-            rank = torch.distributed.get_rank()
-        else:
-            rank = 0
+        is_finetune = self.hypers["finetune"]["read_from"] is not None
 
         if is_distributed:
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with SOAP-BPNN, please "
+                    " If you want to run distributed training with PET, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
             # processes are not visible to each other and when they are
+            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
             device_number = distr_env.local_rank % torch.cuda.device_count()
             device = torch.device("cuda", device_number)
+            torch.distributed.init_process_group(backend="nccl", device_id=device)
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
         else:
-            device = devices[
-                0
-            ]  # only one device, as we don't support multi-gpu for now
+            rank = 0
+            device = devices[0]
+            # only one device, as we don't support non-distributed multi-gpu for now
 
         if is_distributed:
             logging.info(f"Training on {world_size} devices with dtype {dtype}")
@@ -121,7 +131,26 @@ class Trainer(TrainerInterface):
 
         # Apply fine-tuning strategy if provided
         if is_finetune:
+            assert self.hypers["finetune"]["read_from"] is not None  # for mypy
             model = apply_finetuning_strategy(model, self.hypers["finetune"])
+            method = self.hypers["finetune"]["method"]
+            num_params = sum(p.numel() for p in model.parameters())
+            num_trainable_params = sum(
+                p.numel() for p in model.parameters() if p.requires_grad
+            )
+
+            logging.info(f"Applied finetuning strategy: {method}")
+            logging.info(
+                f"Number of trainable parameters: {num_trainable_params} "
+                f"[{num_trainable_params / num_params:.2%} %]"
+            )
+            inherit_heads = self.hypers["finetune"]["inherit_heads"]
+            if inherit_heads:
+                logging.info(
+                    "Inheriting initial weights for heads and last layers for targets: "
+                    f"from {list(inherit_heads.values())} to "
+                    f"{list(inherit_heads.keys())}"
+                )
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
@@ -132,19 +161,22 @@ class Trainer(TrainerInterface):
         model.scaler.to(dtype=torch.float64)
 
         logging.info("Calculating composition weights")
-
         model.additive_models[0].train_model(  # this is the composition model
             train_datasets,
             model.additive_models[1:],
             self.hypers["batch_size"],
             is_distributed,
-            self.hypers["fixed_composition_weights"],
+            self.hypers["atomic_baseline"],
         )
 
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
             model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
+                train_datasets,
+                model.additive_models,
+                self.hypers["batch_size"],
+                is_distributed,
+                self.hypers["fixed_scaling_weights"],
             )
 
         logging.info("Setting up data loaders")
@@ -182,8 +214,10 @@ class Trainer(TrainerInterface):
         )
         model.additive_models.to(device)
         model.additive_models[0].weights_to(device=device, dtype=torch.float64)
+        model.scaler.scales_to(device="cpu", dtype=torch.float64)
         scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
         model.scaler.to(device)
+        model.scaler.scales_to(device=device, dtype=torch.float64)
 
         # Create collate functions:
         dataset_info = model.dataset_info
@@ -201,6 +235,7 @@ class Trainer(TrainerInterface):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
@@ -209,6 +244,7 @@ class Trainer(TrainerInterface):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
 
         # Create dataloader for the training datasets:
@@ -255,13 +291,6 @@ class Trainer(TrainerInterface):
         # Create dataloader for the validation datasets:
         val_dataloaders = []
         for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
-            if len(val_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A validation dataset has fewer samples "
-                    f"({len(val_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
             val_dataloaders.append(
                 DataLoader(
                     dataset=val_dataset,
@@ -285,11 +314,8 @@ class Trainer(TrainerInterface):
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
         # Create a loss function:
-        loss_hypers = self.hypers["loss"]
-        loss_fn = LossAggregator(
-            targets=train_targets,
-            config=loss_hypers,
-        )
+        loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
+        loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
         logging.info("Using the following loss functions:")
         for name, info in loss_fn.metadata.items():
             logging.info(f"{name}:")
@@ -353,6 +379,10 @@ class Trainer(TrainerInterface):
 
             train_loss = 0.0
             for batch in train_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = unpack_batch(batch)
@@ -372,6 +402,13 @@ class Trainer(TrainerInterface):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
+
+                if is_distributed:
+                    # make sure all parameters contribute to the gradient calculation
+                    # to make torch DDP happy
+                    for param in model.parameters():
+                        train_loss_batch += 0.0 * param.sum()
+
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
@@ -384,9 +421,20 @@ class Trainer(TrainerInterface):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                train_rmse_calculator.update(predictions, targets)
+                scaled_predictions = (model.module if is_distributed else model).scaler(
+                    systems, predictions
+                )
+                scaled_targets = (model.module if is_distributed else model).scaler(
+                    systems, targets
+                )
+                train_rmse_calculator.update(
+                    scaled_predictions, scaled_targets, extra_data
+                )
                 if self.hypers["log_mae"]:
-                    train_mae_calculator.update(predictions, targets)
+                    train_mae_calculator.update(
+                        scaled_predictions, scaled_targets, extra_data
+                    )
+
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
                 is_distributed=is_distributed,
@@ -403,6 +451,10 @@ class Trainer(TrainerInterface):
 
             val_loss = 0.0
             for batch in val_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device
@@ -425,9 +477,20 @@ class Trainer(TrainerInterface):
                     # sum the loss over all processes
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
-                val_rmse_calculator.update(predictions, targets)
+
+                scaled_predictions = (model.module if is_distributed else model).scaler(
+                    systems, predictions
+                )
+                scaled_targets = (model.module if is_distributed else model).scaler(
+                    systems, targets
+                )
+                val_rmse_calculator.update(
+                    scaled_predictions, scaled_targets, extra_data
+                )
                 if self.hypers["log_mae"]:
-                    val_mae_calculator.update(predictions, targets)
+                    val_mae_calculator.update(
+                        scaled_predictions, scaled_targets, extra_data
+                    )
 
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -454,8 +517,6 @@ class Trainer(TrainerInterface):
             }
 
             if epoch == start_epoch:
-                scaler_scales = scaler.get_scales_dict()
-
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
                     dataset_info=(
@@ -463,14 +524,6 @@ class Trainer(TrainerInterface):
                     ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
-                    scales={
-                        key: (
-                            scaler_scales[key.split(" ")[0]]
-                            if ("MAE" in key or "RMSE" in key)
-                            else 1.0
-                        )
-                        for key in finalized_train_info.keys()
-                    },
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(
@@ -511,7 +564,7 @@ class Trainer(TrainerInterface):
         if is_distributed:
             torch.distributed.destroy_process_group()
 
-    def save_checkpoint(self, model, path: Union[str, Path]):
+    def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
         if self.best_model_state_dict is not None:
             self.best_model_state_dict["finetune_config"] = model.finetune_config
@@ -537,7 +590,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: Dict[str, Any],
+        hypers: TrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
         trainer = cls(hypers)

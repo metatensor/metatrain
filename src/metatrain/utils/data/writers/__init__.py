@@ -70,6 +70,7 @@ def get_writer(
         the default behavior of the writer is used.
     :param fileformat: format of the target value file. If :py:obj:`None` the format is
         determined from the file extension.
+    :return: a :py:class:`Writer` instance.
     """
 
     if fileformat is None:

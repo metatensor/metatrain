@@ -24,17 +24,108 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Version 2026.1 - 2026-01-07
+---------------------------
+
+Fixed
+#####
+
+- Uncertainty quantification is now possible on non-conservative forces.
+- Fixed a small bug in the implementation of the density of states (DOS) loss function.
+
+Added
+#####
+
+- Metatrain now features the ``experimental.mace`` architecture.
+- Most architectures now support bounds on the number of atoms in a single batch via the
+  ``batch_bounds`` hyperparameter.
+- The PET architecture now supports an adaptive cutoff functionality to make the
+  number of neighbors more uniform across different atoms and environments.
+- The PET architecture now features a temperature hyperparameter for the softmax
+  operation in attention.
+- The FlashMD architecture added fine-tuning capabilities similar to those of PET.
+
 Changed
 #######
 
+- SOAP-BPNN and MCoV now use species embeddings by default, allowing for better
+  scalability and speed. The traditional SOAP-BPNN (and associated MCoV) architecture
+  can be accessed by setting ``legacy: True``
+- Metatrain won't error if the validation set is smaller than the batch size.
+- Composition model settings have been consolidated under the ``atomic_baseline``
+  hyperparameter.
+
+Version 2025.12 - 2025-11-25
+----------------------------
+
+Fixed
+#####
+
+- Improved computational efficiency of the SOAP-BPNN architecture.
+- Improved computational efficiency of ``DiskDataset``.
+- Longe-range featurizer now also works with 2D periodic boundary conditions.
+
+Added
+#####
+
+- An option to inherit head weights during fine-tuning
+- DOS loss for training on the electronic density of states
+- A method to train on mixed-stress datasets by setting stresses in non-periodic
+  structures to NaN.
+- Support to train target variants defined by <base>/<variant> (i.e. ``energy/PBE``).
+  Variants can be selected as a property to be predicted by an engine as opposed to a
+  base target (i.e. ``energy``).
+- The ``LLPR`` architecture now allows training LLPR ensembles by backpropagation after
+  their creation from the LLPR covariance. This includes support for multi-GPU training.
+
+Changed
+#######
+
+- Raise an error (instead of warning) if energies gradients are direct targets and do
+  not have a "non_conservative" prefix
+
+Version 2025.11 - 2025-10-20
+----------------------------
+
+Fixed
+#####
+
+- Training speed has been improved for all neural network models.
+- Multi-GPU training with multiple datasets, each with different targets, now works
+  correctly.
+- It is now possible to train on multiple force/stress targets without errors.
+
+Added
+#####
+
+- A new dataset format, ``MemmapDataset``, allows storing data on disk in a
+  memory-mapped format, improving performance compared to ``DiskDataset`` on some
+  filesystems.
+- FlashMD was added as a new architecture allowing long-stride molecular dynamics
+  simulations. Its implementation is based on PET.
+
+Changed
+#######
+
+- ``PET`` model received a major update, including new default hyperparameters, a new
+  transformer architecture, and a new featurizer. Please refer to the updated
+  documentation for more details.
+- The SOAP-BPNN and PET trainers now uses a cosine annealing learning rate scheduler
+  with warm-up.
 - ``NanoPET`` has been deprecated in favor of the stable ``PET`` architecture. The
-  ``deprecated.nanopet`` architecture is still available for loading old checkpoints,
-  but it will not receive any updates or bug fixes.
+  ``deprecated.nanopet`` architecture is still available for loading old checkpoints.
 - The ``NanoPET`` and ``GAP`` architectures now use the new composition model, and the
   old composition model has been removed.
 - The ``LLPR`` module is now a stable architecture, instead of a utility module. It can
   be trained from the command line in the same way as other architectures.
-- We now require Python >= 3.10
+- We now require Python >= 3.10.
+- The ``Scaler`` model in metatrain now calculates per-block and per-property scales.
+  For atomic targets, it calculates per-element scales.
+
+Removed
+#######
+
+- The ``deprecated.pet`` architecture has been removed.
 
 Version 2025.10 - 2025-09-09
 ----------------------------

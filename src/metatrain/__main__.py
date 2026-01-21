@@ -20,6 +20,7 @@ from .utils.logging import ROOT_LOGGER, setup_logging
 
 
 def main():
+    """The main entry point for the metatrain command line interface."""
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawTextHelpFormatter,
