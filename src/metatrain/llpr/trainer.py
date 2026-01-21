@@ -411,8 +411,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 predictions = evaluate_model(
                     model,
                     systems,
-                    requested_outputs,
+                    {key: train_targets[key] for key in targets.keys()},
                     is_training=True,
+                    is_llpr_ens=True,
                 )
 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
@@ -440,7 +441,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                targets = _drop_gradient_blocks(targets)
+#                targets = _drop_gradient_blocks(targets)
                 train_rmse_calculator.update(predictions, targets)
                 if self.hypers["log_mae"]:
                     train_mae_calculator.update(predictions, targets)
@@ -476,8 +477,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 predictions = evaluate_model(
                     model,
                     systems,
-                    requested_outputs,
+                    {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
+                    is_llpr_ens=True,
                 )
                 val_loss_batch = loss_fn(predictions, targets, extra_data)
 
@@ -491,7 +493,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                targets = _drop_gradient_blocks(targets)
+#                targets = _drop_gradient_blocks(targets)
                 val_rmse_calculator.update(predictions, targets)
                 if self.hypers["log_mae"]:
                     val_mae_calculator.update(predictions, targets)

@@ -638,9 +638,6 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
         :param pred_var: variance of ensemble predictions :py:class:`TensorMap`.
         :return: scalar torch.Tensor of the computed loss.
         """
-        if self.gradient is not None:
-            return 0.0  # gradients not supported for this loss yet
-
         list_pred_mean_segments = []
         list_target_segments = []
         list_pred_var_segments = []
@@ -711,6 +708,15 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
             tmap_pred_ens.block(0).values.shape[-1]
             // tmap_pred_orig.block(0).values.shape[-1]
         )
+
+        # Check gradients are present in the target TensorMap
+        if self.gradient is not None:
+            if self.gradient not in tmap_targ[0].gradients_list():
+                # Skip loss computation if block gradient is missing in the dataset
+                # Tensor gradients are not tracked
+                return torch.zeros(
+                    (), dtype=torch.float, device=tmap_targ[0].values.device
+                )
 
         ens_pred_values = tmap_pred_ens.block().values  # shape: samples, properties
 
@@ -790,9 +796,67 @@ class TensorMapEnsembleNLLLoss(BaseTensorMapLoss):
                 ],
             )
 
+        if self.gradient is not None:
 
-        # Note that we're ignoring all gradients for now. This can be extended later.
-        return self.compute_flattened(tmap_pred_mean, tmap_targ, tmap_pred_var)
+            all_grads = tmap_pred_ens.block().gradients()
+
+            for name, block in all_grads:
+
+                if name in self.gradient:
+                    ens_pred_grad_values = block.values
+                    # assume single component entry
+                    n_grad_comp = len(block.components[0].values)
+                    ens_pred_grad_values.reshape(
+                        ens_pred_grad_values.shape[0],
+                        n_grad_comp,
+                        n_ens,
+                        -1,
+                    )
+                    # account for properties?
+                    if len(ens_pred_grad_values.shape) < 4:
+                        ens_pred_grad_values = ens_pred_grad_values.unsqueeze(-1)
+
+                    ens_pred_grad_mean = ens_pred_grad_values.mean(dim=2)
+                    ens_pred_grad_var = ens_pred_grad_values.var(dim=2, unbiased=True)
+
+                    for ref_name, ref_block in tmap_targ.block().gradients():
+                        if ref_name == name:
+                            ref_grad_block = ref_block
+
+                    new_mean_block = tmap_pred_mean.block().copy()
+                    new_mean_block.add_gradient(
+                        name,
+                        TensorBlock(
+                            values=ens_pred_grad_mean,
+                            samples=ref_grad_block.samples,
+                            components=ref_grad_block.components,
+                            properties=ref_grad_block.properties,
+                        ),
+                    )
+                    new_tmap_pred_mean = TensorMap(
+                        keys=tmap_pred_mean.keys,
+                        blocks=[new_mean_block],
+                    )
+
+                    new_var_block = tmap_pred_var.block().copy()
+                    new_var_block.add_gradient(
+                        name,
+                        TensorBlock(
+                            values=ens_pred_grad_var,
+                            samples=ref_grad_block.samples,
+                            components=ref_grad_block.components,
+                            properties=ref_grad_block.properties,
+                        ),
+                    )
+                    new_tmap_pred_var = TensorMap(
+                        keys=tmap_pred_var.keys,
+                        blocks=[new_var_block],
+                    )
+
+            return self.compute_flattened(new_tmap_pred_mean, tmap_targ, new_tmap_pred_var)
+
+        else:
+            return self.compute_flattened(tmap_pred_mean, tmap_targ, tmap_pred_var)
 
 
 # --- aggregator -----------------------------------------------------------------------
