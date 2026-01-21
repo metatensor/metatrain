@@ -13,6 +13,7 @@ def pytest_xdist_auto_num_workers():
     n_processes = os.cpu_count() or 1
     return min(12, math.ceil(n_processes * 0.8))
 
+
 MODEL_HYPERS = get_default_hypers("soap_bpnn")["model"]
 
 # -------------------------------
@@ -30,10 +31,11 @@ OPTIONS_PATH = RESOURCES_PATH / "options.yaml"
 OPTIONS_PET_PATH = RESOURCES_PATH / "options-pet.yaml"
 OPTIONS_EXTRA_DATA_PATH = RESOURCES_PATH / "options-extra-data.yaml"
 
+
 # -------------------------------
 #    PATHS TO TRAINED MODELS
 # -------------------------------
-# These files are generated from training on each test run 
+# These files are generated from training on each test run
 # and take some time to generate. Therefore, we make them a
 # fixture so that they are generated lazily only if there
 # is a test that requires them. Since we support parallel
