@@ -690,15 +690,17 @@ def test_restart(options, monkeypatch, tmp_path, MODEL_PATH_64_BIT):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
-    train_model(options, restart_from=MODEL_PATH_64_BIT.with_suffix("ckpt"))
+    train_model(options, restart_from=MODEL_PATH_64_BIT.with_suffix(".ckpt"))
 
 
 def test_finetune(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
     monkeypatch.chdir(tmp_path)
 
+    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
+
     options_pet["architecture"]["training"]["finetune"] = {
         "method": "heads",
-        "read_from": str(MODEL_PATH_PET),
+        "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
@@ -710,7 +712,7 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
     caplog.set_level(logging.INFO)
     train_model(options_pet)
 
-    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+    assert f"Starting finetuning from '{ckpt_path}'" in caplog.text
 
 
 def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
@@ -908,6 +910,8 @@ def test_restart_auto(
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
     caplog.set_level(logging.INFO)
 
+    ckpt_path = MODEL_PATH_64_BIT.with_suffix(".ckpt")
+
     # Make up an output directory with some checkpoints
     true_checkpoint_dir = Path("outputs/2021-09-02/00-10-05")
     # as well as some lower-priority checkpoints
@@ -925,7 +929,7 @@ def test_restart_auto(
         for checkpoint_dir in fake_checkpoints_dirs + [true_checkpoint_dir]:
             time.sleep(0.1)
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy(MODEL_PATH_64_BIT, checkpoint_dir / checkpoint_name)
+            shutil.copy(ckpt_path, checkpoint_dir / checkpoint_name)
 
     # also check that the timestamp-based implementation works with moved folders
     if move_folder:
@@ -959,7 +963,7 @@ def test_restart_different_dataset(options, monkeypatch, tmp_path, MODEL_PATH_64
     options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"]["targets"]["energy"]["key"] = "energy"
 
-    train_model(options, restart_from=MODEL_PATH_64_BIT)
+    train_model(options, restart_from=MODEL_PATH_64_BIT.with_suffix(".ckpt"))
 
 
 @pytest.mark.parametrize("seed", [None, 1234])

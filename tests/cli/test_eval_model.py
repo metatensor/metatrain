@@ -62,7 +62,12 @@ def test_eval(request, monkeypatch, tmp_path, caplog, model_type, options):
 
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
 
-    model_path = request.getfixturevalue(model_type)
+    fixture_name = {
+        "32-bit": "MODEL_PATH",
+        "64-bit": "MODEL_PATH_64_BIT",
+    }.get(model_type)
+
+    model_path = request.getfixturevalue(fixture_name)
 
     model = torch.jit.load(model_path)
 
@@ -94,7 +99,12 @@ def test_eval_batch_size(request, monkeypatch, tmp_path, caplog, model_type, opt
 
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
 
-    model_path = request.getfixturevalue(model_type)
+    fixture_name = {
+        "32-bit": "MODEL_PATH",
+        "64-bit": "MODEL_PATH_64_BIT",
+    }.get(model_type)
+
+    model_path = request.getfixturevalue(fixture_name)
 
     model = torch.jit.load(model_path)
 
