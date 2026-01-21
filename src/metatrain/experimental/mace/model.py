@@ -237,6 +237,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
         #    Add heads for targets
         # ---------------------------
 
+        self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
+        self.last_layer_feature_size: Dict[str, int] = {}  # for LLPR
+
         # Create heads for each target, store the layout for each of them.
         self.heads = torch.nn.ModuleDict()
         self.layouts: Dict[str, TensorMap] = {}
@@ -635,7 +638,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         self.layouts[target_name] = target_info.layout
 
-        self.last_layer_feature_size = 128
+        self.last_layer_parameter_names[target_name] = []
 
         if target_name == self.hypers["mace_head_target"]:
             # Fake head that will not compute the target, but will help
@@ -643,6 +646,16 @@ class MetaMACE(ModelInterface[ModelHypers]):
             self.heads[target_name] = MACEHeadWrapper(
                 self.mace_model.readouts, self.per_layer_irreps
             )
+
+            # TODO: account for cases where multiple internal heads are given
+            # TODO: figure out the indices from model hypers
+            self.last_layer_parameter_names[target_name].append(
+                f"mace_model.readouts.0.linear.weight"
+            )
+            self.last_layer_parameter_names[target_name].append(
+                f"mace_model.readouts.1.linear_2.weight"
+            )
+
         else:
             head = NonLinearHead(
                 irreps_in=self.features_irreps,
@@ -650,8 +663,11 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 MLP_irreps=o3.Irreps(self.hypers["MLP_irreps"]),
                 gate=mace_modules.gate_dict.get(self.hypers["gate"], None),
             )
-
             self.heads[target_name] = head.to(torch.float64)
+            # TODO: figure out the index from model hypers
+            self.last_layer_parameter_names[target_name].append(
+                f"heads.{target_name}.linear_2.weight"
+            )
 
         llf_irreps = self.heads[target_name].last_layer_features_irreps
 
@@ -663,6 +679,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 "properties_name": "feature",
             },
         )
+
+        llf_size = self.layouts[self._llf_name(target_name)].block().values.shape[-1]
+        self.last_layer_feature_size[target_name] = llf_size
 
     def _llf_name(self, target_name: str) -> str:
         """Get the name of the last layer features corresponding to a target.

@@ -151,17 +151,23 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         # register covariance, inverse covariance and multiplier buffers
         for name in self.outputs_list:
             uncertainty_name = _get_uncertainty_name(name)
+
+            if isinstance(self.ll_feat_size, Dict):
+                cur_ll_feat_size = self.ll_feat_size[name]
+            else:
+                cur_ll_feat_size = self.ll_feat_size
+
             self.register_buffer(
                 f"covariance_{uncertainty_name}",
                 torch.zeros(
-                    (self.ll_feat_size, self.ll_feat_size),
+                    (cur_ll_feat_size, cur_ll_feat_size),
                     dtype=dtype,
                 ),
             )
             self.register_buffer(
                 f"inv_covariance_{uncertainty_name}",
                 torch.zeros(
-                    (self.ll_feat_size, self.ll_feat_size),
+                    (cur_ll_feat_size, cur_ll_feat_size),
                     dtype=dtype,
                 ),
             )
@@ -206,6 +212,12 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         )
         self.llpr_ensemble_layers = torch.nn.ModuleDict()
         for name, value in self.ensemble_weight_sizes.items():
+
+            if isinstance(self.ll_feat_size, Dict):
+                cur_ll_feat_size = self.ll_feat_size[name]
+            else:
+                cur_ll_feat_size = self.ll_feat_size
+
             # create the linear layer for ensemble members
             tensor_names = self.model.last_layer_parameter_names[name]
             n_properties = torch.concatenate(
@@ -213,7 +225,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 axis=-1,
             ).shape[0]  # type: ignore
             self.llpr_ensemble_layers[name] = torch.nn.Linear(
-                self.ll_feat_size,
+                cur_ll_feat_size,
                 value * n_properties,
                 bias=False,
             )
@@ -655,11 +667,17 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             uncertainty_name = _get_uncertainty_name(name)
             covariance = self._get_covariance(uncertainty_name)
             inv_covariance = self._get_inv_covariance(uncertainty_name)
+
+            if isinstance(self.ll_feat_size, Dict):
+                cur_ll_feat_size = self.ll_feat_size[name]
+            else:
+                cur_ll_feat_size = self.ll_feat_size
+
             if regularizer is not None:
                 inv_covariance[:] = torch.inverse(
                     covariance
                     + regularizer
-                    * torch.eye(self.ll_feat_size, device=covariance.device)
+                    * torch.eye(cur_ll_feat_size, device=covariance.device)
                 )
             else:
                 # Try with an increasingly high regularization parameter until
@@ -671,14 +689,14 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     if not is_psd(
                         covariance
                         + 10**log10_sigma_squared
-                        * torch.eye(self.ll_feat_size, device=covariance.device)
+                        * torch.eye(cur_ll_feat_size, device=covariance.device)
                     ):
                         continue
                     else:
                         inverse = torch.inverse(
                             covariance
                             + 10 ** (log10_sigma_squared + 2.0)  # for good conditioning
-                            * torch.eye(self.ll_feat_size, device=covariance.device)
+                            * torch.eye(cur_ll_feat_size, device=covariance.device)
                         )
                         inv_covariance[:] = (inverse + inverse.T) / 2.0
                         break
