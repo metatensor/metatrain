@@ -285,7 +285,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     val_correct += (predicted == target_class).sum().item()
 
             val_loss /= len(val_dataloader)
-            val_acc = val_correct / val_total
+            val_acc = val_correct / val_total if val_total > 0 else 0.0
 
             # Prepare metrics for logging
             finalized_train_info = {
