@@ -383,6 +383,20 @@ def test_empty_training_set(monkeypatch, tmp_path, options):
         train_model(options)
 
 
+def test_empty_validation_set(monkeypatch, tmp_path, options):
+    """Test that an error is raised if no training set is provided."""
+    monkeypatch.chdir(tmp_path)
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["validation_set"] = 0.0
+    options["test_set"] = 0.4
+
+    match = "Requested dataset of zero length. This dataset will be empty."
+    with pytest.warns(UserWarning, match=match):
+        train_model(options)
+
+
 @pytest.mark.parametrize("split", [-0.1, 1.1])
 def test_wrong_test_split_size(split, monkeypatch, tmp_path, options):
     """Test that an error is raised if the test split has the wrong size"""
@@ -402,7 +416,7 @@ def test_wrong_test_split_size(split, monkeypatch, tmp_path, options):
         train_model(options)
 
 
-@pytest.mark.parametrize("split", [0.0, 1.1])
+@pytest.mark.parametrize("split", [-0.1, 1.1])
 def test_wrong_validation_split_size(split, monkeypatch, tmp_path, options):
     """Test that an error is raised if the validation split has the wrong size"""
     monkeypatch.chdir(tmp_path)
@@ -415,7 +429,7 @@ def test_wrong_validation_split_size(split, monkeypatch, tmp_path, options):
     if split > 1:
         match = r"Input should be less than 1"
     if split <= 0:
-        match = r"Input should be greater than 0"
+        match = r"Input should be greater than or equal to 0"
 
     with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
