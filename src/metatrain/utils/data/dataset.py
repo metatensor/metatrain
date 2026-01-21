@@ -994,6 +994,10 @@ class MemmapDataset(TorchDataset):
         self.x = MemmapArray(path / "x.bin", (self.na[-1], 3), "float32", mode="r")
         self.a = MemmapArray(path / "a.bin", (self.na[-1],), "int32", mode="r")
         self.c = MemmapArray(path / "c.bin", (self.ns, 3, 3), "float32", mode="r")
+        if os.path.exists(path / "momenta.bin"):  # for FlashMD
+            self.momenta = MemmapArray(
+                path / "momenta.bin", (self.na[-1], 3), "float32", mode="r"
+            )
 
         # Register arrays pointing to the targets
         self.target_arrays = {}
@@ -1166,6 +1170,31 @@ class MemmapDataset(TorchDataset):
                 blocks=[target_block],
             )
             target_dict[target_key] = target_tensormap
+
+        if hasattr(self, "momenta"):
+            momenta = torch.tensor(
+                self.momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
+            )
+            system.add_data(
+                "momenta",
+                TensorMap(
+                    keys=Labels.single(),
+                    blocks=[
+                        TensorBlock(
+                            values=momenta.unsqueeze(-1),
+                            samples=Labels(
+                                names=["system", "atom"],
+                                values=torch.tensor(
+                                    [[i, j] for j in range(self.na[i], self.na[i + 1])],
+                                    dtype=torch.int32,
+                                ),
+                            ),
+                            components=[Labels.range("xyz", 3)],
+                            properties=Labels.range("momentum", 1),
+                        ),
+                    ],
+                ),
+            )
 
         sample = self.sample_class(**{"system": system, **target_dict})
         return sample

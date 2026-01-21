@@ -77,7 +77,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -118,10 +118,25 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         is_distributed = self.hypers["distributed"]
 
-        # For the initial LLPR calibration, use a single device
-        # Distributed training will be initialized after calibration
-        device = devices[0]
-        rank = 0
+        # For the initial LLPR calibration, distributed training can be used
+        if is_distributed:
+            if len(devices) > 1:
+                raise ValueError(
+                    "Requested distributed training with the `multi-gpu` device. "
+                    " If you want to run distributed training with LLPR, please "
+                    "set `device` to cuda."
+                )
+            # Initialize distributed environment for calibration
+            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
+            device_number = distr_env.local_rank % torch.cuda.device_count()
+            device = torch.device("cuda", device_number)
+            torch.distributed.init_process_group(backend="nccl", device_id=device)
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
+            logging.info(f"Initialized distributed training on {world_size} devices")
+        else:
+            device = devices[0]
+            rank = 0
 
         # check device and dtype against wrapped model class
         if device.type not in wrapped_model.__class__.__supported_devices__:
@@ -135,107 +150,44 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 f"Supported dtypes are {wrapped_model.__class__.__supported_dtypes__}"
             )
 
-        logging.info(f"Training on device {device} with dtype {dtype}")
+        if is_distributed:
+            logging.info(f"Training on {world_size} devices with dtype {dtype}")
+        else:
+            logging.info(f"Training on device {device} with dtype {dtype}")
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
 
-        logging.info("Setting up data loaders")
-
-        # Create a collate function:
-        targets_keys = list(model.dataset_info.targets.keys())
-        collate_fn = CollateFn(
-            target_keys=targets_keys,
-            callables=[
-                get_system_with_neighbor_lists_transform(
-                    get_requested_neighbor_lists(model)
-                ),
-            ],
-            batch_atom_bounds=self.hypers["batch_atom_bounds"],
-        )
-
-        # Create dataloader for the training datasets:
-        train_dataloaders = []
-        for train_dataset in train_datasets:
-            if len(train_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A training dataset has fewer samples "
-                    f"({len(train_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
-            train_dataloaders.append(
-                DataLoader(
-                    dataset=train_dataset,
-                    batch_size=self.hypers["batch_size"],
-                    shuffle=False,
-                    drop_last=False,
-                    collate_fn=collate_fn,
-                )
-            )
-        train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=False)
-
-        # Create dataloader for the validation datasets:
-        val_dataloaders = []
-        for val_dataset in val_datasets:
-            if len(val_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A validation dataset has fewer samples "
-                    f"({len(val_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
-            val_dataloaders.append(
-                DataLoader(
-                    dataset=val_dataset,
-                    batch_size=self.hypers["batch_size"],
-                    shuffle=False,
-                    drop_last=False,
-                    collate_fn=collate_fn,
-                )
-            )
-        val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
-
         if start_epoch == 0:
-            logging.info("Starting LLPR preparation and calibration")
-            model.compute_covariance(train_dataloader)
+            logging.info("Computing LLPR covariance matrix")
+            model.compute_covariance(
+                train_datasets, self.hypers["batch_size"], is_distributed
+            )
+            logging.info("Computing LLPR inverse covariance matrix")
             model.compute_inverse_covariance(self.hypers["regularizer"])
-            model.calibrate(val_dataloader)
+            logging.info("Calibrating LLPR uncertainties")
+            model.calibrate(
+                val_datasets,
+                self.hypers["batch_size"],
+                is_distributed,
+                self.hypers["calibrate_with_absolute_residuals"],
+            )
+            logging.info("Generating LLPR ensemble members")
             model.generate_ensemble()
-            logging.info("LLPR calibration complete")
+            logging.info("LLPR complete!")
 
         if self.hypers["num_epochs"] is None:
-            logging.info(
-                "num_epochs is None, skipping ensemble weight training and "
-                "proceeding to model export"
-            )
+            if is_distributed:
+                torch.distributed.destroy_process_group()
             return
+        else:
+            logging.info("`num_epochs` is set: starting LLPR ensemble weight training")
 
-        # Initialize distributed training environment if requested
-        # This is done after LLPR calibration to avoid modifying calibration
-        # dataloaders
-        world_size = 1  # default for non-distributed training
-        if is_distributed:
-            if len(devices) > 1:
-                raise ValueError(
-                    "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with LLPR, please "
-                    "set `device` to cuda."
-                )
-            # the calculation of the device number works both when GPUs on different
-            # processes are not visible to each other and when they are
-            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
-            device_number = distr_env.local_rank % torch.cuda.device_count()
-            device = torch.device("cuda", device_number)
-            torch.distributed.init_process_group(backend="nccl", device_id=device)
-            world_size = torch.distributed.get_world_size()
-            rank = torch.distributed.get_rank()
-            logging.info(f"Initialized distributed training on {world_size} devices")
+        # Continue with ensemble training if num_epochs is not None
+        # (distributed environment is already initialized if needed)
+        world_size = torch.distributed.get_world_size() if is_distributed else 1
 
-            # Move model to the correct device for this process
-            model.to(device=device, dtype=dtype)
-
-        logging.info("Starting epoch-based training for LLPR ensemble calibration")
+        logging.info("Starting gradient-based training for LLPR ensemble calibration")
 
         # Re-create the dataloaders to make them shuffle and augment the data
         train_targets = model.dataset_info.targets
