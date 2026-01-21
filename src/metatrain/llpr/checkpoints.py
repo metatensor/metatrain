@@ -73,6 +73,7 @@ def trainer_update_v2_v3(checkpoint: dict) -> None:
     if "train_hypers" in checkpoint:
         checkpoint["train_hypers"]["batch_atom_bounds"] = [None, None]
 
+<<<<<<< HEAD
 
 def trainer_update_v3_v4(checkpoint: dict) -> None:
     """
@@ -82,3 +83,15 @@ def trainer_update_v3_v4(checkpoint: dict) -> None:
     """
     if "train_hypers" in checkpoint:
         checkpoint["train_hypers"]["calibrate_with_absolute_residuals"] = False
+=======
+def model_update_v3_v4(checkpoint: dict) -> dict:
+   
+    checkpoint["model_ckpt_version"] = 4
+    return checkpoint
+
+
+def trainer_update_v3_v4(checkpoint: dict) -> dict:
+    
+    checkpoint["trainer_ckpt_version"] = 4
+    return checkpoint
+>>>>>>> 5233aa2c (Fix checkpoint upgrades and add missing reference checkpoints)
