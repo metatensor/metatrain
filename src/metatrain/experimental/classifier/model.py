@@ -87,10 +87,6 @@ class Classifier(ModelInterface[ModelHypers]):
                 "The Classifier model requires a backbone that can output features."
             )
 
-        # Get the feature size from the wrapped model
-        # We'll determine this during the first forward pass
-        self.feature_size: Optional[int] = None
-
         # Store capabilities
         outputs = {name: ModelOutput() for name in self.dataset_info.targets.keys()}
         outputs["features"] = ModelOutput(quantity="", unit="", per_atom=False)
@@ -276,7 +272,6 @@ class Classifier(ModelInterface[ModelHypers]):
             "model_ckpt_version": self.__checkpoint_version__,
             "wrapped_model_checkpoint": wrapped_model_checkpoint,
             "state_dict": state_dict,
-            "feature_size": self.feature_size,
         }
         return checkpoint
 
