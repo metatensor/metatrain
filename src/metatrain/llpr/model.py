@@ -1268,8 +1268,8 @@ def _accumulate_local_crps_inputs(
     uncertainties: torch.Tensor,
     storage: dict[str, list[torch.Tensor]],
 ) -> None:
-    res = residuals.reshape(residuals.shape[0], -1).detach().cpu()
-    unc = uncertainties.reshape(uncertainties.shape[0], -1).detach().cpu()
+    res = residuals.reshape(residuals.shape[0], -1).detach()
+    unc = uncertainties.reshape(uncertainties.shape[0], -1).detach()
     storage["residuals"].append(res)
     storage["uncertainties"].append(unc)
 
