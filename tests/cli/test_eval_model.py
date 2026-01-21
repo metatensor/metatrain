@@ -54,15 +54,17 @@ def test_eval_cli(monkeypatch, tmp_path, MODEL_PATH):
     assert Path("output.xyz").is_file()
 
 
-@pytest.mark.parametrize("model_name", ["model-32-bit.pt", "model-64-bit.pt"])
-def test_eval(monkeypatch, tmp_path, caplog, model_name, options):
+@pytest.mark.parametrize("model_type", ["32-bit", "64-bit"])
+def test_eval(request, monkeypatch, tmp_path, caplog, model_type, options):
     """Test that eval via python API runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.INFO)
 
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
 
-    model = torch.jit.load(RESOURCES_PATH / model_name)
+    model_path = request.getfixturevalue(model_type)
+
+    model = torch.jit.load(model_path)
 
     eval_model(
         model=model,
@@ -84,15 +86,17 @@ def test_eval(monkeypatch, tmp_path, caplog, model_name, options):
     frames[0].info["energy"]
 
 
-@pytest.mark.parametrize("model_name", ["model-32-bit.pt", "model-64-bit.pt"])
-def test_eval_batch_size(monkeypatch, tmp_path, caplog, model_name, options):
+@pytest.mark.parametrize("model_type", ["32-bit", "64-bit"])
+def test_eval_batch_size(request, monkeypatch, tmp_path, caplog, model_type, options):
     """Test that eval via python API runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.DEBUG)
 
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
 
-    model = torch.jit.load(RESOURCES_PATH / model_name)
+    model_path = request.getfixturevalue(model_type)
+
+    model = torch.jit.load(model_path)
 
     eval_model(
         model=model,
@@ -180,14 +184,14 @@ def test_eval_no_targets(monkeypatch, tmp_path, model, options):
 
 
 @pytest.mark.parametrize("suffix", [".zip", ".mts"])
-def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix):
+def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix, MODEL_PATH):
     """Test that eval via python API runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.INFO)
 
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
 
-    model = torch.jit.load(RESOURCES_PATH / "model-32-bit.pt")
+    model = torch.jit.load(MODEL_PATH)
 
     options = OmegaConf.create(
         {
