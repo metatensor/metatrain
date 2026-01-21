@@ -387,8 +387,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ll_features_name = "mtt::aux::energy_last_layer_features"
             ll_features = return_dict[ll_features_name]
 
-                # compute PRs
-                # the code is the same for PR and LPR
+            # compute PRs
+            # the code is the same for PR and LPR
             if ll_features.block().values.ndim == 3:
                 one_over_pr_values = torch.einsum(
                     "icj, jk, ick -> i",
