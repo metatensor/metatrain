@@ -43,6 +43,7 @@ class TestCheckpoints(CheckpointTests, ClassifierTests):
         hypers = copy.deepcopy(get_default_hypers("pet"))
 
         pet_model_hypers = hypers["model"]
+        pet_model_hypers["d_node"] = 8
         pet_model_hypers["d_pet"] = 1
         pet_model_hypers["d_head"] = 1
         pet_model_hypers["d_feedforward"] = 1
@@ -140,14 +141,15 @@ def test_classifier_initialization():
     """Test that the Classifier model can be initialized."""
     hypers = {
         "hidden_sizes": [64, 32],
+        "feature_layer_index": 1,
     }
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
         atomic_types=[1, 6, 8],
         targets={
-            "mtt::class": get_generic_target_info(
-                "mtt::class",
+            "mtt::class_probabilities": get_generic_target_info(
+                "mtt::class_probabilities",
                 {
                     "quantity": "",
                     "unit": "",
@@ -205,11 +207,10 @@ def test_classifier(monkeypatch, tmp_path):
     structures = ase.io.read("qm9_reduced_100.xyz", ":")[:5]
 
     outputs = {
-        "mtt::class": ModelOutput(),
+        "mtt::class_probabilities": ModelOutput(),
     }
     predictions = calc.run_model(structures, outputs)
-    class_probs = predictions["mtt::class"].block().values
-
+    class_probs = predictions["mtt::class_probabilities"].block().values
     # Check shape (5 structures, 3 classes)
     assert class_probs.shape == (5, 3)
 
@@ -263,9 +264,9 @@ def test_checkpoint_export_from_ckpt(monkeypatch, tmp_path):
     calc = MetatomicCalculator("model-classifier.pt")
     test_structures = ase.io.read("qm9_reduced_100.xyz", ":")[:3]
 
-    outputs = {"mtt::class": ModelOutput()}
+    outputs = {"mtt::class_probabilities": ModelOutput()}
     predictions = calc.run_model(test_structures, outputs)
-    class_probs = predictions["mtt::class"].block().values
+    class_probs = predictions["mtt::class_probabilities"].block().values
 
     # Check shape (3 structures, 3 classes)
     assert class_probs.shape == (3, 3)

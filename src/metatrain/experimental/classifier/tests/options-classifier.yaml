@@ -3,7 +3,8 @@ seed: 42
 architecture:
   name: experimental.classifier
   model:
-    hidden_sizes: [32, 16, 2]
+    hidden_sizes: [8, 2, 8]
+    feature_layer_index: 1
   training:
     model_checkpoint: model.ckpt
     num_epochs: 2
