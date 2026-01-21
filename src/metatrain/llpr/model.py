@@ -677,6 +677,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
         batch_size: int,
         is_distributed: bool,
+        use_absolute_residuals: bool,
     ) -> None:
         """
         Calibrate the LLPR model.
@@ -690,6 +691,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         :param datasets: List of datasets to use for calibration.
         :param batch_size: Batch size to use for the dataloader.
         :param is_distributed: Whether to use distributed sampling or not.
+        :param use_absolute_residuals: Whether to use absolute residuals as opposed
+            to squared residuals for the calibration. In both cases, a Gaussian
+            error distribution is assumed in order to derive the calibration constants,
+            but using absolute residuals can help reduce the effect of large outliers.
         """
         # Create dataloader for the validation datasets
         valid_loader = self._get_dataloader(
@@ -699,11 +704,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         # infer device and dtype
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
-
-        # Step 1
-        # Calculate a preliminary alpha according to a modified formula:
-        # sum of abs(residual) / abs(uncertainty)
-        # in order to downweight the effect of large outliers
 
         sums = {}  # type: ignore
         counts = {}  # type: ignore
@@ -743,7 +743,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                             dim=tuple(range(1, abs_residuals.ndim - 1)),
                         )
 
-                    ratios = abs_residuals / unc  # can be multi-dimensional
+                    if use_absolute_residuals:
+                        ratios = abs_residuals / unc  # can be multi-dimensional
+                    else:
+                        ratios = (residuals**2) / (unc**2)
 
                     ratios_sum64 = torch.sum(ratios.to(torch.float64), dim=0)
                     count = torch.tensor(
@@ -760,99 +763,27 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         if is_distributed:
             # All-reduce the accumulated statistics across all processes
             for uncertainty_name in sums:
-                torch.distributed.all_reduce(
-                    sums[uncertainty_name], op=torch.distributed.ReduceOp.SUM
-                )
-                torch.distributed.all_reduce(
-                    counts[uncertainty_name], op=torch.distributed.ReduceOp.SUM
-                )
+                torch.distributed.all_reduce(sums[uncertainty_name])
+                torch.distributed.all_reduce(counts[uncertainty_name])
 
         for uncertainty_name in sums:
-            global_mean64 = sums[uncertainty_name] / counts[uncertainty_name].to(
-                torch.float64
-            )
+            if use_absolute_residuals:
+                # "MAE"-style calibration
+                global_mean64 = sums[uncertainty_name] / counts[uncertainty_name].to(
+                    torch.float64
+                )
+            else:
+                # "RMSE"-style calibration
+                global_mean64 = torch.sqrt(
+                    sums[uncertainty_name] / counts[uncertainty_name].to(torch.float64)
+                )
             multiplier = self._get_multiplier(uncertainty_name)
-            multiplier[:] = global_mean64.to(multiplier.dtype) / 0.798
-
-        # Step 2
-        # Calculate the real alpha according to the real formula:
-        # sqrt of (sum of residual^2 / uncertainty^2)
-        # while eliminating the effect of >5-sigma outliers
-
-        # sums = {}  # type: ignore
-        # counts = {}  # type: ignore
-
-        # with torch.no_grad():
-        #     for batch in valid_loader:
-        #         systems, targets, _ = unpack_batch(batch)
-        #         systems = [system.to(device=device, dtype=dtype) for system in systems]
-        #         targets = {
-        #             name: target.to(device=device, dtype=dtype)
-        #             for name, target in targets.items()
-        #         }
-        #         requested_outputs = {}
-        #         for name in targets:
-        #             per_atom = "atom" in targets[name].block(0).samples.names
-        #             requested_outputs[name] = ModelOutput(per_atom=per_atom)
-        #             uncertainty_name = _get_uncertainty_name(name)
-        #             requested_outputs[uncertainty_name] = ModelOutput(per_atom=per_atom)
-
-        #         outputs = self.forward(systems, requested_outputs)
-
-        #         for name, target in targets.items():
-        #             uncertainty_name = _get_uncertainty_name(name)
-
-        #             pred = outputs[name].block().values.detach()
-        #             targ = target.block().values
-        #             unc = outputs[uncertainty_name].block().values.detach()
-
-        #             # compute the uncertainty multiplier
-        #             residuals = pred - targ
-        #             squared_residuals = residuals**2
-        #             if squared_residuals.ndim > 2:
-        #                 # squared residuals need to be summed over component dimensions,
-        #                 # i.e., all but the first and last dimensions
-        #                 squared_residuals = torch.sum(
-        #                     squared_residuals,
-        #                     dim=tuple(range(1, squared_residuals.ndim - 1)),
-        #                 )
-
-        #             ratios = squared_residuals / unc**2  # can be multi-dimensional
-
-        #             # eliminate >5-sigma outliers, filtering the sample dimension
-        #             ratios = ratios[
-        #                 torch.all(ratios < 25.0, dim=tuple(range(1, ratios.ndim))), ...
-        #             ]
-
-        #             ratios_sum64 = torch.sum(ratios.to(torch.float64), dim=0)
-        #             count = torch.tensor(
-        #                 ratios.shape[0], dtype=torch.long, device=device
-        #             )
-
-        #             if uncertainty_name not in sums:
-        #                 sums[uncertainty_name] = ratios_sum64
-        #                 counts[uncertainty_name] = count
-        #             else:
-        #                 sums[uncertainty_name] = sums[uncertainty_name] + ratios_sum64
-        #                 counts[uncertainty_name] = counts[uncertainty_name] + count
-
-        # if is_distributed:
-        #     # All-reduce the accumulated statistics across all processes
-        #     for uncertainty_name in sums:
-        #         torch.distributed.all_reduce(
-        #             sums[uncertainty_name], op=torch.distributed.ReduceOp.SUM
-        #         )
-        #         torch.distributed.all_reduce(
-        #             counts[uncertainty_name], op=torch.distributed.ReduceOp.SUM
-        #         )
-
-        # for uncertainty_name in sums:
-        #     global_mean64 = sums[uncertainty_name] / counts[uncertainty_name].to(
-        #         torch.float64
-        #     )
-        #     multiplier = self._get_multiplier(uncertainty_name)
-        #     # apply as a correction factor to the previous multiplier
-        #     multiplier[:] = multiplier * torch.sqrt(global_mean64).to(multiplier.dtype)
+            if use_absolute_residuals:
+                # apply absolute correction factor (inverse of integral of abs(x)
+                # over Gaussian, i.e., sqrt(pi/2))
+                multiplier[:] = (global_mean64 * np.sqrt(np.pi / 2.0)).to(
+                    multiplier.dtype
+                )
 
     def generate_ensemble(self) -> None:
         """Generate an ensemble of weights for the model.

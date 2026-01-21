@@ -77,7 +77,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -159,14 +159,22 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.to(device=device, dtype=dtype)
 
         if start_epoch == 0:
-            logging.info("Starting LLPR preparation and calibration")
+            logging.info("Computing LLPR covariance matrix")
             model.compute_covariance(
                 train_datasets, self.hypers["batch_size"], is_distributed
             )
+            logging.info("Computing LLPR inverse covariance matrix")
             model.compute_inverse_covariance(self.hypers["regularizer"])
-            model.calibrate(val_datasets, self.hypers["batch_size"], is_distributed)
+            logging.info("Calibrating LLPR uncertainties")
+            model.calibrate(
+                val_datasets,
+                self.hypers["batch_size"],
+                is_distributed,
+                self.hypers["calibrate_with_absolute_residuals"],
+            )
+            logging.info("Generating LLPR ensemble members")
             model.generate_ensemble()
-            logging.info("LLPR calibration complete")
+            logging.info("LLPR complete!")
 
         if self.hypers["num_epochs"] is None:
             if is_distributed:
@@ -179,7 +187,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # (distributed environment is already initialized if needed)
         world_size = torch.distributed.get_world_size() if is_distributed else 1
 
-        logging.info("Starting epoch-based training for LLPR ensemble calibration")
+        logging.info("Starting gradient-based training for LLPR ensemble calibration")
 
         # Re-create the dataloaders to make them shuffle and augment the data
         train_targets = model.dataset_info.targets
