@@ -29,14 +29,12 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.pydantic import MetatrainValidationError
 from metatrain.utils.testing._utils import WANDB_AVAILABLE
 
-from . import (
+from ..conftest import (
     DATASET_PATH_CARBON,
     DATASET_PATH_DOS,
     DATASET_PATH_ETHANOL,
     DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
-    MODEL_PATH_64_BIT,
-    MODEL_PATH_PET,
     OPTIONS_EXTRA_DATA_PATH,
     OPTIONS_PATH,
     OPTIONS_PET_PATH,
@@ -687,7 +685,7 @@ def test_same_name_targets_extra_data(
         train_model(options_extra)
 
 
-def test_restart(options, monkeypatch, tmp_path):
+def test_restart(options, monkeypatch, tmp_path, MODEL_PATH_64_BIT):
     """Test that continuing training from a checkpoint runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
@@ -695,7 +693,7 @@ def test_restart(options, monkeypatch, tmp_path):
     train_model(options, restart_from=MODEL_PATH_64_BIT)
 
 
-def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
+def test_finetune(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
     monkeypatch.chdir(tmp_path)
 
     options_pet["architecture"]["training"]["finetune"] = {
@@ -715,7 +713,7 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
     assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
 
 
-def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
+def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
     monkeypatch.chdir(tmp_path)
 
     options_pet_transfer_learn = copy.deepcopy(options_pet)
@@ -739,7 +737,9 @@ def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
     assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
 
 
-def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
+def test_transfer_learn_with_forces(
+    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
+):
     monkeypatch.chdir(tmp_path)
 
     options_pet_transfer_learn = copy.deepcopy(options_pet)
@@ -772,7 +772,9 @@ def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
     assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
 
 
-def test_transfer_learn_variant(options_pet, caplog, monkeypatch, tmp_path):
+def test_transfer_learn_variant(
+    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
+):
     monkeypatch.chdir(tmp_path)
 
     options_pet_transfer_learn = copy.deepcopy(options_pet)
@@ -802,7 +804,9 @@ def test_transfer_learn_variant(options_pet, caplog, monkeypatch, tmp_path):
     assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
 
 
-def test_transfer_learn_inherit_heads(options_pet, caplog, monkeypatch, tmp_path):
+def test_transfer_learn_inherit_heads(
+    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
+):
     monkeypatch.chdir(tmp_path)
 
     options_pet_transfer_learn = copy.deepcopy(options_pet)
@@ -828,7 +832,7 @@ def test_transfer_learn_inherit_heads(options_pet, caplog, monkeypatch, tmp_path
 
 
 def test_transfer_learn_inherit_heads_invalid_source(
-    options_pet, caplog, monkeypatch, tmp_path
+    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
 ):
     monkeypatch.chdir(tmp_path)
 
@@ -858,7 +862,7 @@ def test_transfer_learn_inherit_heads_invalid_source(
 
 
 def test_transfer_learn_inherit_heads_invalid_destination(
-    options_pet, caplog, monkeypatch, tmp_path
+    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
 ):
     monkeypatch.chdir(tmp_path)
 
@@ -883,7 +887,9 @@ def test_transfer_learn_inherit_heads_invalid_destination(
 
 
 @pytest.mark.parametrize("move_folder", [True, False])
-def test_restart_auto(options, caplog, monkeypatch, tmp_path, move_folder):
+def test_restart_auto(
+    options, caplog, monkeypatch, tmp_path, move_folder, MODEL_PATH_64_BIT
+):
     """Test that continuing with the `auto` keyword results in
     a continuation from the most recent checkpoint."""
     monkeypatch.chdir(tmp_path)
@@ -932,7 +938,7 @@ def test_restart_auto_no_outputs(options, caplog, monkeypatch, tmp_path):
     assert "Restart training from" not in caplog.text
 
 
-def test_restart_different_dataset(options, monkeypatch, tmp_path):
+def test_restart_different_dataset(options, monkeypatch, tmp_path, MODEL_PATH_64_BIT):
     """Test that continuing training from a checkpoint runs without an error raise
     with a different dataset than the original."""
     monkeypatch.chdir(tmp_path)

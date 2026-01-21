@@ -19,7 +19,7 @@ from metatrain.cli.export import export_model
 from metatrain.utils.architectures import find_all_architectures
 from metatrain.utils.io import load_model
 
-from . import RESOURCES_PATH
+from ..conftest import RESOURCES_PATH
 
 
 @pytest.mark.parametrize("path", [Path("exported.pt"), "exported.pt"])

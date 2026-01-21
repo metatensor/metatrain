@@ -11,7 +11,7 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.output_gradient import compute_gradient
 
-from . import MODEL_HYPERS, RESOURCES_PATH
+from ..conftest import MODEL_HYPERS, RESOURCES_PATH
 
 
 @pytest.mark.parametrize("is_training", [True, False])

@@ -18,11 +18,11 @@ from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
-from . import EVAL_OPTIONS_PATH, MODEL_HYPERS, MODEL_PATH, RESOURCES_PATH
+from ..conftest import EVAL_OPTIONS_PATH, MODEL_HYPERS, RESOURCES_PATH
 
 
 @pytest.fixture
-def model():
+def model(MODEL_PATH):
     return torch.jit.load(MODEL_PATH)
 
 
@@ -31,7 +31,7 @@ def options():
     return OmegaConf.load(EVAL_OPTIONS_PATH)
 
 
-def test_eval_cli(monkeypatch, tmp_path):
+def test_eval_cli(monkeypatch, tmp_path, MODEL_PATH):
     """Test succesful run of the eval script via the CLI with default arguments"""
     monkeypatch.chdir(tmp_path)
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
