@@ -784,6 +784,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 multiplier[:] = (global_mean64 * np.sqrt(np.pi / 2.0)).to(
                     multiplier.dtype
                 )
+            else:
+                multiplier[:] = global_mean64.to(multiplier.dtype)
 
     def generate_ensemble(self) -> None:
         """Generate an ensemble of weights for the model.
