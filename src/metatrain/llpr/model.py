@@ -151,17 +151,21 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         # register covariance, inverse covariance and multiplier buffers
         for name in self.outputs_list:
             uncertainty_name = _get_uncertainty_name(name)
+            if isinstance(self.ll_feat_size, Dict):
+                cur_ll_feat_size = self.ll_feat_size[name]
+            else:
+                cur_ll_feat_size = self.ll_feat_size
             self.register_buffer(
                 f"covariance_{uncertainty_name}",
                 torch.zeros(
-                    (self.ll_feat_size, self.ll_feat_size),
+                    (cur_ll_feat_size, cur_ll_feat_size),
                     dtype=dtype,
                 ),
             )
             self.register_buffer(
                 f"inv_covariance_{uncertainty_name}",
                 torch.zeros(
-                    (self.ll_feat_size, self.ll_feat_size),
+                    (cur_ll_feat_size, cur_ll_feat_size),
                     dtype=dtype,
                 ),
             )
@@ -206,6 +210,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         )
         self.llpr_ensemble_layers = torch.nn.ModuleDict()
         for name, value in self.ensemble_weight_sizes.items():
+            if isinstance(self.ll_feat_size, Dict):
+                cur_ll_feat_size = self.ll_feat_size[name]
+            else:
+                cur_ll_feat_size = self.ll_feat_size            
             # create the linear layer for ensemble members
             tensor_names = self.model.last_layer_parameter_names[name]
             n_properties = torch.concatenate(
@@ -213,7 +221,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 axis=-1,
             ).shape[0]  # type: ignore
             self.llpr_ensemble_layers[name] = torch.nn.Linear(
-                self.ll_feat_size,
+                cur_ll_feat_size,
                 value * n_properties,
                 bias=False,
             )
@@ -389,12 +397,22 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
             # compute PRs
             # the code is the same for PR and LPR
-            one_over_pr_values = torch.einsum(
-                "ij, jk, ik -> i",
-                ll_features.block().values,
-                self._get_inv_covariance(uncertainty_name),
-                ll_features.block().values,
-            ).unsqueeze(1)
+            if len(ll_features.block().values.shape) == 2:
+                one_over_pr_values = torch.einsum(
+                    "ij, jk, ik -> i",
+                    ll_features.block().values,
+                    self._get_inv_covariance(uncertainty_name),
+                    ll_features.block().values,
+                ).unsqueeze(-1)
+
+            # account for components dimension if shape is larger than 2
+            else:
+                one_over_pr_values = torch.einsum(
+                    "ikj, jl, ikl -> ik",
+                    ll_features.block().values,
+                    self._get_inv_covariance(uncertainty_name),
+                    ll_features.block().values,
+                ).unsqueeze(-1)
 
             original_name = self._get_original_name(uncertainty_name)
 
@@ -406,6 +424,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             # with expansion targeting num_prop
             # Note that we take the square root here (just below) to convert variance to
             # standard deviation
+            if len(ll_features.block().values.shape) == 2:
+                llpr_uq_vals = torch.sqrt(one_over_pr_values.expand((-1, num_prop)))
+            else:
+                llpr_uq_vals = torch.sqrt(one_over_pr_values.expand((-1, -1, num_prop)))
             uncertainty = TensorMap(
                 keys=Labels(
                     names=["_"],
@@ -415,7 +437,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ),
                 blocks=[
                     TensorBlock(
-                        values=torch.sqrt(one_over_pr_values.expand((-1, num_prop))),
+                        values=llpr_uq_vals,
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
                         properties=cur_prop,
@@ -425,6 +447,15 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
             # calibrated multiplier TensorMaps (values expanded into shape (num_samples,
             # num_prop), with expansion targeting num_samples
+            if len(ll_features.block().values.shape) == 2:
+                mult_vals = self._get_multiplier(uncertainty_name).expand(
+                    llpr_uq_vals.shape[0], num_prop
+                )
+            else:
+                mult_vals = self._get_multiplier(uncertainty_name).expand(
+                    llpr_uq_vals.shape[0], llpr_uq_vals.shape[1], num_prop
+                )
+
             multipliers = TensorMap(
                 keys=Labels(
                     names=["_"],
@@ -434,9 +465,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ),
                 blocks=[
                     TensorBlock(
-                        values=self._get_multiplier(uncertainty_name).expand(
-                            one_over_pr_values.shape[0], num_prop
-                        ),
+                        values=mult_vals,
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
                         properties=cur_prop,
@@ -617,6 +646,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     else:
                         # For per-atom targets, use the features directly
                         ll_feats = ll_feat_tmap.block().values.detach()
+                        
+                    # TODO: reconsider flattening out components in covariance
+                    if len(ll_feats.shape) > 2:
+                        ll_feats = ll_feats.reshape(-1, ll_feats.shape[-1])
                     uncertainty_name = _get_uncertainty_name(name)
                     covariance = self._get_covariance(uncertainty_name)
                     covariance += ll_feats.T @ ll_feats
@@ -644,11 +677,17 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             uncertainty_name = _get_uncertainty_name(name)
             covariance = self._get_covariance(uncertainty_name)
             inv_covariance = self._get_inv_covariance(uncertainty_name)
+
+            if isinstance(self.ll_feat_size, Dict):
+                cur_ll_feat_size = self.ll_feat_size[name]
+            else:
+                cur_ll_feat_size = self.ll_feat_size            
+
             if regularizer is not None:
                 inv_covariance[:] = torch.inverse(
                     covariance
                     + regularizer
-                    * torch.eye(self.ll_feat_size, device=covariance.device)
+                    * torch.eye(cur_ll_feat_size, device=covariance.device)
                 )
             else:
                 # Try with an increasingly high regularization parameter until
@@ -660,14 +699,14 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     if not is_psd(
                         covariance
                         + 10**log10_sigma_squared
-                        * torch.eye(self.ll_feat_size, device=covariance.device)
+                        * torch.eye(cur_ll_feat_size, device=covariance.device)
                     ):
                         continue
                     else:
                         inverse = torch.inverse(
                             covariance
                             + 10 ** (log10_sigma_squared + 2.0)  # for good conditioning
-                            * torch.eye(self.ll_feat_size, device=covariance.device)
+                            * torch.eye(cur_ll_feat_size, device=covariance.device)
                         )
                         inv_covariance[:] = (inverse + inverse.T) / 2.0
                         break
@@ -696,163 +735,74 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             datasets, batch_size, is_distributed=is_distributed
         )
 
-        # infer device and dtype
+        # calibrate the LLPR
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
+        all_predictions = {}  # type: ignore
+        all_targets = {}  # type: ignore
+        all_uncertainties = {}  # type: ignore
 
-        # Step 1
-        # Calculate a preliminary alpha according to a modified formula:
-        # sum of abs(residual) / abs(uncertainty)
-        # in order to downweight the effect of large outliers
+        for batch in valid_loader:
+            systems, targets, extra_data = unpack_batch(batch)
+            systems = [system.to(device=device, dtype=dtype) for system in systems]
+            targets = {
+                name: target.to(device=device, dtype=dtype)
+                for name, target in targets.items()
+            }
 
-        sums = {}  # type: ignore
-        counts = {}  # type: ignore
+            requested_outputs = {}
+            for name in targets:
+                per_atom = "atom" in targets[name].block(0).samples.names
+                requested_outputs[name] = ModelOutput(per_atom=per_atom)
+                uncertainty_name = _get_uncertainty_name(name)
+                requested_outputs[uncertainty_name] = ModelOutput(per_atom=per_atom)
 
-        with torch.no_grad():
-            for batch in valid_loader:
-                systems, targets, _ = unpack_batch(batch)
-                systems = [system.to(device=device, dtype=dtype) for system in systems]
-                targets = {
-                    name: target.to(device=device, dtype=dtype)
-                    for name, target in targets.items()
-                }
-                requested_outputs = {}
-                for name in targets:
-                    per_atom = "atom" in targets[name].block(0).samples.names
-                    requested_outputs[name] = ModelOutput(per_atom=per_atom)
-                    uncertainty_name = _get_uncertainty_name(name)
-                    requested_outputs[uncertainty_name] = ModelOutput(per_atom=per_atom)
+            outputs = self.forward(systems, requested_outputs)
 
-                outputs = self.forward(systems, requested_outputs)
-
-                for name, target in targets.items():
-                    uncertainty_name = _get_uncertainty_name(name)
-
-                    pred = outputs[name].block().values.detach()
-                    targ = target.block().values
-                    unc = outputs[uncertainty_name].block().values.detach()
-
-                    # compute the uncertainty multiplier
-                    residuals = pred - targ
-                    abs_residuals = torch.abs(residuals)
-                    if abs_residuals.ndim > 2:
-                        # squared residuals need to be summed over component dimensions,
-                        # i.e., all but the first and last dimensions
-                        abs_residuals = torch.sum(
-                            abs_residuals,
-                            dim=tuple(range(1, abs_residuals.ndim - 1)),
-                        )
-
-                    ratios = abs_residuals / unc  # can be multi-dimensional
-
-                    ratios_sum64 = torch.sum(ratios.to(torch.float64), dim=0)
-                    count = torch.tensor(
-                        ratios.shape[0], dtype=torch.long, device=device
-                    )
-
-                    if uncertainty_name not in sums:
-                        sums[uncertainty_name] = ratios_sum64
-                        counts[uncertainty_name] = count
-                    else:
-                        sums[uncertainty_name] = sums[uncertainty_name] + ratios_sum64
-                        counts[uncertainty_name] = counts[uncertainty_name] + count
-
-        if is_distributed:
-            # All-reduce the accumulated statistics across all processes
-            for uncertainty_name in sums:
-                torch.distributed.all_reduce(
-                    sums[uncertainty_name], op=torch.distributed.ReduceOp.SUM
-                )
-                torch.distributed.all_reduce(
-                    counts[uncertainty_name], op=torch.distributed.ReduceOp.SUM
+            for name, target in targets.items():
+                uncertainty_name = _get_uncertainty_name(name)
+                if name not in all_predictions:
+                    all_predictions[name] = []
+                    all_targets[name] = []
+                    all_uncertainties[uncertainty_name] = []
+                all_predictions[name].append(outputs[name].block().values.detach())
+                all_targets[name].append(target.block().values)
+                all_uncertainties[uncertainty_name].append(
+                    outputs[uncertainty_name].block().values.detach()
                 )
 
-        for uncertainty_name in sums:
-            global_mean64 = sums[uncertainty_name] / counts[uncertainty_name].to(
-                torch.float64
+        for name in all_predictions:
+            all_predictions[name] = torch.cat(all_predictions[name], dim=0)
+            all_targets[name] = torch.cat(all_targets[name], dim=0)
+            uncertainty_name = _get_uncertainty_name(name)
+            all_uncertainties[uncertainty_name] = torch.cat(
+                all_uncertainties[uncertainty_name], dim=0
             )
+
+        for name in all_predictions:
+            # compute the uncertainty multiplier
+
+            print(all_predictions[name].shape)
+            print(all_targets[name].shape)
+
+            residuals = all_predictions[name] - all_targets[name]
+
+            print(residuals.shape)
+
+            uncertainty_name = _get_uncertainty_name(name)
+            uncertainties = all_uncertainties[uncertainty_name]
+
+            print(uncertainties.shape)
+
+            ratios = residuals**2 / uncertainties**2  # can be multi-dimensional
             multiplier = self._get_multiplier(uncertainty_name)
-            multiplier[:] = global_mean64.to(multiplier.dtype) / 0.798
+            print("!!!!!!!")
+            print(multiplier)
+            multiplier[:] = torch.sqrt(torch.mean(ratios, dim=0))  # only along samples
+            print(multiplier)
+            print(multiplier.shape)
 
-        # Step 2
-        # Calculate the real alpha according to the real formula:
-        # sqrt of (sum of residual^2 / uncertainty^2)
-        # while eliminating the effect of >5-sigma outliers
 
-        # sums = {}  # type: ignore
-        # counts = {}  # type: ignore
-
-        # with torch.no_grad():
-        #     for batch in valid_loader:
-        #         systems, targets, _ = unpack_batch(batch)
-        #         systems = [system.to(device=device, dtype=dtype) for system in systems]
-        #         targets = {
-        #             name: target.to(device=device, dtype=dtype)
-        #             for name, target in targets.items()
-        #         }
-        #         requested_outputs = {}
-        #         for name in targets:
-        #             per_atom = "atom" in targets[name].block(0).samples.names
-        #             requested_outputs[name] = ModelOutput(per_atom=per_atom)
-        #             uncertainty_name = _get_uncertainty_name(name)
-        #             requested_outputs[uncertainty_name] = ModelOutput(per_atom=per_atom)
-
-        #         outputs = self.forward(systems, requested_outputs)
-
-        #         for name, target in targets.items():
-        #             uncertainty_name = _get_uncertainty_name(name)
-
-        #             pred = outputs[name].block().values.detach()
-        #             targ = target.block().values
-        #             unc = outputs[uncertainty_name].block().values.detach()
-
-        #             # compute the uncertainty multiplier
-        #             residuals = pred - targ
-        #             squared_residuals = residuals**2
-        #             if squared_residuals.ndim > 2:
-        #                 # squared residuals need to be summed over component dimensions,
-        #                 # i.e., all but the first and last dimensions
-        #                 squared_residuals = torch.sum(
-        #                     squared_residuals,
-        #                     dim=tuple(range(1, squared_residuals.ndim - 1)),
-        #                 )
-
-        #             ratios = squared_residuals / unc**2  # can be multi-dimensional
-
-        #             # eliminate >5-sigma outliers, filtering the sample dimension
-        #             ratios = ratios[
-        #                 torch.all(ratios < 25.0, dim=tuple(range(1, ratios.ndim))), ...
-        #             ]
-
-        #             ratios_sum64 = torch.sum(ratios.to(torch.float64), dim=0)
-        #             count = torch.tensor(
-        #                 ratios.shape[0], dtype=torch.long, device=device
-        #             )
-
-        #             if uncertainty_name not in sums:
-        #                 sums[uncertainty_name] = ratios_sum64
-        #                 counts[uncertainty_name] = count
-        #             else:
-        #                 sums[uncertainty_name] = sums[uncertainty_name] + ratios_sum64
-        #                 counts[uncertainty_name] = counts[uncertainty_name] + count
-
-        # if is_distributed:
-        #     # All-reduce the accumulated statistics across all processes
-        #     for uncertainty_name in sums:
-        #         torch.distributed.all_reduce(
-        #             sums[uncertainty_name], op=torch.distributed.ReduceOp.SUM
-        #         )
-        #         torch.distributed.all_reduce(
-        #             counts[uncertainty_name], op=torch.distributed.ReduceOp.SUM
-        #         )
-
-        # for uncertainty_name in sums:
-        #     global_mean64 = sums[uncertainty_name] / counts[uncertainty_name].to(
-        #         torch.float64
-        #     )
-        #     multiplier = self._get_multiplier(uncertainty_name)
-        #     # apply as a correction factor to the previous multiplier
-        #     multiplier[:] = multiplier * torch.sqrt(global_mean64).to(multiplier.dtype)
 
     def generate_ensemble(self) -> None:
         """Generate an ensemble of weights for the model.

@@ -370,7 +370,6 @@ class BaseScaler(torch.nn.Module):
                 scales_block_values = scales_block.values
                 for _ in range(scaled_vals.dim() - 2):
                     scales_block_values = scales_block_values.unsqueeze(1)
-
                 if self.sample_kinds[output_name] == "per_structure":
                     # Scale the values of the output block
                     if remove:  # remove the scaler
