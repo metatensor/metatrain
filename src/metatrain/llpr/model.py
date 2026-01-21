@@ -969,10 +969,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             for name in targets:
                 uncertainty_name = _get_uncertainty_name(name)
                 multiplier = self._get_multiplier(uncertainty_name)
-                multiplier[:] = torch.tensor(
-                    alpha, device=device, dtype=multiplier.dtype
-                )
-        print(f"Calibrated multiplier for {uncertainty_name}: {multiplier.item()}")
+                multiplier[:] = alpha.to(device=device, dtype=multiplier.dtype)
+        print(f"Calibrated multiplier for {uncertainty_name}: {multiplier}")
 
     def generate_ensemble(self) -> None:
         """Generate an ensemble of weights for the model.
@@ -1267,62 +1265,187 @@ def _accumulate_local_crps_inputs(
     residuals: torch.Tensor,
     uncertainties: torch.Tensor,
     storage: dict[str, list[torch.Tensor]],
+    eps: float = 1e-12,
 ) -> None:
-    res = residuals.reshape(residuals.shape[0], -1).detach()
-    unc = uncertainties.reshape(uncertainties.shape[0], -1).detach()
+    # res = residuals.reshape(residuals.shape[0], -1).detach()
+    # unc = uncertainties.reshape(uncertainties.shape[0], -1).detach()
+    # storage["residuals"].append(res)
+    # storage["uncertainties"].append(unc)
+    res = residuals.detach()
+    unc = uncertainties.detach()
+
+    # Ensure uncertainties are at least (N, M) after possible broadcasting
+    # (we'll reshape later after matching residual reduction).
+    # Reduce residuals over component dims (all but first and last).
+    if res.ndim > 2:
+        # L2 magnitude across component dimensions -> (N, M)
+        comp_dims = tuple(range(1, res.ndim - 1))
+        res = torch.sqrt(torch.sum(res * res, dim=comp_dims) + eps)
+    elif res.ndim == 1:
+        # (N,) -> (N,1)
+        res = res[:, None]
+
+    # Now res is (N, M)
+    N, M = res.shape[0], res.shape[-1]
+
+    # Make uncertainties shape (N, M) (or broadcastable to it)
+    unc = unc[:, None]
+
+    # Finally, reshape explicitly to (N, M)
+    unc = unc.reshape(N, M).clamp_min(eps)
+    res = res.reshape(N, M)
+
     storage["residuals"].append(res)
     storage["uncertainties"].append(unc)
 
 
-def _crps_derivative(
-    alpha: float, local_residuals: torch.Tensor, local_uncertainties: torch.Tensor
+# def _crps_derivative(
+#     alpha: float, local_residuals: torch.Tensor, local_uncertainties: torch.Tensor
+# ) -> float:
+#     res = local_residuals
+#     unc = local_uncertainties
+#     alpha = float(alpha)
+
+#     u = res / (alpha * unc)
+#     phi_u = norm.pdf(u)
+#     Phi_u = norm.cdf(u)
+#     F_u = (
+#         (1.0 / (torch.sqrt(torch.tensor(torch.pi))))
+#         - 2.0 * phi_u
+#         - u * (2.0 * Phi_u - 1.0)
+#     )
+
+#     lhs_local = torch.sum(unc * (F_u - u * (1.0 - 2.0 * Phi_u)))
+
+#     if torch.distributed.is_available() and torch.distributed.is_initialized():
+#         torch.distributed.all_reduce(lhs_local, op=torch.distributed.ReduceOp.SUM)
+#     return lhs_local.item()
+
+
+# def _solve_alpha_crps(
+#     local_residuals: torch.Tensor, local_uncertainties: torch.Tensor
+# ) -> float:
+#     from scipy.optimize import root_scalar
+
+#     def f(alpha: float) -> float:
+#         return _crps_derivative(alpha, local_residuals, local_uncertainties)
+
+#     if torch.distributed.is_available() and torch.distributed.is_initialized():
+#         rank = torch.distributed.get_rank()
+#         if rank == 0:
+#             sol = root_scalar(f, bracket=[1e-10, 50.0], method="brentq")
+#             alpha = sol.root
+#         else:
+#             alpha = 0.0
+
+#         alpha_tensor = torch.tensor(
+#             alpha, dtype=torch.float64, device=local_residuals.device
+#         )
+#         torch.distributed.broadcast(alpha_tensor, src=0)
+#         alpha = float(alpha_tensor.item())
+#     else:
+#         sol = root_scalar(f, bracket=[1e-10, 50.0], method="brentq")
+#         alpha = sol.root
+
+
+#     return alpha
+def _crps_derivative_channel(
+    alpha: float,
+    res_ch: torch.Tensor,  # (N,)
+    unc_ch: torch.Tensor,  # (N,)
 ) -> float:
-    res = local_residuals
-    unc = local_uncertainties
+    """
+    Derivative of the Gaussian CRPS objective wrt alpha for one channel.
+    Fully torch-based (GPU-safe). Optionally performs an all-reduce on the scalar.
+    """
+    import math
+
     alpha = float(alpha)
+    # Avoid division by zero and keep alpha positive.
+    alpha = max(alpha, 1e-20)
 
-    u = res / (alpha * unc)
-    phi_u = norm.pdf(u)
-    Phi_u = norm.cdf(u)
-    F_u = (
-        (1.0 / (torch.sqrt(torch.tensor(torch.pi))))
-        - 2.0 * phi_u
-        - u * (2.0 * Phi_u - 1.0)
-    )
+    # u = r / (alpha * sigma)
+    u = res_ch / (alpha * unc_ch)
 
-    lhs_local = torch.sum(unc * (F_u - u * (1.0 - 2.0 * Phi_u)))
+    # Standard normal PDF and CDF in torch
+    # phi(u) = (1/sqrt(2pi)) exp(-u^2/2)
+    phi = (1.0 / math.sqrt(2.0 * math.pi)) * torch.exp(-0.5 * u * u)
+    # Phi(u) = 0.5 * (1 + erf(u/sqrt(2)))
+    Phi = 0.5 * (1.0 + torch.erf(u / math.sqrt(2.0)))
+
+    # F(u) from your analytical CRPS expression
+    inv_sqrt_pi = 1.0 / math.sqrt(math.pi)
+    F_u = inv_sqrt_pi - 2.0 * phi - u * (2.0 * Phi - 1.0)
+
+    # LHS of the optimality condition for alpha
+    lhs_local = torch.sum(unc_ch * (F_u - u * (1.0 - 2.0 * Phi)))
 
     if torch.distributed.is_available() and torch.distributed.is_initialized():
         torch.distributed.all_reduce(lhs_local, op=torch.distributed.ReduceOp.SUM)
-    return lhs_local.item()
+
+    return float(lhs_local.item())
 
 
 def _solve_alpha_crps(
-    local_residuals: torch.Tensor, local_uncertainties: torch.Tensor
-) -> float:
+    local_residuals: torch.Tensor,  # (N, M)
+    local_uncertainties: torch.Tensor,  # (N, M)
+    bracket: tuple[float, float] = (1e-10, 50.0),
+) -> torch.Tensor:
+    """
+    Solve for alpha per channel (M,) by minimizing Gaussian CRPS.
+    Distributed-safe: root finding runs on ALL ranks so collectives in f() are matched.
+    """
     from scipy.optimize import root_scalar
 
-    def f(alpha: float) -> float:
-        return _crps_derivative(alpha, local_residuals, local_uncertainties)
-
-    if torch.distributed.is_available() and torch.distributed.is_initialized():
-        rank = torch.distributed.get_rank()
-        if rank == 0:
-            sol = root_scalar(f, bracket=[1e-10, 50.0], method="brentq")
-            alpha = sol.root
-        else:
-            alpha = 0.0
-
-        alpha_tensor = torch.tensor(
-            alpha, dtype=torch.float64, device=local_residuals.device
+    if local_residuals.ndim != 2 or local_uncertainties.ndim != 2:
+        raise ValueError(
+            "CRPS solver expects (N, M) residuals and uncertainties tensors."
         )
-        torch.distributed.broadcast(alpha_tensor, src=0)
-        alpha = float(alpha_tensor.item())
-    else:
-        sol = root_scalar(f, bracket=[1e-10, 50.0], method="brentq")
-        alpha = sol.root
 
-    return alpha
+    N, M = local_residuals.shape
+    alphas = torch.empty((M,), dtype=torch.float64, device=local_residuals.device)
+
+    # Solve per channel
+    for m in range(M):
+        res_ch = local_residuals[:, m]
+        unc_ch = local_uncertainties[:, m]
+
+        def f(a: float) -> float:
+            return _crps_derivative_channel(a, res_ch, unc_ch)
+
+        # Brent requires a sign change; we try to find one deterministically.
+        a_lo, a_hi = bracket
+        f_lo = f(a_lo)
+        f_hi = f(a_hi)
+
+        # Expand bracket if needed (deterministic; uses global f via all-reduce)
+        if f_lo * f_hi > 0.0:
+            # Try expanding upper bound first
+            a_lo2, a_hi2 = a_lo, a_hi
+            for _ in range(12):
+                a_hi2 *= 10.0
+                f_hi2 = f(a_hi2)
+                if f_lo * f_hi2 <= 0.0:
+                    a_hi, f_hi = a_hi2, f_hi2
+                    break
+            else:
+                # Try shrinking lower bound
+                a_lo2, a_hi2 = a_lo, a_hi
+                for _ in range(12):
+                    a_lo2 /= 10.0
+                    f_lo2 = f(a_lo2)
+                    if f_lo2 * f_hi <= 0.0:
+                        a_lo, f_lo = a_lo2, f_lo2
+                        break
+                else:
+                    # As a last resort, fall back to the initial bracket and let it raise.
+                    # (This indicates the derivative did not cross zero in a wide range.)
+                    pass
+
+        sol = root_scalar(f, bracket=[a_lo, a_hi], method="brentq")
+        alphas[m] = float(sol.root)
+
+    return alphas
 
 
 # def _crps_alpha_equation(
