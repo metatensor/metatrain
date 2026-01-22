@@ -474,7 +474,8 @@ def test_default_test_set(caplog, monkeypatch, tmp_path, options):
 
 
 def test_integer_validation_test_set_size(caplog, monkeypatch, tmp_path, options):
-    """Test that integer values (e.g., 0 instead of 0.0) work for validation/test set."""
+    """Test that integer values (e.g., 0 instead of 0.0) work for
+    validation/test set."""
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.DEBUG)
 
