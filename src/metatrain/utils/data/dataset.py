@@ -1113,7 +1113,7 @@ class MemmapDataset(TorchDataset):
                     ],
                 ),
             )
-        if False:
+        if masses is not None:
             system.add_data(
                 "masses",
                 TensorMap(
@@ -1128,7 +1128,6 @@ class MemmapDataset(TorchDataset):
                                     dtype=torch.int32,
                                 ),
                             ),
-                            # samples=Labels.range("atom", len(system)),
                             components=[],
                             properties=Labels.single(),
                         )
@@ -1236,31 +1235,6 @@ class MemmapDataset(TorchDataset):
                 blocks=[target_block],
             )
             target_dict[target_key] = target_tensormap
-
-        # if momenta is not None:
-        #    momenta = torch.tensor(
-        #        self.momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
-        #    )
-        #    system.add_data(
-        #        "momenta",
-        #       TensorMap(
-        #           keys=Labels.single(),
-        #           blocks=[
-        #               TensorBlock(
-        #                   values=momenta.unsqueeze(-1),
-        #                   samples=Labels(
-        #                       names=["system", "atom"],
-        #                       values=torch.tensor(
-        #                           [[i, j] for j in range(self.na[i], self.na[i + 1])],
-        #                           dtype=torch.int32,
-        #                       ),
-        #                   ),
-        #                   components=[Labels.range("xyz", 3)],
-        #                   properties=Labels.range("momentum", 1),
-        #               ),
-        #           ],
-        #       ),
-        #   )
 
         sample = self.sample_class(**{"system": system, **target_dict})
         return sample
