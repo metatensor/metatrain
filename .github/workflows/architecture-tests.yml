@@ -13,6 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         architecture-name:
+          - classifier
           - flashmd
           - flashmd-symplectic
           - gap
@@ -20,7 +21,7 @@ jobs:
           - mace
           - nanopet
           - pet
-          - soap-bpnn        
+          - soap-bpnn
 
     runs-on: ubuntu-22.04
 

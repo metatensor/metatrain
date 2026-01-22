@@ -47,6 +47,21 @@ class TrainerHypers(TypedDict):
     """This defines the batch size used in the computation of last-layer
     features, covariance matrix, etc."""
 
+    calibrate_with_absolute_residuals: bool = True
+    r"""This determines how to calculate the calibration factor :math:`\alpha` in
+    Eq. 24 of Bigi et al :footcite:p:`bigi_mlst_2024`:
+
+    .. math::
+
+        \sigma^2_\star = \alpha^2 \boldsymbol{\mathrm{f}}^{\mathrm{T}}_\star
+        (\boldsymbol{\mathrm{F}}^{\mathrm{T}} \boldsymbol{\mathrm{F}} + \varsigma^2
+        \boldsymbol{\mathrm{I}})^{-1} \boldsymbol{\mathrm{f}}_\star
+
+    In any case, a Gaussian error distribution is assumed. If set to ``False``, the
+    calibration factor is computed based on the squared residuals, if set to ``True``,
+    the absolute residuals are used. The latter choice is more robust to outliers and we
+    recommend using it for large and/or uncurated datasets."""
+
     regularizer: Optional[float] = None
     r"""This is the regularizer value :math:`\varsigma` that is used in
     applying Eq. 24 of Bigi et al :footcite:p:`bigi_mlst_2024`:
