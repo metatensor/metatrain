@@ -32,6 +32,10 @@ from metatrain.utils.neighbor_lists import (
 
 from . import checkpoints
 from .documentation import ModelHypers
+from .modules.calibration import (
+    GaussianCRPSCalibrator,
+    RatioCalibrator,
+)
 
 
 class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
@@ -703,23 +707,25 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             The "crps" method minimizes the Continuous Ranked Probability Score (CRPS)
             as a function of the calibration constant.
         """
-        # Create dataloader for the validation datasets
         valid_loader = self._get_dataloader(
             datasets, batch_size, is_distributed=is_distributed
         )
 
-        # infer device and dtype
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
 
-        sums = {}  # type: ignore
-        counts = {}  # type: ignore
+        calibrator: Union[RatioCalibrator, GaussianCRPSCalibrator]
 
-        # Storage for CRPS calibration
-        crps_store: dict[str, list[torch.Tensor]] = {
-            "residuals": [],
-            "uncertainties": [],
-        }
+        if calibration_method in ["squared_residuals", "absolute_residuals"]:
+            calibrator = RatioCalibrator(method=calibration_method)  # type: ignore[arg-type]
+        elif calibration_method == "crps":
+            calibrator = GaussianCRPSCalibrator()
+        else:
+            raise ValueError(
+                f"Unknown calibration method '{calibration_method}'! "
+                "Supported methods are 'squared_residuals', 'absolute_residuals', and"
+                " 'crps'."
+            )
 
         with torch.no_grad():
             for batch in valid_loader:
@@ -730,7 +736,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     for name, target in targets.items()
                 }
 
-                # Prepare model outputs
                 requested_outputs = {}
                 for name in targets:
                     per_atom = "atom" in targets[name].block(0).samples.names
@@ -740,7 +745,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
                 outputs = self.forward(systems, requested_outputs)
 
-                # Process each output block
                 for name, target in targets.items():
                     uncertainty_name = _get_uncertainty_name(name)
 
@@ -750,72 +754,17 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
                     residuals = pred - targ
 
-                    if calibration_method == "crps":
-                        _accumulate_local_crps_inputs(residuals, unc, crps_store)
-                        continue
-
-                    else:
-                        abs_residuals = torch.abs(residuals)
-                        if abs_residuals.ndim > 2:
-                            # squared residuals need to be summed over component
-                            # dimensions,
-                            # i.e., all but the first and last dimensions
-                            abs_residuals = torch.sum(
-                                abs_residuals,
-                                dim=tuple(range(1, abs_residuals.ndim - 1)),
-                            )
-
-                        if calibration_method == "absolute_residuals":
-                            ratios = abs_residuals / unc
-                        else:  # NLL
-                            ratios = (residuals**2) / (unc**2)
-
-                        ratios_sum64 = torch.sum(ratios.to(torch.float64), dim=0)
-                        count = torch.tensor(
-                            ratios.shape[0], dtype=torch.long, device=device
-                        )
-
-                        if uncertainty_name not in sums:
-                            sums[uncertainty_name] = ratios_sum64
-                            counts[uncertainty_name] = count
-                        else:
-                            sums[uncertainty_name] += ratios_sum64
-                            counts[uncertainty_name] += count
-
-        # Distributed reduce for NLL/MAE
-        if calibration_method in ["squared_residuals", "absolute_residuals"]:
-            if is_distributed:
-                for name in sums:
-                    torch.distributed.all_reduce(sums[name])
-                    torch.distributed.all_reduce(counts[name])
-
-            # compute multipliers
-            for name in sums:
-                if calibration_method == "absolute_residuals":
-                    global_mean64 = (
-                        sums[name]
-                        / counts[name].to(torch.float64)
-                        * torch.sqrt(torch.tensor(torch.pi / 2.0))
-                    )
-                else:  # NLL
-                    global_mean64 = torch.sqrt(
-                        sums[name] / counts[name].to(torch.float64)
+                    calibrator.update(
+                        uncertainty_name=uncertainty_name,
+                        residuals=residuals,
+                        uncertainties=unc,
                     )
 
-                multiplier = self._get_multiplier(name)
-                multiplier[:] = global_mean64.to(multiplier.dtype)
+        multipliers = calibrator.finalize()
 
-        # CRPS minimization
-        if calibration_method == "crps":
-            local_residuals = torch.cat(crps_store["residuals"], dim=0)
-            local_uncertainties = torch.cat(crps_store["uncertainties"], dim=0)
-
-            alpha = _solve_alpha_crps(local_residuals, local_uncertainties)
-
-            for name in targets:
-                uncertainty_name = _get_uncertainty_name(name)
-                multiplier = self._get_multiplier(uncertainty_name)
-                multiplier[:] = alpha.to(device=device, dtype=multiplier.dtype)
+        for uncertainty_name, alpha in multipliers.items():
+            multiplier = self._get_multiplier(uncertainty_name)
+            multiplier[:] = alpha.to(device=device, dtype=multiplier.dtype)
 
     def generate_ensemble(self) -> None:
         """Generate an ensemble of weights for the model.
