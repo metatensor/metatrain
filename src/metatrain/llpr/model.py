@@ -389,12 +389,20 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
             # compute PRs
             # the code is the same for PR and LPR
-            one_over_pr_values = torch.einsum(
-                "ij, jk, ik -> i",
-                ll_features.block().values,
-                self._get_inv_covariance(uncertainty_name),
-                ll_features.block().values,
-            ).unsqueeze(1)
+            if ll_features.block().values.ndim == 3:
+                one_over_pr_values = torch.einsum(
+                    "icj, jk, ick -> i",
+                    ll_features.block().values,
+                    self._get_inv_covariance(uncertainty_name),
+                    ll_features.block().values,
+                ).unsqueeze(1)
+            else:
+                one_over_pr_values = torch.einsum(
+                    "ij, jk, ik -> i",
+                    ll_features.block().values,
+                    self._get_inv_covariance(uncertainty_name),
+                    ll_features.block().values,
+                ).unsqueeze(1)
 
             original_name = self._get_original_name(uncertainty_name)
 
@@ -417,7 +425,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     TensorBlock(
                         values=torch.sqrt(one_over_pr_values.expand((-1, num_prop))),
                         samples=ll_features.block().samples,
-                        components=ll_features.block().components,
+                        components=[],
                         properties=cur_prop,
                     )
                 ],
@@ -438,7 +446,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                             one_over_pr_values.shape[0], num_prop
                         ),
                         samples=ll_features.block().samples,
-                        components=ll_features.block().components,
+                        components=[],
                         properties=cur_prop,
                     )
                 ],
@@ -617,6 +625,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     else:
                         # For per-atom targets, use the features directly
                         ll_feats = ll_feat_tmap.block().values.detach()
+                    if ll_feats.ndim > 2:
+                        # flatten component dimensions into samples
+                        ll_feats = ll_feats.reshape(-1, ll_feats.shape[-1])
                     uncertainty_name = _get_uncertainty_name(name)
                     covariance = self._get_covariance(uncertainty_name)
                     covariance += ll_feats.T @ ll_feats
@@ -734,19 +745,19 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
                     # compute the uncertainty multiplier
                     residuals = pred - targ
-                    abs_residuals = torch.abs(residuals)
-                    if abs_residuals.ndim > 2:
+                    squared_residuals = residuals**2
+                    if squared_residuals.ndim > 2:
                         # squared residuals need to be summed over component dimensions,
                         # i.e., all but the first and last dimensions
-                        abs_residuals = torch.sum(
-                            abs_residuals,
-                            dim=tuple(range(1, abs_residuals.ndim - 1)),
+                        squared_residuals = torch.sum(
+                            squared_residuals,
+                            dim=tuple(range(1, squared_residuals.ndim - 1)),
                         )
 
                     if use_absolute_residuals:
-                        ratios = abs_residuals / unc  # can be multi-dimensional
+                        ratios = torch.sqrt(squared_residuals) / unc
                     else:
-                        ratios = (residuals**2) / (unc**2)
+                        ratios = squared_residuals / (unc**2)
 
                     ratios_sum64 = torch.sum(ratios.to(torch.float64), dim=0)
                     count = torch.tensor(

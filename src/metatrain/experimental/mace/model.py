@@ -1,3 +1,4 @@
+import copy
 import logging
 import warnings
 from pathlib import Path
@@ -130,7 +131,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 if hasattr(self.mace_model, "atomic_energies_fn"):
                     self._loaded_atomic_baseline = (
                         self.mace_model.atomic_energies_fn.atomic_energies.clone()
-                    )
+                    ).ravel()
 
                     self.mace_model.atomic_energies_fn.atomic_energies[:] = 0.0
 
@@ -574,6 +575,22 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         return model
 
+    def _get_capabilities(self) -> ModelCapabilities:
+        dtype = next(self.parameters()).dtype
+
+        interaction_range = self.hypers["num_interactions"] * self.cutoff
+
+        capabilities = ModelCapabilities(
+            outputs=self.outputs,
+            atomic_types=self.atomic_types,
+            interaction_range=interaction_range,
+            length_unit=self.dataset_info.length_unit,
+            supported_devices=self.__supported_devices__,
+            dtype=dtype_to_str(dtype),
+        )
+
+        return capabilities
+
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
@@ -588,20 +605,19 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # be registered correctly with Pytorch. This function moves them:
         self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
-        interaction_range = self.hypers["num_interactions"] * self.cutoff
-
-        capabilities = ModelCapabilities(
-            outputs=self.outputs,
-            atomic_types=self.atomic_types,
-            interaction_range=interaction_range,
-            length_unit=self.dataset_info.length_unit,
-            supported_devices=self.__supported_devices__,
-            dtype=dtype_to_str(dtype),
-        )
+        capabilities = self._get_capabilities()
 
         metadata = merge_metadata(self.metadata, metadata)
 
-        return AtomisticModel(jit.compile(self.eval()), metadata, capabilities)
+        if self.hypers["mace_model"] is not None:
+            to_export = copy.copy(self.eval().to(device="cpu"))
+            to_export.mace_model = copy.deepcopy(to_export.mace_model)
+        else:
+            to_export = self.eval()
+
+        model = AtomisticModel(jit.compile(to_export), metadata, capabilities)
+
+        return model
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         """
@@ -618,6 +634,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 )
 
         self.layouts[target_name] = target_info.layout
+
+        self.last_layer_feature_size = 128
 
         if target_name == self.hypers["mace_head_target"]:
             # Fake head that will not compute the target, but will help
