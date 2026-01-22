@@ -473,6 +473,25 @@ def test_default_test_set(caplog, monkeypatch, tmp_path, options):
     assert "This dataset is empty. No evaluation" in caplog.text
 
 
+def test_integer_validation_test_set_size(caplog, monkeypatch, tmp_path, options):
+    """Test that integer values (e.g., 0 instead of 0.0) work for validation/test set."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    # Use integer 0 instead of float 0.0
+    options["validation_set"] = 0
+    options["test_set"] = 0
+
+    match = "Requested dataset of zero length. This dataset will be empty."
+    with pytest.warns(UserWarning, match=match):
+        train_model(options)
+
+    # check if the logging is correct
+    assert "This dataset is empty. No evaluation" in caplog.text
+
+
 @pytest.mark.parametrize(
     "test_set_file, validation_set_file", [(True, False), (False, True)]
 )
