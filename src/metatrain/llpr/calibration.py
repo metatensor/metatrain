@@ -37,7 +37,10 @@ class RatioCalibrator:
         residuals: torch.Tensor,
         uncertainties: torch.Tensor,
     ) -> None:
-        squared_residuals = residuals**2
+        residuals64 = residuals.to(torch.float64)
+        uncertainties64 = uncertainties.to(torch.float64)
+
+        squared_residuals = residuals64**2
         if squared_residuals.ndim > 2:
             # squared residuals need to be summed over component dimensions,
             # i.e., all but the first and last dimensions
@@ -47,11 +50,11 @@ class RatioCalibrator:
             )
 
         if self.method == "absolute_residuals":
-            ratios = torch.sqrt(squared_residuals) / uncertainties
+            ratios = torch.sqrt(squared_residuals) / uncertainties64
         else:
-            ratios = squared_residuals / uncertainties**2
+            ratios = squared_residuals / (uncertainties64**2)
 
-        ratios_sum64 = torch.sum(ratios.to(torch.float64), dim=0)
+        ratios_sum64 = torch.sum(ratios, dim=0)
         count = torch.tensor(ratios.shape[0], dtype=torch.long, device=ratios.device)
 
         if uncertainty_name not in self.sums:
@@ -153,8 +156,8 @@ def _accumulate_local_crps_inputs(
     :param eps: Small positive constant used for numerical stability.
     :return: None
     """
-    res = residuals.detach()
-    unc = uncertainties.detach().clamp_min(eps)
+    res = residuals.detach().to(torch.float64)
+    unc = uncertainties.detach().to(torch.float64).clamp_min(eps)
 
     # Ensure last axis exists (M). If residuals is (N,) -> (N,1); if (N,C) -> (N,C,1).
     if res.ndim == 1:
