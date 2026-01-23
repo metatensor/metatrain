@@ -31,7 +31,7 @@ class ModelHypers(TypedDict):
 
     num_ensemble_members: dict[str, int] = {}
     """Number of ensemble members for each target property for which LLPR ensembles
-    should be constructed. No ensembles will be constructed for targets which are not
+    should be generated. No ensembles will be generated for targets which are not
     listed.
     """
 
@@ -70,12 +70,14 @@ class TrainerHypers(TypedDict):
 
     loss: str | dict[str, LossSpecification] = "gaussian_nll_ensemble"
     """This section describes the loss function to be used during LLPR ensemble
-    weight calibration. We strongly suggest only using ensemble-specific loss functions.
+    weight training. We strongly suggest only using ensemble-specific loss functions,
+    i.e. one of "gaussian_nll_ensemble", "gaussian_crps_ensemble",
+    "empirical_crps_ensemble".
     Please refer to the :ref:`loss-functions` documentation for more details of the rest
     of the hypers."""
 
     num_epochs: Optional[int] = None
-    """Number of epochs for which the LLPR ensemble weight calibration should
+    """Number of epochs for which the LLPR ensemble weight training should
     take place. If set to ``null``, only the LLPR covariance matrix computation
     and calibration will be performed, without ensemble weight training."""
 
@@ -128,8 +130,8 @@ class TrainerHypers(TypedDict):
     either value to disable that bound. This is useful for preventing out-of-memory
     errors and ensuring consistent computational load. Default: ``[None, None]``."""
 
-    calibration_method: Literal["squared_residuals", "absolute_residuals", "crps"] = (
-        "squared_residuals"
+    calibration_method: Literal["absolute_residuals", "squared_residuals", "crps"] = (
+        "absolute_residuals"
     )
     r"""This determines how to calculate the calibration factor :math:`\alpha` in
     Eq. 24 of Bigi et al :footcite:p:`bigi_mlst_2024`:
@@ -143,8 +145,9 @@ class TrainerHypers(TypedDict):
     In any case, a Gaussian error distribution is assumed. If set to
     ``squared_residuals``, the calibration factor is computed minimizing the negative
     log-likelihood. If set to ``absolute_residuals``, the calibration factor is computed
-    from mean absolute error assuming Gaussian errors.The latter choice is more robust
+    from mean absolute error assuming Gaussian errors. The latter choice is more robust
     to outliers and we recommend using it for large and/or uncurated datasets.
     If set to ``crps``, continuous ranked probability score (CRPS) is minimized to find
-    the calibration factor. This approach also assumes Gaussian errors and is more
-    robust to outliers compared to the ``squared_residuals`` method."""
+    the calibration factor. You might want to use this option if you then want to train
+    the ensemble weights using a CRPS loss.
+    """

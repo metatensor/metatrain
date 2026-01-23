@@ -37,16 +37,19 @@ class RatioCalibrator:
         residuals: torch.Tensor,
         uncertainties: torch.Tensor,
     ) -> None:
+        squared_residuals = residuals**2
+        if squared_residuals.ndim > 2:
+            # squared residuals need to be summed over component dimensions,
+            # i.e., all but the first and last dimensions
+            squared_residuals = torch.sum(
+                squared_residuals,
+                dim=tuple(range(1, squared_residuals.ndim - 1)),
+            )
+
         if self.method == "absolute_residuals":
-            abs_residuals = torch.abs(residuals)
-            if abs_residuals.ndim > 2:
-                abs_residuals = torch.sum(
-                    abs_residuals,
-                    dim=tuple(range(1, abs_residuals.ndim - 1)),
-                )
-            ratios = abs_residuals / uncertainties
+            ratios = torch.sqrt(squared_residuals) / uncertainties
         else:
-            ratios = (residuals**2) / (uncertainties**2)
+            ratios = squared_residuals / uncertainties**2
 
         ratios_sum64 = torch.sum(ratios.to(torch.float64), dim=0)
         count = torch.tensor(ratios.shape[0], dtype=torch.long, device=ratios.device)
@@ -109,12 +112,22 @@ class GaussianCRPSCalibrator:
         residuals: torch.Tensor,
         uncertainties: torch.Tensor,
     ) -> None:
+        squared_residuals = residuals**2
+        if squared_residuals.ndim > 2:
+            # squared residuals need to be summed over component dimensions,
+            # i.e., all but the first and last dimensions
+            squared_residuals = torch.sum(
+                squared_residuals,
+                dim=tuple(range(1, squared_residuals.ndim - 1)),
+            )
+        abs_residuals = torch.sqrt(squared_residuals)
+
         # Accumulate as (N, M) per batch, preserving last dim as the "channel/property"
         # axis.
         if uncertainty_name not in self._store:
             self._store[uncertainty_name] = {"residuals": [], "uncertainties": []}
         _accumulate_local_crps_inputs(
-            residuals, uncertainties, self._store[uncertainty_name], eps=self.eps
+            abs_residuals, uncertainties, self._store[uncertainty_name], eps=self.eps
         )
 
     def finalize(self) -> Dict[str, torch.Tensor]:
@@ -142,8 +155,7 @@ def _accumulate_local_crps_inputs(
     sample and channel using an L2 norm over component dimensions:
         r̃_{i,m} = ||r_{i,*,m}||_2.
 
-    Uncertainties are coerced to shape (N, M) and clamped from below by ``eps`` to
-    avoid division by zero.
+    Uncertainties are clamped from below by ``eps`` to avoid division by zero.
 
     :param residuals: Residuals between predicted mean and targets.
     :param uncertainties: Non-calibrated predictive standard deviations.
@@ -152,28 +164,8 @@ def _accumulate_local_crps_inputs(
     :param eps: Small positive constant used for numerical stability.
     :return: None
     """
-    res = residuals.detach()
-    unc = uncertainties.detach()
-
-    # Reduce any component dimensions to a scalar residual magnitude per (sample,
-    # channel).
-    if res.ndim == 1:
-        res = res[:, None]
-    elif res.ndim > 2:
-        comp_dims = tuple(range(1, res.ndim - 1))
-        res = torch.sqrt(torch.sum(res * res, dim=comp_dims) + eps)
-
-    N = res.shape[0]
-    M = res.shape[-1]
-
-    if unc.ndim == 1:
-        unc = unc[:, None]
-    elif unc.ndim > 2:
-        comp_dims = tuple(range(1, unc.ndim - 1))
-        unc = torch.sum(unc, dim=comp_dims)
-
-    storage["residuals"].append(res.reshape(N, M))
-    storage["uncertainties"].append(unc.reshape(N, M).clamp_min(eps))
+    storage["residuals"].append(residuals)
+    storage["uncertainties"].append(uncertainties.clamp_min(eps))
 
 
 def _crps_derivative_channel(

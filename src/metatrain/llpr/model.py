@@ -31,11 +31,11 @@ from metatrain.utils.neighbor_lists import (
 )
 
 from . import checkpoints
-from .documentation import ModelHypers
-from .modules.calibration import (
+from .calibration import (
     GaussianCRPSCalibrator,
     RatioCalibrator,
 )
+from .documentation import ModelHypers
 
 
 class LLPRUncertaintyModel(ModelInterface[ModelHypers]):

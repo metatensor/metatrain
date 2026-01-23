@@ -39,7 +39,6 @@ from metatrain.utils.transfer import batch_to
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import LLPRUncertaintyModel
-from .modules.recalib import apply_ensemble_training_strategy
 
 
 def get_scheduler(
@@ -308,7 +307,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             for gradient_name in target_info.gradients:
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
-        model = apply_ensemble_training_strategy(
+        model = _apply_ensemble_training_strategy(
             model, self.hypers["train_all_parameters"]
         )
 
@@ -644,3 +643,30 @@ def _drop_gradient_blocks(targets: Dict[str, Any]) -> Dict[str, Any]:
             new_blocks.append(new_block)
         filtered_targets[key] = TensorMap(value.keys, new_blocks)
     return filtered_targets
+
+
+def _apply_ensemble_training_strategy(
+    model: torch.nn.Module,
+    train_all_parameters: bool,
+) -> torch.nn.Module:
+    """
+    Apply the user-specified ensemble training strategy to the LLPR-wrapped
+    model. This function modifies the model in place based on the provided
+    trainable parameters.
+
+    :param model: LLPR-wrapped model to be recalibrated.
+    :param train_all_parameters: Whether to train all parameters or only the LLPR
+        ensemble layers.
+    :return: the model with updated trainable parameters.
+    """
+
+    # Start by making all parameters trainable
+    for param in model.parameters():
+        param.requires_grad = True
+
+    if not train_all_parameters:
+        # Freeze all parameters of the base model
+        for param in model.model.parameters():
+            param.requires_grad = False
+
+    return model
