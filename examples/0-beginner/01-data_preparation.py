@@ -5,9 +5,9 @@ How to prepare data for training
 .. attention::
 
     This tutorial is only relevant for users who need to prepare their data from scratch
-    from several files or for big datasets. If you already have your data in a common
-    file format (like XYZ or `ASE database`_), you can skip this tutorial and directly
-    start training.
+    based on several files or for big datasets. If you already have your data in a
+    common file format (like XYZ or `ASE database`_), you can skip this tutorial and
+    directly start training.
 
 .. _ASE database: https://ase-lib.org/ase/db/db.html
 

@@ -11,7 +11,6 @@ from e3nn import o3
 from metatrain.experimental.mace.model import MetaMACE
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.architectures import get_default_hypers
-from metatrain.utils.data import DatasetInfo
 from metatrain.utils.testing import (
     ArchitectureTests,
     AutogradTests,
@@ -70,6 +69,9 @@ class MACETests(ArchitectureTests):
         if mace_init_mode == "from_hypers":
             hypers["hidden_irreps"] = "1x0e + 1x1o"
             hypers["num_interactions"] = 1
+            hypers["max_ell"] = 1
+            hypers["correlation"] = 1
+            hypers["radial_MLP"] = [1, 1, 1]
         else:
             hypers["mace_model"] = Path(__file__).parent / "mace_small.model"
         return hypers
@@ -79,8 +81,12 @@ class TestInput(InputTests, MACETests): ...
 
 
 class TestOutput(OutputTests, MACETests):
+    supports_features = False
+
     @pytest.fixture
     def n_features(self, model_hypers: dict) -> list[int]:
+        """Features output was renamed to mtt::aux:mace_features so
+        for now this is not used."""
         hidden_irreps = o3.Irreps(model_hypers["hidden_irreps"])
         num_interactions = model_hypers["num_interactions"]
 
@@ -104,30 +110,6 @@ class TestOutput(OutputTests, MACETests):
 class TestAutograd(AutogradTests, MACETests):
     cuda_nondet_tolerance = 1e-12
 
-    def test_autograd_positions(
-        self,
-        device: torch.device,
-        model_hypers: dict,
-        dataset_info: DatasetInfo,
-        mace_init_mode: str,
-    ) -> None:
-        if mace_init_mode == "from_file":
-            pytest.skip("Skipping autograd test when loading MACE model from file.")
-
-        super().test_autograd_positions(device, model_hypers, dataset_info)
-
-    def test_autograd_cell(
-        self,
-        device: torch.device,
-        model_hypers: dict,
-        dataset_info: DatasetInfo,
-        mace_init_mode: str,
-    ) -> None:
-        if mace_init_mode == "from_file":
-            pytest.skip("Skipping autograd test when loading MACE model from file.")
-
-        super().test_autograd_cell(device, model_hypers, dataset_info)
-
 
 class TestTorchscript(TorchscriptTests, MACETests):
     float_hypers = ["r_max"]
@@ -136,12 +118,7 @@ class TestTorchscript(TorchscriptTests, MACETests):
         return torch.jit.script(e3nn.util.jit.compile(model))
 
 
-class TestExported(ExportedTests, MACETests):
-    # For now, AtomisticModel does not consider the possibility that
-    # the "features" output can have a well defined equivariant
-    # behavior, and therefore checking consistency when returning
-    # this output raises an error.
-    avoid_consistency_check = ["features"]
+class TestExported(ExportedTests, MACETests): ...
 
 
 class TestTraining(TrainingTests, MACETests): ...

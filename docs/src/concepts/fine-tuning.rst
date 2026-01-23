@@ -99,12 +99,46 @@ specifying it in the options.yaml for evaluation:
 When using the finetuned model in simulation engines the default target name expected
 by the ``metatomic`` package in order to use the model in ASE and LAMMPS calculations
 is ``energy``. When loading the model in ``metatomic`` you have to specify which
-variant should be used for energy and force prediction. You can find an example for how
-to do this in the tutorial
-(see :ref:`sphx_glr_generated_examples_0-beginner_02-fine-tuning.py`) and more in the
-`metatomic documentation`_.
+variant should be used for energy and force prediction.
 
-.. _metatomic documentation: https://docs.metatensor.org/metatomic/latest/engines/index.html
+Using variants with ASE
+^^^^^^^^^^^^^^^^^^^^^^^
+
+When creating a ``MetatomicCalculator`` in ASE, you must specify the variant to use
+via the ``variants`` parameter. For example, if you fine-tuned with the variant
+``energy/finetune``, you would use:
+
+.. code-block:: python
+
+  from metatomic.torch.ase_calculator import MetatomicCalculator
+
+  calc = MetatomicCalculator("model-ft.pt", variants={"energy": "finetune"})
+  atoms.calc = calc
+
+The ``variants`` dictionary maps the target quantity (e.g., ``energy``) to the variant
+name (e.g., ``finetune``). This allows the calculator to use the correct fine-tuned
+energy head for your calculations.
+
+Using variants with LAMMPS
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+When using a fine-tuned model in LAMMPS, you need to specify the variant in your
+LAMMPS input script using the ``variant`` keyword:
+
+.. code-block::
+
+  pair_style metatomic model-ft.pt [...other arguments...] variant finetune
+
+Replace ``finetune`` with the name of your variant (the part after ``energy/`` in your
+training configuration). The syntax ``variant finetune`` tells LAMMPS to use
+the ``energy/finetune`` variant for energy and force calculations.
+
+For more details on using variants in simulation engines, see the
+:ref:`tutorial <sphx_glr_generated_examples_0-beginner_02-fine-tuning.py>` and the
+`metatomic ASE documentation`_ and `metatomic LAMMPS documentation`_.
+
+.. _metatomic ASE documentation: https://docs.metatensor.org/metatomic/latest/torch/reference/ase.html#metatomic.torch.ase_calculator.MetatomicCalculator
+.. _metatomic LAMMPS documentation: https://docs.metatensor.org/metatomic/latest/engines/lammps.html
 
 
 Until here, our model would train on all weights of the model, create a new energy head

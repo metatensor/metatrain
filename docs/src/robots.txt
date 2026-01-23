@@ -5,4 +5,3 @@ Disallow: /_datasets/
 Disallow: /_downloads/
 
 Sitemap: https://metatensor.org/metatrain/latest/sitemap.xml
-

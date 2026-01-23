@@ -192,3 +192,12 @@ def trainer_update_v6_v7(checkpoint: dict) -> None:
         atomic_baseline = {target_name: 0.0 for target_name in dataset_info.targets}
 
     checkpoint["train_hypers"]["atomic_baseline"] = atomic_baseline
+
+
+def trainer_update_v7_v8(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 7 to version 8.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"]["batch_atom_bounds"] = [None, None]

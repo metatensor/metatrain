@@ -28,6 +28,7 @@ from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
+from . import checkpoints
 from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.heads import MACEHeadWrapper, NonLinearHead
@@ -44,7 +45,7 @@ from .utils.structures import create_batch
 class MetaMACE(ModelInterface[ModelHypers]):
     """Interface of MACE for metatrain."""
 
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -179,7 +180,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     num_elements=len(dataset_info.atomic_types),
                     hidden_irreps=o3.Irreps(self.hypers["hidden_irreps"]),
                     edge_irreps=o3.Irreps(self.hypers["edge_irreps"])
-                    if "edge_irreps" in self.hypers
+                    if self.hypers["edge_irreps"] is not None
                     else None,
                     atomic_energies=torch.zeros(len(dataset_info.atomic_types)),
                     apply_cutoff=self.hypers["apply_cutoff"],
@@ -241,8 +242,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
-        self.layouts["features"] = get_e3nn_mts_layout(
-            "features",
+        self.layouts["mtt::aux::mace_features"] = get_e3nn_mts_layout(
+            "mtt::aux::mace_features",
             {
                 "type": {"spherical": {"irreps": self.features_irreps}},
                 "per_atom": True,
@@ -383,8 +384,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
         model_outputs: dict[str, torch.Tensor] = {}
 
         # Add features if requested
-        if "features" in outputs:
-            model_outputs["features"] = node_features
+        if "mtt::aux::mace_features" in outputs:
+            model_outputs["mtt::aux::mace_features"] = node_features
 
         # Run heads
         for output_name, head in self.heads.items():
@@ -655,6 +656,12 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
+
         if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using model "
