@@ -231,3 +231,76 @@ To use this loss function, you can refer to this code snippet for the ``loss`` s
 :param reduction: reduction mode for torch loss. Options are "mean", "sum", or "none".
 
 The values used in the above example are the ones used for PETMADDOS training and can be a reasonable starting point for other applications.
+
+
+Ensemble Loss Function
+----------------------
+
+An :ref:`architecture-llpr` ensemble can be further trained to improve its uncertainty quantification.
+This is done by using the :py:class:`metatrain.utils.loss.TensorMapEnsembleLoss` function, which implements strictly proper scoring rules for probabilistic regression.
+
+Two of the available losses assume a Gaussian predictive distribution and operate only on the ensemble-predicted mean :math:`\mu` and standard deviation :math:`\sigma`.
+The third option, the empirical CRPS, uses the full ensemble of predictions and does not rely on any parametric assumption.
+
+- The Gaussian Negative Log-Likelihood (NLL) loss maximizes the likelihood of the observed data under a Gaussian predictive model.
+  It encourages sharp predictions and is statistically optimal when the residual noise is well described by a Gaussian distribution.
+  Internally, this option uses :py:class:`torch.nn.GaussianNLLLoss`.
+
+  YAML configuration:
+
+  .. code-block:: yaml
+
+      loss:
+        mtt::target_name:
+          type: gaussian_nll_ensemble
+
+
+- The analytical Gaussian Continuous Ranked Probability Score (CRPS) evaluates the integrated squared difference between the predicted and (assumed) Gaussian cumulative distribution functions.
+  It is given by
+
+  .. math::
+
+        \mathrm{CRPS}(\mu, \sigma; y) =
+        \sigma \left[
+          \frac{1}{\sqrt{\pi}}
+          - 2\phi\left(\frac{y - \mu}{\sigma}\right)
+          - \frac{y - \mu}{\sigma}
+            \left(2\Phi\left(\frac{y - \mu}{\sigma}\right) - 1\right)
+        \right],
+
+  where :math:`\phi` and :math:`\Phi` denote the standard normal density and cumulative distribution functions.
+
+  YAML configuration:
+
+  .. code-block:: yaml
+
+      loss:
+        mtt::target_name:
+          type: gaussian_crps_ensemble
+
+
+- The empirical Continuous Ranked Probability Score does **not** assume a Gaussian predictive distribution.
+  Instead, it evaluates the CRPS directly from the ensemble predictions :math:`\{x_j\}_{j=1}^M`.
+  For a target value :math:`y`, the empirical CRPS is
+
+  .. math::
+
+        \mathrm{CRPS}_{\mathrm{emp}}(\{x_j\}, y)
+        = \frac{1}{M} \sum_{j=1}^M |x_j - y|
+          - \frac{1}{2 M^2} \sum_{j=1}^M \sum_{k=1}^M |x_j - x_k|.
+
+  This scoring rule is strictly proper for arbitrary predictive distributions and therefore leverages the full ensemble to learn non-Gaussian forms of uncertainty.
+
+  YAML configuration:
+
+  .. code-block:: yaml
+
+      loss:
+        mtt::target_name:
+          type: empirical_crps_ensemble
+
+
+In practice, all three scoring rules encourage calibrated uncertainty estimates, but with different characteristics.
+The Gaussian NLL is quadratic in the residual and therefore more sensitive to large deviations.
+The analytical Gaussian CRPS grows linearly with the residual and often yields smoother behaviour when the residual distribution departs from strict Gaussianity.
+The empirical CRPS is fully non-parametric and can in principle capture skewness, multimodality, or other non-Gaussian features present in the ensemble predictions.

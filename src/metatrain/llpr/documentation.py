@@ -31,7 +31,7 @@ class ModelHypers(TypedDict):
 
     num_ensemble_members: dict[str, int] = {}
     """Number of ensemble members for each target property for which LLPR ensembles
-    should be constructed. No ensembles will be constructed for targets which are not
+    should be generated. No ensembles will be generated for targets which are not
     listed.
     """
 
@@ -46,21 +46,6 @@ class TrainerHypers(TypedDict):
     batch_size: int = 8
     """This defines the batch size used in the computation of last-layer
     features, covariance matrix, etc."""
-
-    calibrate_with_absolute_residuals: bool = True
-    r"""This determines how to calculate the calibration factor :math:`\alpha` in
-    Eq. 24 of Bigi et al :footcite:p:`bigi_mlst_2024`:
-
-    .. math::
-
-        \sigma^2_\star = \alpha^2 \boldsymbol{\mathrm{f}}^{\mathrm{T}}_\star
-        (\boldsymbol{\mathrm{F}}^{\mathrm{T}} \boldsymbol{\mathrm{F}} + \varsigma^2
-        \boldsymbol{\mathrm{I}})^{-1} \boldsymbol{\mathrm{f}}_\star
-
-    In any case, a Gaussian error distribution is assumed. If set to ``False``, the
-    calibration factor is computed based on the squared residuals, if set to ``True``,
-    the absolute residuals are used. The latter choice is more robust to outliers and we
-    recommend using it for large and/or uncurated datasets."""
 
     regularizer: Optional[float] = None
     r"""This is the regularizer value :math:`\varsigma` that is used in
@@ -83,13 +68,16 @@ class TrainerHypers(TypedDict):
     architecture must comply with the requirement that the last-layer features are
     exposed under the convention defined by metatrain."""
 
-    loss: str | dict[str, LossSpecification] = "ensemble_nll"
+    loss: str | dict[str, LossSpecification] = "gaussian_nll_ensemble"
     """This section describes the loss function to be used during LLPR ensemble
-    weight calibration. We strongly suggest only using "ensemble_nll" loss. see
-    :ref:`loss-functions` for more details of the rest of the hypers."""
+    weight training. We strongly suggest only using ensemble-specific loss functions,
+    i.e. one of "gaussian_nll_ensemble", "gaussian_crps_ensemble",
+    "empirical_crps_ensemble".
+    Please refer to the :ref:`loss-functions` documentation for more details of the rest
+    of the hypers."""
 
     num_epochs: Optional[int] = None
-    """Number of epochs for which the LLPR ensemble weight calibration should
+    """Number of epochs for which the LLPR ensemble weight training should
     take place. If set to ``null``, only the LLPR covariance matrix computation
     and calibration will be performed, without ensemble weight training."""
 
@@ -141,3 +129,25 @@ class TrainerHypers(TypedDict):
     counts outside these bounds will be skipped during training. Use ``None`` for
     either value to disable that bound. This is useful for preventing out-of-memory
     errors and ensuring consistent computational load. Default: ``[None, None]``."""
+
+    calibration_method: Literal["absolute_residuals", "squared_residuals", "crps"] = (
+        "absolute_residuals"
+    )
+    r"""This determines how to calculate the calibration factor :math:`\alpha` in
+    Eq. 24 of Bigi et al :footcite:p:`bigi_mlst_2024`:
+
+    .. math::
+
+        \sigma^2_\star = \alpha^2 \boldsymbol{\mathrm{f}}^{\mathrm{T}}_\star
+        (\boldsymbol{\mathrm{F}}^{\mathrm{T}} \boldsymbol{\mathrm{F}} + \varsigma^2
+        \boldsymbol{\mathrm{I}})^{-1} \boldsymbol{\mathrm{f}}_\star
+
+    In any case, a Gaussian error distribution is assumed. If set to
+    ``squared_residuals``, the calibration factor is computed minimizing the negative
+    log-likelihood. If set to ``absolute_residuals``, the calibration factor is computed
+    from mean absolute error assuming Gaussian errors. The latter choice is more robust
+    to outliers and we recommend using it for large and/or uncurated datasets.
+    If set to ``crps``, continuous ranked probability score (CRPS) is minimized to find
+    the calibration factor. You might want to use this option if you then want to train
+    the ensemble weights using a CRPS loss.
+    """

@@ -82,3 +82,17 @@ def trainer_update_v3_v4(checkpoint: dict) -> None:
     """
     if "train_hypers" in checkpoint:
         checkpoint["train_hypers"]["calibrate_with_absolute_residuals"] = False
+
+
+def trainer_update_v4_v5(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 4 to version 5.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # added calibration method to pick the alpha prefactor
+    if "train_hypers" in checkpoint:
+        if checkpoint["train_hypers"].get("calibrate_with_absolute_residuals", False):
+            checkpoint["train_hypers"]["calibration_method"] = "absolute_residuals"
+        else:
+            checkpoint["train_hypers"]["calibration_method"] = "squared_residuals"
