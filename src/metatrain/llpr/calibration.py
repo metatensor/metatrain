@@ -1,5 +1,5 @@
 import math
-from typing import Dict, List, Literal
+from typing import Callable, Dict, List, Literal
 
 import torch
 
@@ -112,29 +112,18 @@ class GaussianCRPSCalibrator:
         residuals: torch.Tensor,
         uncertainties: torch.Tensor,
     ) -> None:
-        squared_residuals = residuals**2
-        if squared_residuals.ndim > 2:
-            # squared residuals need to be summed over component dimensions,
-            # i.e., all but the first and last dimensions
-            squared_residuals = torch.sum(
-                squared_residuals,
-                dim=tuple(range(1, squared_residuals.ndim - 1)),
-            )
-        abs_residuals = torch.sqrt(squared_residuals)
-
-        # Accumulate as (N, M) per batch, preserving last dim as the "channel/property"
-        # axis.
+        # Accumulate as (N, M) per batch, preserving last dim as the property axis
         if uncertainty_name not in self._store:
             self._store[uncertainty_name] = {"residuals": [], "uncertainties": []}
         _accumulate_local_crps_inputs(
-            abs_residuals, uncertainties, self._store[uncertainty_name], eps=self.eps
+            residuals, uncertainties, self._store[uncertainty_name], eps=self.eps
         )
 
     def finalize(self) -> Dict[str, torch.Tensor]:
         multipliers: Dict[str, torch.Tensor] = {}
         for uncertainty_name, st in self._store.items():
-            local_residuals = torch.cat(st["residuals"], dim=0)  # (Ntot, M)
-            local_uncertainties = torch.cat(st["uncertainties"], dim=0)  # (Ntot, M)
+            local_residuals = torch.cat(st["residuals"], dim=0)  # (Ntot, C, M)
+            local_uncertainties = torch.cat(st["uncertainties"], dim=0)  # (Ntot, C, M)
             alpha = _solve_alpha_crps(local_residuals, local_uncertainties)
             multipliers[uncertainty_name] = alpha
         return multipliers
@@ -164,8 +153,34 @@ def _accumulate_local_crps_inputs(
     :param eps: Small positive constant used for numerical stability.
     :return: None
     """
-    storage["residuals"].append(residuals)
-    storage["uncertainties"].append(uncertainties.clamp_min(eps))
+    res = residuals.detach()
+    unc = uncertainties.detach().clamp_min(eps)
+
+    # Ensure last axis exists (M). If residuals is (N,) -> (N,1); if (N,C) -> (N,C,1).
+    if res.ndim == 1:
+        res = res[:, None]
+    if unc.ndim == 1:
+        unc = unc[:, None]
+
+    # Ensure we have an explicit component axis for residuals: (N, C, M)
+    # If residuals comes in as (N, M), treat it as (N, 1, M).
+    if res.ndim == 2:
+        res = res[:, None, :]
+    # If residuals is already (N, C, M), keep it as is.
+
+    N = res.shape[0]
+    C = res.shape[1]
+    M = res.shape[2]
+
+    # Broadcast uncertainties over the component axis: (N, 1, M) -> (N, C, M)
+    # If uncertainties already has component axis, we still reshape/broadcast to match.
+    if unc.ndim == 2:
+        unc = unc[:, None, :]
+    unc = unc.reshape(N, 1, M).expand(N, C, M)
+    unc = unc / math.sqrt(C)  # scale by sqrt(C) since sigma is the vectorial stddev
+
+    storage["residuals"].append(res.reshape(N, C, M))
+    storage["uncertainties"].append(unc)
 
 
 def _crps_derivative_channel(
@@ -213,6 +228,76 @@ def _crps_derivative_channel(
     return float(lhs_local.item())
 
 
+def _bracket_root(
+    f: Callable[[float], float],
+    a_lo: float,
+    a_hi: float,
+    *,
+    ftol: float,
+    max_nudge: int,
+    max_expand: int,
+) -> tuple[float, float]:
+    # Get reasonable initial bracket for root-finding with Brent's method.
+    f_lo, f_hi = f(a_lo), f(a_hi)
+
+    if not (math.isfinite(f_lo) and math.isfinite(f_hi)):
+        raise RuntimeError(
+            "CRPS bracketing failed: non-finite derivative values. "
+            f"a_lo={a_lo}, f_lo={f_lo}, a_hi={a_hi}, f_hi={f_hi}"
+        )
+
+    if abs(f_lo) <= ftol:
+        a = a_lo
+        for _ in range(max_nudge):
+            a *= 10.0
+            f_a = f(a)
+            if not math.isfinite(f_a):
+                raise RuntimeError(
+                    "CRPS bracketing failed: non-finite derivative during nudging. "
+                    f"a={a}, f={f_a}"
+                )
+            if abs(f_a) > ftol:
+                a_lo, f_lo = a, f_a
+                break
+        else:
+            raise RuntimeError(
+                "CRPS bracketing failed: derivative ~0 at lower bound after nudging. "
+                f"Initial a_lo={a_lo}, final a_lo={a}, f_lo={f_lo}"
+            )
+
+    if f_lo * f_hi <= 0.0:
+        return a_lo, a_hi
+
+    a = a_hi
+    for _ in range(max_expand):
+        a *= 10.0
+        f_a = f(a)
+        if not math.isfinite(f_a):
+            raise RuntimeError(
+                "CRPS bracketing failed: non-finite derivative while expanding high. "
+                f"a={a}, f={f_a}"
+            )
+        if f_lo * f_a <= 0.0:
+            return a_lo, a
+
+    a = a_lo
+    for _ in range(max_expand):
+        a /= 10.0
+        f_a = f(a)
+        if not math.isfinite(f_a):
+            raise RuntimeError(
+                "CRPS bracketing failed: non-finite derivative while shrinking low. "
+                f"a={a}, f={f_a}"
+            )
+        if f_a * f_hi <= 0.0:
+            return a, a_hi
+
+    raise RuntimeError(
+        "CRPS bracketing failed: could not find sign change. "
+        f"a_lo={a_lo}, f_lo={f_lo}, a_hi={a_hi}, f_hi={f_hi}"
+    )
+
+
 def _solve_alpha_crps(
     local_residuals: torch.Tensor, local_uncertainties: torch.Tensor
 ) -> torch.Tensor:
@@ -227,47 +312,40 @@ def _solve_alpha_crps(
 
     :param local_residuals: Local residuals reduced to shape (N, M).
     :param local_uncertainties: Local uncertainties reduced to shape (N, M).
-    :return: Vector of optimal alpha values with shape (M,).
+    :return: Vector of optimal alpha values with shape (M).
     """
     from scipy.optimize import root_scalar
 
-    if local_residuals.ndim != 2 or local_uncertainties.ndim != 2:
+    if local_residuals.ndim != 3 or local_uncertainties.ndim != 3:
         raise ValueError(
-            "CRPS solver expects (N, M) residuals and uncertainties tensors."
+            "CRPS solver expects (N, C, M) residuals and uncertainties tensors."
         )
 
-    _, M = local_residuals.shape
+    _, _, M = local_residuals.shape
     out = torch.empty((M,), dtype=torch.float64, device=local_residuals.device)
 
+    a_lo0, a_hi0 = 1e-10, 50.0
+    ftol = 1e-12
+    max_nudge = 8
+    max_expand = 12
+
     for m in range(M):
-        res_ch = local_residuals[:, m]
-        unc_ch = local_uncertainties[:, m]
+        res_ch = local_residuals[:, :, m].reshape(-1)
+        unc_ch = local_uncertainties[:, :, m].reshape(-1)
 
         def f(
             a: float, res_ch: torch.Tensor = res_ch, unc_ch: torch.Tensor = unc_ch
         ) -> float:
             return _crps_derivative_channel(a, res_ch, unc_ch)
 
-        a_lo, a_hi = 1e-10, 50.0
-        f_lo, f_hi = f(a_lo), f(a_hi)
-
-        # Brent requires a sign change; expand deterministically if needed.
-        if f_lo * f_hi > 0.0:
-            a_hi2 = a_hi
-            for _ in range(12):
-                a_hi2 *= 10.0
-                f_hi2 = f(a_hi2)
-                if f_lo * f_hi2 <= 0.0:
-                    a_hi, f_hi = a_hi2, f_hi2
-                    break
-            else:
-                a_lo2 = a_lo
-                for _ in range(12):
-                    a_lo2 /= 10.0
-                    f_lo2 = f(a_lo2)
-                    if f_lo2 * f_hi <= 0.0:
-                        a_lo, f_lo = a_lo2, f_lo2
-                        break
+        a_lo, a_hi = _bracket_root(
+            f,
+            a_lo0,
+            a_hi0,
+            ftol=ftol,
+            max_nudge=max_nudge,
+            max_expand=max_expand,
+        )
 
         sol = root_scalar(f, bracket=[a_lo, a_hi], method="brentq")
         out[m] = float(sol.root)
