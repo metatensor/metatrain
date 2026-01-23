@@ -3,20 +3,28 @@ LLPR
 ====
 
 The LLPR architecture is a "wrapper" architecture that enables cheap uncertainty
-quantification (UQ) via the last-layer prediction rigidity (LLPR) approach proposed
-by Bigi et al. :footcite:p:`bigi_mlst_2024` It is compatible with the following
-``metatrain`` models constructed from NN-based architectures: PET and SOAP-BPNN.
-The implementation of the LLPR as a separate architecture within ``metatrain``
-allows the users to compute the uncertainties without dealing with the fine details
-of the LLPR implementation.
+quantification via the last-layer prediction rigidity (LLPR) approach proposed by Bigi
+et al:footcite:p:`bigi_mlst_2024`. It is compatible with the following ``metatrain``
+models constructed from NN-based architectures: :ref:`arch-pet` and
+:ref:`arch-soap_bpnn`.
 
-This implementation further allows the user to perform gradient-based tuning of
-the ensemble weights sampled from the LLPR formalism, which can lead to improved
-uncertainty estimates. Gradients (e.g. forces and stresses) are not yet used in this
-implementation of the LLPR.
+This implementation further allows the user to perform gradient-based tuning of the
+ensemble weights sampled from the LLPR formalism, which can lead to improved uncertainty
+estimates. Gradients (e.g. forces and stresses) are not yet used.
 
-Note that the uncertainties computed with this implementation are returned as
-standard deviations, and not variances.
+Note that the uncertainties computed with this implementation are returned as standard
+deviations, and not variances.
+
+Additional outputs
+------------------
+
+In addition to the outputs already availble from the wrapped model, the LLPR
+architecture can also output the following additional quantity:
+
+- :ref:`mtt-aux-target-uncertainty`: The uncertainty (standard deviation) for a given
+  target, computed with the LLPR approach.
+- :ref:`mtt-aux-target-ensemble`: The ensemble predictions for a given target, computed
+  with the LLPR approach.
 """
 
 from typing import Literal, Optional
