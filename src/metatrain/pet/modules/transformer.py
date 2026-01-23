@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from .utilities import DummyModule
+from sphericart.torch import SolidHarmonics
 
 
 AVAILABLE_NORMALIZATIONS = ["LayerNorm", "RMSNorm"]
@@ -406,7 +407,9 @@ class CartesianTransformer(torch.nn.Module):
             attention_temperature=attention_temperature,
         )
 
-        self.edge_embedder = nn.Linear(4, d_model)
+        self.spherical_harmonics = SolidHarmonics(l_max=10)
+        self.edge_embedder = nn.Linear(11**2, d_model)
+        self.rmsnorm = nn.LayerNorm(d_model)
 
         if not is_first:
             n_merge = 3
@@ -460,9 +463,13 @@ class CartesianTransformer(torch.nn.Module):
             - The output edge embeddings, of shape (n_nodes, max_num_neighbors, d_model)
         """
         node_embeddings = input_node_embeddings
-        edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
-        edge_embeddings = torch.cat(edge_embeddings, dim=2)
+        # edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
+        # edge_embeddings = torch.cat(edge_embeddings, dim=2)
+        edge_embeddings = self.spherical_harmonics(
+            edge_vectors.reshape(-1, 3)
+        ).reshape(edge_vectors.shape[0], edge_vectors.shape[1], -1)
         edge_embeddings = self.edge_embedder(edge_embeddings)
+        edge_embeddings = self.rmsnorm(edge_embeddings)
 
         if not self.is_first:
             neighbor_elements_embeddings = self.neighbor_embedder(
