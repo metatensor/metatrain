@@ -501,13 +501,16 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             num_prop = return_dict[original_name].block().values.shape[-1]
 
             # reshape values accordingly
-            if num_prop == ensemble_values.shape[-1]:
+            if num_prop * self.ensemble_weight_sizes[original_name] == ensemble_values.shape[-1]:
                 # equivariant (or unconstrained with single component)
+                # we assume the components are correctly expressed (from ll feats)
                 ensemble_values = ensemble_values.reshape(
                     [ensemble_values.shape[0]] + components_shape + [-1, num_prop]
                 )  # shape: samples, ..., num_ens, num_prop
             else:
-                # unconstrained with multiple components
+                # unconstrained with multiple components appearing in the last dim
+                # which appear together with the properties. For now, we assume when
+                # this happens, there are no components altogether in the ll feats.
                 ensemble_values = ensemble_values.reshape(
                     [ensemble_values.shape[0], -1] + components_shape + [num_prop]
                 )  # shape: samples, num_ens, ..., num_prop

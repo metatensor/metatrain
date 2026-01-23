@@ -478,7 +478,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     model,
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
-                    is_training=False,
+                    is_training=False, 
                     is_llpr_ens=True,
                 )
                 val_loss_batch = loss_fn(predictions, targets, extra_data)

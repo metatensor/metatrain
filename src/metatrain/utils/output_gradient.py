@@ -30,13 +30,14 @@ def compute_gradient(
     """
 
     grad_outputs: Optional[List[Optional[torch.Tensor]]] = [torch.ones_like(target)]
+
     try:
         gradient = torch.autograd.grad(
             outputs=[target],
             inputs=inputs,
             grad_outputs=grad_outputs,
-            retain_graph=True, #is_training or (not destroy_graph),
-            create_graph=True, #is_training,
+            retain_graph=is_training or (not destroy_graph),
+            create_graph=is_training,
         )
     except RuntimeError as e:
         # Torch raises an error if the target tensor does not require grad,

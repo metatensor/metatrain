@@ -126,11 +126,15 @@ def evaluate_model(
             model_outputs[energy_target] = new_energy_tensor_map
 
         elif target_requires_pos_gradients:
+            if is_llpr_ens:
+                early_destroy = False
+            else:
+                early_destroy = (index == len(energy_targets_with_gradients) - 1)
             gradients = compute_gradient(
                 model_outputs[energy_target].block().values,
                 [system.positions for system in systems],
                 is_training=is_training,
-                destroy_graph=(index == len(energy_targets_with_gradients) - 1),
+                destroy_graph=early_destroy,
             )
             old_energy_tensor_map = model_outputs[energy_target]
             new_block = old_energy_tensor_map.block().copy()
@@ -155,8 +159,8 @@ def evaluate_model(
                     cur_ens_grad = compute_gradient(
                         ens_preds[:, ens_i],
                         [system.positions for system in systems],
-                        is_training=is_training,
-                        destroy_graph=False, #((index == len(energy_targets_with_gradients) - 1) and (ens_i == n_ens - 1)),
+                        is_training=is_training,  
+                        destroy_graph=((index == len(energy_targets_with_gradients) - 1) and (ens_i == (n_ens - 1))),
                     )
 
                     all_ens_grads.append(cur_ens_grad)
