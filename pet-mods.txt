@@ -8,3 +8,4 @@ pet_5 -> SpH embedding (simple switch SoH -> SpH)
 pet_6 -> SpH and radial polynomial embeddings
 pet_7 -> SpH and explicit Bessel radial basis embedding
 pet_8 -> SoH and explicit Bessel radial basis embedding
+pet_9 -> Filippo's SoH embedding, simple MoE on linear readout layers

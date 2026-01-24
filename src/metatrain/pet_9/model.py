@@ -78,6 +78,7 @@ class PET(ModelInterface[ModelHypers]):
         self.num_heads = self.hypers["num_heads"]
         self.num_gnn_layers = self.hypers["num_gnn_layers"]
         self.num_attention_layers = self.hypers["num_attention_layers"]
+        self.num_experts = self.hypers["num_experts"]
         self.normalization = self.hypers["normalization"]
         self.activation = self.hypers["activation"]
         self.attention_temperature = self.hypers["attention_temperature"]
@@ -146,8 +147,6 @@ class PET(ModelInterface[ModelHypers]):
 
         self.node_heads = torch.nn.ModuleDict()
         self.edge_heads = torch.nn.ModuleDict()
-        self.node_last_layer_shifts = torch.nn.ModuleDict()  # not needed
-        self.edge_last_layer_shifts = torch.nn.ModuleDict()  # not needed
         self.node_last_layers = torch.nn.ModuleDict()
         self.edge_last_layers = torch.nn.ModuleDict()
         self.last_layer_feature_size = (
@@ -1490,6 +1489,7 @@ class PET(ModelInterface[ModelHypers]):
                             prod(shape),
                             len(self.atomic_types),
                             bias=True,
+                            num_experts=self.num_experts,
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }
@@ -1507,6 +1507,7 @@ class PET(ModelInterface[ModelHypers]):
                             prod(shape),
                             len(self.atomic_types),
                             bias=True,
+                            num_experts=self.num_experts,
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }
@@ -1578,7 +1579,7 @@ class PET(ModelInterface[ModelHypers]):
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {
-            "architecture_name": "pet_3",
+            "architecture_name": "pet_9",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {
