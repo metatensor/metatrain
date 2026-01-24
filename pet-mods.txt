@@ -6,3 +6,4 @@ pet_3 -> shift LLFs before readout layers
 pet_4 -> Filippo's SoH embedding, shift LLFs before readout layers
 pet_5 -> SpH embedding (simple switch SoH -> SpH)
 pet_6 -> SpH and radial polynomial embeddings
+pet_7 -> SpH and explicit Bessel radial basis embedding
