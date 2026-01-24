@@ -478,7 +478,7 @@ class CartesianTransformer(torch.nn.Module):
         x = (
             torch.pi
             * r[:, :, None]
-            * torch.arange(1, self.n_rad + 1, dtype=edge_vectors.dtype)[None, None, :]
+            * torch.arange(1, self.n_rad + 1, device=edge_vectors.device)[None, None, :]
         )
         rbf = torch.sin(x) / (r[:, :, None] + eps)
         rbf = rbf * cutoff_factors[:, :, None]
