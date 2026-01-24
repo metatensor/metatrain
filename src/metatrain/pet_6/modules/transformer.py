@@ -406,10 +406,12 @@ class CartesianTransformer(torch.nn.Module):
             transformer_type=transformer_type,
             attention_temperature=attention_temperature,
         )
-        
+
         self.l_max = 10
         self.spherical_harmonics = SphericalHarmonics(l_max=self.l_max)
-        self.edge_embedder = nn.Linear((self.l_max + 1) ** 2 + (self.l_max + 1), d_model)
+        self.edge_embedder = nn.Linear(
+            (self.l_max + 1) ** 2 + (self.l_max + 1), d_model
+        )
         self.rmsnorm = nn.LayerNorm(d_model)
 
         if not is_first:
@@ -466,17 +468,13 @@ class CartesianTransformer(torch.nn.Module):
         node_embeddings = input_node_embeddings
         # edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
         # edge_embeddings = torch.cat(edge_embeddings, dim=2)
-        edge_embeddings = self.spherical_harmonics(
-            edge_vectors.reshape(-1, 3)
-        ).reshape(edge_vectors.shape[0], edge_vectors.shape[1], -1)
-        radial_poly = torch.norm(edge_vectors, dim=-1, keepdim=True)
-        edge_embeddings = torch.dstack(
-            [
-                self.spherical_harmonics(
-                    edge_vectors.reshape(-1, 3)
-                ).reshape(edge_vectors.shape[0], edge_vectors.shape[1], -1),
-            ] + [radial_poly ** ell for ell in range(self.l_max + 1)],
+        edge_embeddings = self.spherical_harmonics(edge_vectors.reshape(-1, 3)).reshape(
+            edge_vectors.shape[0], edge_vectors.shape[1], -1
         )
+        radial_poly = torch.norm(edge_vectors, dim=-1, keepdim=True).repeat(
+            1, 1, self.l_max + 1
+        ) ** torch.arange(self.l_max + 1).reshape(1, 1, -1)
+        edge_embeddings = torch.concat([edge_embeddings, radial_poly], dim=-1)
         edge_embeddings = self.edge_embedder(edge_embeddings)
         edge_embeddings = self.rmsnorm(edge_embeddings)
 
