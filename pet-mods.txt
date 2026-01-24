@@ -4,3 +4,5 @@ pet_1 -> biases on covariant readout layers removed
 pet_2 -> Filippo's SoH embedding
 pet_3 -> shift LLFs before readout layers
 pet_4 -> Filippo's SoH embedding, shift LLFs before readout layers
+pet_5 -> SpH embedding (simple switch SoH -> SpH)
+pet_6 -> SpH and radial polynomial embeddings
