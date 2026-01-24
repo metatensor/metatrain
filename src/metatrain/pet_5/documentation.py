@@ -147,8 +147,6 @@ class ModelHypers(TypedDict):
     """Use ZBL potential for short-range repulsion"""
     long_range: LongRangeHypers = init_with_defaults(LongRangeHypers)
     """Long-range Coulomb interactions parameters."""
-    num_experts: int = 1
-    """Number of experts in the Mixture of Experts (MoE) layer."""
 
 
 class TrainerHypers(TypedDict):
