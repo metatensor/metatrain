@@ -473,7 +473,7 @@ class CartesianTransformer(torch.nn.Module):
         )
         radial_poly = torch.norm(edge_vectors, dim=-1, keepdim=True).repeat(
             1, 1, self.l_max + 1
-        ) ** torch.arange(self.l_max + 1).reshape(1, 1, -1)
+        ) ** torch.arange(self.l_max + 1, device=edge_vectors.device).reshape(1, 1, -1)
         edge_embeddings = torch.concat([edge_embeddings, radial_poly], dim=-1)
         edge_embeddings = self.edge_embedder(edge_embeddings)
         edge_embeddings = self.rmsnorm(edge_embeddings)
