@@ -236,7 +236,7 @@ The values used in the above example are the ones used for PETMADDOS training an
 Ensemble Loss Function
 ----------------------
 
-An :ref:`architecture-llpr` ensemble can be further trained to improve its uncertainty quantification.
+An :ref:`arch-llpr` ensemble can be further trained to improve its uncertainty quantification.
 This is done by using the :py:class:`metatrain.utils.loss.TensorMapEnsembleLoss` function, which implements strictly proper scoring rules for probabilistic regression.
 
 Two of the available losses assume a Gaussian predictive distribution and operate only on the ensemble-predicted mean :math:`\mu` and standard deviation :math:`\sigma`.
