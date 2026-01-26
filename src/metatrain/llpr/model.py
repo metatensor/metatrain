@@ -341,10 +341,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        print("outputs:")
-        for k, o in outputs.items():
-            print(f"  {k}: per_atom={o.per_atom}")
-
         if all(output.endswith("_uncertainty") for output in outputs) and all(
             output.endswith("_ensemble") for output in outputs
         ):
@@ -368,7 +364,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 if name.endswith("_ensemble") or name.endswith("_uncertainty"):
                     original_name = self._get_original_name(name)
                     outputs_for_model[original_name] = output
-                    print(outputs_for_model[original_name].per_atom)
                 # (will be removed at the end if not requested by the user)
 
         for name, output in outputs.items():
@@ -380,9 +375,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 continue
             outputs_for_model[name] = output
 
-        print(outputs_for_model["energy"].per_atom)
         return_dict = self.model(systems, outputs_for_model, selected_atoms)
-        print(f"SHAPE {return_dict['energy'].block().values.shape}")
 
         requested_uncertainties: List[str] = []
         for name in outputs.keys():
@@ -412,8 +405,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ll_features_values = ll_features_values.reshape(
                     ll_features_values.shape[0], -1, ll_features_values.shape[-1]
                 )
-
-            print(ll_features_values.shape)
 
             # compute PRs
             # the code is the same for PR and LPR
