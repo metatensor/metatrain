@@ -40,19 +40,10 @@ class RatioCalibrator:
         residuals64 = residuals.to(torch.float64)
         uncertainties64 = uncertainties.to(torch.float64)
 
-        squared_residuals = residuals64**2
-        if squared_residuals.ndim > 2:
-            # squared residuals need to be summed over component dimensions,
-            # i.e., all but the first and last dimensions
-            squared_residuals = torch.sum(
-                squared_residuals,
-                dim=tuple(range(1, squared_residuals.ndim - 1)),
-            )
-
         if self.method == "absolute_residuals":
-            ratios = torch.sqrt(squared_residuals) / uncertainties64
+            ratios = torch.abs(residuals64) / uncertainties64
         else:
-            ratios = squared_residuals / (uncertainties64**2)
+            ratios = residuals64**2 / uncertainties64**2
 
         ratios_sum64 = torch.sum(ratios, dim=0)
         count = torch.tensor(ratios.shape[0], dtype=torch.long, device=ratios.device)

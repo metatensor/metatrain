@@ -393,20 +393,40 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ll_features_name = "mtt::aux::energy_last_layer_features"
             ll_features = return_dict[ll_features_name]
 
+            ll_features_values = ll_features.block().values
+            if len(ll_features_values.shape) == 2:
+                # create fake component dimension for proper einsum operation
+                ll_features_values = ll_features_values.unsqueeze(1)
+            elif len(ll_features_values.shape) == 3:
+                # already has component dimension
+                pass
+            else:
+                # condense all component dimensions into one for proper einsum operation
+                ll_features_values = ll_features_values.reshape(
+                    ll_features_values.shape[0], -1, ll_features_values.shape[-1]
+                )
+
             # compute PRs
             # the code is the same for PR and LPR
             one_over_pr_values = torch.einsum(
-                "ij, jk, ik -> i",
-                ll_features.block().values,
+                "icj, jk, ick -> ic",
+                ll_features_values,
                 self._get_inv_covariance(uncertainty_name),
-                ll_features.block().values,
-            ).unsqueeze(1)
+                ll_features_values,
+            ).unsqueeze(-1)
 
             original_name = self._get_original_name(uncertainty_name)
-
-            # create labels for properties
+            number_of_components = _prod(
+                return_dict[original_name].block().values.shape[1:-1]
+            )
             cur_prop = return_dict[original_name].block().properties
             num_prop = len(cur_prop.values)
+            one_over_pr_values = one_over_pr_values.expand(
+                -1, number_of_components, num_prop
+            )
+            one_over_pr_values = one_over_pr_values.reshape(
+                return_dict[original_name].block().values.shape
+            )
 
             # uncertainty TensorMap (values expanded into shape (num_samples, num_prop),
             # with expansion targeting num_prop
@@ -421,9 +441,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ),
                 blocks=[
                     TensorBlock(
-                        values=torch.sqrt(one_over_pr_values.expand((-1, num_prop))),
+                        values=torch.sqrt(one_over_pr_values),
                         samples=ll_features.block().samples,
-                        components=ll_features.block().components,
+                        components=return_dict[original_name].block().components,
                         properties=cur_prop,
                     )
                 ],
@@ -441,10 +461,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 blocks=[
                     TensorBlock(
                         values=self._get_multiplier(uncertainty_name).expand(
-                            one_over_pr_values.shape[0], num_prop
+                            return_dict[original_name].block().values.shape
                         ),
                         samples=ll_features.block().samples,
-                        components=ll_features.block().components,
+                        components=return_dict[original_name].block().components,
                         properties=cur_prop,
                     )
                 ],
@@ -623,6 +643,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     else:
                         # For per-atom targets, use the features directly
                         ll_feats = ll_feat_tmap.block().values.detach()
+
+                    # flatten component dimensions into samples
+                    ll_feats = ll_feats.reshape(-1, ll_feats.shape[-1])
+
                     uncertainty_name = _get_uncertainty_name(name)
                     covariance = self._get_covariance(uncertainty_name)
                     covariance += ll_feats.T @ ll_feats
@@ -758,8 +782,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
                     calibrator.update(
                         uncertainty_name=uncertainty_name,
-                        residuals=residuals,
-                        uncertainties=unc,
+                        residuals=residuals.reshape(-1, residuals.shape[-1]),
+                        uncertainties=unc.reshape(-1, unc.shape[-1]),
                     )
 
         multipliers = calibrator.finalize()
@@ -807,14 +831,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             ensemble_weights = []
 
             for ii in range(weights.shape[0]):
-                # TODO: this isn't good enough for multi-target equivariant
-                if cur_multiplier.shape[0] > 1:  # unconstrained models
-                    multiplier = cur_multiplier[ii].item()
-                else:  # equivariant models
-                    multiplier = cur_multiplier.item()
                 cur_ensemble_weights = rng.multivariate_normal(
                     weights[ii].clone().detach().cpu().numpy(),
-                    cur_inv_covariance * multiplier**2,
+                    cur_inv_covariance * cur_multiplier.item() ** 2,
                     size=self.ensemble_weight_sizes[name],
                     method="svd",
                 ).T
