@@ -132,12 +132,7 @@ def _accumulate_local_crps_inputs(
     """
     Prepare and store per-sample inputs for Gaussian CRPS calibration.
 
-    The CRPS calibration is performed per last-dimension channel (M). Residuals can
-    be vector/tensor valued with component dimensions between the sample axis (N)
-    and the channel axis (M). In that case, residuals are reduced to a scalar per
-    sample and channel using an L2 norm over component dimensions:
-        r̃_{i,m} = ||r_{i,*,m}||_2.
-
+    The CRPS calibration is performed per last-dimension channel (M).
     Uncertainties are clamped from below by ``eps`` to avoid division by zero.
 
     :param residuals: Residuals between predicted mean and targets.
@@ -150,30 +145,13 @@ def _accumulate_local_crps_inputs(
     res = residuals.detach().to(torch.float64)
     unc = uncertainties.detach().to(torch.float64).clamp_min(eps)
 
-    # Ensure last axis exists (M). If residuals is (N,) -> (N,1); if (N,C) -> (N,C,1).
+    # Ensure last axis exists (M)
     if res.ndim == 1:
         res = res[:, None]
     if unc.ndim == 1:
         unc = unc[:, None]
 
-    # Ensure we have an explicit component axis for residuals: (N, C, M)
-    # If residuals comes in as (N, M), treat it as (N, 1, M).
-    if res.ndim == 2:
-        res = res[:, None, :]
-    # If residuals is already (N, C, M), keep it as is.
-
-    N = res.shape[0]
-    C = res.shape[1]
-    M = res.shape[2]
-
-    # Broadcast uncertainties over the component axis: (N, 1, M) -> (N, C, M)
-    # If uncertainties already has component axis, we still reshape/broadcast to match.
-    if unc.ndim == 2:
-        unc = unc[:, None, :]
-    unc = unc.reshape(N, 1, M).expand(N, C, M)
-    unc = unc / math.sqrt(C)  # scale by sqrt(C) since sigma is the vectorial stddev
-
-    storage["residuals"].append(res.reshape(N, C, M))
+    storage["residuals"].append(res)
     storage["uncertainties"].append(unc)
 
 
@@ -310,12 +288,7 @@ def _solve_alpha_crps(
     """
     from scipy.optimize import root_scalar
 
-    if local_residuals.ndim != 3 or local_uncertainties.ndim != 3:
-        raise ValueError(
-            "CRPS solver expects (N, C, M) residuals and uncertainties tensors."
-        )
-
-    _, _, M = local_residuals.shape
+    _, M = local_residuals.shape
     out = torch.empty((M,), dtype=torch.float64, device=local_residuals.device)
 
     a_lo0, a_hi0 = 1e-10, 50.0
@@ -324,8 +297,8 @@ def _solve_alpha_crps(
     max_expand = 12
 
     for m in range(M):
-        res_ch = local_residuals[:, :, m].reshape(-1)
-        unc_ch = local_uncertainties[:, :, m].reshape(-1)
+        res_ch = local_residuals[:, m]
+        unc_ch = local_uncertainties[:, m]
 
         def f(
             a: float, res_ch: torch.Tensor = res_ch, unc_ch: torch.Tensor = unc_ch
