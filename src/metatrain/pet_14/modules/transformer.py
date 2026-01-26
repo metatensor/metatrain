@@ -414,7 +414,7 @@ class CartesianTransformer(torch.nn.Module):
             attention_temperature=attention_temperature,
         )
 
-        self.l_max = 8
+        self.l_max = 10
         self.spherical_harmonics = SolidHarmonics(l_max=self.l_max)
         self.edge_embedder = nn.Linear((self.l_max + 1) ** 2, d_model, bias=False)
         self.rmsnorm = nn.LayerNorm(d_model, bias=False)
