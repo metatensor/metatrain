@@ -1159,7 +1159,11 @@ class PET(ModelInterface):
             print ("Deleted bandgap layer from the model for finetuning")
         except:
             print ("Could not find bandgap layer to delete from the model for finetuning")
-
+        try:
+            for i in model_state_dict.keys():
+                if "bandgap_layer" in i:
+                    del model_state_dict[i]
+                    print (f"Deleted {i} from checkpoint state dict for finetuning")
         finetune_config = model_state_dict.pop("finetune_config", {})
         if finetune_config:
             # Apply the finetuning strategy
