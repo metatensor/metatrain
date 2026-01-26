@@ -967,6 +967,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         for n, buffer in self.named_buffers():
             if n == name:
                 requested_buffer = buffer
+        if requested_buffer.shape == torch.Size([]):
+            raise ValueError(f"Covariance for {name} not found.")
         return requested_buffer
 
     def _get_inv_covariance(self, name: str) -> torch.Tensor:
@@ -985,6 +987,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         for n, buffer in self.named_buffers():
             if n == name:
                 requested_buffer = buffer
+        if requested_buffer.shape == torch.Size([]):
+            raise ValueError(f"Multiplier for {name} not found.")
         return requested_buffer
 
     def _get_original_name(self, name: str) -> str:
