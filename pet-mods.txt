@@ -13,3 +13,4 @@ pet_10 -> all biases removed from model
 pet_11 -> Filippo's SoH embedding, with Lmax=8
 pet_12 -> Filippo's SoH embedding, with Lmax=4
 pet_13 -> Filippo's SoH embedding, with Lmax=2
+pet_14 -> Filippo's SoH embedding, all biases removed
