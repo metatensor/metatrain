@@ -1163,7 +1163,7 @@ class PET(ModelInterface):
         for i in model_state_dict.keys():
             if "bandgap_layer" in i:
                 gap_keys.append(i)
-        for i in gap_keys
+        for i in gap_keys:
             del model_state_dict[i]
             print (f"Deleted {i} from checkpoint state dict for finetuning")
 
