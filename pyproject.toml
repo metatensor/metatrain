@@ -81,6 +81,11 @@ mace = [
     "mace-torch >=0.3.14",
     "e3nn"
 ]
+graph2mat = [
+    "graph2mat[e3nn]",
+    "e3nn",
+    "sisl",
+]
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]
