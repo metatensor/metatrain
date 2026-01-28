@@ -1,9 +1,10 @@
 from typing import Dict
 
 import torch
+from metatensor.torch.learn.nn import Module
 
 
-class Encoder(torch.nn.Module):
+class Encoder(Module):
     """
     An encoder of edges. It generates a fixed-size representation of the
     interatomic vector, the chemical element of the center and the chemical

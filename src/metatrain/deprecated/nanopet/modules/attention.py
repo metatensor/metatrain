@@ -1,7 +1,8 @@
 import torch
+from metatensor.torch.learn.nn import Module
 
 
-class AttentionBlock(torch.nn.Module):
+class AttentionBlock(Module):
     """
     A single transformer attention block. We are not using the
     MultiHeadAttention module from torch.nn because we need to apply a

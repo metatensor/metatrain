@@ -7,6 +7,7 @@ import numpy as np
 import scipy
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.learn.nn import Module
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -286,10 +287,6 @@ class GAP(ModelInterface[ModelHypers]):
                 interaction_ranges.append(additive_model.cutoff_radius)
         interaction_range = max(interaction_ranges)
 
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This funciton moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
-
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=sorted(self.dataset_info.atomic_types),
@@ -401,7 +398,7 @@ class _SorKernelSolver:
         return KTM @ self._weights
 
 
-class AggregateKernel(torch.nn.Module):
+class AggregateKernel(Module):
     """
     A kernel that aggregates values in a kernel over :param aggregate_names: using
     the sum as aggregate function
@@ -459,7 +456,7 @@ class AggregatePolynomial(AggregateKernel):
         return mts.pow(mts.dot(tensor1, tensor2), self._degree)
 
 
-class TorchAggregateKernel(torch.nn.Module):
+class TorchAggregateKernel(Module):
     """
     A kernel that aggregates values in a kernel over :param aggregate_names: using
     the sum as aggregate function
@@ -811,7 +808,7 @@ class SubsetOfRegressors:
         )
 
 
-class TorchSubsetofRegressors(torch.nn.Module):
+class TorchSubsetofRegressors(Module):
     def __init__(
         self,
         weights: TensorMap,
@@ -836,9 +833,6 @@ class TorchSubsetofRegressors(torch.nn.Module):
         :return:
             TensorMap with the predictions
         """
-        # move weights and X_pseudo to the same device as T
-        self._weights = self._weights.to(T.device)
-        self._X_pseudo = self._X_pseudo.to(T.device)
 
         k_tm = self._kernel(T, self._X_pseudo, are_pseudo_points=(False, True))
         return mts.dot(k_tm, self._weights)

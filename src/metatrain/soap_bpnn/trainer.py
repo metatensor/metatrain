@@ -185,12 +185,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Extract additive models and scaler and move them to CPU/float64 so they
         # can be used in the collate function
-        model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
         additive_models = copy.deepcopy(
             model.additive_models.to(dtype=torch.float64, device="cpu")
         )
         model.additive_models.to(device)
-        model.additive_models[0].weights_to(device=device, dtype=torch.float64)
         model.scaler.scales_to(device="cpu", dtype=torch.float64)
         scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
         model.scaler.to(device)
