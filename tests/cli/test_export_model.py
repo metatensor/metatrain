@@ -255,3 +255,57 @@ def test_export_checkpoint_with_metadata(monkeypatch, tmp_path):
     )
 
     assert f"This is the {model_name} model" in str(model.metadata())
+
+
+def test_huggingface_gh_interface(monkeypatch, tmp_path):
+    """Test that the export cli succeeds when exporting using the
+    GitHub-style interface (repo_id + filename)."""
+    monkeypatch.chdir(tmp_path)
+
+    hf_token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
+    if hf_token is None or len(hf_token) == 0:
+        pytest.skip("HuggingFace token not found in environment.")
+
+    command = [
+        "mtt",
+        "export",
+        "metatensor/metatrain-test",
+        "model.ckpt",
+        f"--token={hf_token}",
+    ]
+
+    output = "model.pt"
+
+    subprocess.check_call(command)
+    assert Path(output).is_file()
+
+    # Test if extensions are saved
+    extensions_glob = glob.glob("extensions/")
+    assert len(extensions_glob) == 1
+
+    # Test that the model can be loaded
+    load_model(output, extensions_directory="extensions/")
+
+
+def test_huggingface_gh_interface_revision(monkeypatch, tmp_path):
+    """Test that the export cli succeeds when exporting using the
+    GitHub-style interface with a revision."""
+    monkeypatch.chdir(tmp_path)
+
+    hf_token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
+    if hf_token is None or len(hf_token) == 0:
+        pytest.skip("HuggingFace token not found in environment.")
+
+    command = [
+        "mtt",
+        "export",
+        "metatensor/metatrain-test",
+        "model.ckpt",
+        "--revision=main",
+        f"--token={hf_token}",
+    ]
+
+    output = "model.pt"
+
+    subprocess.check_call(command)
+    assert Path(output).is_file()
