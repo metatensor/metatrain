@@ -14,7 +14,36 @@ from metatrain.utils.io import (
     trainer_from_checkpoint,
 )
 
-from . import RESOURCES_PATH
+
+@pytest.fixture(scope="module", params=["pathlib", "str", "file_url"])
+def load_path(request, MODEL_PATH):
+    """Fixture that provides the model checkpoint path in different formats.
+
+    This is meant to be used in the `test_load_model_exported` test to
+    check that loading works with all of these formats.
+    """
+    if request.param == "pathlib":
+        return MODEL_PATH
+    elif request.param == "str":
+        return str(MODEL_PATH)
+    elif request.param == "file_url":
+        return f"file:{str(MODEL_PATH)}"
+
+
+@pytest.fixture(scope="module", params=["pathlib", "str", "file_url"])
+def load_path_ckpt(MODEL_PATH, request):
+    """Fixture that provides the model checkpoint path in different formats.
+
+    This is meant to be used in the `test_load_model_checkpoint` test to
+    check that loading works with all of these formats.
+    """
+    ckpt_path = MODEL_PATH.with_suffix(".ckpt")
+    if request.param == "pathlib":
+        return ckpt_path
+    elif request.param == "str":
+        return str(ckpt_path)
+    elif request.param == "file_url":
+        return f"file:{str(ckpt_path)}"
 
 
 @pytest.mark.parametrize("filename", ["example.txt", Path("example.txt")])
@@ -35,21 +64,13 @@ def test_warning_on_missing_suffix(filename):
     assert isinstance(result, type(filename))
 
 
-def test_is_exported_file():
-    assert is_exported_file(RESOURCES_PATH / "model-32-bit.pt")
-    assert not is_exported_file(RESOURCES_PATH / "model-32-bit.ckpt")
+def test_is_exported_file(MODEL_PATH):
+    assert is_exported_file(MODEL_PATH)
+    assert not is_exported_file(MODEL_PATH.with_suffix(".ckpt"))
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
-        RESOURCES_PATH / "model-32-bit.ckpt",
-        str(RESOURCES_PATH / "model-32-bit.ckpt"),
-        f"file:{str(RESOURCES_PATH / 'model-32-bit.ckpt')}",
-    ],
-)
-def test_load_model_checkpoint(path):
-    model = load_model(path)
+def test_load_model_checkpoint(load_path_ckpt):
+    model = load_model(load_path_ckpt)
     assert type(model) is SoapBpnn
 
     # TODO: test that weights are the expected if loading with `context == 'export'`.
@@ -57,9 +78,9 @@ def test_load_model_checkpoint(path):
     # currently weights of the `"export"` and the `"restart"` context are the same...
 
 
-def test_load_model_checkpoint_wrong_version(monkeypatch, tmp_path):
+def test_load_model_checkpoint_wrong_version(monkeypatch, tmp_path, MODEL_PATH_64_BIT):
     monkeypatch.chdir(tmp_path)
-    path = RESOURCES_PATH / "model-64-bit.ckpt"
+    path = MODEL_PATH_64_BIT.with_suffix(".ckpt")
     model = torch.load(path, weights_only=False, map_location="cpu")
     model["model_ckpt_version"] = 5000000
 
@@ -76,9 +97,11 @@ def test_load_model_checkpoint_wrong_version(monkeypatch, tmp_path):
         model_from_checkpoint(checkpoint, context="restart")
 
 
-def test_load_trainer_checkpoint_wrong_version(monkeypatch, tmp_path):
+def test_load_trainer_checkpoint_wrong_version(
+    monkeypatch, tmp_path, MODEL_PATH_64_BIT
+):
     monkeypatch.chdir(tmp_path)
-    path = RESOURCES_PATH / "model-64-bit.ckpt"
+    path = MODEL_PATH_64_BIT.with_suffix(".ckpt")
     model = torch.load(path, weights_only=False, map_location="cpu")
     model["trainer_ckpt_version"] = 5000000
 
@@ -96,16 +119,8 @@ def test_load_trainer_checkpoint_wrong_version(monkeypatch, tmp_path):
         trainer_from_checkpoint(checkpoint, context="restart", hypers={})
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
-        RESOURCES_PATH / "model-32-bit.pt",
-        str(RESOURCES_PATH / "model-32-bit.pt"),
-        f"file:{str(RESOURCES_PATH / 'model-32-bit.pt')}",
-    ],
-)
-def test_load_model_exported(path):
-    model = load_model(path)
+def test_load_model_exported(load_path):
+    model = load_model(load_path)
     assert type(model) is AtomisticModel
 
 
