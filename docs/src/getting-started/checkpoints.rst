@@ -69,6 +69,15 @@ Downloading private HuggingFace models is also supported, by specifying the
 corresponding API token with the ``--token`` flag or the ``HF_TOKEN`` environment
 variable.
 
+When working with HuggingFace, a more concise form may be used.
+
+.. code-block:: bash
+
+    # instead of
+    mtt export https://huggingface.co/lab-cosmo/upet/resolve/main/models/pet-mad-s-v1.0.2.ckpt
+    # we can use
+    mtt export lab-cosmo/upet models/pet-mad-s-v1.0.2.ckpt
+
 Keep in mind that a checkpoint (``.ckpt``) is only a temporary file, which can have
 several dependencies and may become unusable if the corresponding architecture is
 updated. In constrast, exported models (``.pt``) act as standalone files. For long-term

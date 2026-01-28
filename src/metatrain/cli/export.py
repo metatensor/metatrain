@@ -169,6 +169,26 @@ def export_model(
     be saved with a ``.pt`` file ending. If ``path`` does not end with this file
     extensions ``.pt`` will be added and a warning emitted.
 
+    The user can specify the model in three ways:
+
+    1.  **Local File**:
+
+        .. code-block:: bash
+
+            mtt export model.ckpt
+
+    2.  **Hugging Face Repository** (GitHub-style):
+
+        .. code-block:: bash
+
+            mtt export metatensor/metatrain-test model.ckpt
+
+    3.  **Hugging Face URL**:
+
+        .. code-block:: bash
+
+            mtt export https://huggingface.co/metatensor/metatrain-test/resolve/main/model.ckpt
+
     :param path: path to a model file to be exported, or a Hugging Face repo ID
     :param output: path to save the model
     :param path_in_repo: path to the model file within the Hugging Face repository
