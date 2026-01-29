@@ -35,6 +35,7 @@ def test_find_all_architectures():
     assert "deprecated.nanopet" in all_arches
     assert "llpr" in all_arches
 
+
 def test_get_architecture_path():
     assert get_architecture_path("soap_bpnn") == PACKAGE_ROOT / "soap_bpnn"
 
