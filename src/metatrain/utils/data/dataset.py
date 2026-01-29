@@ -19,7 +19,13 @@ from metatensor.torch import (
     make_contiguous_block,
     save_buffer,
 )
-from metatomic.torch import System, load_system, load_system_buffer
+from metatomic.torch import (
+    ModelCapabilities,
+    ModelOutput,
+    System,
+    load_system,
+    load_system_buffer,
+)
 from metatomic.torch import save_buffer as save_system_buffer
 from omegaconf import DictConfig
 from torch.utils.data import Dataset as TorchDataset
@@ -65,8 +71,10 @@ class DatasetInfo:
     This class is used to communicate additional dataset details to the
     training functions of the individual models.
 
-    :param length_unit: Unit of length used in the dataset. Examples are ``"angstrom"``
-        or ``"nanometer"``. If None, the unit will be set to the empty string.
+    :param length_unit: Unit of length used in the dataset.
+
+        The list of possible units is available `here
+        <https://docs.metatensor.org/metatomic/latest/torch/reference/misc.html#known-quantities-units>`_.
     :param atomic_types: List containing all integer atomic types present in the
         dataset. ``atomic_types`` will be stored as a sorted list of **unique** atomic
         types.
@@ -77,12 +85,19 @@ class DatasetInfo:
 
     def __init__(
         self,
-        length_unit: Optional[str],
+        length_unit: str,
         atomic_types: List[int],
         targets: Dict[str, TargetInfo],
         extra_data: Optional[Dict[str, TargetInfo]] = None,
     ):
-        self.length_unit = length_unit if length_unit is not None else ""
+        # verify that `length_unit` and `atomic_types` are valid for metatomic
+        _ = ModelCapabilities(
+            outputs={"energy": ModelOutput()},
+            length_unit=length_unit,
+            atomic_types=atomic_types,
+        )
+
+        self.length_unit = length_unit
         self._atomic_types = _set(atomic_types)
         self.targets = targets
         self.extra_data: Dict[str, TargetInfo] = (
@@ -366,15 +381,53 @@ class CollateFn:
         target_keys: List[str],
         callables: Optional[List[Callable]] = None,
         join_kwargs: Optional[Dict[str, Any]] = None,
+        batch_atom_bounds: Optional[List[Optional[int]]] = None,
     ):
         self.target_keys: Set[str] = set(target_keys)
         self.callables: List[Callable] = callables if callables is not None else []
         self.join_kwargs: Dict[str, Any] = join_kwargs or {"different_keys": "union"}
 
+        # Handle batch_atom_bounds
+        if batch_atom_bounds is None:
+            batch_atom_bounds = [None, None]
+
+        # Validate batch_atom_bounds format
+        if not isinstance(batch_atom_bounds, list) or len(batch_atom_bounds) != 2:
+            raise ValueError(
+                f"batch_atom_bounds must be a list of exactly 2 elements [min, max], "
+                f"got {batch_atom_bounds}"
+            )
+
+        self.min_atoms_per_batch = batch_atom_bounds[0]
+        self.max_atoms_per_batch = batch_atom_bounds[1]
+
+        # Validate the bounds
+        if self.min_atoms_per_batch is not None and self.min_atoms_per_batch < 1:
+            raise ValueError(
+                "min_atoms_per_batch must be at least 1, got "
+                f"{self.min_atoms_per_batch}"
+            )
+        if self.max_atoms_per_batch is not None and self.max_atoms_per_batch < 1:
+            raise ValueError(
+                "max_atoms_per_batch must be at least 1, got "
+                f"{self.max_atoms_per_batch}"
+            )
+        if (
+            self.min_atoms_per_batch is not None
+            and self.max_atoms_per_batch is not None
+            and self.min_atoms_per_batch > self.max_atoms_per_batch
+        ):
+            raise ValueError(
+                f"min_atoms_per_batch ({self.min_atoms_per_batch}) must be less than "
+                f"or equal to max_atoms_per_batch ({self.max_atoms_per_batch})"
+            )
+
     def __call__(
         self,
         batch: List[Dict[str, Any]],
-    ) -> Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]:
+    ) -> Optional[
+        Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]
+    ]:
         """
         :param batch: A batch
         :return: A tuple containing:
@@ -384,7 +437,24 @@ class CollateFn:
             - a list with the sizes of each target buffer
             - a list with the names of each extra data
             - a list with the sizes of each extra data buffer
+
+            Returns None if the batch is outside the specified atom count bounds.
         """
+        # Check batch atom bounds if specified
+        if self.min_atoms_per_batch is not None or self.max_atoms_per_batch is not None:
+            total_atoms = sum(len(sample["system"]) for sample in batch)
+
+            if (
+                self.min_atoms_per_batch is not None
+                and total_atoms < self.min_atoms_per_batch
+            ):
+                return None
+            if (
+                self.max_atoms_per_batch is not None
+                and total_atoms > self.max_atoms_per_batch
+            ):
+                return None
+
         # group & join
         collated = group_and_join(batch, join_kwargs=self.join_kwargs)
         data = collated._asdict()
@@ -924,6 +994,10 @@ class MemmapDataset(TorchDataset):
         self.x = MemmapArray(path / "x.bin", (self.na[-1], 3), "float32", mode="r")
         self.a = MemmapArray(path / "a.bin", (self.na[-1],), "int32", mode="r")
         self.c = MemmapArray(path / "c.bin", (self.ns, 3, 3), "float32", mode="r")
+        if os.path.exists(path / "momenta.bin"):  # for FlashMD
+            self.momenta = MemmapArray(
+                path / "momenta.bin", (self.na[-1], 3), "float32", mode="r"
+            )
 
         # Register arrays pointing to the targets
         self.target_arrays = {}
@@ -1096,6 +1170,31 @@ class MemmapDataset(TorchDataset):
                 blocks=[target_block],
             )
             target_dict[target_key] = target_tensormap
+
+        if hasattr(self, "momenta"):
+            momenta = torch.tensor(
+                self.momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
+            )
+            system.add_data(
+                "momenta",
+                TensorMap(
+                    keys=Labels.single(),
+                    blocks=[
+                        TensorBlock(
+                            values=momenta.unsqueeze(-1),
+                            samples=Labels(
+                                names=["system", "atom"],
+                                values=torch.tensor(
+                                    [[i, j] for j in range(self.na[i], self.na[i + 1])],
+                                    dtype=torch.int32,
+                                ),
+                            ),
+                            components=[Labels.range("xyz", 3)],
+                            properties=Labels.range("momentum", 1),
+                        ),
+                    ],
+                ),
+            )
 
         sample = self.sample_class(**{"system": system, **target_dict})
         return sample

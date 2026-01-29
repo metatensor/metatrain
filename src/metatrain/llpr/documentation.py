@@ -3,73 +3,55 @@ LLPR
 ====
 
 The LLPR architecture is a "wrapper" architecture that enables cheap uncertainty
-quantification (UQ) via the last-layer prediction rigidity (LLPR) approach proposed
-by Bigi et al. :footcite:p:`bigi_mlst_2024` It is compatible with the following
-``metatrain`` models constructed from NN-based architectures: PET and SOAP-BPNN.
-The implementation of the LLPR as a separate architecture within ``metatrain``
-allows the users to compute the uncertainties without dealing with the fine details
-of the LLPR implementation.
+quantification via the last-layer prediction rigidity (LLPR) approach proposed by Bigi
+et al:footcite:p:`bigi_mlst_2024`. It is compatible with the following ``metatrain``
+models constructed from NN-based architectures: :ref:`arch-pet` and
+:ref:`arch-soap_bpnn`.
 
-{{SECTION_INSTALLATION}}
+This implementation further allows the user to perform gradient-based tuning of the
+ensemble weights sampled from the LLPR formalism, which can lead to improved uncertainty
+estimates. Gradients (e.g. forces and stresses) are not yet used.
 
-{{SECTION_DEFAULT_HYPERS}}
+Note that the uncertainties computed with this implementation are returned as standard
+deviations, and not variances.
 
-{{SECTION_MODEL_HYPERS}}
+Additional outputs
+------------------
 
-where the ensemble hyperparameters should adhere to the following structure:
+In addition to the outputs already availble from the wrapped model, the LLPR
+architecture can also output the following additional quantity:
 
-.. autoclass:: {{architecture_path}}.documentation.EnsemblesHypers
-    :members:
-    :undoc-members:
-
+- :ref:`mtt-aux-target-uncertainty`: The uncertainty (standard deviation) for a given
+  target, computed with the LLPR approach.
+- :ref:`mtt-aux-target-ensemble`: The ensemble predictions for a given target, computed
+  with the LLPR approach.
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from typing_extensions import TypedDict
 
-from metatrain.utils.hypers import init_with_defaults
-
-
-class EnsemblesHypers(TypedDict):
-    """Configuration of ensembles in LLPR."""
-
-    means: dict[str, list[str]] = {}
-    """This accepts a dictionary of targets and the names of their corresponding
-    last-layer weights. For example, in the case of energy trained with the default
-    ``energy`` key in a PET model, the following could be the set of weights to provide:
-
-    .. code-block:: yaml
-
-      means:
-        energy:
-          - node_last_layers.energy.0.energy___0.weight
-          - node_last_layers.energy.1.energy___0.weight
-          - edge_last_layers.energy.0.energy___0.weight
-          - edge_last_layers.energy.1.energy___0.weight
-    """
-
-    num_members: dict[str, int] = {}
-    """This is a dictionary of targets and the corresponding number of ensemble
-    members to sample. Note that a sufficiently large number of members (more than 16)
-    are required for robust uncertainty propagation.
-    (e.g. ``num_members: {energy: 128}``)
-    """
+from metatrain.utils.loss import LossSpecification
 
 
 class ModelHypers(TypedDict):
     """Hyperparameters for the LLPR model."""
 
-    ensembles: EnsemblesHypers = init_with_defaults(EnsemblesHypers)
-    """To perform uncertainty propagation, one can generate an ensemble of weights
-    from the calibrated inverse covariance matrix from the LLPR formalism.
+    num_ensemble_members: dict[str, int] = {}
+    """Number of ensemble members for each target property for which LLPR ensembles
+    should be generated. No ensembles will be generated for targets which are not
+    listed.
     """
 
 
 class TrainerHypers(TypedDict):
     """Hyperparameters for the LLPR trainer."""
 
-    batch_size: int = 12
+    distributed: bool = False
+    """Whether to use distributed training"""
+    distributed_port: int = 39591
+    """Port for distributed communication among processes"""
+    batch_size: int = 8
     """This defines the batch size used in the computation of last-layer
     features, covariance matrix, etc."""
 
@@ -93,3 +75,87 @@ class TrainerHypers(TypedDict):
     user wants to perform UQ based on the LLPR approach. Note that the model
     architecture must comply with the requirement that the last-layer features are
     exposed under the convention defined by metatrain."""
+
+    loss: str | dict[str, LossSpecification] = "gaussian_nll_ensemble"
+    """This section describes the loss function to be used during LLPR ensemble
+    weight training. We strongly suggest only using ensemble-specific loss functions,
+    i.e. one of "gaussian_nll_ensemble", "gaussian_crps_ensemble",
+    "empirical_crps_ensemble".
+    Please refer to the :ref:`loss-functions` documentation for more details of the rest
+    of the hypers."""
+
+    num_epochs: Optional[int] = None
+    """Number of epochs for which the LLPR ensemble weight training should
+    take place. If set to ``null``, only the LLPR covariance matrix computation
+    and calibration will be performed, without ensemble weight training."""
+
+    train_all_parameters: bool = False
+    """Whether to train all parameters of the LLPR-wrapped model, or only the
+    ensemble weights. If ``true``, all parameters will be trained, including those
+    of the base model. If ``false``, only the last-layer ensemble weights will be
+    trained. Note that training all parameters (i.e., setting this flag to ``true``)
+    will potentially change the uncertainty estimates given by the LLPR through the
+    ``uncertainty`` outputs (because the last-layer features will change).
+    In that case, only uncertainties calculated as standard deviations over the ensemble
+    members (``ensemble`` outputs) will be meaningful."""
+
+    warmup_fraction: float = 0.01
+    """Fraction of training steps used for learning rate warmup."""
+
+    learning_rate: float = 3e-4
+    """Learning rate."""
+
+    weight_decay: Optional[float] = None
+
+    log_interval: int = 1
+    """Interval to log metrics."""
+
+    checkpoint_interval: int = 100
+    """Interval to save checkpoints."""
+
+    per_structure_targets: list[str] = []
+    """Targets to calculate per-structure losses."""
+
+    num_workers: Optional[int] = None
+    """Number of workers for data loading. If not provided, it is set
+    automatically."""
+
+    log_mae: bool = False
+    """Log MAE alongside RMSE"""
+
+    log_separate_blocks: bool = False
+    """Log per-block error."""
+
+    best_model_metric: Literal["rmse_prod", "mae_prod", "loss"] = "loss"
+    """Metric used to select best checkpoint (e.g., ``rmse_prod``)"""
+
+    grad_clip_norm: float = 1.0
+    """Maximum gradient norm value, by default inf (no clipping)"""
+
+    batch_atom_bounds: list[Optional[int]] = [None, None]
+    """Bounds for the number of atoms per batch as [min, max]. Batches with atom
+    counts outside these bounds will be skipped during training. Use ``None`` for
+    either value to disable that bound. This is useful for preventing out-of-memory
+    errors and ensuring consistent computational load. Default: ``[None, None]``."""
+
+    calibration_method: Literal["absolute_residuals", "squared_residuals", "crps"] = (
+        "absolute_residuals"
+    )
+    r"""This determines how to calculate the calibration factor :math:`\alpha` in
+    Eq. 24 of Bigi et al :footcite:p:`bigi_mlst_2024`:
+
+    .. math::
+
+        \sigma^2_\star = \alpha^2 \boldsymbol{\mathrm{f}}^{\mathrm{T}}_\star
+        (\boldsymbol{\mathrm{F}}^{\mathrm{T}} \boldsymbol{\mathrm{F}} + \varsigma^2
+        \boldsymbol{\mathrm{I}})^{-1} \boldsymbol{\mathrm{f}}_\star
+
+    In any case, a Gaussian error distribution is assumed. If set to
+    ``squared_residuals``, the calibration factor is computed minimizing the negative
+    log-likelihood. If set to ``absolute_residuals``, the calibration factor is computed
+    from mean absolute error assuming Gaussian errors. The latter choice is more robust
+    to outliers and we recommend using it for large and/or uncurated datasets.
+    If set to ``crps``, continuous ranked probability score (CRPS) is minimized to find
+    the calibration factor. You might want to use this option if you then want to train
+    the ensemble weights using a CRPS loss.
+    """

@@ -15,7 +15,7 @@
    :maxdepth: 1
    :hidden:
 
-   installation/installation
+   installation
    getting-started/index
    architectures/index
    generated_examples/index
@@ -23,4 +23,3 @@
    faq
    cite
    dev-docs/index
-

@@ -1,7 +1,7 @@
 import copy
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Union
+from typing import Any, Dict, List, Literal, Union, cast
 
 import torch
 import torch.distributed
@@ -18,6 +18,7 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
@@ -25,7 +26,7 @@ from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import LossAggregator
+from metatrain.utils.loss import LossAggregator, LossSpecification
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -41,7 +42,7 @@ from .model import NanoPET
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 6
+    __checkpoint_version__ = 8
 
     def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)
@@ -99,15 +100,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
-        if self.hypers["remove_composition_contribution"]:
-            logging.info("Calculating composition weights")
-            model.additive_models[0].train_model(  # this is the composition model
-                train_datasets,
-                model.additive_models[1:],
-                self.hypers["batch_size"],
-                is_distributed,
-                self.hypers["fixed_composition_weights"],
-            )
+        logging.info("Calculating composition weights")
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["batch_size"],
+            is_distributed,
+            self.hypers["atomic_baseline"],
+        )
 
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
@@ -175,6 +175,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
@@ -183,6 +184,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
 
         # Create dataloader for the training datasets:
@@ -229,13 +231,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Create dataloader for the validation datasets:
         val_dataloaders = []
         for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
-            if len(val_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A validation dataset has fewer samples "
-                    f"({len(val_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
             val_dataloaders.append(
                 DataLoader(
                     dataset=val_dataset,
@@ -260,8 +255,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
         # Create a loss function:
-        loss_hypers = self.hypers["loss"]
-        assert not isinstance(loss_hypers, str)  # for mypy
+        loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
         loss_fn = LossAggregator(
             targets=train_targets,
             config=loss_hypers,
@@ -327,6 +321,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             train_loss = 0.0
             for batch in train_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = unpack_batch(batch)
@@ -390,6 +388,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             val_loss = 0.0
             for batch in val_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device

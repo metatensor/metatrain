@@ -2,7 +2,7 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import ase.data
 import torch
@@ -21,6 +21,7 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
@@ -28,7 +29,7 @@ from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import LossAggregator
+from metatrain.utils.loss import LossAggregator, LossSpecification
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -77,7 +78,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 5
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -130,7 +131,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.set_masses(atomic_mass_dict)
 
         is_distributed = self.hypers["distributed"]
-        is_finetune = "finetune" in self.hypers
+        is_finetune = self.hypers["finetune"]["read_from"] is not None
 
         if is_distributed:
             distr_env = DistributedEnvironment(self.hypers["distributed_port"])
@@ -152,9 +153,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
             device_number = distr_env.local_rank % torch.cuda.device_count()
             device = torch.device("cuda", device_number)
         else:
-            device = devices[
-                0
-            ]  # only one device, as we don't support multi-gpu for now
+            device = devices[0]
+            # only one device, as we don't support non-distributed multi-gpu for now
 
         if is_distributed:
             logging.info(f"Training on {world_size} devices with dtype {dtype}")
@@ -163,6 +163,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Apply fine-tuning strategy if provided
         if is_finetune:
+            assert self.hypers["finetune"]["read_from"] is not None  # for mypy
             model = apply_finetuning_strategy(model, self.hypers["finetune"])
             method = self.hypers["finetune"]["method"]
             num_params = sum(p.numel() for p in model.parameters())
@@ -192,7 +193,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             model.additive_models[1:],
             self.hypers["batch_size"],
             is_distributed,
-            self.hypers["fixed_composition_weights"],
+            self.hypers["atomic_baseline"],
         )
 
         if self.hypers["scale_targets"]:
@@ -261,6 +262,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
@@ -269,6 +271,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
 
         # Create dataloader for the training datasets:
@@ -315,13 +318,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Create dataloader for the validation datasets:
         val_dataloaders = []
         for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
-            if len(val_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A validation dataset has fewer samples "
-                    f"({len(val_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
             val_dataloaders.append(
                 DataLoader(
                     dataset=val_dataset,
@@ -345,8 +341,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
         # Create a loss function:
-        assert not isinstance(self.hypers["loss"], str)  # for mypy
-        loss_hypers = self.hypers["loss"]
+        loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
         loss_fn = LossAggregator(
             targets=train_targets,
             config=loss_hypers,
@@ -414,6 +409,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             train_loss = 0.0
             for batch in train_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = unpack_batch(batch)
@@ -475,6 +474,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             val_loss = 0.0
             for batch in val_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device

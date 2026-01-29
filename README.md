@@ -32,16 +32,17 @@ compatibility with various MD engines.
 # List of Implemented Architectures
 
 Currently `metatrain` supports the following architectures for building an atomistic
-model:
+model (sorted by alphabetic order):
 
 | Name                     | Description                                                                                                                          |
 |--------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| GAP                      | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
-| PET                      | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
-| NanoPET *(deprecated)*   | Re-implementation of the original PET with slightly improved training and evaluation speed                                           |
-| SOAP BPNN                | A Behler-Parrinello neural network with SOAP features                                                                                |
 | DPA3                     | An invariant graph neural network based on line graph series representations                                                         |
 | FlashMD                  | An architecture for the direct prediction of molecular dynamics                                                                      |
+| GAP                      | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
+| MACE                     | A higher order equivariant message passing neural network.                                                                           |
+| NanoPET *(deprecated)*   | Re-implementation of the original PET with slightly improved training and evaluation speed                                           |
+| PET                      | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
+| SOAP BPNN                | A Behler-Parrinello neural network with SOAP features                                                                                |
 
 <!-- marker-documentation -->
 

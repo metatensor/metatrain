@@ -173,6 +173,31 @@ def model_update_v4_v5(checkpoint: dict) -> None:
             checkpoint[key] = new_state_dict
 
 
+def model_update_v5_v6(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 5 to version 6.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            for key in list(state_dict.keys()):
+                if "soap_calculator.calculator." in key:
+                    new_key = key.replace(
+                        "soap_calculator.calculator.", "soap_calculator."
+                    )
+                    state_dict[new_key] = state_dict.pop(key)
+
+
+def model_update_v6_v7(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 6 to version 7.
+
+    :param checkpoint: The checkpoint to be updated.
+    """
+    checkpoint["model_data"]["model_hypers"]["legacy"] = True
+
+
 ###########################
 # TRAINER #################
 ###########################
@@ -268,3 +293,35 @@ def trainer_update_v7_v8(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     checkpoint["train_hypers"]["remove_composition_contribution"] = True
+
+
+def trainer_update_v8_v9(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 8 to version 9.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # - Remove the ``remove_composition_contribution`` hyper.
+    # - Rename ``fixed_composition_weights`` to ``atomic_baseline``.
+    # - If ``remove_composition_contribution`` is False, set all atomic baselines
+    #   to 0.0 for all targets.
+    use_atomic_baseline = checkpoint["train_hypers"].pop(
+        "remove_composition_contribution"
+    )
+    atomic_baseline = checkpoint["train_hypers"].pop("fixed_composition_weights")
+
+    if not use_atomic_baseline:
+        # Just set
+        dataset_info = checkpoint["model_data"]["dataset_info"]
+        atomic_baseline = {target_name: 0.0 for target_name in dataset_info.targets}
+
+    checkpoint["train_hypers"]["atomic_baseline"] = atomic_baseline
+
+
+def trainer_update_v9_v10(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 9 to version 10.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"]["batch_atom_bounds"] = [None, None]

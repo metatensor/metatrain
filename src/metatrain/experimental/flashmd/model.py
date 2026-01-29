@@ -19,7 +19,7 @@ from torch.profiler import record_function
 
 from metatrain.pet.modules.finetuning import apply_finetuning_strategy
 from metatrain.pet.modules.transformer import CartesianTransformer
-from metatrain.pet.modules.utilities import cutoff_func
+from metatrain.pet.modules.utilities import cutoff_func_cosine as cutoff_func
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
@@ -46,7 +46,7 @@ class FlashMD(ModelInterface[ModelHypers]):
     For more information, you can refer to https://arxiv.org/abs/2505.19350.
     """
 
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -70,6 +70,7 @@ class FlashMD(ModelInterface[ModelHypers]):
         self.num_attention_layers = self.hypers["num_attention_layers"]
         self.normalization = self.hypers["normalization"]
         self.activation = self.hypers["activation"]
+        self.attention_temperature = self.hypers["attention_temperature"]
         self.transformer_type = self.hypers["transformer_type"]
         self.featurizer_type = self.hypers["featurizer_type"]
 
@@ -92,6 +93,7 @@ class FlashMD(ModelInterface[ModelHypers]):
                     self.num_attention_layers,
                     self.normalization,
                     self.activation,
+                    self.attention_temperature,
                     self.transformer_type,
                     num_atomic_species,
                     layer_index == 0,  # is first layer
@@ -140,9 +142,10 @@ class FlashMD(ModelInterface[ModelHypers]):
             self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
         )
 
+        # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(unit="", per_atom=True)
-        }  # the model is always capable of outputting the internal features
+            "features": ModelOutput(per_atom=True, description="internal features")
+        }
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
         self.key_labels: Dict[str, Labels] = {}
@@ -437,7 +440,13 @@ class FlashMD(ModelInterface[ModelHypers]):
         use_manual_attention = edge_vectors.requires_grad and self.training
 
         edge_distances = torch.sqrt(torch.sum(edge_vectors**2, dim=2) + 1e-15)
-        cutoff_factors = cutoff_func(edge_distances, self.cutoff, self.cutoff_width)
+        cutoff_factors = cutoff_func(
+            edge_distances,
+            torch.tensor(
+                self.cutoff, device=edge_distances.device, dtype=edge_distances.dtype
+            ),
+            self.cutoff_width,
+        )
         cutoff_factors[~padding_mask] = 0.0
 
         # **Stage 1: Feature Computation via GNN Layers**
@@ -1220,6 +1229,7 @@ class FlashMD(ModelInterface[ModelHypers]):
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
+            description=target_info.description,
         )
 
         self.node_heads[target_name] = torch.nn.ModuleList(
@@ -1279,7 +1289,9 @@ class FlashMD(ModelInterface[ModelHypers]):
         )
 
         ll_features_name = get_last_layer_features_name(target_name)
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+        self.outputs[ll_features_name] = ModelOutput(
+            per_atom=True, description=f"last-layer features for {target_name}"
+        )
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [
             block.components for block in target_info.layout.blocks()

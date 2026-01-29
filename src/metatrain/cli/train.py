@@ -311,7 +311,7 @@ def train_model(
     val_datasets = []
     train_indices = []
     val_indices = []
-    if isinstance(options["validation_set"], float):
+    if isinstance(options["validation_set"], (int, float)):
         val_size = options["validation_set"]
         train_size -= val_size
 
@@ -353,7 +353,7 @@ def train_model(
     logging.info("Setting up test set")
     test_datasets = []
     test_indices = []
-    if isinstance(options["test_set"], float):
+    if isinstance(options["test_set"], (int, float)):
         test_size = options["test_set"]
         train_size -= test_size
 
@@ -400,7 +400,7 @@ def train_model(
 
     # Expand loss options and finalize the hypers
     options = expand_loss_config(options)
-    hypers = OmegaConf.to_container(options["architecture"])
+    hypers = OmegaConf.to_container(options["architecture"], resolve=True)
 
     ############################################
     # SAVE TRAIN, VALIDATION, TEST INDICES #####

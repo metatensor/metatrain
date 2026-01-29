@@ -1,10 +1,10 @@
 """
-Training a FlashMD model
-========================
+Training or fine-tuning a FlashMD model
+=======================================
 
-This tutorial demonstrates how to train a FlashMD model for the direct prediction
-of molecular dynamics. This type of model affords faster MD simulations compared to
-MLIPs by a factor between 10 and 30 (https://arxiv.org/abs/2505.19350).
+This tutorial demonstrates how to train or fine-tune a FlashMD model for the direct
+prediction of molecular dynamics. This type of model affords faster MD simulations
+compared to MLIPs by one or two orders of magnitude (https://arxiv.org/abs/2505.19350).
 """
 
 # %%
@@ -21,6 +21,7 @@ from ase.calculators.emt import EMT
 from ase.md import VelocityVerlet
 from ase.md.langevin import Langevin
 from ase.md.velocitydistribution import MaxwellBoltzmannDistribution
+from huggingface_hub import hf_hub_download
 
 
 # %%
@@ -67,10 +68,10 @@ dyn.run(2000)  # 2 ps NVE run
 # require future positions and momenta as targets. We will save them in an `.xyz`
 # file under the `future_positions` and `future_momenta` keys.
 
-# The FlashMD model will be trained to predict 30 steps into the future, i.e., 30 fs
+# The FlashMD model will be trained to predict 32 steps into the future, i.e., 32 fs
 # since we ran the reference simulation with a time step of 1 fs. For this type
 # of system, FlashMD is expected to perform well up to around 60-80 fs.
-time_lag = 30
+time_lag = 32
 
 # We pick starting structures that are 200 steps apart. To avoid wasting training
 # structures, this should be set to be around the expected velocity-velocity
@@ -93,7 +94,9 @@ for i in range(0, len(trajectory) - time_lag, spacing):
     s = get_structure_for_dataset(frame_now, frame_ahead)
     structures_for_dataset.append(s)
 
-    # Here, we also add the time-reversed pair (optional)
+    # Here, we also add the time-reversed pair (optional). This is
+    # generally a good idea because it is data we get for "free", as
+    # the underlying dynamics are time-reversible.
     frame_now_trev = copy.deepcopy(frame_now)
     frame_ahead_trev = copy.deepcopy(frame_ahead)
     frame_now_trev.set_momenta(-frame_now_trev.get_momenta())
@@ -120,3 +123,37 @@ ase.io.write("flashmd.xyz", structures_for_dataset)
 # Here, we run training as a subprocess, in reality you would run this from the command
 # line as ``mtt train options-flashmd.yaml``.
 subprocess.run(["mtt", "train", "options-flashmd.yaml"], check=True)
+
+# %%
+#
+# Fine-tuning a universal pre-trained FlashMD model
+# -------------------------------------------------
+#
+# Fine-tuning is generally recommended over training from scratch, as it drastically
+# reduces the amount of training data and training time required to obtain good
+# models. Here, we demonstrate how to fine-tune a pre-trained FlashMD model on our
+# aluminum dataset. You just need to add the ``finetune`` section to the training
+# options file, specifying the checkpoint file of the pre-trained model to start from.
+#
+# .. literalinclude:: options-flashmd-finetune.yaml
+#    :language: yaml
+
+# If you have the flashmd package installed, you can simply get the pre-trained
+# checkpoint file in your current directory by running:
+#
+# from flashmd import save_checkpoint
+# save_checkpoint("pet-omatpes-v2", time_lag)
+
+# Here, we instead download the pre-trained model checkpoint using the HuggingFace
+# library. In any case, make sure the time lag of the pre-trained model matches the one
+# you used to generate your dataset!
+file_path = hf_hub_download(
+    repo_id="lab-cosmo/flashmd",
+    filename=f"flashmd_pet-omatpes-v2_{time_lag}fs.ckpt",
+    local_dir=".",
+    local_dir_use_symlinks=False,
+)
+
+# In this script, we run training as a subprocess; in reality you would run this from
+# the command line as ``mtt train options-flashmd-finetune.yaml``.
+subprocess.run(["mtt", "train", "options-flashmd-finetune.yaml"], check=True)

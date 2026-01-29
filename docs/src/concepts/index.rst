@@ -9,5 +9,7 @@ such as output naming, auxiliary outputs, and wrapper models.
    :maxdepth: 1
 
    output-naming
+   fine-tuning
    loss-functions
    auxiliary-outputs
+   batch-bounds

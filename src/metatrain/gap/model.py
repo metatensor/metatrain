@@ -1,3 +1,4 @@
+import warnings
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import featomic.torch
@@ -72,6 +73,7 @@ class GAP(ModelInterface[ModelHypers]):
                 quantity=value.quantity,
                 unit=value.unit,
                 per_atom=False,
+                description=value.description,
             )
             for key, value in dataset_info.targets.items()
         }
@@ -561,7 +563,20 @@ class _FPS:
                 full=False,
                 selection_type=self._selection_type,
             )
-            selector.fit(block.values, warm_start=False)
+            # TODO: Remove this warning suppression once skmatter releases a new
+            # version that fixes the numpy deprecation warning from using np.minimum
+            # with three positional arguments.
+            # See: https://github.com/lab-cosmo/scikit-matter
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=(
+                        "Passing more than 2 positional arguments to "
+                        "np.maximum and np.minimum is deprecated"
+                    ),
+                    category=DeprecationWarning,
+                )
+                selector.fit(block.values, warm_start=False)
             mask = selector.get_support()
 
             if self._selection_type == "feature":

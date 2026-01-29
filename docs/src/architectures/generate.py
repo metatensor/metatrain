@@ -217,9 +217,7 @@ def generate_rst(
         )
 
     # Prepend docstring with reference and append missing sections
-    docstring = (
-        f".. _architecture-{template_variables['architecture']}:" + "\n\n" + docstring
-    )
+    docstring = f".. _arch-{template_variables['architecture']}:" + "\n\n" + docstring
     # Check for missing sections and add them to the end of the docstring
     for section in SECTIONS:
         section_var = "{{SECTION_" + section.upper() + "}}"

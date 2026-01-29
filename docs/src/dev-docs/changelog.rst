@@ -9,16 +9,11 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 
 .. Possible sections for each release:
 
-Fixed
-#####
+.. Fixed
+.. #####
 
-- Longe-range featurizer now also works with 2D periodic boundary conditions.
-
-Added
-#####
-
-- A method to train on mixed-stress datasets by setting stresses in non-periodic
-  structures to NaN.
+.. Added
+.. #####
 
 .. Changed
 .. #######
@@ -28,6 +23,66 @@ Added
 
 Unreleased
 ----------
+
+Version 2026.1 - 2026-01-07
+---------------------------
+
+Fixed
+#####
+
+- Uncertainty quantification is now possible on non-conservative forces.
+- Fixed a small bug in the implementation of the density of states (DOS) loss function.
+
+Added
+#####
+
+- Metatrain now features the ``experimental.mace`` architecture.
+- Most architectures now support bounds on the number of atoms in a single batch via the
+  ``batch_bounds`` hyperparameter.
+- The PET architecture now supports an adaptive cutoff functionality to make the
+  number of neighbors more uniform across different atoms and environments.
+- The PET architecture now features a temperature hyperparameter for the softmax
+  operation in attention.
+- The FlashMD architecture added fine-tuning capabilities similar to those of PET.
+
+Changed
+#######
+
+- SOAP-BPNN and MCoV now use species embeddings by default, allowing for better
+  scalability and speed. The traditional SOAP-BPNN (and associated MCoV) architecture
+  can be accessed by setting ``legacy: True``
+- Metatrain won't error if the validation set is smaller than the batch size.
+- Composition model settings have been consolidated under the ``atomic_baseline``
+  hyperparameter.
+
+Version 2025.12 - 2025-11-25
+----------------------------
+
+Fixed
+#####
+
+- Improved computational efficiency of the SOAP-BPNN architecture.
+- Improved computational efficiency of ``DiskDataset``.
+- Longe-range featurizer now also works with 2D periodic boundary conditions.
+
+Added
+#####
+
+- An option to inherit head weights during fine-tuning
+- DOS loss for training on the electronic density of states
+- A method to train on mixed-stress datasets by setting stresses in non-periodic
+  structures to NaN.
+- Support to train target variants defined by <base>/<variant> (i.e. ``energy/PBE``).
+  Variants can be selected as a property to be predicted by an engine as opposed to a
+  base target (i.e. ``energy``).
+- The ``LLPR`` architecture now allows training LLPR ensembles by backpropagation after
+  their creation from the LLPR covariance. This includes support for multi-GPU training.
+
+Changed
+#######
+
+- Raise an error (instead of warning) if energies gradients are direct targets and do
+  not have a "non_conservative" prefix
 
 Version 2025.11 - 2025-10-20
 ----------------------------
