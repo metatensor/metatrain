@@ -546,7 +546,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         hypers: TrainerHypers,
         context: Literal["restart", "finetune"],  # not used at the moment
     ) -> "Trainer":
-        epoch = checkpoint["epoch"]
         optimizer_state_dict = checkpoint["optimizer_state_dict"]
         scheduler_state_dict = checkpoint["scheduler_state_dict"]
         best_metric = checkpoint["best_metric"]
@@ -557,7 +556,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
         trainer = cls(hypers)
         trainer.optimizer_state_dict = optimizer_state_dict
         trainer.scheduler_state_dict = scheduler_state_dict
-        trainer.epoch = epoch
+        if context == "restart":
+            trainer.epoch = checkpoint["epoch"]
+        else:
+            assert context == "finetune"
+            trainer.epoch = None  # interpreted as zero in the training loop
         trainer.best_metric = best_metric
         trainer.best_model_state_dict = best_model_state_dict
         trainer.best_optimizer_state_dict = best_optimizer_state_dict
