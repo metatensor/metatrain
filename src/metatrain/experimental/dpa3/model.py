@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
@@ -22,6 +23,7 @@ from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
+from . import checkpoints
 from .documentation import ModelHypers
 
 
@@ -345,8 +347,10 @@ class DPA3(ModelInterface[ModelHypers]):
         model_data = checkpoint["model_data"]
 
         if context == "restart":
+            logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
-        elif context == "finetune" or context == "export":
+        elif context in {"finetune", "export"}:
+            logging.info(f"Using best model from epoch {checkpoint['best_epoch']}")
             model_state_dict = checkpoint["best_model_state_dict"]
             if model_state_dict is None:
                 model_state_dict = checkpoint["model_state_dict"]
@@ -407,7 +411,19 @@ class DPA3(ModelInterface[ModelHypers]):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        # version is still one, there are no new versions
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
+
+        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current model "
+                f"version is {cls.__checkpoint_version__}."
+            )
+
         return checkpoint
 
     def get_checkpoint(self) -> Dict:
@@ -419,6 +435,8 @@ class DPA3(ModelInterface[ModelHypers]):
                 "model_hypers": self.hypers,
                 "dataset_info": self.dataset_info,
             },
+            "epoch": None,
+            "best_epoch": None,
             "model_state_dict": self.state_dict(),
             "best_model_state_dict": None,
         }

@@ -36,6 +36,8 @@ class OutputTests(ArchitectureTests):
 
     supports_scalar_outputs: bool = True
     """Whether the model supports scalar outputs."""
+    supports_multiscalar_outputs: bool = True
+    """Whether the model supports outputs with multiple scalar subtargets."""
     supports_vector_outputs: bool = True
     """Whether the model supports vector outputs."""
     supports_spherical_outputs: bool = True
@@ -132,7 +134,11 @@ class OutputTests(ArchitectureTests):
         return model([system], {k: ModelOutput(per_atom=per_atom) for k in outputs})
 
     def test_output_scalar(
-        self, model_hypers: dict, dataset_info_scalar: DatasetInfo, per_atom: bool
+        self,
+        model_hypers: dict,
+        dataset_info_scalar: DatasetInfo,
+        num_subtargets: int,
+        per_atom: bool,
     ) -> None:
         """Tests that forward pass works for scalar outputs.
 
@@ -140,7 +146,11 @@ class OutputTests(ArchitectureTests):
         and values shape.
 
         This test is skipped if the model does not support scalar outputs,
-        i.e., if ``supports_scalar_outputs`` is set to ``False``.
+        i.e., if ``supports_scalar_outputs`` is set to ``False``. The test
+        is run twice, once for single scalar outputs, and once for a scalar
+        output with multiple subtargets. If the model does not support
+        multiple scalar subtargets, set ``supports_multiscalar_outputs``
+        to ``False``, which will skip the test for multiple subtargets.
 
         If this test is failing, your model might:
 
@@ -150,10 +160,16 @@ class OutputTests(ArchitectureTests):
 
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info_scalar: Dataset information with scalar outputs.
+        :param num_subtargets: The number of scalars that the target contains.
         :param per_atom: Whether the requested outputs are per-atom or not.
         """
         if not self.supports_scalar_outputs:
             pytest.skip(f"{self.architecture} does not support scalar outputs.")
+
+        if num_subtargets > 1 and not self.supports_multiscalar_outputs:
+            pytest.skip(
+                f"{self.architecture} does not support multiple scalar subtargets."
+            )
 
         outputs = self._get_output(
             model_hypers, dataset_info_scalar, per_atom, ["scalar"]
@@ -161,12 +177,12 @@ class OutputTests(ArchitectureTests):
 
         if per_atom:
             assert outputs["scalar"].block().samples.names == ["system", "atom"]
-            assert outputs["scalar"].block().values.shape == (4, 5)
+            assert outputs["scalar"].block().values.shape == (4, num_subtargets)
         else:
             assert outputs["scalar"].block().samples.names == ["system"], (
                 outputs["scalar"].block().samples.names
             )
-            assert outputs["scalar"].block().values.shape == (1, 5)
+            assert outputs["scalar"].block().values.shape == (1, num_subtargets)
 
     def test_output_vector(
         self, model_hypers: dict, dataset_info_vector: DatasetInfo, per_atom: bool
