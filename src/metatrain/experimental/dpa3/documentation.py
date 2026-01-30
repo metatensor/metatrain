@@ -1,6 +1,9 @@
 """
-DPA3
-====
+DPA3 (experimental)
+======================
+
+This is an interface to the DPA3 architecture described in https://arxiv.org/abs/2506.01686
+and implemented in deepmd-kit (https://github.com/deepmodeling/deepmd-kit).
 """
 
 from typing import Literal, Optional
