@@ -154,7 +154,8 @@ class ArchitectureTests:
         :return: The number of subtargets.
         """
         return request.param
-
+    
+    @pytest.fixture
     def dataset_info_scalar(self, num_subtargets: int, per_atom: bool) -> DatasetInfo:
         """Fixture that provides a basic ``DatasetInfo`` with a scalar target
         for testing.
