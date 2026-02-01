@@ -8,7 +8,7 @@ import torch
 from metatomic.torch import ModelMetadata, is_atomistic_model
 from omegaconf import OmegaConf
 
-from ..utils.io import check_file_extension, load_model
+from ..utils.io import check_file_extension, download_model_from_hf, load_model
 from ..utils.metadata import merge_metadata
 from .formatter import CustomHelpFormatter
 
@@ -36,11 +36,14 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "path",
         type=str,
+        nargs="+",
         help=(
-            "Saved model which should be exported. Path can be either a URL or a "
-            "local file."
+            "Saved model which should be exported. Path can be either a URL, a "
+            "local file, or a Hugging Face Hub identifier followed by the file name "
+            "(e.g. 'metatensor/metatrain-test model.ckpt')."
         ),
     )
+
     parser.add_argument(
         "-o",
         "--output",
@@ -72,6 +75,17 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         dest="metadata",
         default=None,
         help="Metatdata YAML file to be appended to the model.",
+    )
+    parser.add_argument(
+        "-r",
+        "--revision",
+        "-b",
+        "--branch",
+        dest="revision",
+        type=str,
+        default=None,
+        required=False,
+        help="Revision (branch, tag, or commit) to download from Hugging Face.",
     )
     parser.add_argument(
         "--token",
@@ -107,23 +121,54 @@ def _prepare_export_model_args(args: argparse.Namespace) -> None:
     if args.metadata is not None:
         args.metadata = ModelMetadata(**OmegaConf.load(args.metadata))
 
+    # Handle the nargs='+' for path
+    path_args = args.path
+    if len(path_args) == 1:
+        args.path = path_args[0]
+        args.path_in_repo = None
+    elif len(path_args) == 2:
+        args.path = path_args[0]
+        args.path_in_repo = path_args[1]
+    else:
+        raise ValueError(
+            "Too many arguments provided for 'path'."
+            f" Expected 1 or 2, got {len(path_args)}: {path_args}"
+        )
+
     # only these are needed for `export_model``
-    keys_to_keep = ["path", "output", "extensions", "hf_token", "metadata"]
+    keys_to_keep = [
+        "path",
+        "path_in_repo",
+        "output",
+        "extensions",
+        "hf_token",
+        "metadata",
+        "revision",
+    ]
     original_keys = list(args.__dict__.keys())
 
     for key in original_keys:
         if key not in keys_to_keep:
             args.__dict__.pop(key)
+
+    # Logic to determine default output filename based on input source
     if args.__dict__.get("output") is None:
-        args.__dict__["output"] = Path(args.path).stem + ".pt"
+        if args.path_in_repo is not None:
+            stem = Path(args.path_in_repo).stem
+        else:
+            stem = Path(args.path).stem
+
+        args.__dict__["output"] = stem + ".pt"
 
 
 def export_model(
     path: Union[Path, str],
     output: Union[Path, str],
+    path_in_repo: Optional[str] = None,
     extensions: Union[Path, str] = "extensions/",
     hf_token: Optional[str] = None,
     metadata: Optional[ModelMetadata] = None,
+    revision: Optional[str] = None,
 ) -> None:
     """Export a trained model allowing it to make predictions.
 
@@ -131,13 +176,44 @@ def export_model(
     be saved with a ``.pt`` file ending. If ``path`` does not end with this file
     extensions ``.pt`` will be added and a warning emitted.
 
-    :param path: path to a model file to be exported
+    The user can specify the model in three ways:
+
+    1.  **Local File**:
+
+        .. code-block:: bash
+
+            mtt export model.ckpt
+
+    2.  **Hugging Face Repository** (GitHub-style):
+
+        .. code-block:: bash
+
+            mtt export metatensor/metatrain-test model.ckpt
+
+    3.  **Any URL**:
+
+        .. code-block:: bash
+
+            mtt export https://huggingface.co/metatensor/metatrain-test/resolve/main/model.ckpt
+
+    :param path: path to a model file to be exported, or a Hugging Face repo ID
     :param output: path to save the model
+    :param path_in_repo: path to the model file within the Hugging Face repository
     :param extensions: path to save the extensions
     :param hf_token: HuggingFace API token to download (private) models from HuggingFace
         (optional)
     :param metadata: metadata to be appended to the model
+    :param revision: Revision (branch, tag, or commit) to download from Hugging Face
     """
+    # Resolve Hugging Face repository path if applicable
+    if path_in_repo is not None:
+        logging.info(f"Downloading '{path_in_repo}' from '{path}'...")
+        path = download_model_from_hf(
+            repo_id=str(path),
+            filename=path_in_repo,
+            revision=revision,
+            token=hf_token,
+        )
 
     if Path(output).suffix == ".ckpt":
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
