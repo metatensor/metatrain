@@ -257,3 +257,9 @@ class TrainerHypers(TypedDict):
 
     See :ref:`label_fine_tuning_concept` for more details.
     """
+    compile: Optional[bool] = False
+    """To ``torch.compile`` or not.."""
+    compile_mode: Literal["default", "reduce-overhead", "max-autotune"] = (
+        "reduce-overhead"
+    )
+    """Modes for ``torch.compile``"""

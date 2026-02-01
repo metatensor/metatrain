@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
+from metatensor.torch import TensorBlock, TensorMap
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
@@ -41,6 +42,50 @@ from . import checkpoints
 from .documentation import TrainerHypers
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
+
+
+def _detach_gradient_values(predictions: Dict[str, TensorMap]) -> Dict[str, TensorMap]:
+    """
+    Detach gradient (force/stress) values from computation graph.
+
+    This allows torch.compile to work with force training by preventing
+    double backward. The energy loss still trains the model normally,
+    but the force loss becomes a "target" that doesn't backprop through
+    the force computation itself.
+    """
+    new_predictions = {}
+    for name, tmap in predictions.items():
+        new_blocks = []
+        for block in tmap.blocks():
+            new_block = TensorBlock(
+                values=block.values,
+                samples=block.samples,
+                components=list(block.components),
+                properties=block.properties,
+            )
+            for grad_name in block.gradients_list():
+                grad_block = block.gradient(grad_name)
+                detached_grad_block = TensorBlock(
+                    values=grad_block.values.detach(),
+                    samples=grad_block.samples,
+                    components=list(grad_block.components),
+                    properties=grad_block.properties,
+                )
+                new_block.add_gradient(grad_name, detached_grad_block)
+            new_blocks.append(new_block)
+        new_predictions[name] = TensorMap(tmap.keys, new_blocks)
+    return new_predictions
+
+
+def _clean_state_dict(state_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Remove _orig_mod prefix from state dict keys that come from torch.compiled modules.
+    """
+    clean_dict = {}
+    for name, param in state_dict.items():
+        clean_name = name.replace("._orig_mod", "")
+        clean_dict[clean_name] = param
+    return clean_dict
 
 
 def get_scheduler(
@@ -159,6 +204,37 @@ class Trainer(TrainerInterface[TrainerHypers]):
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
+
+        # Apply torch.compile if requested
+        compile_enabled = self.hypers.get("compile", False)
+
+        if compile_enabled:
+            if is_distributed:
+                logging.warning(
+                    "torch.compile with DDP requires careful handling. "
+                    "Disabling compilation for distributed training."
+                )
+                compile_enabled = False
+            else:
+                logging.info("Compiling PET GNN layers with torch.compile...")
+                compile_mode = self.hypers.get("compile_mode", "reduce-overhead")
+
+                for i in range(len(model.gnn_layers)):
+                    model.gnn_layers[i] = torch.compile(
+                        model.gnn_layers[i],
+                        mode=compile_mode,
+                        fullgraph=False,
+                    )
+
+                if model.featurizer_type == "feedforward":
+                    for i in range(len(model.combination_mlps)):
+                        model.combination_mlps[i] = torch.compile(
+                            model.combination_mlps[i],
+                            mode=compile_mode,
+                            fullgraph=False,
+                        )
+
+                logging.info(f"Compilation complete (mode={compile_mode})")
 
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
@@ -396,6 +472,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     is_training=True,
                 )
 
+                # === TORCH.COMPILE FIX FOR DOUBLE BACKWARD ===
+                # xref: @sirmarcel's rewritten UPET
+                if compile_enabled:
+                    predictions = _detach_gradient_values(predictions)
+                # =============================================
+
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
                     predictions, systems, per_structure_targets
@@ -538,9 +620,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
             if val_metric < self.best_metric:
                 self.best_metric = val_metric
-                self.best_model_state_dict = copy.deepcopy(
-                    (model.module if is_distributed else model).state_dict()
-                )
+                # Clean state dict to remove _orig_mod prefix from compiled modules
+                raw_state_dict = (
+                    model.module if is_distributed else model
+                ).state_dict()
+                self.best_model_state_dict = {
+                    k.replace("._orig_mod", ""): v.cpu().clone()
+                    for k, v in raw_state_dict.items()
+                }
                 self.best_epoch = epoch
                 self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 
@@ -566,8 +653,17 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
+
+        # Clean state dicts to remove _orig_mod prefix from compiled modules
+        if "model_state_dict" in checkpoint:
+            checkpoint["model_state_dict"] = _clean_state_dict(
+                checkpoint["model_state_dict"]
+            )
+
         if self.best_model_state_dict is not None:
+            # best_model_state_dict is already cleaned when we save it
             self.best_model_state_dict["finetune_config"] = model.finetune_config
+
         checkpoint.update(
             {
                 "trainer_ckpt_version": self.__checkpoint_version__,
