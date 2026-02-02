@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Union
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.learn.nn import Module
 from metatomic.torch import ModelOutput, System
 from torch.utils.data import DataLoader, DistributedSampler
 
@@ -19,7 +20,7 @@ from ..transfer import batch_to
 from ._base_scaler import BaseScaler, FixedScalerWeights
 
 
-class Scaler(torch.nn.Module):
+class Scaler(Module):
     """
     Placeholder docs.
 
@@ -341,8 +342,6 @@ class Scaler(torch.nn.Module):
                 self.model.scales = {
                     k: v.to(dtype) for k, v in self.model.scales.items()
                 }
-
-        self.model._sync_device_dtype(device, dtype)
 
     def sync_tensor_maps(self) -> None:
         # Reload the scales of the (old) targets, which are not stored in the model

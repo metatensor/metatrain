@@ -3,6 +3,7 @@ from typing import Dict, List, Optional
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.learn.nn import Module
 from metatomic.torch import ModelOutput, NeighborListOptions, System
 from pydantic import TypeAdapter
 from typing_extensions import TypedDict
@@ -14,7 +15,7 @@ class PositionAdditiveHypers(TypedDict):
     also_momenta: bool
 
 
-class PositionAdditive(torch.nn.Module):
+class PositionAdditive(Module):
     """
     A simple additive model that adds the positions of the system to any outputs that
     is either "positions" or one of its variants.

@@ -5,7 +5,7 @@ import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.learn.nn import Linear as LinearMap
-from metatensor.torch.learn.nn import ModuleMap
+from metatensor.torch.learn.nn import Module, ModuleMap
 from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
@@ -32,7 +32,7 @@ from .modules.power_spectrum import SoapPowerSpectrum
 from .modules.tensor_basis import TensorBasis
 
 
-class Identity(torch.nn.Module):
+class Identity(Module):
     def __init__(self) -> None:
         super().__init__()
 
@@ -48,7 +48,7 @@ class MLPMap(ModuleMap):
         # Build a neural network for each species
         nns_per_species = []
         for _ in atomic_types:
-            module_list: List[torch.nn.Module] = []
+            module_list: List[Module] = []
             for _ in range(hypers["num_hidden_layers"]):
                 if len(module_list) == 0:
                     module_list.append(
@@ -945,10 +945,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         # For example, after training, the additive models could still be in
         # float64
         self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This funciton moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         interaction_ranges = [self.hypers["soap"]["cutoff"]["radius"]]
         for additive_model in self.additive_models:

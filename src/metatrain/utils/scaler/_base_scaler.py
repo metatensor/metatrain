@@ -8,13 +8,14 @@ from typing import Dict, List, Optional, Union
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.learn.nn import Module
 from metatomic.torch import System
 
 
 FixedScalerWeights = dict[str, Union[float, dict[int, float]]]
 
 
-class BaseScaler(torch.nn.Module):
+class BaseScaler(Module):
     """
     Fits a scaler for a dict of targets. Scales are computed as the per-property (and
     therefore per-block) standard deviations. By default, the scales are also computed
@@ -170,7 +171,6 @@ class BaseScaler(torch.nn.Module):
 
         device = list(targets.values())[0][0].values.device
         dtype = list(targets.values())[0][0].values.dtype
-        self._sync_device_dtype(device, dtype)
 
         # accumulate
         for target_name, target in targets.items():
@@ -312,7 +312,7 @@ class BaseScaler(torch.nn.Module):
                 blocks.append(block)
 
             self.scales[target_name] = TensorMap(
-                self.Y2[target_name].keys.to(device=scale_vals_type.device),
+                self.Y2[target_name].keys,
                 blocks,
             )
 
@@ -340,8 +340,6 @@ class BaseScaler(torch.nn.Module):
         """
 
         device = list(outputs.values())[0][0].values.device
-        dtype = list(outputs.values())[0][0].values.dtype
-        self._sync_device_dtype(device, dtype)
 
         # Build the scaled outputs for each output
         predictions: Dict[str, TensorMap] = {}
@@ -536,24 +534,6 @@ class BaseScaler(torch.nn.Module):
             )
 
         self.scales[target_name] = TensorMap(
-            self.Y2[target_name].keys.to(device=block.values.device),
+            self.Y2[target_name].keys,
             [block],
         )
-
-    def _sync_device_dtype(self, device: torch.device, dtype: torch.dtype) -> None:
-        # manually move the TensorMap dicts:
-
-        self.atomic_types = self.atomic_types.to(device=device)
-        self.type_to_index = self.type_to_index.to(device=device)
-        self.N = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.N.items()
-        }
-        self.Y2 = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.Y2.items()
-        }
-        self.scales = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.scales.items()
-        }

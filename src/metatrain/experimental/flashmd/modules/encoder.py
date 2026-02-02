@@ -1,7 +1,8 @@
 import torch
+from metatensor.torch.learn.nn import Module
 
 
-class NodeEncoder(torch.nn.Module):
+class NodeEncoder(Module):
     """
     An encoder of edges. It generates a fixed-size representation of the
     interatomic vector, the chemical element of the center and the chemical

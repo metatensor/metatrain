@@ -1,10 +1,11 @@
 import torch
+from metatensor.torch.learn.nn import Module
 
 from .attention import AttentionBlock
 from .feedforward import FeedForwardBlock
 
 
-class TransformerLayer(torch.nn.Module):
+class TransformerLayer(Module):
     """A single transformer layer."""
 
     def __init__(
@@ -40,7 +41,7 @@ class TransformerLayer(torch.nn.Module):
         return output
 
 
-class Transformer(torch.nn.Module):
+class Transformer(Module):
     """A transformer model."""
 
     def __init__(
