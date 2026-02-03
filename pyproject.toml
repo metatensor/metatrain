@@ -163,6 +163,7 @@ filterwarnings = [
     "ignore:`torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
     "ignore:`torch.jit.save` is deprecated. Please switch to `torch.export`:DeprecationWarning",
     "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.trace_method` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
     # PyTorch does not want these, but mypy requires them
     "ignore:The TorchScript type system doesn't support instance-level annotations on empty non-base types",
     # Sphericart double backward warning
