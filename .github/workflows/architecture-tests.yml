@@ -19,6 +19,7 @@ jobs:
           - llpr
           - mace
           - nanopet
+          - dpa3
           - pet
           - soap-bpnn
 

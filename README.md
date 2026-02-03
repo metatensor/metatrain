@@ -36,6 +36,7 @@ model (sorted by alphabetic order):
 
 | Name                     | Description                                                                                                                          |
 |--------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| DPA3                     | An invariant graph neural network based on line graph series representations                                                         |
 | FlashMD                  | An architecture for the direct prediction of molecular dynamics                                                                      |
 | GAP                      | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
 | MACE                     | A higher order equivariant message passing neural network.                                                                           |

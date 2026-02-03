@@ -145,11 +145,22 @@ class ArchitectureTests:
         """
         return request.param
 
+    @pytest.fixture(params=[1, 5])
+    def num_subtargets(self, request: pytest.FixtureRequest) -> int:
+        """Fixture to provide different numbers of subtargets for
+        testing.
+
+        :param request: The pytest request fixture.
+        :return: The number of subtargets.
+        """
+        return request.param
+    
     @pytest.fixture
-    def dataset_info_scalar(self, per_atom: bool) -> DatasetInfo:
+    def dataset_info_scalar(self, num_subtargets: int, per_atom: bool) -> DatasetInfo:
         """Fixture that provides a basic ``DatasetInfo`` with a scalar target
         for testing.
 
+        :param num_subtargets: The number of scalars in the target.
         :param per_atom: Whether the target is per-atom or not.
         :return: A ``DatasetInfo`` instance with a scalar target.
         """
@@ -163,7 +174,7 @@ class ArchitectureTests:
                         "quantity": "scalar",
                         "unit": "",
                         "type": "scalar",
-                        "num_subtargets": 5,
+                        "num_subtargets": num_subtargets,
                         "per_atom": per_atom,
                     },
                 )

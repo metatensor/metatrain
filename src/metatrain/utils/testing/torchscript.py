@@ -1,6 +1,7 @@
 import copy
 from typing import Any
 
+import pytest
 import torch
 from metatomic.torch import System
 
@@ -19,6 +20,9 @@ class TorchscriptTests(ArchitectureTests):
     """List of hyperparameter keys (dot-separated for nested keys)
     that are floats. A test will set these to integers to test that
     TorchScript compilation works in that case."""
+
+    supports_spherical_outputs: bool = True
+    """Whether the model supports spherical tensor outputs."""
 
     def jit_compile(self, model: ModelInterface) -> torch.jit.ScriptModule:
         """JIT compiles the given model.
@@ -109,10 +113,16 @@ class TorchscriptTests(ArchitectureTests):
     ) -> None:
         """Tests that there is no problem with jitting with spherical targets.
 
+        This test is skipped if the model does not support spherical outputs,
+        i.e., if ``supports_spherical_outputs`` is set to ``False``.
+
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info_spherical: Dataset to initialize the model
           (containing spherical targets).
         """
+
+        if not self.supports_spherical_outputs:
+            pytest.skip("Model does not support spherical outputs.")
 
         self.test_torchscript(
             model_hypers=model_hypers,
