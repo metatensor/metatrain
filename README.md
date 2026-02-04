@@ -34,11 +34,6 @@ compatibility with various MD engines.
 Currently `metatrain` supports the following architectures for building an atomistic
 model (sorted by alphabetic order):
 
-# List of Implemented Architectures
-
-Currently `metatrain` supports the following architectures for building an atomistic
-model (sorted by alphabetic order):
-
 | Name                                     | Description                                                                                                                          |
 |------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
 | [FlashMD][arch-flashmd]                  | An architecture for the direct prediction of molecular dynamics                                                                      |
