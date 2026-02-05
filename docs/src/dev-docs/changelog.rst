@@ -44,6 +44,7 @@ Added
 - The PET architecture now features a temperature hyperparameter for the softmax
   operation in attention.
 - The FlashMD architecture added fine-tuning capabilities similar to those of PET.
+- Metatrain now has a simpler CLI interface for HuggingFace models
 
 Changed
 #######

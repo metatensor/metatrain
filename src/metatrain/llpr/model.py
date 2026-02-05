@@ -31,6 +31,10 @@ from metatrain.utils.neighbor_lists import (
 )
 
 from . import checkpoints
+from .calibration import (
+    GaussianCRPSCalibrator,
+    RatioCalibrator,
+)
 from .documentation import ModelHypers
 
 
@@ -327,7 +331,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 )
             )
 
-        return CombinedDataLoader(dataloaders, shuffle=True)
+        # important to keep shuffle=False for consistent calibration results
+        # in distributed training
+        return CombinedDataLoader(dataloaders, shuffle=False)
 
     def forward(
         self,
@@ -387,20 +393,41 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ll_features_name = "mtt::aux::energy_last_layer_features"
             ll_features = return_dict[ll_features_name]
 
+            ll_features_values = ll_features.block().values
+            if len(ll_features_values.shape) == 2:
+                # create fake component dimension for proper einsum operation
+                ll_features_values = ll_features_values.unsqueeze(1)
+            elif len(ll_features_values.shape) == 3:
+                # already has component dimension
+                pass
+            else:
+                # condense all component dimensions into one for proper einsum operation
+                ll_features_values = ll_features_values.reshape(
+                    ll_features_values.shape[0], -1, ll_features_values.shape[-1]
+                )
+
             # compute PRs
             # the code is the same for PR and LPR
             one_over_pr_values = torch.einsum(
-                "ij, jk, ik -> i",
-                ll_features.block().values,
+                "icj, jk, ick -> ic",
+                ll_features_values,
                 self._get_inv_covariance(uncertainty_name),
-                ll_features.block().values,
-            ).unsqueeze(1)
+                ll_features_values,
+            ).unsqueeze(-1)
 
             original_name = self._get_original_name(uncertainty_name)
-
-            # create labels for properties
+            number_of_components = _prod(
+                return_dict[original_name].block().values.shape[1:-1]
+            )
             cur_prop = return_dict[original_name].block().properties
             num_prop = len(cur_prop.values)
+            one_over_pr_values = one_over_pr_values.expand(
+                -1, number_of_components, num_prop
+            )
+            one_over_pr_values = one_over_pr_values.reshape(
+                [one_over_pr_values.shape[0]]
+                + list(return_dict[original_name].block().values.shape[1:])
+            )
 
             # uncertainty TensorMap (values expanded into shape (num_samples, num_prop),
             # with expansion targeting num_prop
@@ -415,9 +442,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ),
                 blocks=[
                     TensorBlock(
-                        values=torch.sqrt(one_over_pr_values.expand((-1, num_prop))),
+                        values=torch.sqrt(one_over_pr_values),
                         samples=ll_features.block().samples,
-                        components=ll_features.block().components,
+                        components=return_dict[original_name].block().components,
                         properties=cur_prop,
                     )
                 ],
@@ -435,10 +462,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 blocks=[
                     TensorBlock(
                         values=self._get_multiplier(uncertainty_name).expand(
-                            one_over_pr_values.shape[0], num_prop
+                            one_over_pr_values.shape
                         ),
                         samples=ll_features.block().samples,
-                        components=ll_features.block().components,
+                        components=return_dict[original_name].block().components,
                         properties=cur_prop,
                     )
                 ],
@@ -617,6 +644,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     else:
                         # For per-atom targets, use the features directly
                         ll_feats = ll_feat_tmap.block().values.detach()
+
+                    # flatten component dimensions into samples
+                    ll_feats = ll_feats.reshape(-1, ll_feats.shape[-1])
+
                     uncertainty_name = _get_uncertainty_name(name)
                     covariance = self._get_covariance(uncertainty_name)
                     covariance += ll_feats.T @ ll_feats
@@ -677,36 +708,51 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
         batch_size: int,
         is_distributed: bool,
-        use_absolute_residuals: bool,
+        calibration_method: str,
     ) -> None:
         """
         Calibrate the LLPR model.
 
         This function computes the calibration constants (one for each output)
         that are used to scale the uncertainties in the LLPR model. The
-        calibration is performed in a simple way by computing the calibration
+        calibration is performed in a simple way by computing either the calibration
         constant as the mean of the squared residuals divided by the mean of
-        the non-calibrated uncertainties.
+        the non-calibrated uncertainties (i.e., by minimizing the NLL as a function of
+        the calibration constant), or by minimizing the CRPS as a function of the
+        calibration constant.
 
         :param datasets: List of datasets to use for calibration.
         :param batch_size: Batch size to use for the dataloader.
         :param is_distributed: Whether to use distributed sampling or not.
-        :param use_absolute_residuals: Whether to use absolute residuals as opposed
-            to squared residuals for the calibration. In both cases, a Gaussian
-            error distribution is assumed in order to derive the calibration constants,
-            but using absolute residuals can help reduce the effect of large outliers.
+        :param calibration_method: The method to use for calibration. Supported methods
+            are "squared_residuals", "absolute_residuals", and "crps". All methods
+            assume Gaussian errors. The "squared_residuals" method minimize the negative
+            log-likelihood (NLL) as a function of the calibration constant.
+            The "absolute_residuals" method estimates the calibration constant based on
+            the mean absolute residuals, which can help reduce the effect of large
+            outliers.
+            The "crps" method minimizes the Continuous Ranked Probability Score (CRPS)
+            as a function of the calibration constant.
         """
-        # Create dataloader for the validation datasets
         valid_loader = self._get_dataloader(
             datasets, batch_size, is_distributed=is_distributed
         )
 
-        # infer device and dtype
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
 
-        sums = {}  # type: ignore
-        counts = {}  # type: ignore
+        calibrator: Union[RatioCalibrator, GaussianCRPSCalibrator]
+
+        if calibration_method in ["squared_residuals", "absolute_residuals"]:
+            calibrator = RatioCalibrator(method=calibration_method)  # type: ignore[arg-type]
+        elif calibration_method == "crps":
+            calibrator = GaussianCRPSCalibrator()
+        else:
+            raise ValueError(
+                f"Unknown calibration method '{calibration_method}'! "
+                "Supported methods are 'squared_residuals', 'absolute_residuals', and"
+                " 'crps'."
+            )
 
         with torch.no_grad():
             for batch in valid_loader:
@@ -716,6 +762,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     name: target.to(device=device, dtype=dtype)
                     for name, target in targets.items()
                 }
+
                 requested_outputs = {}
                 for name in targets:
                     per_atom = "atom" in targets[name].block(0).samples.names
@@ -732,60 +779,19 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     targ = target.block().values
                     unc = outputs[uncertainty_name].block().values.detach()
 
-                    # compute the uncertainty multiplier
                     residuals = pred - targ
-                    abs_residuals = torch.abs(residuals)
-                    if abs_residuals.ndim > 2:
-                        # squared residuals need to be summed over component dimensions,
-                        # i.e., all but the first and last dimensions
-                        abs_residuals = torch.sum(
-                            abs_residuals,
-                            dim=tuple(range(1, abs_residuals.ndim - 1)),
-                        )
 
-                    if use_absolute_residuals:
-                        ratios = abs_residuals / unc  # can be multi-dimensional
-                    else:
-                        ratios = (residuals**2) / (unc**2)
-
-                    ratios_sum64 = torch.sum(ratios.to(torch.float64), dim=0)
-                    count = torch.tensor(
-                        ratios.shape[0], dtype=torch.long, device=device
+                    calibrator.update(
+                        uncertainty_name=uncertainty_name,
+                        residuals=residuals.reshape(-1, residuals.shape[-1]),
+                        uncertainties=unc.reshape(-1, unc.shape[-1]),
                     )
 
-                    if uncertainty_name not in sums:
-                        sums[uncertainty_name] = ratios_sum64
-                        counts[uncertainty_name] = count
-                    else:
-                        sums[uncertainty_name] = sums[uncertainty_name] + ratios_sum64
-                        counts[uncertainty_name] = counts[uncertainty_name] + count
+        multipliers = calibrator.finalize()
 
-        if is_distributed:
-            # All-reduce the accumulated statistics across all processes
-            for uncertainty_name in sums:
-                torch.distributed.all_reduce(sums[uncertainty_name])
-                torch.distributed.all_reduce(counts[uncertainty_name])
-
-        for uncertainty_name in sums:
-            if use_absolute_residuals:
-                # "MAE"-style calibration
-                global_mean64 = sums[uncertainty_name] / counts[uncertainty_name].to(
-                    torch.float64
-                )
-            else:
-                # "RMSE"-style calibration
-                global_mean64 = torch.sqrt(
-                    sums[uncertainty_name] / counts[uncertainty_name].to(torch.float64)
-                )
+        for uncertainty_name, alpha in multipliers.items():
             multiplier = self._get_multiplier(uncertainty_name)
-            if use_absolute_residuals:
-                # apply absolute correction factor (inverse of integral of abs(x)
-                # over Gaussian, i.e., sqrt(pi/2))
-                multiplier[:] = (global_mean64 * np.sqrt(np.pi / 2.0)).to(
-                    multiplier.dtype
-                )
-            else:
-                multiplier[:] = global_mean64.to(multiplier.dtype)
+            multiplier[:] = alpha.to(device=device, dtype=multiplier.dtype)
 
     def generate_ensemble(self) -> None:
         """Generate an ensemble of weights for the model.
@@ -826,14 +832,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             ensemble_weights = []
 
             for ii in range(weights.shape[0]):
-                # TODO: this isn't good enough for multi-target equivariant
-                if cur_multiplier.shape[0] > 1:  # unconstrained models
-                    multiplier = cur_multiplier[ii].item()
-                else:  # equivariant models
-                    multiplier = cur_multiplier.item()
                 cur_ensemble_weights = rng.multivariate_normal(
                     weights[ii].clone().detach().cpu().numpy(),
-                    cur_inv_covariance * multiplier**2,
+                    cur_inv_covariance * cur_multiplier.item() ** 2,
                     size=self.ensemble_weight_sizes[name],
                     method="svd",
                 ).T
@@ -967,6 +968,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         for n, buffer in self.named_buffers():
             if n == name:
                 requested_buffer = buffer
+        if requested_buffer.shape == torch.Size([]):
+            raise ValueError(f"Covariance for {name} not found.")
         return requested_buffer
 
     def _get_inv_covariance(self, name: str) -> torch.Tensor:
@@ -985,6 +988,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         for n, buffer in self.named_buffers():
             if n == name:
                 requested_buffer = buffer
+        if requested_buffer.shape == torch.Size([]):
+            raise ValueError(f"Multiplier for {name} not found.")
         return requested_buffer
 
     def _get_original_name(self, name: str) -> str:
@@ -1060,7 +1065,7 @@ class NoPadDistributedSampler(torch.utils.data.Sampler[int]):
             g = torch.Generator()
             g.manual_seed(self.seed + self.epoch)
             indices = indices[torch.randperm(n, generator=g)]
-        # Key property: no padding, no dropping
+        # no padding, no dropping
         return iter(indices[self.rank :: self.num_replicas].tolist())
 
     def __len__(self) -> int:
