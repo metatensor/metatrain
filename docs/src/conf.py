@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -48,6 +49,26 @@ release = metatrain.__version__
 
 
 # -- General configuration ---------------------------------------------------
+def copy_readme():
+    """Copy the main README.md to the docs/src directory and modify it.
+
+    The docs include the README file in the homepage, but the main README.md
+    contains links to the online documentation for the architecture pages.
+    Since we are building the docs, we want those links to point to the
+    generated documentation instead of the online docs. This requires
+    modifying the links in the README file.
+    """
+    orig_readme = os.path.join(ROOT, "README.md")
+    docs_readme = os.path.join(ROOT, "docs", "src", "mtt_README.md")
+    with open(orig_readme, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Substitute everything that looks like [ARCH_NAME][arch-ARCHREF] with the myst
+    # compatible reference role {ref}`ARCH_NAME <arch-ARCHREF>`
+    pattern = re.compile(r"\[([^\]]+)]\[arch-([^\]]+)]")
+    content = pattern.sub(r"{ref}`\1 <arch-\2>`", content)
+    with open(docs_readme, "w", encoding="utf-8") as f:
+        f.write(content)
 
 
 def generate_examples():
@@ -66,6 +87,7 @@ def generate_examples():
 
 
 def setup(app):
+    copy_readme()
     generate_examples()
     setup_architectures_docs()
 
