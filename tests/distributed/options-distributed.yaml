@@ -6,7 +6,7 @@ architecture:
   training:
     distributed: true
     batch_size: 25
-    num_epochs: 100
+    num_epochs: 5
 
 training_set:
   systems:
