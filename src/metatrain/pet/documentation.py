@@ -23,6 +23,45 @@ the following additional quantity:
 
 {{SECTION_DEFAULT_HYPERS}}
 
+Presets
+-------
+
+PET provides several preset configurations that allow you to quickly select
+pre-configured hyperparameters optimized for different use cases. Presets can be
+specified in your training options file using the ``preset`` field under the
+``architecture`` section:
+
+.. code-block:: yaml
+
+    architecture:
+      name: pet
+      preset: fast  # Options: default, fast, medium, large
+
+**Available presets:**
+
+- **default**: The default hyperparameters as defined in this documentation.
+- **fast**: Optimized for quick training and evaluation. Uses a smaller model
+  with reduced dimensionality (``d_pet=64``, ``d_node=128``), fewer layers
+  (``num_gnn_layers=1``, ``num_attention_layers=1``), and a smaller cutoff
+  (``3.5 Å``). Good for prototyping and quick experiments.
+- **medium**: A balanced preset between speed and accuracy. Uses moderate
+  model size (``d_pet=128``, ``d_node=256``) and is suitable for most use cases.
+- **large**: Optimized for maximum accuracy. Uses a large model with high
+  dimensionality (``d_pet=256``, ``d_node=512``), more layers
+  (``num_gnn_layers=3``, ``num_attention_layers=3``), and a larger cutoff
+  (``5.5 Å``). Requires more memory and training time.
+
+You can override specific hyperparameters after setting a preset. Any
+hyperparameters you specify in your options file will override the preset values:
+
+.. code-block:: yaml
+
+    architecture:
+      name: pet
+      preset: fast
+      model:
+        cutoff: 4.0  # Override the cutoff from the fast preset
+
 Tuning hyperparameters
 ----------------------
 

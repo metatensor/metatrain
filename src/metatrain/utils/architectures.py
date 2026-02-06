@@ -279,6 +279,55 @@ def get_default_hypers(name: str) -> Dict:
     }
 
 
+def get_default_hypers_with_preset(
+    name: str, preset: Optional[str] = None
+) -> Dict:
+    """Get default hypers with optional preset configuration.
+
+    This function loads the default hyperparameters for an architecture
+    and optionally applies a preset configuration if supported by the
+    architecture. Presets allow users to quickly select pre-configured
+    hyperparameter sets optimized for different use cases (e.g., "fast",
+    "medium", "large").
+
+    :param name: Name of the architecture
+    :param preset: Optional preset name (e.g., "fast", "medium", "large")
+    :return: Default hyperparameters with preset applied if specified
+    :raises ValueError: If the preset is not found or not supported
+    """
+    # Get default hypers first
+    default_hypers = get_default_hypers(name)
+
+    # If no preset specified, return defaults
+    if preset is None:
+        return default_hypers
+
+    # Try to import presets module for the architecture
+    try:
+        presets_module = importlib.import_module(f"metatrain.{name}.presets")
+        preset_hypers = presets_module.get_preset_hypers(preset)
+
+        # Apply preset by merging with defaults
+        # Note: preset values override defaults
+        merged_hypers = OmegaConf.merge(default_hypers, preset_hypers)
+
+        return OmegaConf.to_container(merged_hypers)
+
+    except ModuleNotFoundError:
+        # Architecture doesn't have presets module
+        raise ValueError(
+            f"Architecture '{name}' does not support presets. "
+            f"Preset '{preset}' was requested but the architecture "
+            f"does not implement preset functionality."
+        )
+    except AttributeError:
+        # Presets module exists but doesn't have get_preset_hypers
+        raise ValueError(
+            f"Architecture '{name}' has a presets module but it "
+            f"does not implement the expected get_preset_hypers function."
+        )
+
+
 def write_hypers_yaml(name: str, output_path: Path | str) -> None:
     """Write YAML file with defaults for a given architecture.
 

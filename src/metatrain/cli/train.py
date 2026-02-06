@@ -18,6 +18,7 @@ from ..utils.abc import ModelInterface, TrainerInterface
 from ..utils.architectures import (
     check_architecture_options,
     get_default_hypers,
+    get_default_hypers_with_preset,
     import_architecture,
 )
 from ..utils.data import (
@@ -209,9 +210,19 @@ def train_model(
     # MERGE OPTIONS ###########
     ###########################
 
+    # Check if a preset is specified
+    preset_name = options["architecture"].get("preset", None)
+
+    # Get default hypers with optional preset
+    if preset_name is not None:
+        default_hypers = get_default_hypers_with_preset(architecture_name, preset_name)
+        logging.info(f"Using preset '{preset_name}' for {architecture_name} architecture")
+    else:
+        default_hypers = get_default_hypers(architecture_name)
+
     options = OmegaConf.merge(
         BASE_OPTIONS,
-        {"architecture": get_default_hypers(architecture_name)},
+        {"architecture": default_hypers},
         options,
     )
 

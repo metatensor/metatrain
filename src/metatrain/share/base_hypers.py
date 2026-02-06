@@ -12,6 +12,13 @@ from typing_extensions import NotRequired, TypedDict
 class ArchitectureBaseHypers(TypedDict):
     name: str
     """The name of the architecture."""
+    preset: NotRequired[str]
+    """Optional preset name for the architecture.
+
+    Some architectures provide preset configurations (e.g., "fast", "medium",
+    "large") that allow users to quickly select pre-configured hyperparameters
+    optimized for different use cases. Presets override the default hyperparameters.
+    """
     atomic_types: NotRequired[list[int]]
     """List of atomic types present in the dataset.
 
