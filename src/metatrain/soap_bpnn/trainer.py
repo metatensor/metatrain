@@ -327,7 +327,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             self.best_metric = float("inf")
         logging.info("Starting training")
         epoch = start_epoch
-        for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
+        for epoch in range(start_epoch, self.hypers["num_epochs"]):
             if is_distributed:
                 for train_sampler in train_samplers:
                     train_sampler.set_epoch(epoch)
