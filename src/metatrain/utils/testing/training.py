@@ -178,8 +178,8 @@ class TrainingTests(ArchitectureTests):
             val_datasets=[dataset],
             checkpoint_dir=".",
         )
-        print(trainer.epoch, hypers["training"]["num_epochs"])
-        assert trainer.epoch == 1  # zero-indexed, so 2 completed
+
+        assert trainer.epoch == 1  # type: ignore
         trainer.save_checkpoint(model, "tmp.ckpt")
 
         checkpoint = torch.load("tmp.ckpt", weights_only=False, map_location="cpu")
@@ -197,8 +197,7 @@ class TrainingTests(ArchitectureTests):
             val_datasets=[dataset],
             checkpoint_dir=".",
         )
-        print(trainer.epoch)
-        assert trainer.epoch == 3  # zero-indexed, so 4 epochs total completed
+        assert trainer.epoch == 3  # type: ignore
 
     def test_continue_finetune_num_epochs(
         self,
@@ -248,7 +247,7 @@ class TrainingTests(ArchitectureTests):
             checkpoint_dir=".",
         )
 
-        assert trainer.epoch == 1  # zero-indexed, so 2 completed
+        assert trainer.epoch == 1  # type: ignore
         trainer.save_checkpoint(model, "tmp.ckpt")
 
         checkpoint = torch.load("tmp.ckpt", weights_only=False, map_location="cpu")
@@ -260,7 +259,6 @@ class TrainingTests(ArchitectureTests):
         trainer = self.trainer_cls.load_checkpoint(
             checkpoint, hypers["training"], context="finetune"
         )
-        print("BEFORE", trainer.epoch)
         trainer.train(
             model=model_after,
             dtype=torch.float32,
@@ -269,6 +267,5 @@ class TrainingTests(ArchitectureTests):
             val_datasets=[dataset],
             checkpoint_dir=".",
         )
-        print(trainer.epoch)
 
-        assert trainer.epoch == 0  # zero-indexed, so 1 finetuning epoch completed
+        assert trainer.epoch == 0  # type: ignore
