@@ -72,28 +72,23 @@ def _sort_tensor_blocks_like_atoms(
     `keys_to_samples("center_type")` for performance reasons.
 
     :param tensor_map: TensorMap with blocks labeled by (system, atom).
-    :param structures: (num_atoms,) tensor with the index of the structure each
+    :param structures: ``(num_atoms,)`` tensor with the index of the structure each
         atom belongs to.
-    :return: a tensor of shape (num_atoms, ...) with the values sorted to follow
-        the ordering implied by `structures` and an in-structure atom index.
+    :return: a tensor of shape ``(num_atoms, ...)`` with the values sorted to follow
+        the ordering implied by ``structures`` and an in-structure atom index.
     """
     device = structures.device
 
-    # Concatenate values and sample indices from all blocks
     all_values = torch.concatenate([b.values for b in tensor_map.blocks()])
-    all_system_indices = torch.concatenate(
-        [b.samples.values[:, 0] for b in tensor_map.blocks()]
-    )
-    all_atom_indices = torch.concatenate(
-        [b.samples.values[:, 1] for b in tensor_map.blocks()]
-    )
+    all_samples = torch.concatenate([b.samples.values for b in tensor_map.blocks()])
+    all_system_indices = all_samples[:, 0]
+    all_atom_indices = all_samples[:, 1]
 
-    # system_sizes and offsets assume that systems are labeled from 0..N-1,
-    # which is consistent with how `structures` is constructed in this module.
-    system_sizes = torch.bincount(structures, minlength=len(torch.unique(structures)))
+    # structures is 0..N-1, so bincount gives correct system sizes directly
+    system_sizes = torch.bincount(structures)
     system_offsets = torch.cat(
         [
-            torch.tensor([0], device=device, dtype=structures.dtype),
+            torch.zeros(1, device=device, dtype=structures.dtype),
             torch.cumsum(system_sizes, dim=0)[:-1],
         ]
     )
@@ -106,11 +101,12 @@ def _sort_tensor_blocks_like_atoms(
 
 def _build_spherical_basis_tensormap(
     expansion: torch.Tensor,
-    o3_lambda: int,
     species: torch.Tensor,
-    structures: torch.Tensor,
-    atom_index_in_structure: torch.Tensor,
+    sample_values: torch.Tensor,
     legacy: bool,
+    o3_mu_labels: Labels,
+    property_labels: Labels,
+    keys_labels: Labels,
 ) -> TensorMap:
     """
     Build a TensorMap from a spherical expansion tensor.
@@ -121,26 +117,15 @@ def _build_spherical_basis_tensormap(
     :param expansion: tensor of shape ``(n_atoms, 2*o3_lambda+1, n_features)``.
         For the modern path the caller must already have applied the center
         encoding (multiplication by the embedding).
-    :param o3_lambda: angular momentum order.
     :param species: ``(n_atoms,)`` atomic species tensor.
-    :param structures: ``(n_atoms,)`` structure index per atom.
-    :param atom_index_in_structure: ``(n_atoms,)`` atom index within structure.
+    :param sample_values: ``(n_atoms, 2)`` pre-stacked ``[system, atom]`` indices.
     :param legacy: whether to use the legacy multi-block layout.
+    :param o3_mu_labels: pre-computed component labels.
+    :param property_labels: pre-computed property labels.
+    :param keys_labels: pre-computed keys labels (legacy includes all species;
+        modern has a single key).
     :return: TensorMap ready for contraction.
     """
-    device = expansion.device
-
-    o3_mu_labels = Labels(
-        names=["o3_mu"],
-        values=torch.arange(
-            -o3_lambda, o3_lambda + 1, dtype=torch.long, device=device
-        ).unsqueeze(1),
-    )
-    property_labels = Labels(
-        names=["property"],
-        values=torch.arange(expansion.shape[2], device=device).unsqueeze(1),
-    )
-
     if legacy:
         unique_center_species = torch.unique(species)
         blocks: List[TensorBlock] = []
@@ -152,39 +137,30 @@ def _build_spherical_basis_tensormap(
                     values=expansion[mask],
                     samples=Labels(
                         names=["system", "atom"],
-                        values=torch.stack(
-                            [structures[mask], atom_index_in_structure[mask]], dim=1
-                        ),
+                        values=sample_values[mask],
                     ),
                     components=[o3_mu_labels],
                     properties=property_labels,
                 )
             )
 
-        return TensorMap(
-            keys=Labels(
-                names=["o3_lambda", "o3_sigma", "center_type"],
-                values=torch.tensor(
-                    [[o3_lambda, 1, int(s)] for s in unique_center_species],
-                    device=device,
-                ),
-            ),
-            blocks=blocks,
-        )
+        # Use cached keys directly when all species are present (common case)
+        if len(unique_center_species) == keys_labels.values.shape[0]:
+            keys = keys_labels
+        else:
+            keys_values = keys_labels.values
+            present_mask = torch.isin(keys_values[:, -1], unique_center_species)
+            keys = Labels(names=keys_labels.names, values=keys_values[present_mask])
+        return TensorMap(keys=keys, blocks=blocks)
     else:
         return TensorMap(
-            keys=Labels(
-                ["o3_lambda", "o3_sigma"],
-                torch.tensor([[o3_lambda, 1]], device=device),
-            ),
+            keys=keys_labels,
             blocks=[
                 TensorBlock(
                     values=expansion,
                     samples=Labels(
                         names=["system", "atom"],
-                        values=torch.stack(
-                            [structures, atom_index_in_structure], dim=1
-                        ),
+                        values=sample_values,
                     ),
                     components=[o3_mu_labels],
                     properties=property_labels,
@@ -229,6 +205,34 @@ class VectorBasis(torch.nn.Module):
         )
 
         l1_n_radial = self.soap_calculator.radial.n_per_l[1]
+        l1_feature_count = l1_n_radial * (len(atomic_types) if legacy else 4)
+
+        # Cache Labels for TensorMap construction (avoid per-forward allocations)
+        self._o3_mu_labels = Labels(
+            names=["o3_mu"],
+            values=torch.arange(-1, 2, dtype=torch.long).unsqueeze(1),
+        )
+        self._property_labels = Labels(
+            names=["property"],
+            values=torch.arange(l1_feature_count).unsqueeze(1),
+        )
+        if legacy:
+            self._keys_labels = Labels(
+                names=["o3_lambda", "o3_sigma", "center_type"],
+                values=torch.stack(
+                    [
+                        torch.tensor([1] * len(atomic_types)),
+                        torch.tensor([1] * len(atomic_types)),
+                        torch.tensor(atomic_types),
+                    ],
+                    dim=1,
+                ),
+            )
+        else:
+            self._keys_labels = Labels(
+                ["o3_lambda", "o3_sigma"],
+                torch.tensor([[1, 1]]),
+            )
 
         if self.legacy:
             # Legacy mode: no chemical embedding, contraction done via LinearMap
@@ -273,8 +277,7 @@ class VectorBasis(torch.nn.Module):
         centers: torch.Tensor,
         neighbors: torch.Tensor,
         species: torch.Tensor,
-        structures: torch.Tensor,
-        atom_index_in_structure: torch.Tensor,
+        sample_values: torch.Tensor,
         selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
         """
@@ -286,10 +289,7 @@ class VectorBasis(torch.nn.Module):
         :param neighbors: (num_edges,) tensor with the indices of the neighbor
             atoms.
         :param species: (num_atoms,) tensor with the atomic species of each atom.
-        :param structures: (num_atoms,) tensor with the index of the structure each
-            atom belongs to.
-        :param atom_index_in_structure: (num_atoms,) tensor with the index of each atom
-            in its structure.
+        :param sample_values: (num_atoms, 2) pre-stacked [system, atom] indices.
         :param selected_atoms: optional Labels object to select a subset of the atoms
             to compute the basis for.
         :return: a tensor of shape (num_atoms, 3, 3) with the basis of 3 vectors for
@@ -299,6 +299,10 @@ class VectorBasis(torch.nn.Module):
 
         if self.neighbor_species_labels.values.device != device:
             self.neighbor_species_labels = self.neighbor_species_labels.to(device)
+        if self._o3_mu_labels.values.device != device:
+            self._o3_mu_labels = self._o3_mu_labels.to(device)
+            self._property_labels = self._property_labels.to(device)
+            self._keys_labels = self._keys_labels.to(device)
 
         # only l=1 tensor
         l1_spherical_expansion = self.soap_calculator(
@@ -322,11 +326,12 @@ class VectorBasis(torch.nn.Module):
 
         l1_tensor_map = _build_spherical_basis_tensormap(
             expansion=l1_spherical_expansion,
-            o3_lambda=1,
             species=species,
-            structures=structures,
-            atom_index_in_structure=atom_index_in_structure,
+            sample_values=sample_values,
             legacy=self.legacy,
+            o3_mu_labels=self._o3_mu_labels,
+            property_labels=self._property_labels,
+            keys_labels=self._keys_labels,
         )
 
         if selected_atoms is not None:
@@ -334,6 +339,7 @@ class VectorBasis(torch.nn.Module):
 
         if self.legacy:
             contracted = self.contraction(l1_tensor_map)
+            structures = sample_values[:, 0]
             return _sort_tensor_blocks_like_atoms(contracted, structures=structures)
         else:
             return self.contraction_for_tensors(l1_tensor_map.block().values)
@@ -373,8 +379,39 @@ class LambdaBasis(torch.nn.Module):
         )
         self.spex_calculator = SphericalExpansion(**spex_soap_hypers)
 
+        n_radial = self.spex_calculator.radial.n_per_l[o3_lambda]
+        feature_count = n_radial * (len(atomic_types) if legacy else 4)
+
+        # Cache Labels for TensorMap construction (avoid per-forward allocations)
+        self._o3_mu_labels = Labels(
+            names=["o3_mu"],
+            values=torch.arange(-o3_lambda, o3_lambda + 1, dtype=torch.long).unsqueeze(
+                1
+            ),
+        )
+        self._property_labels = Labels(
+            names=["property"],
+            values=torch.arange(feature_count).unsqueeze(1),
+        )
         if legacy:
-            n_radial = self.spex_calculator.radial.n_per_l[o3_lambda]
+            self._keys_labels = Labels(
+                names=["o3_lambda", "o3_sigma", "center_type"],
+                values=torch.stack(
+                    [
+                        torch.tensor([o3_lambda] * len(atomic_types)),
+                        torch.tensor([1] * len(atomic_types)),
+                        torch.tensor(atomic_types),
+                    ],
+                    dim=1,
+                ),
+            )
+        else:
+            self._keys_labels = Labels(
+                ["o3_lambda", "o3_sigma"],
+                torch.tensor([[o3_lambda, 1]]),
+            )
+
+        if legacy:
             self.spex_contraction = LinearMap(
                 in_keys=Labels(
                     names=["o3_lambda", "o3_sigma", "center_type"],
@@ -398,7 +435,6 @@ class LambdaBasis(torch.nn.Module):
             self.spex_contraction_for_tensors = torch.nn.Identity()
             self.center_encoding = torch.nn.Identity()
         else:
-            n_radial = self.spex_calculator.radial.n_per_l[o3_lambda]
             self.spex_contraction_for_tensors = torch.nn.Linear(
                 in_features=n_radial * 4,
                 out_features=2 * o3_lambda + 1,
@@ -416,8 +452,7 @@ class LambdaBasis(torch.nn.Module):
         centers: torch.Tensor,
         neighbors: torch.Tensor,
         species: torch.Tensor,
-        structures: torch.Tensor,
-        atom_index_in_structure: torch.Tensor,
+        sample_values: torch.Tensor,
         selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
         """
@@ -429,13 +464,17 @@ class LambdaBasis(torch.nn.Module):
         :param neighbors: (num_edges,) tensor with the indices of the neighbor
             atoms.
         :param species: (num_atoms,) tensor with the atomic species of each atom.
-        :param structures: (num_atoms,) tensor with the index of the structure each
-            atom belongs to.
-        :param atom_index_in_structure: (num_atoms,) tensor with the index of each atom
-            within its structure.
+        :param sample_values: (num_atoms, 2) pre-stacked [system, atom] indices.
         :param selected_atoms: optional Labels object to select a subset of atoms.
         :return: tensor of shape ``(n_atoms, 2*o3_lambda+1, 2*o3_lambda+1)``.
         """
+        device = interatomic_vectors.device
+
+        if self._o3_mu_labels.values.device != device:
+            self._o3_mu_labels = self._o3_mu_labels.to(device)
+            self._property_labels = self._property_labels.to(device)
+            self._keys_labels = self._keys_labels.to(device)
+
         lambda_basis = self.spex_calculator(
             interatomic_vectors,
             centers,
@@ -455,11 +494,12 @@ class LambdaBasis(torch.nn.Module):
 
         lambda_tensor_map = _build_spherical_basis_tensormap(
             expansion=lambda_basis,
-            o3_lambda=self.o3_lambda,
             species=species,
-            structures=structures,
-            atom_index_in_structure=atom_index_in_structure,
+            sample_values=sample_values,
             legacy=self.legacy,
+            o3_mu_labels=self._o3_mu_labels,
+            property_labels=self._property_labels,
+            keys_labels=self._keys_labels,
         )
 
         if selected_atoms is not None:
@@ -467,6 +507,7 @@ class LambdaBasis(torch.nn.Module):
 
         if self.legacy:
             contracted = self.spex_contraction(lambda_tensor_map)
+            structures = sample_values[:, 0]
             return _sort_tensor_blocks_like_atoms(contracted, structures=structures)
         else:
             return self.spex_contraction_for_tensors(lambda_tensor_map.block().values)
@@ -481,8 +522,7 @@ class FakeLambdaBasis(torch.nn.Module):
         centers: torch.Tensor,
         neighbors: torch.Tensor,
         species: torch.Tensor,
-        structures: torch.Tensor,
-        atom_index_in_structure: torch.Tensor,
+        sample_values: torch.Tensor,
         selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
         return torch.tensor(0)
@@ -579,8 +619,7 @@ class TensorBasis(torch.nn.Module):
         centers: torch.Tensor,
         neighbors: torch.Tensor,
         species: torch.Tensor,
-        structures: torch.Tensor,
-        atom_index_in_structure: torch.Tensor,
+        sample_values: torch.Tensor,
         selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
         """
@@ -592,10 +631,7 @@ class TensorBasis(torch.nn.Module):
         :param neighbors: (num_edges,) tensor with the indices of the neighbor
             atoms.
         :param species: (num_atoms,) tensor with the atomic species of each atom.
-        :param structures: (num_atoms,) tensor with the index of the structure each
-            atom belongs to.
-        :param atom_index_in_structure: (num_atoms,) tensor with the index of each atom
-            in its structure.
+        :param sample_values: (num_atoms, 2) pre-stacked [system, atom] indices.
         :param selected_atoms: optional Labels object to select a subset of the atoms
             to compute the basis for.
         :return: a tensor of shape (num_atoms, 2*o3_lambda+1, 2*o3_lambda+1) with the
@@ -614,7 +650,7 @@ class TensorBasis(torch.nn.Module):
                 self.cgs[k] = v.to(device, dtype)
 
         if selected_atoms is None:
-            num_atoms = len(atom_index_in_structure)
+            num_atoms = sample_values.shape[0]
         else:
             num_atoms = len(selected_atoms)
 
@@ -630,8 +666,7 @@ class TensorBasis(torch.nn.Module):
                 centers,
                 neighbors,
                 species,
-                structures,
-                atom_index_in_structure,
+                sample_values,
                 selected_atoms,
             )
         elif self.o3_lambda == 2:
@@ -645,15 +680,17 @@ class TensorBasis(torch.nn.Module):
                 centers,
                 neighbors,
                 species,
-                structures,
-                atom_index_in_structure,
+                sample_values,
                 selected_atoms,
             )
             # vector_basis is [n_atoms, 3(yzx), 3]
             vector_1_xyz = vector_basis[:, [2, 0, 1], 0]
             vector_2_xyz = vector_basis[:, [2, 0, 1], 1]
-            basis[:, :, 0] = self.spherical_harmonics_calculator(vector_1_xyz)[:, 4:]
-            basis[:, :, 1] = self.spherical_harmonics_calculator(vector_2_xyz)[:, 4:]
+            sh_both = self.spherical_harmonics_calculator(
+                torch.cat([vector_1_xyz, vector_2_xyz], dim=0)
+            )
+            basis[:, :, 0] = sh_both[:num_atoms, 4:]
+            basis[:, :, 1] = sh_both[num_atoms:, 4:]
 
             vector_1_spherical = vector_basis[:, :, 0]
             vector_2_spherical = vector_basis[:, :, 1]
@@ -680,8 +717,7 @@ class TensorBasis(torch.nn.Module):
                 centers,
                 neighbors,
                 species,
-                structures,
-                atom_index_in_structure,
+                sample_values,
                 selected_atoms,
             )
             # vector_basis is [n_atoms, 3(yzx), 3]
@@ -689,8 +725,11 @@ class TensorBasis(torch.nn.Module):
             vector_2_xyz = vector_basis[:, [2, 0, 1], 1]
             vector_3_spherical = vector_basis[:, :, 2]
 
-            sh_1 = self.spherical_harmonics_calculator(vector_1_xyz)
-            sh_2 = self.spherical_harmonics_calculator(vector_2_xyz)
+            sh_both = self.spherical_harmonics_calculator(
+                torch.cat([vector_1_xyz, vector_2_xyz], dim=0)
+            )
+            sh_1 = sh_both[:num_atoms]
+            sh_2 = sh_both[num_atoms:]
 
             for lam in range(L + 1):
                 basis[:, :, lam] = cg_combine(
@@ -722,8 +761,7 @@ class TensorBasis(torch.nn.Module):
                 centers,
                 neighbors,
                 species,
-                structures,
-                atom_index_in_structure,
+                sample_values,
                 selected_atoms,
             )
             basis = torch.cat((basis, lambda_basis_tensor), dim=-1)
@@ -735,8 +773,7 @@ class TensorBasis(torch.nn.Module):
                 centers,
                 neighbors,
                 species,
-                structures,
-                atom_index_in_structure,
+                sample_values,
                 selected_atoms,
             )
             vector_1_spherical = vector_basis_pseudotensor[:, :, 0]
@@ -897,8 +934,7 @@ class FakeVectorBasis(torch.nn.Module):
         centers: torch.Tensor,
         neighbors: torch.Tensor,
         species: torch.Tensor,
-        structures: torch.Tensor,
-        atom_index_in_structure: torch.Tensor,
+        sample_values: torch.Tensor,
         selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
         return torch.tensor(0)

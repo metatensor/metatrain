@@ -347,6 +347,10 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         }
 
         self.single_label = Labels.single()
+        self._feature_labels = Labels(
+            names=["feature"],
+            values=torch.arange(self.n_inputs_last_layer).unsqueeze(1),
+        )
 
         self.num_properties: Dict[str, Dict[str, int]] = {}  # by target and block
         self.basis_calculators = torch.nn.ModuleDict({})
@@ -451,6 +455,8 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             self.neighbors_species_labels = self.neighbors_species_labels.to(device)
         if self.center_type_labels.device != device:
             self.center_type_labels = self.center_type_labels.to(device)
+        if self._feature_labels.values.device != device:
+            self._feature_labels = self._feature_labels.to(device)
         if self.single_label.values.device != device:
             self.single_label = self.single_label.to(device)
             self.key_labels = {
@@ -472,32 +478,15 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         # initialize the return dictionary
         return_dict: Dict[str, TensorMap] = {}
 
-        system_indices = torch.concatenate(
-            [
-                torch.full(
-                    (len(system),),
-                    i_system,
-                    device=device,
-                )
-                for i_system, system in enumerate(systems)
-            ],
+        system_sizes = [len(system) for system in systems]
+        system_sizes_tensor = torch.tensor(system_sizes, device=device)
+        system_indices = torch.repeat_interleave(
+            torch.arange(len(systems), device=device), system_sizes_tensor
         )
-
-        sample_values = torch.stack(
-            [
-                system_indices,
-                torch.concatenate(
-                    [
-                        torch.arange(
-                            len(system),
-                            device=device,
-                        )
-                        for system in systems
-                    ],
-                ),
-            ],
-            dim=1,
+        atom_indices = torch.cat(
+            [torch.arange(size, device=device) for size in system_sizes]
         )
+        sample_values = torch.stack([system_indices, atom_indices], dim=1)
         (
             positions,
             centers,
@@ -564,20 +553,15 @@ class SoapBpnn(ModelInterface[ModelHypers]):
 
         if not self.legacy:
             values = self.bpnn_for_tensors(soap_features_tensor)
+            soap_block0 = soap_features.block()
             features = TensorMap(
                 keys=soap_features.keys,
                 blocks=[
                     TensorBlock(
                         values=values,
-                        samples=soap_features.block().samples,
-                        components=soap_features.block().components,
-                        properties=Labels(
-                            names=["feature"],
-                            values=torch.arange(
-                                self.n_inputs_last_layer,
-                                device=device,
-                            ).unsqueeze(1),
-                        ),
+                        samples=soap_block0.samples,
+                        components=soap_block0.components,
+                        properties=self._feature_labels,
                     )
                 ],
             )
@@ -586,24 +570,19 @@ class SoapBpnn(ModelInterface[ModelHypers]):
 
         if self.long_range:
             if not self.legacy:
+                features_block0 = features.block()
                 distances = torch.sqrt(torch.sum(interatomic_vectors**2, dim=-1))
                 long_range_features_tensor = self.long_range_featurizer(
-                    systems, features.block().values, distances
+                    systems, features_block0.values, distances
                 )
                 long_range_features = TensorMap(
                     keys=features.keys,
                     blocks=[
                         TensorBlock(
                             values=long_range_features_tensor,
-                            samples=features.block().samples,
-                            components=features.block().components,
-                            properties=Labels(
-                                names=["feature"],
-                                values=torch.arange(
-                                    self.n_inputs_last_layer,
-                                    device=device,
-                                ).unsqueeze(1),
-                            ),
+                            samples=features_block0.samples,
+                            components=features_block0.components,
+                            properties=self._feature_labels,
                         )
                     ],
                 )
@@ -691,6 +670,32 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 features_by_output[base_name], outputs[output_name].per_atom
             )
 
+        # Pre-compute sorting indices for legacy keys_to_samples (shared across
+        # all outputs since the per-species block structure is identical).
+        legacy_sorting_indices = torch.tensor(0, device=device)
+        legacy_sorted_samples = torch.tensor(0, device=device)
+        if self.legacy:
+            system_offsets = torch.cat(
+                [
+                    torch.tensor([0], device=device),
+                    torch.cumsum(system_sizes_tensor, dim=0)[:-1],
+                ]
+            )
+            all_samples = torch.concatenate(
+                [b.samples.values for b in features.blocks()]
+            )
+            all_system_indices = all_samples[:, 0]
+            all_atom_indices = all_samples[:, 1]
+            overall_atom_indices = system_offsets[all_system_indices] + all_atom_indices
+            legacy_sorting_indices = torch.argsort(overall_atom_indices)
+            legacy_sorted_samples = torch.stack(
+                [
+                    all_system_indices[legacy_sorting_indices],
+                    all_atom_indices[legacy_sorting_indices],
+                ],
+                dim=1,
+            )
+
         atomic_properties: Dict[str, TensorMap] = {}
         for output_name, output_layers in self.last_layers.items():
             if output_name in outputs:
@@ -705,7 +710,9 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                     )
                     if self.legacy:
                         invariant_coefficients = self._legacy_keys_to_samples(
-                            invariant_coefficients, systems, device
+                            invariant_coefficients,
+                            legacy_sorting_indices,
+                            legacy_sorted_samples,
                         )
                     tensor_basis = torch.tensor(0)
                     for (
@@ -724,8 +731,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                                         centers,
                                         neighbors,
                                         species,
-                                        sample_values[:, 0],
-                                        sample_values[:, 1],
+                                        sample_values,
                                         selected_atoms,
                                     )
                     # multiply the invariant coefficients by the elements of the
@@ -845,8 +851,8 @@ class SoapBpnn(ModelInterface[ModelHypers]):
     def _legacy_keys_to_samples(
         self,
         invariant_coefficients: TensorMap,
-        systems: List[System],
-        device: torch.device,
+        sorting_indices: torch.Tensor,
+        sorted_sample_values: torch.Tensor,
     ) -> TensorMap:
         """Merge per-species blocks into a single block sorted by atom order.
 
@@ -854,31 +860,14 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         ``invariant_coefficients.keys_to_samples("center_type")``.
 
         :param invariant_coefficients: the input TensorMap with keys to merge
-        :param systems: the list of systems to get the atom order from
-        :param device: the device to put the output on
+        :param sorting_indices: pre-computed argsort indices (shared across outputs)
+        :param sorted_sample_values: pre-computed sorted [system, atom] indices
         :return: the output TensorMap with merged blocks and keys moved to samples
         """
         all_values = torch.concatenate(
             [b.values for b in invariant_coefficients.blocks()]
         )
-        system_sizes = torch.tensor([len(system) for system in systems], device=device)
-        system_offsets = torch.cat(
-            [
-                torch.tensor([0], device=device),
-                torch.cumsum(system_sizes, dim=0)[:-1],
-            ]
-        )
-        all_system_indices = torch.concatenate(
-            [b.samples.values[:, 0] for b in invariant_coefficients.blocks()]
-        )
-        all_atom_indices = torch.concatenate(
-            [b.samples.values[:, 1] for b in invariant_coefficients.blocks()]
-        )
-        overall_atom_indices = system_offsets[all_system_indices] + all_atom_indices
-        sorting_indices = torch.argsort(overall_atom_indices)
         all_values = all_values[sorting_indices]
-        all_system_indices = all_system_indices[sorting_indices]
-        all_atom_indices = all_atom_indices[sorting_indices]
         return TensorMap(
             keys=self.single_label,
             blocks=[
@@ -886,10 +875,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                     values=all_values,
                     samples=Labels(
                         names=["system", "atom"],
-                        values=torch.stack(
-                            [all_system_indices, all_atom_indices],
-                            dim=1,
-                        ),
+                        values=sorted_sample_values,
                     ),
                     components=[],
                     properties=invariant_coefficients.block(0).properties,
