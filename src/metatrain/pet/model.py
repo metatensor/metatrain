@@ -234,6 +234,30 @@ class PET(ModelInterface[ModelHypers]):
 
         self.finetune_config: Dict[str, Any] = {}
 
+        # torch.compile configuration
+        self._compile_enabled = self.hypers.get("compile", False)
+        self._compiled = False
+
+    def _maybe_compile(self) -> None:
+        """Compile the model's hot path if requested and not already compiled."""
+        if self._compile_enabled and not self._compiled:
+            # Compile the GNN layers - this is the computational bottleneck
+            for i, layer in enumerate(self.gnn_layers):
+                self.gnn_layers[i] = torch.compile(layer, mode="reduce-overhead")
+
+            # Compile the heads
+            for target_name in self.node_heads:
+                for i, head in enumerate(self.node_heads[target_name]):
+                    self.node_heads[target_name][i] = torch.compile(
+                        head, mode="reduce-overhead"
+                    )
+                for i, head in enumerate(self.edge_heads[target_name]):
+                    self.edge_heads[target_name][i] = torch.compile(
+                        head, mode="reduce-overhead"
+                    )
+
+            self._compiled = True
+
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
@@ -1340,8 +1364,15 @@ class PET(ModelInterface[ModelHypers]):
         return checkpoint
 
     def get_checkpoint(self) -> Dict:
-        model_state_dict = self.state_dict()
-        model_state_dict["finetune_config"] = self.finetune_config
+        # Get state dict, handling compiled modules
+        state_dict = {}
+        for name, param in self.state_dict().items():
+            # Remove _orig_mod prefix from compiled module keys
+            clean_name = name.replace("._orig_mod", "")
+            state_dict[clean_name] = param
+
+        state_dict["finetune_config"] = self.finetune_config
+
         checkpoint = {
             "architecture_name": "pet",
             "model_ckpt_version": self.__checkpoint_version__,
@@ -1352,8 +1383,8 @@ class PET(ModelInterface[ModelHypers]):
             },
             "epoch": None,
             "best_epoch": None,
-            "model_state_dict": model_state_dict,
-            "best_model_state_dict": self.state_dict(),
+            "model_state_dict": state_dict,
+            "best_model_state_dict": state_dict.copy(),
         }
         return checkpoint
 
