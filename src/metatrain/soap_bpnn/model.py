@@ -29,7 +29,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 from . import checkpoints
 from .documentation import ModelHypers
 from .modules.power_spectrum import SoapPowerSpectrum
-from .modules.tensor_basis import TensorBasis
+from .modules.tensor_basis import ClebschGordanReal, TensorBasis
 
 
 class Identity(torch.nn.Module):
@@ -199,7 +199,8 @@ class SoapBpnn(ModelInterface[ModelHypers]):
     )
 
     component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
-    cartesian_targets: List[str]  # torchscript needs this
+    cartesian_rank1_targets: List[str]  # torchscript needs this
+    cartesian_rank2_targets: List[str]  # torchscript needs this
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -361,9 +362,27 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
         self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
-        self.cartesian_targets: List[str] = []
+        self.cartesian_rank1_targets: List[str] = []
+        self.cartesian_rank2_targets: List[str] = []
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
+
+        # Pre-compute spherical→Cartesian conversion matrix for rank-2 tensors.
+        # W[i,j,M] maps 9 spherical components (l=0,1,2) to 3×3 Cartesian.
+        # Convention: m=-1→y, m=0→z, m=1→x (same as _to_cartesian_rank_1).
+        U = torch.tensor(
+            [[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]  # x,y,z
+        )
+        cg = ClebschGordanReal()
+        W = torch.zeros(3, 3, 9, dtype=torch.float64)
+        offset = 0
+        for L in [0, 1, 2]:
+            cg_L = cg.get((1, 1, L)).to(torch.float64)  # shape (3, 3, 2L+1)
+            W[:, :, offset : offset + 2 * L + 1] = torch.einsum(
+                "im,jn,mnp->ijp", U.to(torch.float64), U.to(torch.float64), cg_L
+            )
+            offset += 2 * L + 1
+        self._sph_to_cart_rank2 = W
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
@@ -767,6 +786,23 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                     self.key_labels[output_name], blocks
                 )
 
+        # Convert spherical predictions back to Cartesian basis (per-atom)
+        for name in self.cartesian_rank1_targets:
+            if name in atomic_properties:
+                atomic_properties[name] = _to_cartesian_rank_1(atomic_properties[name])
+        for name in self.cartesian_rank2_targets:
+            if name in atomic_properties:
+                atomic_properties[name] = _to_cartesian_rank_2(
+                    atomic_properties[name], self._sph_to_cart_rank2
+                )
+
+        # Process non-conservative stress targets (symmetrize + divide by volume)
+        for name in self.cartesian_rank2_targets:
+            if name in atomic_properties and "non_conservative_stress" in name:
+                atomic_properties[name] = _process_non_conservative_stress(
+                    atomic_properties[name], systems, system_indices
+                )
+
         for output_name, atomic_property in atomic_properties.items():
             if outputs[output_name].per_atom:
                 return_dict[output_name] = atomic_property
@@ -816,11 +852,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                         else:
                             output_blocks.append(b)
                     return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
-
-        # Rotate rank-1 Cartesian tensors back to Cartesian basis
-        for name in self.cartesian_targets:
-            assert name in return_dict
-            return_dict[name] = _to_cartesian_rank_1(return_dict[name])
 
         return return_dict
 
@@ -995,21 +1026,41 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                     self.legacy,
                 )
         elif target.is_cartesian:
-            if len(target.layout.block().components) > 1:
-                raise ValueError(
-                    "SOAP-BPNN does not support Cartesian tensors with rank > 1."
+            n_cart_components = len(target.layout.block().components)
+            if n_cart_components == 1:
+                # rank-1: hard-code to spherical (o3_lambda=1, o3_sigma=1)
+                self.cartesian_rank1_targets.append(target_name)
+                dict_key = target_name + "___0"
+                self.basis_calculators[target_name][dict_key] = TensorBasis(
+                    self.atomic_types,
+                    self.hypers["soap"],
+                    1,
+                    1,
+                    self.hypers["add_lambda_basis"],
+                    self.legacy,
                 )
-            self.cartesian_targets.append(target_name)
-            # hard-code to spherical conversion for vectors
-            dict_key = target_name + "___0"
-            self.basis_calculators[target_name][dict_key] = TensorBasis(
-                self.atomic_types,
-                self.hypers["soap"],
-                1,
-                1,
-                self.hypers["add_lambda_basis"],
-                self.legacy,
-            )
+            elif n_cart_components == 2:
+                # rank-2: predict as 3 spherical components (l=0,1,2)
+                self.cartesian_rank2_targets.append(target_name)
+                for o3_lambda, o3_sigma in [(0, 1), (1, -1), (2, 1)]:
+                    dict_key = (
+                        target_name + f"_o3_lambda_{o3_lambda}_o3_sigma_{o3_sigma}"
+                    )
+                    self.num_properties[target_name][dict_key] = len(
+                        target.layout.block().properties.values
+                    )
+                    self.basis_calculators[target_name][dict_key] = TensorBasis(
+                        self.atomic_types,
+                        self.hypers["soap"],
+                        o3_lambda,
+                        o3_sigma,
+                        self.hypers["add_lambda_basis"],
+                        self.legacy,
+                    )
+            else:
+                raise ValueError(
+                    "SOAP-BPNN does not support Cartesian tensors with rank > 2."
+                )
         else:
             raise ValueError("SOAP-BPNN only supports scalar and spherical targets.")
 
@@ -1050,9 +1101,42 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             per_atom=True, description=f"last layer features for {target_name}"
         )
 
+        # For rank-2 Cartesian targets, construct an internal spherical layout
+        # so the last-layer/label setup matches the spherical decomposition.
+        if target_name in self.cartesian_rank2_targets:
+            num_subtargets = len(target.layout.block().properties.values)
+            internal_keys = Labels(
+                ["o3_lambda", "o3_sigma"],
+                torch.tensor([[0, 1], [1, -1], [2, 1]]),
+            )
+            internal_blocks: List[TensorBlock] = []
+            for o3_lambda in [0, 1, 2]:
+                internal_blocks.append(
+                    TensorBlock(
+                        values=torch.empty(
+                            [0, 2 * o3_lambda + 1, num_subtargets],
+                            dtype=torch.float64,
+                        ),
+                        samples=Labels(
+                            ["system", "atom"],
+                            torch.empty((0, 2), dtype=torch.int32),
+                        ),
+                        components=[
+                            Labels(
+                                "o3_mu",
+                                torch.arange(-o3_lambda, o3_lambda + 1).reshape(-1, 1),
+                            )
+                        ],
+                        properties=target.layout.block().properties,
+                    )
+                )
+            layout_for_layers = TensorMap(keys=internal_keys, blocks=internal_blocks)
+        else:
+            layout_for_layers = target.layout
+
         # last linear layers, one per block
         self.last_layers[target_name] = torch.nn.ModuleDict({})
-        for key, block in target.layout.items():
+        for key, block in layout_for_layers.items():
             dict_key = target_name
             for n, k in zip(key.names, key.values, strict=True):
                 dict_key += f"_{n}_{int(k)}"
@@ -1096,12 +1180,12 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 if n.endswith("weight")
             ]
 
-        self.key_labels[target_name] = target.layout.keys
+        self.key_labels[target_name] = layout_for_layers.keys
         self.component_labels[target_name] = [
-            block.components for block in target.layout.blocks()
+            block.components for block in layout_for_layers.blocks()
         ]
         self.property_labels[target_name] = [
-            block.properties for block in target.layout.blocks()
+            block.properties for block in layout_for_layers.blocks()
         ]
 
         self.outputs[target_name] = ModelOutput(
@@ -1188,3 +1272,77 @@ def _to_cartesian_rank_1(tensor_map: TensorMap) -> TensorMap:
             )
         )
     return TensorMap(keys=tensor_map.keys, blocks=new_blocks)
+
+
+def _to_cartesian_rank_2(tensor_map: TensorMap, W: torch.Tensor) -> TensorMap:
+    """
+    Convert spherical blocks (l=0, l=1, l=2) to a rank-2 Cartesian tensor.
+
+    :param tensor_map: TensorMap with 3 blocks keyed by ``(o3_lambda, o3_sigma)``:
+        ``(0,1)``, ``(1,-1)``, ``(2,1)``. Each block has shape
+        ``[n_samples, 2l+1, n_props]``.
+    :param W: conversion matrix of shape ``(3, 3, 9)``, mapping 9 spherical
+        components to 3x3 Cartesian.
+    :return: TensorMap with 1 block, components ``[xyz_1, xyz_2]``,
+        shape ``[n_samples, 3, 3, n_props]``.
+    """
+    # Concatenate spherical components: [n_samples, 1+3+5, n_props] = [n, 9, p]
+    sph = torch.cat([block.values for block in tensor_map.blocks()], dim=1)
+
+    # Apply conversion: T_ij^p = W_ij^M * S_M^p
+    cart = torch.einsum("ijM,nMp->nijp", W.to(dtype=sph.dtype, device=sph.device), sph)
+
+    device = cart.device
+    samples = tensor_map.block(0).samples
+    keys = Labels(
+        names=["_"],
+        values=torch.tensor([[0]], device=device),
+    )
+    block = TensorBlock(
+        values=cart,
+        samples=samples,
+        components=[
+            Labels("xyz_1", torch.arange(3, device=device).reshape(-1, 1)),
+            Labels("xyz_2", torch.arange(3, device=device).reshape(-1, 1)),
+        ],
+        properties=tensor_map.block(0).properties,
+    )
+    return TensorMap(keys=keys, blocks=[block])
+
+
+def _process_non_conservative_stress(
+    tensor_map: TensorMap,
+    systems: List[System],
+    system_indices: torch.Tensor,
+) -> TensorMap:
+    """
+    Symmetrize and normalize by cell volume a rank-2 Cartesian tensor
+    representing non-conservative stress.
+
+    :param tensor_map: TensorMap with 1 block, shape ``[n_atoms, 3, 3, n_props]``.
+    :param systems: List of systems (to extract cell volumes).
+    :param system_indices: Tensor mapping each atom to its system index ``[n_atoms]``.
+    :return: Processed TensorMap with same structure.
+    """
+    block = tensor_map.block(0)
+    values = block.values  # (n_atoms, 3, 3, n_props)
+
+    # Compute volumes
+    volumes = torch.stack([torch.abs(torch.det(system.cell)) for system in systems])
+    # Zero volume → inf (non-periodic directions have zero cell vectors)
+    volumes[volumes == 0.0] = torch.inf
+    volumes_per_atom = volumes[system_indices].reshape(-1, 1, 1, 1)
+
+    # Divide by volume
+    values = values / volumes_per_atom
+
+    # Symmetrize: (T + T^T) / 2
+    values = (values + values.transpose(1, 2)) / 2.0
+
+    new_block = TensorBlock(
+        values=values,
+        samples=block.samples,
+        components=block.components,
+        properties=block.properties,
+    )
+    return TensorMap(keys=tensor_map.keys, blocks=[new_block])
