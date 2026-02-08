@@ -86,11 +86,41 @@ def test_conditioning_shapes():
     assert out.dtype == torch.float32
 
 
+def test_conditioning_different_d_node_d_pet():
+    """Conditioning works when d_node != d_pet (the common case)."""
+    hypers = _small_hypers(d_pet=8, d_node=16)
+    model = PET(hypers, _dataset_info())
+    model.eval()
+
+    system = _make_system(model, charge=1, spin=2)
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    with torch.no_grad():
+        result = model([system], outputs)
+    assert "energy" in result
+
+
+def _train_steps(model, n_steps=10):
+    """Do a few optimizer steps to break the zero-init of the conditioning gate."""
+    model.train()
+    for _ in range(n_steps):
+        system = _make_system(model, charge=2, spin=3)
+        outputs = {"energy": ModelOutput(per_atom=False)}
+        result = model([system], outputs)
+        loss = result["energy"].block().values.sum()
+        loss.backward()
+        with torch.no_grad():
+            for p in model.parameters():
+                if p.grad is not None:
+                    p -= 0.001 * p.grad
+                    p.grad.zero_()
+    model.eval()
+
+
 def test_conditioning_changes_output():
     """Same structure with different charges should produce different predictions."""
     hypers = _small_hypers()
     model = PET(hypers, _dataset_info())
-    model.eval()
+    _train_steps(model)
 
     system_neutral = _make_system(model, charge=0, spin=1)
     system_charged = _make_system(model, charge=2, spin=1)
@@ -144,7 +174,7 @@ def test_conditioning_batch_independence():
     """Changing charge of one system in a batch should not affect others."""
     hypers = _small_hypers()
     model = PET(hypers, _dataset_info())
-    model.eval()
+    _train_steps(model)
 
     system_a = _make_system(model, charge=0, spin=1)
     system_b_v1 = _make_system(model, charge=1, spin=1)
@@ -190,24 +220,23 @@ def test_conditioning_default_values():
 def test_conditioning_out_of_range():
     """Charges or spins outside the supported range raise ValueError."""
     module = SystemConditioningEmbedding(d_out=8, max_charge=3, max_spin=4)
-    system_indices = torch.tensor([0])
 
     # charge too positive
     with pytest.raises(ValueError, match=r"charge values must be in \[-3, 3\]"):
-        module(torch.tensor([5]), torch.tensor([1]), system_indices)
+        module.validate(torch.tensor([5]), torch.tensor([1]))
 
     # charge too negative
     with pytest.raises(ValueError, match=r"charge values must be in \[-3, 3\]"):
-        module(torch.tensor([-4]), torch.tensor([1]), system_indices)
+        module.validate(torch.tensor([-4]), torch.tensor([1]))
 
     # spin too high
     with pytest.raises(
         ValueError, match=r"spin multiplicity values must be in \[1, 4\]"
     ):
-        module(torch.tensor([0]), torch.tensor([5]), system_indices)
+        module.validate(torch.tensor([0]), torch.tensor([5]))
 
     # spin too low (0 is invalid, minimum is 1)
     with pytest.raises(
         ValueError, match=r"spin multiplicity values must be in \[1, 4\]"
     ):
-        module(torch.tensor([0]), torch.tensor([0]), system_indices)
+        module.validate(torch.tensor([0]), torch.tensor([0]))

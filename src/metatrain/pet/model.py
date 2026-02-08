@@ -146,7 +146,7 @@ class PET(ModelInterface[ModelHypers]):
         if self.hypers.get("system_conditioning", False):
             self.system_conditioning: Optional[SystemConditioningEmbedding] = (
                 SystemConditioningEmbedding(
-                    d_out=self.d_pet,
+                    d_out=self.d_node,
                     max_charge=self.hypers.get("max_charge", 10),
                     max_spin=self.hypers.get("max_spin", 10),
                 )
@@ -468,6 +468,7 @@ class PET(ModelInterface[ModelHypers]):
                         )
                     if "mtt::spin" in system.known_data():
                         spins[i] = system.get_data("mtt::spin").block().values.long()
+                self.system_conditioning.validate(charges, spins)
                 featurizer_inputs["charge"] = charges
                 featurizer_inputs["spin"] = spins
                 featurizer_inputs["system_indices"] = system_indices
