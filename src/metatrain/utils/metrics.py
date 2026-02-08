@@ -183,12 +183,12 @@ class RMSEAccumulator:
         """
 
         if is_distributed:
-            for key, value in self.information.items():
-                sse = torch.tensor(value[0]).to(device)
-                n_elems = torch.tensor(value[1]).to(device)
+            for key in sorted(self.information.keys()):
+                sse = torch.tensor(self.information[key][0], device=device)
+                n_elems = torch.tensor(self.information[key][1], device=device)
                 torch.distributed.all_reduce(sse)
                 torch.distributed.all_reduce(n_elems)
-                self.information[key] = (sse.item(), n_elems.item())  # type: ignore
+                self.information[key] = (sse.item(), n_elems.item())
 
         finalized_info = {}
         for key, value in self.information.items():
@@ -375,12 +375,12 @@ class MAEAccumulator:
         """
 
         if is_distributed:
-            for key, value in self.information.items():
-                sae = torch.tensor(value[0]).to(device)
-                n_elems = torch.tensor(value[1]).to(device)
+            for key in sorted(self.information.keys()):
+                sae = torch.tensor(self.information[key][0], device=device)
+                n_elems = torch.tensor(self.information[key][1], device=device)
                 torch.distributed.all_reduce(sae)
                 torch.distributed.all_reduce(n_elems)
-                self.information[key] = (sae.item(), n_elems.item())  # type: ignore
+                self.information[key] = (sae.item(), n_elems.item())
 
         finalized_info = {}
         for key, value in self.information.items():
