@@ -71,8 +71,6 @@ class FlashMDTests(ArchitectureTests):
 
 
 class TestCheckpoints(CheckpointTests, FlashMDTests):
-    architecture = "experimental.flashmd"
-
     @pytest.fixture
     def default_hypers(self):
         hypers = get_default_hypers(self.architecture)
