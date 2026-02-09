@@ -177,8 +177,6 @@ filterwarnings = [
     "ignore:This process \\(pid=\\d+\\) is multi-threaded, use of fork\\(\\) may lead to deadlocks in the child.:DeprecationWarning",
     # MACE warning with newer versions of pytorch (because they use e3nn==0.4.4)
     "ignore:Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed:UserWarning",
-    # torch.jit.script deprecation in newer PyTorch versions
-    "ignore:`torch.jit.script` is deprecated:DeprecationWarning"
 ]
 addopts = ["-p", "mtt_plugin"]
 pythonpath = "src/metatrain/utils/testing"

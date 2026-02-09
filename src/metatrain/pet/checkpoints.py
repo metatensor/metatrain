@@ -265,6 +265,21 @@ def model_update_v10_v11(checkpoint: dict) -> None:
         checkpoint["model_data"]["model_hypers"]["attention_temperature"] = 1.0
 
 
+def model_update_v11_v12(checkpoint: dict) -> None:
+    """
+    Update a v11 checkpoint to v12.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Adding system conditioning hyperparameters (disabled by default)
+    if "system_conditioning" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["system_conditioning"] = False
+    if "max_charge" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["max_charge"] = 10
+    if "max_spin" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["max_spin"] = 10
+
+
 ###########################
 # TRAINER #################
 ###########################
