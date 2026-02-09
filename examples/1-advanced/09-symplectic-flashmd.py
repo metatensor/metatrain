@@ -4,7 +4,7 @@ Training a Symplectic FlashMD Model
 
 This tutorial demonstrates how to train a symplectic FlashMD model using the FlashMD
 framework. Symplectic integrators are designed to preserve the geometric properties of
-Hamiltonian systems, making them particularly suitable for long-term molecular dynamics
+Hamiltonian dynamics, making them particularly suitable for long molecular dynamics
 simulations. By leveraging symplectic integrators, we can achieve more accurate and
 stable simulations over extended periods.
 """
@@ -63,7 +63,7 @@ dyn.run(2000)  # 2 ps NVE run
 # ----------------
 #
 # Note that the data preparation process is similar to the one in the `04-flashmd.py`
-# example, with one key difference. Instead of storing a phase-space coordinate and its
+# example, with one key difference. Instead of storing a phase-space point and its
 # future state after one time step, we store the input to the symplectic fixed-point
 # solver. The input is a midpoint that is mapped to the difference in positions and
 # momenta after one time step.
@@ -88,6 +88,12 @@ for i in range(0, len(trajectory) - time_lag, spacing):
     frame_now = trajectory[i]
     frame_ahead = trajectory[i + time_lag]
     s = get_structure_for_dataset(frame_now, frame_ahead)
+    structures_for_dataset.append(s)
+    frame_now_trev = copy.deepcopy(frame_now)
+    frame_ahead_trev = copy.deepcopy(frame_ahead)
+    frame_now_trev.set_momenta(-frame_now_trev.get_momenta())
+    frame_ahead_trev.set_momenta(-frame_ahead_trev.get_momenta())
+    s = get_structure_for_dataset(frame_ahead_trev, frame_now_trev)
     structures_for_dataset.append(s)
 
 ase.io.write("midpoint-to-delta.xyz", structures_for_dataset)
