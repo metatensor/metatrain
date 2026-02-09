@@ -370,9 +370,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         # Pre-compute spherical→Cartesian conversion matrix for rank-2 tensors.
         # W[i,j,M] maps 9 spherical components (l=0,1,2) to 3×3 Cartesian.
         # Convention: m=-1→y, m=0→z, m=1→x (same as _to_cartesian_rank_1).
-        U = torch.tensor(
-            [[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]  # x,y,z
-        )
+        U = torch.tensor([[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])  # x,y,z
         cg = ClebschGordanReal()
         W = torch.zeros(3, 3, 9, dtype=torch.float64)
         offset = 0
@@ -572,14 +570,14 @@ class SoapBpnn(ModelInterface[ModelHypers]):
 
         if not self.legacy:
             values = self.bpnn_for_tensors(soap_features_tensor)
-            soap_block0 = soap_features.block()
+            soap_block = soap_features.block()
             features = TensorMap(
                 keys=soap_features.keys,
                 blocks=[
                     TensorBlock(
                         values=values,
-                        samples=soap_block0.samples,
-                        components=soap_block0.components,
+                        samples=soap_block.samples,
+                        components=soap_block.components,
                         properties=self._feature_labels,
                     )
                 ],
@@ -589,18 +587,18 @@ class SoapBpnn(ModelInterface[ModelHypers]):
 
         if self.long_range:
             if not self.legacy:
-                features_block0 = features.block()
+                features_block = features.block()
                 distances = torch.sqrt(torch.sum(interatomic_vectors**2, dim=-1))
                 long_range_features_tensor = self.long_range_featurizer(
-                    systems, features_block0.values, distances
+                    systems, features_block.values, distances
                 )
                 long_range_features = TensorMap(
                     keys=features.keys,
                     blocks=[
                         TensorBlock(
                             values=long_range_features_tensor,
-                            samples=features_block0.samples,
-                            components=features_block0.components,
+                            samples=features_block.samples,
+                            components=features_block.components,
                             properties=self._feature_labels,
                         )
                     ],

@@ -85,7 +85,7 @@ def _sort_tensor_blocks_like_atoms(
     all_atom_indices = all_samples[:, 1]
 
     # structures is 0..N-1, so bincount gives correct system sizes directly
-    system_sizes = torch.bincount(structures)
+    system_sizes = torch.bincount(structures, minlength=len(torch.unique(structures)))
     system_offsets = torch.cat(
         [
             torch.zeros(1, device=device, dtype=structures.dtype),
@@ -755,6 +755,7 @@ class TensorBasis(torch.nn.Module):
                     self.cgs[f"{L - 1}_1_{L}"],
                 )
 
+        # ---- optional lambda basis (spex contraction) ----
         if self.add_lambda_basis:
             lambda_basis_tensor = self.lambda_basis_module(
                 interatomic_vectors,
