@@ -74,6 +74,7 @@ class AttentionBlock(nn.Module):
         if total_dim % num_heads != 0:
             raise ValueError("total dimension is not divisible by the number of heads")
         self.head_dim = total_dim // num_heads
+        self.scale = 1.0 / (self.head_dim**0.5 * self.temperature)
 
     def forward(
         self, x: torch.Tensor, cutoff_factors: torch.Tensor, use_manual_attention: bool
@@ -100,15 +101,18 @@ class AttentionBlock(nn.Module):
         queries, keys, values = x[0], x[1], x[2]
         attn_weights = torch.clamp(cutoff_factors[:, None, :, :], self.epsilon)
         attn_weights = torch.log(attn_weights)
+
         if use_manual_attention:
+            # Manual attention for double backward (forces training)
             x = manual_attention(queries, keys, values, attn_weights, self.temperature)
         else:
+            # Use optimized SDPA - this is the fast path
             x = torch.nn.functional.scaled_dot_product_attention(
                 queries,
                 keys,
                 values,
                 attn_mask=attn_weights,
-                scale=1.0 / (self.head_dim**0.5 * self.temperature),
+                scale=self.scale,
             )
         x = x.transpose(1, 2).reshape(initial_shape)
         x = self.output_linear(x)
