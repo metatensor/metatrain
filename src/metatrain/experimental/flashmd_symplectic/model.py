@@ -42,14 +42,14 @@ class FlashMDSymplectic(ModelInterface):
     """
     Implementation of the symplectic FlashMD architecture.
 
-    For more information, you can refer to https://arxiv.org/abs/2505.19350.
+    For more information, you can refer to https://arxiv.org/abs/2508.01068.
     """
 
     __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
-        references={"architecture": ["https://arxiv.org/abs/2505.19350"]}
+        references={"architecture": ["https://arxiv.org/abs/2508.01068"]}
     )
     component_labels: Dict[str, List[List[Labels]]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
@@ -435,7 +435,7 @@ class FlashMDSymplectic(ModelInterface):
             )
         momenta_for_diff = momenta.clone()
         momenta_for_diff.requires_grad_(True)
-        momenta = momenta_for_diff  # * 2.5
+        momenta = momenta_for_diff
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
@@ -597,10 +597,6 @@ class FlashMDSymplectic(ModelInterface):
                 )
             ],
         )
-        # outputs["mtt::delta_q"] = positions_output
-        # outputs["mtt::delta_p"] = momenta_output
-        # outputs.pop("mtt::S3")
-        # return_dict.pop("mtt::S3")
 
         # **Post-processing (Evaluation Only)**
 
@@ -647,11 +643,6 @@ class FlashMDSymplectic(ModelInterface):
                             return_dict[name].keys, output_blocks
                         )
 
-        # torch.set_printoptions(precision=12)
-        # print("p", return_dict["mtt::delta_p"].block().values.flatten().std())
-        # print("q", return_dict["mtt::delta_q"].block().values.flatten().std())
-        # print()
-        # exit()
         if not s3_requested:
             return_dict.pop("mtt::S3")
 

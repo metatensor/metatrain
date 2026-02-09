@@ -191,7 +191,7 @@ class Trainer(TrainerInterface):
             model.additive_models[1:],
             self.hypers["batch_size"],
             is_distributed,
-            self.hypers["atomic_baseline"],
+            {},
         )
 
         if self.hypers["scale_targets"]:
@@ -371,10 +371,8 @@ class Trainer(TrainerInterface):
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a learning rate scheduler
-        ACCUM_STEPS = self.hypers["grad_accum_steps"]
-        logging.info("Using %d gradient accumulation steps" % ACCUM_STEPS)
         lr_scheduler = get_scheduler(
-            optimizer, self.hypers, math.ceil(len(train_dataloader) / ACCUM_STEPS)
+            optimizer, self.hypers, len(train_dataloader)
         )
 
         if self.scheduler_state_dict is not None and not is_finetune:
@@ -451,35 +449,18 @@ class Trainer(TrainerInterface):
                             p.sum() for p in model.parameters() if p.requires_grad
                         )
 
-                    # We divide by ACCUM_STEPS so the gradients average out,
-                    # rather than sum up.
-                    loss_for_backward = train_loss_batch / ACCUM_STEPS
+                    loss_for_backward = train_loss_batch
 
                 with record_function("backward step"):
-                    # Check if we should update weights (Last step of accumulation OR
-                    # end of dataloader)
-                    is_update_step = ((i + 1) % ACCUM_STEPS == 0) or (
-                        (i + 1) == len(train_dataloader)
-                    )
-                    # print(f"{is_update_step=}, {(i + 1)=}, {len(train_dataloader)=}")
-
-                    # We use model.no_sync() to prevent GPUs from talking to each other
-                    # until the very last accumulation step. This saves massive time.
-                    if is_distributed and not is_update_step:
-                        with model.no_sync():
-                            loss_for_backward.backward()
-                    else:
-                        # Syncs gradients on the update step
-                        loss_for_backward.backward()
+                    loss_for_backward.backward()
 
                 with record_function("optimizer step"):
-                    if is_update_step:
-                        torch.nn.utils.clip_grad_norm_(
-                            model.parameters(), self.hypers["grad_clip_norm"]
-                        )
-                        optimizer.step()
-                        lr_scheduler.step()
-                        optimizer.zero_grad()
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), self.hypers["grad_clip_norm"]
+                    )
+                    optimizer.step()
+                    lr_scheduler.step()
+                    optimizer.zero_grad()
 
                     if is_distributed:
                         # sum the loss over all processes

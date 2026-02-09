@@ -29,14 +29,6 @@ from metatrain.utils.scaler import FixedScalerWeights
 class ModelHypers(TypedDict):
     """Hyperparameters for the FlashMD model."""
 
-    predict_momenta_as_difference: bool = False
-    """This parameter controls whether the model will
-    predict future momenta directly or as a difference between the future and the
-    current momenta. Setting it to true will help when predicting relatively small
-    timesteps (when compared to the momentum autocorrelation time), while setting
-    it to false is beneficial when predicting large timesteps.
-    """
-
     cutoff: float = 4.5
     """Cutoff radius for neighbor search.
 
@@ -126,8 +118,6 @@ class TrainerHypers(TypedDict):
     module will be used. These correspond to masses averaged over the natural
     isotopic abundance of each element.
     """
-    grad_accum_steps: int = 1
-    """Number of gradient accumulation steps."""
     distributed: bool = False
     """Whether to use distributed training"""
     distributed_port: int = 39591
@@ -144,47 +134,12 @@ class TrainerHypers(TypedDict):
     learning_rate: float = 3e-4
     """Learning rate."""
     weight_decay: Optional[float] = None
-
+    """Weight decay (L2 penalty)."""
     log_interval: int = 1
     """Interval to log metrics."""
     checkpoint_interval: int = 100
     """Interval to save checkpoints."""
-    atomic_baseline: FixedCompositionWeights = {}
-    """The baselines for each target.
-
-    By default, ``metatrain`` will fit a linear model (:class:`CompositionModel
-    <metatrain.utils.additive.composition.CompositionModel>`) to compute the
-    least squares baseline for each atomic species for each target.
-
-    However, this hyperparameter allows you to provide your own baselines.
-    The value of the hyperparameter should be a dictionary where the keys are the
-    target names, and the values are either (1) a single baseline to be used for
-    all atomic types, or (2) a dictionary mapping atomic types to their baselines.
-    For example:
-
-    - ``atomic_baseline: {"energy": {1: -0.5, 6: -10.0}}`` will fix the energy
-      baseline for hydrogen (Z=1) to -0.5 and for carbon (Z=6) to -10.0, while
-      fitting the baselines for the energy of all other atomic types, as well
-      as fitting the baselines for all other targets.
-    - ``atomic_baseline: {"energy": -5.0}`` will fix the energy baseline for
-      all atomic types to -5.0.
-    - ``atomic_baseline: {"mtt:dos": 0.0}`` sets the baseline for the "mtt:dos"
-      target to 0.0, effectively disabling the atomic baseline for that target.
-
-    This atomic baseline is substracted from the targets during training, which
-    avoids the main model needing to learn atomic contributions, and likely makes
-    training easier. When the model is used in evaluation mode, the atomic baseline
-    is added on top of the model predictions automatically.
-
-    .. note::
-
-        This atomic baseline is a per-atom contribution. Therefore, if the property
-        you are predicting is a sum over all atoms (e.g., total energy), the
-        contribution of the atomic baseline to the total property will be the
-        atomic baseline multiplied by the number of atoms of that type in the
-        structure.
-    """
-    scale_targets: bool = True
+    scale_targets: bool = False
     """Normalize targets to unit std during training."""
     fixed_scaling_weights: FixedScalerWeights = {}
     """Weights for target scaling.
@@ -192,6 +147,13 @@ class TrainerHypers(TypedDict):
     This is passed to the ``fixed_weights`` argument of
     :meth:`Scaler.train_model <metatrain.utils.scaler.scaler.Scaler.train_model>`,
     see its documentation to understand exactly what to pass here.
+
+    .. warning::
+
+        For symplectic FlashMD, the scaling weights for the variables
+        (``mtt::delta_q`` and ``mtt::delta_p``) must be identical. This is because
+        they are both derivatives of the same generating function :math:`S^3`.
+        Scaling them differently would lead to inconsistencies.
     """
     per_structure_targets: list[str] = []
     """Targets to calculate per-structure losses."""

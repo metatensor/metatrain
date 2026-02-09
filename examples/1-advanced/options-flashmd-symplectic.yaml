@@ -9,6 +9,9 @@ architecture:
     num_epochs: 3  # to be increased (at least 1000-10000) in a production scenario
     log_interval: 1
     learning_rate: 3e-5
+    # Note that the scaling weights should be set to the same values to prevent
+    # inconsistencies in the loss function. Look at the field documentation 
+    # for further details.
     fixed_scaling_weights:
       positions: 1.0
       momenta: 1.0
