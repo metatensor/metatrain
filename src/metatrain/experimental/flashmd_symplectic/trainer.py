@@ -369,9 +369,7 @@ class Trainer(TrainerInterface):
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a learning rate scheduler
-        lr_scheduler = get_scheduler(
-            optimizer, self.hypers, len(train_dataloader)
-        )
+        lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
 
         if self.scheduler_state_dict is not None and not is_finetune:
             # same as the optimizer, try to load the scheduler state dict
@@ -405,7 +403,7 @@ class Trainer(TrainerInterface):
 
             train_loss = 0.0
             optimizer.zero_grad()
-            for i, batch in enumerate(train_dataloader):
+            for batch in train_dataloader:
                 systems, targets, extra_data = unpack_batch(batch)
 
                 systems, targets, extra_data = batch_to(
@@ -423,9 +421,7 @@ class Trainer(TrainerInterface):
                 predictions = average_by_num_atoms(
                     predictions, systems, per_structure_targets
                 )
-                targets = average_by_num_atoms(
-                    targets, systems, per_structure_targets
-                )
+                targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
@@ -451,9 +447,9 @@ class Trainer(TrainerInterface):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                scaled_predictions = (
-                    model.module if is_distributed else model
-                ).scaler(systems, predictions)
+                scaled_predictions = (model.module if is_distributed else model).scaler(
+                    systems, predictions
+                )
                 scaled_targets = (model.module if is_distributed else model).scaler(
                     systems, targets
                 )

@@ -1182,7 +1182,6 @@ class MemmapDataset(TorchDataset):
                 ),
                 samples=samples,
                 components=components,
-                # TODO:
                 properties=Labels.range(property_name, target_array.shape[-1]),
             )
 
@@ -1206,7 +1205,7 @@ class MemmapDataset(TorchDataset):
                                 ),
                             ),
                             components=[Labels.range("xyz", 3)],
-                            properties=target_block.properties,
+                            properties=Labels.range("energy", 1),
                         ),
                     )
                 if target_options["stress"]:
@@ -1226,7 +1225,7 @@ class MemmapDataset(TorchDataset):
                                 Labels.range("xyz_1", 3),
                                 Labels.range("xyz_2", 3),
                             ],
-                            properties=target_block.properties,
+                            properties=Labels.range("energy", 1),
                         ),
                     )
 
