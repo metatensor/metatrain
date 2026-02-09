@@ -111,7 +111,7 @@ def _train_steps(model, n_steps=10):
         with torch.no_grad():
             for p in model.parameters():
                 if p.grad is not None:
-                    p -= 0.001 * p.grad
+                    p -= 0.01 * p.grad
                     p.grad.zero_()
     model.eval()
 
