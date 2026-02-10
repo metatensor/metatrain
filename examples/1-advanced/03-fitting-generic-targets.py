@@ -25,7 +25,7 @@ capabilities of the architectures in metatrain.
      - Energy, forces, stress/virial
      - Yes
      - Yes
-     - No
+     - Only rank-1 (vectors)
    * - GAP
      - Energy, forces
      - No
@@ -46,6 +46,11 @@ capabilities of the architectures in metatrain.
      - Yes
      - Yes
      - Only with ``rank=1`` (vectors)
+   * - PhACE
+     - Energy, forces, stress/virial
+     - Yes
+     - Yes
+     - Only rank-1 (vectors)
 
 Preparing generic targets for reading by metatrain
 --------------------------------------------------
