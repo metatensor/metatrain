@@ -607,9 +607,12 @@ def train_model(
     # EVALUATE FINAL MODEL ####
     ###########################
 
+    # TODO: possibly control this better if and when wrappers archs will be treated
+    # differently in the future
     if architecture_name == "llpr":
-        # Skip final evaluation for LLPR
-        return
+        if hypers["training"]["train_all_parameters"]:
+            # Skip final evaluation for LLPR
+            return
 
     mts_atomistic_model = load_model(
         path=output,
