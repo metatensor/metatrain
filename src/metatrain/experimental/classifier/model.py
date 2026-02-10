@@ -20,7 +20,7 @@ from .documentation import ModelHypers
 
 
 class Classifier(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
 
     # all torch devices and dtypes are supported, if they are supported by the wrapped
     # model; the check is performed in the trainer
@@ -339,7 +339,19 @@ class Classifier(ModelInterface[ModelHypers]):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        # Currently at version 1, no upgrades needed yet
+        if checkpoint["model_ckpt_version"] == 1:
+            # v1 -> v2: wrapped PET model added system conditioning hypers
+            hypers = checkpoint["wrapped_model_checkpoint"]["model_data"][
+                "model_hypers"
+            ]
+            if "system_conditioning" not in hypers:
+                hypers["system_conditioning"] = False
+            if "max_charge" not in hypers:
+                hypers["max_charge"] = 10
+            if "max_spin" not in hypers:
+                hypers["max_spin"] = 10
+            checkpoint["model_ckpt_version"] = 2
+
         if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using model "

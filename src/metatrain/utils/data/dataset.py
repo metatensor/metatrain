@@ -979,9 +979,19 @@ class MemmapDataset(TorchDataset):
     :param path: Path to the directory containing the dataset.
     :param target_options: Dictionary containing the target configurations, in the
         format corresponding to metatrain yaml input files.
+    :param system_options: Optional dictionary with system-level options. Supported
+        keys are ``charge`` (with sub-key ``key`` specifying the ``.bin`` filename
+        stem) and ``spin`` (same format). These are loaded as per-system scalars and
+        attached to each ``System`` via ``add_data("mtt::charge", ...)`` /
+        ``add_data("mtt::spin", ...)``.
     """
 
-    def __init__(self, path: Union[str, Path], target_options: Dict[str, Any]) -> None:
+    def __init__(
+        self,
+        path: Union[str, Path],
+        target_options: Dict[str, Any],
+        system_options: Optional[Dict[str, Any]] = None,
+    ) -> None:
         path = Path(path)
         self.target_config = target_options
         self.sample_class = namedtuple(
@@ -998,6 +1008,21 @@ class MemmapDataset(TorchDataset):
             self.momenta = MemmapArray(
                 path / "momenta.bin", (self.na[-1], 3), "float32", mode="r"
             )
+
+        # Optional per-system charge and spin arrays
+        self.charge_array: Optional[MemmapArray] = None
+        self.spin_array: Optional[MemmapArray] = None
+        if system_options is not None:
+            if "charge" in system_options:
+                charge_key = system_options["charge"]["key"]
+                self.charge_array = MemmapArray(
+                    path / f"{charge_key}.bin", (self.ns,), "float32", mode="r"
+                )
+            if "spin" in system_options:
+                spin_key = system_options["spin"]["key"]
+                self.spin_array = MemmapArray(
+                    path / f"{spin_key}.bin", (self.ns,), "float32", mode="r"
+                )
 
         # Register arrays pointing to the targets
         self.target_arrays = {}
@@ -1074,6 +1099,48 @@ class MemmapDataset(TorchDataset):
             cell=c,
             pbc=torch.logical_not(torch.all(c == 0.0, dim=1)),
         )
+
+        # Attach optional per-system charge and spin data
+        if self.charge_array is not None:
+            system.add_data(
+                "mtt::charge",
+                TensorMap(
+                    keys=Labels.single(),
+                    blocks=[
+                        TensorBlock(
+                            values=torch.tensor(
+                                [[float(self.charge_array[i])]],
+                                dtype=torch.float64,
+                            ),
+                            samples=Labels(
+                                "system", torch.tensor([[i]], dtype=torch.int32)
+                            ),
+                            components=[],
+                            properties=Labels("charge", torch.tensor([[0]])),
+                        )
+                    ],
+                ),
+            )
+        if self.spin_array is not None:
+            system.add_data(
+                "mtt::spin",
+                TensorMap(
+                    keys=Labels.single(),
+                    blocks=[
+                        TensorBlock(
+                            values=torch.tensor(
+                                [[float(self.spin_array[i])]],
+                                dtype=torch.float64,
+                            ),
+                            samples=Labels(
+                                "system", torch.tensor([[i]], dtype=torch.int32)
+                            ),
+                            components=[],
+                            properties=Labels("spin", torch.tensor([[0]])),
+                        )
+                    ],
+                ),
+            )
 
         target_dict = {}
         for target_key, target_options in self.target_config.items():

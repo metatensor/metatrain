@@ -38,7 +38,11 @@ def get_dataset(
         if "extra_data" in options:
             extra_data_info_dictionary = dataset.get_target_info(options["extra_data"])
     elif Path(options["systems"]["read_from"]).is_dir():  # memmap dataset
-        dataset = MemmapDataset(options["systems"]["read_from"], options["targets"])
+        dataset = MemmapDataset(
+            options["systems"]["read_from"],
+            options["targets"],
+            system_options=options["systems"],
+        )
         target_info_dictionary = dataset.get_target_info()
     else:
         systems = read_systems(

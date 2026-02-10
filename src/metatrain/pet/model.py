@@ -28,6 +28,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .documentation import ModelHypers
+from .modules.conditioning import SystemConditioningEmbedding
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
@@ -48,7 +49,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 11
+    __checkpoint_version__ = 12
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -141,6 +142,17 @@ class PET(ModelInterface[ModelHypers]):
             ]
         )
         self.edge_embedder = torch.nn.Embedding(num_atomic_species, self.d_pet)
+
+        if self.hypers.get("system_conditioning", False):
+            self.system_conditioning: Optional[SystemConditioningEmbedding] = (
+                SystemConditioningEmbedding(
+                    d_out=self.d_node,
+                    max_charge=self.hypers.get("max_charge", 10),
+                    max_spin=self.hypers.get("max_spin", 10),
+                )
+            )
+        else:
+            self.system_conditioning = None
 
         self.node_heads = torch.nn.ModuleDict()
         self.edge_heads = torch.nn.ModuleDict()
@@ -443,6 +455,23 @@ class PET(ModelInterface[ModelHypers]):
                 padding_mask=padding_mask,
                 cutoff_factors=cutoff_factors,
             )
+
+            # Extract per-system charge and spin for conditioning
+            if self.system_conditioning is not None:
+                n_systems = len(systems)
+                charges = torch.zeros(n_systems, dtype=torch.long, device=device)
+                spins = torch.ones(n_systems, dtype=torch.long, device=device)
+                for i, system in enumerate(systems):
+                    if "mtt::charge" in system.known_data():
+                        charges[i] = (
+                            system.get_data("mtt::charge").block().values.long()
+                        )
+                    if "mtt::spin" in system.known_data():
+                        spins[i] = system.get_data("mtt::spin").block().values.long()
+                self.system_conditioning.validate(charges, spins)
+                featurizer_inputs["charge"] = charges
+                featurizer_inputs["spin"] = spins
+                featurizer_inputs["system_indices"] = system_indices
             node_features_list, edge_features_list = self._calculate_features(
                 featurizer_inputs,
                 use_manual_attention=use_manual_attention,
@@ -628,6 +657,16 @@ class PET(ModelInterface[ModelHypers]):
                 use_manual_attention,
             )
 
+            # Add system conditioning (charge/spin) to node features
+            if self.system_conditioning is not None:
+                output_node_embeddings = output_node_embeddings + (
+                    self.system_conditioning(
+                        inputs["charge"],
+                        inputs["spin"],
+                        inputs["system_indices"],
+                    )
+                )
+
             # The GNN contraction happens by reordering the messages,
             # using a reversed neighbor list, so the new input message
             # from atom `j` to atom `i` in on the GNN layer N+1 is a
@@ -687,6 +726,16 @@ class PET(ModelInterface[ModelHypers]):
                 inputs["cutoff_factors"],
                 use_manual_attention,
             )
+            # Add system conditioning (charge/spin) to node features
+            if self.system_conditioning is not None:
+                output_node_embeddings = output_node_embeddings + (
+                    self.system_conditioning(
+                        inputs["charge"],
+                        inputs["spin"],
+                        inputs["system_indices"],
+                    )
+                )
+
             node_features_list.append(output_node_embeddings)
             edge_features_list.append(output_edge_embeddings)
 

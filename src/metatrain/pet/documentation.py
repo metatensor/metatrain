@@ -155,6 +155,17 @@ class ModelHypers(TypedDict):
     """Use ZBL potential for short-range repulsion"""
     long_range: LongRangeHypers = init_with_defaults(LongRangeHypers)
     """Long-range Coulomb interactions parameters."""
+    system_conditioning: bool = False
+    """Enable charge and spin conditioning embeddings. When enabled, per-system
+    charge and spin multiplicity are embedded and added to node features at each
+    GNN layer, allowing different predictions for the same structure under
+    different electronic states."""
+    max_charge: int = 10
+    """Maximum absolute charge for the conditioning embedding table. Supports
+    charges in the range ``[-max_charge, +max_charge]``."""
+    max_spin: int = 10
+    """Maximum spin multiplicity (2S+1) for the conditioning embedding table.
+    Supports values in the range ``[1, max_spin]``."""
 
 
 class TrainerHypers(TypedDict):

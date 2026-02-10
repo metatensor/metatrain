@@ -52,6 +52,22 @@ def model_update_v2_v3(checkpoint: dict) -> None:
     checkpoint["best_optimizer_state_dict"] = None
 
 
+def model_update_v3_v4(checkpoint: dict) -> None:
+    """
+    Update a v3 checkpoint to v4.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Upgrade the wrapped PET checkpoint to include system conditioning hypers
+    hypers = checkpoint["wrapped_model_checkpoint"]["model_data"]["model_hypers"]
+    if "system_conditioning" not in hypers:
+        hypers["system_conditioning"] = False
+    if "max_charge" not in hypers:
+        hypers["max_charge"] = 10
+    if "max_spin" not in hypers:
+        hypers["max_spin"] = 10
+
+
 def trainer_update_v1_v2(checkpoint: dict) -> None:
     """
     Update trainer checkpoint from version 1 to version 2.
