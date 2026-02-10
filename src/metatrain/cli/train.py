@@ -607,6 +607,10 @@ def train_model(
     # EVALUATE FINAL MODEL ####
     ###########################
 
+    if architecture_name == "llpr":
+        # Skip final evaluation for LLPR
+        return
+
     mts_atomistic_model = load_model(
         path=output,
         extensions_directory=extensions if _has_extensions() else None,
