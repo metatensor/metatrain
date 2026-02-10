@@ -610,7 +610,7 @@ def train_model(
     # TODO: possibly control this better if and when wrappers archs will be treated
     # differently in the future
     if architecture_name == "llpr":
-        if hypers["training"]["train_all_parameters"]:
+        if not hypers["training"]["train_all_parameters"]:
             # Skip final evaluation for LLPR
             return
 
