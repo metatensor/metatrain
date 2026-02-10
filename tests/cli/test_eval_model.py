@@ -18,11 +18,11 @@ from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
-from . import EVAL_OPTIONS_PATH, MODEL_HYPERS, MODEL_PATH, RESOURCES_PATH
+from ..conftest import EVAL_OPTIONS_PATH, MODEL_HYPERS, RESOURCES_PATH
 
 
 @pytest.fixture
-def model():
+def model(MODEL_PATH):
     return torch.jit.load(MODEL_PATH)
 
 
@@ -31,7 +31,7 @@ def options():
     return OmegaConf.load(EVAL_OPTIONS_PATH)
 
 
-def test_eval_cli(monkeypatch, tmp_path):
+def test_eval_cli(monkeypatch, tmp_path, MODEL_PATH):
     """Test succesful run of the eval script via the CLI with default arguments"""
     monkeypatch.chdir(tmp_path)
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
@@ -54,15 +54,22 @@ def test_eval_cli(monkeypatch, tmp_path):
     assert Path("output.xyz").is_file()
 
 
-@pytest.mark.parametrize("model_name", ["model-32-bit.pt", "model-64-bit.pt"])
-def test_eval(monkeypatch, tmp_path, caplog, model_name, options):
+@pytest.mark.parametrize("model_type", ["32-bit", "64-bit"])
+def test_eval(request, monkeypatch, tmp_path, caplog, model_type, options):
     """Test that eval via python API runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.INFO)
 
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
 
-    model = torch.jit.load(RESOURCES_PATH / model_name)
+    fixture_name = {
+        "32-bit": "MODEL_PATH",
+        "64-bit": "MODEL_PATH_64_BIT",
+    }.get(model_type)
+
+    model_path = request.getfixturevalue(fixture_name)
+
+    model = torch.jit.load(model_path)
 
     eval_model(
         model=model,
@@ -84,15 +91,22 @@ def test_eval(monkeypatch, tmp_path, caplog, model_name, options):
     frames[0].info["energy"]
 
 
-@pytest.mark.parametrize("model_name", ["model-32-bit.pt", "model-64-bit.pt"])
-def test_eval_batch_size(monkeypatch, tmp_path, caplog, model_name, options):
+@pytest.mark.parametrize("model_type", ["32-bit", "64-bit"])
+def test_eval_batch_size(request, monkeypatch, tmp_path, caplog, model_type, options):
     """Test that eval via python API runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.DEBUG)
 
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
 
-    model = torch.jit.load(RESOURCES_PATH / model_name)
+    fixture_name = {
+        "32-bit": "MODEL_PATH",
+        "64-bit": "MODEL_PATH_64_BIT",
+    }.get(model_type)
+
+    model_path = request.getfixturevalue(fixture_name)
+
+    model = torch.jit.load(model_path)
 
     eval_model(
         model=model,
@@ -180,14 +194,14 @@ def test_eval_no_targets(monkeypatch, tmp_path, model, options):
 
 
 @pytest.mark.parametrize("suffix", [".zip", ".mts"])
-def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix):
+def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix, MODEL_PATH):
     """Test that eval via python API runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.INFO)
 
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
 
-    model = torch.jit.load(RESOURCES_PATH / "model-32-bit.pt")
+    model = torch.jit.load(MODEL_PATH)
 
     options = OmegaConf.create(
         {
