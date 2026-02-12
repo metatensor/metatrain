@@ -104,5 +104,10 @@ ase.io.write("midpoint-to-delta.xyz", structures_for_dataset)
 # --------------
 #
 # We can now train a symplectic FlashMD model using the prepared dataset.
+#
+# For example, you can use the following options file:
+#
+# .. literalinclude:: options-flashmd-symplectic.yaml
+#    :language: yaml
 
 subprocess.run(["mtt", "train", "options-flashmd-symplectic.yaml"], check=True)
