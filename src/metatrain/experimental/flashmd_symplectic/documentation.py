@@ -2,7 +2,7 @@
 Symplectic FlashMD
 ==================
 
-The symplectic variant of :ref:`FlashMD <architecture-flashmd>`.
+The symplectic variant of :ref:`FlashMD <arch-flashmd>`.
 
 {{SECTION_INSTALLATION}}
 
