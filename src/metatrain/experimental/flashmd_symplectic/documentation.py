@@ -159,7 +159,7 @@ class TrainerHypers(TypedDict):
     num_workers: Optional[int] = None
     """Number of workers for data loading. If not provided, it is set
     automatically."""
-    log_mae: bool = False
+    log_mae: bool = True 
     """Log MAE alongside RMSE"""
     log_separate_blocks: bool = False
     """Log per-block error."""
