@@ -679,8 +679,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             cholesky = self._get_cholesky(uncertainty_name)
             if regularizer is not None:
                 cholesky[:] = torch.linalg.cholesky(
-                    covariance
-                    + covariance.T
+                    0.5 * (covariance + covariance.T)
                     + regularizer
                     * torch.eye(
                         self.ll_feat_size, device=covariance.device, dtype=torch.float64
@@ -694,8 +693,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 while is_not_pd and regularizer < 1e16:
                     try:
                         cholesky[:] = torch.linalg.cholesky(
-                            covariance
-                            + covariance.T
+                            0.5 * (covariance + covariance.T)
                             + regularizer
                             * torch.eye(
                                 self.ll_feat_size,
