@@ -158,15 +158,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.to(device=device, dtype=dtype)
 
         if start_epoch == 0:
-            logging.info(
-                "Computing LLPR covariance matrix "
-                f"using {self.hypers['calibration_method'].upper()}"
-            )
+            logging.info("Computing LLPR covariance matrix")
             model.compute_covariance(
                 train_datasets, self.hypers["batch_size"], is_distributed
             )
-            logging.info("Computing LLPR inverse covariance matrix")
-            model.compute_inverse_covariance(self.hypers["regularizer"])
+            logging.info("Computing Cholesky decomposition of the covariance matrix")
+            model.compute_cholesky_decomposition(self.hypers["regularizer"])
             logging.info("Calibrating LLPR uncertainties")
             model.calibrate(
                 val_datasets,
