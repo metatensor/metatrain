@@ -1,6 +1,6 @@
 """
-Classifier
-==========
+Classifier (Experimental)
+=========================
 
 The Classifier architecture is an experimental "wrapper" architecture that enables
 classification tasks on top of pre-trained atomistic models. It takes a pre-trained

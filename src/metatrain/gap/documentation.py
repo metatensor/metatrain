@@ -6,10 +6,7 @@ This is an implementation of the sparse Gaussian Approximation Potential
 (GAP) :footcite:p:`bartok_representing_2013` using Smooth Overlap of Atomic Positions
 (SOAP) :footcite:p:`bartok_gaussian_2010` implemented in `featomic <FEATOMIC_>`_.
 
-.. _FEATOMIC: https://github.com/Luthaf/featomic
-
-The GAP model in metatrain can only train on CPU, but evaluation
-is also supported on GPU.
+.. _FEATOMIC: https://github.com/metatensor/featomic
 
 {{SECTION_INSTALLATION}}
 

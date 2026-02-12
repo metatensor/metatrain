@@ -1,4 +1,4 @@
-.. _architecture-{{architecture}}_default_hypers:
+.. _arch-{{architecture}}_default_hypers:
 
 Default Hyperparameters
 -----------------------
