@@ -97,6 +97,17 @@ testing it. Also, you may want to setup your editor to automatically apply the `
 are plugins to do this with `all major editors
 <https://black.readthedocs.io/en/stable/editor_integration.html>`_.
 
+By default, the main test suite regenerates the necessary model files every time
+it runs. For faster local development, you can **opt-in** to caching these files
+by setting the ``USE_CACHE`` environment variable to ``1``:
+
+.. code-block:: bash
+
+    USE_CACHE=1 tox -e tests
+
+When caching is enabled, the script will skip regeneration as long as the cached
+files exist and the underlying source code has not changed.
+
 If you want to test a specific archicture you can also do it. For example
 
 .. code-block:: bash
