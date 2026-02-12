@@ -76,8 +76,7 @@ def model_update_v3_v4(checkpoint: dict) -> None:
             while is_not_pd and regularizer < 1e16:
                 try:
                     cholesky = torch.linalg.cholesky(
-                        covariance
-                        + covariance.T
+                        0.5 * (covariance + covariance.T)
                         + regularizer
                         * torch.eye(
                             covariance.shape[0],
