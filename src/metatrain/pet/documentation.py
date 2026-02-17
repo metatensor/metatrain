@@ -247,6 +247,26 @@ class TrainerHypers(TypedDict):
     either value to disable that bound. This is useful for preventing out-of-memory
     errors and ensuring consistent computational load. Default: ``[None, None]``."""
 
+    unsupervised_epochs: int = 0
+    """Number of unsupervised equivariance epochs to run after supervised training.
+    During these epochs, the model is evaluated on an O(3) quadrature grid for
+    each training structure, and the loss is the equivariance variance (which
+    should be zero for a perfectly equivariant model). Set to 0 to disable."""
+
+    unsupervised_l_max: int = 3
+    """Maximum angular momentum for the O(3) quadrature grid used during
+    unsupervised equivariance training. Controls accuracy vs cost: L_max=3 gives
+    24 SO(3) rotations x 2 inversions = 48 model evaluations per structure.
+    Higher values give more accurate variance estimates but are more expensive.
+    Note that L_max is the maximum order spherical harmonics are exactly integrated up
+    to, so for large-L targets it might be necessary to increase this value to get a
+    good estimate of the variance.
+    """
+
+    unsupervised_learning_rate: Optional[float] = None
+    """Learning rate for unsupervised equivariance epochs. If None (default),
+    uses the same learning rate as supervised training."""
+
     finetune: NoFinetuneHypers | FinetuneHypers = {
         "read_from": None,
         "method": "full",
