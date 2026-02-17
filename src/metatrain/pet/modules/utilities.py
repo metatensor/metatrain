@@ -52,6 +52,39 @@ def cutoff_func_cosine(
     return f
 
 
+class DecomposedSiLU(torch.nn.Module):
+    """SiLU activation implemented as ``x * sigmoid(x)``.
+
+    Unlike ``torch.nn.SiLU``, this decomposes into primitive ops so that
+    ``make_fx`` produces a backward graph without ``silu_backward`` nodes.
+    This is needed for ``torch.compile(inductor)`` to differentiate through
+    the inlined backward when using the FX compilation path for force training.
+    """
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x * torch.sigmoid(x)
+
+
+def replace_silu_modules(module: torch.nn.Module) -> None:
+    """Replace all ``torch.nn.SiLU`` instances with :class:`DecomposedSiLU`.
+
+    Recurses through the module tree, including inside ``nn.Sequential``.
+
+    :param module: The module to recursively modify in-place.
+    """
+    for name, child in module.named_children():
+        if isinstance(child, torch.nn.SiLU):
+            setattr(module, name, DecomposedSiLU())
+        elif isinstance(child, torch.nn.Sequential):
+            for i, layer in enumerate(child):
+                if isinstance(layer, torch.nn.SiLU):
+                    child[i] = DecomposedSiLU()
+                else:
+                    replace_silu_modules(layer)
+        else:
+            replace_silu_modules(child)
+
+
 class DummyModule(torch.nn.Module):
     """Dummy torch module to make torchscript happy.
     This model should never be run"""
