@@ -54,8 +54,8 @@ Then this package itself
 
 .. code-block:: bash
 
-  git clone https://github.com/metatensor/metatrain 
-  cd metatrain 
+  git clone https://github.com/metatensor/metatrain
+  cd metatrain
   pip install -e .
 
 This install the package in development mode, making it importable globally and allowing
@@ -103,7 +103,7 @@ If you want to test a specific archicture you can also do it. For example
 
       tox -e soap-bpnn-tests
 
-Will run the unit and regression tests for the :ref:`SOAP-BPNN <architecture-soap_bpnn>`
+Will run the unit and regression tests for the :ref:`SOAP-BPNN <arch-soap_bpnn>`
 model. Note that architecture tests are not run by default if you just type ``tox``.
 
 .. _pytest: https://pytest.org

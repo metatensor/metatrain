@@ -72,16 +72,16 @@ class RMSEAccumulator:
                         # For stress targets, we allow users to use NaN entries for
                         # systems without PBCs or with mixed PBCs. We filter them
                         # out here.
-                        valid_mask = ~torch.isnan(target_block.values)
+                        mask_as_tensor = ~torch.isnan(target_block.values)
                     else:
-                        valid_mask = torch.ones_like(
+                        mask_as_tensor = torch.ones_like(
                             target_block.values, dtype=torch.bool
                         )
                     rmse_value = (
                         (
                             (
-                                prediction_block.values[valid_mask]
-                                - target_block.values[valid_mask]
+                                prediction_block.values[mask_as_tensor]
+                                - target_block.values[mask_as_tensor]
                             )
                             ** 2
                         )
@@ -89,12 +89,12 @@ class RMSEAccumulator:
                         .item()
                     )
                 else:
-                    mask_block = mask.block(block_key)
+                    mask_as_tensor = mask.block(block_key).values
                     rmse_value = (
                         (
                             (
-                                prediction_block.values[mask_block.values]
-                                - target_block.values[mask_block.values]
+                                prediction_block.values[mask_as_tensor]
+                                - target_block.values[mask_as_tensor]
                             )
                             ** 2
                         )
@@ -104,7 +104,7 @@ class RMSEAccumulator:
 
                 self.information[key_to_write] = (
                     self.information[key_to_write][0] + rmse_value,
-                    self.information[key_to_write][1] + prediction_block.values.numel(),
+                    self.information[key_to_write][1] + mask_as_tensor.sum().item(),
                 )
 
                 for gradient_name, target_gradient in target_block.gradients():
@@ -122,16 +122,16 @@ class RMSEAccumulator:
                             # For stress targets, we allow users to use NaN entries for
                             # systems without PBCs or with mixed PBCs. We filter them
                             # out here.
-                            valid_mask = ~torch.isnan(target_gradient.values)
+                            mask_as_tensor = ~torch.isnan(target_gradient.values)
                         else:
-                            valid_mask = torch.ones_like(
+                            mask_as_tensor = torch.ones_like(
                                 target_gradient.values, dtype=torch.bool
                             )
                         gradient_rmse_value = (
                             (
                                 (
-                                    prediction_gradient.values[valid_mask]
-                                    - target_gradient.values[valid_mask]
+                                    prediction_gradient.values[mask_as_tensor]
+                                    - target_gradient.values[mask_as_tensor]
                                 )
                                 ** 2
                             )
@@ -139,12 +139,14 @@ class RMSEAccumulator:
                             .item()
                         )
                     else:
-                        mask_gradient = mask_block.gradient(gradient_name)
+                        mask_as_tensor = (
+                            mask.block(block_key).gradient(gradient_name).values
+                        )
                         gradient_rmse_value = (
                             (
                                 (
-                                    prediction_gradient.values[mask_gradient.values]
-                                    - target_gradient.values[mask_gradient.values]
+                                    prediction_gradient.values[mask_as_tensor]
+                                    - target_gradient.values[mask_as_tensor]
                                 )
                                 ** 2
                             )
@@ -155,7 +157,7 @@ class RMSEAccumulator:
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][0]
                         + gradient_rmse_value,
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][1]
-                        + prediction_gradient.values.numel(),
+                        + mask_as_tensor.sum().item(),
                     )
 
     def finalize(
@@ -181,12 +183,12 @@ class RMSEAccumulator:
         """
 
         if is_distributed:
-            for key, value in self.information.items():
-                sse = torch.tensor(value[0]).to(device)
-                n_elems = torch.tensor(value[1]).to(device)
+            for key in sorted(self.information.keys()):
+                sse = torch.tensor(self.information[key][0], device=device)
+                n_elems = torch.tensor(self.information[key][1], device=device)
                 torch.distributed.all_reduce(sse)
                 torch.distributed.all_reduce(n_elems)
-                self.information[key] = (sse.item(), n_elems.item())  # type: ignore
+                self.information[key] = (sse.item(), n_elems.item())
 
         finalized_info = {}
         for key, value in self.information.items():
@@ -269,26 +271,26 @@ class MAEAccumulator:
                         # For stress targets, we allow users to use NaN entries for
                         # systems without PBCs or with mixed PBCs. We filter them
                         # out here.
-                        valid_mask = ~torch.isnan(target_block.values)
+                        mask_as_tensor = ~torch.isnan(target_block.values)
                     else:
-                        valid_mask = torch.ones_like(
+                        mask_as_tensor = torch.ones_like(
                             target_block.values, dtype=torch.bool
                         )
                     mae_value = (
                         (
-                            prediction_block.values[valid_mask]
-                            - target_block.values[valid_mask]
+                            prediction_block.values[mask_as_tensor]
+                            - target_block.values[mask_as_tensor]
                         )
                         .abs()
                         .sum()
                         .item()
                     )
                 else:
-                    mask_block = mask.block(block_key)
+                    mask_as_tensor = mask.block(block_key).values
                     mae_value = (
                         (
-                            prediction_block.values[mask_block.values]
-                            - target_block.values[mask_block.values]
+                            prediction_block.values[mask_as_tensor]
+                            - target_block.values[mask_as_tensor]
                         )
                         .abs()
                         .sum()
@@ -297,7 +299,7 @@ class MAEAccumulator:
 
                 self.information[key_to_write] = (
                     self.information[key_to_write][0] + mae_value,
-                    self.information[key_to_write][1] + prediction_block.values.numel(),
+                    self.information[key_to_write][1] + mask_as_tensor.sum().item(),
                 )
 
                 for gradient_name, target_gradient in target_block.gradients():
@@ -315,26 +317,28 @@ class MAEAccumulator:
                             # For stress targets, we allow users to use NaN entries for
                             # systems without PBCs or with mixed PBCs. We filter them
                             # out here.
-                            valid_mask = ~torch.isnan(target_gradient.values)
+                            mask_as_tensor = ~torch.isnan(target_gradient.values)
                         else:
-                            valid_mask = torch.ones_like(
+                            mask_as_tensor = torch.ones_like(
                                 target_gradient.values, dtype=torch.bool
                             )
                         gradient_mae_value = (
                             (
-                                prediction_gradient.values[valid_mask]
-                                - target_gradient.values[valid_mask]
+                                prediction_gradient.values[mask_as_tensor]
+                                - target_gradient.values[mask_as_tensor]
                             )
                             .abs()
                             .sum()
                             .item()
                         )
                     else:
-                        mask_gradient = mask_block.gradient(gradient_name)
+                        mask_as_tensor = (
+                            mask.block(block_key).gradient(gradient_name).values
+                        )
                         gradient_mae_value = (
                             (
-                                prediction_gradient.values[mask_gradient.values]
-                                - target_gradient.values[mask_gradient.values]
+                                prediction_gradient.values[mask_as_tensor]
+                                - target_gradient.values[mask_as_tensor]
                             )
                             .abs()
                             .sum()
@@ -345,7 +349,7 @@ class MAEAccumulator:
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][0]
                         + gradient_mae_value,
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][1]
-                        + prediction_gradient.values.numel(),
+                        + mask_as_tensor.sum().item(),
                     )
 
     def finalize(
@@ -371,12 +375,12 @@ class MAEAccumulator:
         """
 
         if is_distributed:
-            for key, value in self.information.items():
-                sae = torch.tensor(value[0]).to(device)
-                n_elems = torch.tensor(value[1]).to(device)
+            for key in sorted(self.information.keys()):
+                sae = torch.tensor(self.information[key][0], device=device)
+                n_elems = torch.tensor(self.information[key][1], device=device)
                 torch.distributed.all_reduce(sae)
                 torch.distributed.all_reduce(n_elems)
-                self.information[key] = (sae.item(), n_elems.item())  # type: ignore
+                self.information[key] = (sae.item(), n_elems.item())
 
         finalized_info = {}
         for key, value in self.information.items():

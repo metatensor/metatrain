@@ -52,7 +52,7 @@ test tox:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
     SLURM_NTASKS: 1
-    SLURM_TIMELIMIT: '00:30:00'
+    SLURM_TIMELIMIT: '00:40:00'
     GIT_STRATEGY: fetch
 
 # Run distributed training (single node, multiple GPUs)
@@ -113,7 +113,7 @@ test distributed multitarget finetuning:
   script:
     - . /mtt-venv/bin/activate
     - cd tests/distributed
-    - mtt train options-distributed-finetuning.yaml --restart model-multitarget.ckpt | tee train-multitarget-finetuning.log
+    - mtt train options-distributed-finetuning.yaml | tee train-multitarget-finetuning.log
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train-multitarget-finetuning.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:
     SLURM_JOB_NUM_NODES: 1

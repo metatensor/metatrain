@@ -12,6 +12,7 @@ rm -rf dist
 rm -rf build
 rm -rf docs/build
 rm -rf docs/src/generated_examples
+rm -rf docs/src/architectures/generated
 rm -rf docs/src/sg_execution_times.rst
 
 rm -rf src/metatrain/dist

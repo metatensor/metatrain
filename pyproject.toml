@@ -8,7 +8,6 @@ license = "BSD-3-Clause"
 description = "Training and evaluating machine learning models for atomistic systems."
 authors = [{name = "metatrain developers"}]
 
-# Strict version pinning to avoid regression test failing on new versions
 dependencies = [
     "ase",
     "huggingface_hub",
@@ -81,6 +80,7 @@ mace = [
     "mace-torch >=0.3.14",
     "e3nn"
 ]
+flashmd = []
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]
@@ -160,6 +160,11 @@ filterwarnings = [
     "ignore:ast.Str is deprecated and will be removed in Python 3.14:DeprecationWarning",
     "ignore:Attribute s is deprecated and will be removed in Python 3.14:DeprecationWarning",
     "ignore:ast.NameConstant is deprecated and will be removed in Python 3.14:DeprecationWarning",
+    "ignore:`torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.save` is deprecated. Please switch to `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.trace_method` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.trace` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
     # PyTorch does not want these, but mypy requires them
     "ignore:The TorchScript type system doesn't support instance-level annotations on empty non-base types",
     # Sphericart double backward warning
