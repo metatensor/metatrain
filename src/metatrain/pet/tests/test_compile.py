@@ -211,6 +211,87 @@ def test_forward_from_batch():
     torch.testing.assert_close(forward_per_atom, batch_per_atom, atol=1e-6, rtol=1e-6)
 
 
+def test_forward_from_batch_adaptive():
+    """Test that _forward_from_batch matches forward with adaptive cutoffs.
+
+    Adaptive cutoffs (num_neighbors_adaptive=16) cause max_edges_per_node
+    to vary per batch, which exercises dynamic=True more aggressively.
+    """
+    from metatrain.pet import PET
+    from metatrain.utils.data import DatasetInfo
+    from metatrain.utils.data.readers import read_systems
+    from metatrain.utils.data.target_info import get_energy_target_info
+    from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+
+    from ..modules.structures import systems_to_batch
+    from . import DATASET_PATH, MODEL_HYPERS
+
+    torch.manual_seed(42)
+
+    hypers = copy.deepcopy(MODEL_HYPERS)
+    hypers["num_neighbors_adaptive"] = 16
+
+    targets = {
+        "mtt::U0": get_energy_target_info(
+            "mtt::U0", {"quantity": "energy", "unit": "eV"}
+        )
+    }
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
+    )
+    model = PET(hypers, dataset_info)
+    model.eval()
+
+    systems = read_systems(DATASET_PATH)[:3]
+    systems = [s.to(torch.float32) for s in systems]
+    for s in systems:
+        get_system_with_neighbor_lists(s, model.requested_neighbor_lists())
+
+    # Get per-atom predictions from forward
+    forward_output = model(
+        systems,
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
+    )
+    forward_per_atom = forward_output["mtt::U0"].block().values
+
+    # Get per-atom predictions from _forward_from_batch
+    (
+        element_indices_nodes,
+        element_indices_neighbors,
+        edge_vectors,
+        edge_distances,
+        padding_mask,
+        reverse_neighbor_index,
+        cutoff_factors,
+        system_indices,
+        neighbor_atom_indices,
+        sample_labels,
+    ) = systems_to_batch(
+        systems,
+        model.requested_nl,
+        model.atomic_types,
+        model.species_to_species_index,
+        model.cutoff_function,
+        model.cutoff_width,
+        model.num_neighbors_adaptive,
+    )
+
+    batch_output = model._forward_from_batch(
+        element_indices_nodes,
+        element_indices_neighbors,
+        edge_vectors,
+        edge_distances,
+        padding_mask,
+        reverse_neighbor_index,
+        cutoff_factors,
+    )
+    # Get the first (and only) block key for the energy target
+    energy_key = next(iter(model.output_shapes["mtt::U0"]))
+    batch_per_atom = batch_output["mtt::U0"][energy_key]
+
+    torch.testing.assert_close(forward_per_atom, batch_per_atom, atol=1e-6, rtol=1e-6)
+
+
 class TestTrainingCompile(TrainingTests, PETTests):
     """Run the standard training tests with compile=True.
 
@@ -223,4 +304,20 @@ class TestTrainingCompile(TrainingTests, PETTests):
     def default_hypers(self):
         hypers = get_default_hypers(self.architecture)
         hypers["training"]["compile"] = True
+        return hypers
+
+
+class TestTrainingCompileAdaptive(TrainingTests, PETTests):
+    """Run the standard training tests with compile=True and adaptive cutoffs.
+
+    Adaptive cutoffs (num_neighbors_adaptive=16) cause the 2nd dimension
+    of NEF tensors (max_edges_per_node) to vary per batch. This tests
+    ``dynamic=True`` more aggressively than fixed cutoffs.
+    """
+
+    @pytest.fixture
+    def default_hypers(self):
+        hypers = get_default_hypers(self.architecture)
+        hypers["training"]["compile"] = True
+        hypers["model"]["num_neighbors_adaptive"] = 16
         return hypers
