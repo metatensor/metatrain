@@ -416,6 +416,7 @@ class PET(ModelInterface[ModelHypers]):
                 reverse_neighbor_index,
                 cutoff_factors,
                 system_indices,
+                _neighbor_atom_indices,
                 sample_labels,
             ) = systems_to_batch(
                 systems,
@@ -569,6 +570,78 @@ class PET(ModelInterface[ModelHypers]):
                         )
 
         return return_dict
+
+    def _forward_from_batch(
+        self,
+        element_indices_nodes: torch.Tensor,
+        element_indices_neighbors: torch.Tensor,
+        edge_vectors: torch.Tensor,
+        edge_distances: torch.Tensor,
+        padding_mask: torch.Tensor,
+        reverse_neighbor_index: torch.Tensor,
+        cutoff_factors: torch.Tensor,
+    ) -> Dict[str, Dict[str, torch.Tensor]]:
+        """
+        Pure-tensor forward pass for FX compilation.
+
+        Takes batch tensors and returns raw per-atom predictions as nested
+        dictionaries (target_name -> block_key -> tensor). Always uses SDPA
+        attention (no manual attention needed since forces are computed via
+        ``autograd.grad(create_graph=False)`` in the compiled graph, avoiding
+        double backward).
+
+        :param element_indices_nodes: Atomic species of central atoms [n_atoms].
+        :param element_indices_neighbors: Atomic species of neighbors
+            [n_atoms, max_neighbors].
+        :param edge_vectors: Edge vectors [n_atoms, max_neighbors, 3].
+        :param edge_distances: Edge distances [n_atoms, max_neighbors].
+        :param padding_mask: Boolean mask for real neighbors
+            [n_atoms, max_neighbors].
+        :param reverse_neighbor_index: Reversed neighbor index for message
+            passing [n_atoms, max_neighbors].
+        :param cutoff_factors: Cutoff function values [n_atoms, max_neighbors].
+        :return: Nested dict mapping target_name -> block_key -> per-atom
+            prediction tensor.
+        """
+        featurizer_inputs: Dict[str, torch.Tensor] = dict(
+            element_indices_nodes=element_indices_nodes,
+            element_indices_neighbors=element_indices_neighbors,
+            edge_vectors=edge_vectors,
+            edge_distances=edge_distances,
+            reverse_neighbor_index=reverse_neighbor_index,
+            padding_mask=padding_mask,
+            cutoff_factors=cutoff_factors,
+        )
+
+        # Always use SDPA (no double backward in compiled path)
+        node_features_list, edge_features_list = self._calculate_features(
+            featurizer_inputs, use_manual_attention=False
+        )
+
+        node_ll_dict, edge_ll_dict = self._calculate_last_layer_features(
+            node_features_list, edge_features_list
+        )
+
+        outputs_all: Dict[str, ModelOutput] = {
+            name: ModelOutput(per_atom=True) for name in self.target_names
+        }
+        node_preds, edge_preds = self._calculate_atomic_predictions(
+            node_ll_dict, edge_ll_dict, padding_mask, cutoff_factors, outputs_all
+        )
+
+        # Sum across GNN layers for each target/block
+        results: Dict[str, Dict[str, torch.Tensor]] = {}
+        for target_name in self.target_names:
+            block_results: Dict[str, torch.Tensor] = {}
+            node_layers = node_preds[target_name]
+            edge_layers = edge_preds[target_name]
+            for j, key in enumerate(self.output_shapes[target_name]):
+                total = node_layers[0][j] + edge_layers[0][j]
+                for i in range(1, len(node_layers)):
+                    total = total + node_layers[i][j] + edge_layers[i][j]
+                block_results[key] = total
+            results[target_name] = block_results
+        return results
 
     def _calculate_features(
         self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
@@ -1340,7 +1413,11 @@ class PET(ModelInterface[ModelHypers]):
         return checkpoint
 
     def get_checkpoint(self) -> Dict:
-        model_state_dict = self.state_dict()
+        # Get state dict, handling compiled modules by removing _orig_mod prefix
+        state_dict = {
+            k.replace("._orig_mod", ""): v for k, v in self.state_dict().items()
+        }
+        model_state_dict = dict(state_dict)
         model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {
             "architecture_name": "pet",
@@ -1353,7 +1430,7 @@ class PET(ModelInterface[ModelHypers]):
             "epoch": None,
             "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": self.state_dict(),
+            "best_model_state_dict": state_dict,
         }
         return checkpoint
 
