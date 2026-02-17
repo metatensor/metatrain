@@ -257,3 +257,14 @@ class TrainerHypers(TypedDict):
 
     See :ref:`label_fine_tuning_concept` for more details.
     """
+    compile: bool = False
+    """Whether to use full-graph FX compilation during training.
+
+    When enabled, the entire PET model (including force/stress computation via
+    ``autograd.grad``) is traced into a single FX graph using ``make_fx`` and
+    then compiled with ``torch.compile(dynamic=True, fullgraph=True)``. This
+    gives maximum kernel fusion, zero compiled/eager boundary crossings, and
+    always uses ``scaled_dot_product_attention`` (SDPA). Expect a one-time
+    compilation cost at the start of training, followed by speedups on every
+    subsequent step.
+    """

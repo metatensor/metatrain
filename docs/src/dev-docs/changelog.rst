@@ -24,6 +24,14 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Added
+#####
+
+- The PET architecture now supports full-graph FX compilation for training via the
+  ``compile`` hyperparameter. When enabled, the entire model (including force/stress
+  computation) is traced into a single FX graph and compiled with ``torch.compile``,
+  providing maximum kernel fusion and consistently using scaled dot-product attention.
+
 Version 2026.1 - 2026-01-07
 ---------------------------
 

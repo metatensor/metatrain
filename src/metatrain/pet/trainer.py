@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
+from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import System
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
@@ -41,6 +43,137 @@ from . import checkpoints
 from .documentation import TrainerHypers
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
+from .modules.structures import systems_to_batch
+
+
+def _wrap_compiled_output(
+    energy: torch.Tensor,
+    forces: torch.Tensor,
+    stress: torch.Tensor,
+    raw_predictions: Dict[str, Dict[str, torch.Tensor]],
+    model: PET,
+    systems: List[System],
+    sample_labels: Labels,
+    system_indices: torch.Tensor,
+    train_targets: Dict,
+) -> Dict[str, TensorMap]:
+    """Convert compiled function outputs to Dict[str, TensorMap].
+
+    Produces the same format as ``evaluate_model`` so the loss function
+    and metric accumulators work unchanged.
+
+    :param energy: Per-structure energy tensor from the compiled function.
+    :param forces: Per-atom force tensor, or ``None``.
+    :param stress: Per-structure stress tensor, or ``None``.
+    :param raw_predictions: Per-atom predictions keyed by target and block.
+    :param model: The PET model instance.
+    :param systems: The input systems for this batch.
+    :param sample_labels: Labels indicating system and atom indices.
+    :param system_indices: System index for each atom in the batch.
+    :param train_targets: Target information dict from the training config.
+    :return: Predictions as ``Dict[str, TensorMap]``.
+    """
+    from metatrain.utils.sum_over_atoms import sum_over_atoms
+
+    device = system_indices.device
+    predictions: Dict[str, TensorMap] = {}
+
+    # Identify the energy target
+    energy_target_name = None
+    for tname in model.target_names:
+        if tname in model.outputs and model.outputs[tname].quantity == "energy":
+            energy_target_name = tname
+            break
+
+    # Build energy TensorMap (per-structure) with optional gradient blocks
+    if energy_target_name is not None and energy is not None:
+        n_structures = energy.shape[0]
+        energy_block = TensorBlock(
+            values=energy.unsqueeze(-1),
+            samples=Labels(
+                "system",
+                torch.arange(n_structures, device=device, dtype=torch.int32).unsqueeze(
+                    -1
+                ),
+                assume_unique=True,
+            ),
+            components=[],
+            properties=Labels("energy", torch.tensor([[0]], device=device)),
+        )
+
+        if forces is not None:
+            # Position gradient block: samples are ["sample", "atom"]
+            # matching evaluate_model's _position_gradients_to_block format
+            grad_samples = Labels(
+                names=["sample", "atom"],
+                values=sample_labels.values.to(torch.int32),
+                assume_unique=True,
+            ).to(device)
+            xyz_labels = Labels("xyz", torch.tensor([[0], [1], [2]], device=device))
+            forces_block = TensorBlock(
+                values=forces.unsqueeze(-1),
+                samples=grad_samples,
+                components=[xyz_labels],
+                properties=Labels("energy", torch.tensor([[0]], device=device)),
+            )
+            energy_block.add_gradient("positions", forces_block)
+
+        if stress is not None:
+            stress_samples = Labels(
+                "sample",
+                torch.arange(n_structures, device=device, dtype=torch.int32).unsqueeze(
+                    -1
+                ),
+                assume_unique=True,
+            )
+            xyz1 = Labels("xyz_1", torch.tensor([[0], [1], [2]], device=device))
+            xyz2 = Labels("xyz_2", torch.tensor([[0], [1], [2]], device=device))
+            stress_block = TensorBlock(
+                values=stress.unsqueeze(-1),
+                samples=stress_samples,
+                components=[xyz1, xyz2],
+                properties=Labels("energy", torch.tensor([[0]], device=device)),
+            )
+            energy_block.add_gradient("strain", stress_block)
+
+        predictions[energy_target_name] = TensorMap(
+            keys=model.single_label.to(device),
+            blocks=[energy_block],
+        )
+
+    # Non-energy targets: wrap per-atom raw predictions into TensorMaps
+    for target_name in model.target_names:
+        if target_name == energy_target_name:
+            continue
+        if target_name not in raw_predictions:
+            continue
+        if target_name not in train_targets:
+            continue
+
+        target_preds = raw_predictions[target_name]
+        blocks = []
+        for key, shape, components, properties in zip(
+            model.output_shapes[target_name].keys(),
+            model.output_shapes[target_name].values(),
+            model.component_labels[target_name],
+            model.property_labels[target_name],
+            strict=True,
+        ):
+            values = target_preds[key].reshape([-1] + shape)
+            block = TensorBlock(
+                values=values,
+                samples=sample_labels,
+                components=components,
+                properties=properties,
+            )
+            blocks.append(block)
+
+        tmap = TensorMap(keys=model.key_labels[target_name].to(device), blocks=blocks)
+        if not train_targets[target_name].per_atom:
+            tmap = sum_over_atoms(tmap)
+        predictions[target_name] = tmap
+
+    return predictions
 
 
 def get_scheduler(
@@ -77,7 +210,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 12
+    __checkpoint_version__ = 13
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -159,6 +292,26 @@ class Trainer(TrainerInterface[TrainerHypers]):
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
+
+        # torch.compile: full-graph FX compilation of the entire model
+        # (including force/stress computation via autograd.grad).
+        compile_enabled = self.hypers.get("compile", False)
+        has_gradients = any(
+            len(target_info.gradients) > 0
+            for target_info in model.dataset_info.targets.values()
+        )
+        has_strain_gradients = any(
+            "strain" in target_info.gradients
+            for target_info in model.dataset_info.targets.values()
+        )
+        if compile_enabled:
+            torch._dynamo.reset()
+            if is_distributed:
+                logging.warning(
+                    "torch.compile with DDP is not yet supported. "
+                    "Disabling compilation for distributed training."
+                )
+                compile_enabled = False
 
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
@@ -357,6 +510,21 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Log the initial learning rate:
         logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
 
+        # Full-graph FX compilation (after dataloaders are ready for tracing).
+        compiled_fn = None
+        if compile_enabled:
+            from .modules.compile import compile_pet_model
+
+            compiled_fn, _compiled_param_names, _compiled_buffer_names = (
+                compile_pet_model(
+                    model,
+                    train_dataloader,
+                    has_gradients,
+                    has_strain_gradients,
+                )
+            )
+            logging.info("FX compilation complete (will optimize on first call)")
+
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
         # Train the model:
@@ -389,27 +557,85 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device
                 )
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    {key: train_targets[key] for key in targets.keys()},
-                    is_training=True,
-                )
 
-                # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = loss_fn(predictions, targets, extra_data)
+                if compile_enabled and compiled_fn is not None:
+                    # FX-compiled path: call systems_to_batch directly,
+                    # run the compiled function, and wrap outputs.
+                    (
+                        c_element_indices_nodes,
+                        c_element_indices_neighbors,
+                        c_edge_vectors,
+                        _c_edge_distances,
+                        c_padding_mask,
+                        c_reverse_neighbor_index,
+                        c_cutoff_factors,
+                        c_system_indices,
+                        c_neighbor_atom_indices,
+                        c_sample_labels,
+                    ) = systems_to_batch(
+                        systems,
+                        model.requested_nl,
+                        model.atomic_types,
+                        model.species_to_species_index,
+                        model.cutoff_function,
+                        model.cutoff_width,
+                        model.num_neighbors_adaptive,
+                    )
+                    if has_gradients:
+                        c_edge_vectors = c_edge_vectors.requires_grad_(True)
+                    n_structures = len(systems)
+                    energy, forces, stress, raw_preds = compiled_fn(
+                        c_edge_vectors,
+                        c_element_indices_nodes,
+                        c_element_indices_neighbors,
+                        c_padding_mask,
+                        c_reverse_neighbor_index,
+                        c_cutoff_factors,
+                        c_system_indices,
+                        c_neighbor_atom_indices,
+                        n_structures,
+                        *list(model.parameters()),
+                        *list(model.buffers()),
+                    )
+                    predictions = _wrap_compiled_output(
+                        energy,
+                        forces,
+                        stress,
+                        raw_preds,
+                        model,
+                        systems,
+                        c_sample_labels,
+                        c_system_indices,
+                        train_targets,
+                    )
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(
+                        targets, systems, per_structure_targets
+                    )
+                    train_loss_batch = loss_fn(predictions, targets, extra_data)
+                    train_loss_batch.backward()
+                else:
+                    predictions = evaluate_model(
+                        model,
+                        systems,
+                        {key: train_targets[key] for key in targets.keys()},
+                        is_training=True,
+                    )
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(
+                        targets, systems, per_structure_targets
+                    )
+                    train_loss_batch = loss_fn(predictions, targets, extra_data)
 
-                if is_distributed:
-                    # make sure all parameters contribute to the gradient calculation
-                    # to make torch DDP happy
-                    for param in model.parameters():
-                        train_loss_batch += 0.0 * param.sum()
+                    if is_distributed:
+                        for param in model.parameters():
+                            train_loss_batch += 0.0 * param.sum()
 
-                train_loss_batch.backward()
+                    train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
                 )
@@ -538,9 +764,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
             if val_metric < self.best_metric:
                 self.best_metric = val_metric
-                self.best_model_state_dict = copy.deepcopy(
-                    (model.module if is_distributed else model).state_dict()
-                )
+                raw_state_dict = (
+                    model.module if is_distributed else model
+                ).state_dict()
+                self.best_model_state_dict = {
+                    k.replace("._orig_mod", ""): v.clone()
+                    for k, v in raw_state_dict.items()
+                }
                 self.best_epoch = epoch
                 self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 

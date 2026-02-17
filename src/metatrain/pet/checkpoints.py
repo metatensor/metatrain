@@ -420,3 +420,12 @@ def trainer_update_v11_v12(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     checkpoint["train_hypers"]["batch_atom_bounds"] = [None, None]
+
+
+def trainer_update_v12_v13(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 12 to version 13.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"]["compile"] = False
