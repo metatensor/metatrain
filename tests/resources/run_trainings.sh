@@ -33,7 +33,7 @@ echo "Clearing previous generated files..."
 rm $ROOT_DIR/model-$MODE-*.pt $ROOT_DIR/model-$MODE-*.ckpt || true
 # Remove lock files from previous runs (but avoid removing the
 # current one!)
-find $ROOT_DIR -maxdepth 1 -name  "$MODE-*.lockfile" ! -name "$MODE-$TRAIN_ID.trainlock" -delete || true
+find $ROOT_DIR -maxdepth 1 -name  "$MODE-*.trainlock" ! -name "$MODE-$TRAIN_ID.trainlock" -delete || true
 
 echo "Generating data for testing..."
 
