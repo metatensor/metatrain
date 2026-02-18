@@ -419,6 +419,7 @@ class PET(ModelInterface[ModelHypers]):
             sample_labels,
             centers,
             nef_to_edges_neighbor,
+            cutoff_mask,
         ) = systems_to_batch(
             systems,
             nl_options,
@@ -431,7 +432,7 @@ class PET(ModelInterface[ModelHypers]):
         )
 
         pair_sample_labels = get_pair_sample_labels(
-            systems, sample_labels, nl_options, device
+            systems, sample_labels, nl_options, cutoff_mask, device,
         )
 
         # Optional diagnostic token capture: register temporary module hooks
