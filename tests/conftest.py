@@ -1,6 +1,7 @@
 import math
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -47,9 +48,19 @@ def ensure_path(mode: str, uid: str) -> Path:
     runs the training script to generate it."""
     path = RESOURCES_PATH / f"model-{mode}-{uid}.pt"
     if not path.exists():
-        subprocess.run(
-            ["bash", str(RESOURCES_PATH / "run_trainings.sh"), mode, uid], check=True
+        result = subprocess.run(
+            ["bash", str(RESOURCES_PATH / "run_trainings.sh"), mode, uid],
+            stderr=subprocess.STDOUT,
+            stdout=subprocess.PIPE,
         )
+
+        if result.returncode != 0:
+            print(
+                f"Error generating model for mode {mode}"
+                f"Training script output:\n{result.stdout.decode()}",
+                file=sys.stderr,
+            )
+            raise RuntimeError(f"Failed to generate model for mode {mode}")
     return path
 
 
