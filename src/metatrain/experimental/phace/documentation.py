@@ -81,10 +81,10 @@ class RadialBasisHypers(TypedDict):
 class ModelHypers(TypedDict):
     """Hyperparameters for the experimental.phace model."""
 
-    num_tensor_products: int = 3
+    num_tensor_products: int = 6
     """Number of tensor products per GNN layer."""
 
-    num_gnn_layers: int = 2
+    num_gnn_layers: int = 3
     """Number of GNN layers.
 
     Increasing this value might increase the accuracy of the model (especially on

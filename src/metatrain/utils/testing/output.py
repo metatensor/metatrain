@@ -54,6 +54,8 @@ class OutputTests(ArchitectureTests):
     is_equivariant_reflections: bool = True
     """Whether the model is equivariant (i.e. produces outputs that
     transform correctly under reflections by architecture's design)."""
+    equivariance_error_tolerance: float = 1e-5
+    """Tolerance for equivariance tests."""
 
     @pytest.fixture
     def n_features(self) -> Optional[int | list[int]]:
@@ -684,6 +686,8 @@ class OutputTests(ArchitectureTests):
         torch.testing.assert_close(
             original_output["energy"].block().values,
             rotated_output["energy"].block().values,
+            atol=self.equivariance_error_tolerance,
+            rtol=self.equivariance_error_tolerance,
         )
 
     def test_output_spherical_equivariant_rotations(
@@ -739,8 +743,8 @@ class OutputTests(ArchitectureTests):
                 rotation,
             ),
             rotated_output["spherical_target"].block().values.detach().numpy(),
-            atol=1e-5,
-            rtol=1e-5,
+            atol=self.equivariance_error_tolerance,
+            rtol=self.equivariance_error_tolerance,
         )
 
     def test_output_spherical_equivariant_inversion(

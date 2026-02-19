@@ -37,6 +37,7 @@ class PhACETests(ArchitectureTests):
 
 class TestOutput(OutputTests, PhACETests):
     is_equivariant_reflections = False
+    equivariance_error_tolerance = 1e-4  # due to many layers in the default hypers
 
     @pytest.fixture
     def n_last_layer_features(self) -> int:
@@ -118,6 +119,7 @@ class TestTorchscript(TorchscriptTests, PhACETests):
             for key in nested_key[:-1]:
                 sub_dict = sub_dict[key]
             sub_dict[nested_key[-1]] = int(sub_dict[nested_key[-1]])
+        new_hypers["radial_basis"]["element_scale"] = 1
 
         model = self.model_cls(new_hypers, dataset_info)
 
@@ -153,6 +155,18 @@ class TestCheckpoints(CheckpointTests, PhACETests):
     incompatible_trainer_checkpoints = []
 
     @pytest.fixture
+    def minimal_model_hypers(self):
+        hypers = get_default_hypers(self.architecture)["model"]
+        hypers = copy.deepcopy(hypers)
+        hypers["cutoff"] = 5
+        hypers["cutoff_width"] = 1
+        hypers["num_neighbors_adaptive"] = 16
+        hypers["message_scaling"] = 1
+        hypers["input_scaling"] = 1
+        hypers["output_scaling"] = 1
+        return hypers
+
+    @pytest.fixture
     def model_trainer(
         self,
         dataset_path: str,
@@ -172,7 +186,7 @@ class TestCheckpoints(CheckpointTests, PhACETests):
         #  - Just 1 epoch to keep the test fast
         #  - Default loss for each target
         hypers = copy.deepcopy(default_hypers)
-        hypers["training"]["compile"] = False
+        hypers["model"] = minimal_model_hypers
         hypers["training"]["num_epochs"] = 1
         loss_hypers = OmegaConf.create(
             {k: init_with_defaults(LossSpecification) for k in dataset_targets}
