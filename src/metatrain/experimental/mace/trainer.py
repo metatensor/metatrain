@@ -476,48 +476,53 @@ class Trainer(TrainerInterface):
                     )
                 )
 
-            val_loss = 0.0
-            for batch in val_dataloader:
-                # Skip None batches (those outside batch_atom_bounds)
-                if should_skip_batch(batch, is_distributed, device):
-                    continue
+            with torch.set_grad_enabled(
+                any(target_info.gradients for target_info in train_targets.values())
+            ):  # keep gradients on if any of the targets require them
+                val_loss = 0.0
+                for batch in val_dataloader:
+                    # Skip None batches (those outside batch_atom_bounds)
+                    if should_skip_batch(batch, is_distributed, device):
+                        continue
 
-                systems, targets, extra_data = unpack_batch(batch)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype, device=device
-                )
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    {key: train_targets[key] for key in targets.keys()},
-                    is_training=False,
-                )
+                    systems, targets, extra_data = unpack_batch(batch)
+                    systems, targets, extra_data = batch_to(
+                        systems, targets, extra_data, dtype=dtype, device=device
+                    )
+                    predictions = evaluate_model(
+                        model,
+                        systems,
+                        {key: train_targets[key] for key in targets.keys()},
+                        is_training=False,
+                    )
 
-                # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                val_loss_batch = loss_fn(predictions, targets, extra_data)
+                    # average by the number of atoms
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(
+                        targets, systems, per_structure_targets
+                    )
+                    val_loss_batch = loss_fn(predictions, targets, extra_data)
 
-                if is_distributed:
-                    # sum the loss over all processes
-                    torch.distributed.all_reduce(val_loss_batch)
-                val_loss += val_loss_batch.item()
+                    if is_distributed:
+                        # sum the loss over all processes
+                        torch.distributed.all_reduce(val_loss_batch)
+                    val_loss += val_loss_batch.item()
 
-                scaled_predictions = (model.module if is_distributed else model).scaler(
-                    systems, predictions
-                )
-                scaled_targets = (model.module if is_distributed else model).scaler(
-                    systems, targets
-                )
-                val_rmse_calculator.update(
-                    scaled_predictions, scaled_targets, extra_data
-                )
-                if self.hypers["log_mae"]:
-                    val_mae_calculator.update(
+                    scaled_predictions = (
+                        model.module if is_distributed else model
+                    ).scaler(systems, predictions)
+                    scaled_targets = (model.module if is_distributed else model).scaler(
+                        systems, targets
+                    )
+                    val_rmse_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )
+                    if self.hypers["log_mae"]:
+                        val_mae_calculator.update(
+                            scaled_predictions, scaled_targets, extra_data
+                        )
 
             lr_scheduler.step(metrics=val_loss)
 

@@ -226,7 +226,7 @@ class TrainerHypers(TypedDict):
     see its documentation to understand exactly what to pass here.
     """
     per_structure_targets: list[str] = []
-    """Targets to calculate per-structure losses."""
+    """Targets to calculate per-structure losses and errors on."""
     num_workers: Optional[int] = None
     """Number of workers for data loading. If not provided, it is set
     automatically."""
