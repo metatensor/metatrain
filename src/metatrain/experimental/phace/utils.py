@@ -219,9 +219,14 @@ def _apply_inversions_to_spherical_tensor_map(
     target_tmap: TensorMap,
     inversions: List[int],
 ) -> TensorMap:
+    """Apply inversion transformations to a spherical tensor map.
+
+    For each block with angular momentum l and parity sigma, values are multiplied
+    by ``(-1)^l * sigma`` when the corresponding system is inverted.
+    """
     new_blocks: List[TensorBlock] = []
     for key, block in target_tmap.items():
-        ell, sigma = int(key[0]), int(key[1])
+        sigma = int(key[1])
         values = block.values
         if "atom" in block.samples.names:
             split_values = torch.split(
@@ -259,7 +264,7 @@ def _apply_augmentations(
     inversions: List[int],
     extra_data: Optional[Dict[str, TensorMap]] = None,
 ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
-    # Apply the transformations to the systems
+    """Apply inversion augmentations to systems, targets, and extra data."""
 
     new_systems: List[System] = []
     for system, i in zip(systems, inversions, strict=True):

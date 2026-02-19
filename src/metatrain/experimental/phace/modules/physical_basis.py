@@ -7,13 +7,16 @@ from .splines import generate_splines
 
 
 def get_physical_basis_spliner(E_max, r_cut, normalize):
-    # This function splines the basis functions from the ``physical_basis`` package
-    # for efficiency. It also "un-normalizes" in an attempt to make the variance close
-    # to 1 (e.g. see the spherical harmonics normalization in the ``Precomputer`` class)
+    """Spline the physical basis functions for efficient evaluation.
 
+    Also applies normalization in an attempt to make the variance close to 1 (see also
+    the spherical harmonics normalization in :class:`Precomputer`).
+    """
     l_max = 50
     n_max = 50
-    a = 10.0  # by construction of the files
+
+    # computational limit of the physical basis functions (basically zero beyond this)
+    a = 10.0
 
     physical_basis = PhysicalBasis()
     E_ln = physical_basis.E_ln

@@ -8,7 +8,8 @@ from .tensor_product import tensor_product
 
 
 class CGIterator(torch.nn.Module):
-    # A high-level CG iterator, doing multiple iterations
+    """High-level CG iterator that chains multiple CG iterations."""
+
     def __init__(self, k_max_l, number_of_iterations):
         super().__init__()
         self.number_of_iterations = number_of_iterations
@@ -28,12 +29,11 @@ class CGIterator(torch.nn.Module):
 
 
 class CGIteration(torch.nn.Module):
-    # A single Clebsch-Gordan iteration, including:
-    # - RMSNorm
-    # - linear transformation
-    # - tensor product
-    # - linear transformation
-    # - skip connection
+    """A single Clebsch-Gordan-like iteration.
+
+    Implements RMSNorm -> linear -> tensor product -> linear -> skip connection.
+    """
+
     def __init__(self, k_max_l):
         super().__init__()
         self.linear_in = Linear(k_max_l, expansion_factor=2)

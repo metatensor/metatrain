@@ -4,7 +4,7 @@ import torch
 
 
 class Linear(torch.nn.Module):
-    # NTK-style linear layer (NTK = neural tangent kernel)
+    """NTK-style linear layer (NTK = neural tangent kernel)."""
 
     def __init__(self, n_feat_in, n_feat_out):
         super().__init__()
@@ -17,7 +17,7 @@ class Linear(torch.nn.Module):
 
 
 class LinearList(torch.nn.Module):
-    # list of linear layers for equivariant features in the compact (uncoupled) basis
+    """List of linear layers for a list of features in the compact (uncoupled) basis."""
 
     def __init__(
         self,
@@ -50,9 +50,12 @@ class LinearList(torch.nn.Module):
 
 
 class BlockRMSNorm(torch.nn.Module):
-    # RMSNorm applied to each block of features corresponding to a specific l in the
-    # compact (uncoupled) basis. Equivariance is preserved since the norm is computed
-    # over the feature dimension and the block structure is preserved.
+    """RMSNorm applied to a specific l block in the uncoupled basis.
+
+    Equivariance is preserved since the norm is computed over the feature dimension
+    and the block structure is preserved.
+    """
+
     def __init__(self, d, eps=1e-6):
         super().__init__()
         self.eps = eps
@@ -65,9 +68,12 @@ class BlockRMSNorm(torch.nn.Module):
 
 
 class EquivariantRMSNorm(torch.nn.Module):
-    # RMSNorm applied to all the features in a "ragged" compact (uncoupled) basis
-    # Inputs will look like [[..., 1, 1, 128], [..., 3, 3, 0], [..., 3, 3, 128]]
-    # with default hyperparameters
+    """RMSNorm applied to all features in a ragged compact (uncoupled) basis.
+
+    Inputs will look like ``[[..., 1, 1, 128], [..., 3, 3, 0], [..., 3, 3, 128]]``
+    with default hyperparameters.
+    """
+
     def __init__(self, k_max_l: List[int]) -> None:
         super().__init__()
         self.k_max_l = k_max_l

@@ -45,6 +45,9 @@ warnings.filterwarnings(
 
 
 class PhACE(ModelInterface[ModelHypers]):
+    """PhACE model: metatensor-based wrapper around ``BaseModel``
+    and/or ``GradientModel``."""
+
     __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
@@ -63,7 +66,8 @@ class PhACE(ModelInterface[ModelHypers]):
         self.dataset_info = dataset_info
         self.hypers = hypers
 
-        # machinery to trick torchscript into liking our model
+        # Two types of model wrapper: one with gradients (training) and one without
+        # (torchscript-based export).
         base_model = BaseModel(hypers, dataset_info)
         self.fake_gradient_model = FakeGradientModel(base_model)
         self.gradient_model = GradientModel(base_model)

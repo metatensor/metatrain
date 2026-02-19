@@ -12,7 +12,11 @@ from .tensor_product import (
 
 
 class InvariantMessagePasser(torch.nn.Module):
-    # performs invariant message passing with linear contractions
+    """Invariant message passing with linear contractions.
+
+    Used for the first GNN layer, where features are scalar (invariant).
+    """
+
     def __init__(
         self,
         all_species: List[int],
@@ -45,6 +49,16 @@ class InvariantMessagePasser(torch.nn.Module):
         n_atoms: int,
         initial_center_embedding,
     ) -> List[torch.Tensor]:
+        """Compute the spherical expansion (density) for each atom.
+
+        :param radial_basis: radial basis functions per l, each [N_pairs, n_max_l]
+        :param spherical_harmonics: spherical harmonics per l, each [N_pairs, 2l+1]
+        :param centers: center atom indices [N_pairs]
+        :param neighbors: neighbor atom indices [N_pairs]
+        :param n_atoms: total number of atoms
+        :param initial_center_embedding: element embeddings [N_atoms, 1, k_max_0]
+        :return: density features per l, each [N_atoms, 2l+1, k_max_l]
+        """
         radial_basis = self.radial_basis_mlp(radial_basis)
 
         density = []
@@ -70,7 +84,11 @@ class InvariantMessagePasser(torch.nn.Module):
 
 
 class EquivariantMessagePasser(torch.nn.Module):
-    # performs equivariant message passing with a norm operation and linear contractions
+    """Equivariant message passing with RMSNorm and linear contractions.
+
+    Used for GNN layers after the first, where features are equivariant.
+    """
+
     def __init__(
         self,
         n_max_l,
@@ -106,15 +124,24 @@ class EquivariantMessagePasser(torch.nn.Module):
         features: List[torch.Tensor],
         U_dict: Dict[int, torch.Tensor],
     ) -> List[torch.Tensor]:
+        """Perform one equivariant message-passing step.
+
+        :param radial_basis: radial basis functions per l
+        :param spherical_harmonics: spherical harmonics per l
+        :param centers: center atom indices [N_pairs]
+        :param neighbors: neighbor atom indices [N_pairs]
+        :param features: equivariant features per l in the uncoupled basis
+        :param U_dict: CG transformation matrices (coupled <-> uncoupled)
+        :return: updated equivariant features per l in the uncoupled basis
+        """
         n_atoms = features[0].shape[0]
 
-        ### 1. Norm and linear #####
+        # 1. Normalize and apply linear transformation
         features_in = features
         features = self.rmsnorm(features)
         features = self.linear_in(features, U_dict)
 
-        ##### 2. Compute radial basis, vector expansion in the spherical basis, and
-        # transform the vector expansion to the uncoupled basis #####
+        # 2. Compute radial basis, vector expansion, and transform to uncoupled basis
         radial_basis = self.radial_basis_mlp(radial_basis)
         vector_expansion = [
             spherical_harmonics[l].unsqueeze(2) * radial_basis[l].unsqueeze(1)
@@ -124,7 +151,7 @@ class EquivariantMessagePasser(torch.nn.Module):
             vector_expansion, self.k_max_l, U_dict, self.l_max, self.padded_l_list
         )
 
-        ##### 3. Message passing #####
+        # 3. Message passing: tensor product of neighbor features with vector expansion
         indexed_features = []
         for feature in features:
             indexed_features.append(feature[neighbors])
@@ -147,7 +174,7 @@ class EquivariantMessagePasser(torch.nn.Module):
             (f * self.message_scaling) for f in combined_features_pooled
         ]
 
-        ##### 4. Linear and residual connection #####
+        # 4. Linear projection and residual connection
         features_out = self.linear_out(combined_features_pooled, U_dict)
         features_out = [
             fi + fo for fi, fo in zip(features_in, features_out, strict=True)

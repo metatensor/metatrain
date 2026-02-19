@@ -5,26 +5,23 @@ import torch
 
 
 def split_up_features(features: List[torch.Tensor], k_max_l: List[int]):
-    # splits a ragged list of features into a list of lists of features where each inner
-    # list corresponds to a different l value and contains features *up to* that l value
-    # in such a way that each tensor in the inner list has the same number of channels
-    # for example, from
-    # [..., 1, 256] (l = 0)
-    # [..., 3, 128] (l = 1)
-    # [..., 5, 128] (l = 2)
-    # to
-    # [[..., 1, 128]] (l = 0)
-    # [[..., 1, 0], [..., 3, 0]] (l = 1)
-    # [[..., 1, 128], [..., 3, 128], [..., 5, 128]] (l = 2)
-    # this is necessary in order to create a compact representation
-    # one more example: from
-    # [..., 1, 256] (l = 0)
-    # [..., 3, 128] (l = 1)
-    # [..., 5, 64] (l = 2)
-    # to
-    # [[..., 1, 128]] (l = 0)
-    # [[..., 1, 0], [..., 3, 0]] (l = 1)
-    # [[..., 1, 64], [..., 3, 64], [..., 5, 64]] (l = 2)
+    """Split a ragged feature list into groups with equal channel counts per l.
+
+    Each inner list corresponds to a different l value and contains features *up to*
+    that l value, with the same number of channels. For example, from::
+
+        [..., 1, 256](l=0)
+        [..., 3, 128](l=1)
+        [..., 5, 128](l=2)
+
+    to::
+
+        [[..., 1, 128]](l=0)
+        [[..., 1, 0], [..., 3, 0]](l=1)
+        [[..., 1, 128], [..., 3, 128], [..., 5, 128]](l=2)
+
+    This is necessary in order to create a compact representation.
+    """
     l_max = len(k_max_l) - 1
     split_features: List[List[torch.Tensor]] = []
     for l in range(l_max, -1, -1):  # noqa: E741
@@ -41,11 +38,14 @@ def uncouple_features(
     U: torch.Tensor,
     padded_l_max: int,
 ):
-    # converts from the spherical (coupled) to the compact (uncoupled) basis
-    # features is a list of tensors with shapes [..., 2*l+1, n_features]
-    # for l = 0, 1, ..., padded_l_max
-    # U is dense and has shape [(padded_l_max+1)**2, (padded_l_max+1)**2]
-    # the output tensor has shape [..., padded_l_max+1, padded_l_max+1, n_features]
+    """Convert from the spherical (coupled) to the compact (uncoupled) basis.
+
+    :param features: list of tensors with shapes [..., 2*l+1, n_features]
+        for l = 0, 1, ..., padded_l_max
+    :param U: dense CG matrix of shape [(padded_l_max+1)^2, (padded_l_max+1)^2]
+    :param padded_l_max: padded maximum angular momentum
+    :return: tensor of shape [..., padded_l_max+1, padded_l_max+1, n_features]
+    """
     if len(features) < padded_l_max + 1:
         features.append(
             torch.zeros(
@@ -81,10 +81,12 @@ def tensor_product(
     uncoupled_features_1: List[torch.Tensor],
     uncoupled_features_2: List[torch.Tensor],
 ):
-    # tensor product in the compact (uncoupled) basis: just a matrix multiplication over
-    # the uncoupled basis dimensions, with a normalization factor to keep the variance
-    # roughly constant (the normalization factor is the square root of the dimension of
-    # the uncoupled basis matrices)
+    """Tensor product in the compact (uncoupled) basis.
+
+    This is a matrix multiplication over the uncoupled basis dimensions, with a
+    normalization factor (square root of the matrix dimension) to keep the variance
+    roughly constant.
+    """
     new_uncoupled_features = []
     for u1, u2 in zip(uncoupled_features_1, uncoupled_features_2, strict=True):
         new_uncoupled_features.append(
@@ -98,11 +100,14 @@ def couple_features(
     U: torch.Tensor,
     padded_l_max: int,
 ):
-    # converts from compact (uncoupled) to spherical (coupled) basis
-    # features is [..., padded_l_max+1, padded_l_max+1, n_features]
-    # U is dense and [(padded_l_max+1)**2, (padded_l_max+1)**2]
-    # the output is a list of tensors with shapes [..., 2*l+1, n_features]
-    # for l = 0, 1, ..., padded_l_max
+    """Convert from the compact (uncoupled) to the spherical (coupled) basis.
+
+    :param features: tensor of shape [..., padded_l_max+1, padded_l_max+1, n_features]
+    :param U: dense CG matrix of shape [(padded_l_max+1)^2, (padded_l_max+1)^2]
+    :param padded_l_max: padded maximum angular momentum
+    :return: list of tensors with shapes [..., 2*l+1, n_features]
+        for l = 0, 1, ..., padded_l_max
+    """
     split_sizes = [2 * l + 1 for l in range(padded_l_max + 1)]  # noqa: E741
 
     features = features.reshape(
@@ -140,8 +145,7 @@ def uncouple_features_all(
     l_max: int,
     padded_l_list: List[int],
 ) -> List[torch.Tensor]:
-    # spherical (coupled) to compact (uncoupled) basis for a list of ragged spherical
-    # features (different number of channels per l)
+    """Coupled to uncoupled basis for ragged features (different channels per l)."""
     split_features = split_up_features(coupled_features, k_max_l)
     uncoupled_features = []
     for l in range(l_max + 1):  # noqa: E741
@@ -161,8 +165,7 @@ def couple_features_all(
     l_max: int,
     padded_l_list: List[int],
 ) -> List[torch.Tensor]:
-    # compact (uncoupled) to spherical (coupled) basis for a list of ragged compact
-    # features (different number of channels per l)
+    """Uncoupled to coupled basis for ragged features (different channels per l)."""
     coupled_features: List[List[torch.Tensor]] = []
     for l in range(l_max + 1):  # noqa: E741
         coupled_features.append(

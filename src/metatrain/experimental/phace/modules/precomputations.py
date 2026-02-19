@@ -10,6 +10,12 @@ from .physical_basis import get_physical_basis_spliner
 
 
 class Precomputer(torch.nn.Module):
+    """Precomputes quantities shared across all message-passing steps.
+
+    This includes spherical harmonics, radial basis functions (with cutoff),
+    and optionally adaptive cutoffs for neighbor selection.
+    """
+
     def __init__(
         self,
         max_eigenvalue,
@@ -61,6 +67,11 @@ class Precomputer(torch.nn.Module):
         center_species,
         neighbor_species,
     ):
+        """Compute radial basis functions and spherical harmonics for all pairs.
+
+        Returns updated indices (after adaptive cutoff filtering), species arrays,
+        spherical harmonics (split by l), and radial basis functions (split by l).
+        """
         cartesian_vectors = get_cartesian_vectors(
             positions,
             cells,
@@ -114,11 +125,15 @@ class Precomputer(torch.nn.Module):
         )  # Split them into l chunks
 
         ##### 3. Radial basis (including cutoff function) #####
+        # Normalize distances by element-dependent lengthscales (sum of covalent radii
+        # of center and neighbor, plus a small offset for numerical stability)
         x = r / (
             0.1
             + torch.exp(self.lengthscales[center_species])
             + torch.exp(self.lengthscales[neighbor_species])
         )
+        # Cap x at 10.0 (the physical basis domain limit) to avoid out-of-range
+        # evaluations; pairs beyond the cap are zeroed out
         capped_x = torch.where(x < 10.0, x, 5.0)
         radial_functions = torch.where(
             x.unsqueeze(1) < 10.0, self.spliner.compute(capped_x), 0.0
@@ -162,6 +177,8 @@ def get_cartesian_vectors(
 
 
 class SphericalHarmonicsSphericart(torch.nn.Module):
+    """Spherical harmonics computed using the sphericart library."""
+
     def __init__(self, l_max):
         super(SphericalHarmonicsSphericart, self).__init__()
         # import sphericart here conditionally otherwise it will be registered as
@@ -177,7 +194,8 @@ class SphericalHarmonicsSphericart(torch.nn.Module):
 
 
 class SphericalHarmonicsNoSphericart(torch.nn.Module):
-    # uses the sphericart algorithm implemented in pytorch
+    """Spherical harmonics using the sphericart algorithm implemented in PyTorch."""
+
     def __init__(self, l_max):
         super(SphericalHarmonicsNoSphericart, self).__init__()
         self.l_max = l_max

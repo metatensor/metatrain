@@ -13,6 +13,8 @@ from .tensor_product import couple_features_all, uncouple_features_all
 
 
 class BaseModel(torch.nn.Module):
+    """Core PhACE GNN model operating on raw tensor data (no metatensor wrapping)."""
+
     def __init__(self, hypers, dataset_info) -> None:
         super().__init__()
         self.atomic_types = dataset_info.atomic_types
@@ -46,9 +48,7 @@ class BaseModel(torch.nn.Module):
                 for l in range(self.l_max + 1)  # noqa: E741
             ]
 
-        ################
-        # Transformation matrices from "coupled" (aka spherical) to uncoupled (used for)
-        # tensor products basis and back
+        # CG transformation matrices between coupled (spherical) and uncoupled basis.
         cg_calculator = get_cg_coefficients(2 * ((self.l_max + 1) // 2))
         self.padded_l_list = [2 * ((l + 1) // 2) for l in range(self.l_max + 1)]  # noqa: E741
         U_dict = {}
@@ -68,7 +68,6 @@ class BaseModel(torch.nn.Module):
             )
             U_dict[int(padded_l)] = U
         self.U_dict = U_dict
-        ################
 
         self.num_gnn_layers = hypers["num_gnn_layers"]
         if self.num_gnn_layers < 1:

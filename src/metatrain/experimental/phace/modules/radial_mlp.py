@@ -12,6 +12,7 @@ class MLPRadialBasis(torch.nn.Module):
     """
 
     def __init__(self, n_max_l, k_max_l, depth=3, width_factor=4) -> None:
+        """Build one MLP per angular channel l, mapping n_max_l[l] -> k_max_l[l]."""
         super().__init__()
         l_max = len(n_max_l) - 1
         if depth <= 1:
@@ -42,6 +43,7 @@ class MLPRadialBasis(torch.nn.Module):
         )
 
     def forward(self, radial_basis: List[torch.Tensor]) -> List[torch.Tensor]:
+        """Apply the per-l MLP to each element of the radial basis list."""
         radial_basis_after_mlp = []
         for l_string, radial_mlp_l in self.radial_mlps.items():
             l = int(l_string)  # noqa: E741

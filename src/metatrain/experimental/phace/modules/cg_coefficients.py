@@ -4,8 +4,7 @@ import wigners
 
 
 def get_cg_coefficients(l_max):
-    # Precompute the Clebsch-Gordan coefficients for all relevant combinations of
-    # (l1, l2, L) where each of the three is capped to l_max.
+    """Precompute Clebsch-Gordan coefficients for all (l1, l2, L) up to l_max."""
     cg_object = ClebschGordanReal()
     for l1 in range(l_max + 1):
         for l2 in range(l_max + 1):
@@ -15,8 +14,8 @@ def get_cg_coefficients(l_max):
 
 
 class ClebschGordanReal:
-    # This class computes and stores the Clebsch-Gordan coefficients in
-    # the real spherical harmonics basis
+    """Computes and stores Clebsch-Gordan coefficients in the real spherical harmonics
+    basis."""
 
     def __init__(self):
         self._cgs = {}
@@ -28,12 +27,12 @@ class ClebschGordanReal:
         if (l1, l2, L) in self._cgs:
             raise ValueError("Trying to add CGs that are already present... exiting")
 
-        maxx = max(l1, max(l2, L))
+        max_l = max(l1, max(l2, L))
 
         # real-to-complex and complex-to-real transformations as matrices
         r2c = {}
         c2r = {}
-        for l in range(0, maxx + 1):  # noqa: E741
+        for l in range(0, max_l + 1):  # noqa: E741
             r2c[l] = _real2complex(l)
             c2r[l] = np.conjugate(r2c[l]).T
 
@@ -85,24 +84,25 @@ def _real2complex(L):
     """
     result = np.zeros((2 * L + 1, 2 * L + 1), dtype=np.complex128)
 
-    I_SQRT_2 = 1.0 / np.sqrt(2)
+    INV_SQRT_2 = 1.0 / np.sqrt(2)
 
     for m in range(-L, L + 1):
         if m < 0:
-            result[L - m, L + m] = I_SQRT_2 * 1j * (-1) ** m
-            result[L + m, L + m] = -I_SQRT_2 * 1j
+            result[L - m, L + m] = INV_SQRT_2 * 1j * (-1) ** m
+            result[L + m, L + m] = -INV_SQRT_2 * 1j
 
         if m == 0:
             result[L, L] = 1.0
 
         if m > 0:
-            result[L + m, L + m] = I_SQRT_2 * (-1) ** m
-            result[L - m, L + m] = I_SQRT_2
+            result[L + m, L + m] = INV_SQRT_2 * (-1) ** m
+            result[L - m, L + m] = INV_SQRT_2
 
     return result
 
 
 def _complex_clebsch_gordan_matrix(l1, l2, L):
+    """Compute the complex Clebsch-Gordan matrix for coupling (l1, l2) -> L."""
     if np.abs(l1 - l2) > L or np.abs(l1 + l2) < L:
         return np.zeros((2 * l1 + 1, 2 * l2 + 1, 2 * L + 1), dtype=np.double)
     else:
