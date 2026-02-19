@@ -30,7 +30,10 @@ class InvariantMessagePasser(torch.nn.Module):
 
         self.all_species = all_species
         self.radial_basis_mlp = MLPRadialBasis(
-            n_max_l, k_max_l, depth=radial_mlp_depth, expansion_ratio=mlp_expansion_ratio
+            n_max_l,
+            k_max_l,
+            depth=radial_mlp_depth,
+            expansion_ratio=mlp_expansion_ratio,
         )
         self.n_max_l = n_max_l
         self.k_max_l = k_max_l
@@ -112,7 +115,10 @@ class EquivariantMessagePasser(torch.nn.Module):
         self.linear_out = Linear(self.k_max_l)
 
         self.radial_basis_mlp = MLPRadialBasis(
-            n_max_l, k_max_l, depth=radial_mlp_depth, expansion_ratio=mlp_expansion_ratio
+            n_max_l,
+            k_max_l,
+            depth=radial_mlp_depth,
+            expansion_ratio=mlp_expansion_ratio,
         )
 
     def forward(

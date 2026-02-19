@@ -30,7 +30,8 @@ class MLPRadialBasis(torch.nn.Module):
                         for _ in range(depth - 1)
                         for layer in (
                             Linear(
-                                expansion_ratio * k_max_l[l], expansion_ratio * k_max_l[l]
+                                expansion_ratio * k_max_l[l],
+                                expansion_ratio * k_max_l[l],
                             ),
                             torch.nn.SiLU(),
                         )
