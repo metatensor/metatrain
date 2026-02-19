@@ -22,7 +22,7 @@ class LinearList(torch.nn.Module):
     def __init__(
         self,
         k_max_l: List[int],
-        expansion_factor: float = 1.0,
+        expansion_ratio: float = 1.0,
     ) -> None:
         super().__init__()
         self.k_max_l = k_max_l
@@ -34,7 +34,7 @@ class LinearList(torch.nn.Module):
             lower_bound = k_max_l[l + 1] if l < l_max else 0
             upper_bound = k_max_l[l]
             dimension = upper_bound - lower_bound
-            self.linears.append(Linear(dimension, int(dimension * expansion_factor)))
+            self.linears.append(Linear(dimension, int(dimension * expansion_ratio)))
         self.linears = torch.nn.ModuleList(self.linears[::-1])
 
     def forward(

@@ -21,7 +21,7 @@ class BaseModel(torch.nn.Module):
         self.hypers = hypers
 
         self.mlp_head_num_layers = hypers["mlp_head_num_layers"]
-        self.mlp_head_width_factor = hypers["mlp_head_width_factor"]
+        self.mlp_head_expansion_ratio = hypers["mlp_head_expansion_ratio"]
         self.register_buffer("initial_scaling", torch.tensor(hypers["initial_scaling"]))
 
         # A module that precomputes quantities that are useful in all message-passing
@@ -94,10 +94,14 @@ class BaseModel(torch.nn.Module):
             self.precomputer.n_max_l,
             self.k_max_l,
             radial_mlp_depth=hypers["radial_basis"]["mlp_depth"],
-            mlp_width_factor=hypers["radial_basis"]["mlp_width_factor"],
+            mlp_expansion_ratio=hypers["radial_basis"]["mlp_expansion_ratio"],
         )
         # First CG iterator
-        self.cg_iterator = CGIterator(self.k_max_l, hypers["num_tensor_products"])
+        self.cg_iterator = CGIterator(
+            self.k_max_l,
+            hypers["num_tensor_products"],
+            expansion_ratio=hypers["tensor_product_expansion_ratio"],
+        )
 
         dimensions = []
         for l in range(self.l_max, -1, -1):  # noqa: E741
@@ -116,11 +120,13 @@ class BaseModel(torch.nn.Module):
                 self.k_max_l,
                 hypers["message_scaling"],
                 radial_mlp_depth=hypers["radial_basis"]["mlp_depth"],
-                mlp_width_factor=hypers["radial_basis"]["mlp_width_factor"],
+                mlp_expansion_ratio=hypers["radial_basis"]["mlp_expansion_ratio"],
             )
             equivariant_message_passers.append(equivariant_message_passer)
             generalized_cg_iterator = CGIterator(
-                self.k_max_l, hypers["num_tensor_products"]
+                self.k_max_l,
+                hypers["num_tensor_products"],
+                expansion_ratio=hypers["tensor_product_expansion_ratio"],
             )
             generalized_cg_iterators.append(generalized_cg_iterator)
         self.equivariant_message_passers = torch.nn.ModuleList(
@@ -276,7 +282,7 @@ class BaseModel(torch.nn.Module):
                 # part of equivariant targets, we keep it simple for now)
                 raise ValueError("MLP heads are only supported for scalar targets.")
 
-            w = self.mlp_head_width_factor
+            w = self.mlp_head_expansion_ratio
             layers = (
                 [Linear(self.k_max_l[0], self.k_max_l[0]), torch.nn.SiLU()]
                 if self.mlp_head_num_layers == 1

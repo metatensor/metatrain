@@ -80,8 +80,8 @@ class RadialBasisHypers(TypedDict):
     mlp_depth: int = 3
     """Depth of the radial MLP. Must be at least 2."""
 
-    mlp_width_factor: int = 4
-    """Width expansion factor for the radial MLP hidden layers."""
+    mlp_expansion_ratio: int = 4
+    """Expansion ratio for the radial MLP hidden layers."""
 
 
 ###########################
@@ -162,8 +162,11 @@ class ModelHypers(TypedDict):
     mlp_head_num_layers: int = 1
     """Number of layers in the heads for MLP heads."""
 
-    mlp_head_width_factor: int = 4
-    """Width expansion factor for the MLP head hidden layers."""
+    mlp_head_expansion_ratio: int = 4
+    """Expansion ratio for the hidden layers of the MLP head."""
+
+    tensor_product_expansion_ratio: int = 2
+    """Expansion ratio for the tensor product iterations."""
 
     heads: dict[str, Literal["linear", "mlp"]] = {}
     """Heads to use in the model, with options being "linear" or "mlp"."""

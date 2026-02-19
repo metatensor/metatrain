@@ -156,7 +156,7 @@ class TestCheckpoints(CheckpointTests, PhACETests):
         hypers["num_gnn_layers"] = 1
         hypers["num_tensor_products"] = 2
         hypers["radial_basis"]["max_eigenvalue"] = 15.0
-        hypers["radial_basis"]["mlp_width_factor"] = 1
+        hypers["radial_basis"]["mlp_expansion_ratio"] = 1
         hypers["radial_basis"]["mlp_depth"] = 2
-        hypers["mlp_head_width_factor"] = 1
+        hypers["mlp_head_expansion_ratio"] = 1
         return hypers

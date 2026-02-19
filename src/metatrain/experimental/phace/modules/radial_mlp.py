@@ -11,7 +11,7 @@ class MLPRadialBasis(torch.nn.Module):
     functions, separately for each l.
     """
 
-    def __init__(self, n_max_l, k_max_l, depth=3, width_factor=4) -> None:
+    def __init__(self, n_max_l, k_max_l, depth=3, expansion_ratio=4) -> None:
         """Build one MLP per angular channel l, mapping n_max_l[l] -> k_max_l[l]."""
         super().__init__()
         l_max = len(n_max_l) - 1
@@ -22,7 +22,7 @@ class MLPRadialBasis(torch.nn.Module):
             {
                 str(l): torch.nn.Sequential(
                     # input layer
-                    Linear(n_max_l[l], width_factor * k_max_l[l]),
+                    Linear(n_max_l[l], expansion_ratio * k_max_l[l]),
                     torch.nn.SiLU(),
                     # hidden layers
                     *[
@@ -30,13 +30,13 @@ class MLPRadialBasis(torch.nn.Module):
                         for _ in range(depth - 1)
                         for layer in (
                             Linear(
-                                width_factor * k_max_l[l], width_factor * k_max_l[l]
+                                expansion_ratio * k_max_l[l], expansion_ratio * k_max_l[l]
                             ),
                             torch.nn.SiLU(),
                         )
                     ],
                     # output layer
-                    Linear(width_factor * k_max_l[l], k_max_l[l]),
+                    Linear(expansion_ratio * k_max_l[l], k_max_l[l]),
                 )
                 for l in range(l_max + 1)  # noqa: E741
             }
