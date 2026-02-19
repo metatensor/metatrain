@@ -11,7 +11,7 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 
-from . import RESOURCES_PATH
+from ..conftest import RESOURCES_PATH
 
 
 @pytest.mark.parametrize("periodicity", [True, False])
