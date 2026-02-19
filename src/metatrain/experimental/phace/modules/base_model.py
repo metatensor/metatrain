@@ -97,7 +97,7 @@ class BaseModel(torch.nn.Module):
             mlp_width_factor=hypers["radial_basis"]["mlp_width_factor"],
         )
         # First CG iterator
-        self.cg_iterator = CGIterator(self.k_max_l, hypers["num_tensor_products"] - 1)
+        self.cg_iterator = CGIterator(self.k_max_l, hypers["num_tensor_products"])
 
         dimensions = []
         for l in range(self.l_max, -1, -1):  # noqa: E741
@@ -120,7 +120,7 @@ class BaseModel(torch.nn.Module):
             )
             equivariant_message_passers.append(equivariant_message_passer)
             generalized_cg_iterator = CGIterator(
-                self.k_max_l, hypers["num_tensor_products"] - 1
+                self.k_max_l, hypers["num_tensor_products"]
             )
             generalized_cg_iterators.append(generalized_cg_iterator)
         self.equivariant_message_passers = torch.nn.ModuleList(
