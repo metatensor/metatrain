@@ -10,6 +10,14 @@ more about it here: https://pubs.acs.org/doi/10.1021/acs.jpclett.4c02376.
 
 {{SECTION_INSTALLATION}}
 
+Additional outputs
+------------------
+
+- ``features``: the internal FlashMD features, before the different heads for each
+  target.
+- :ref:`mtt-aux-target-last-layer-features`: The features for a given target, taken
+  before the last linear layer of the corresponding head.
+
 {{SECTION_DEFAULT_HYPERS}}
 
 Tuning hyperparameters
@@ -18,8 +26,8 @@ Tuning hyperparameters
 The default hyperparameters above will work well in most cases, but they
 may not be optimal for your specific use case. There is good number of
 parameters to tune, both for the
-:ref:`model <architecture-{{architecture}}_model_hypers>` and the
-:ref:`trainer <architecture-{{architecture}}_trainer_hypers>`. Here, we provide a
+:ref:`model <arch-{{architecture}}_model_hypers>` and the
+:ref:`trainer <arch-{{architecture}}_trainer_hypers>`. Here, we provide a
 **list of the parameters that are in general the most important** (in decreasing order
 of importance) for the PhACE architecture:
 
