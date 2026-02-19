@@ -37,7 +37,7 @@ of importance) for the PhACE architecture:
   .. autoattribute:: {{trainer_hypers_path}}.batch_size
       :no-index:
 
-  .. autoattribute:: {{model_hypers_path}}.num_message_passing_layers
+  .. autoattribute:: {{model_hypers_path}}.num_gnn_layers
       :no-index:
 
   .. autoattribute:: {{trainer_hypers_path}}.learning_rate
@@ -66,11 +66,11 @@ class RadialBasisHypers(TypedDict):
     max_eigenvalue: float = 25.0
     """Maximum eigenvalue for the radial basis."""
 
-    scale: float = 0.7
-    """Scaling factor for the radial basis."""
+    element_scale: float = 0.7
+    """Scaling factor for the element-dependent radial lengthscales."""
 
-    optimizable_lengthscales: bool = False
-    """Whether the length scales in the radial basis are optimizable."""
+    mlp_width_factor: int = 4
+    """Width expansion factor for the radial MLP hidden layers."""
 
 
 ###########################
@@ -81,22 +81,33 @@ class RadialBasisHypers(TypedDict):
 class ModelHypers(TypedDict):
     """Hyperparameters for the experimental.phace model."""
 
-    max_correlation_order_per_layer: int = 3
-    """Maximum correlation order per layer."""
+    num_tensor_products: int = 3
+    """Number of tensor products per GNN layer."""
 
-    num_message_passing_layers: int = 2
-    """Number of message passing layers.
+    num_gnn_layers: int = 2
+    """Number of GNN layers.
 
     Increasing this value might increase the accuracy of the model (especially on
     larger datasets), at the expense of computational efficiency.
     """
 
-    cutoff: float = 5.0
+    cutoff: float = 8.0
     """Cutoff radius for neighbor search.
 
     This should be set to a value after which most of the interactions
     between atoms is expected to be negligible. A lower cutoff will lead
     to faster models.
+    """
+
+    num_neighbors_adaptive: Optional[int] = 16
+    """Target number of neighbors for the adaptive cutoff scheme.
+
+    This parameter activates the adaptive cutoff functionality.
+    Each atomic environment has a different cutoff, that is chosen
+    such that the number of neighbors is approximately equal to this
+    value. This can be useful to have a more uniform number of neighbors
+    per atom, especially in sparse systems. Setting it to None disables
+    this feature and uses all neighbors within the fixed cutoff radius.
     """
 
     cutoff_width: float = 1.0
@@ -125,23 +136,26 @@ class ModelHypers(TypedDict):
     irrep.
     """
 
-    nu_scaling: float = 1.0
-    """Scaling for the nu term."""
+    initial_scaling: float = 1.0
+    """Scaling for the initial features."""
 
-    mp_scaling: float = 0.1
+    message_scaling: float = 0.1
     """Scaling for message passing."""
 
-    overall_scaling: float = 1.0
-    """Overall scaling factor."""
-
-    disable_nu_0: bool = True
-    """Whether to disable nu=0."""
+    final_scaling: float = 1.0
+    """Final scaling factor applied to the model outputs."""
 
     use_sphericart: bool = False
     """Whether to use spherical Cartesian coordinates."""
 
-    head_num_layers: int = 1
-    """Number of layers in the head."""
+    radial_mlp_depth: int = 3
+    """Depth of the radial MLP. Must be at least 2."""
+
+    mlp_head_num_layers: int = 1
+    """Number of layers in the heads for MLP heads."""
+
+    mlp_head_width_factor: int = 4
+    """Width expansion factor for the MLP head hidden layers."""
 
     heads: dict[str, Literal["linear", "mlp"]] = {}
     """Heads to use in the model, with options being "linear" or "mlp"."""

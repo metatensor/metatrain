@@ -3,20 +3,15 @@ seed: 42
 architecture:
   name: experimental.phace
   model:
-    max_correlation_order_per_layer: 5
-    num_message_passing_layers: 3
+    num_tensor_products: 5
+    num_gnn_layers: 3
     cutoff: 10.0
     cutoff_width: 0.5
     num_element_channels: 128
     force_rectangular: false
     radial_basis:
       max_eigenvalue: 25.0
-      scale: 0.7
-      optimizable_lengthscales: false
-    nu_scaling: 1.0
-    mp_scaling: 0.1
-    overall_scaling: 1.0
-    disable_nu_0: true
+      element_scale: 0.7
   training:
     compile: false
     batch_size: 5

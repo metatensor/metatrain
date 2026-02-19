@@ -47,10 +47,11 @@ class TestTorchscript(TorchscriptTests, PhACETests):
     float_hypers = [
         "cutoff",
         "cutoff_width",
-        "nu_scaling",
-        "mp_scaling",
-        "overall_scaling",
+        "initial_scaling",
+        "message_scaling",
+        "final_scaling",
         "radial_basis.max_eigenvalue",
+        "radial_basis.element_scale",
     ]
 
     def test_torchscript(

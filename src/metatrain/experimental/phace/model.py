@@ -73,7 +73,7 @@ class PhACE(ModelInterface[ModelHypers]):
         logging.info(f"PhACE k_max_l: {self.k_max_l}")
         self.l_max = len(self.k_max_l) - 1
 
-        self.overall_scaling = hypers["overall_scaling"]
+        self.final_scaling = hypers["final_scaling"]
 
         self.outputs = {
             "features": ModelOutput(unit="", per_atom=True)
@@ -88,7 +88,7 @@ class PhACE(ModelInterface[ModelHypers]):
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
-        self.head_num_layers = self.hypers["head_num_layers"]
+        self.mlp_head_num_layers = self.hypers["mlp_head_num_layers"]
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -421,7 +421,7 @@ class PhACE(ModelInterface[ModelHypers]):
                 [block],
             )
             return_dict[output_name] = metatensor.torch.multiply(
-                return_dict[output_name], self.overall_scaling
+                return_dict[output_name], self.final_scaling
             )
 
         if not self.training:
@@ -523,9 +523,7 @@ class PhACE(ModelInterface[ModelHypers]):
         # be registered correctly with Pytorch. This function moves them:
         self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
-        interaction_ranges = [
-            self.hypers["num_message_passing_layers"] * self.hypers["cutoff"]
-        ]
+        interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)

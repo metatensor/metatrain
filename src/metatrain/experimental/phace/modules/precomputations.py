@@ -15,11 +15,10 @@ class Precomputer(torch.nn.Module):
         max_eigenvalue,
         cutoff,
         cutoff_width,
-        scale,
-        optimizable_lengthscales,
+        element_scale,
         all_species,
         use_sphericart,
-        num_neighbors_adaptive=16,
+        num_neighbors_adaptive,
     ):
         super().__init__()
 
@@ -39,14 +38,15 @@ class Precomputer(torch.nn.Module):
 
         lengthscales = torch.zeros((max(all_species) + 1))
         for species in all_species:
-            lengthscales[species] = np.log(scale * covalent_radii[species])
+            lengthscales[species] = np.log(element_scale * covalent_radii[species])
 
-        if optimizable_lengthscales:
-            self.lengthscales = torch.nn.Parameter(lengthscales)
-        else:
-            self.register_buffer("lengthscales", lengthscales)
+        self.register_buffer("lengthscales", lengthscales)
 
-        self.num_neighbors_adaptive = float(num_neighbors_adaptive)
+        self.num_neighbors_adaptive = (
+            float(num_neighbors_adaptive)
+            if num_neighbors_adaptive is not None
+            else None
+        )
         self.cutoff_width = float(cutoff_width)
         self.r_cut = float(cutoff)
 

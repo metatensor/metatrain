@@ -18,9 +18,9 @@ class BaseModel(torch.nn.Module):
         self.atomic_types = dataset_info.atomic_types
         self.hypers = hypers
 
-        self.nu_max = hypers["max_correlation_order_per_layer"]
-        self.head_num_layers = hypers["head_num_layers"]
-        self.register_buffer("nu_scaling", torch.tensor(hypers["nu_scaling"]))
+        self.mlp_head_num_layers = hypers["mlp_head_num_layers"]
+        self.mlp_head_width_factor = hypers["mlp_head_width_factor"]
+        self.register_buffer("initial_scaling", torch.tensor(hypers["initial_scaling"]))
 
         # A module that precomputes quantities that are useful in all message-passing
         # steps (spherical harmonics, distances)
@@ -28,10 +28,10 @@ class BaseModel(torch.nn.Module):
             max_eigenvalue=hypers["radial_basis"]["max_eigenvalue"],
             cutoff=hypers["cutoff"],
             cutoff_width=hypers["cutoff_width"],
-            scale=hypers["radial_basis"]["scale"],
-            optimizable_lengthscales=hypers["radial_basis"]["optimizable_lengthscales"],
+            element_scale=hypers["radial_basis"]["element_scale"],
             all_species=self.atomic_types,
             use_sphericart=hypers["use_sphericart"],
+            num_neighbors_adaptive=hypers["num_neighbors_adaptive"],
         )
 
         # representation sizes
@@ -70,9 +70,9 @@ class BaseModel(torch.nn.Module):
         self.U_dict = U_dict
         ################
 
-        self.num_message_passing_layers = hypers["num_message_passing_layers"]
-        if self.num_message_passing_layers < 1:
-            raise ValueError("Number of message-passing layers must be at least 1")
+        self.num_gnn_layers = hypers["num_gnn_layers"]
+        if self.num_gnn_layers < 1:
+            raise ValueError("Number of GNN layers must be at least 1")
 
         # A buffer that maps atomic types to indices in the embeddings
         species_to_species_index = torch.zeros(
@@ -91,13 +91,14 @@ class BaseModel(torch.nn.Module):
         # The message passing is invariant for the first layer
         self.invariant_message_passer = InvariantMessagePasser(
             self.atomic_types,
-            hypers["mp_scaling"],
-            hypers["disable_nu_0"],
+            hypers["message_scaling"],
             self.precomputer.n_max_l,
             self.k_max_l,
+            radial_mlp_depth=hypers["radial_mlp_depth"],
+            mlp_width_factor=hypers["radial_basis"]["mlp_width_factor"],
         )
         # First CG iterator
-        self.cg_iterator = CGIterator(self.k_max_l, self.nu_max - 1)
+        self.cg_iterator = CGIterator(self.k_max_l, hypers["num_tensor_products"] - 1)
 
         dimensions = []
         for l in range(self.l_max, -1, -1):  # noqa: E741
@@ -107,17 +108,21 @@ class BaseModel(torch.nn.Module):
             dimensions.append(dimension)
         dimensions = dimensions[::-1]
 
-        # Subsequent message-passing layers
+        # Subsequent GNN layers
         equivariant_message_passers: List[EquivariantMessagePasser] = []
         generalized_cg_iterators: List[CGIterator] = []
-        for _ in range(self.num_message_passing_layers - 1):
+        for _ in range(self.num_gnn_layers - 1):
             equivariant_message_passer = EquivariantMessagePasser(
                 self.precomputer.n_max_l,
                 self.k_max_l,
-                hypers["mp_scaling"],
+                hypers["message_scaling"],
+                radial_mlp_depth=hypers["radial_mlp_depth"],
+                mlp_width_factor=hypers["radial_basis"]["mlp_width_factor"],
             )
             equivariant_message_passers.append(equivariant_message_passer)
-            generalized_cg_iterator = CGIterator(self.k_max_l, self.nu_max - 1)
+            generalized_cg_iterator = CGIterator(
+                self.k_max_l, hypers["num_tensor_products"] - 1
+            )
             generalized_cg_iterators.append(generalized_cg_iterator)
         self.equivariant_message_passers = torch.nn.ModuleList(
             equivariant_message_passers
@@ -181,7 +186,7 @@ class BaseModel(torch.nn.Module):
 
         # scaling the spherical harmonics in this way makes sure that each successive
         # body-order is scaled by the same factor
-        spherical_harmonics = [sh * self.nu_scaling for sh in spherical_harmonics]
+        spherical_harmonics = [sh * self.initial_scaling for sh in spherical_harmonics]
 
         # calculate the center embeddings, based on the atomic types of the centers
         center_species_indices = self.species_to_species_index[batch["species"]]
@@ -272,13 +277,14 @@ class BaseModel(torch.nn.Module):
                 # part of equivariant targets, we keep it simple for now)
                 raise ValueError("MLP heads are only supported for scalar targets.")
 
+            w = self.mlp_head_width_factor
             layers = (
                 [Linear(self.k_max_l[0], self.k_max_l[0]), torch.nn.SiLU()]
-                if self.head_num_layers == 1
-                else [Linear(self.k_max_l[0], 4 * self.k_max_l[0]), torch.nn.SiLU()]
-                + [Linear(4 * self.k_max_l[0], 4 * self.k_max_l[0]), torch.nn.SiLU()]
-                * (self.head_num_layers - 2)
-                + [Linear(4 * self.k_max_l[0], self.k_max_l[0]), torch.nn.SiLU()]
+                if self.mlp_head_num_layers == 1
+                else [Linear(self.k_max_l[0], w * self.k_max_l[0]), torch.nn.SiLU()]
+                + [Linear(w * self.k_max_l[0], w * self.k_max_l[0]), torch.nn.SiLU()]
+                * (self.mlp_head_num_layers - 2)
+                + [Linear(w * self.k_max_l[0], self.k_max_l[0]), torch.nn.SiLU()]
             )
             self.heads[target_name] = torch.nn.Sequential(*layers)
         else:

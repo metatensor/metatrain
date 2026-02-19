@@ -11,7 +11,7 @@ class MLPRadialBasis(torch.nn.Module):
     functions, separately for each l.
     """
 
-    def __init__(self, n_max_l, k_max_l, depth=3) -> None:
+    def __init__(self, n_max_l, k_max_l, depth=3, width_factor=4) -> None:
         super().__init__()
         l_max = len(n_max_l) - 1
         if depth <= 1:
@@ -21,19 +21,21 @@ class MLPRadialBasis(torch.nn.Module):
             {
                 str(l): torch.nn.Sequential(
                     # input layer
-                    Linear(n_max_l[l], 4 * k_max_l[l]),
+                    Linear(n_max_l[l], width_factor * k_max_l[l]),
                     torch.nn.SiLU(),
                     # hidden layers
                     *[
                         layer
                         for _ in range(depth - 1)
                         for layer in (
-                            Linear(4 * k_max_l[l], 4 * k_max_l[l]),
+                            Linear(
+                                width_factor * k_max_l[l], width_factor * k_max_l[l]
+                            ),
                             torch.nn.SiLU(),
                         )
                     ],
                     # output layer
-                    Linear(4 * k_max_l[l], k_max_l[l]),
+                    Linear(width_factor * k_max_l[l], k_max_l[l]),
                 )
                 for l in range(l_max + 1)  # noqa: E741
             }

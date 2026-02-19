@@ -14,20 +14,27 @@ from .tensor_product import (
 class InvariantMessagePasser(torch.nn.Module):
     # performs invariant message passing with linear contractions
     def __init__(
-        self, all_species: List[int], mp_scaling, disable_nu_0, n_max_l, k_max_l
+        self,
+        all_species: List[int],
+        message_scaling,
+        n_max_l,
+        k_max_l,
+        radial_mlp_depth,
+        mlp_width_factor,
     ) -> None:
         super().__init__()
 
         self.all_species = all_species
-        self.radial_basis_mlp = MLPRadialBasis(n_max_l, k_max_l)
+        self.radial_basis_mlp = MLPRadialBasis(
+            n_max_l, k_max_l, depth=radial_mlp_depth, width_factor=mlp_width_factor
+        )
         self.n_max_l = n_max_l
         self.k_max_l = k_max_l
         self.l_max = len(self.n_max_l) - 1
         self.irreps_out = [(l, 1) for l in range(self.l_max + 1)]  # noqa: E741
 
-        # Register mp_scaling as a buffer for efficiency
-        self.register_buffer("mp_scaling", torch.tensor(mp_scaling))
-        self.disable_nu_0 = disable_nu_0
+        # Register message_scaling as a buffer for efficiency
+        self.register_buffer("message_scaling", torch.tensor(message_scaling))
 
     def forward(
         self,
@@ -56,7 +63,7 @@ class InvariantMessagePasser(torch.nn.Module):
                 * radial_basis_l.unsqueeze(1)
                 * initial_center_embedding[neighbors][:, :, : radial_basis_l.shape[1]],
             )
-            density.append(density_l * self.mp_scaling)
+            density.append(density_l * self.message_scaling)
 
         density[0] = density[0] + initial_center_embedding
         return density
@@ -64,22 +71,31 @@ class InvariantMessagePasser(torch.nn.Module):
 
 class EquivariantMessagePasser(torch.nn.Module):
     # performs equivariant message passing with a norm operation and linear contractions
-    def __init__(self, n_max_l, k_max_l, mp_scaling) -> None:
+    def __init__(
+        self,
+        n_max_l,
+        k_max_l,
+        message_scaling,
+        radial_mlp_depth: int = 3,
+        mlp_width_factor: int = 4,
+    ) -> None:
         super().__init__()
 
         self.n_max_l = list(n_max_l)
         self.k_max_l = k_max_l
         self.l_max = len(self.n_max_l) - 1
 
-        # Register mp_scaling as a buffer for efficiency
-        self.register_buffer("mp_scaling", torch.tensor(mp_scaling))
+        # Register message_scaling as a buffer for efficiency
+        self.register_buffer("message_scaling", torch.tensor(message_scaling))
         self.padded_l_list = [2 * ((l + 1) // 2) for l in range(self.l_max + 1)]  # noqa: E741
 
         self.linear_in = Linear(self.k_max_l)
         self.rmsnorm = EquivariantRMSNorm(self.k_max_l)
         self.linear_out = Linear(self.k_max_l)
 
-        self.radial_basis_mlp = MLPRadialBasis(n_max_l, k_max_l)
+        self.radial_basis_mlp = MLPRadialBasis(
+            n_max_l, k_max_l, depth=radial_mlp_depth, width_factor=mlp_width_factor
+        )
 
     def forward(
         self,
@@ -128,7 +144,7 @@ class EquivariantMessagePasser(torch.nn.Module):
                 source=f,
             )
         combined_features_pooled = [
-            (f * self.mp_scaling) for f in combined_features_pooled
+            (f * self.message_scaling) for f in combined_features_pooled
         ]
 
         ##### 4. Linear and residual connection #####
