@@ -210,12 +210,12 @@ class TrainerHypers(TypedDict):
     training, it might be a good idea to increase this value.
     """
 
-    learning_rate: float = 0.01
+    learning_rate: float = 0.003
     """Learning rate for the optimizer.
 
-    You can try to increase this value (e.g., to 0.02 or 0.03) if training is very
-    slow or decrease it (e.g., to 0.005 or less) if you see that training explodes in
-    the first few epochs.
+    You can try to increase this value (e.g., to 0.01) if training is stable and
+    slow or decrease it (e.g., to 0.001 or less) if you see divergence in the first
+    few epochs and/or instabilities.
     """
 
     warmup_fraction: float = 0.01
