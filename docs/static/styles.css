@@ -1,3 +1,23 @@
+/* GitHub link in sidebar */
+.sidebar-github-link {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    padding: 0.5em 1em;
+    font-size: 0.9em;
+    color: var(--color-sidebar-link-text);
+    text-decoration: none;
+}
+
+.sidebar-github-link:hover {
+    color: var(--color-sidebar-link-text--top-level);
+    text-decoration: underline;
+}
+
+.sidebar-github-link i {
+    font-size: 1.2em;
+}
+
 /* For the most important hyperparameters, we use ".. autoattribute:"
 but this adds automatically the name of the class as a prefix. I.e.
 we want to show "cutoff" but "PETHypers.cutoff" is shown. With this
