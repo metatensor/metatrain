@@ -154,6 +154,7 @@ def systems_to_batch(
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
+    torch.Tensor,
     Labels,
 ]:
     """
@@ -181,6 +182,8 @@ def systems_to_batch(
         - `reverse_neighbor_index`: The reversed neighbor list for each central atom
         - `cutoff_factors`: The cutoff function values for each edge
         - `system_indices`: The system index for each atom in the batch
+        - `neighbor_atom_indices`: The atom index of each neighbor in NEF format,
+            used to scatter edge-level gradients to per-atom forces in the compiled path
         - `sample_labels`: Labels indicating the system and atom indices for each atom
 
     """
@@ -296,6 +299,7 @@ def systems_to_batch(
     reversed_neighbor_list = compute_reversed_neighbor_list(
         nef_indices, corresponding_edges, nef_mask
     )
+    neighbor_atom_indices = edge_array_to_nef(neighbors, nef_indices, nef_mask, 0.0)
     neighbors_index = edge_array_to_nef(neighbors, nef_indices).to(torch.int64)
 
     # Here, we compute the array that allows indexing into a flattened
@@ -320,5 +324,6 @@ def systems_to_batch(
         reverse_neighbor_index,
         cutoff_factors,
         system_indices,
+        neighbor_atom_indices,
         sample_labels,
     )
