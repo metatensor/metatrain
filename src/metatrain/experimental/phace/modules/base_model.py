@@ -93,7 +93,7 @@ class BaseModel(torch.nn.Module):
             hypers["message_scaling"],
             self.precomputer.n_max_l,
             self.k_max_l,
-            radial_mlp_depth=hypers["radial_mlp_depth"],
+            radial_mlp_depth=hypers["radial_basis"]["mlp_depth"],
             mlp_width_factor=hypers["radial_basis"]["mlp_width_factor"],
         )
         # First CG iterator
@@ -115,7 +115,7 @@ class BaseModel(torch.nn.Module):
                 self.precomputer.n_max_l,
                 self.k_max_l,
                 hypers["message_scaling"],
-                radial_mlp_depth=hypers["radial_mlp_depth"],
+                radial_mlp_depth=hypers["radial_basis"]["mlp_depth"],
                 mlp_width_factor=hypers["radial_basis"]["mlp_width_factor"],
             )
             equivariant_message_passers.append(equivariant_message_passer)

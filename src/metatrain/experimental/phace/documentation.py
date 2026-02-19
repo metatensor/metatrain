@@ -77,6 +77,9 @@ class RadialBasisHypers(TypedDict):
     element_scale: float = 0.7
     """Scaling factor for the element-dependent radial lengthscales."""
 
+    mlp_depth: int = 3
+    """Depth of the radial MLP. Must be at least 2."""
+
     mlp_width_factor: int = 4
     """Width expansion factor for the radial MLP hidden layers."""
 
@@ -156,9 +159,6 @@ class ModelHypers(TypedDict):
     use_sphericart: bool = False
     """Whether to use spherical Cartesian coordinates."""
 
-    radial_mlp_depth: int = 3
-    """Depth of the radial MLP. Must be at least 2."""
-
     mlp_head_num_layers: int = 1
     """Number of layers in the heads for MLP heads."""
 
@@ -180,12 +180,13 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for training the experimental.phace model."""
 
-    compile: bool = True
+    compile: bool = False
     """Whether to use `torch.compile` during training.
 
     This can lead to significant speedups, but it will cause a compilation step at the
     beginning of training which might take up to 5-10 minutes, mainly depending on
-    ``max_eigenvalue``.
+    ``max_eigenvalue``. Note that this option does not work at the moment with adaptive
+    cutoffs.
     """
 
     distributed: bool = False
