@@ -1,3 +1,6 @@
+import torch
+
+
 def model_update_v1_v2(checkpoint: dict) -> None:
     """
     Update a v1 checkpoint to v2.
@@ -50,6 +53,49 @@ def model_update_v2_v3(checkpoint: dict) -> None:
     checkpoint["best_epoch"] = None
     checkpoint["best_metric"] = None
     checkpoint["best_optimizer_state_dict"] = None
+
+
+def model_update_v3_v4(checkpoint: dict) -> None:
+    """
+    Update a v3 checkpoint to v4.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # need to change all inv_covariance to cholesky buffers
+    state_dict = checkpoint["model_state_dict"]
+    new_state_dict = {}
+    for key, value in state_dict.items():
+        if key.startswith("inv_covariance_"):
+            cholesky_key = key.replace("inv_covariance_", "cholesky_")
+            covariance_key = key.replace("inv_covariance_", "covariance_")
+            covariance = state_dict[covariance_key]
+            # Try with an increasingly high regularization parameter until
+            # the matrix is invertible
+            is_not_pd = True
+            regularizer = 1e-20
+            while is_not_pd and regularizer < 1e16:
+                try:
+                    cholesky = torch.linalg.cholesky(
+                        0.5 * (covariance + covariance.T)
+                        + regularizer
+                        * torch.eye(
+                            covariance.shape[0],
+                            device=covariance.device,
+                            dtype=torch.float64,
+                        )
+                    ).to(covariance.dtype)
+                    is_not_pd = False
+                except RuntimeError:
+                    regularizer *= 10.0
+            if is_not_pd:
+                raise RuntimeError(
+                    "Could not compute Cholesky decomposition. Something went "
+                    "wrong. Please contact the metatrain developers"
+                )
+            new_state_dict[cholesky_key] = cholesky
+        else:
+            new_state_dict[key] = value
+    checkpoint["model_state_dict"] = new_state_dict
 
 
 def trainer_update_v1_v2(checkpoint: dict) -> None:

@@ -11,7 +11,7 @@ from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import DatasetInfo, DiskDataset, TargetInfo
 from metatrain.utils.data.target_info import get_generic_target_info
 
-from . import RESOURCES_PATH
+from ..conftest import RESOURCES_PATH
 
 
 @pytest.fixture

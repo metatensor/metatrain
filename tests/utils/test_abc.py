@@ -42,7 +42,7 @@ class MyTrainer(TrainerInterface):
 def test_trainer_interface():
     message = (
         "missing '__checkpoint_version__' class attribute for "
-        "'utils.test_abc.MyTrainer'"
+        "'tests.utils.test_abc.MyTrainer'"
     )
     with pytest.raises(TypeError, match=message):
         _ = MyTrainer({})
@@ -105,7 +105,7 @@ def test_model_interface():
     ]
 
     for attr in EXPECTED_ATTRS:
-        message = f"missing '{attr}' class attribute for 'utils.test_abc.MyModel'"
+        message = f"missing '{attr}' class attribute for 'tests.utils.test_abc.MyModel'"
         with pytest.raises(TypeError, match=message):
             _ = MyModel({}, DatasetInfo("", [], {}), ModelMetadata())
 
