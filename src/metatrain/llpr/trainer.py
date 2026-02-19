@@ -459,55 +459,61 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
                 )
 
-            val_loss = 0.0
-            for batch in val_dataloader:
-                # Skip None batches (those outside batch_atom_bounds)
-                if should_skip_batch(batch, is_distributed, device):
-                    continue
+            with torch.set_grad_enabled(
+                any(target_info.gradients for target_info in train_targets.values())
+            ):  # keep gradients on if any of the targets require them
+                val_loss = 0.0
+                for batch in val_dataloader:
+                    # Skip None batches (those outside batch_atom_bounds)
+                    if should_skip_batch(batch, is_distributed, device):
+                        continue
 
-                systems, targets, extra_data = unpack_batch(batch)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
-                )
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
-                )
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    requested_outputs,
-                    is_training=False,
-                )
-                val_loss_batch = loss_fn(predictions, targets, extra_data)
-
-                if is_distributed:
-                    # sum the loss over all processes
-                    torch.distributed.all_reduce(val_loss_batch)
-                val_loss += val_loss_batch.item()
-
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
-                targets = _drop_gradient_blocks(targets)
-                val_rmse_calculator.update(predictions, targets)
-                if self.hypers["log_mae"]:
-                    val_mae_calculator.update(predictions, targets)
-
-            finalized_val_info = val_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets,
-                is_distributed=is_distributed,
-                device=device,
-            )
-            if self.hypers["log_mae"]:
-                finalized_val_info.update(
-                    val_mae_calculator.finalize(
-                        not_per_atom=["positions_gradients"] + per_structure_targets,
-                        is_distributed=is_distributed,
-                        device=device,
+                    systems, targets, extra_data = unpack_batch(batch)
+                    systems, targets, extra_data = batch_to(
+                        systems, targets, extra_data, device=device
                     )
+                    systems, targets, extra_data = batch_to(
+                        systems, targets, extra_data, dtype=dtype
+                    )
+                    predictions = evaluate_model(
+                        model,
+                        systems,
+                        requested_outputs,
+                        is_training=False,
+                    )
+                    val_loss_batch = loss_fn(predictions, targets, extra_data)
+
+                    if is_distributed:
+                        # sum the loss over all processes
+                        torch.distributed.all_reduce(val_loss_batch)
+                    val_loss += val_loss_batch.item()
+
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(
+                        targets, systems, per_structure_targets
+                    )
+
+                    targets = _drop_gradient_blocks(targets)
+                    val_rmse_calculator.update(predictions, targets)
+                    if self.hypers["log_mae"]:
+                        val_mae_calculator.update(predictions, targets)
+
+                finalized_val_info = val_rmse_calculator.finalize(
+                    not_per_atom=["positions_gradients"] + per_structure_targets,
+                    is_distributed=is_distributed,
+                    device=device,
                 )
+                if self.hypers["log_mae"]:
+                    finalized_val_info.update(
+                        val_mae_calculator.finalize(
+                            not_per_atom=["positions_gradients"]
+                            + per_structure_targets,
+                            is_distributed=is_distributed,
+                            device=device,
+                        )
+                    )
 
             # Now we log the information:
             finalized_train_info = {
