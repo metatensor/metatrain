@@ -1,27 +1,14 @@
 seed: 42
 
 architecture:
-  name: experimental.phace
-  model:
-    num_tensor_products: 5
-    num_gnn_layers: 3
-    cutoff: 10.0
-    cutoff_width: 0.5
-    num_element_channels: 128
-    force_rectangular: false
-    radial_basis:
-      max_eigenvalue: 25.0
-      element_scale: 0.7
+  name: soap_bpnn
   training:
-    compile: false
     batch_size: 5
-    num_epochs: 5
-    learning_rate: 0.003
-    warmup_fraction: 0.01
-    gradient_clipping: 1.0
-    log_interval: 1
-    log_mae: true
-    best_model_metric: mae_prod
+    num_epochs: 1
+  model:
+    soap:
+      max_radial: 4
+      max_angular: 2
 
 training_set:
   systems:
