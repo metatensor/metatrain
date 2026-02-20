@@ -144,6 +144,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         self.best_metric: Optional[float] = None
         self.best_model_state_dict: Optional[Dict[str, Any]] = None
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
+        self.ema_state_dict: Optional[Dict[str, Any]] = None
 
     def train(
         self,
@@ -225,6 +226,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
             ema_model.requires_grad_(False)
             model.scaler.scales_to(device=device, dtype=torch.float64)
             model.additive_models[0].weights_to(device=device, dtype=torch.float64)
+            if self.ema_state_dict is not None:
+                ema_model.load_state_dict(self.ema_state_dict)
 
         logging.info("Setting up data loaders")
         if is_distributed:
@@ -603,6 +606,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # swap back the original model parameters after evaluation
                 # (and for checkpointing)
                 model.load_state_dict(model_state_dict)
+                self.ema_state_dict = ema_model.state_dict()
 
             if epoch % self.hypers["checkpoint_interval"] == 0:
                 if is_distributed:
@@ -637,6 +641,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 "best_metric": self.best_metric,
                 "best_model_state_dict": self.best_model_state_dict,
                 "best_optimizer_state_dict": self.best_optimizer_state_dict,
+                "ema_state_dict": self.ema_state_dict
+                if self.hypers["ema_decay"] is not None
+                else None,
             }
         )
         torch.save(
@@ -656,6 +663,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         best_metric = checkpoint["best_metric"]
         best_model_state_dict = checkpoint["best_model_state_dict"]
         best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
+        ema_state_dict = checkpoint["ema_state_dict"]
 
         # Create the trainer
         trainer = cls(hypers)
@@ -669,7 +677,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         trainer.best_metric = best_metric
         trainer.best_model_state_dict = best_model_state_dict
         trainer.best_optimizer_state_dict = best_optimizer_state_dict
-
+        trainer.ema_state_dict = ema_state_dict
         return trainer
 
     @classmethod

@@ -3,6 +3,7 @@ from typing import Dict, List
 import torch
 
 from .layers import EquivariantRMSNorm
+from .layers import Linear as SingleLinear
 from .layers import LinearList as Linear
 from .radial_mlp import MLPRadialBasis
 from .tensor_product import (
@@ -14,7 +15,7 @@ from .tensor_product import (
 class InvariantMessagePasser(torch.nn.Module):
     """Invariant message passing with linear contractions.
 
-    Used for the first GNN layer, where features are scalar (invariant).
+    Used for the first GNN layer, where the input features are scalar (invariant).
     """
 
     def __init__(
@@ -40,7 +41,21 @@ class InvariantMessagePasser(torch.nn.Module):
         self.l_max = len(self.n_max_l) - 1
         self.irreps_out = [(l, 1) for l in range(self.l_max + 1)]  # noqa: E741
 
-        # Register message_scaling as a buffer for efficiency
+        self.rmsnorm = torch.nn.RMSNorm(self.k_max_l[0])
+        self.linear_in = torch.nn.ModuleList(
+            [
+                SingleLinear(self.k_max_l[0], self.k_max_l[l])
+                for l in range(self.l_max + 1)  # noqa: E741
+            ]
+        )
+        self.linear_out = torch.nn.ModuleList(
+            [
+                SingleLinear(self.k_max_l[l], self.k_max_l[l])
+                for l in range(self.l_max + 1)  # noqa: E741
+            ]
+        )
+
+        # Register mp_scaling as a buffer for efficiency
         self.register_buffer("message_scaling", torch.tensor(message_scaling))
 
     def forward(
@@ -64,8 +79,9 @@ class InvariantMessagePasser(torch.nn.Module):
         """
         radial_basis = self.radial_basis_mlp(radial_basis)
 
+        center_embedding = self.rmsnorm(initial_center_embedding)
         density = []
-        for l in range(self.l_max + 1):  # noqa: E741
+        for l, linear in enumerate(self.linear_in):  # noqa: E741
             spherical_harmonics_l = spherical_harmonics[l]
             radial_basis_l = radial_basis[l]
             density_l = torch.zeros(
@@ -78,9 +94,12 @@ class InvariantMessagePasser(torch.nn.Module):
                 index=centers,
                 source=spherical_harmonics_l.unsqueeze(2)
                 * radial_basis_l.unsqueeze(1)
-                * initial_center_embedding[neighbors][:, :, : radial_basis_l.shape[1]],
+                * linear(center_embedding)[neighbors],
             )
             density.append(density_l * self.message_scaling)
+
+        for l, linear in enumerate(self.linear_out):  # noqa: E741
+            density[l] = linear(density[l])
 
         density[0] = density[0] + initial_center_embedding
         return density
