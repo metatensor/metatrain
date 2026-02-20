@@ -30,6 +30,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 from . import checkpoints
 from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
+from .modules.readout import ReadoutLayer
 from .modules.structures import get_pair_sample_labels, systems_to_batch
 from .modules.transformer import CartesianTransformer
 
@@ -77,6 +78,7 @@ class PET(ModelInterface[ModelHypers]):
         self.num_heads = self.hypers["num_heads"]
         self.num_gnn_layers = self.hypers["num_gnn_layers"]
         self.num_attention_layers = self.hypers["num_attention_layers"]
+        self.num_experts = self.hypers["num_experts"]
         self.normalization = self.hypers["normalization"]
         self.activation = self.hypers["activation"]
         self.attention_temperature = self.hypers["attention_temperature"]
@@ -419,7 +421,6 @@ class PET(ModelInterface[ModelHypers]):
             sample_labels,
             centers,
             nef_to_edges_neighbor,
-            cutoff_mask,
         ) = systems_to_batch(
             systems,
             nl_options,
@@ -432,7 +433,7 @@ class PET(ModelInterface[ModelHypers]):
         )
 
         pair_sample_labels = get_pair_sample_labels(
-            systems, sample_labels, nl_options, cutoff_mask, device,
+            systems, sample_labels, nl_options, device
         )
 
         # Optional diagnostic token capture: register temporary module hooks
@@ -530,6 +531,7 @@ class PET(ModelInterface[ModelHypers]):
         with torch.profiler.record_function("PET::_calculate_atomic_predictions"):
             node_atomic_predictions_dict, edge_atomic_predictions_dict = (
                 self._calculate_atomic_predictions(
+                    systems,
                     node_last_layer_features_dict,
                     edge_last_layer_features_dict,
                     padding_mask,
@@ -752,9 +754,7 @@ class PET(ModelInterface[ModelHypers]):
             module = _resolve_module(path)
 
             def make_hook(p: str, suffix: str) -> Any:
-                def _hook(
-                    module: torch.nn.Module, inp: Any, outp: Any
-                ) -> None:
+                def _hook(module: torch.nn.Module, inp: Any, outp: Any) -> None:
                     if isinstance(outp, tuple):
                         assert "_node" in suffix or "_edge" in suffix, (
                             "When capturing from a module that returns multiple "
@@ -1150,6 +1150,7 @@ class PET(ModelInterface[ModelHypers]):
 
     def _calculate_atomic_predictions(
         self,
+        systems: List[System],
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
         edge_last_layer_features_dict: Dict[str, List[torch.Tensor]],
         padding_mask: torch.Tensor,
@@ -1185,6 +1186,10 @@ class PET(ModelInterface[ModelHypers]):
         # for each GNN layer, and each last layer can have multiple blocks,
         # we apply each last layer block to each of the last layer features.
 
+        batch_species_indices = self.species_to_species_index[
+            torch.cat([system.types for system in systems], dim=0)
+        ]
+
         for output_name, node_last_layers in self.node_last_layers.items():
             if output_name in outputs:
                 node_atomic_predictions_dict[output_name] = torch.jit.annotate(
@@ -1197,7 +1202,10 @@ class PET(ModelInterface[ModelHypers]):
                     node_atomic_predictions_by_block: List[torch.Tensor] = []
                     for node_last_layer_by_block in node_last_layer.values():
                         node_atomic_predictions_by_block.append(
-                            node_last_layer_by_block(node_last_layer_features)
+                            node_last_layer_by_block(
+                                batch_species_indices,
+                                node_last_layer_features,
+                            )
                         )
                     node_atomic_predictions_dict[output_name].append(
                         node_atomic_predictions_by_block
@@ -1219,7 +1227,7 @@ class PET(ModelInterface[ModelHypers]):
                     edge_atomic_predictions_by_block: List[torch.Tensor] = []
                     for edge_last_layer_by_block in edge_last_layer.values():
                         edge_atomic_predictions = edge_last_layer_by_block(
-                            edge_last_layer_features
+                            batch_species_indices, edge_last_layer_features
                         )
                         expanded_padding_mask = padding_mask[..., None].repeat(
                             1, 1, edge_atomic_predictions.shape[2]
@@ -1476,10 +1484,12 @@ class PET(ModelInterface[ModelHypers]):
             [
                 torch.nn.ModuleDict(
                     {
-                        key: torch.nn.Linear(
+                        key: ReadoutLayer(
                             self.d_head,
                             prod(shape),
+                            len(self.atomic_types),
                             bias=True,
+                            num_experts=self.num_experts,
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }
@@ -1492,10 +1502,12 @@ class PET(ModelInterface[ModelHypers]):
             [
                 torch.nn.ModuleDict(
                     {
-                        key: torch.nn.Linear(
+                        key: ReadoutLayer(
                             self.d_head,
                             prod(shape),
+                            len(self.atomic_types),
                             bias=True,
+                            num_experts=self.num_experts,
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }
@@ -1567,7 +1579,7 @@ class PET(ModelInterface[ModelHypers]):
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {
-            "architecture_name": "pet",
+            "architecture_name": "pet_9",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {

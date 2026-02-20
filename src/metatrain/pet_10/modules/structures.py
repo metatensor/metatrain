@@ -157,7 +157,6 @@ def systems_to_batch(
     Labels,
     torch.Tensor,
     torch.Tensor,
-    torch.Tensor,
 ]:
     """
     Converts a list of systems to a batch required for the PET model.
@@ -249,8 +248,6 @@ def systems_to_batch(
         pair_cutoffs = options.cutoff * torch.ones(
             len(centers), device=positions.device, dtype=positions.dtype
         )
-        # Create a dummy cutoff mask
-        cutoff_mask = torch.ones_like(pair_cutoffs, dtype=torch.bool)
 
     num_neighbors = torch.bincount(centers, minlength=num_nodes)
     max_edges_per_node = int(torch.max(num_neighbors))
@@ -328,7 +325,6 @@ def systems_to_batch(
         sample_labels,
         centers,
         nef_to_edges_neighbor,
-        cutoff_mask,
     )
 
 
@@ -336,7 +332,6 @@ def get_pair_sample_labels(
     systems: List[System],
     sample_labels: Labels,
     nl_options: NeighborListOptions,
-    cutoff_mask: torch.Tensor,
     device: torch.device,
 ) -> Labels:
     """
@@ -376,7 +371,7 @@ def get_pair_sample_labels(
                 ],
             )
         )
-    pair_sample_values = torch.vstack(pair_sample_values)[cutoff_mask]
+    pair_sample_values = torch.vstack(pair_sample_values)
     pair_sample_labels = Labels(sample_names, pair_sample_values).to(device=device)
 
     return pair_sample_labels

@@ -419,7 +419,6 @@ class PET(ModelInterface[ModelHypers]):
             sample_labels,
             centers,
             nef_to_edges_neighbor,
-            cutoff_mask,
         ) = systems_to_batch(
             systems,
             nl_options,
@@ -432,7 +431,7 @@ class PET(ModelInterface[ModelHypers]):
         )
 
         pair_sample_labels = get_pair_sample_labels(
-            systems, sample_labels, nl_options, cutoff_mask, device,
+            systems, sample_labels, nl_options, device
         )
 
         # Optional diagnostic token capture: register temporary module hooks
@@ -1567,7 +1566,7 @@ class PET(ModelInterface[ModelHypers]):
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {
-            "architecture_name": "pet",
+            "architecture_name": "pet_12",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {

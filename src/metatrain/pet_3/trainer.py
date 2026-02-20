@@ -338,7 +338,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 model.parameters(), lr=self.hypers["learning_rate"]
             )
 
-        if self.optimizer_state_dict is not None:
+        if self.optimizer_state_dict is not None and not is_finetune:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
             if not (model.module if is_distributed else model).has_new_targets:
@@ -347,7 +347,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Create a learning rate scheduler
         lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
 
-        if self.scheduler_state_dict is not None:
+        if self.scheduler_state_dict is not None and not is_finetune:
             # same as the optimizer, try to load the scheduler state dict
             if not (model.module if is_distributed else model).has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
@@ -383,7 +383,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         logging.info("Starting training")
         start_epoch = start_epoch + 1
 
-        for epoch in range(start_epoch, self.hypers["num_epochs"]):
+        for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             if is_distributed:
                 for train_sampler in train_samplers:
                     train_sampler.set_epoch(epoch)
@@ -467,53 +467,48 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
                 )
 
-            with torch.set_grad_enabled(
-                any(target_info.gradients for target_info in train_targets.values())
-            ):  # keep gradients on if any of the targets require them
-                val_loss = 0.0
-                for batch in val_dataloader:
-                    # Skip None batches (those outside batch_atom_bounds)
-                    if should_skip_batch(batch, is_distributed, device):
-                        continue
+            val_loss = 0.0
+            for batch in val_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
 
-                    systems, targets, extra_data = unpack_batch(batch)
-                    systems, targets, extra_data = batch_to(
-                        systems, targets, extra_data, dtype=dtype, device=device
-                    )
-                    predictions = evaluate_model(
-                        model,
-                        systems,
-                        {key: train_targets[key] for key in targets.keys()},
-                        is_training=False,
-                    )
+                systems, targets, extra_data = unpack_batch(batch)
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, dtype=dtype, device=device
+                )
+                predictions = evaluate_model(
+                    model,
+                    systems,
+                    {key: train_targets[key] for key in targets.keys()},
+                    is_training=False,
+                )
 
-                    # average by the number of atoms
-                    predictions = average_by_num_atoms(
-                        predictions, systems, per_structure_targets
-                    )
-                    targets = average_by_num_atoms(
-                        targets, systems, per_structure_targets
-                    )
-                    val_loss_batch = loss_fn(predictions, targets, extra_data)
+                # average by the number of atoms
+                predictions = average_by_num_atoms(
+                    predictions, systems, per_structure_targets
+                )
+                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                val_loss_batch = loss_fn(predictions, targets, extra_data)
 
-                    if is_distributed:
-                        # sum the loss over all processes
-                        torch.distributed.all_reduce(val_loss_batch)
-                    val_loss += val_loss_batch.item()
+                if is_distributed:
+                    # sum the loss over all processes
+                    torch.distributed.all_reduce(val_loss_batch)
+                val_loss += val_loss_batch.item()
 
-                    scaled_predictions = (
-                        model.module if is_distributed else model
-                    ).scaler(systems, predictions)
-                    scaled_targets = (model.module if is_distributed else model).scaler(
-                        systems, targets
-                    )
-                    val_rmse_calculator.update(
+                scaled_predictions = (model.module if is_distributed else model).scaler(
+                    systems, predictions
+                )
+                scaled_targets = (model.module if is_distributed else model).scaler(
+                    systems, targets
+                )
+                val_rmse_calculator.update(
+                    scaled_predictions, scaled_targets, extra_data
+                )
+                if self.hypers["log_mae"]:
+                    val_mae_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )
-                    if self.hypers["log_mae"]:
-                        val_mae_calculator.update(
-                            scaled_predictions, scaled_targets, extra_data
-                        )
 
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -619,11 +614,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         trainer = cls(hypers)
         trainer.optimizer_state_dict = checkpoint["optimizer_state_dict"]
         trainer.scheduler_state_dict = checkpoint["scheduler_state_dict"]
-        if context == "restart":
-            trainer.epoch = checkpoint["epoch"]
-        else:
-            assert context == "finetune"
-            trainer.epoch = None  # interpreted as zero in the training loop
+        trainer.epoch = checkpoint["epoch"]
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
         trainer.best_model_state_dict = checkpoint["best_model_state_dict"]

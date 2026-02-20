@@ -118,14 +118,14 @@ class PET(ModelInterface[ModelHypers]):
         if self.featurizer_type == "feedforward":
             self.num_readout_layers = 1
             self.combination_norms = torch.nn.ModuleList(
-                [torch.nn.LayerNorm(2 * self.d_pet) for _ in range(self.num_gnn_layers)]
+                [torch.nn.LayerNorm(2 * self.d_pet, bias=False) for _ in range(self.num_gnn_layers)]
             )
             self.combination_mlps = torch.nn.ModuleList(
                 [
                     torch.nn.Sequential(
-                        torch.nn.Linear(2 * self.d_pet, 2 * self.d_pet),
+                        torch.nn.Linear(2 * self.d_pet, 2 * self.d_pet, bias=False),
                         torch.nn.SiLU(),
-                        torch.nn.Linear(2 * self.d_pet, self.d_pet),
+                        torch.nn.Linear(2 * self.d_pet, self.d_pet, bias=False),
                     )
                     for _ in range(self.num_gnn_layers)
                 ]
@@ -419,7 +419,6 @@ class PET(ModelInterface[ModelHypers]):
             sample_labels,
             centers,
             nef_to_edges_neighbor,
-            cutoff_mask,
         ) = systems_to_batch(
             systems,
             nl_options,
@@ -432,7 +431,7 @@ class PET(ModelInterface[ModelHypers]):
         )
 
         pair_sample_labels = get_pair_sample_labels(
-            systems, sample_labels, nl_options, cutoff_mask, device,
+            systems, sample_labels, nl_options, device
         )
 
         # Optional diagnostic token capture: register temporary module hooks
@@ -1451,9 +1450,9 @@ class PET(ModelInterface[ModelHypers]):
         self.node_heads[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.Sequential(
-                    torch.nn.Linear(self.d_node, self.d_head),
+                    torch.nn.Linear(self.d_node, self.d_head, bias=False),
                     torch.nn.SiLU(),
-                    torch.nn.Linear(self.d_head, self.d_head),
+                    torch.nn.Linear(self.d_head, self.d_head, bias=False),
                     torch.nn.SiLU(),
                 )
                 for _ in range(self.num_readout_layers)
@@ -1463,9 +1462,9 @@ class PET(ModelInterface[ModelHypers]):
         self.edge_heads[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.Sequential(
-                    torch.nn.Linear(self.d_pet, self.d_head),
+                    torch.nn.Linear(self.d_pet, self.d_head, bias=False),
                     torch.nn.SiLU(),
-                    torch.nn.Linear(self.d_head, self.d_head),
+                    torch.nn.Linear(self.d_head, self.d_head, bias=False),
                     torch.nn.SiLU(),
                 )
                 for _ in range(self.num_readout_layers)
@@ -1479,7 +1478,7 @@ class PET(ModelInterface[ModelHypers]):
                         key: torch.nn.Linear(
                             self.d_head,
                             prod(shape),
-                            bias=True,
+                            bias=False,
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }
@@ -1495,7 +1494,7 @@ class PET(ModelInterface[ModelHypers]):
                         key: torch.nn.Linear(
                             self.d_head,
                             prod(shape),
-                            bias=True,
+                            bias=False,
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }
@@ -1567,7 +1566,7 @@ class PET(ModelInterface[ModelHypers]):
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {
-            "architecture_name": "pet",
+            "architecture_name": "pet_10",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {

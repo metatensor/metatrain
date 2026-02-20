@@ -1,0 +1,16 @@
+Relative to un-modified PET:
+
+pet_1 -> biases on covariant readout layers removed
+pet_2 -> Filippo's SoH embedding, with Lmax=10
+pet_3 -> shift LLFs before readout layers
+pet_4 -> Filippo's SoH embedding, shift LLFs before readout layers
+pet_5 -> SpH embedding (simple switch SoH -> SpH)
+pet_6 -> SpH and radial polynomial embeddings
+pet_7 -> SpH and explicit Bessel radial basis embedding
+pet_8 -> SoH and explicit Bessel radial basis embedding
+pet_9 -> Filippo's SoH embedding, simple MoE on linear readout layers
+pet_10 -> all biases removed from model
+pet_11 -> Filippo's SoH embedding, with Lmax=8
+pet_12 -> Filippo's SoH embedding, with Lmax=4
+pet_13 -> Filippo's SoH embedding, with Lmax=2
+pet_14 -> Filippo's SoH embedding, all biases removed
