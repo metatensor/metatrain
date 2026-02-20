@@ -35,9 +35,7 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
-from metatrain.utils.transfer import (
-    batch_to,
-)
+from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
 from .documentation import TrainerHypers
@@ -108,7 +106,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with SOAP-BPNN, please "
+                    "If you want to run distributed training with SOAP-BPNN, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
