@@ -38,9 +38,18 @@ jobs:
     - name: Setup dependencies
       run: |
         uv tool install tox --with tox-uv
+        pip install coverage[toml]
 
-    - name: run architecture tests
-      run: tox -e ${{ matrix.architecture-name }}-tests
+    - name: run architecture tests and generate coverage
+      run: |
+        tox -e ${{ matrix.architecture-name }}-tests
+        coverage xml -o coverage.xml
       env:
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+
+    - name: upload to codecov.io
+      uses: codecov/codecov-action@v5
+      with:
+        fail_ci_if_error: false
+        files: coverage.xml

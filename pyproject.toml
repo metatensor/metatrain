@@ -99,8 +99,11 @@ exclude_lines = [
 ]
 omit = [
     "*/site-packages/*",
-    "*/metatrain/experimental/*",
-    "*/metatrain/utils/testing/*"
+    "*/tests/*",
+    "src/metatrain/*/tests/*",
+    "src/metatrain/*/*/tests/*",
+    "src/metatrain/utils/testing/*",
+    "examples/*"
 ]
 
 [tool.coverage.paths]
@@ -111,6 +114,7 @@ source = [
 
 [tool.coverage.run]
 patch = ["subprocess"]
+relative_files = true
 
 [tool.ruff]
 exclude = ["docs/src/examples/**", "src/metatrain/_version.py"]

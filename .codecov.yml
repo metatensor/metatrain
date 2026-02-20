@@ -1,23 +1,62 @@
 coverage:
   status:
     project:
-      default:
-        target: 88%
+      default: false
+
+    # core package
+    core:
+      target: 88%
+      paths:
+        - "src/metatrain/utils/.*"
+        - "src/metatrain/cli/.*"
+
     patch:
       default:
         informational: true
+
+    component:
+      default: true
+
+component_management:
+  individual_components:
+
+    # stable architectures
+    - component_id: gap
+      name: GAP
+      paths:
+        - "src/metatrain/gap/.*"
+
+    - component_id: soap_bpnn
+      name: SOAP-BPNN
+      paths:
+        - "src/metatrain/soap_bpnn/.*"
+
+    - component_id: pet
+      name: PET
+      paths:
+        - "src/metatrain/pet/.*"
+
+    - component_id: llpr
+      name: LLPR
+      paths:
+        - "src/metatrain/llpr/.*"
+
+    # deprecated architectures
+    - component_id: nanopet
+      name: NanoPET
+      paths:
+        - "src/metatrain/deprecated/nanopet/.*"
+
+    # experimental architectures
+    - component_id: flashmd
+      name: FlashMD
+      paths:
+        - "src/metatrain/experimental/flashmd/.*"
+
   ignore:
     # no need to report coverage of the test code themself
-    - "tests/.*"
-    - "examples/.*"
     - "src/metatrain/utils/testing/.*"
-    # we don't check coverage for the architectures
-    - "src/metatrain/deprecated/.*"
-    - "src/metatrain/experimental/.*"
-    - "src/metatrain/gap/.*"
-    - "src/metatrain/pet/.*"
-    - "src/metatrain/soap_bpnn/.*"
-    - "src/metatrain/llpr/.*"
+    - "src/metatrain/**/tests/.*"
     # we don't currently run distributed tests on CI
     - "src/metatrain/utils/distributed/.*"
 
