@@ -311,7 +311,7 @@ def train_model(
     val_datasets = []
     train_indices = []
     val_indices = []
-    if isinstance(options["validation_set"], float):
+    if isinstance(options["validation_set"], (int, float)):
         val_size = options["validation_set"]
         train_size -= val_size
 
@@ -353,7 +353,7 @@ def train_model(
     logging.info("Setting up test set")
     test_datasets = []
     test_indices = []
-    if isinstance(options["test_set"], float):
+    if isinstance(options["test_set"], (int, float)):
         test_size = options["test_set"]
         train_size -= test_size
 
@@ -606,6 +606,13 @@ def train_model(
     ###########################
     # EVALUATE FINAL MODEL ####
     ###########################
+
+    # TODO: possibly control this better if and when wrappers archs will be treated
+    # differently in the future
+    if architecture_name == "llpr":
+        if not hypers["training"]["train_all_parameters"]:
+            # Skip final evaluation for LLPR
+            return
 
     mts_atomistic_model = load_model(
         path=output,

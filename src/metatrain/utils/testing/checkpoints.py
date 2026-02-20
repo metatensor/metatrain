@@ -155,7 +155,6 @@ class CheckpointTests(ArchitectureTests):
 
             if checkpoint["model_ckpt_version"] != model.__checkpoint_version__:
                 checkpoint = model.__class__.upgrade_checkpoint(checkpoint)
-
             model.load_checkpoint(checkpoint, context)
 
             if context == "restart":
@@ -188,6 +187,7 @@ class CheckpointTests(ArchitectureTests):
         cwd = os.getcwd()
         monkeypatch.chdir(tmp_path)
         trainer.save_checkpoint(model, "checkpoint.ckpt")
+
         checkpoint = torch.load("checkpoint.ckpt", weights_only=False)
         monkeypatch.chdir(cwd)
 
@@ -220,6 +220,13 @@ class CheckpointTests(ArchitectureTests):
                     "checkpoint structure changed. Please increase the checkpoint "
                     "version and implement checkpoint update"
                 ) from e
+
+        # Ensure that the size of the checkpoint is <50kb
+        if (size := os.path.getsize(ckpt_path)) > 50 * 1024:
+            raise ValueError(
+                f"Checkpoint size at {ckpt_path} is too large ({size} bytes), please "
+                "reduce it to <50kb"
+            )
 
     @pytest.mark.parametrize("context", ["finetune", "restart", "export"])
     def test_get_checkpoint(

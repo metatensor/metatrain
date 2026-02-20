@@ -98,21 +98,36 @@ def _hf_hub_download_url(
     revision = unquote(match.group("revision"))
     filename = unquote(match.group("filename"))
 
-    # Extract subfolder if applicable
-    parts = filename.split("/", 1)
-    if len(parts) == 2:
-        subfolder, filename = parts
-    else:
-        subfolder = None
-
     return hf_hub_download(
         repo_id=repo_id,
         filename=filename,
-        subfolder=subfolder,
         cache_dir=cache_dir,
         revision=revision,
         token=hf_token,
         endpoint=endpoint,
+    )
+
+
+def download_model_from_hf(
+    repo_id: str,
+    filename: str,
+    revision: Optional[str] = None,
+    token: Optional[str] = None,
+) -> str:
+    """
+    Download a model file from the Hugging Face Hub.
+
+    :param repo_id: The repository ID (e.g., "metatensor/metatrain-test").
+    :param filename: The filename within the repository (e.g., "model.ckpt").
+    :param revision: The specific revision (branch, tag, or commit hash) to download.
+    :param token: Hugging Face API token for private repositories.
+    :return: The local path to the downloaded file.
+    """
+    return hf_hub_download(
+        repo_id=repo_id,
+        filename=filename,
+        revision=revision,
+        token=token,
     )
 
 

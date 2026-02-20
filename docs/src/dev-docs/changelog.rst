@@ -24,12 +24,37 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Version 2026.1 - 2026-01-07
+---------------------------
+
+Fixed
+#####
+
+- Uncertainty quantification is now possible on non-conservative forces.
+- Fixed a small bug in the implementation of the density of states (DOS) loss function.
+
+Added
+#####
+
+- Metatrain now features the ``experimental.mace`` architecture.
+- Most architectures now support bounds on the number of atoms in a single batch via the
+  ``batch_bounds`` hyperparameter.
+- The PET architecture now supports an adaptive cutoff functionality to make the
+  number of neighbors more uniform across different atoms and environments.
+- The PET architecture now features a temperature hyperparameter for the softmax
+  operation in attention.
+- The FlashMD architecture added fine-tuning capabilities similar to those of PET.
+- Metatrain now has a simpler CLI interface for HuggingFace models
+
 Changed
 #######
 
 - SOAP-BPNN and MCoV now use species embeddings by default, allowing for better
   scalability and speed. The traditional SOAP-BPNN (and associated MCoV) architecture
   can be accessed by setting ``legacy: True``
+- Metatrain won't error if the validation set is smaller than the batch size.
+- Composition model settings have been consolidated under the ``atomic_baseline``
+  hyperparameter.
 
 Version 2025.12 - 2025-11-25
 ----------------------------

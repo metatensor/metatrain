@@ -1,13 +1,14 @@
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime
 
-import tomli  # Replace by tomllib from std library once docs are build with Python 3.11
+import tomllib
 
 
-# When importing metatensor-torch, this will change the definition of the classes
-# to include the documentation
+# When importing metatensor-torch, this will change the definition of the classes to
+# include the documentation
 os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
 os.environ["METATOMIC_IMPORT_FOR_SPHINX"] = "1"
 os.environ["PYTORCH_JIT"] = "0"
@@ -36,7 +37,7 @@ from src.architectures.generate import setup_architectures_docs  # noqa
 master_doc = "index"
 
 with open(os.path.join(ROOT, "pyproject.toml"), "rb") as fp:
-    project_dict = tomli.load(fp)["project"]
+    project_dict = tomllib.load(fp)["project"]
 
 project = project_dict["name"]
 author = ", ".join(a["name"] for a in project_dict["authors"])
@@ -48,6 +49,26 @@ release = metatrain.__version__
 
 
 # -- General configuration ---------------------------------------------------
+def copy_readme():
+    """Copy the main README.md to the docs/src directory and modify it.
+
+    The docs include the README file in the homepage, but the main README.md
+    contains links to the online documentation for the architecture pages.
+    Since we are building the docs, we want those links to point to the
+    generated documentation instead of the online docs. This requires
+    modifying the links in the README file.
+    """
+    orig_readme = os.path.join(ROOT, "README.md")
+    docs_readme = os.path.join(ROOT, "docs", "src", "mtt_README.md")
+    with open(orig_readme, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Substitute everything that looks like [ARCH_NAME][arch-ARCHREF] with the myst
+    # compatible reference role {ref}`ARCH_NAME <arch-ARCHREF>`
+    pattern = re.compile(r"\[([^\]]+)]\[arch-([^\]]+)]")
+    content = pattern.sub(r"{ref}`\1 <arch-\2>`", content)
+    with open(docs_readme, "w", encoding="utf-8") as f:
+        f.write(content)
 
 
 def generate_examples():
@@ -66,6 +87,7 @@ def generate_examples():
 
 
 def setup(app):
+    copy_readme()
     generate_examples()
     setup_architectures_docs()
 
@@ -131,7 +153,7 @@ html_extra_path = ["robots.txt"]  # extra files to move
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
-#
+html_title = "Metatrain"
 html_theme = "furo"
 
 # Add any paths that contain custom static files (such as style sheets) here,

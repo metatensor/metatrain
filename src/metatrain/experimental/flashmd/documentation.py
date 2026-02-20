@@ -1,24 +1,33 @@
 """
-FlashMD
-=======
+FlashMD (Experimental)
+======================
 
 FlashMD is a method for the direct prediction of positions and momenta in a molecular
 dynamics simulation, presented in :footcite:p:`bigi_flashmd_2025`. When compared to
 traditional molecular dynamics methods, it predicts the positions and momenta of atoms
-after a long time interval, allowing the use of much larger time steps. Therefore, it
-achieves a significant speedup (10-30x) compared to molecular dynamics using MLIPs.
-The FlashMD architecture implemented in metatrain is based on the
-:ref:`PET architecture <architecture-pet>`.
+after a long time interval, allowing the use of much larger time steps, and does so in a
+way that does not require computing forces by backpropagation. Overall, it achieves a
+significant speedup (up to 60-90x) compared to molecular dynamics using an MLIP with
+similar architecture and number of parameters. The FlashMD architecture implemented in
+metatrain is based on the :ref:`PET architecture <arch-pet>`.
 
 {{SECTION_INSTALLATION}}
+
+Additional outputs
+------------------
+
+- ``features``: the internal FlashMD features, before the different heads for each
+  target.
+- :ref:`mtt-aux-target-last-layer-features`: The features for a given target, taken
+  before the last linear layer of the corresponding head.
 
 {{SECTION_DEFAULT_HYPERS}}
 
 Tuning hyperparameters
 ----------------------
 
-Most of the parameters of FlashMD are inherited from the PET architecure, although
-they might have different default values.
+Most of the parameters of FlashMD are inherited from the PET architecure, although they
+might have different default values.
 
 .. container:: mtt-hypers-remove-classname
 
@@ -38,9 +47,9 @@ they might have different default values.
 
 from typing import Literal, Optional
 
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import TypedDict
 
-from metatrain.pet.modules.finetuning import FinetuneHypers
+from metatrain.pet.modules.finetuning import FinetuneHypers, NoFinetuneHypers
 from metatrain.utils.additive import FixedCompositionWeights
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.long_range import LongRangeHypers
@@ -108,6 +117,8 @@ class ModelHypers(TypedDict):
     """Layer normalization type."""
     activation: Literal["SiLU", "SwiGLU"] = "SwiGLU"
     """Activation function."""
+    attention_temperature: float = 1.0
+    """The temperature scaling factor for attention scores."""
     transformer_type: Literal["PreLN", "PostLN"] = "PreLN"
     """The order in which the layer normalization and attention
     are applied in a transformer block. Available options are ``PreLN``
@@ -172,16 +183,43 @@ class TrainerHypers(TypedDict):
     """Interval to log metrics."""
     checkpoint_interval: int = 100
     """Interval to save checkpoints."""
+    atomic_baseline: FixedCompositionWeights = {}
+    """The baselines for each target.
+
+    By default, ``metatrain`` will fit a linear model (:class:`CompositionModel
+    <metatrain.utils.additive.composition.CompositionModel>`) to compute the
+    least squares baseline for each atomic species for each target.
+
+    However, this hyperparameter allows you to provide your own baselines.
+    The value of the hyperparameter should be a dictionary where the keys are the
+    target names, and the values are either (1) a single baseline to be used for
+    all atomic types, or (2) a dictionary mapping atomic types to their baselines.
+    For example:
+
+    - ``atomic_baseline: {"energy": {1: -0.5, 6: -10.0}}`` will fix the energy
+      baseline for hydrogen (Z=1) to -0.5 and for carbon (Z=6) to -10.0, while
+      fitting the baselines for the energy of all other atomic types, as well
+      as fitting the baselines for all other targets.
+    - ``atomic_baseline: {"energy": -5.0}`` will fix the energy baseline for
+      all atomic types to -5.0.
+    - ``atomic_baseline: {"mtt:dos": 0.0}`` sets the baseline for the "mtt:dos"
+      target to 0.0, effectively disabling the atomic baseline for that target.
+
+    This atomic baseline is substracted from the targets during training, which
+    avoids the main model needing to learn atomic contributions, and likely makes
+    training easier. When the model is used in evaluation mode, the atomic baseline
+    is added on top of the model predictions automatically.
+
+    .. note::
+
+        This atomic baseline is a per-atom contribution. Therefore, if the property
+        you are predicting is a sum over all atoms (e.g., total energy), the
+        contribution of the atomic baseline to the total property will be the
+        atomic baseline multiplied by the number of atoms of that type in the
+        structure.
+    """
     scale_targets: bool = True
     """Normalize targets to unit std during training."""
-    fixed_composition_weights: FixedCompositionWeights = {}
-    """Weights for atomic contributions.
-
-    This is passed to the ``fixed_weights`` argument of
-    :meth:`CompositionModel.train_model
-    <metatrain.utils.additive.composition.CompositionModel.train_model>`,
-    see its documentation to understand exactly what to pass here.
-    """
     fixed_scaling_weights: FixedScalerWeights = {}
     """Weights for target scaling.
 
@@ -190,7 +228,7 @@ class TrainerHypers(TypedDict):
     see its documentation to understand exactly what to pass here.
     """
     per_structure_targets: list[str] = []
-    """Targets to calculate per-structure losses."""
+    """Targets to calculate per-structure losses and errors on."""
     num_workers: Optional[int] = None
     """Number of workers for data loading. If not provided, it is set
     automatically."""
@@ -205,9 +243,16 @@ class TrainerHypers(TypedDict):
     loss: str | dict[str, LossSpecification | str] = "mse"
     """This section describes the loss function to be used. See the
     :ref:`loss-functions` for more details."""
+    batch_atom_bounds: list[Optional[int]] = [None, None]
+    """Bounds for the number of atoms per batch as [min, max]. Batches with atom
+    counts outside these bounds will be skipped during training. Use ``None`` for
+    either value to disable that bound. This is useful for preventing out-of-memory
+    errors and ensuring consistent computational load. Default: ``[None, None]``."""
 
-    finetune: NotRequired[FinetuneHypers]
-    """Finetuning parameters for PET models pretrained on large datasets.
-
-    See :ref:`fine-tuning` for more details.
-    """
+    finetune: NoFinetuneHypers | FinetuneHypers = {
+        "read_from": None,
+        "method": "full",
+        "config": {},
+        "inherit_heads": {},
+    }
+    """Parameters for fine-tuning trained FlashMD models."""

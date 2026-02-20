@@ -241,6 +241,30 @@ def model_update_v8_v9(checkpoint: dict) -> None:
                     state_dict["finetune_config"]["method"] = "full"
 
 
+def model_update_v9_v10(checkpoint: dict) -> None:
+    """
+    Update a v9 checkpoint to v10.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Adding the num_neighbors_adaptive hyperparameter if not present
+    if "num_neighbors_adaptive" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["num_neighbors_adaptive"] = None
+    if "cutoff_function" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["cutoff_function"] = "Cosine"
+
+
+def model_update_v10_v11(checkpoint: dict) -> None:
+    """
+    Update a v10 checkpoint to v11.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # Adding the attention_temperature hyperparameter if not present
+    if "attention_temperature" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["attention_temperature"] = 1.0
+
+
 ###########################
 # TRAINER #################
 ###########################
@@ -364,3 +388,35 @@ def trainer_update_v9_v10(checkpoint: dict) -> None:
     """
     # Ensuring that the finetune read_from is None if not specified
     checkpoint["train_hypers"]["remove_composition_contribution"] = True
+
+
+def trainer_update_v10_v11(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 10 to version 11.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # - Remove the ``remove_composition_contribution`` hyper.
+    # - Rename ``fixed_composition_weights`` to ``atomic_baseline``.
+    # - If ``remove_composition_contribution`` is False, set all atomic baselines
+    #   to 0.0 for all targets.
+    use_atomic_baseline = checkpoint["train_hypers"].pop(
+        "remove_composition_contribution"
+    )
+    atomic_baseline = checkpoint["train_hypers"].pop("fixed_composition_weights")
+
+    if not use_atomic_baseline:
+        # Just set
+        dataset_info = checkpoint["model_data"]["dataset_info"]
+        atomic_baseline = {target_name: 0.0 for target_name in dataset_info.targets}
+
+    checkpoint["train_hypers"]["atomic_baseline"] = atomic_baseline
+
+
+def trainer_update_v11_v12(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 11 to version 12.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"]["batch_atom_bounds"] = [None, None]

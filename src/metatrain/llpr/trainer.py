@@ -19,6 +19,7 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
@@ -38,7 +39,6 @@ from metatrain.utils.transfer import batch_to
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import LLPRUncertaintyModel
-from .modules.recalib import apply_ensemble_training_strategy
 
 
 def get_scheduler(
@@ -76,7 +76,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 5
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -117,10 +117,25 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         is_distributed = self.hypers["distributed"]
 
-        # For the initial LLPR calibration, use a single device
-        # Distributed training will be initialized after calibration
-        device = devices[0]
-        rank = 0
+        # For the initial LLPR calibration, distributed training can be used
+        if is_distributed:
+            if len(devices) > 1:
+                raise ValueError(
+                    "Requested distributed training with the `multi-gpu` device. "
+                    " If you want to run distributed training with LLPR, please "
+                    "set `device` to cuda."
+                )
+            # Initialize distributed environment for calibration
+            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
+            device_number = distr_env.local_rank % torch.cuda.device_count()
+            device = torch.device("cuda", device_number)
+            torch.distributed.init_process_group(backend="nccl", device_id=device)
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
+            logging.info(f"Initialized distributed training on {world_size} devices")
+        else:
+            device = devices[0]
+            rank = 0
 
         # check device and dtype against wrapped model class
         if device.type not in wrapped_model.__class__.__supported_devices__:
@@ -134,106 +149,44 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 f"Supported dtypes are {wrapped_model.__class__.__supported_dtypes__}"
             )
 
-        logging.info(f"Training on device {device} with dtype {dtype}")
+        if is_distributed:
+            logging.info(f"Training on {world_size} devices with dtype {dtype}")
+        else:
+            logging.info(f"Training on device {device} with dtype {dtype}")
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
 
-        logging.info("Setting up data loaders")
-
-        # Create a collate function:
-        targets_keys = list(model.dataset_info.targets.keys())
-        collate_fn = CollateFn(
-            target_keys=targets_keys,
-            callables=[
-                get_system_with_neighbor_lists_transform(
-                    get_requested_neighbor_lists(model)
-                ),
-            ],
-        )
-
-        # Create dataloader for the training datasets:
-        train_dataloaders = []
-        for train_dataset in train_datasets:
-            if len(train_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A training dataset has fewer samples "
-                    f"({len(train_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
-            train_dataloaders.append(
-                DataLoader(
-                    dataset=train_dataset,
-                    batch_size=self.hypers["batch_size"],
-                    shuffle=False,
-                    drop_last=False,
-                    collate_fn=collate_fn,
-                )
-            )
-        train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=False)
-
-        # Create dataloader for the validation datasets:
-        val_dataloaders = []
-        for val_dataset in val_datasets:
-            if len(val_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A validation dataset has fewer samples "
-                    f"({len(val_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
-            val_dataloaders.append(
-                DataLoader(
-                    dataset=val_dataset,
-                    batch_size=self.hypers["batch_size"],
-                    shuffle=False,
-                    drop_last=False,
-                    collate_fn=collate_fn,
-                )
-            )
-        val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
-
         if start_epoch == 0:
-            logging.info("Starting LLPR preparation and calibration")
-            model.compute_covariance(train_dataloader)
-            model.compute_inverse_covariance(self.hypers["regularizer"])
-            model.calibrate(val_dataloader)
+            logging.info("Computing LLPR covariance matrix")
+            model.compute_covariance(
+                train_datasets, self.hypers["batch_size"], is_distributed
+            )
+            logging.info("Computing Cholesky decomposition of the covariance matrix")
+            model.compute_cholesky_decomposition(self.hypers["regularizer"])
+            logging.info("Calibrating LLPR uncertainties")
+            model.calibrate(
+                val_datasets,
+                self.hypers["batch_size"],
+                is_distributed,
+                self.hypers["calibration_method"],
+            )
+            logging.info("Generating LLPR ensemble members")
             model.generate_ensemble()
-            logging.info("LLPR calibration complete")
+            logging.info("LLPR complete!")
 
         if self.hypers["num_epochs"] is None:
-            logging.info(
-                "num_epochs is None, skipping ensemble weight training and "
-                "proceeding to model export"
-            )
+            if is_distributed:
+                torch.distributed.destroy_process_group()
             return
+        else:
+            logging.info("`num_epochs` is set: starting LLPR ensemble weight training")
 
-        # Initialize distributed training environment if requested
-        # This is done after LLPR calibration to avoid modifying calibration
-        # dataloaders
-        world_size = 1  # default for non-distributed training
-        if is_distributed:
-            if len(devices) > 1:
-                raise ValueError(
-                    "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with LLPR, please "
-                    "set `device` to cuda."
-                )
-            # the calculation of the device number works both when GPUs on different
-            # processes are not visible to each other and when they are
-            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
-            device_number = distr_env.local_rank % torch.cuda.device_count()
-            device = torch.device("cuda", device_number)
-            torch.distributed.init_process_group(backend="nccl", device_id=device)
-            world_size = torch.distributed.get_world_size()
-            rank = torch.distributed.get_rank()
-            logging.info(f"Initialized distributed training on {world_size} devices")
+        # Continue with ensemble training if num_epochs is not None
+        # (distributed environment is already initialized if needed)
+        world_size = torch.distributed.get_world_size() if is_distributed else 1
 
-            # Move model to the correct device for this process
-            model.to(device=device, dtype=dtype)
-
-        logging.info("Starting epoch-based training for LLPR ensemble calibration")
+        logging.info("Starting gradient-based training for LLPR ensemble calibration")
 
         # Re-create the dataloaders to make them shuffle and augment the data
         train_targets = model.dataset_info.targets
@@ -351,7 +304,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             for gradient_name in target_info.gradients:
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
-        model = apply_ensemble_training_strategy(
+        model = _apply_ensemble_training_strategy(
             model, self.hypers["train_all_parameters"]
         )
 
@@ -440,6 +393,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
             train_loss = 0.0
 
             for batch in train_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = unpack_batch(batch)
@@ -502,51 +459,61 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
                 )
 
-            val_loss = 0.0
-            for batch in val_dataloader:
-                systems, targets, extra_data = unpack_batch(batch)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
-                )
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
-                )
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    requested_outputs,
-                    is_training=False,
-                )
-                val_loss_batch = loss_fn(predictions, targets, extra_data)
+            with torch.set_grad_enabled(
+                any(target_info.gradients for target_info in train_targets.values())
+            ):  # keep gradients on if any of the targets require them
+                val_loss = 0.0
+                for batch in val_dataloader:
+                    # Skip None batches (those outside batch_atom_bounds)
+                    if should_skip_batch(batch, is_distributed, device):
+                        continue
 
-                if is_distributed:
-                    # sum the loss over all processes
-                    torch.distributed.all_reduce(val_loss_batch)
-                val_loss += val_loss_batch.item()
-
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
-                targets = _drop_gradient_blocks(targets)
-                val_rmse_calculator.update(predictions, targets)
-                if self.hypers["log_mae"]:
-                    val_mae_calculator.update(predictions, targets)
-
-            finalized_val_info = val_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets,
-                is_distributed=is_distributed,
-                device=device,
-            )
-            if self.hypers["log_mae"]:
-                finalized_val_info.update(
-                    val_mae_calculator.finalize(
-                        not_per_atom=["positions_gradients"] + per_structure_targets,
-                        is_distributed=is_distributed,
-                        device=device,
+                    systems, targets, extra_data = unpack_batch(batch)
+                    systems, targets, extra_data = batch_to(
+                        systems, targets, extra_data, device=device
                     )
+                    systems, targets, extra_data = batch_to(
+                        systems, targets, extra_data, dtype=dtype
+                    )
+                    predictions = evaluate_model(
+                        model,
+                        systems,
+                        requested_outputs,
+                        is_training=False,
+                    )
+                    val_loss_batch = loss_fn(predictions, targets, extra_data)
+
+                    if is_distributed:
+                        # sum the loss over all processes
+                        torch.distributed.all_reduce(val_loss_batch)
+                    val_loss += val_loss_batch.item()
+
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(
+                        targets, systems, per_structure_targets
+                    )
+
+                    targets = _drop_gradient_blocks(targets)
+                    val_rmse_calculator.update(predictions, targets)
+                    if self.hypers["log_mae"]:
+                        val_mae_calculator.update(predictions, targets)
+
+                finalized_val_info = val_rmse_calculator.finalize(
+                    not_per_atom=["positions_gradients"] + per_structure_targets,
+                    is_distributed=is_distributed,
+                    device=device,
                 )
+                if self.hypers["log_mae"]:
+                    finalized_val_info.update(
+                        val_mae_calculator.finalize(
+                            not_per_atom=["positions_gradients"]
+                            + per_structure_targets,
+                            is_distributed=is_distributed,
+                            device=device,
+                        )
+                    )
 
             # Now we log the information:
             finalized_train_info = {
@@ -636,7 +603,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
         trainer = cls(hypers)
         trainer.optimizer_state_dict = checkpoint["optimizer_state_dict"]
         trainer.scheduler_state_dict = checkpoint["scheduler_state_dict"]
-        trainer.epoch = checkpoint["epoch"]
+        if context == "restart":
+            trainer.epoch = checkpoint["epoch"]
+        else:
+            assert context == "finetune"
+            trainer.epoch = None  # interpreted as zero in the training loop
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
         trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
@@ -679,3 +650,30 @@ def _drop_gradient_blocks(targets: Dict[str, Any]) -> Dict[str, Any]:
             new_blocks.append(new_block)
         filtered_targets[key] = TensorMap(value.keys, new_blocks)
     return filtered_targets
+
+
+def _apply_ensemble_training_strategy(
+    model: torch.nn.Module,
+    train_all_parameters: bool,
+) -> torch.nn.Module:
+    """
+    Apply the user-specified ensemble training strategy to the LLPR-wrapped
+    model. This function modifies the model in place based on the provided
+    trainable parameters.
+
+    :param model: LLPR-wrapped model to be recalibrated.
+    :param train_all_parameters: Whether to train all parameters or only the LLPR
+        ensemble layers.
+    :return: the model with updated trainable parameters.
+    """
+
+    # Start by making all parameters trainable
+    for param in model.parameters():
+        param.requires_grad = True
+
+    if not train_all_parameters:
+        # Freeze all parameters of the base model
+        for param in model.model.parameters():
+            param.requires_grad = False
+
+    return model

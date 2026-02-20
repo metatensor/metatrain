@@ -32,15 +32,27 @@ compatibility with various MD engines.
 # List of Implemented Architectures
 
 Currently `metatrain` supports the following architectures for building an atomistic
-model:
+model (sorted by alphabetic order):
 
-| Name                     | Description                                                                                                                          |
-|--------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| GAP                      | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
-| PET                      | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
-| NanoPET *(deprecated)*   | Re-implementation of the original PET with slightly improved training and evaluation speed                                           |
-| SOAP BPNN                | A Behler-Parrinello neural network with SOAP features                                                                                |
-| FlashMD                  | An architecture for the direct prediction of molecular dynamics                                                                      |
+| Name                                     | Description                                                                                                                          |
+|------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| [FlashMD][arch-flashmd]                  | An architecture for the direct prediction of molecular dynamics                                                                      |
+| [GAP][arch-gap]                          | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
+| [MACE][arch-mace]                        | A higher order equivariant message passing neural network.                                                                           |
+| [NanoPET (deprecated)][arch-nanopet]     | Experimental re-implementation of the original PET that is deprecated in favour of the current PET.                                  |
+| [PET][arch-pet]                          | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
+| [SOAP BPNN][arch-soap_bpnn]              | A Behler-Parrinello neural network with SOAP features                                                                                |
+
+<!-- marker-arch-links -->
+
+<!-- links for the different architectures. To be replaced if we are building the docs locally or
+on a PR, since the docs use this README file directly.-->
+[arch-flashmd]: https://docs.metatensor.org/metatrain/latest/architectures/generated/flashmd.html
+[arch-gap]: https://docs.metatensor.org/metatrain/latest/architectures/generated/gap.html
+[arch-mace]: https://docs.metatensor.org/metatrain/latest/architectures/generated/mace.html
+[arch-nanopet]: https://docs.metatensor.org/metatrain/latest/architectures/generated/nanopet.html
+[arch-pet]: https://docs.metatensor.org/metatrain/latest/architectures/generated/pet.html
+[arch-soap_bpnn]: https://docs.metatensor.org/metatrain/latest/architectures/generated/soap_bpnn.html
 
 <!-- marker-documentation -->
 

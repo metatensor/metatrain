@@ -227,7 +227,7 @@ def generate_rst(
     title_id = 0
     underline_id = 1
     docstring = (
-        f".. _architecture-{template_variables['architecture']}:\n\n"
+        f".. _arch-{template_variables['architecture']}:\n\n"
         + lines[title_id]
         + "\n"
         + lines[underline_id]
