@@ -14,7 +14,7 @@ def systems_to_batch(
     systems: List[System], nl_options: NeighborListOptions
 ) -> Dict[str, torch.Tensor]:
     """
-    Convert a list of System objects directly to a GNN-batch-like dictionary.
+    Convert a list of System objects to a GNN-batch-like dictionary.
 
     This function creates a torch-compile-friendly batch representation with
     stacked positions, cells, number of atoms per structure, atomic types,
@@ -23,15 +23,15 @@ def systems_to_batch(
     :param systems: List of System objects to batch
     :param nl_options: Neighbor list options to extract neighbor information
     :return: Dictionary containing batched tensors:
-        - positions: stacked positions of all atoms [N_total, 3]
+        - positions: stacked positions of all atoms [N_atoms, 3]
         - cells: stacked unit cells [N_structures, 3, 3]
-        - species: atomic types of all atoms [N_total]
+        - species: atomic types of all atoms [N_atoms]
         - n_atoms: number of atoms per structure [N_structures]
         - cell_shifts: cell shift vectors for all pairs [N_pairs, 3]
-        - centers: local atom indices within each structure [N_total]
+        - centers: local atom indices within each structure [N_atoms]
         - center_indices: global center indices for all pairs [N_pairs]
         - neighbor_indices: global neighbor indices for all pairs [N_pairs]
-        - structure_centers: structure index for each atom [N_total]
+        - structure_centers: structure index for each atom [N_atoms]
         - structure_pairs: structure index for each pair [N_pairs]
         - structure_offsets: cumulative atom offsets per structure [N_structures]
     """
@@ -47,7 +47,7 @@ def systems_to_batch(
     structures_centers_list = []
     structure_pairs_list = []
 
-    cumulative_atoms = 0
+    cumulative_num_atoms = 0
     for i, system in enumerate(systems):
         n_atoms_i = len(system.positions)
         n_atoms_list.append(n_atoms_i)
@@ -58,12 +58,12 @@ def systems_to_batch(
 
         nl = system.get_neighbor_list(nl_options)
         samples = nl.samples.values
-        edge_indices = samples[:, :2]  # local center/neighbor indices
-        cell_shifts_item = samples[:, 2:]
+        edge_indices = samples[:, :2]  # center and neighbor indices
+        cell_shifts_item = samples[:, 2:]  # cell shift vectors for periodic images
 
         # Create global indices by adding cumulative offset
-        global_center_indices = edge_indices[:, 0] + cumulative_atoms
-        global_neighbor_indices = edge_indices[:, 1] + cumulative_atoms
+        global_center_indices = edge_indices[:, 0] + cumulative_num_atoms
+        global_neighbor_indices = edge_indices[:, 1] + cumulative_num_atoms
 
         edge_index_list.append(
             torch.stack([global_center_indices, global_neighbor_indices], dim=1)
@@ -78,7 +78,7 @@ def systems_to_batch(
             torch.full((len(edge_indices),), i, device=device, dtype=torch.int32)
         )
 
-        cumulative_atoms += n_atoms_i
+        cumulative_num_atoms += n_atoms_i
 
     positions = torch.cat(positions_list, dim=0)
     species = torch.cat(species_list, dim=0)
@@ -108,16 +108,11 @@ def systems_to_batch(
         "structure_pairs": structure_pairs,
         "structure_offsets": structure_offsets,
     }
-
     return batch_dict
 
 
 def get_random_inversion() -> int:
-    """
-    Randomly choose an inversion factor (-1 or 1).
-
-    :return: either -1 or 1
-    """
+    """Randomly chooses an inversion factor (-1 or 1)."""
     return random.choice([1, -1])
 
 

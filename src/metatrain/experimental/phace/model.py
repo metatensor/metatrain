@@ -21,6 +21,7 @@ from metatrain.experimental.phace.modules.base_model import (
     FakeGradientModel,
     GradientModel,
 )
+from metatrain.experimental.phace.modules.cg_coefficients import ClebschGordanReal
 from metatrain.experimental.phace.utils import systems_to_batch
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
@@ -55,6 +56,8 @@ class PhACE(ModelInterface[ModelHypers]):
 
     component_labels: Dict[str, List[List[Labels]]]
     U_dict: Dict[int, torch.Tensor]
+    cartesian_rank2_targets: List[str]  # torchscript needs this
+    _sph_to_cart_rank2: torch.Tensor  # torchscript needs this
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -92,6 +95,22 @@ class PhACE(ModelInterface[ModelHypers]):
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
+        self.cartesian_rank2_targets: List[str] = []
+
+        # Pre-compute spherical→Cartesian conversion matrix for rank-2 tensors.
+        # W[i,j,M] maps 9 spherical components (l=0,1,2) to 3×3 Cartesian.
+        cg = ClebschGordanReal()
+        U = torch.tensor([[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+        W = torch.zeros(3, 3, 9, dtype=torch.float64)
+        offset = 0
+        for L in [0, 1, 2]:
+            cg_L = cg.get((1, 1, L)).to(torch.float64)  # shape (3, 3, 2L+1)
+            W[:, :, offset : offset + 2 * L + 1] = torch.einsum(
+                "im,jn,mnp->ijp", U.to(torch.float64), U.to(torch.float64), cg_L
+            )
+            offset += 2 * L + 1
+        self._sph_to_cart_rank2 = W
+
         self.mlp_head_num_layers = self.hypers["mlp_head_num_layers"]
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
@@ -342,6 +361,17 @@ class PhACE(ModelInterface[ModelHypers]):
                         return_dict[output_name].block().values[:] = (
                             return_dict[output_name].block().values[:, [2, 0, 1]]
                         )
+            # Handle Cartesian rank-2 outputs (e.g. non-conservative stress)
+            if output_name in self.cartesian_rank2_targets:
+                return_dict[output_name] = _to_cartesian_rank_2(
+                    return_dict[output_name], self._sph_to_cart_rank2
+                )
+                if "non_conservative_stress" in output_name:
+                    return_dict[output_name] = _process_non_conservative_stress(
+                        return_dict[output_name],
+                        systems,
+                        batch["structure_centers"].to(torch.int64),
+                    )
             if selected_atoms is not None:
                 return_dict[output_name] = metatensor.torch.slice(
                     return_dict[output_name], axis="samples", selection=selected_atoms
@@ -553,13 +583,38 @@ class PhACE(ModelInterface[ModelHypers]):
             per_atom=True,
         )
 
-        self.key_labels[target_name] = target_info.layout.keys
-        self.component_labels[target_name] = [
-            block.components for block in target_info.layout.blocks()
-        ]
-        self.property_labels[target_name] = [
-            block.properties for block in target_info.layout.blocks()
-        ]
+        if target_info.is_cartesian and len(target_info.layout.block().components) == 2:
+            # rank-2 Cartesian: store internal spherical layout (l=0, l=1, l=2)
+            # so that the forward pass constructs the spherical TensorMap, which
+            # is then converted to Cartesian by _to_cartesian_rank_2.
+            self.cartesian_rank2_targets.append(target_name)
+            internal_keys = Labels(
+                ["o3_lambda", "o3_sigma"],
+                torch.tensor([[0, 1], [1, -1], [2, 1]]),
+            )
+            internal_component_labels: List[List[Labels]] = []
+            internal_property_labels: List[Labels] = []
+            for l in [0, 1, 2]:  # noqa: E741
+                internal_component_labels.append(
+                    [
+                        Labels(
+                            "o3_mu",
+                            torch.arange(-l, l + 1).reshape(-1, 1),
+                        )
+                    ]
+                )
+                internal_property_labels.append(target_info.layout.block().properties)
+            self.key_labels[target_name] = internal_keys
+            self.component_labels[target_name] = internal_component_labels
+            self.property_labels[target_name] = internal_property_labels
+        else:
+            self.key_labels[target_name] = target_info.layout.keys
+            self.component_labels[target_name] = [
+                block.components for block in target_info.layout.blocks()
+            ]
+            self.property_labels[target_name] = [
+                block.properties for block in target_info.layout.blocks()
+            ]
 
     def requested_neighbor_lists(
         self,
@@ -604,3 +659,77 @@ class PhACE(ModelInterface[ModelHypers]):
             )
 
         return checkpoint
+
+
+def _to_cartesian_rank_2(tensor_map: TensorMap, W: torch.Tensor) -> TensorMap:
+    """
+    Convert spherical blocks (l=0, l=1, l=2) to a rank-2 Cartesian tensor.
+
+    :param tensor_map: TensorMap with 3 blocks keyed by ``(o3_lambda, o3_sigma)``:
+        ``(0,1)``, ``(1,-1)``, ``(2,1)``. Each block has shape
+        ``[n_samples, 2l+1, n_props]``.
+    :param W: conversion matrix of shape ``(3, 3, 9)``, mapping 9 spherical
+        components to 3x3 Cartesian.
+    :return: TensorMap with 1 block, components ``[xyz_1, xyz_2]``,
+        shape ``[n_samples, 3, 3, n_props]``.
+    """
+    # Concatenate spherical components: [n_samples, 1+3+5, n_props] = [n, 9, p]
+    sph = torch.cat([block.values for block in tensor_map.blocks()], dim=1)
+
+    # Apply conversion: T_ij^p = W_ij^M * S_M^p
+    cart = torch.einsum("ijM,nMp->nijp", W.to(dtype=sph.dtype, device=sph.device), sph)
+
+    device = cart.device
+    samples = tensor_map.block(0).samples
+    keys = Labels(
+        names=["_"],
+        values=torch.tensor([[0]], device=device),
+    )
+    block = TensorBlock(
+        values=cart,
+        samples=samples,
+        components=[
+            Labels("xyz_1", torch.arange(3, device=device).reshape(-1, 1)),
+            Labels("xyz_2", torch.arange(3, device=device).reshape(-1, 1)),
+        ],
+        properties=tensor_map.block(0).properties,
+    )
+    return TensorMap(keys=keys, blocks=[block])
+
+
+def _process_non_conservative_stress(
+    tensor_map: TensorMap,
+    systems: List[System],
+    system_indices: torch.Tensor,
+) -> TensorMap:
+    """
+    Symmetrize and normalize by cell volume a rank-2 Cartesian tensor
+    representing non-conservative stress.
+
+    :param tensor_map: TensorMap with 1 block, shape ``[n_atoms, 3, 3, n_props]``.
+    :param systems: List of systems (to extract cell volumes).
+    :param system_indices: Tensor mapping each atom to its system index ``[n_atoms]``.
+    :return: Processed TensorMap with same structure.
+    """
+    block = tensor_map.block(0)
+    values = block.values  # (n_atoms, 3, 3, n_props)
+
+    # Compute volumes
+    volumes = torch.stack([torch.abs(torch.det(system.cell)) for system in systems])
+    # Zero volume → inf (non-periodic directions have zero cell vectors)
+    volumes[volumes == 0.0] = torch.inf
+    volumes_per_atom = volumes[system_indices].reshape(-1, 1, 1, 1)
+
+    # Divide by volume
+    values = values / volumes_per_atom
+
+    # Symmetrize: (T + T^T) / 2
+    values = (values + values.transpose(1, 2)) / 2.0
+
+    new_block = TensorBlock(
+        values=values,
+        samples=block.samples,
+        components=block.components,
+        properties=block.properties,
+    )
+    return TensorMap(keys=tensor_map.keys, blocks=[new_block])

@@ -158,7 +158,7 @@ def get_cartesian_vectors(
     """
     Calculate direction vectors between center and neighbor atoms.
 
-    :param positions: Atomic positions [N_total, 3]
+    :param positions: Atomic positions [N_atoms, 3]
     :param cells: Unit cells [N_structures, 3, 3]
     :param cell_shifts: Cell shift vectors [N_pairs, 3]
     :param center_indices: Global center indices [N_pairs]

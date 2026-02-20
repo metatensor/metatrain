@@ -148,9 +148,9 @@ class BaseModel(torch.nn.Module):
         Forward pass of the base model.
 
         :param batch: Dictionary containing batched tensors:
-            - positions: stacked positions of all atoms [N_total, 3]
+            - positions: stacked positions of all atoms [N_atoms, 3]
             - cells: stacked unit cells [N_structures, 3, 3]
-            - species: atomic types of all atoms [N_total]
+            - species: atomic types of all atoms [N_atoms]
             - cell_shifts: cell shift vectors for all pairs [N_pairs, 3]
             - center_indices: global center indices for all pairs [N_pairs]
             - neighbor_indices: global neighbor indices for all pairs [N_pairs]
@@ -305,9 +305,10 @@ class BaseModel(torch.nn.Module):
             )
         elif target_info.is_cartesian:
             # here, we handle Cartesian targets
-            # we just treat them as a spherical L=1 targets, the conversion is
-            # performed in the metatensor wrapper (model.py)
+            # the conversion to Cartesian is performed in the metatensor wrapper
+            # (model.py)
             if len(target_info.layout.block().components) == 1:
+                # rank-1: treat as a spherical L=1 target
                 self.last_layers[target_name] = torch.nn.ModuleDict(
                     {
                         "1": Linear(
@@ -315,9 +316,23 @@ class BaseModel(torch.nn.Module):
                         )
                     }
                 )
+            elif len(target_info.layout.block().components) == 2:
+                # rank-2: predict as 3 spherical components (l=0,1,2),
+                # converted to Cartesian in the metatensor wrapper (model.py)
+                num_props = len(target_info.layout.block().properties)
+                rank2_layers: Dict[str, torch.nn.Module] = {}
+                for l in [0, 1, 2]:  # noqa: E741
+                    if l > self.l_max:
+                        raise ValueError(
+                            f"Target {target_name} requires l={l}, but the model's "
+                            f"basis only goes up to l={self.l_max}. You should "
+                            "increase the ``max_eigenvalue`` hyperparameter."
+                        )
+                    rank2_layers[str(l)] = Linear(self.k_max_l[l], num_props)
+                self.last_layers[target_name] = torch.nn.ModuleDict(rank2_layers)
             else:
                 raise NotImplementedError(
-                    "PhACE only supports Cartesian targets with rank=1."
+                    "PhACE only supports Cartesian targets with rank=1 or rank=2."
                 )
         else:  # spherical equivariant
             irreps = []
