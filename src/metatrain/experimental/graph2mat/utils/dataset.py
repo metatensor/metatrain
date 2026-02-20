@@ -25,6 +25,7 @@ def system_to_config(
     system: System,
     data_processor: MatrixDataProcessor,
     block_dict: Optional[dict[tuple[int, int, int], torch.Tensor]] = None,
+    nsc: Optional[torch.Tensor] = None,
 ) -> BasisConfiguration:
     """Convert a Metatomic System to a Graph2Mat BasisConfiguration."""
 
@@ -46,7 +47,7 @@ def system_to_config(
     if block_dict is None:
         matrix = None
     else:
-        matrix = BasisMatrix(block_dict, geometry.nsc, geometry.orbitals)
+        matrix = BasisMatrix(block_dict, nsc if nsc is not None else geometry.nsc, geometry.orbitals)
 
     return BasisConfiguration.from_geometry(geometry, matrix=matrix)
 
@@ -130,7 +131,7 @@ def get_graph2mat_transform(
 
             configs = [
                 system_to_config(
-                    system, graph2mat_processors[target_name], block_dict_matrices[i]
+                    system, graph2mat_processors[target_name], block_dict_matrices[i], nsc=lattices[i].nsc
                 )
                 for i, system in zip(system_indices, systems, strict=True)
             ]
