@@ -155,7 +155,6 @@ class Scaler(torch.nn.Module):
             dict mapping atomic type (int) to weight (float). If not provided, all
             scales will be computed based on the accumulated quantities.
         """
-
         if not isinstance(datasets, list):
             datasets = [datasets]
 

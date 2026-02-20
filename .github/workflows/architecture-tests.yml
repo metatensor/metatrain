@@ -15,6 +15,7 @@ jobs:
         architecture-name:
           - classifier
           - flashmd
+          - flashmd-symplectic
           - gap
           - llpr
           - mace

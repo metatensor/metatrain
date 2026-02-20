@@ -7,15 +7,7 @@ architecture:
     batch_size: 2  # to be increased in a production scenario
     num_epochs: 5  # to be increased (at least 1000-10000) in a production scenario
     log_interval: 1
-    loss:
-      positions:
-        type: mse
-        weight: 1.0
-        reduction: mean
-      momenta:
-        type: mse
-        weight: 1.0
-        reduction: mean
+    loss: mse
 
 training_set:
   systems:
