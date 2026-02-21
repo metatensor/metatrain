@@ -23,7 +23,7 @@ from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
 
 from .documentation import ModelHypers
-from .modules.edge_embedding import BesselBasis
+from .modules.edge_embedding import RadialEmbeddingBlock
 from .utils.basis import get_basis_table_from_yaml
 from .utils.mtt import g2m_labels_to_tensormap, split_dataset_info
 from .utils.structures import create_batch, get_edge_vectors_and_lengths
@@ -92,9 +92,11 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
 
         # Functions to embed edges for graph2mat.
         # Radial embedding (i.e. embedding of the edge length).
-        n_basis = 8
-        self.radial_embedding = BesselBasis(
-            r_max=np.max(basis_table.R), num_basis=n_basis
+        n_basis = 10
+        self.radial_embedding = RadialEmbeddingBlock(
+            r_max=np.max(basis_table.R) * 2,
+            num_bessel=n_basis, 
+            num_polynomial_cutoff=10
         )
 
         # Embedding of the direction of the edge.
@@ -324,7 +326,9 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
                 shifts=data["shifts"],
             )
             edge_attrs = self.spherical_harmonics(vectors)
-            edge_feats = self.radial_embedding(lengths)
+            edge_feats = self.radial_embedding(
+                lengths, data["node_attrs"], data["edge_index"], self.dataset_info.atomic_types
+            )
 
             data["edge_attrs"] = edge_attrs
             data["edge_feats"] = edge_feats
