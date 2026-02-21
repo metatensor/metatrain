@@ -81,6 +81,11 @@ mace = [
     "e3nn"
 ]
 flashmd = []
+graph2mat = [
+    "graph2mat[e3nn]",
+    "e3nn",
+    "sisl",
+]
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]

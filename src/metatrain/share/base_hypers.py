@@ -75,6 +75,7 @@ class GradientDict(TypedDict):
 
 
 ScalarTargetTypeHyper = Literal["scalar"]
+BasisTargetTypeHyper = Literal["basis"]
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))
@@ -143,7 +144,10 @@ class TargetHypers(TypedDict):
     """Whether the target is a per-atom quantity, as opposed to a global
     (per-structure) quantity."""
     type: NotRequired[
-        ScalarTargetTypeHyper | CartesianTargetTypeHypers | SphericalTargetTypeHypers
+        ScalarTargetTypeHyper
+        | CartesianTargetTypeHypers
+        | SphericalTargetTypeHypers
+        | BasisTargetTypeHyper
     ]
     """Specifies the type of the target.
 
