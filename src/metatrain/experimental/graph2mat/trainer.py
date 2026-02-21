@@ -239,13 +239,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Create dataloader for the validation datasets:
         val_dataloaders = []
         for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
-            if len(val_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A validation dataset has fewer samples "
-                    f"({len(val_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
             val_dataloaders.append(
                 DataLoader(
                     dataset=val_dataset,
@@ -442,7 +435,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
 
             if lr_scheduler is not None:
-                lr_scheduler.step(metrics=val_loss)
+                lr_scheduler.step()#metrics=val_loss)
 
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
