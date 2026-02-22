@@ -77,7 +77,6 @@ class PhACE(ModelInterface[ModelHypers]):
         self.module = self.fake_gradient_model
 
         self.k_max_l = self.module.module.k_max_l
-        logging.info(f"PhACE k_max_l: {self.k_max_l}")
         self.l_max = len(self.k_max_l) - 1
 
         self.final_scaling = hypers["final_scaling"]
