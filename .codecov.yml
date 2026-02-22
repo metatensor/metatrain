@@ -53,6 +53,16 @@ component_management:
       paths:
         - "src/metatrain/experimental/flashmd/.*"
 
+    - component_id: classifier
+      name: Classifier
+      paths:
+        - "src/metatrain/experimental/classifier/.*"
+
+    - component_id: mace
+      name: MACE
+      paths:
+        - "src/metatrain/experimental/mace/.*"
+
   ignore:
     # no need to report coverage of the test code themself
     - "src/metatrain/utils/testing/.*"
