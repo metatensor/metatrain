@@ -407,6 +407,7 @@ def test_compiled_vs_eager_backward():
     }
     targets_data, _ = read_targets(OmegaConf.create(conf))
     raw_systems = read_systems(DATASET_PATH)[:5]
+    targets_data["mtt::U0"] = targets_data["mtt::U0"][:5]
     dataset = Dataset.from_dict(
         {"system": raw_systems, "mtt::U0": targets_data["mtt::U0"]}
     )
@@ -474,6 +475,10 @@ def test_compiled_vs_eager_backward():
         )
 
 
+@pytest.mark.skipif(
+    not torch.cuda.is_available(),
+    reason="compiled forces path needs SDPA double backward (CUDA only)",
+)
 def test_compiled_vs_eager_backward_with_forces():
     """Compiled backward with forces matches eager backward.
 
@@ -483,6 +488,10 @@ def test_compiled_vs_eager_backward_with_forces():
     can propagate through force contributions.
 
     Both paths should yield identical parameter gradients within tolerance.
+
+    Requires CUDA: torch.compile's AOT autograd must differentiate through
+    the force computation's backward pass (SDPA double backward), which is
+    only implemented for CUDA.
     """
     from omegaconf import OmegaConf
     from torch.utils.data import DataLoader
@@ -561,6 +570,7 @@ def test_compiled_vs_eager_backward_with_forces():
         pad_mask,
         rev_idx,
         cutoff_facs,
+        use_manual_attention=True,  # needed for create_graph=True backward
     )
     energy_key = next(iter(model_eager.output_shapes["mtt::U0"]))
     per_atom_eager = batch_output["mtt::U0"][energy_key]
@@ -620,6 +630,7 @@ def test_compiled_vs_eager_backward_with_forces():
     }
     targets_data, _ = read_targets(OmegaConf.create(conf))
     raw_systems = read_systems(DATASET_PATH)[:5]
+    targets_data["mtt::U0"] = targets_data["mtt::U0"][:5]
     dataset = Dataset.from_dict(
         {"system": raw_systems, "mtt::U0": targets_data["mtt::U0"]}
     )
