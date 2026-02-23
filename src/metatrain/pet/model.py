@@ -579,15 +579,18 @@ class PET(ModelInterface[ModelHypers]):
         padding_mask: torch.Tensor,
         reverse_neighbor_index: torch.Tensor,
         cutoff_factors: torch.Tensor,
+        use_manual_attention: bool = False,
     ) -> Dict[str, Dict[str, torch.Tensor]]:
         """
         Pure-tensor forward pass for FX compilation.
 
         Takes batch tensors and returns raw per-atom predictions as nested
-        dictionaries (target_name -> block_key -> tensor). Always uses SDPA
+        dictionaries (target_name -> block_key -> tensor). Defaults to SDPA
         attention (no manual attention needed since forces are computed via
         ``autograd.grad(create_graph=False)`` in the compiled graph, avoiding
-        double backward).
+        double backward). Callers that need double backward (e.g. eager force
+        computation with ``create_graph=True``) should pass
+        ``use_manual_attention=True``.
 
         :param element_indices_nodes: Atomic species of central atoms [n_atoms].
         :param element_indices_neighbors: Atomic species of neighbors
@@ -599,6 +602,9 @@ class PET(ModelInterface[ModelHypers]):
         :param reverse_neighbor_index: Reversed neighbor index for message
             passing [n_atoms, max_neighbors].
         :param cutoff_factors: Cutoff function values [n_atoms, max_neighbors].
+        :param use_manual_attention: Use manual attention instead of SDPA.
+            Required for double backward (``create_graph=True``). Defaults
+            to ``False``.
         :return: Nested dict mapping target_name -> block_key -> per-atom
             prediction tensor.
         """
@@ -612,9 +618,8 @@ class PET(ModelInterface[ModelHypers]):
             cutoff_factors=cutoff_factors,
         )
 
-        # Always use SDPA (no double backward in compiled path)
         node_features_list, edge_features_list = self._calculate_features(
-            featurizer_inputs, use_manual_attention=False
+            featurizer_inputs, use_manual_attention=use_manual_attention
         )
 
         node_ll_dict, edge_ll_dict = self._calculate_last_layer_features(
