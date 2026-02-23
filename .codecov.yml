@@ -6,19 +6,16 @@ coverage:
     project:
       default: false
 
-    # core package
-    core:
-      target: 88%
-      paths:
-        - "src/metatrain/utils/.*"
-        - "src/metatrain/cli/.*"
+      # core package
+      core:
+        target: 88%
+        paths:
+          - "src/metatrain/utils/.*"
+          - "src/metatrain/cli/.*"
 
     patch:
       default:
         informational: true
-
-    component:
-      default: true
 
 component_management:
   individual_components:
@@ -66,11 +63,11 @@ component_management:
       paths:
         - "src/metatrain/experimental/mace/.*"
 
-  ignore:
-    # no need to report coverage of the test code themself
-    - "src/metatrain/utils/testing/.*"
-    - "src/metatrain/**/tests/.*"
-    # we don't currently run distributed tests on CI
-    - "src/metatrain/utils/distributed/.*"
+ignore:
+  # no need to report coverage of the test code themself
+  - "src/metatrain/utils/testing/.*"
+  - "src/metatrain/**/tests/.*"
+  # we don't currently run distributed tests on CI
+  - "src/metatrain/utils/distributed/.*"
 
 comment: false
