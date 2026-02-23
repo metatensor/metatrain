@@ -1204,9 +1204,9 @@ class MemmapDataset(TorchDataset):
                 ),
             )
 
-        joined_dict = {"system": system} | target_dict
+        joint_dict = {"system": system} | target_dict
         sample = self.sample_class._make(
-            [joined_dict[name] for name in self.sample_class._fields]
+            [joint_dict[name] for name in self.sample_class._fields]
         )
         return sample
 
