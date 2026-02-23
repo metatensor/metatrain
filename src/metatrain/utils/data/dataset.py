@@ -993,7 +993,8 @@ class MemmapDataset(TorchDataset):
         self.na = np.load(path / "na.npy")
         self.x = MemmapArray(path / "x.bin", (self.na[-1], 3), "float32", mode="r")
         self.a = MemmapArray(path / "a.bin", (self.na[-1],), "int32", mode="r")
-        self.c = MemmapArray(path / "c.bin", (self.ns, 3, 3), "float32", mode="r")
+        if os.path.exists(path / "c.bin"):
+            self.c = MemmapArray(path / "c.bin", (self.ns, 3, 3), "float32", mode="r")
         if os.path.exists(path / "momenta.bin"):  # for FlashMD
             self.momenta = MemmapArray(
                 path / "momenta.bin", (self.na[-1], 3), "float32", mode="r"
@@ -1066,7 +1067,10 @@ class MemmapDataset(TorchDataset):
     def __getitem__(self, i: int) -> Any:
         a = torch.tensor(self.a[self.na[i] : self.na[i + 1]], dtype=torch.int32)
         x = torch.tensor(self.x[self.na[i] : self.na[i + 1]], dtype=torch.float64)
-        c = torch.tensor(self.c[i], dtype=torch.float64)
+        if hasattr(self, "c"):
+            c = torch.tensor(self.c[i], dtype=torch.float64)
+        else:
+            c = torch.zeros((3, 3), dtype=torch.float64)
 
         system = System(
             positions=x,
@@ -1107,14 +1111,18 @@ class MemmapDataset(TorchDataset):
 
             target_block = TensorBlock(
                 values=torch.tensor(
-                    target_array[None, i]
-                    if not is_per_atom
-                    else target_array[self.na[i] : self.na[i + 1]],
+                    (
+                        target_array[None, i]
+                        if not is_per_atom
+                        else target_array[self.na[i] : self.na[i + 1]]
+                    ),
                     dtype=torch.float64,
                 ),
                 samples=samples,
                 components=components,
-                properties=Labels.range(target_key, target_array.shape[-1]),
+                properties=Labels.range(
+                    target_key.replace("mtt::", ""), target_array.shape[-1]
+                ),
             )
 
             # handle energy gradients
@@ -1196,7 +1204,11 @@ class MemmapDataset(TorchDataset):
                 ),
             )
 
-        sample = self.sample_class(**{"system": system, **target_dict})
+        joint_dict = {"system": system}
+        joint_dict.update(target_dict)
+        sample = self.sample_class._make(
+            [joint_dict[name] for name in self.sample_class._fields]
+        )
         return sample
 
     def get_target_info(self) -> Dict[str, TargetInfo]:
