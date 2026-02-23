@@ -1,3 +1,6 @@
+codecov:
+  branch: architecture-coverage-test
+
 coverage:
   status:
     project:
