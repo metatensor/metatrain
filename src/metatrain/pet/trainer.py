@@ -293,7 +293,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     requested_neighbor_lists[0],
                     basis_set=model.basis_set,
                     dtype=dtype,
-                    device=device,
+                    device="cpu",
                 ),
                 rotational_augmenter.apply_random_augmentations,
                 get_create_dynamic_target_mask_transform(dynamic_mask_targets),
@@ -311,7 +311,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     requested_neighbor_lists[0],
                     basis_set=model.basis_set,
                     dtype=dtype,
-                    device=device,
+                    device="cpu",
                 ),
                 get_create_dynamic_target_mask_transform(dynamic_mask_targets),
                 get_remove_additive_transform(additive_models, train_targets),
@@ -484,7 +484,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = loss_fn(predictions, targets, extra_data)
+                train_loss_batch = loss_fn(predictions, targets, systems, extra_data)
 
                 if is_distributed:
                     # make sure all parameters contribute to the gradient calculation
@@ -568,7 +568,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                val_loss_batch = loss_fn(predictions, targets, extra_data)
+                val_loss_batch = loss_fn(predictions, targets, systems, extra_data)
 
                 if is_distributed:
                     # sum the loss over all processes
