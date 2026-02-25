@@ -743,6 +743,87 @@ class LossAggregator(LossInterface):
 
         return total_loss
 
+class EigenvalueLoss(LossInterface):
+
+    def __init__(
+        self,
+        name: str,
+        gradient,
+        weight: float,
+        reduction: str,
+        basis: str,
+        device,
+        target: str = "mtt::hamiltonian",
+    ):
+
+        super().__init__(
+            name=name,
+            gradient=gradient,
+            weight=weight,
+            reduction=reduction,
+        )
+
+        self.target = target
+        self.basis = read_basis_set(basis)
+        
+        self.b2m = Blocks2Matrix(
+            basis_set=self.basis,
+            dtype=torch.float64,
+            device=device,
+        )
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        systems,
+        extra_data: Dict[str, TensorMap],
+    ) -> torch.Tensor:
+
+        if extra_data is None:
+            raise ValueError("EigenvalueLoss requires extra_data")
+
+        overlap = extra_data.get("overlap", None)
+
+        if overlap is None:
+            raise ValueError("Missing overlaps in extra_data")
+        
+        #mask = build_tensor_map_mask(targets).to(torch.bool)
+
+        H_pred_list = self.b2m(systems, predictions)
+        H_ref_list  = self.b2m(systems, targets)
+        ovlp_matrix = self.b2m(systems, overlap)
+
+        losses = []
+
+        for sys_id, (H_pred, H_ref, S_ref) in enumerate(
+            zip(H_pred_list, H_ref_list, ovlp_matrix)
+        ):
+
+            H_pred0 = H_pred["0_0_0"]
+            H_ref0  = H_ref["0_0_0"]
+            S_ref0 = S_ref["0_0_0"]
+
+            eig_pred = torch.linalg.eigvalsh(H_pred0, S_ref0)
+            eig_ref  = torch.linalg.eigvalsh(H_ref0,  S_ref0)
+
+            ham_loss = (H_pred0 - H_ref0).pow(2).mean()
+            eig_loss = (eig_pred - eig_ref).pow(2).mean()
+
+            losses.append(ham_loss + eig_loss)
+
+
+        if len(losses) == 0:
+            return torch.zeros((), device=systems[0].device)
+
+        loss = torch.stack(losses)
+
+        if self.reduction == "mean":
+            return loss.mean()
+        elif self.reduction == "sum":
+            return loss.sum()
+        else:
+            raise ValueError(f"Unknown reduction {self.reduction}")
 
 class LossType(Enum):
     """
@@ -761,6 +842,7 @@ class LossType(Enum):
     POINTWISE = ("pointwise", BaseTensorMapLoss)
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
     MASKED_DOS = ("masked_dos", MaskedDOSLoss)
+    EIGENVALUE = ("eigenvalue", EigenvalueLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key
