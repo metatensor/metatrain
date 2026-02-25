@@ -91,7 +91,7 @@ epochs. To do so, use the following ``options.yaml`` file:
 .. code-block:: yaml
 
     architecture:
-        name: experimental.mace 
+        name: experimental.mace
         model:
             # Replace mace_model with the path to your file
             mace_model: path/to/foundation/mace/model.model
