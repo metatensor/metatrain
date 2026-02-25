@@ -10,7 +10,7 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 
-from . import MODEL_HYPERS, RESOURCES_PATH
+from ..conftest import MODEL_HYPERS, RESOURCES_PATH
 
 
 @pytest.mark.parametrize("training", [True, False])

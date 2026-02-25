@@ -1,6 +1,5 @@
 import copy
 import math
-from pathlib import Path
 
 import metatensor.torch
 import metatensor.torch as mts
@@ -19,8 +18,7 @@ from metatrain.utils.data.target_info import (
 )
 from metatrain.utils.scaler import Scaler, remove_scale
 
-
-RESOURCES_PATH = Path(__file__).parents[1] / "resources"
+from ..conftest import RESOURCES_PATH
 
 
 @pytest.mark.parametrize("batch_size", [1, 2])

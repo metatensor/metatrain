@@ -29,14 +29,12 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.pydantic import MetatrainValidationError
 from metatrain.utils.testing._utils import WANDB_AVAILABLE
 
-from . import (
+from ..conftest import (
     DATASET_PATH_CARBON,
     DATASET_PATH_DOS,
     DATASET_PATH_ETHANOL,
     DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
-    MODEL_PATH_64_BIT,
-    MODEL_PATH_PET,
     OPTIONS_EXTRA_DATA_PATH,
     OPTIONS_PATH,
     OPTIONS_PET_PATH,
@@ -687,20 +685,22 @@ def test_same_name_targets_extra_data(
         train_model(options_extra)
 
 
-def test_restart(options, monkeypatch, tmp_path):
+def test_restart(options, monkeypatch, tmp_path, MODEL_PATH_64_BIT):
     """Test that continuing training from a checkpoint runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
-    train_model(options, restart_from=MODEL_PATH_64_BIT)
+    train_model(options, restart_from=MODEL_PATH_64_BIT.with_suffix(".ckpt"))
 
 
-def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
+def test_finetune(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
     monkeypatch.chdir(tmp_path)
+
+    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
 
     options_pet["architecture"]["training"]["finetune"] = {
         "method": "heads",
-        "read_from": str(MODEL_PATH_PET),
+        "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
@@ -712,16 +712,18 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
     caplog.set_level(logging.INFO)
     train_model(options_pet)
 
-    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+    assert f"Starting finetuning from '{ckpt_path}'" in caplog.text
 
 
-def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
+def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
     monkeypatch.chdir(tmp_path)
+
+    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
 
     options_pet_transfer_learn = copy.deepcopy(options_pet)
     options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
         "method": "heads",
-        "read_from": str(MODEL_PATH_PET),
+        "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
@@ -736,16 +738,20 @@ def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
     caplog.set_level(logging.INFO)
     train_model(options_pet_transfer_learn)
 
-    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+    assert f"Starting finetuning from '{ckpt_path}'" in caplog.text
 
 
-def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
+def test_transfer_learn_with_forces(
+    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
+):
     monkeypatch.chdir(tmp_path)
+
+    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
 
     options_pet_transfer_learn = copy.deepcopy(options_pet)
     options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
         "method": "heads",
-        "read_from": str(MODEL_PATH_PET),
+        "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
@@ -769,16 +775,20 @@ def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
     caplog.set_level(logging.INFO)
     train_model(options_pet_transfer_learn)
 
-    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+    assert f"Starting finetuning from '{ckpt_path}'" in caplog.text
 
 
-def test_transfer_learn_variant(options_pet, caplog, monkeypatch, tmp_path):
+def test_transfer_learn_variant(
+    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
+):
     monkeypatch.chdir(tmp_path)
+
+    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
 
     options_pet_transfer_learn = copy.deepcopy(options_pet)
     options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
         "method": "full",
-        "read_from": str(MODEL_PATH_PET),
+        "read_from": str(ckpt_path),
     }
     options_pet_transfer_learn["training_set"]["systems"]["read_from"] = (
         "ethanol_reduced_100.xyz"
@@ -799,16 +809,20 @@ def test_transfer_learn_variant(options_pet, caplog, monkeypatch, tmp_path):
     caplog.set_level(logging.INFO)
     train_model(options_pet_transfer_learn)
 
-    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+    assert f"Starting finetuning from '{ckpt_path}'" in caplog.text
 
 
-def test_transfer_learn_inherit_heads(options_pet, caplog, monkeypatch, tmp_path):
+def test_transfer_learn_inherit_heads(
+    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
+):
     monkeypatch.chdir(tmp_path)
+
+    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
 
     options_pet_transfer_learn = copy.deepcopy(options_pet)
     options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
         "method": "full",
-        "read_from": str(MODEL_PATH_PET),
+        "read_from": str(ckpt_path),
         "config": {},
         "inherit_heads": {
             "mtt::energy": "energy",
@@ -828,16 +842,18 @@ def test_transfer_learn_inherit_heads(options_pet, caplog, monkeypatch, tmp_path
 
 
 def test_transfer_learn_inherit_heads_invalid_source(
-    options_pet, caplog, monkeypatch, tmp_path
+    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
 ):
     monkeypatch.chdir(tmp_path)
+
+    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
 
     options_pet_transfer_learn_invalid_source = copy.deepcopy(options_pet)
     options_pet_transfer_learn_invalid_source["architecture"]["training"][
         "finetune"
     ] = {
         "method": "full",
-        "read_from": str(MODEL_PATH_PET),
+        "read_from": str(ckpt_path),
         "config": {},
         "inherit_heads": {
             "mtt::energy": "foo",
@@ -858,14 +874,16 @@ def test_transfer_learn_inherit_heads_invalid_source(
 
 
 def test_transfer_learn_inherit_heads_invalid_destination(
-    options_pet, caplog, monkeypatch, tmp_path
+    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
 ):
     monkeypatch.chdir(tmp_path)
+
+    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
 
     options_pet_transfer_learn_invalid_dest = copy.deepcopy(options_pet)
     options_pet_transfer_learn_invalid_dest["architecture"]["training"]["finetune"] = {
         "method": "full",
-        "read_from": str(MODEL_PATH_PET),
+        "read_from": str(ckpt_path),
         "inherit_heads": {
             "mtt::foo": "energy",
         },
@@ -883,12 +901,16 @@ def test_transfer_learn_inherit_heads_invalid_destination(
 
 
 @pytest.mark.parametrize("move_folder", [True, False])
-def test_restart_auto(options, caplog, monkeypatch, tmp_path, move_folder):
+def test_restart_auto(
+    options, caplog, monkeypatch, tmp_path, move_folder, MODEL_PATH_64_BIT
+):
     """Test that continuing with the `auto` keyword results in
     a continuation from the most recent checkpoint."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
     caplog.set_level(logging.INFO)
+
+    ckpt_path = MODEL_PATH_64_BIT.with_suffix(".ckpt")
 
     # Make up an output directory with some checkpoints
     true_checkpoint_dir = Path("outputs/2021-09-02/00-10-05")
@@ -907,7 +929,7 @@ def test_restart_auto(options, caplog, monkeypatch, tmp_path, move_folder):
         for checkpoint_dir in fake_checkpoints_dirs + [true_checkpoint_dir]:
             time.sleep(0.1)
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy(MODEL_PATH_64_BIT, checkpoint_dir / checkpoint_name)
+            shutil.copy(ckpt_path, checkpoint_dir / checkpoint_name)
 
     # also check that the timestamp-based implementation works with moved folders
     if move_folder:
@@ -932,7 +954,7 @@ def test_restart_auto_no_outputs(options, caplog, monkeypatch, tmp_path):
     assert "Restart training from" not in caplog.text
 
 
-def test_restart_different_dataset(options, monkeypatch, tmp_path):
+def test_restart_different_dataset(options, monkeypatch, tmp_path, MODEL_PATH_64_BIT):
     """Test that continuing training from a checkpoint runs without an error raise
     with a different dataset than the original."""
     monkeypatch.chdir(tmp_path)
@@ -941,7 +963,7 @@ def test_restart_different_dataset(options, monkeypatch, tmp_path):
     options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"]["targets"]["energy"]["key"] = "energy"
 
-    train_model(options, restart_from=MODEL_PATH_64_BIT)
+    train_model(options, restart_from=MODEL_PATH_64_BIT.with_suffix(".ckpt"))
 
 
 @pytest.mark.parametrize("seed", [None, 1234])

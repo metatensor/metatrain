@@ -377,7 +377,7 @@ class TrainerHypers(TypedDict):
         to set explicitly the baselines for that target in this hyperparameter.
     """
     per_structure_targets: list[str] = []
-    """Targets to calculate per-structure losses."""
+    """Targets to calculate per-structure losses and errors on."""
     num_workers: Optional[int] = None
     """Number of workers for data loading. If not provided, it is set automatically."""
     log_mae: bool = True
