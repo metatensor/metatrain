@@ -67,6 +67,89 @@ def test_pet_padding():
     assert torch.allclose(lone_energy, padded_energy, atol=1e-6, rtol=1e-6)
 
 
+def test_empty_system():
+    """Tests that the model can handle an empty system."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([], dtype=torch.long),
+        positions=torch.empty((0, 3)),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    energy = model([system], outputs)["energy"].block().values.squeeze(-1)
+    assert torch.numel(energy) == 0
+
+
+def test_isolated_atoms():
+    """Tests that the model can predict energies for isolated atoms."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    energy = model([system], outputs)["energy"].block().values.squeeze(-1)[0]
+
+    assert torch.isfinite(energy)
+
+
+def test_dissociated_atoms():
+    """Tests that the model can predict energies for dissociated atoms."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 100.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    energy = model([system], outputs)["energy"].block().values.squeeze(-1)[0]
+
+    assert torch.isfinite(energy)
+
+
 def test_consistency():
     """Tests that the two implementations of attention are consistent."""
 

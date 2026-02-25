@@ -111,7 +111,6 @@ def systems_to_batch(
     cutoff_function: str,
     cutoff_width: float,
     num_neighbors_adaptive: Optional[float] = None,
-    selected_atoms: Optional[Labels] = None,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -176,13 +175,7 @@ def systems_to_batch(
     edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
     edge_distances = torch.norm(edge_vectors, dim=-1) + 1e-15
 
-    if selected_atoms is not None:
-        if torch.numel(centers) == 0:
-            num_nodes = 0
-        else:
-            num_nodes = int(centers.max()) + 1
-    else:
-        num_nodes = len(positions)
+    num_nodes = len(positions)
 
     if num_neighbors_adaptive is not None:
         with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
@@ -213,9 +206,13 @@ def systems_to_batch(
         pair_cutoffs = options.cutoff * torch.ones(
             len(centers), device=positions.device, dtype=positions.dtype
         )
-
+    print("systems_to_batch: centers", centers)
     num_neighbors = torch.bincount(centers, minlength=num_nodes)
-    max_edges_per_node = int(torch.max(num_neighbors))
+    print("systems_to_batch: num_neighbors", num_neighbors)
+    max_edges_per_node = (
+        int(torch.max(num_neighbors)) if num_neighbors.numel() > 0 else 0
+    )
+    print("systems_to_batch: max_edges_per_node", max_edges_per_node)
 
     # uncomment these to print out stats on the adaptive cutoff behavior
     # print("adaptive_cutoffs", *pair_cutoffs.tolist())
