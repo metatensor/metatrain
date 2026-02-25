@@ -206,13 +206,10 @@ def systems_to_batch(
         pair_cutoffs = options.cutoff * torch.ones(
             len(centers), device=positions.device, dtype=positions.dtype
         )
-    print("systems_to_batch: centers", centers)
     num_neighbors = torch.bincount(centers, minlength=num_nodes)
-    print("systems_to_batch: num_neighbors", num_neighbors)
     max_edges_per_node = (
         int(torch.max(num_neighbors)) if num_neighbors.numel() > 0 else 0
     )
-    print("systems_to_batch: max_edges_per_node", max_edges_per_node)
 
     # uncomment these to print out stats on the adaptive cutoff behavior
     # print("adaptive_cutoffs", *pair_cutoffs.tolist())
