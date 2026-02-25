@@ -1666,7 +1666,6 @@ def test_regression_validation_batch_size_constraint_removed():
     trainer_files = [
         repo_root / "src/metatrain/pet/trainer.py",
         repo_root / "src/metatrain/soap_bpnn/trainer.py",
-        repo_root / "src/metatrain/deprecated/nanopet/trainer.py",
         repo_root / "src/metatrain/experimental/flashmd/trainer.py",
     ]
 

@@ -32,16 +32,15 @@ compatibility with various MD engines.
 # List of Implemented Architectures
 
 Currently `metatrain` supports the following architectures for building an atomistic
-model (sorted by alphabetic order):
+model:
 
 | Name                                     | Description                                                                                                                          |
 |------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| [FlashMD][arch-flashmd]                  | An architecture for the direct prediction of molecular dynamics                                                                      |
-| [GAP][arch-gap]                          | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
-| [MACE][arch-mace]                        | A higher order equivariant message passing neural network.                                                                           |
-| [NanoPET (deprecated)][arch-nanopet]     | Experimental re-implementation of the original PET that is deprecated in favour of the current PET.                                  |
 | [PET][arch-pet]                          | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
 | [SOAP BPNN][arch-soap_bpnn]              | A Behler-Parrinello neural network with SOAP features                                                                                |
+| [MACE][arch-mace]                        | A higher order equivariant message passing neural network.                                                                           |
+| [GAP][arch-gap]                          | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
+| [FlashMD][arch-flashmd]                  | An architecture for the direct prediction of molecular dynamics                                                                      |
 
 <!-- marker-arch-links -->
 
@@ -50,7 +49,6 @@ on a PR, since the docs use this README file directly.-->
 [arch-flashmd]: https://docs.metatensor.org/metatrain/latest/architectures/generated/flashmd.html
 [arch-gap]: https://docs.metatensor.org/metatrain/latest/architectures/generated/gap.html
 [arch-mace]: https://docs.metatensor.org/metatrain/latest/architectures/generated/mace.html
-[arch-nanopet]: https://docs.metatensor.org/metatrain/latest/architectures/generated/nanopet.html
 [arch-pet]: https://docs.metatensor.org/metatrain/latest/architectures/generated/pet.html
 [arch-soap_bpnn]: https://docs.metatensor.org/metatrain/latest/architectures/generated/soap_bpnn.html
 

@@ -68,7 +68,6 @@ soap-bpnn = [
     "wigners",
 ]
 pet = []
-nanopet = []
 gap = [
     "featomic-torch >=0.7,<0.8",
     "skmatter",
