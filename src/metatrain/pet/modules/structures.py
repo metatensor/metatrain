@@ -32,7 +32,6 @@ def concatenate_structures(
 
     :param systems: List of systems to concatenate.
     :param neighbor_list_options: Options for the neighbor list.
-    :param selected_atoms: Optional labels of selected atoms to include in the batch.
     :return: A tuple containing the concatenated positions, centers, neighbors,
         species, cells, cell shifts, system indices, and sample labels.
     """
@@ -134,7 +133,6 @@ def systems_to_batch(
     :param num_neighbors_adaptive: Optional maximum number of neighbors per atom.
         If provided, the adaptive cutoff scheme will be used for each atom to
         approximately select this number of neighbors.
-    :param selected_atoms: Optional labels of selected atoms to include in the batch.
     :return: A tuple containing the batch tensors.
         The batch consists of the following tensors:
         - `element_indices_nodes`: The atomic species of the central atoms
