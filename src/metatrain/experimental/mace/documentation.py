@@ -91,21 +91,27 @@ epochs. To do so, use the following ``options.yaml`` file:
 .. code-block:: yaml
 
     architecture:
-        name: experimental.mace model:
-            # Replace mace_model with the path to your file mace_model:
-            path/to/foundation/mace/model.model mace_head_target: energy
+        name: experimental.mace 
+            model:
+                # Replace mace_model with the path to your file
+                mace_model: path/to/foundation/mace/model.model
+                mace_head_target: energy
         training:
-            num_epochs: 0 batch_size: 1
+            num_epochs: 0
+            batch_size: 1
 
-    training_set: dummy_dataset.xyz validation_set: dummy_dataset.xyz
+    training_set: dummy_dataset.xyz
+    validation_set: dummy_dataset.xyz
 
 with ``dummy_dataset.xyz`` being any dataset containing at least one structure with just
 the ``energy`` property. For example, you can use:
 
 .. code-block::
 
-    2 Properties=species:S:1:pos:R:3:forces:R:3 energy=-2.1 H 0.0 0.0 0.0 0.0 0.0 0.0 H
-    1.0 0.0 0.0 0.0 0.0 0.0
+    2
+    Properties=species:S:1:pos:R:3:forces:R:3 energy=-2.1
+    H 0.0 0.0 0.0 0.0 0.0 0.0
+    H 1.0 0.0 0.0 0.0 0.0 0.0
 
 """
 
