@@ -92,10 +92,10 @@ epochs. To do so, use the following ``options.yaml`` file:
 
     architecture:
         name: experimental.mace 
-            model:
-                # Replace mace_model with the path to your file
-                mace_model: path/to/foundation/mace/model.model
-                mace_head_target: energy
+        model:
+            # Replace mace_model with the path to your file
+            mace_model: path/to/foundation/mace/model.model
+            mace_head_target: energy
         training:
             num_epochs: 0
             batch_size: 1
