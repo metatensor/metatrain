@@ -171,9 +171,9 @@ def systems_to_batch(
             cells[system_indices[centers]],
         )
     edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
-    
+
     num_nodes = len(positions)
-    
+
     num_neghbors = torch.bincount(centers, minlength=num_nodes)
     if num_neghbors.numel() == 0:  # no edges
         max_edges_per_node = 0

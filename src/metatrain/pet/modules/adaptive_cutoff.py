@@ -127,7 +127,7 @@ def get_gaussian_cutoff_weights(
     # this early out prevents aggregation (taking the max) over empty lists
     if effective_num_neighbors.numel() == 0:
         return torch.zeros_like(effective_num_neighbors)
-    
+
     diff = effective_num_neighbors - num_neighbors_adaptive
 
     # adds a "baseline" corresponding to uniformly-distributed atoms
