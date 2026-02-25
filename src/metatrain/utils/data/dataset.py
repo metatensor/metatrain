@@ -993,7 +993,8 @@ class MemmapDataset(TorchDataset):
         self.na = np.load(path / "na.npy")
         self.x = MemmapArray(path / "x.bin", (self.na[-1], 3), "float32", mode="r")
         self.a = MemmapArray(path / "a.bin", (self.na[-1],), "int32", mode="r")
-        self.c = MemmapArray(path / "c.bin", (self.ns, 3, 3), "float32", mode="r")
+        if os.path.exists(path / "c.bin"):
+            self.c = MemmapArray(path / "c.bin", (self.ns, 3, 3), "float32", mode="r")
         if os.path.exists(path / "momenta.bin"):  # for FlashMD
             self.momenta = MemmapArray(
                 path / "momenta.bin", (self.na[-1], 3), "float32", mode="r"
@@ -1066,7 +1067,10 @@ class MemmapDataset(TorchDataset):
     def __getitem__(self, i: int) -> Any:
         a = torch.tensor(self.a[self.na[i] : self.na[i + 1]], dtype=torch.int32)
         x = torch.tensor(self.x[self.na[i] : self.na[i + 1]], dtype=torch.float64)
-        c = torch.tensor(self.c[i], dtype=torch.float64)
+        if hasattr(self, "c"):
+            c = torch.tensor(self.c[i], dtype=torch.float64)
+        else:
+            c = torch.zeros((3, 3), dtype=torch.float64)
 
         system = System(
             positions=x,
