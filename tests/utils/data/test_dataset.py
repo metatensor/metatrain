@@ -740,10 +740,7 @@ def test_memmap_per_atom_labels_use_local_indices(tmp_path):
             "per_atom": True,
             "num_subtargets": 1,
             "type": "scalar",
-            "quantity": "generic",
-            "forces": False,
-            "stress": False,
-            "virial": False,
+            "quantity": "energy",
         }
     }
     dataset = MemmapDataset(tmp_path, target_options)
