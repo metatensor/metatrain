@@ -756,7 +756,6 @@ def test_memmap_per_atom_labels_use_local_indices(tmp_path):
         f"Global offsets would overflow int32 for large datasets."
     )
 
-    # Values: must be the correct atoms 
     values = block.values.squeeze(-1).tolist()
     assert values == [2.0, 3.0, 4.0], (
         f"Expected per-atom values [2.0, 3.0, 4.0] for system 1, got {values}."
