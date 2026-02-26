@@ -15,14 +15,14 @@ dependencies = [
     "metatensor-learn >=0.4.0,<0.5",
     "metatensor-operations >=0.4.0,<0.5",
     "metatensor-torch >=0.8.2,<0.9",
-    "metatomic-torch >=0.1.7,<0.2",
+    "metatomic-torch >=0.1.8,<0.2",
     "jsonschema",
     "pydantic >= 2.12", # Because of passing arguments to validator functions
     "typing_extensions", # For python < 3.12 typing.TypedDict has limited functionality
     "omegaconf >= 2.3.0",
     "python-hostlist",
     "tqdm",
-    "vesin",
+    "vesin >= 0.5.2" # Because of https://github.com/Luthaf/vesin/pull/119,
 ]
 
 keywords = ["machine learning", "molecular modeling"]
