@@ -995,7 +995,7 @@ class MemmapDataset(TorchDataset):
         if self.na.dtype != np.int64:
             raise ValueError(
                 f"na.npy must use int64 dtype, got {self.na.dtype}. "
-                f"Recreate with: np.cumsum(np.array([0]+sizes, dtype=np.int64))"
+                "This is required for datasets with more than ~2 billion atoms."
             )
         self.x = MemmapArray(path / "x.bin", (self.na[-1], 3), "float32", mode="r")
         self.a = MemmapArray(path / "a.bin", (self.na[-1],), "int32", mode="r")
