@@ -1,10 +1,12 @@
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from omegaconf import OmegaConf
 
+from metatrain.utils.data.dataset import MemmapDataset
 from metatrain.utils.data import (
     CollateFn,
     Dataset,
@@ -713,3 +715,80 @@ def test_instance_torchscript_compatible(layout_scalar):
     )
 
     torch.jit.script(dataset_info)
+
+
+def test_memmap_per_atom_labels_use_local_indices(tmp_path):
+    """Per-atom target samples must use local (0-based) atom indices, not global
+    cumulative offsets. Global offsets overflow int32 for datasets with >2.1B atoms."""
+    # 2 systems: system 0 has 2 atoms, system 1 has 3 atoms
+    ns = 2
+    na = np.array([0, 2, 5], dtype=np.int64)  # cumulative atom counts
+    np.save(tmp_path / "ns.npy", ns)
+    np.save(tmp_path / "na.npy", na)
+    # positions, types, cells
+    np.array(
+        [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [0, 0, 1]], dtype="float32"
+    ).tofile(tmp_path / "x.bin")
+    np.array([1, 1, 6, 6, 8], dtype="int32").tofile(tmp_path / "a.bin")
+    np.zeros((ns, 3, 3), dtype="float32").tofile(tmp_path / "c.bin")
+    # per-atom scalar target: values 0..4 so system 1's atoms have values [2, 3, 4]
+    np.arange(5, dtype="float32").reshape(5, 1).tofile(tmp_path / "charge.bin")
+
+    target_options = {
+        "atomic_charge": {
+            "key": "charge",
+            "per_atom": True,
+            "num_subtargets": 1,
+            "type": "scalar",
+            "quantity": "generic",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    dataset = MemmapDataset(tmp_path, target_options)
+
+    # Load system 1 (the second structure, global atom offsets 2..4)
+    sample = dataset[1]
+    block = sample.atomic_charge.block()
+
+    # Labels: atom dimension must be LOCAL [0, 1, 2], not global [2, 3, 4]
+    atom_labels = block.samples.values[:, 1].tolist()
+    assert atom_labels == [0, 1, 2], (
+        f"Expected local atom indices [0, 1, 2], got {atom_labels}. "
+        f"Global offsets would overflow int32 for large datasets."
+    )
+
+    # Values: must be the correct atoms (global positions 2, 3, 4 → values 2.0, 3.0, 4.0)
+    values = block.values.squeeze(-1).tolist()
+    assert values == [2.0, 3.0, 4.0], (
+        f"Expected per-atom values [2.0, 3.0, 4.0] for system 1, got {values}."
+    )
+
+
+@pytest.mark.parametrize("bad_dtype", [np.int32, np.uint64, np.float64])
+def test_memmap_rejects_non_int64_na(tmp_path, bad_dtype):
+    """na.npy must be int64; int32 (overflow risk), uint64, and float64 are all rejected."""
+    ns = 1
+    na = np.array([0, 3], dtype=bad_dtype)
+    np.save(tmp_path / "ns.npy", ns)
+    np.save(tmp_path / "na.npy", na)
+    np.zeros((3, 3), dtype="float32").tofile(tmp_path / "x.bin")
+    np.array([1, 1, 1], dtype="int32").tofile(tmp_path / "a.bin")
+    np.zeros((1, 3, 3), dtype="float32").tofile(tmp_path / "c.bin")
+    np.zeros((1, 1), dtype="float32").tofile(tmp_path / "e.bin")
+
+    target_options = {
+        "energy": {
+            "key": "e",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "type": "scalar",
+            "quantity": "energy",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    with pytest.raises(ValueError, match="int64 dtype"):
+        MemmapDataset(tmp_path, target_options)

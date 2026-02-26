@@ -963,7 +963,8 @@ class MemmapDataset(TorchDataset):
 
     - ns.npy: total number of structures in the dataset. Shape: (1,).
     - na.npy: cumulative number of atoms per structure. na[-1] therefore corresponds to
-        the total number of atoms in the dataset. Shape: (ns+1,).
+        the total number of atoms in the dataset. Shape: (ns+1,). Must use ``int64``
+        dtype (required for datasets with more than ~2 billion atoms).
     - x.bin: atomic positions of all atoms in the dataset, concatenated. Shape:
         (na[-1], 3).
     - a.bin: atomic types of all atoms in the dataset, concatenated. Shape: (na[-1],).
@@ -991,6 +992,11 @@ class MemmapDataset(TorchDataset):
         # Information about the structures
         self.ns = np.load(path / "ns.npy")
         self.na = np.load(path / "na.npy")
+        if self.na.dtype != np.int64:
+            raise ValueError(
+                f"na.npy must use int64 dtype, got {self.na.dtype}. "
+                f"Recreate with: np.cumsum(np.array([0]+sizes, dtype=np.int64))"
+            )
         self.x = MemmapArray(path / "x.bin", (self.na[-1], 3), "float32", mode="r")
         self.a = MemmapArray(path / "a.bin", (self.na[-1],), "int32", mode="r")
         if os.path.exists(path / "c.bin"):
@@ -1087,7 +1093,7 @@ class MemmapDataset(TorchDataset):
                 samples = Labels(
                     names=["system", "atom"],
                     values=torch.tensor(
-                        [[i, j] for j in range(self.na[i], self.na[i + 1])],
+                        [[i, j] for j in range(self.na[i + 1] - self.na[i])],
                         dtype=torch.int32,
                     ),
                 )
@@ -1193,7 +1199,7 @@ class MemmapDataset(TorchDataset):
                             samples=Labels(
                                 names=["system", "atom"],
                                 values=torch.tensor(
-                                    [[i, j] for j in range(self.na[i], self.na[i + 1])],
+                                    [[i, j] for j in range(self.na[i + 1] - self.na[i])],
                                     dtype=torch.int32,
                                 ),
                             ),
