@@ -756,7 +756,7 @@ def test_memmap_per_atom_labels_use_local_indices(tmp_path):
         f"Global offsets would overflow int32 for large datasets."
     )
 
-    # Values: must be the correct atoms (global positions 2, 3, 4 → values 2.0, 3.0, 4.0)
+    # Values: must be the correct atoms 
     values = block.values.squeeze(-1).tolist()
     assert values == [2.0, 3.0, 4.0], (
         f"Expected per-atom values [2.0, 3.0, 4.0] for system 1, got {values}."
@@ -765,7 +765,7 @@ def test_memmap_per_atom_labels_use_local_indices(tmp_path):
 
 @pytest.mark.parametrize("bad_dtype", [np.int32, np.uint64, np.float64])
 def test_memmap_rejects_non_int64_na(tmp_path, bad_dtype):
-    """na.npy must be int64; int32 (overflow risk), uint64, and float64 are all rejected."""
+    """na.npy must be int64; int32 (overflow risk), uint64, float64 are all rejected."""
     ns = 1
     na = np.array([0, 3], dtype=bad_dtype)
     np.save(tmp_path / "ns.npy", ns)
