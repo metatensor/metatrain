@@ -1199,7 +1199,10 @@ class MemmapDataset(TorchDataset):
                             samples=Labels(
                                 names=["system", "atom"],
                                 values=torch.tensor(
-                                    [[i, j] for j in range(self.na[i + 1] - self.na[i])],
+                                    [
+                                        [i, j]
+                                        for j in range(self.na[i + 1] - self.na[i])
+                                    ],
                                     dtype=torch.int32,
                                 ),
                             ),

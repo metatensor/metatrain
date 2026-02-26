@@ -6,7 +6,6 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from omegaconf import OmegaConf
 
-from metatrain.utils.data.dataset import MemmapDataset
 from metatrain.utils.data import (
     CollateFn,
     Dataset,
@@ -21,6 +20,7 @@ from metatrain.utils.data import (
     read_targets,
     unpack_batch,
 )
+from metatrain.utils.data.dataset import MemmapDataset
 
 
 RESOURCES_PATH = Path(__file__).parents[2] / "resources"
