@@ -13,7 +13,7 @@ Metatrain is a **CLI for training & evaluating machine learning models for atomi
 |                                          | with sphinx-gallery for the documentation                |
 | `src/metatrain/`                         | Python source code                                       |
 | `src/metatrain/cli/`                     | Command-line interface (train, eval, export)             |
-| `src/metatrain/deprecated/`              | Deprecated architectures (e.g., nanopet)                 |
+| `src/metatrain/deprecated/`              | Deprecated architectures (currently empty)               |
 | `src/metatrain/experimental/`            | Experimental architectures (e.g., mace, flashmd)         |
 | `src/metatrain/{soap_bpnn,pet,gap,...}/` | Stable architecture implementations (plugin system)      |
 | `src/metatrain/utils/`                   | Shared utilities (data, I/O, losses, testing)            |
