@@ -468,7 +468,7 @@ class BaseCompositionModel(torch.nn.Module):
 
             # If a per-structure output is requested, sum over the sample dimensions
             # that aren't "system".
-            if not outputs[output_name].per_atom:
+            if outputs[output_name].sample_kind == "system":
                 prediction = mts.sum_over_samples(prediction, "atom")
             predictions[output_name] = prediction
 

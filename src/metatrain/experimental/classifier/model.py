@@ -89,7 +89,7 @@ class Classifier(ModelInterface[ModelHypers]):
 
         # Store capabilities
         outputs = {name: ModelOutput() for name in self.dataset_info.targets.keys()}
-        outputs["features"] = ModelOutput(quantity="", unit="", per_atom=False)
+        outputs["features"] = ModelOutput(quantity="", unit="", sample_kind="system")
         self.capabilities = ModelCapabilities(
             outputs=outputs,
             atomic_types=old_capabilities.atomic_types,
@@ -134,11 +134,18 @@ class Classifier(ModelInterface[ModelHypers]):
             raise ValueError(
                 "Wrapped model not set. Call set_wrapped_model() before forward()."
             )
+        
+        for output_key in outputs:
+            if outputs[output_key].sample_kind not in ["atom", "system"]:
+                raise ValueError(
+                    "Classifier only supports outputs with sample_kind 'atom' or 'system'. "
+                    f"Output '{output_key}' has sample_kind '{outputs[output_key].sample_kind}'."
+                )
 
         return_dict: Dict[str, TensorMap] = {}
 
         # Request features from the wrapped model (per-atom features)
-        features_output = ModelOutput(per_atom=True)
+        features_output = ModelOutput(sample_kind="atom")
         features_dict = self.model(
             systems, {"features": features_output}, selected_atoms
         )

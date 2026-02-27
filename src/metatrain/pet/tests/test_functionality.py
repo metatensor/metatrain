@@ -37,7 +37,7 @@ def test_pet_padding():
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     lone_output = model([system], outputs)
 
     system_2 = System(
@@ -94,6 +94,8 @@ def test_nc_stress(per_atom):
     """Tests that the model can predict a symmetric rank-2 tensor as the NC stress."""
     # (note that no composition energies are supplied or calculated here)
 
+    sample_kind = "atom" if per_atom else "system"
+
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
@@ -105,7 +107,7 @@ def test_nc_stress(per_atom):
                     "unit": "",
                     "type": {"cartesian": {"rank": 2}},
                     "num_subtargets": 100,
-                    "per_atom": per_atom,
+                    "sample_kind": sample_kind,
                 },
             )
         },
@@ -120,6 +122,6 @@ def test_nc_stress(per_atom):
         pbc=torch.tensor([True, True, True]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"non_conservative_stress": ModelOutput(per_atom=per_atom)}
+    outputs = {"non_conservative_stress": ModelOutput(sample_kind=sample_kind)}
     stress = model([system], outputs)["non_conservative_stress"].block().values
     assert torch.allclose(stress, stress.transpose(1, 2))

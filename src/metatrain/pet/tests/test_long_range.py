@@ -50,7 +50,7 @@ def test_long_range_features(use_ewald):
         pbc=torch.tensor([True, True, True]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     model([system, system], outputs)
 
 

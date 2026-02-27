@@ -94,8 +94,10 @@ def get_e3nn_mts_layout(target_name: str, target: dict) -> TensorMap:
     :return: The corresponding ``TensorMap`` object.
     """
     sample_names = ["system"]
-    if target["per_atom"]:
+    if target["sample_kind"] == "atom":
         sample_names.append("atom")
+    if target["sample_kind"] == "atom_pair":
+        sample_names.extend(["first_atom", "second_atom", "cell_shift_a", "cell_shift_b", "cell_shift_c"])
 
     properties_name = target.get("properties_name", target_name.replace("mtt::", ""))
 

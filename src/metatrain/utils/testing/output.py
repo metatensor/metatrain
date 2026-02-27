@@ -1,5 +1,5 @@
 import copy
-from typing import Optional
+from typing import Literal, Optional
 
 import metatensor.torch as mts
 import numpy as np
@@ -96,7 +96,7 @@ class OutputTests(ArchitectureTests):
         self,
         model_hypers: dict,
         dataset_info: DatasetInfo,
-        per_atom: bool,
+        sample_kind: Literal["atom", "system", "atom_pair"],
         outputs: Optional[list[str]] = None,
     ) -> dict[str, mts.TensorMap]:
         """Helper function to get the model output for different types of outputs.
@@ -105,7 +105,7 @@ class OutputTests(ArchitectureTests):
 
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info: Dataset information to initialize the model.
-        :param per_atom: Whether the requested outputs are per-atom or not.
+        :param sample_kind: The sample kind of the requested outputs.
         :param outputs: List of output names to request. If ``None``, all outputs
             defined in the model are requested.
 
@@ -129,7 +129,7 @@ class OutputTests(ArchitectureTests):
             outputs = list(model.outputs.keys())
 
         model = model.to(system.positions.dtype)
-        return model([system], {k: ModelOutput(per_atom=per_atom) for k in outputs})
+        return model([system], {k: ModelOutput(sample_kind=sample_kind) for k in outputs})
 
     def test_no_output(
         self, model_hypers: dict, dataset_info: DatasetInfo, per_atom: bool
@@ -153,7 +153,7 @@ class OutputTests(ArchitectureTests):
         assert len(outputs) == 0
 
     def test_output_scalar(
-        self, model_hypers: dict, dataset_info_scalar: DatasetInfo, per_atom: bool
+        self, model_hypers: dict, dataset_info_scalar: DatasetInfo, sample_kind: Literal["atom", "system", "atom_pair"]
     ) -> None:
         """Tests that forward pass works for scalar outputs.
 
@@ -166,31 +166,31 @@ class OutputTests(ArchitectureTests):
         If this test is failing, your model might:
 
         - not be producing scalar outputs when requested.
-        - not be taking into account correctly the ``per_atom`` field of the
+        - not be taking into account correctly the ``sample_kind`` field of the
           outputs passed to the ``outputs`` argument of the ``forward()`` method.
 
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info_scalar: Dataset information with scalar outputs.
-        :param per_atom: Whether the requested outputs are per-atom or not.
-        """
+        :param sample_kind: The sample kind of the requested scalar output.
+        """  
         if not self.supports_scalar_outputs:
             pytest.skip(f"{self.architecture} does not support scalar outputs.")
 
         outputs = self._get_output(
-            model_hypers, dataset_info_scalar, per_atom, ["scalar"]
+            model_hypers, dataset_info_scalar, sample_kind, ["scalar"]
         )
 
-        if per_atom:
+        if sample_kind == "atom":
             assert outputs["scalar"].block().samples.names == ["system", "atom"]
             assert outputs["scalar"].block().values.shape == (4, 5)
-        else:
+        elif sample_kind == "system":
             assert outputs["scalar"].block().samples.names == ["system"], (
                 outputs["scalar"].block().samples.names
             )
             assert outputs["scalar"].block().values.shape == (1, 5)
 
     def test_output_vector(
-        self, model_hypers: dict, dataset_info_vector: DatasetInfo, per_atom: bool
+        self, model_hypers: dict, dataset_info_vector: DatasetInfo, sample_kind: Literal["atom", "system", "atom_pair"],
     ) -> None:
         """Tests that forward pass works for vector outputs.
 
@@ -202,28 +202,28 @@ class OutputTests(ArchitectureTests):
 
         If this test is failing, your model might:
         - not be producing vector outputs when requested.
-        - not be taking into account correctly the ``per_atom`` field of the
+        - not be taking into account correctly the ``sample_kind`` field of the
         outputs passed to the ``outputs`` argument of the ``forward()`` method.
 
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info_vector: Dataset information with vector outputs.
-        :param per_atom: Whether the requested outputs are per-atom or not.
+        :param sample_kind: The sample kind of the requested vector output.
         """
         if not self.supports_vector_outputs:
             pytest.skip(f"{self.architecture} does not support vector outputs.")
         outputs = self._get_output(
-            model_hypers, dataset_info_vector, per_atom, ["vector"]
+            model_hypers, dataset_info_vector, sample_kind, ["vector"]
         )
 
-        if per_atom:
+        if sample_kind == "atom":
             assert outputs["vector"].block().samples.names == ["system", "atom"]
             assert outputs["vector"].block().values.shape == (4, 3, 5)
-        else:
+        elif sample_kind == "system":
             assert outputs["vector"].block().samples.names == ["system"]
             assert outputs["vector"].block().values.shape == (1, 3, 5)
 
     def test_output_spherical(
-        self, model_hypers: dict, dataset_info_spherical: DatasetInfo, per_atom: bool
+        self, model_hypers: dict, dataset_info_spherical: DatasetInfo, sample_kind: Literal["atom", "system", "atom_pair"],
     ) -> None:
         """Tests that forward pass works for spherical outputs.
 
@@ -235,27 +235,27 @@ class OutputTests(ArchitectureTests):
 
         If this test is failing, your model might:
         - not be producing spherical outputs when requested.
-        - not be taking into account correctly the ``per_atom`` field of the
+        - not be taking into account correctly the ``sample_kind`` field of the
         outputs passed to the ``outputs`` argument of the ``forward()`` method.
 
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info_spherical: Dataset information with spherical outputs.
-        :param per_atom: Whether the requested outputs are per-atom or not.
+        :param sample_kind: The sample kind of the requested spherical output.
         """
         if not self.supports_spherical_outputs:
             pytest.skip(f"{self.architecture} does not support spherical outputs.")
 
         outputs = self._get_output(
-            model_hypers, dataset_info_spherical, per_atom, ["spherical_target"]
+            model_hypers, dataset_info_spherical, sample_kind, ["spherical_target"]
         )
 
-        if per_atom:
+        if sample_kind == "atom":
             assert outputs["spherical_target"].block().samples.names == [
                 "system",
                 "atom",
             ]
             assert outputs["spherical_target"].block().values.shape[0] == 4
-        else:
+        elif sample_kind == "system":
             assert outputs["spherical_target"].block().samples.names == ["system"]
             assert outputs["spherical_target"].block().values.shape[0] == 1
 
@@ -263,7 +263,7 @@ class OutputTests(ArchitectureTests):
         self,
         model_hypers: dict,
         dataset_info_multispherical: DatasetInfo,
-        per_atom: bool,
+        sample_kind: Literal["atom", "system", "atom_pair"],
     ) -> None:
         """Tests that forward pass works for spherical tensor outputs
         with multiple irreps.
@@ -283,13 +283,13 @@ class OutputTests(ArchitectureTests):
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info_multispherical: Dataset information with multiple
           spherical outputs.
-        :param per_atom: Whether the requested outputs are per-atom or not.
+        :param sample_kind: The sample kind of the requested spherical output.
         """
         if not self.supports_spherical_outputs:
             pytest.skip(f"{self.architecture} does not support spherical outputs.")
 
         outputs = self._get_output(
-            model_hypers, dataset_info_multispherical, per_atom, ["spherical_tensor"]
+            model_hypers, dataset_info_multispherical, sample_kind, ["spherical_tensor"]
         )
 
         assert len(outputs["spherical_tensor"]) == 3
@@ -297,13 +297,13 @@ class OutputTests(ArchitectureTests):
         for i in range(len(outputs["spherical_tensor"])):
             spherical_target_block = outputs["spherical_tensor"].block(i)
 
-            if per_atom:
+            if sample_kind == "atom":
                 assert spherical_target_block.samples.names == [
                     "system",
                     "atom",
                 ]
                 assert spherical_target_block.values.shape[0] == 4
-            else:
+            elif sample_kind == "system":
                 assert spherical_target_block.samples.names == ["system"]
                 assert spherical_target_block.values.shape[0] == 1
 
@@ -384,7 +384,7 @@ class OutputTests(ArchitectureTests):
 
             energy_monomer = model(
                 [system_monomer],
-                {"energy": ModelOutput(per_atom=False)},
+                {"energy": ModelOutput(sample_kind="system")},
             )
 
             system_far_away_dimer = System(
@@ -413,12 +413,12 @@ class OutputTests(ArchitectureTests):
 
             energy_dimer = model(
                 [system_far_away_dimer],
-                {"energy": ModelOutput(per_atom=False)},
+                {"energy": ModelOutput(sample_kind="system")},
             )
 
             energy_monomer_in_dimer = model(
                 [system_far_away_dimer],
-                {"energy": ModelOutput(per_atom=False)},
+                {"energy": ModelOutput(sample_kind="system")},
                 selected_atoms=selection_labels,
             )
 
@@ -474,10 +474,12 @@ class OutputTests(ArchitectureTests):
             system, model.requested_neighbor_lists()
         )
 
+        sample_kind = "atom" if per_atom else "system"
+
         features_output_options = ModelOutput(
             quantity="",
             unit="unitless",
-            per_atom=per_atom,
+            sample_kind=sample_kind,
         )
         model = model.to(system.positions.dtype)
         outputs = model(
@@ -494,7 +496,17 @@ class OutputTests(ArchitectureTests):
         for i in range(len(features_outputs)):
             features = features_outputs.block(i)
 
-            expected_samples = ["system", "atom"] if per_atom else ["system"]
+            if sample_kind not in ["atom", "system"]:
+                # TODO: Add tests for sample_kind == "atom_pair".
+                continue
+
+            if sample_kind == "atom":
+                expected_samples = ["system", "atom"]
+            else:
+                expected_samples = ["system"]
+            
+            per_atom = sample_kind == "atom"
+
             assert features.samples.names == expected_samples
             assert features.properties.names == ["feature"]
             assert features.values.shape[0] == (4 if per_atom else 1)
@@ -555,7 +567,7 @@ class OutputTests(ArchitectureTests):
         ll_output_options = ModelOutput(
             quantity="",
             unit="unitless",
-            per_atom=per_atom,
+            sample_kind="atom" if per_atom else "system",
         )
         model = model.to(system.positions.dtype)
         outputs = model(
@@ -617,7 +629,7 @@ class OutputTests(ArchitectureTests):
 
         output_label = "mtt::aux::energy_last_layer_features"
         modeloutput = model.outputs[output_label]
-        modeloutput.per_atom = True
+        modeloutput.sample_kind = "atom"
         outputs = {output_label: modeloutput}
         selected_atoms = mts.Labels(
             names=["system", "atom"],
@@ -655,7 +667,7 @@ class OutputTests(ArchitectureTests):
             system, model.requested_neighbor_lists()
         )
         model = model.to(system.positions.dtype)
-        outputs = model([system], {"energy": ModelOutput(per_atom=False)})
+        outputs = model([system], {"energy": ModelOutput(sample_kind="system")})
         if single_atom_energy is not None:
             assert outputs["energy"].block().values.item() == single_atom_energy
 

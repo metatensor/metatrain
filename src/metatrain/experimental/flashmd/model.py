@@ -144,7 +144,7 @@ class FlashMD(ModelInterface[ModelHypers]):
 
         # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(per_atom=True, description="internal features")
+            "features": ModelOutput(sample_kind="atom", description="internal features")
         }
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
@@ -406,6 +406,14 @@ class FlashMD(ModelInterface[ModelHypers]):
             predictions (depending on the ModelOutput configuration) with appropriate
             metatensor metadata (samples, components, properties).
         """
+
+        for output_key in outputs:
+            if outputs[output_key].sample_kind not in ["atom", "system"]:
+                raise ValueError(
+                    "FlashMD only supports outputs with sample_kind 'atom' or 'system'. "
+                    f"Output '{output_key}' has sample_kind '{outputs[output_key].sample_kind}'."
+                )
+            
         device = systems[0].device
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
@@ -813,7 +821,7 @@ class FlashMD(ModelInterface[ModelHypers]):
                 axis="samples",
                 selection=selected_atoms,
             )
-        if requested_outputs["features"].per_atom:
+        if requested_outputs["features"].sample_kind == "atom":
             features_dict["features"] = feature_tmap
         else:
             features_dict["features"] = sum_over_atoms(feature_tmap)
@@ -938,7 +946,7 @@ class FlashMD(ModelInterface[ModelHypers]):
                     selection=selected_atoms,
                 )
             last_layer_features_options = requested_outputs[output_name]
-            if last_layer_features_options.per_atom:
+            if last_layer_features_options.sample_kind == "atom":
                 last_layer_features_outputs[output_name] = last_layer_feature_tmap
             else:
                 last_layer_features_outputs[output_name] = sum_over_atoms(
@@ -1127,7 +1135,7 @@ class FlashMD(ModelInterface[ModelHypers]):
         # to get the final per-structure predictions for each requested output.
 
         for output_name, atomic_property in atomic_predictions_tmap_dict.items():
-            if outputs[output_name].per_atom:
+            if outputs[output_name].sample_kind == "atom":
                 atomic_predictions_tmap_dict[output_name] = atomic_property
             else:
                 atomic_predictions_tmap_dict[output_name] = sum_over_atoms(
@@ -1215,6 +1223,12 @@ class FlashMD(ModelInterface[ModelHypers]):
         :param target_name: Name of the target to add.
         :param target_info: TargetInfo object containing details about the target.
         """
+        if target_info.sample_kind not in ["atom", "system"]:
+            raise ValueError(
+                "FlashMD only supports targets with sample_kind 'atom' or 'system'."
+                f"Target '{target_name}' has sample_kind '{target_info.sample_kind}'."
+            )
+
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}
         for key, block in target_info.layout.items():
@@ -1228,7 +1242,7 @@ class FlashMD(ModelInterface[ModelHypers]):
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
-            per_atom=True,
+            sample_kind="atom",
             description=target_info.description,
         )
 
@@ -1290,7 +1304,7 @@ class FlashMD(ModelInterface[ModelHypers]):
 
         ll_features_name = get_last_layer_features_name(target_name)
         self.outputs[ll_features_name] = ModelOutput(
-            per_atom=True, description=f"last-layer features for {target_name}"
+            sample_kind="atom", description=f"last-layer features for {target_name}"
         )
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [

@@ -2,9 +2,10 @@
 # We ignore misc errors in this file because TypedDict
 # with default values is not allowed by mypy.
 from typing import Annotated, Literal, Optional
+import logging
 
 from annotated_types import Interval
-from pydantic import ConfigDict, NonNegativeInt, with_config
+from pydantic import ConfigDict, NonNegativeInt, with_config, Field, BeforeValidator
 from typing_extensions import NotRequired, TypedDict
 
 
@@ -107,6 +108,16 @@ class SphericalTargetTypeHypers(TypedDict):
 
     spherical: SphericalTargetConfig
 
+def deprecated_per_atom_to_sample_kind(
+    per_atom: bool
+) -> Literal["atom", "system"]:
+    
+    logging.warning(
+        "Using `per_atom` for targets is deprecated and will be removed at some point,"
+        "please use `sample_kind` instead."
+    )
+
+    return per_atom
 
 @with_config(ConfigDict(extra="forbid", strict=True))
 class TargetHypers(TypedDict):
@@ -139,9 +150,21 @@ class TargetHypers(TypedDict):
 
     The list of possible units is available `here
     <https://docs.metatensor.org/metatomic/latest/torch/reference/misc.html#known-quantities-units>`_."""
-    per_atom: NotRequired[bool] = False
-    """Whether the target is a per-atom quantity, as opposed to a global
-    (per-structure) quantity."""
+
+    sample_kind: NotRequired[Literal["system", "atom", "atom_pair"]]
+    """Which kind of sample the target corresponds to.
+    
+    If not provided and ``per_atom`` is also not provided,
+    it defaults to ``"system"``.
+    """
+    per_atom: Annotated[NotRequired[bool], , Field(deprecated="Using `per_atom` for targets is deprecated and will be removed at some point, please use `sample_kind` instead.")]
+    """Old key that is deprecated, ``sample_kind`` should be used instead.
+
+    If set to true, ``sample_kind`` is set to ``"atom"``.
+    If set to false, ``sample_kind`` is set to ``"system"``.
+
+    Can't be used if `sample_kind` is set, in that case an error is raised.
+    """
     type: NotRequired[
         ScalarTargetTypeHyper | CartesianTargetTypeHypers | SphericalTargetTypeHypers
     ]
@@ -183,7 +206,10 @@ class TargetHypers(TypedDict):
 class DatasetDictHypers(TypedDict):
     systems: str | SystemsHypers
     """Path to the dataset file or a dictionary specifying the dataset."""
-    targets: dict[str, TargetHypers | str]
+    targets: Annotated[
+        dict[str, TargetHypers | str], 
+        Field(description="A dictionary of target specifications.")
+    ]
 
     extra_data: NotRequired[dict]
     """Additional data to include from the dataset."""
@@ -194,7 +220,7 @@ DatasetSpec = DatasetDictHypers | list[DatasetDictHypers] | str
 WandbConfig = dict
 
 
-@with_config(ConfigDict(extra="forbid", strict=True))
+@with_config(ConfigDict(extra="forbid", strict=True, union_mode="left_to_right"))
 class BaseHypers(TypedDict):
     """Base hyperparameters for all models."""
 

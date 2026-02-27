@@ -48,7 +48,7 @@ def test_adaptive_cutoff_functionality(num_neighbors_adaptive):
         pbc=torch.tensor([True, True, True]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     _ = model([system], outputs)
 
 

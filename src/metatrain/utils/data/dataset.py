@@ -743,7 +743,7 @@ class DiskDataset(torch.utils.data.Dataset):
         for target_key, target in target_config.items():
             is_energy = (
                 (target["quantity"] == "energy")
-                and (not target["per_atom"])
+                and (not target["sample_kind"] == "atom")
                 and target["num_subtargets"] == 1
                 and target["type"] == "scalar"
             )
@@ -1010,8 +1010,9 @@ class MemmapDataset(TorchDataset):
         self.target_arrays = {}
         for target_key, single_target_options in target_options.items():
             data_key = single_target_options["key"]
+            per_atom = single_target_options["sample_kind"] == "atom"
             number_of_samples = (
-                self.na[-1] if single_target_options["per_atom"] else self.ns
+                self.na[-1] if per_atom else self.ns
             )
             number_of_properties = single_target_options["num_subtargets"]
             if single_target_options["type"] == "scalar":
@@ -1023,7 +1024,7 @@ class MemmapDataset(TorchDataset):
                 )
                 if (
                     single_target_options["quantity"] == "energy"
-                    and not single_target_options["per_atom"]
+                    and not per_atom
                     and single_target_options["num_subtargets"] == 1
                 ):
                     # energy target: look into potential gradients
@@ -1134,7 +1135,7 @@ class MemmapDataset(TorchDataset):
             # handle energy gradients
             if (
                 target_options["quantity"] == "energy"
-                and not target_options["per_atom"]
+                and not target_options["sample_kind"] == "atom"
                 and target_options["num_subtargets"] == 1
             ):
                 if target_options["forces"]:
@@ -1230,7 +1231,7 @@ class MemmapDataset(TorchDataset):
         for target_key, target in self.target_config.items():
             is_energy = (
                 (target["quantity"] == "energy")
-                and (not target["per_atom"])
+                and (not target["sample_kind"] == "atom")
                 and target["num_subtargets"] == 1
                 and target["type"] == "scalar"
             )

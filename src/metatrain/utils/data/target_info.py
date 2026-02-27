@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap, equal_metadata
@@ -65,11 +65,38 @@ class TargetInfo:
             return sorted(self.layout.block().gradients_list())
         else:
             return []
-
+        
     @property
     def per_atom(self) -> bool:
-        """Whether the target is per atom."""
-        return "atom" in self.layout.block(0).samples.names
+        """Whether the target is a per-atom quantity or system wide.
+        
+        This is provided for backward compatibility, since ``sample_kind``
+        is now a more general version of it. If ``sample_kind`` is not
+        one of "system" or "atom", trying to get ``per_atom`` will raise
+        an error.
+        """
+        sample_kind = self.sample_kind
+
+        if sample_kind == "atom":
+            return True
+        elif sample_kind == "system":
+            return False
+        else:
+            raise ValueError(
+                f"Cannot determine whether the target is per-atom or system-wide "
+                f"because its sample_kind is '{sample_kind}'."
+            )
+    
+    @property
+    def sample_kind(self) -> Literal["system", "atom", "atom_pair"]:
+        """The kind of sample the target corresponds to."""
+        sample_names = self.layout.block(0).samples.names
+        if "atom" in sample_names:
+            return "atom"
+        elif "first_atom" in sample_names:
+            return "atom_pair"
+        else:
+            return "system"
 
     @property
     def component_labels(self) -> List[List[Labels]]:
@@ -106,14 +133,16 @@ class TargetInfo:
 
         :param layout: The layout TensorMap to check.
         """
+        allowed_sample_names = ["system", "atom", "first_atom", "second_atom", "cell_shift_a", "cell_shift_b", "cell_shift_c"]
 
         # examine basic properties of all blocks
         for block in layout.blocks():
             for sample_name in block.samples.names:
-                if sample_name not in ["system", "atom"]:
+                if sample_name not in allowed_sample_names:
                     raise ValueError(
                         "The layout ``TensorMap`` of a target should only have samples "
-                        "named 'system' or 'atom', but found "
+                        "named as ['system', 'atom', 'first_atom', 'second_atom', " \
+                        "'cell_shift_a', 'cell_shift_b' or 'cell_shift_c'], but found "
                         f"'{sample_name}' instead."
                     )
             if len(block.values) != 0:
@@ -408,8 +437,10 @@ def get_generic_target_info(target_name: str, target: DictConfig) -> TargetInfo:
 
 def _get_scalar_target_info(target_name: str, target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
-    if target["per_atom"]:
+    if target["sample_kind"] == "atom":
         sample_names.append("atom")
+    elif target["sample_kind"] == "atom_pair":
+        sample_names.extend(["first_atom", "second_atom", "cell_shift_a", "cell_shift_b", "cell_shift_c"])
 
     block = TensorBlock(
         # float64: otherwise metatensor can't serialize
@@ -442,8 +473,10 @@ def _get_scalar_target_info(target_name: str, target: DictConfig) -> TargetInfo:
 
 def _get_cartesian_target_info(target_name: str, target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
-    if target["per_atom"]:
+    if target["sample_kind"] == "atom":
         sample_names.append("atom")
+    elif target["sample_kind"] == "atom_pair":
+        sample_names.extend(["first_atom", "second_atom", "cell_shift_a", "cell_shift_b", "cell_shift_c"])
 
     cartesian_key = next(iter(target["type"]))
 
@@ -493,8 +526,10 @@ def _get_cartesian_target_info(target_name: str, target: DictConfig) -> TargetIn
 
 def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
-    if target["per_atom"]:
+    if target["sample_kind"] == "atom":
         sample_names.append("atom")
+    elif target["sample_kind"] == "atom_pair":
+        sample_names.extend(["first_atom", "second_atom", "cell_shift_a", "cell_shift_b", "cell_shift_c"])
 
     irreps = target["type"]["spherical"]["irreps"]
     keys = []

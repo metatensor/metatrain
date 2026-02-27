@@ -62,7 +62,7 @@ class ArchitectureTests:
             "key": "U0",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -145,6 +145,15 @@ class ArchitectureTests:
         """
         return request.param
 
+    @pytest.fixture(params=["system", "atom"])
+    def sample_kind(self, request: pytest.FixtureRequest) -> str:
+        """Fixture to provide the sample kind for testing.
+
+        :param request: The pytest request fixture.
+        :return: The sample kind to be used.
+        """
+        return request.param
+
     @pytest.fixture
     def dataset_info_scalar(self, per_atom: bool) -> DatasetInfo:
         """Fixture that provides a basic ``DatasetInfo`` with a scalar target
@@ -164,7 +173,7 @@ class ArchitectureTests:
                         "unit": "",
                         "type": "scalar",
                         "num_subtargets": 5,
-                        "per_atom": per_atom,
+                        "sample_kind": "atom" if per_atom else "system",
                     },
                 )
             },
@@ -189,7 +198,7 @@ class ArchitectureTests:
                         "unit": "",
                         "type": {"cartesian": {"rank": 1}},
                         "num_subtargets": 5,
-                        "per_atom": per_atom,
+                        "sample_kind": "atom" if per_atom else "system",
                     },
                 )
             },
@@ -241,7 +250,7 @@ class ArchitectureTests:
                             }
                         },
                         "num_subtargets": 5,
-                        "per_atom": False,
+                        "sample_kind": "system",
                     },
                 )
             },
@@ -274,7 +283,7 @@ class ArchitectureTests:
                             }
                         },
                         "num_subtargets": 100,
-                        "per_atom": per_atom,
+                        "sample_kind": "atom" if per_atom else "system",
                     },
                 )
             },
