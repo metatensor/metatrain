@@ -62,6 +62,7 @@ test distributed:
   image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
   timeout: 24h
   script:
+    - flock /tmp/ldconfig.lock -c "test -f /tmp/ld_$CI_JOB_ID || { ldconfig || true; touch /tmp/ld_$CI_JOB_ID; }"
     - . /mtt-venv/bin/activate
     - cd tests/distributed
     - mtt train options-distributed.yaml | tee train.log
@@ -83,6 +84,7 @@ test distributed multitarget:
   image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
   timeout: 24h
   script:
+    - flock /tmp/ldconfig.lock -c "test -f /tmp/ld_$CI_JOB_ID || { ldconfig || true; touch /tmp/ld_$CI_JOB_ID; }"
     - . /mtt-venv/bin/activate
     - cd tests/distributed
     - mtt train options-distributed-multitarget.yaml -o model-multitarget.pt | tee train-multitarget.log
@@ -111,6 +113,7 @@ test distributed multitarget finetuning:
   image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
   timeout: 24h
   script:
+    - flock /tmp/ldconfig.lock -c "test -f /tmp/ld_$CI_JOB_ID || { ldconfig || true; touch /tmp/ld_$CI_JOB_ID; }"
     - . /mtt-venv/bin/activate
     - cd tests/distributed
     - mtt train options-distributed-finetuning.yaml | tee train-multitarget-finetuning.log
