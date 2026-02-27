@@ -5,6 +5,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Callable, Dict, List, Optional, Tuple
 
+import torch
 from metatensor.torch import TensorMap
 from metatomic.torch import ModelCapabilities, ModelOutput, System
 from omegaconf import DictConfig
@@ -62,10 +63,9 @@ def read_systems(
 
     systems = reader_fn(filename)
 
-    # elements in data are `torch.ScriptObject`s and their `dtype` is an integer.
-    # A C++ double/torch.float64 is `7` according to
-    # https://github.com/pytorch/pytorch/blob/207564bab1c4fe42750931765734ee604032fb69/c10/core/ScalarType.h#L54-L93
-    if not all(s.dtype == 7 for s in systems):
+    # System.dtype returns a C++ ScalarType int due to TorchScript custom class
+    # limitations, so we check positions.dtype (a regular tensor attribute) instead.
+    if not all(s.positions.dtype == torch.float64 for s in systems):
         raise ValueError("The loaded systems are not in double precision.")
 
     return systems
@@ -176,9 +176,8 @@ def _read_conf_section(
         # execute reader and collect outputs
         tensormaps, info = reader_fn(key, entry)
 
-        # enforce double precision (dtype == 7)
-        if not all(t.dtype == 7 for t in tensormaps):
-            raise ValueError(f"Data for '{key}' not in double precision (dtype==7).")
+        if not all(t.block(0).values.dtype == torch.float64 for t in tensormaps):
+            raise ValueError(f"Data for '{key}' is not in double precision.")
 
         data_dict[key] = tensormaps
         info_dict[key] = info
