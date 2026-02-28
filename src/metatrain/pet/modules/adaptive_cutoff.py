@@ -124,10 +124,9 @@ def get_gaussian_cutoff_weights(
     :param width: Width of the Gaussian cutoff selection function.
     :return: Weights for each probe cutoff.
     """
-
     # this early out prevents aggregation (taking the max) over empty lists
     if effective_num_neighbors.numel() == 0:
-        return torch.zeros_like(effective_num_neighbors)
+        return torch.empty_like(effective_num_neighbors)
 
     diff = effective_num_neighbors - num_neighbors_adaptive
 
