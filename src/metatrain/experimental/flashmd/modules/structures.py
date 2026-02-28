@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List
 
 import torch
 from metatensor.torch import Labels
@@ -15,9 +15,15 @@ from metatrain.pet.modules.nef import (
 def concatenate_structures(
     systems: list[System],
     neighbor_list_options: NeighborListOptions,
-    selected_atoms: Optional[Labels] = None,
 ):
-    """Concatenate a list of systems into a single batch."""
+    """
+    Concatenate a list of systems into a single batch.
+
+    :param systems: List of systems to concatenate.
+    :param neighbor_list_options: Options for the neighbor list.
+    :return: A tuple containing the concatenated positions, momenta, centers, neighbors,
+        species, cells, cell shifts, system indices, and sample labels.
+    """
     positions: list[torch.Tensor] = []
     momenta: list[torch.Tensor] = []
     centers: list[torch.Tensor] = []
@@ -38,42 +44,17 @@ def concatenate_structures(
         neighbors_values = nl_values[:, 1]
         cell_shifts_values = nl_values[:, 2:]
 
-        if selected_atoms is not None:
-            system_selected_atoms = selected_atoms.values[:, 1][
-                selected_atoms.values[:, 0] == i
-            ]
-            unique_centers = torch.unique(centers_values)
-            system_selected_atoms = torch.unique(
-                torch.cat([system_selected_atoms, unique_centers])
-            )
-            # calculate the mapping from the ghost atoms to the real atoms
-            ghost_to_real_index = torch.full(
-                [
-                    int(unique_centers.max()) + 1,
-                ],
-                -1,
-                device=centers_values.device,
-                dtype=centers_values.dtype,
-            )
-            for j, unique_center_index in enumerate(unique_centers):
-                ghost_to_real_index[unique_center_index] = j
+        system_size = len(system)
+        positions.append(system.positions)
+        species.append(system.types)
 
-            centers_values = ghost_to_real_index[centers_values]
-            neighbors_values = ghost_to_real_index[neighbors_values]
-        else:
-            system_selected_atoms = torch.arange(
-                len(system), device=system.positions.device
-            )
-
-        positions.append(system.positions[system_selected_atoms])
         if "momenta" not in system.known_data():
             raise ValueError(
                 "System does not contain momenta data, which is required for FlashMD."
             )
         tmap = system.get_data("momenta")
         block = tmap[0]
-        momenta.append(block.values[system_selected_atoms].squeeze(-1))
-        species.append(system.types[system_selected_atoms])
+        momenta.append(block.values.squeeze(-1))
 
         centers.append(centers_values + node_counter)
         neighbors.append(neighbors_values + node_counter)
@@ -81,13 +62,11 @@ def concatenate_structures(
 
         cells.append(system.cell)
 
-        node_counter += len(system_selected_atoms)
+        node_counter += system_size
         system_indices.append(
-            torch.full((len(system_selected_atoms),), i, device=system.positions.device)
+            torch.full((system_size,), i, device=system.positions.device)
         )
-        atom_indices.append(
-            torch.arange(len(system_selected_atoms), device=system.positions.device)
-        )
+        atom_indices.append(torch.arange(system_size, device=system.positions.device))
 
     positions = torch.cat(positions)
     momenta = torch.cat(momenta)
@@ -126,7 +105,6 @@ def systems_to_batch(
     options: NeighborListOptions,
     all_species_list: List[int],
     species_to_species_index: torch.Tensor,
-    selected_atoms: Optional[Labels] = None,
 ):
     """
     Converts a list of systems to a batch required for the PET model.
@@ -153,7 +131,7 @@ def systems_to_batch(
         cell_shifts,
         system_indices,
         sample_labels,
-    ) = concatenate_structures(systems, options, selected_atoms)
+    ) = concatenate_structures(systems, options)
 
     # somehow the backward of this operation is very slow at evaluation,
     # where there is only one cell, therefore we simplify the calculation
@@ -167,16 +145,14 @@ def systems_to_batch(
             cells[system_indices[centers]],
         )
     edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
-    num_neghbors = torch.bincount(centers)
-    if num_neghbors.numel() == 0:  # no edges
-        max_edges_per_node = 0
-    else:
-        max_edges_per_node = int(torch.max(num_neghbors))
 
-    if selected_atoms is not None:
-        num_nodes = int(centers.max()) + 1
-    else:
-        num_nodes = len(positions)
+    num_nodes = len(positions)
+    num_neighbors = torch.bincount(centers, minlength=num_nodes)
+
+    # this logic shouldn't be needed thanks to `minlength` above, but just to be safe:
+    max_edges_per_node = (
+        int(torch.max(num_neighbors)) if num_neighbors.numel() > 0 else 0
+    )
 
     # Convert to NEF (Node-Edge-Feature) format:
     nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
