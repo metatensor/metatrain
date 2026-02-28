@@ -204,7 +204,9 @@ def systems_to_batch(
         pair_cutoffs = options.cutoff * torch.ones(
             len(centers), device=positions.device, dtype=positions.dtype
         )
+
     num_neighbors = torch.bincount(centers, minlength=num_nodes)
+    # this logic shouldn't be needed thanks to `minlength` above, but just to be safe:
     max_edges_per_node = (
         int(torch.max(num_neighbors)) if num_neighbors.numel() > 0 else 0
     )

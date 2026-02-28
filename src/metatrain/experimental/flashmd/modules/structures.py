@@ -21,7 +21,7 @@ def concatenate_structures(
 
     :param systems: List of systems to concatenate.
     :param neighbor_list_options: Options for the neighbor list.
-    :return: A tuple containing the concatenated positions, centers, neighbors,
+    :return: A tuple containing the concatenated positions, momenta, centers, neighbors,
         species, cells, cell shifts, system indices, and sample labels.
     """
     positions: list[torch.Tensor] = []
@@ -145,13 +145,14 @@ def systems_to_batch(
             cells[system_indices[centers]],
         )
     edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
-    num_neghbors = torch.bincount(centers)
-    if num_neghbors.numel() == 0:  # no edges
-        max_edges_per_node = 0
-    else:
-        max_edges_per_node = int(torch.max(num_neghbors))
 
     num_nodes = len(positions)
+    num_neighbors = torch.bincount(centers, minlength=num_nodes)
+
+    # this logic shouldn't be needed thanks to `minlength` above, but just to be safe:
+    max_edges_per_node = (
+        int(torch.max(num_neighbors)) if num_neighbors.numel() > 0 else 0
+    )
 
     # Convert to NEF (Node-Edge-Feature) format:
     nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
