@@ -760,7 +760,9 @@ class DiskDataset(torch.utils.data.Dataset):
                 target_info_dict[target_key] = target_info
             else:
                 target_info = get_generic_target_info(target_key, target)
-                _check_tensor_map_metadata(tensor_map, target_info.layout)
+
+                if not target_info.is_basis:
+                    _check_tensor_map_metadata(tensor_map, target_info.layout)
                 # make sure that the properties of the target_info.layout also match the
                 # actual properties of the tensor maps
                 target_info.layout = _empty_tensor_map_like(tensor_map)
