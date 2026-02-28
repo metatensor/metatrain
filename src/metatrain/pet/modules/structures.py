@@ -209,9 +209,13 @@ def systems_to_batch(
     edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
     edge_distances = torch.norm(edge_vectors, dim=-1) + 1e-15
 
-    # this should always be equal to the number of positions to prevent empty edge
-    # grahps
-    num_nodes = len(positions)
+    if selected_atoms is not None:
+        if torch.numel(centers) == 0:
+            num_nodes = 0
+        else:
+            num_nodes = int(centers.max()) + 1
+    else:
+        num_nodes = len(positions)
 
     if num_neighbors_adaptive is not None:
         with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
@@ -244,10 +248,7 @@ def systems_to_batch(
         )
 
     num_neighbors = torch.bincount(centers, minlength=num_nodes)
-    if num_neighbors.numel() == 0:
-        max_edges_per_node = 0
-    else:
-        max_edges_per_node = int(torch.max(num_neighbors))
+    max_edges_per_node = int(torch.max(num_neighbors))
 
     # uncomment these to print out stats on the adaptive cutoff behavior
     # print("adaptive_cutoffs", *pair_cutoffs.tolist())

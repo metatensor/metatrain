@@ -47,13 +47,9 @@ def concatenate_structures(
                 torch.cat([system_selected_atoms, unique_centers])
             )
             # calculate the mapping from the ghost atoms to the real atoms
-            if torch.numel(unique_centers) == 0:
-                max_center_index = -1
-            else:
-                max_center_index = int(unique_centers.max())
             ghost_to_real_index = torch.full(
                 [
-                    max_center_index + 1,
+                    int(unique_centers.max()) + 1,
                 ],
                 -1,
                 device=centers_values.device,
@@ -171,14 +167,16 @@ def systems_to_batch(
             cells[system_indices[centers]],
         )
     edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
-
-    num_nodes = len(positions)
-
-    num_neghbors = torch.bincount(centers, minlength=num_nodes)
+    num_neghbors = torch.bincount(centers)
     if num_neghbors.numel() == 0:  # no edges
         max_edges_per_node = 0
     else:
         max_edges_per_node = int(torch.max(num_neghbors))
+
+    if selected_atoms is not None:
+        num_nodes = int(centers.max()) + 1
+    else:
+        num_nodes = len(positions)
 
     # Convert to NEF (Node-Edge-Feature) format:
     nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
