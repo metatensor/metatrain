@@ -14,13 +14,14 @@
 `metatrain` is a command line interface (CLI) to **train** and **evaluate** atomistic
 models of various architectures. It features a common `yaml` option inputs to configure
 training and evaluation. Trained models are exported as standalone files that can be
-used directly in various molecular dynamics (MD) engines (e.g. `LAMMPS`, `i-PI`, `ASE`
-...) using the [metatomic](https://docs.metatensor.org/metatomic) interface.
+used directly in various molecular dynamics (MD) engines (e.g. `ASE`, `LAMMPS`, `i-PI`, 
+`TorchSim`, `ESPResSo`,...) using the [metatomic](https://docs.metatensor.org/metatomic)
+interface.
 
-The idea behind `metatrain` is to have a general hub that provides a homogeneous
-environment and user interface, transforming every ML architecture into an end-to-end
-model that can be connected to an MD engine. Any custom architecture compatible with
-[TorchScript](https://pytorch.org/docs/stable/jit.html) can be integrated into
+The idea behind `metatrain` is to have a general training hub that provides a
+homogeneous environment and user interface, transforming every ML architecture into an
+end-to-end model that can be connected to MD engines. Any custom architecture compatible
+with [TorchScript](https://pytorch.org/docs/stable/jit.html) can be integrated into
 `metatrain`, gaining automatic access to a training and evaluation interface, as well as
 compatibility with various MD engines.
 
@@ -34,7 +35,7 @@ model:
 | Name                                     | Description                                                                                                                          |
 |------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
 | [PET][arch-pet]                          | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
-| [SOAP BPNN][arch-soap_bpnn]              | A Behler-Parrinello neural network with SOAP features                                                                                |
+| [SOAP-BPNN][arch-soap_bpnn]              | A Behler-Parrinello neural network with SOAP features                                                                                |
 | [MACE][arch-mace]                        | A higher order equivariant message passing neural network.                                                                           |
 | [GAP][arch-gap]                          | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
 | [FlashMD][arch-flashmd]                  | An architecture for the direct prediction of molecular dynamics                                                                      |
