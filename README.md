@@ -24,9 +24,6 @@ model that can be connected to an MD engine. Any custom architecture compatible 
 `metatrain`, gaining automatic access to a training and evaluation interface, as well as
 compatibility with various MD engines.
 
-> **Note**: `metatrain` does not provide mathematical functionalities *per se*, but
-> relies on external models that implement the various architectures.
-
 <!-- marker-architectures -->
 
 # List of Implemented Architectures
