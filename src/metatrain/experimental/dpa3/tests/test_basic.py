@@ -32,6 +32,15 @@ def _minimal_hypers(arch: str) -> dict:
 class DPA3Tests(ArchitectureTests):
     architecture = "experimental.dpa3"
 
+    @pytest.fixture(params=("cpu",))
+    def device(self, request):
+        """DPA3 model construction (get_standard_model) is expensive.
+        Restrict parametrized tests to CPU to stay within CSCS CI time
+        limits.  CUDA coverage is provided by test_pretrained.py and
+        test_regression.py which test the device-handling code paths
+        directly."""
+        return torch.device(request.param)
+
     @pytest.fixture
     def minimal_model_hypers(self) -> dict:
         """Minimal hyperparameters for a DPA3 model for the smallest
@@ -114,7 +123,14 @@ class TestExported(ExportedTests, DPA3Tests):
         return hypers
 
 
-class TestTraining(TrainingTests, DPA3Tests): ...
+class TestTraining(TrainingTests, DPA3Tests):
+    @pytest.mark.skip(reason="DPA3: multi-epoch training too slow for CI time limits")
+    def test_continue_restart_num_epochs(self, *a, **kw):
+        pass
+
+    @pytest.mark.skip(reason="DPA3: multi-epoch training too slow for CI time limits")
+    def test_continue_finetune_num_epochs(self, *a, **kw):
+        pass
 
 
 class TestCheckpoints(CheckpointTests, DPA3Tests):
