@@ -33,6 +33,9 @@ from .modules.structures import concatenate_structures
 # are considered padding and excluded from the atomic property tensor).
 _PADDING_MASK_THRESHOLD = 1e-10
 
+_PRECISION_STR_TO_DTYPE = {"float32": torch.float32, "float64": torch.float64}
+_DTYPE_TO_PRECISION_STR = {v: k for k, v in _PRECISION_STR_TO_DTYPE.items()}
+
 
 class DPA3(ModelInterface[ModelHypers]):
     __checkpoint_version__ = 1
@@ -55,13 +58,16 @@ class DPA3(ModelInterface[ModelHypers]):
         super().__init__(hypers, dataset_info, self.__default_metadata__)
         self.atomic_types = dataset_info.atomic_types
 
-        precision_str = self.hypers["descriptor"]["precision"]
-        if precision_str == "float64":
-            self.dtype: torch.dtype = torch.float64
-        elif precision_str == "float32":
-            self.dtype = torch.float32
-        else:
-            raise ValueError(f"Unsupported precision: {precision_str}")
+        # Resolve precision: descriptor.precision is the authority.  If the
+        # fitting_net precision was left at default but the descriptor was
+        # changed, propagate the descriptor value to the fitting_net.
+        desc_prec = self.hypers["descriptor"]["precision"]
+        fit_prec = self.hypers["fitting_net"]["precision"]
+        if desc_prec not in _PRECISION_STR_TO_DTYPE:
+            raise ValueError(f"Unsupported descriptor precision: {desc_prec}")
+        if fit_prec not in _PRECISION_STR_TO_DTYPE:
+            raise ValueError(f"Unsupported fitting_net precision: {fit_prec}")
+        self.dtype: torch.dtype = _PRECISION_STR_TO_DTYPE[desc_prec]
 
         self.requested_nl = NeighborListOptions(
             cutoff=self.hypers["descriptor"]["repflow"]["e_rcut"],
@@ -342,7 +348,7 @@ class DPA3(ModelInterface[ModelHypers]):
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {self.dtype} for DPA3")
+            raise ValueError(f"unsupported dtype {dtype} for DPA3")
 
         # Make sure the model is all in the same dtype
         # For example, after training, the additive models could still be in
