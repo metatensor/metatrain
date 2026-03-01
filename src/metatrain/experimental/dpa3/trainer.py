@@ -146,7 +146,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
             model.additive_models[1:],
             self.hypers["batch_size"],
             is_distributed,
-            self.hypers["fixed_composition_weights"],
+            {
+                **model.get_fixed_composition_weights(),
+                **self.hypers["fixed_composition_weights"],
+            },
         )
 
         if self.hypers["scale_targets"]:
@@ -156,6 +159,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 model.additive_models,
                 self.hypers["batch_size"],
                 is_distributed,
+                model.get_fixed_scaling_weights(),
             )
 
         if is_distributed:
