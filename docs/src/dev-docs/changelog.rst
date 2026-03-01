@@ -24,6 +24,42 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Version 2026.2 - 2026-02-28
+---------------------------
+
+Fixed
+#####
+
+- Reduced memory usage for training runs without gradient targets.
+- A restarted training run will now run only for the residual number of epochs, instead
+  of the full number of epochs specified in the ``options.yaml`` file.
+- Fixed overflow of atomic indices in ``MemmapDataset`` for very large datasets.
+- Fixed a problem with the displayed metrics when training with mixed-stress datasets.
+- Fixed edge cases affecting isolated-atom structures in PET and FlashMD.
+- Architectures relying on metatrain's ``Scaler`` can now be called requesting no
+  outputs. This was broken previously.
+
+Added
+#####
+
+- New ``Classifier`` architecture for classification tasks.
+- Added support for distributed LLPR calibration.
+- Added CRPS calibration for LLPR uncertainties and CRPS loss for LLPR ensembles.
+- Zero-sized validation sets are now allowed.
+
+Changed
+#######
+
+- LLPR models will not run final evaluation after training.
+- LLPR models now rely on a Cholesky decomposition for improved numerical stability.
+- Omitting the cell is now allowed for ``MemmapDataset`` in cases where all systems in
+  the dataset are fully non-periodic.
+
+Removed
+#######
+
+- Removed the ``deprecated.nanopet`` architecture.
+
 Version 2026.1 - 2026-01-07
 ---------------------------
 
