@@ -26,6 +26,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .documentation import ModelHypers
+from .modules.structures import concatenate_structures
 
 
 # Threshold for masking padded atom energies (atoms with |energy| below this
@@ -33,49 +34,6 @@ from .documentation import ModelHypers
 _PADDING_MASK_THRESHOLD = 1e-10
 
 
-def concatenate_structures(systems: List[System]):
-    """Collate a list of Systems into padded batch tensors.
-
-    Returns positions, species, cells (all [batch, max_atoms, ...]),
-    plus flat atom_index and system_index vectors for scatter operations.
-    """
-    device = systems[0].positions.device
-    atom_nums: List[int] = []
-
-    atom_index_list: List[torch.Tensor] = []
-    system_index_list: List[torch.Tensor] = []
-
-    for i, system in enumerate(systems):
-        atom_nums.append(len(system.positions))
-        atom_index_list.append(torch.arange(start=0, end=len(system.positions)))
-        system_index_list.append(torch.full((len(system.positions),), i))
-    max_atom_num = max(atom_nums)
-    atom_index = torch.cat(atom_index_list, dim=0).to(torch.int32).to(device)
-    system_index = torch.cat(system_index_list, dim=0).to(torch.int32).to(device)
-
-    positions = torch.zeros(
-        (len(systems), max_atom_num, 3), dtype=systems[0].positions.dtype
-    )
-    species = torch.full((len(systems), max_atom_num), -1, dtype=systems[0].types.dtype)
-    cells = torch.stack(
-        [system.cell for system in systems]
-    )  # [batch_size, 3, 3]
-
-    for i, system in enumerate(systems):
-        positions[i, : len(system.positions)] = system.positions
-        species[i, : len(system.positions)] = system.types
-        cells[i] = system.cell
-
-    return (
-        positions.to(device),
-        species.to(device),
-        cells.to(device),
-        atom_index,
-        system_index,
-    )
-
-
-# Model definition
 class DPA3(ModelInterface[ModelHypers]):
     __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
@@ -96,14 +54,14 @@ class DPA3(ModelInterface[ModelHypers]):
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
         self.atomic_types = dataset_info.atomic_types
-        self.dtype = self.hypers["descriptor"]["precision"]
 
-        if self.dtype == "float64":
-            self.dtype = torch.float64
-        elif self.dtype == "float32":
+        precision_str = self.hypers["descriptor"]["precision"]
+        if precision_str == "float64":
+            self.dtype: torch.dtype = torch.float64
+        elif precision_str == "float32":
             self.dtype = torch.float32
         else:
-            raise ValueError(f"Unsupported precision: {self.dtype}")
+            raise ValueError(f"Unsupported precision: {precision_str}")
 
         self.requested_nl = NeighborListOptions(
             cutoff=self.hypers["descriptor"]["repflow"]["e_rcut"],
