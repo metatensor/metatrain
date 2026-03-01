@@ -35,6 +35,7 @@ from metatrain.utils.neighbor_lists import (
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
+from metatrain.utils.distributed.batch_utils import should_skip_batch
 
 from . import checkpoints
 from .documentation import TrainerHypers
@@ -284,6 +285,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=self.hypers.get("batch_atom_bounds", [None, None]),
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
@@ -292,6 +294,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
+            batch_atom_bounds=self.hypers.get("batch_atom_bounds", [None, None]),
         )
 
         # Create dataloader for the training datasets:
@@ -444,6 +447,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             train_loss = 0.0
             for batch in train_dataloader:
+                # Skip None batches (those outside batch_atom_bounds)
+                if should_skip_batch(batch, is_distributed, device):
+                    continue
+
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = unpack_batch(batch)
@@ -526,6 +533,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
             with torch.no_grad():
                 val_loss = 0.0
                 for batch in val_dataloader:
+                    # Skip None batches (those outside batch_atom_bounds)
+                    if should_skip_batch(batch, is_distributed, device):
+                        continue
+
                     systems, targets, extra_data = unpack_batch(batch)
                     systems, targets, extra_data = batch_to(
                         systems, targets, extra_data, dtype=dtype, device=device
