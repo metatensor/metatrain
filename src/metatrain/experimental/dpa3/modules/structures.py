@@ -24,27 +24,30 @@ def concatenate_structures(
 
     for i, system in enumerate(systems):
         atom_nums.append(len(system.positions))
-        atom_index_list.append(torch.arange(start=0, end=len(system.positions)))
-        system_index_list.append(torch.full((len(system.positions),), i))
+        atom_index_list.append(
+            torch.arange(start=0, end=len(system.positions), device=device)
+        )
+        system_index_list.append(torch.full((len(system.positions),), i, device=device))
     max_atom_num = max(atom_nums)
-    atom_index = torch.cat(atom_index_list, dim=0).to(torch.int32).to(device)
-    system_index = torch.cat(system_index_list, dim=0).to(torch.int32).to(device)
+    atom_index = torch.cat(atom_index_list, dim=0).to(torch.int32)
+    system_index = torch.cat(system_index_list, dim=0).to(torch.int32)
 
     positions = torch.zeros(
-        (len(systems), max_atom_num, 3), dtype=systems[0].positions.dtype
+        (len(systems), max_atom_num, 3),
+        dtype=systems[0].positions.dtype,
+        device=device,
     )
-    species = torch.full((len(systems), max_atom_num), -1, dtype=systems[0].types.dtype)
-    cells = torch.stack([system.cell for system in systems])  # [batch_size, 3, 3]
+    species = torch.full(
+        (len(systems), max_atom_num),
+        -1,
+        dtype=systems[0].types.dtype,
+        device=device,
+    )
+    cells = torch.stack([system.cell for system in systems])
 
     for i, system in enumerate(systems):
         positions[i, : len(system.positions)] = system.positions
         species[i, : len(system.positions)] = system.types
         cells[i] = system.cell
 
-    return (
-        positions.to(device),
-        species.to(device),
-        cells.to(device),
-        atom_index,
-        system_index,
-    )
+    return (positions, species, cells, atom_index, system_index)

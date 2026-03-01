@@ -30,8 +30,7 @@ from .documentation import ModelHypers
 from .modules.structures import concatenate_structures
 
 
-# Threshold for masking padded atom energies (atoms with |energy| below this
-# are considered padding and excluded from the atomic property tensor).
+# Kept for checkpoint v2 compatibility (registered as a buffer).
 _PADDING_MASK_THRESHOLD = 1e-10
 
 _PRECISION_STR_TO_DTYPE = {"float32": torch.float32, "float64": torch.float64}
@@ -182,14 +181,17 @@ class DPA3(ModelInterface[ModelHypers]):
 
     def _prepare_atype(self, species: torch.Tensor) -> torch.Tensor:
         """Map padded species tensor to deepmd-kit type indices."""
-        type_to_index = {
-            atomic_type: idx for idx, atomic_type in enumerate(self.atomic_types)
-        }
-        type_to_index[-1] = -1
-        return torch.tensor(
-            [[type_to_index[s.item()] for s in row] for row in species],
-            dtype=species.dtype,
-        ).to(species.device)
+        max_z = max(max(self.atomic_types), 0) + 1
+        lookup = torch.full(
+            (max_z + 1,), -1, dtype=species.dtype, device=species.device
+        )
+        for idx, z in enumerate(self.atomic_types):
+            lookup[z] = idx
+        valid_mask = species >= 0
+        safe_species = species.clamp(min=0)
+        result = lookup[safe_species]
+        result[~valid_mask] = -1
+        return result
 
     def _forward_from_batch(
         self,
@@ -281,8 +283,13 @@ class DPA3(ModelInterface[ModelHypers]):
             names=["system", "atom"], values=values.to(device)
         )
 
-        mask = torch.abs(raw["atom_energy"]) > self.padding_mask_threshold
-        atomic_property_tensor = raw["atom_energy"][mask].unsqueeze(-1)
+        # Use species to identify real atoms (>=0) vs padding (-1).
+        # This is robust across platforms, unlike energy-magnitude thresholding
+        # which can incorrectly mask real atoms with near-zero initial energies.
+        batch_size, max_atoms = species.shape
+        atom_energy = raw["atom_energy"].reshape(batch_size, max_atoms)
+        mask = species >= 0
+        atomic_property_tensor = atom_energy[mask].unsqueeze(-1)
 
         blocks.append(
             TensorBlock(
