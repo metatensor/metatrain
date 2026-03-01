@@ -1,5 +1,6 @@
 import logging
-from typing import Any, Dict, List, Literal, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import ase.data
 import metatensor.torch as mts
@@ -76,11 +77,52 @@ class DPA3(ModelInterface[ModelHypers]):
         )
         self.targets_keys = list(dataset_info.targets.keys())[0]
 
-        # Derive the type_map deepmd-kit needs from the atomic numbers
-        # supplied by metatrain's dataset_info.
-        type_map = [ase.data.chemical_symbols[z] for z in self.atomic_types]
-        deepmd_hypers = {**hypers, "type_map": type_map}
-        self.model = get_standard_model(deepmd_hypers)
+        # Pretrained model loading: if dpa3_model is provided, load it
+        # instead of building from scratch with get_standard_model.
+        self.loaded_dpa3 = self.hypers.get("dpa3_model") is not None
+        self._loaded_out_bias: Optional[torch.Tensor] = None
+        self._loaded_out_std: Optional[torch.Tensor] = None
+
+        if self.loaded_dpa3:
+            dpa3_model = self.hypers["dpa3_model"]
+            if isinstance(dpa3_model, (str, Path)):
+                loaded = torch.load(str(dpa3_model), weights_only=False)
+            elif isinstance(dpa3_model, torch.nn.Module):
+                loaded = dpa3_model
+            else:
+                raise ValueError(
+                    "The 'dpa3_model' hyper must be a file path or "
+                    "a torch.nn.Module."
+                )
+
+            # If loaded is a dict (deepmd-kit checkpoint), extract the model.
+            if isinstance(loaded, dict):
+                if "model" in loaded:
+                    loaded = loaded["model"]
+                else:
+                    raise ValueError(
+                        "Cannot find 'model' key in the checkpoint dict. "
+                        "Expected a deepmd-kit checkpoint or a saved Module."
+                    )
+
+            self.model = loaded
+
+            # Extract output bias and std from the atomic model, then zero
+            # them so metatrain's CompositionModel and Scaler handle them.
+            if not getattr(self.model, "_metatrain_extracted_scaleshift", False):
+                atomic_model = self.model.atomic_model
+                if hasattr(atomic_model, "out_bias"):
+                    self._loaded_out_bias = atomic_model.out_bias.clone()
+                    atomic_model.out_bias.zero_()
+                if hasattr(atomic_model, "out_std"):
+                    self._loaded_out_std = atomic_model.out_std.clone()
+                    atomic_model.out_std.fill_(1.0)
+                self.model._metatrain_extracted_scaleshift = True
+        else:
+            # Build a new model from hypers.
+            type_map = [ase.data.chemical_symbols[z] for z in self.atomic_types]
+            deepmd_hypers = {**hypers, "type_map": type_map}
+            self.model = get_standard_model(deepmd_hypers)
 
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
         self.outputs: Dict[str, ModelOutput] = {}
@@ -345,13 +387,24 @@ class DPA3(ModelInterface[ModelHypers]):
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
-        # Create the model
+        # Create the model (if dpa3_model was stored in hypers, __init__
+        # will load it and its parameters are NOT in model_state_dict).
         model = cls(
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
         )
-        dtype = next(iter(model_state_dict.values())).dtype
-        model.to(dtype).load_state_dict(model_state_dict)
+
+        has_stored_dpa3 = model_data["model_hypers"].get("dpa3_model") is not None
+        if has_stored_dpa3:
+            # Parameters come from the Module stored in hypers, not
+            # state_dict.  Infer dtype from the model itself.
+            dtype = next(model.model.parameters()).dtype
+        else:
+            dtype = next(iter(model_state_dict.values())).dtype
+
+        model.to(dtype).load_state_dict(
+            model_state_dict, strict=not has_stored_dpa3
+        )
         model.additive_models[0].sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
@@ -415,20 +468,71 @@ class DPA3(ModelInterface[ModelHypers]):
         return checkpoint
 
     def get_checkpoint(self) -> Dict:
+        model_state_dict = self.state_dict()
+        hypers = dict(self.hypers)
+
+        # If a pretrained model was loaded, store it in the hypers so
+        # it can be reconstructed on checkpoint reload (like MACE does).
+        if self.loaded_dpa3 and hypers.get("dpa3_model") is not None:
+            hypers["dpa3_model"] = self.model.to(device="cpu")
+            # Avoid duplicating the model weights in both hypers and
+            # state_dict; the state_dict keys prefixed with "model."
+            # come from the stored Module.
+            for k in list(model_state_dict.keys()):
+                if k.startswith("model."):
+                    model_state_dict.pop(k)
+
         checkpoint = {
             "architecture_name": "experimental.dpa3",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {
-                "model_hypers": self.hypers,
+                "model_hypers": hypers,
                 "dataset_info": self.dataset_info,
             },
             "epoch": None,
             "best_epoch": None,
-            "model_state_dict": self.state_dict(),
+            "model_state_dict": model_state_dict,
             "best_model_state_dict": None,
         }
         return checkpoint
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
+
+    def get_fixed_composition_weights(self) -> dict[str, dict[int, float]]:
+        """Return per-type energy biases extracted from a loaded model.
+
+        These are passed to ``CompositionModel.train_model`` as
+        ``fixed_weights`` so the pretrained biases are preserved rather than
+        refitted from data.
+        """
+        if self._loaded_out_bias is None:
+            return {}
+        # out_bias shape: [n_out, ntypes, max_out_size].  For energy
+        # prediction the first output and first property are used.
+        bias = self._loaded_out_bias[0, :, 0]  # [ntypes]
+        return {
+            self.targets_keys: {
+                z: bias[i].item()
+                for i, z in enumerate(self.atomic_types)
+            }
+        }
+
+    def get_fixed_scaling_weights(
+        self,
+    ) -> dict[str, Union[float, dict[int, float]]]:
+        """Return per-type scaling factors extracted from a loaded model.
+
+        These are passed to ``Scaler.train_model`` as ``fixed_weights``.
+        """
+        if self._loaded_out_std is None:
+            return {}
+        # out_std shape: [n_out, ntypes, max_out_size]
+        std = self._loaded_out_std[0, :, 0]  # [ntypes]
+        return {
+            self.targets_keys: {
+                z: std[i].item()
+                for i, z in enumerate(self.atomic_types)
+            }
+        }

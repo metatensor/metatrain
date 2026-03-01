@@ -176,6 +176,13 @@ class ModelHypers(TypedDict):
     dataset's atomic numbers and should not be set manually.
     """
 
+    dpa3_model: Optional[str] = None
+    """Path to a pretrained DPA3 model file (deepmd-kit checkpoint or saved
+    Module).  When provided, the model weights are loaded from this file
+    instead of being initialised from scratch.  Energy biases and standard
+    deviations stored in the deepmd-kit model are extracted and handed to
+    metatrain's ``CompositionModel`` and ``Scaler`` so that fine-tuning starts
+    from the pretrained values."""
     descriptor: DescriptorHypers = init_with_defaults(DescriptorHypers)
     """Descriptor configuration (RepFlow block and related settings)."""
     fitting_net: FittingNetHypers = init_with_defaults(FittingNetHypers)
