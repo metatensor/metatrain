@@ -28,7 +28,7 @@ def _make_dataset_info():
 def _build_base_model():
     """Build a DPA3 model from hypers (the normal path)."""
     dataset_info = _make_dataset_info()
-    return DPA3(MODEL_HYPERS, dataset_info).to("cpu")
+    return DPA3(MODEL_HYPERS, dataset_info)
 
 
 def test_pretrained_module_loading():
@@ -122,7 +122,7 @@ def test_pretrained_no_fixed_weights_without_loading():
 def test_pretrained_forward_matches():
     """A model loaded via dpa3_model produces the same output as the base."""
     torch.manual_seed(42)
-    base = _build_base_model().to("cpu")
+    base = _build_base_model()
 
     # Clone the state before pretrained loading modifies out_bias/out_std
     base_state = copy.deepcopy(base.state_dict())
@@ -131,7 +131,7 @@ def test_pretrained_forward_matches():
     hypers["dpa3_model"] = copy.deepcopy(base.model)
 
     dataset_info = _make_dataset_info()
-    pretrained = DPA3(hypers, dataset_info).to("cpu")
+    pretrained = DPA3(hypers, dataset_info)
     # Restore base's original state so both models have the same weights
     # (pretrained zeroed out_bias/out_std, so load original state back)
     pretrained.load_state_dict(base_state)
@@ -171,13 +171,9 @@ def test_pretrained_checkpoint_roundtrip():
 
     # Round-trip: load the checkpoint
     reloaded = DPA3.load_checkpoint(checkpoint, context="restart")
-    reloaded = reloaded.to("cpu")
 
     # The reloaded model should NOT have loaded_dpa3 set (built from hypers)
     assert reloaded.loaded_dpa3 is False
-
-    # Both models should produce the same output
-    pretrained = pretrained.to("cpu")
     systems = read_systems(DATASET_PATH)[:2]
     systems = [s.to(torch.float64) for s in systems]
     for s in systems:

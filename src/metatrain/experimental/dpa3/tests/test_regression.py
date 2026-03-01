@@ -1,6 +1,7 @@
 import random
 
 import numpy as np
+import pytest
 import torch
 from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
@@ -19,7 +20,17 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH, DATASET_WITH_FORCES_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
+# deepmd-kit initializes model parameters on CUDA when available,
+# producing different random values than on CPU even with the same
+# seed.  The hardcoded reference values below were generated on
+# CPU-only CI, so skip on CUDA to avoid false failures.
+_SKIP_CUDA = pytest.mark.skipif(
+    torch.cuda.is_available(),
+    reason="deepmd-kit CUDA RNG differs from CPU; regression values are CPU-only",
+)
 
+
+@_SKIP_CUDA
 def test_regression_init():
     """Regression test for the model at initialization"""
     random.seed(0)
@@ -65,6 +76,7 @@ def test_regression_init():
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
 
 
+@_SKIP_CUDA
 def test_regression_energies_forces_train():
     """Regression test for the model when trained for 2 epoch on a small dataset"""
     random.seed(0)
