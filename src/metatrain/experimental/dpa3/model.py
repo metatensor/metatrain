@@ -1,6 +1,7 @@
 import logging
 from typing import Any, Dict, List, Literal, Optional
 
+import ase.data
 import metatensor.torch as mts
 import torch
 from deepmd.pt.model.model import get_standard_model
@@ -27,14 +28,19 @@ from . import checkpoints
 from .documentation import ModelHypers
 
 
-# Data processing
+# Threshold for masking padded atom energies (atoms with |energy| below this
+# are considered padding and excluded from the atomic property tensor).
+_PADDING_MASK_THRESHOLD = 1e-10
+
+
 def concatenate_structures(systems: List[System]):
+    """Collate a list of Systems into padded batch tensors.
+
+    Returns positions, species, cells (all [batch, max_atoms, ...]),
+    plus flat atom_index and system_index vectors for scatter operations.
+    """
     device = systems[0].positions.device
-    positions = []
-    species = []
-    cells = []
     atom_nums: List[int] = []
-    node_counter = 0
 
     atom_index_list: List[torch.Tensor] = []
     system_index_list: List[torch.Tensor] = []
@@ -53,13 +59,12 @@ def concatenate_structures(systems: List[System]):
     species = torch.full((len(systems), max_atom_num), -1, dtype=systems[0].types.dtype)
     cells = torch.stack(
         [system.cell for system in systems]
-    )  # 形状为 [batch_size, 3, 3] 或相应的晶胞形状
+    )  # [batch_size, 3, 3]
 
     for i, system in enumerate(systems):
         positions[i, : len(system.positions)] = system.positions
         species[i, : len(system.positions)] = system.types
         cells[i] = system.cell
-        node_counter += len(system.positions)
 
     return (
         positions.to(device),
@@ -107,7 +112,11 @@ class DPA3(ModelInterface[ModelHypers]):
         )
         self.targets_keys = list(dataset_info.targets.keys())[0]
 
-        self.model = get_standard_model(hypers)
+        # Derive the type_map deepmd-kit needs from the atomic numbers
+        # supplied by metatrain's dataset_info.
+        type_map = [ase.data.chemical_symbols[z] for z in self.atomic_types]
+        deepmd_hypers = {**hypers, "type_map": type_map}
+        self.model = get_standard_model(deepmd_hypers)
 
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
         self.outputs: Dict[str, ModelOutput] = {}
@@ -205,7 +214,6 @@ class DPA3(ModelInterface[ModelHypers]):
             [[type_to_index[s.item()] for s in row] for row in species],
             dtype=atype_dtype,
         ).to(positions.device)
-        atype = atype.to(atype_dtype)
 
         if torch.all(cells == 0).item():
             box = None
@@ -247,7 +255,7 @@ class DPA3(ModelInterface[ModelHypers]):
             names=["system", "atom"], values=values.to(device)
         )
 
-        mask = torch.abs(model_predict["atom_energy"]) > 1e-10
+        mask = torch.abs(model_predict["atom_energy"]) > _PADDING_MASK_THRESHOLD
         atomic_property_tensor = model_predict["atom_energy"][mask].unsqueeze(-1)
 
         blocks.append(
