@@ -1,4 +1,6 @@
+import contextlib
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
@@ -35,6 +37,50 @@ _PADDING_MASK_THRESHOLD = 1e-10
 
 _PRECISION_STR_TO_DTYPE = {"float32": torch.float32, "float64": torch.float64}
 _DTYPE_TO_PRECISION_STR = {v: k for k, v in _PRECISION_STR_TO_DTYPE.items()}
+
+
+@contextlib.contextmanager
+def _build_on_cpu():
+    """Force deepmd-kit module-level device constants to CPU during model
+    construction, ensuring deterministic (CPU) RNG for weight initialization
+    regardless of CUDA availability."""
+    cpu = torch.device("cpu")
+    saved = {}
+    for name, mod in sys.modules.items():
+        if mod is None or not name.startswith("deepmd.pt"):
+            continue
+        for attr in ("device", "DEVICE"):
+            val = getattr(mod, attr, None)
+            if isinstance(val, torch.device) and val.type == "cuda":
+                saved[(name, attr)] = val
+                setattr(mod, attr, cpu)
+    try:
+        yield
+    finally:
+        for (name, attr), original in saved.items():
+            mod = sys.modules.get(name)
+            if mod is not None:
+                setattr(mod, attr, original)
+
+
+def _register_untracked_tensors(model: torch.nn.Module) -> None:
+    """Register plain tensor attributes as non-persistent buffers.
+
+    deepmd-kit stores some tensors (e.g. type_mask) as plain attributes
+    rather than parameters or buffers.  These are invisible to .to(device)
+    and .to(dtype).  Converting them to non-persistent buffers makes them
+    move correctly without affecting state_dict (checkpoint compatibility)."""
+    for module in model.modules():
+        registered = set()
+        for n, _ in module.named_parameters(recurse=False):
+            registered.add(n)
+        for n, _ in module.named_buffers(recurse=False):
+            registered.add(n)
+        for attr_name in list(vars(module).keys()):
+            val = getattr(module, attr_name)
+            if isinstance(val, torch.Tensor) and attr_name not in registered:
+                delattr(module, attr_name)
+                module.register_buffer(attr_name, val, persistent=False)
 
 
 class DPA3(ModelInterface[ModelHypers]):
@@ -109,6 +155,7 @@ class DPA3(ModelInterface[ModelHypers]):
 
             # Normalize to CPU; .to(device) during training moves to GPU.
             self.model = loaded.cpu()
+            _register_untracked_tensors(self.model)
 
             # Extract output bias and std from the atomic model, then zero
             # them so metatrain's CompositionModel and Scaler handle them.
@@ -122,12 +169,14 @@ class DPA3(ModelInterface[ModelHypers]):
                     atomic_model.out_std.fill_(1.0)
                 self.model._metatrain_extracted_scaleshift = True
         else:
-            # Build a new model from hypers.
+            # Build a new model from hypers.  _build_on_cpu() patches
+            # deepmd-kit module-level DEVICE constants so weight init
+            # uses CPU RNG (deterministic across CUDA/CPU environments).
             type_map = [ase.data.chemical_symbols[z] for z in self.atomic_types]
             deepmd_hypers = {**hypers, "type_map": type_map}
-            # deepmd-kit auto-places on CUDA when available; normalize
-            # to CPU so .to(device) during training controls placement.
-            self.model = get_standard_model(deepmd_hypers).cpu()
+            with _build_on_cpu():
+                self.model = get_standard_model(deepmd_hypers)
+            _register_untracked_tensors(self.model)
 
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
         self.outputs: Dict[str, ModelOutput] = {}
