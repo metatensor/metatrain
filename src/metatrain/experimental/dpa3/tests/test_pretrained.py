@@ -28,7 +28,7 @@ def _make_dataset_info():
 def _build_base_model():
     """Build a DPA3 model from hypers (the normal path)."""
     dataset_info = _make_dataset_info()
-    return DPA3(MODEL_HYPERS, dataset_info)
+    return DPA3(MODEL_HYPERS, dataset_info).to("cpu")
 
 
 def test_pretrained_module_loading():
@@ -171,11 +171,13 @@ def test_pretrained_checkpoint_roundtrip():
 
     # Round-trip: load the checkpoint
     reloaded = DPA3.load_checkpoint(checkpoint, context="restart")
+    reloaded = reloaded.to("cpu")
 
     # The reloaded model should NOT have loaded_dpa3 set (built from hypers)
     assert reloaded.loaded_dpa3 is False
 
     # Both models should produce the same output
+    pretrained = pretrained.to("cpu")
     systems = read_systems(DATASET_PATH)[:2]
     systems = [s.to(torch.float64) for s in systems]
     for s in systems:
@@ -202,7 +204,7 @@ def test_pretrained_no_double_extraction():
     hypers = copy.deepcopy(MODEL_HYPERS)
     hypers["dpa3_model"] = base.model
     dataset_info = _make_dataset_info()
-    first = DPA3(hypers, dataset_info)
+    _first = DPA3(hypers, dataset_info)  # noqa: F841  side effect sets flag
 
     # Second load with the same model (flag already set)
     hypers2 = copy.deepcopy(MODEL_HYPERS)
