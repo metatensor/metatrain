@@ -37,7 +37,6 @@ def test_find_all_architectures():
     assert "experimental.mace" in all_arches
 
 
-
 def test_get_architecture_path():
     assert get_architecture_path("soap_bpnn") == PACKAGE_ROOT / "soap_bpnn"
 
