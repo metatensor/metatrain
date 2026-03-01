@@ -107,7 +107,8 @@ class DPA3(ModelInterface[ModelHypers]):
                         "Expected a deepmd-kit checkpoint or a saved Module."
                     )
 
-            self.model = loaded
+            # Normalize to CPU; .to(device) during training moves to GPU.
+            self.model = loaded.cpu()
 
             # Extract output bias and std from the atomic model, then zero
             # them so metatrain's CompositionModel and Scaler handle them.
@@ -124,7 +125,9 @@ class DPA3(ModelInterface[ModelHypers]):
             # Build a new model from hypers.
             type_map = [ase.data.chemical_symbols[z] for z in self.atomic_types]
             deepmd_hypers = {**hypers, "type_map": type_map}
-            self.model = get_standard_model(deepmd_hypers)
+            # deepmd-kit auto-places on CUDA when available; normalize
+            # to CPU so .to(device) during training controls placement.
+            self.model = get_standard_model(deepmd_hypers).cpu()
 
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
         self.outputs: Dict[str, ModelOutput] = {}
