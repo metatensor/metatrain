@@ -444,6 +444,12 @@ class CompositionModel(torch.nn.Module):
                 "since it is not either scalar or spherical."
             )
             return False
+        if target_info.is_atomic_basis:
+            logging.debug(
+                f"Composition model does not support target {target_name} "
+                "since it is an atomic basis target."
+            )
+            return False
         if (
             target_info.is_spherical
             and len(target_info.layout.blocks({"o3_lambda": 0, "o3_sigma": 1})) == 0
@@ -453,6 +459,7 @@ class CompositionModel(torch.nn.Module):
                 "since it does not have any invariant blocks."
             )
             return False
+
         return True
 
     def sync_tensor_maps(self) -> None:

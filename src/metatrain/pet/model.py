@@ -20,6 +20,7 @@ from metatomic.torch import (
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.data._merge_atom_types import merge_types
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
@@ -1206,9 +1207,13 @@ class PET(ModelInterface[ModelHypers]):
         :param target_name: Name of the target to add.
         :param target_info: TargetInfo object containing details about the target.
         """
+        output_layout = target_info.layout
+        if target_info.is_atomic_basis:
+            output_layout = merge_types(output_layout)
+
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}
-        for key, block in target_info.layout.items():
+        for key, block in output_layout.items():
             dict_key = target_name
             for n, k in zip(key.names, key.values, strict=True):
                 dict_key += f"_{n}_{int(k)}"
@@ -1295,12 +1300,12 @@ class PET(ModelInterface[ModelHypers]):
         self.outputs[ll_features_name] = ModelOutput(
             per_atom=True, description=f"last layer features for {target_name}"
         )
-        self.key_labels[target_name] = target_info.layout.keys
+        self.key_labels[target_name] = output_layout.keys
         self.component_labels[target_name] = [
-            block.components for block in target_info.layout.blocks()
+            block.components for block in output_layout.blocks()
         ]
         self.property_labels[target_name] = [
-            block.properties for block in target_info.layout.blocks()
+            block.properties for block in output_layout.blocks()
         ]
 
     def _move_labels_to_device(self, device: torch.device) -> None:
