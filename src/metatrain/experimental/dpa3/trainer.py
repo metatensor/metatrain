@@ -24,7 +24,11 @@ from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator, LossSpecification
-from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
+from metatrain.utils.metrics import (
+    MAEAccumulator,
+    RMSEAccumulator,
+    get_selected_metric,
+)
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
@@ -37,6 +41,15 @@ from metatrain.utils.transfer import (
 
 from .documentation import TrainerHypers
 from .model import DPA3
+
+
+# Learning rate below which training is stopped early.
+_MIN_LEARNING_RATE = 1e-7
+
+
+def _get_raw_model(model: Union[DPA3, DistributedDataParallel], is_distributed: bool):
+    """Unwrap a possibly-DDP-wrapped model to get the underlying DPA3."""
+    return model.module if is_distributed else model
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
@@ -122,8 +135,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of the SOAP-BPNN are always in float64 (to avoid
-        # numerical errors in the composition weights, which can be very large).
+        # The additive models are always kept in float64 to avoid numerical
+        # errors in the composition weights, which can be very large.
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
 
@@ -143,11 +156,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 model.additive_models,
                 self.hypers["batch_size"],
                 is_distributed,
-                # TODO: fixed_scaling_weights
             )
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
+
+        raw_model = _get_raw_model(model, is_distributed)
 
         logging.info("Setting up data loaders")
 
@@ -177,9 +191,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             val_samplers = [None] * len(val_datasets)
 
         # Create a collate function:
-        targets_keys = list(
-            (model.module if is_distributed else model).dataset_info.targets.keys()
-        )
+        targets_keys = list(raw_model.dataset_info.targets.keys())
         collate_fn = CollateFn(target_keys=targets_keys)
 
         # Create dataloader for the training datasets:
@@ -235,7 +247,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
-        train_targets = (model.module if is_distributed else model).dataset_info.targets
+        train_targets = raw_model.dataset_info.targets
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -266,7 +278,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not raw_model.has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a scheduler:
@@ -279,7 +291,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not raw_model.has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         # per-atom targets:
@@ -318,15 +330,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
+                for additive_model in raw_model.additive_models:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
-                targets = remove_scale(
-                    systems, targets, (model.module if is_distributed else model).scaler
-                )
+                targets = remove_scale(systems, targets, raw_model.scaler)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
                 )
@@ -377,15 +385,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
+                for additive_model in raw_model.additive_models:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
-                targets = remove_scale(
-                    systems, targets, (model.module if is_distributed else model).scaler
-                )
+                targets = remove_scale(systems, targets, raw_model.scaler)
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype
                 )
@@ -434,9 +438,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             if epoch == start_epoch:
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
-                    dataset_info=(
-                        model.module if is_distributed else model
-                    ).dataset_info,
+                    dataset_info=raw_model.dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
                 )
@@ -450,16 +452,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
             lr_scheduler.step(val_loss)
             new_lr = lr_scheduler.get_last_lr()[0]
             if new_lr != old_lr:
-                if new_lr < 1e-7:
+                if new_lr < _MIN_LEARNING_RATE:
                     logging.info("Learning rate is too small, stopping training")
                     break
                 else:
                     logging.info(f"Changing learning rate from {old_lr} to {new_lr}")
                     old_lr = new_lr
                     # load best model and optimizer state dict, re-initialize scheduler
-                    (model.module if is_distributed else model).load_state_dict(
-                        self.best_model_state_dict
-                    )
+                    raw_model.load_state_dict(self.best_model_state_dict)
                     optimizer.load_state_dict(self.best_optimizer_state_dict)
                     for param_group in optimizer.param_groups:
                         param_group["lr"] = new_lr
@@ -474,9 +474,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
             if val_metric < self.best_metric:
                 self.best_metric = val_metric
-                self.best_model_state_dict = copy.deepcopy(
-                    (model.module if is_distributed else model).state_dict()
-                )
+                self.best_model_state_dict = copy.deepcopy(raw_model.state_dict())
                 self.best_epoch = epoch
                 self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 
@@ -488,7 +486,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 self.epoch = epoch
                 if rank == 0:
                     self.save_checkpoint(
-                        (model.module if is_distributed else model),
+                        raw_model,
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
 
