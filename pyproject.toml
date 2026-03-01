@@ -86,7 +86,7 @@ dpa3 = [
 ]
 
 [tool.check-manifest]
-ignore = ["src/metatrain/_version.py", "uv.lock"]
+ignore = ["src/metatrain/_version.py"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
