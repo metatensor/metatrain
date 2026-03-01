@@ -128,7 +128,10 @@ class DescriptorHypers(TypedDict):
     """Add bias to the type embedding."""
     precision: str = "float32"
     """Floating-point precision for the descriptor. ``"float32"`` or
-    ``"float64"``."""
+    ``"float64"``.  This controls the internal precision of deepmd-kit's
+    descriptor computation.  For mixed-precision training, set this
+    independently of ``fitting_net.precision``; for uniform precision, set
+    both to the same value and match ``base_precision`` accordingly."""
     concat_output_tebd: bool = False
     """Concatenate type embedding to descriptor output."""
 
@@ -144,7 +147,8 @@ class FittingNetHypers(TypedDict):
     """Random seed for weight initialisation."""
     precision: str = "float32"
     """Floating-point precision for the fitting network. ``"float32"`` or
-    ``"float64"``."""
+    ``"float64"``.  Can differ from ``descriptor.precision`` for
+    mixed-precision training."""
     activation_function: str = "custom_silu:10.0"
     """Activation function (same format as the descriptor)."""
     type: str = "ener"
