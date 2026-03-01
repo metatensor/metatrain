@@ -135,6 +135,57 @@ class DPA3(ModelInterface[ModelHypers]):
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
 
+    def _prepare_atype(
+        self, species: torch.Tensor
+    ) -> torch.Tensor:
+        """Map padded species tensor to deepmd-kit type indices."""
+        type_to_index = {
+            atomic_type: idx for idx, atomic_type in enumerate(self.atomic_types)
+        }
+        type_to_index[-1] = -1
+        return torch.tensor(
+            [[type_to_index[s.item()] for s in row] for row in species],
+            dtype=species.dtype,
+        ).to(species.device)
+
+    def _forward_from_batch(
+        self,
+        positions: torch.Tensor,
+        atype: torch.Tensor,
+        box: Optional[torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        """Pure-tensor forward pass for compilation preparation.
+
+        Takes pre-processed batch tensors and returns raw per-atom energies
+        as a flat dictionary.  This bypasses System/TensorMap creation and
+        the scaler/additive models, making it suitable for FX tracing.
+
+        :param positions: Padded positions [batch, max_atoms, 3].
+        :param atype: Deepmd-kit type indices [batch, max_atoms] (already
+            remapped via ``_prepare_atype``).
+        :param box: Cell tensor [batch, 3, 3] or None for non-periodic.
+        :return: Dict with ``"atom_energy"`` (masked flat tensor of real atom
+            energies) and ``"energy"`` (per-system total energy).
+        """
+        model_ret = self.model.forward_common(
+            positions,
+            atype,
+            box,
+            fparam=None,
+            aparam=None,
+            do_atomic_virial=False,
+        )
+
+        result: Dict[str, torch.Tensor] = {}
+        if self.model.get_fitting_net() is not None:
+            result["atom_energy"] = model_ret["energy"]
+            result["energy"] = model_ret["energy_redu"]
+        else:
+            result["atom_energy"] = model_ret.get("energy", model_ret["updated_coord"])
+            result["energy"] = model_ret.get("energy_redu", torch.zeros(1))
+
+        return result
+
     def forward(
         self,
         systems: List[System],
@@ -142,8 +193,6 @@ class DPA3(ModelInterface[ModelHypers]):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         device = systems[0].positions.device
-
-        atype_dtype = systems[0].types.dtype
 
         if self.single_label.values.device != device:
             self.single_label = self.single_label.to(device)
@@ -169,58 +218,25 @@ class DPA3(ModelInterface[ModelHypers]):
             systems
         )
 
-        type_to_index = {
-            atomic_type: idx for idx, atomic_type in enumerate(self.atomic_types)
-        }
-        type_to_index[-1] = -1
-
-        atype = torch.tensor(
-            [[type_to_index[s.item()] for s in row] for row in species],
-            dtype=atype_dtype,
-        ).to(positions.device)
+        atype = self._prepare_atype(species)
 
         if torch.all(cells == 0).item():
             box = None
         else:
             box = cells
 
-        model_ret = self.model.forward_common(
-            positions,
-            atype,
-            box,
-            fparam=None,
-            aparam=None,
-            do_atomic_virial=False,
-        )
-
-        if self.model.get_fitting_net() is not None:
-            model_predict = {}
-            model_predict["atom_energy"] = model_ret["energy"]
-            model_predict["energy"] = model_ret["energy_redu"]
-            if self.model.do_grad_r("energy"):
-                model_predict["force"] = model_ret["energy_derv_r"].squeeze(-2)
-
-            else:
-                model_predict["force"] = model_ret["dforce"]
-            if "mask" in model_ret:
-                model_predict["mask"] = model_ret["mask"]
-        else:
-            model_predict = model_ret
-            model_predict["updated_coord"] += positions
+        raw = self._forward_from_batch(positions, atype, box)
 
         atomic_properties: Dict[str, TensorMap] = {}
         blocks: List[TensorBlock] = []
 
-        system_col = system_index
-        atom_col = atom_index
-
-        values = torch.stack([system_col, atom_col], dim=0).transpose(0, 1)
+        values = torch.stack([system_index, atom_index], dim=0).transpose(0, 1)
         invariant_coefficients = Labels(
             names=["system", "atom"], values=values.to(device)
         )
 
-        mask = torch.abs(model_predict["atom_energy"]) > _PADDING_MASK_THRESHOLD
-        atomic_property_tensor = model_predict["atom_energy"][mask].unsqueeze(-1)
+        mask = torch.abs(raw["atom_energy"]) > _PADDING_MASK_THRESHOLD
+        atomic_property_tensor = raw["atom_energy"][mask].unsqueeze(-1)
 
         blocks.append(
             TensorBlock(
