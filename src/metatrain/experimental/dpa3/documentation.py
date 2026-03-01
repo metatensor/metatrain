@@ -43,6 +43,20 @@ cost of training time.  ``descriptor.repflow.e_rcut`` controls the interaction
 range and should be chosen based on the physical system.  Reduce ``e_sel`` and
 ``a_sel`` for faster iteration on small systems.
 
+Using a pretrained model
+------------------------
+
+Set ``dpa3_model`` to a deepmd-kit model file to fine-tune from pretrained
+weights instead of training from scratch:
+
+.. code-block:: yaml
+
+    model:
+      dpa3_model: path/to/deepmd-model.pt
+
+Energy biases and standard deviations are extracted from the loaded model and
+handed to metatrain's composition model and scaler automatically.
+
 References
 ----------
 
