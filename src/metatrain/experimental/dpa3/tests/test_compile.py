@@ -25,12 +25,20 @@ def _make_model_and_systems():
     hypers["descriptor"]["repflow"]["axis_neuron"] = 1
     hypers["descriptor"]["repflow"]["nlayers"] = 1
     hypers["fitting_net"]["neuron"] = [1, 1]
+    # deepmd-kit precision must be set at construction time; .to(dtype)
+    # does not update internal self.prec attribute.
+    hypers["descriptor"]["precision"] = "float64"
+    hypers["fitting_net"]["precision"] = "float64"
 
-    targets = {"mtt::U0": get_energy_target_info({"quantity": "energy", "unit": "eV"})}
+    targets = {
+        "mtt::U0": get_energy_target_info(
+            "mtt::U0", {"quantity": "energy", "unit": "eV"}
+        )
+    }
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
     )
-    model = DPA3(hypers, dataset_info).to(torch.float64)
+    model = DPA3(hypers, dataset_info)
 
     systems = read_systems(DATASET_PATH)[:3]
     systems = [s.to(torch.float64) for s in systems]

@@ -39,7 +39,7 @@ _DTYPE_TO_PRECISION_STR = {v: k for k, v in _PRECISION_STR_TO_DTYPE.items()}
 
 
 class DPA3(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -75,6 +75,10 @@ class DPA3(ModelInterface[ModelHypers]):
             full_list=True,
             strict=True,
         )
+        self.register_buffer(
+            "padding_mask_threshold",
+            torch.tensor(_PADDING_MASK_THRESHOLD),
+        )
         self.targets_keys = list(dataset_info.targets.keys())[0]
 
         # Pretrained model loading: if dpa3_model is provided, load it
@@ -91,8 +95,7 @@ class DPA3(ModelInterface[ModelHypers]):
                 loaded = dpa3_model
             else:
                 raise ValueError(
-                    "The 'dpa3_model' hyper must be a file path or "
-                    "a torch.nn.Module."
+                    "The 'dpa3_model' hyper must be a file path or a torch.nn.Module."
                 )
 
             # If loaded is a dict (deepmd-kit checkpoint), extract the model.
@@ -177,9 +180,7 @@ class DPA3(ModelInterface[ModelHypers]):
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
 
-    def _prepare_atype(
-        self, species: torch.Tensor
-    ) -> torch.Tensor:
+    def _prepare_atype(self, species: torch.Tensor) -> torch.Tensor:
         """Map padded species tensor to deepmd-kit type indices."""
         type_to_index = {
             atomic_type: idx for idx, atomic_type in enumerate(self.atomic_types)
@@ -234,6 +235,9 @@ class DPA3(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        if len(outputs) == 0:
+            return {}
+
         device = systems[0].positions.device
 
         if self.single_label.values.device != device:
@@ -277,7 +281,7 @@ class DPA3(ModelInterface[ModelHypers]):
             names=["system", "atom"], values=values.to(device)
         )
 
-        mask = torch.abs(raw["atom_energy"]) > _PADDING_MASK_THRESHOLD
+        mask = torch.abs(raw["atom_energy"]) > self.padding_mask_threshold
         atomic_property_tensor = raw["atom_energy"][mask].unsqueeze(-1)
 
         blocks.append(
@@ -387,25 +391,18 @@ class DPA3(ModelInterface[ModelHypers]):
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
-        # Create the model (if dpa3_model was stored in hypers, __init__
-        # will load it and its parameters are NOT in model_state_dict).
         model = cls(
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
         )
 
-        has_stored_dpa3 = model_data["model_hypers"].get("dpa3_model") is not None
-        if has_stored_dpa3:
-            # Parameters come from the Module stored in hypers, not
-            # state_dict.  Infer dtype from the model itself.
-            dtype = next(model.model.parameters()).dtype
-        else:
-            dtype = next(iter(model_state_dict.values())).dtype
+        # Determine dtype from the deepmd-kit model's construction-time
+        # precision (authoritative; .to(dtype) does not update self.prec).
+        dtype = next(model.model.parameters()).dtype
 
-        model.to(dtype).load_state_dict(
-            model_state_dict, strict=not has_stored_dpa3
-        )
+        model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
+        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         metadata = checkpoint.get("metadata", None)
@@ -471,16 +468,10 @@ class DPA3(ModelInterface[ModelHypers]):
         model_state_dict = self.state_dict()
         hypers = dict(self.hypers)
 
-        # If a pretrained model was loaded, store it in the hypers so
-        # it can be reconstructed on checkpoint reload (like MACE does).
-        if self.loaded_dpa3 and hypers.get("dpa3_model") is not None:
-            hypers["dpa3_model"] = self.model.to(device="cpu")
-            # Avoid duplicating the model weights in both hypers and
-            # state_dict; the state_dict keys prefixed with "model."
-            # come from the stored Module.
-            for k in list(model_state_dict.keys()):
-                if k.startswith("model."):
-                    model_state_dict.pop(k)
+        # deepmd-kit modules contain locally-defined classes (e.g.
+        # make_embedding_network.<locals>.EN) that cannot be pickled.
+        # Never store a Module in hypers; state_dict captures all weights.
+        hypers.pop("dpa3_model", None)
 
         checkpoint = {
             "architecture_name": "experimental.dpa3",
@@ -514,8 +505,7 @@ class DPA3(ModelInterface[ModelHypers]):
         bias = self._loaded_out_bias[0, :, 0]  # [ntypes]
         return {
             self.targets_keys: {
-                z: bias[i].item()
-                for i, z in enumerate(self.atomic_types)
+                z: bias[i].item() for i, z in enumerate(self.atomic_types)
             }
         }
 
@@ -532,7 +522,6 @@ class DPA3(ModelInterface[ModelHypers]):
         std = self._loaded_out_std[0, :, 0]  # [ntypes]
         return {
             self.targets_keys: {
-                z: std[i].item()
-                for i, z in enumerate(self.atomic_types)
+                z: std[i].item() for i, z in enumerate(self.atomic_types)
             }
         }

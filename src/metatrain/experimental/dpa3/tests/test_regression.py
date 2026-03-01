@@ -13,6 +13,8 @@ from metatrain.utils.data.readers import (
 )
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.hypers import init_with_defaults
+from metatrain.utils.loss import LossSpecification
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH, DATASET_WITH_FORCES_PATH, DEFAULT_HYPERS, MODEL_HYPERS
@@ -25,7 +27,9 @@ def test_regression_init():
     torch.manual_seed(0)
 
     targets = {}
-    targets["mtt::U0"] = get_energy_target_info({"quantity": "energy", "unit": "eV"})
+    targets["mtt::U0"] = get_energy_target_info(
+        "mtt::U0", {"quantity": "energy", "unit": "eV"}
+    )
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
@@ -92,6 +96,8 @@ def test_regression_energies_forces_train():
     hypers["training"]["num_epochs"] = 1
     hypers["training"]["scheduler_patience"] = 1
     hypers["training"]["fixed_composition_weights"] = {}
+    loss_conf = OmegaConf.create({"energy": init_with_defaults(LossSpecification)})
+    hypers["training"]["loss"] = loss_conf
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[6], targets=target_info_dict
@@ -118,17 +124,18 @@ def test_regression_energies_forces_train():
 
     expected_output = torch.tensor(
         [
-            [0.630174279213],
-            [0.653932452202],
-            [0.664113998413],
-            [0.590713620186],
-            [0.635889530182],
+            [1.159545063972],
+            [1.186555385590],
+            [1.196010828018],
+            [1.124937891960],
+            [1.161755204201],
         ],
         dtype=torch.float64,
     )
 
     expected_gradients_output = torch.tensor(
-        [0.006374867036, -0.008849388247, 0.030855362978], dtype=torch.float64
+        [7.167162038968e-06, -6.548931468501e-03, 6.634737014065e-02],
+        dtype=torch.float64,
     )
 
     # if you need to change the hardcoded values:
@@ -136,8 +143,13 @@ def test_regression_energies_forces_train():
     print(output["energy"].block().values)
     print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
 
-    torch.testing.assert_close(output["energy"].block().values, expected_output)
+    # Training is done in float32, so float64-default atol=1e-7 is too tight.
+    torch.testing.assert_close(
+        output["energy"].block().values, expected_output, atol=1e-5, rtol=1e-5
+    )
     torch.testing.assert_close(
         output["energy"].block().gradient("positions").values[0, :, 0],
         expected_gradients_output,
+        atol=1e-5,
+        rtol=1e-5,
     )

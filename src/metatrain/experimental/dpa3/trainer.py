@@ -498,7 +498,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         self.epoch = epoch
         self.optimizer_state_dict = optimizer.state_dict()
         self.scheduler_state_dict = lr_scheduler.state_dict()
-        checkpoint = model.get_checkpoint()
+        checkpoint = raw_model.get_checkpoint()
         checkpoint.update(
             {
                 "train_hypers": self.hypers,
@@ -541,12 +541,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
         cls,
         checkpoint: Dict[str, Any],
         hypers: TrainerHypers,
-        context: Literal["restart", "finetune"],  # not used at the moment
+        context: Literal["restart", "finetune"],
     ) -> "Trainer":
         trainer = cls(hypers)
         trainer.optimizer_state_dict = checkpoint["optimizer_state_dict"]
         trainer.scheduler_state_dict = checkpoint["scheduler_state_dict"]
-        trainer.epoch = checkpoint["epoch"]
+        if context == "restart":
+            trainer.epoch = checkpoint["epoch"]
+        else:
+            assert context == "finetune"
+            trainer.epoch = None
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
         trainer.best_model_state_dict = checkpoint["best_model_state_dict"]

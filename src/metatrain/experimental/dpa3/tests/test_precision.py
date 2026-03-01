@@ -10,7 +10,11 @@ from . import MODEL_HYPERS
 
 
 def _make_dataset_info():
-    targets = {"mtt::U0": get_energy_target_info({"quantity": "energy", "unit": "eV"})}
+    targets = {
+        "mtt::U0": get_energy_target_info(
+            "mtt::U0", {"quantity": "energy", "unit": "eV"}
+        )
+    }
     return DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
     )

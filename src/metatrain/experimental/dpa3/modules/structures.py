@@ -34,9 +34,7 @@ def concatenate_structures(
         (len(systems), max_atom_num, 3), dtype=systems[0].positions.dtype
     )
     species = torch.full((len(systems), max_atom_num), -1, dtype=systems[0].types.dtype)
-    cells = torch.stack(
-        [system.cell for system in systems]
-    )  # [batch_size, 3, 3]
+    cells = torch.stack([system.cell for system in systems])  # [batch_size, 3, 3]
 
     for i, system in enumerate(systems):
         positions[i, : len(system.positions)] = system.positions
