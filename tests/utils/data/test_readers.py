@@ -7,7 +7,8 @@ import ase
 import ase.io
 import pytest
 import torch
-from metatensor.torch import Labels
+from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import System
 from omegaconf import OmegaConf
 from test_targets_ase import ase_system, ase_systems
 
@@ -386,3 +387,80 @@ def test_read_extra_data(monkeypatch, tmp_path):
         assert extra_data_info.quantity == extra_data_section["quantity"]
         assert extra_data_info.unit == extra_data_section["unit"]
         assert extra_data_info.per_atom is False
+
+
+def test_read_systems_not_double_precision(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    filename = "systems.xyz"
+    ase.io.write(filename, ase_systems())
+
+    # Monkeypatch the ASE reader to return float32 systems
+    def _read_systems_float32(fname):
+        system = System(
+            types=torch.tensor([1, 1], dtype=torch.int32),
+            positions=torch.zeros((2, 3), dtype=torch.float32),
+            cell=torch.zeros((3, 3), dtype=torch.float32),
+            pbc=torch.tensor([False, False, False]),
+        )
+        return [system]
+
+    import metatrain.utils.data.readers.ase as ase_reader
+
+    monkeypatch.setattr(ase_reader, "read_systems", _read_systems_float32)
+
+    with pytest.raises(ValueError, match="not in double precision"):
+        read_systems(filename, reader="ase")
+
+
+def test_read_targets_not_double_precision(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    filename = "systems.xyz"
+    ase.io.write(filename, ase_systems())
+
+    # Monkeypatch the ASE reader to return float32 targets
+    def _read_generic_float32(target_name, target):
+        # Layout requires 0 samples for TargetInfo validation
+        layout_block = TensorBlock(
+            values=torch.empty((0, 1), dtype=torch.float32),
+            samples=Labels(["system"], torch.empty((0, 1), dtype=torch.int64)),
+            components=[],
+            properties=Labels("energy", torch.tensor([[0]])),
+        )
+        layout = TensorMap(
+            keys=Labels(["_"], torch.tensor([[0]])),
+            blocks=[layout_block],
+        )
+        target_info = TargetInfo(layout=layout, quantity="energy", unit="eV")
+        block = TensorBlock(
+            values=torch.tensor([[0.0]], dtype=torch.float32),
+            samples=Labels(["system"], torch.tensor([[0]])),
+            components=[],
+            properties=Labels("energy", torch.tensor([[0]])),
+        )
+        tensormap = TensorMap(
+            keys=Labels(["_"], torch.tensor([[0]])),
+            blocks=[block],
+        )
+        return [tensormap], target_info
+
+    import metatrain.utils.data.readers.ase as ase_reader
+
+    monkeypatch.setattr(ase_reader, "read_generic", _read_generic_float32)
+
+    conf = {
+        "mtt::test": {
+            "quantity": "",
+            "read_from": filename,
+            "reader": "ase",
+            "key": "true_energy",
+            "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+        }
+    }
+
+    with pytest.raises(ValueError, match="not in double precision"):
+        read_targets(OmegaConf.create(conf))
