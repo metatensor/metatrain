@@ -1,5 +1,6 @@
 import math
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -43,13 +44,37 @@ OPTIONS_EXTRA_DATA_PATH = RESOURCES_PATH / "options-extra-data.yaml"
 # test runs, we use the unique identifier for the test run to
 # so that the multiple workers do not replicate work and wait
 # for each other.
+def _find_bash() -> str:
+    """Find a working bash executable.
+
+    On Windows, avoids WSL bash (C:\\Windows\\System32\\bash.exe) and looks
+    for Git Bash instead.
+    """
+    if sys.platform != "win32":
+        return "bash"
+    # Try common Git for Windows installation paths first
+    for candidate in [
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+    ]:
+        if os.path.exists(candidate):
+            return candidate
+    # Fall back to shutil.which, but skip the WSL stub in System32
+    bash = shutil.which("bash")
+    if bash and "system32" not in bash.lower():
+        return bash
+    raise RuntimeError(
+        "Could not find Git Bash on Windows. Please install Git for Windows."
+    )
+
+
 def ensure_path(mode: str, uid: str) -> Path:
     """Checks if the path for a model exists, and if not
     runs the training script to generate it."""
     path = RESOURCES_PATH / f"model-{mode}-{uid}.pt"
     if not path.exists():
         result = subprocess.run(
-            ["bash", str(RESOURCES_PATH / "run_trainings.sh"), mode, uid],
+            [_find_bash(), str(RESOURCES_PATH / "run_trainings.sh"), mode, uid],
             stderr=subprocess.STDOUT,
             stdout=subprocess.PIPE,
         )

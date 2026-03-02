@@ -69,7 +69,7 @@ def test_info_log(caplog, monkeypatch, tmp_path, capsys):
 
     log_path = str((tmp_path / "logfile.log").absolute())
 
-    assert f"This log is also available at '{log_path}'" in caplog.text
+    assert f"This log is also available at {log_path!r}" in caplog.text
     assert f"Package directory: {PACKAGE_ROOT}" in caplog.text
     assert f"Working directory: {Path('.').absolute()}" in caplog.text
     assert f"Executed command: {get_cli_input()}" in caplog.text
@@ -97,7 +97,7 @@ def test_debug_log(caplog, monkeypatch, tmp_path, capsys):
     log_path = str((tmp_path / "logfile.log").absolute())
 
     assert file_log == stdout_log
-    assert f"This log is also available at '{log_path}'" in caplog.text
+    assert f"This log is also available at {log_path!r}" in caplog.text
 
     for logtext in [stdout_log, caplog.text]:
         assert "foo" in logtext
@@ -108,7 +108,7 @@ def test_debug_log(caplog, monkeypatch, tmp_path, capsys):
 
 def read_csv(path: str) -> List[List[str]]:
     """Utility to read CSV file content into a list of rows."""
-    with open(path, newline="") as f:
+    with open(path, newline="", encoding="utf-8") as f:
         return list(csv.reader(f))
 
 

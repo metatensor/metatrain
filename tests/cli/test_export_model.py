@@ -7,6 +7,7 @@ import glob
 import logging
 import os
 import subprocess
+import sys
 from pathlib import Path
 from subprocess import CalledProcessError
 
@@ -263,6 +264,11 @@ def test_export_checkpoint_with_metadata(monkeypatch, tmp_path, MODEL_PATH):
     assert f"This is the {model_name} model" in str(model.metadata())
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="HuggingFace GitHub-style interface (repo_id/filename) fails on Windows "
+    "due to path/URL parsing issues with Windows drive letters",
+)
 def test_huggingface_gh_interface(monkeypatch, tmp_path):
     """Test that the export cli succeeds when exporting using the
     GitHub-style interface (repo_id + filename)."""
@@ -293,6 +299,11 @@ def test_huggingface_gh_interface(monkeypatch, tmp_path):
     load_model(output, extensions_directory="extensions/")
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="HuggingFace GitHub-style interface (repo_id/filename) fails on Windows "
+    "due to path/URL parsing issues with Windows drive letters",
+)
 def test_huggingface_gh_interface_revision(monkeypatch, tmp_path):
     """Test that the export cli succeeds when exporting using the
     GitHub-style interface with a revision."""

@@ -40,7 +40,7 @@ def test_help():
 
 def test_version():
     stdout = subprocess.run(["mtt", "--version"], capture_output=True).stdout
-    assert stdout.decode("ascii") == f"metatrain {__version__}\n"
+    assert stdout.decode("ascii").strip() == f"metatrain {__version__}"
 
 
 def test_debug_flag():

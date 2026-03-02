@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import warnings
 from pathlib import Path
@@ -111,10 +112,10 @@ def test_train(capfd, monkeypatch, tmp_path, output):
         assert len(subset_glob) == 1
 
     # Open the log file and check if the logging is correct
-    with open(log_glob[0]) as f:
+    with open(log_glob[0], encoding="utf-8") as f:
         file_log = f.read()
 
-    stdout_log = capfd.readouterr().out
+    stdout_log = capfd.readouterr().out.replace("\r\n", "\n")
 
     assert file_log == stdout_log
 
@@ -1409,6 +1410,10 @@ def test_train_memmap_dataset(monkeypatch, tmp_path, options_pet):
 
 
 @pytest.mark.skipif(not WANDB_AVAILABLE.present, reason=WANDB_AVAILABLE.message)
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="wandb 'latest-run' symlink not created on Windows without high privileges",
+)
 def test_train_wandb_logger(monkeypatch, tmp_path):
     """Test that training via the training cli runs with an attached wandb logger."""
     monkeypatch.chdir(tmp_path)
