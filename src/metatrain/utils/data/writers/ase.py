@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Union
 
 import ase
 import ase.io
+import numpy as np
 import torch
 from metatensor.torch import TensorMap
 from metatomic.torch import ModelCapabilities, System
@@ -105,16 +106,13 @@ class ASEWriter(Writer):
                             gradient_block.values.detach().cpu().squeeze(-1).numpy()
                         )
                         if not torch.any(system.cell != 0):
-                            raise ValueError(
-                                "stresses cannot be written for non-periodic systems."
+                            strain_derivatives = np.full(
+                                strain_derivatives.shape, np.nan
                             )
                         cell_volume = torch.det(system.cell).item()
                         if cell_volume == 0:
-                            raise ValueError(
-                                (
-                                    "stresses cannot be written for "
-                                    "systems with zero volume."
-                                )
+                            strain_derivatives = np.full(
+                                strain_derivatives.shape, np.nan
                             )
                         info[external_name_virial] = -strain_derivatives
                         info[external_name_stress] = strain_derivatives / cell_volume
