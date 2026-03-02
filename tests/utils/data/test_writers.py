@@ -7,7 +7,12 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelCapabilities, ModelOutput, System
 
 from metatrain.utils.data.readers.ase import read
-from metatrain.utils.data.writers import ASEWriter, DiskDatasetWriter, get_writer
+from metatrain.utils.data.writers import (
+    ASEWriter,
+    DiskDatasetWriter,
+    MetatensorWriter,
+    get_writer,
+)
 
 
 def systems_capabilities_predictions(
@@ -280,3 +285,63 @@ def test_write_disk_dataset_non_contiguous(monkeypatch, tmp_path):
     new_dataset = DiskDatasetWriter("test_output.zip")
     new_dataset.write(systems, predictions)
     new_dataset.finish()
+
+
+def test_ase_writer_streams_to_disk(monkeypatch, tmp_path):
+    """ASEWriter should write to disk in write(), not accumulate in memory."""
+    monkeypatch.chdir(tmp_path)
+
+    systems, capabilities, predictions = systems_capabilities_predictions()
+    filename = "test_streaming.xyz"
+
+    writer = ASEWriter(filename, capabilities=capabilities)
+
+    # first batch
+    writer.write(systems, predictions)
+    # writer should NOT hold accumulated data
+    assert not hasattr(writer, "_systems") or len(getattr(writer, "_systems", [])) == 0
+    assert not hasattr(writer, "_preds") or len(getattr(writer, "_preds", [])) == 0
+
+    # second batch
+    writer.write(systems, predictions)
+    assert not hasattr(writer, "_systems") or len(getattr(writer, "_systems", [])) == 0
+    assert not hasattr(writer, "_preds") or len(getattr(writer, "_preds", [])) == 0
+
+    writer.finish()
+
+    # verify all 4 structures present and correct
+    frames = read(filename, index=":")
+    assert len(frames) == 4
+    for i, atoms in enumerate(frames):
+        assert atoms.info["energy"] == float(
+            predictions["energy"].block().values[i % 2, 0]
+        )
+
+
+def test_metatensor_writer_streams_to_disk(monkeypatch, tmp_path):
+    """MetatensorWriter should save to temp files in write(), not accumulate."""
+    monkeypatch.chdir(tmp_path)
+
+    systems, capabilities, predictions = systems_capabilities_predictions()
+    filename = "test_streaming.mts"
+
+    writer = MetatensorWriter(filename, capabilities=capabilities)
+
+    # first batch
+    writer.write(systems, predictions)
+    assert not hasattr(writer, "_systems") or len(getattr(writer, "_systems", [])) == 0
+    assert not hasattr(writer, "_preds") or len(getattr(writer, "_preds", [])) == 0
+
+    # second batch
+    writer.write(systems, predictions)
+    assert not hasattr(writer, "_systems") or len(getattr(writer, "_systems", [])) == 0
+    assert not hasattr(writer, "_preds") or len(getattr(writer, "_preds", [])) == 0
+
+    writer.finish()
+
+    # verify output has all 4 systems with correct system label offsets
+    tensormap = mts.load("test_streaming_energy.mts")
+    assert tensormap.block().values.shape == (4, 1)
+    system_labels = tensormap.block().samples.column("system").tolist()
+    assert system_labels == [0, 1, 2, 3]
+    assert tensormap.block().gradient("positions").values.shape == (8, 3, 1)
