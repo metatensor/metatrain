@@ -15,6 +15,22 @@ from ase.calculators.calculator import Calculator, all_changes
 
 from .eqx import EqxPhACE, _get_adaptive_cutoffs, load_from_checkpoint
 
+# Optimization-level presets: name → geometric bucket ratio.
+# Higher optimization = finer padding grid = more JIT compilations = better
+# throughput per call.  Lower optimization = coarser grid = fewer compilations
+# = less memory used for cached compiled functions.
+#
+#   high   (1.1): ≤10 % padding waste, O(log_{1.1} n) compilations.
+#                 Best for homogeneous datasets.
+#   medium (1.5): ≤50 % padding waste, O(log_{1.5} n) compilations.  [default]
+#   low    (2.0): ≤100 % padding waste, O(log_2 n) compilations.
+#                 Best for heterogeneous datasets (fewest recompilations, least
+#                 memory pressure from cached XLA executables).
+_OPTIMIZATION_PRESETS: dict[str, float] = {
+    "high": 1.1,
+    "medium": 1.5,
+    "low": 2.0,
+}
 
 # Optional: nvalchemi GPU neighbor list (NVIDIA's fast CUDA NL).
 # Used when available and JAX is running on GPU.
@@ -190,6 +206,10 @@ class PhACEJAXCalculator(Calculator):
         atoms.calc = calc
         e = atoms.get_potential_energy()
         f = atoms.get_forces()
+
+        # For heterogeneous datasets, lower the optimization level to reduce
+        # the number of JIT recompilations and avoid OOM:
+        calc = PhACEJAXCalculator("model.ckpt", optimization_level="low")
     """
 
     implemented_properties = ["energy", "forces", "stress"]
@@ -198,6 +218,7 @@ class PhACEJAXCalculator(Calculator):
         self,
         checkpoint_path: str,
         *,
+        optimization_level: "str | float" = "medium",
         restart=None,
         label=None,
         atoms=None,
@@ -205,8 +226,30 @@ class PhACEJAXCalculator(Calculator):
     ):
         """
         :param checkpoint_path: Path to the metatrain ``model.ckpt`` file.
+        :param optimization_level: Controls the geometric bucket ratio used for
+            array padding.  Accepts a preset name or a custom float ratio.
+
+            * ``"high"`` (ratio 1.1) — fine padding grid, most JIT
+              compilations, best throughput per call.  Suited to homogeneous
+              datasets.
+            * ``"medium"`` (ratio 1.5, **default**) — good middle ground.
+            * ``"low"`` (ratio 2.0) — coarse padding grid, fewest
+              compilations, least memory from cached XLA executables.  Best
+              choice for heterogeneous datasets to avoid OOM.
+            * A custom ``float > 1`` may be passed for fine-grained control.
         """
         super().__init__(restart=restart, label=label, atoms=atoms, **kwargs)
+        if isinstance(optimization_level, str):
+            if optimization_level not in _OPTIMIZATION_PRESETS:
+                raise ValueError(
+                    f"Unknown optimization_level {optimization_level!r}. "
+                    f"Choose one of {list(_OPTIMIZATION_PRESETS)} or pass a float ratio."
+                )
+            self._bucket_ratio: float = _OPTIMIZATION_PRESETS[optimization_level]
+        else:
+            if float(optimization_level) <= 1.0:
+                raise ValueError("optimization_level ratio must be > 1.0")
+            self._bucket_ratio = float(optimization_level)
         self.model: EqxPhACE = load_from_checkpoint(checkpoint_path)
         self._cached_n_atoms: Optional[int] = None
         self._prefilter_fn = None
@@ -237,7 +280,7 @@ class PhACEJAXCalculator(Calculator):
         species_np = np.array(atoms.numbers, dtype=np.int32)
         cell_np = atoms.cell.array.astype(np.float32)
         n_atoms = len(atoms)
-        n_atoms_pad = _next_bucket(n_atoms)
+        n_atoms_pad = _next_bucket(n_atoms, self._bucket_ratio)
         pad_a = n_atoms_pad - n_atoms
         r_cut = self.model.r_cut
 
@@ -309,7 +352,7 @@ class PhACEJAXCalculator(Calculator):
         # ------------------------------------------------------------------
         # 3.  Pad full NL on GPU
         # ------------------------------------------------------------------
-        n_pairs_full_pad = _next_bucket(n_pairs_full)
+        n_pairs_full_pad = _next_bucket(n_pairs_full, self._bucket_ratio)
         pad_full = n_pairs_full_pad - n_pairs_full
 
         i_full_pad_jax = jnp.pad(i_full_jax, (0, pad_full))
@@ -343,7 +386,7 @@ class PhACEJAXCalculator(Calculator):
         # jnp.nonzero packs the surviving pair indices — all on GPU.
         # ------------------------------------------------------------------
         n_pairs_filt = int(keep_jax.sum())
-        n_pairs_filt_pad = _next_bucket(n_pairs_filt)
+        n_pairs_filt_pad = _next_bucket(n_pairs_filt, self._bucket_ratio)
 
         filt_idx = jnp.nonzero(keep_jax, size=n_pairs_filt_pad, fill_value=0)[0]
         pair_mask_filt_jax = jnp.arange(n_pairs_filt_pad) < n_pairs_filt
