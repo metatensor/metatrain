@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import torch
 from torch.nn.utils._named_member_accessor import NamedMemberAccessor
 
-from .utilities import replace_silu_modules
+from .utilities import replace_rmsnorm_modules, replace_silu_modules
 
 
 class _PETBatchForward(torch.nn.Module):
@@ -24,11 +24,18 @@ class _PETBatchForward(torch.nn.Module):
     to ``functional_call`` / ``NamedMemberAccessor``.
 
     :param pet: The PET model whose ``_forward_from_batch`` is called.
+    :param use_manual_attention: Use manual attention instead of SDPA.
+        Required when forces/stress are compiled, since the outer backward
+        through the FX-decomposed force computation requires second
+        derivatives of the attention backward, which SDPA does not provide.
     """
 
-    def __init__(self, pet: torch.nn.Module) -> None:
+    def __init__(
+        self, pet: torch.nn.Module, use_manual_attention: bool = False
+    ) -> None:
         super().__init__()
         self.pet = pet
+        self.use_manual_attention = use_manual_attention
 
     def forward(
         self,
@@ -48,6 +55,7 @@ class _PETBatchForward(torch.nn.Module):
             padding_mask,
             reverse_neighbor_index,
             cutoff_factors,
+            use_manual_attention=self.use_manual_attention,
         )
 
 
@@ -231,8 +239,15 @@ def compile_pet_model(
 
     from ..modules.structures import systems_to_batch
 
-    batch_model = _PETBatchForward(model)
+    # When forces/stress are compiled, the outer backward through the
+    # FX-decomposed force computation requires second derivatives of
+    # attention and normalization backward ops.  Manual attention and
+    # decomposed RMSNorm use only primitive ops whose second derivatives
+    # are always available, avoiding version-dependent inductor failures.
+    needs_double_backward = compute_forces or compute_stress
+    batch_model = _PETBatchForward(model, use_manual_attention=needs_double_backward)
     replace_silu_modules(batch_model)
+    replace_rmsnorm_modules(batch_model)
 
     params = dict(batch_model.named_parameters())
     buffers = dict(batch_model.named_buffers())

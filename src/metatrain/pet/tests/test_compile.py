@@ -507,7 +507,7 @@ def test_compiled_vs_eager_backward_with_forces():
 
     from ..modules.compile import compile_pet_model
     from ..modules.structures import systems_to_batch
-    from ..modules.utilities import replace_silu_modules
+    from ..modules.utilities import replace_rmsnorm_modules, replace_silu_modules
     from . import DATASET_PATH, MODEL_HYPERS
 
     torch.manual_seed(42)
@@ -521,15 +521,23 @@ def test_compiled_vs_eager_backward_with_forces():
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
     )
 
+    device = torch.device("cuda")
+
     torch.manual_seed(42)
     model_eager = PET(MODEL_HYPERS, dataset_info)
     torch.manual_seed(42)
     model_compiled = PET(MODEL_HYPERS, dataset_info)
 
+    # compile_pet_model replaces nn.SiLU and nn.RMSNorm with decomposed
+    # versions in-place; apply the same replacements to the eager model.
     replace_silu_modules(model_eager)
+    replace_rmsnorm_modules(model_eager)
+
+    model_eager.to(device=device, dtype=torch.float32)
+    model_compiled.to(device=device, dtype=torch.float32)
 
     systems = read_systems(DATASET_PATH)[:5]
-    systems = [s.to(torch.float32) for s in systems]
+    systems = [s.to(torch.float32).to(device) for s in systems]
     for s in systems:
         get_system_with_neighbor_lists(s, model_eager.requested_neighbor_lists())
 
