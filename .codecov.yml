@@ -38,12 +38,6 @@ component_management:
       paths:
         - "src/metatrain/llpr/.*"
 
-    # deprecated architectures
-    - component_id: nanopet
-      name: NanoPET
-      paths:
-        - "src/metatrain/deprecated/nanopet/.*"
-
     # experimental architectures
     - component_id: flashmd
       name: FlashMD
