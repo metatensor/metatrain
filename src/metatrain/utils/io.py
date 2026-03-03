@@ -169,7 +169,9 @@ def load_model(
     path = str(path)
     url = urlparse(path)
 
-    if url.scheme:
+    # On Windows, drive letters (e.g. "D") are parsed as single-character URL schemes
+    # by urlparse. Only treat as a URL if the scheme is at least 2 characters long.
+    if url.scheme and len(url.scheme) > 1:
         if url.netloc == "huggingface.co":
             path = _hf_hub_download_url(url=url.geturl(), hf_token=hf_token)
         else:
