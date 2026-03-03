@@ -103,8 +103,20 @@ class DPA3(ModelInterface[ModelHypers]):
         self.atomic_types = dataset_info.atomic_types
 
         # Resolve precision: descriptor.precision is the authority.
+        # In normal training, OmegaConf resolves ${base_precision} before
+        # the model sees the hypers.  For direct construction (tests,
+        # scripts) the unresolved interpolation string may arrive; fall
+        # back to float32.
         desc_prec = self.hypers["descriptor"]["precision"]
         fit_prec = self.hypers["fitting_net"]["precision"]
+        if isinstance(desc_prec, str):
+            desc_prec = 32
+            self.hypers["descriptor"]["precision"] = 32
+        if isinstance(fit_prec, str):
+            fit_prec = 32
+            self.hypers["fitting_net"]["precision"] = 32
+        desc_prec = int(desc_prec)
+        fit_prec = int(fit_prec)
         if desc_prec not in _PRECISION_INT_TO_DTYPE:
             raise ValueError(
                 f"Unsupported descriptor precision: {desc_prec}. "
@@ -172,7 +184,7 @@ class DPA3(ModelInterface[ModelHypers]):
             # uses CPU RNG (deterministic across CUDA/CPU environments).
             type_map = [ase.data.chemical_symbols[z] for z in self.atomic_types]
             # deepmd-kit expects precision as strings; convert at the boundary.
-            deepmd_hypers = copy.deepcopy(dict(hypers))
+            deepmd_hypers: Dict[str, Any] = copy.deepcopy(dict(hypers))
             deepmd_hypers["type_map"] = type_map
             deepmd_hypers["descriptor"]["precision"] = _INT_TO_DEEPMD_PREC[desc_prec]
             deepmd_hypers["fitting_net"]["precision"] = _INT_TO_DEEPMD_PREC[fit_prec]

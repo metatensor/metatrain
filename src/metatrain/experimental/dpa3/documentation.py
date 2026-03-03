@@ -68,6 +68,7 @@ from typing import Literal, Optional
 
 from typing_extensions import TypedDict
 
+from metatrain.share.base_hypers import BasePrecision
 from metatrain.utils.additive import FixedCompositionWeights
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
@@ -140,12 +141,11 @@ class DescriptorHypers(TypedDict):
     Supported names include ``"tanh"``, ``"gelu"``, ``"custom_silu"``."""
     use_tebd_bias: bool = False
     """Add bias to the type embedding."""
-    precision: int = 32
+    precision: int = BasePrecision.value  # type: ignore[assignment]
     """Floating-point precision for the descriptor (``32`` or ``64``).
-    This controls the internal precision of deepmd-kit's descriptor
-    computation.  For mixed-precision training, set this independently
-    of ``fitting_net.precision``; for uniform precision, set both to the
-    same value and match ``base_precision`` accordingly."""
+    Defaults to ``base_precision``.  This controls the internal precision
+    of deepmd-kit's descriptor computation.  For mixed-precision training,
+    set this independently of ``fitting_net.precision``."""
     concat_output_tebd: bool = False
     """Concatenate type embedding to descriptor output."""
 
@@ -159,9 +159,10 @@ class FittingNetHypers(TypedDict):
     """Use a ResNet-style time step in each hidden layer."""
     seed: int = 1
     """Random seed for weight initialisation."""
-    precision: int = 32
+    precision: int = BasePrecision.value  # type: ignore[assignment]
     """Floating-point precision for the fitting network (``32`` or ``64``).
-    Can differ from ``descriptor.precision`` for mixed-precision training."""
+    Defaults to ``base_precision``.  Can differ from ``descriptor.precision``
+    for mixed-precision training."""
     activation_function: str = "custom_silu:10.0"
     """Activation function (same format as the descriptor)."""
     type: str = "ener"
