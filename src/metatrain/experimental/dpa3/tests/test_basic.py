@@ -68,8 +68,8 @@ class TestOutput(OutputTests, DPA3Tests):
         # precision to avoid numerical noise from neighbor list construction
         # across different system sizes.
         model_hypers = copy.deepcopy(model_hypers)
-        model_hypers["descriptor"]["precision"] = "float64"
-        model_hypers["fitting_net"]["precision"] = "float64"
+        model_hypers["descriptor"]["precision"] = 64
+        model_hypers["fitting_net"]["precision"] = 64
         super().test_prediction_energy_subset_atoms(model_hypers, dataset_info)
 
 
@@ -82,8 +82,8 @@ class TestAutograd(AutogradTests, DPA3Tests):
         # Deepmd-kit precision must be set at construction time, so we build
         # the model in float64 instead of relying on .to(float64).
         hypers = _minimal_hypers(self.architecture)
-        hypers["descriptor"]["precision"] = "float64"
-        hypers["fitting_net"]["precision"] = "float64"
+        hypers["descriptor"]["precision"] = 64
+        hypers["fitting_net"]["precision"] = 64
         return hypers
 
 
@@ -95,7 +95,7 @@ class TestTorchscript(TorchscriptTests, DPA3Tests):
     def model_hypers(self, dtype: torch.dtype) -> dict:
         # Deepmd-kit precision must match test dtype at construction time.
         hypers = _minimal_hypers(self.architecture)
-        prec = "float64" if dtype == torch.float64 else "float32"
+        prec = 64 if dtype == torch.float64 else 32
         hypers["descriptor"]["precision"] = prec
         hypers["fitting_net"]["precision"] = prec
         return hypers
@@ -106,8 +106,8 @@ class TestTorchscript(TorchscriptTests, DPA3Tests):
         # with dtype1.  deepmd-kit precision cannot be changed via .to(),
         # so force float32 precision here.
         model_hypers = copy.deepcopy(model_hypers)
-        model_hypers["descriptor"]["precision"] = "float32"
-        model_hypers["fitting_net"]["precision"] = "float32"
+        model_hypers["descriptor"]["precision"] = 32
+        model_hypers["fitting_net"]["precision"] = 32
         super().test_torchscript_integers(model_hypers, dataset_info)
 
 
@@ -117,7 +117,7 @@ class TestExported(ExportedTests, DPA3Tests):
         # Deepmd-kit precision is a construction-time setting, so match the
         # descriptor/fitting_net precision to the test dtype.
         hypers = _minimal_hypers(self.architecture)
-        prec = "float64" if dtype == torch.float64 else "float32"
+        prec = 64 if dtype == torch.float64 else 32
         hypers["descriptor"]["precision"] = prec
         hypers["fitting_net"]["precision"] = prec
         return hypers

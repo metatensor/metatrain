@@ -28,19 +28,19 @@ def test_default_precision_is_float32():
 
 
 def test_descriptor_precision_float64():
-    """Setting descriptor.precision to float64 changes model.dtype."""
+    """Setting descriptor.precision to 64 changes model.dtype."""
     hypers = copy.deepcopy(MODEL_HYPERS)
-    hypers["descriptor"]["precision"] = "float64"
+    hypers["descriptor"]["precision"] = 64
     dataset_info = _make_dataset_info()
     model = DPA3(hypers, dataset_info)
     assert model.dtype == torch.float64
 
 
 def test_mixed_precision_descriptor_fitting():
-    """Descriptor and fitting_net can have different precision strings."""
+    """Descriptor and fitting_net can have different precision integers."""
     hypers = copy.deepcopy(MODEL_HYPERS)
-    hypers["descriptor"]["precision"] = "float64"
-    hypers["fitting_net"]["precision"] = "float32"
+    hypers["descriptor"]["precision"] = 64
+    hypers["fitting_net"]["precision"] = 32
     dataset_info = _make_dataset_info()
     # Should not raise -- mixed precision is allowed
     model = DPA3(hypers, dataset_info)
