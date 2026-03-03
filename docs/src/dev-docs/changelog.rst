@@ -24,6 +24,14 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Version 2026.2.1 - 2026-03-03
+-----------------------------
+
+Fixed
+#####
+
+- Fixed a bug affecting model retrieval and loading on Windows.
+
 Version 2026.2 - 2026-02-28
 ---------------------------
 
