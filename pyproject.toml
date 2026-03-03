@@ -105,7 +105,8 @@ omit = [
 [tool.coverage.paths]
 source = [
     "src/metatrain",
-    ".tox/*/lib/python*/site-packages/metatrain"
+    ".tox/*/lib/python*/site-packages/metatrain",
+    ".tox/*/Lib/site-packages/metatrain"
 ]
 
 [tool.coverage.run]
