@@ -133,8 +133,26 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     # and doesn't require to reassign the system to the dataset:
                     get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
-        # Move the model to the device and dtype:
-        model.to(device=device, dtype=dtype)
+        # Validate that base_precision matches the model's construction-time
+        # precision.  deepmd-kit's internal self.prec is set at construction
+        # and is NOT updated by .to(dtype=...), so a mismatch would cause
+        # silent precision loss.
+        model_dtype = next(model.model.parameters()).dtype
+        if dtype != model_dtype:
+            from .model import _PRECISION_INT_TO_DTYPE
+
+            expected_prec = {v: k for k, v in _PRECISION_INT_TO_DTYPE.items()}.get(
+                model_dtype, model_dtype
+            )
+            raise ValueError(
+                f"base_precision ({dtype}) does not match the DPA3 model's "
+                f"construction-time precision ({model_dtype}). Set "
+                f"base_precision: {expected_prec} to match "
+                f"descriptor.precision."
+            )
+
+        # Move the model to the device (dtype already matches construction):
+        model.to(device=device)
         # The additive models are always kept in float64 to avoid numerical
         # errors in the composition weights, which can be very large.
         for additive_model in model.additive_models:

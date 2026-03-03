@@ -27,8 +27,8 @@ def _make_model_and_systems():
     hypers["fitting_net"]["neuron"] = [1, 1]
     # deepmd-kit precision must be set at construction time; .to(dtype)
     # does not update internal self.prec attribute.
-    hypers["descriptor"]["precision"] = "float64"
-    hypers["fitting_net"]["precision"] = "float64"
+    hypers["descriptor"]["precision"] = 64
+    hypers["fitting_net"]["precision"] = 64
 
     targets = {
         "mtt::U0": get_energy_target_info(

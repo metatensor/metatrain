@@ -1,4 +1,5 @@
 import contextlib
+import copy
 import logging
 import sys
 from pathlib import Path
@@ -32,11 +33,8 @@ from .documentation import ModelHypers
 from .modules.structures import concatenate_structures
 
 
-# Kept for checkpoint v2 compatibility (registered as a buffer).
-_PADDING_MASK_THRESHOLD = 1e-10
-
-_PRECISION_STR_TO_DTYPE = {"float32": torch.float32, "float64": torch.float64}
-_DTYPE_TO_PRECISION_STR = {v: k for k, v in _PRECISION_STR_TO_DTYPE.items()}
+_PRECISION_INT_TO_DTYPE = {32: torch.float32, 64: torch.float64}
+_INT_TO_DEEPMD_PREC = {32: "float32", 64: "float64"}
 
 
 @contextlib.contextmanager
@@ -84,7 +82,7 @@ def _register_untracked_tensors(model: torch.nn.Module) -> None:
 
 
 class DPA3(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -104,25 +102,25 @@ class DPA3(ModelInterface[ModelHypers]):
         super().__init__(hypers, dataset_info, self.__default_metadata__)
         self.atomic_types = dataset_info.atomic_types
 
-        # Resolve precision: descriptor.precision is the authority.  If the
-        # fitting_net precision was left at default but the descriptor was
-        # changed, propagate the descriptor value to the fitting_net.
+        # Resolve precision: descriptor.precision is the authority.
         desc_prec = self.hypers["descriptor"]["precision"]
         fit_prec = self.hypers["fitting_net"]["precision"]
-        if desc_prec not in _PRECISION_STR_TO_DTYPE:
-            raise ValueError(f"Unsupported descriptor precision: {desc_prec}")
-        if fit_prec not in _PRECISION_STR_TO_DTYPE:
-            raise ValueError(f"Unsupported fitting_net precision: {fit_prec}")
-        self.dtype: torch.dtype = _PRECISION_STR_TO_DTYPE[desc_prec]
+        if desc_prec not in _PRECISION_INT_TO_DTYPE:
+            raise ValueError(
+                f"Unsupported descriptor precision: {desc_prec}. "
+                f"Must be one of {list(_PRECISION_INT_TO_DTYPE.keys())}."
+            )
+        if fit_prec not in _PRECISION_INT_TO_DTYPE:
+            raise ValueError(
+                f"Unsupported fitting_net precision: {fit_prec}. "
+                f"Must be one of {list(_PRECISION_INT_TO_DTYPE.keys())}."
+            )
+        self.dtype: torch.dtype = _PRECISION_INT_TO_DTYPE[desc_prec]
 
         self.requested_nl = NeighborListOptions(
             cutoff=self.hypers["descriptor"]["repflow"]["e_rcut"],
             full_list=True,
             strict=True,
-        )
-        self.register_buffer(
-            "padding_mask_threshold",
-            torch.tensor(_PADDING_MASK_THRESHOLD),
         )
         self.targets_keys = list(dataset_info.targets.keys())[0]
 
@@ -173,7 +171,11 @@ class DPA3(ModelInterface[ModelHypers]):
             # deepmd-kit module-level DEVICE constants so weight init
             # uses CPU RNG (deterministic across CUDA/CPU environments).
             type_map = [ase.data.chemical_symbols[z] for z in self.atomic_types]
-            deepmd_hypers = {**hypers, "type_map": type_map}
+            # deepmd-kit expects precision as strings; convert at the boundary.
+            deepmd_hypers = copy.deepcopy(dict(hypers))
+            deepmd_hypers["type_map"] = type_map
+            deepmd_hypers["descriptor"]["precision"] = _INT_TO_DEEPMD_PREC[desc_prec]
+            deepmd_hypers["fitting_net"]["precision"] = _INT_TO_DEEPMD_PREC[fit_prec]
             with _build_on_cpu():
                 self.model = get_standard_model(deepmd_hypers)
             _register_untracked_tensors(self.model)
