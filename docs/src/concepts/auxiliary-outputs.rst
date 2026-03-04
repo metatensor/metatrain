@@ -66,9 +66,9 @@ produces multiple targets, the corresponding representations might be different.
 
 Last-layer features are supported by the following architectures:
 
-+-----------------+---------------------+-----------------------+------------------+---------------------+
-| :ref:`arch-pet` | :ref:`arch-nanopet` | :ref:`arch-soap_bpnn` | :ref:`arch-mace` | :ref:`arch-flashmd` |
-+-----------------+---------------------+-----------------------+------------------+---------------------+
++-----------------+-----------------------+------------------+---------------------+
+| :ref:`arch-pet` | :ref:`arch-soap_bpnn` | :ref:`arch-mace` | :ref:`arch-flashmd` |
++-----------------+-----------------------+------------------+---------------------+
 
 .. _mtt-aux-target-uncertainty:
 

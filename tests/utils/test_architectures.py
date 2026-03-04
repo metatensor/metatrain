@@ -1,4 +1,5 @@
 import importlib
+import re
 from pathlib import Path
 
 import pytest
@@ -24,12 +25,11 @@ def is_None(*args, **kwargs) -> None:
 def test_find_all_architectures():
     all_arches = find_all_architectures()
 
-    assert len(all_arches) == 8
+    assert len(all_arches) == 7
 
     assert "gap" in all_arches
     assert "pet" in all_arches
     assert "soap_bpnn" in all_arches
-    assert "deprecated.nanopet" in all_arches
     assert "experimental.flashmd" in all_arches
     assert "experimental.classifier" in all_arches
     assert "llpr" in all_arches
@@ -75,11 +75,6 @@ def test_check_architecture_no_name_suggest():
         check_architecture_name(name)
 
 
-def test_check_architecture_name_deprecated():
-    with pytest.raises(ValueError, match="deprecated architecture with the same name"):
-        check_architecture_name("nanopet")
-
-
 @pytest.mark.parametrize("path_type", [Path, str])
 @pytest.mark.parametrize(
     "path",
@@ -94,14 +89,16 @@ def test_get_architecture_name(path_type, path):
 
 def test_get_architecture_name_err_no_such_path():
     path = PACKAGE_ROOT / "foo"
-    match = f"`path` {str(path)!r} does not exist"
+    match = re.escape(f"`path` {str(path)!r} does not exist")
     with pytest.raises(ValueError, match=match):
         get_architecture_name(path)
 
 
 def test_get_architecture_name_err_no_such_arch():
     path = PACKAGE_ROOT
-    match = f"`path` {str(path)!r} does not point to a valid architecture folder"
+    match = re.escape(
+        f"`path` {str(path)!r} does not point to a valid architecture folder"
+    )
     with pytest.raises(ValueError, match=match):
         get_architecture_name(path)
 

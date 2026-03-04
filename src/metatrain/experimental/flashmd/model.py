@@ -432,7 +432,6 @@ class FlashMD(ModelInterface[ModelHypers]):
                 nl_options,
                 self.atomic_types,
                 self.species_to_species_index,
-                selected_atoms,
             )
 
         # the scaled_dot_product_attention function from torch cannot do
