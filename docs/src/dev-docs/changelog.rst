@@ -24,6 +24,20 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Fixed
+#####
+
+- Fixed memory leak in ``mtt eval`` where ``ASEWriter`` and ``MetatensorWriter``
+  accumulated all systems and predictions in memory, causing OOM for large datasets.
+  Both writers now stream output to disk per batch.
+
+Changed
+#######
+
+- ``ASEWriter`` now writes each batch to disk immediately. If a run is interrupted,
+  the output file will contain all batches that completed before the interruption
+  (previously no output was produced until the run finished).
+
 Version 2026.2.1 - 2026-03-03
 -----------------------------
 
