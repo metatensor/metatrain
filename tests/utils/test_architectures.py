@@ -25,13 +25,14 @@ def is_None(*args, **kwargs) -> None:
 def test_find_all_architectures():
     all_arches = find_all_architectures()
 
-    assert len(all_arches) == 7
+    assert len(all_arches) == 8
 
     assert "gap" in all_arches
     assert "pet" in all_arches
     assert "soap_bpnn" in all_arches
     assert "experimental.flashmd" in all_arches
     assert "experimental.classifier" in all_arches
+    assert "experimental.dpa3" in all_arches
     assert "llpr" in all_arches
     assert "experimental.mace" in all_arches
 
@@ -107,7 +108,7 @@ def test_get_architecture_name_err_no_such_arch():
 def test_check_valid_default_architecture_options(name):
     """Test that all default hypers are according to the provided schema."""
     preload_documentation_module(name)
-    options = get_default_hypers(name)
+    options = get_default_hypers(name, base_precision=32)
     check_architecture_options(name=name, options=options)
 
 
