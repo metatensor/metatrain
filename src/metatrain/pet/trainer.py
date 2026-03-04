@@ -892,19 +892,21 @@ class Trainer(TrainerInterface[TrainerHypers]):
         checkpoint = model.get_checkpoint()
         if self.best_model_state_dict is not None:
             self.best_model_state_dict["finetune_config"] = model.finetune_config
-        checkpoint.update(
-            {
-                "trainer_ckpt_version": self.__checkpoint_version__,
-                "train_hypers": self.hypers,
-                "epoch": self.epoch,
-                "optimizer_state_dict": self.optimizer_state_dict,
-                "scheduler_state_dict": self.scheduler_state_dict,
-                "best_epoch": self.best_epoch,
-                "best_metric": self.best_metric,
-                "best_model_state_dict": self.best_model_state_dict,
-                "best_optimizer_state_dict": self.best_optimizer_state_dict,
-            }
-        )
+        trainer_updates: Dict[str, Any] = {
+            "trainer_ckpt_version": self.__checkpoint_version__,
+            "train_hypers": self.hypers,
+            "epoch": self.epoch,
+            "optimizer_state_dict": self.optimizer_state_dict,
+            "scheduler_state_dict": self.scheduler_state_dict,
+            "best_epoch": self.best_epoch,
+            "best_metric": self.best_metric,
+            "best_optimizer_state_dict": self.best_optimizer_state_dict,
+        }
+        # Only overwrite best_model_state_dict if we tracked one during
+        # validation; otherwise keep the fallback from model.get_checkpoint()
+        if self.best_model_state_dict is not None:
+            trainer_updates["best_model_state_dict"] = self.best_model_state_dict
+        checkpoint.update(trainer_updates)
         torch.save(
             checkpoint,
             check_file_extension(path, ".ckpt"),
