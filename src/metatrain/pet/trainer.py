@@ -175,7 +175,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         dynamic_mask_targets = [
             name
             for name, hypers in self.hypers["loss"].items()
-            if "masked_" in hypers["type"]
+            if "masked_" in hypers["type"] or "eigenvalue" in hypers["type"]
         ]
 
         # if self.hypers["remove_composition_contribution"]:
@@ -295,7 +295,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     dtype=dtype,
                     device="cpu",
                 ),
-                rotational_augmenter.apply_random_augmentations,
+                # rotational_augmenter.apply_random_augmentations,
                 get_create_dynamic_target_mask_transform(dynamic_mask_targets),
                 get_remove_additive_transform(additive_models, train_targets),
             ]
@@ -448,6 +448,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         epoch = start_epoch
 
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
+            loss_fn.set_epoch(epoch)
             if is_distributed:
                 for train_sampler in train_samplers:
                     train_sampler.set_epoch(epoch)
