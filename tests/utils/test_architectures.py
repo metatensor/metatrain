@@ -108,7 +108,7 @@ def test_get_architecture_name_err_no_such_arch():
 def test_check_valid_default_architecture_options(name):
     """Test that all default hypers are according to the provided schema."""
     preload_documentation_module(name)
-    options = get_default_hypers(name)
+    options = get_default_hypers(name, base_precision=32)
     check_architecture_options(name=name, options=options)
 
 
