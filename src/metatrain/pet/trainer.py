@@ -769,7 +769,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         systems,
                         outputs,
                     )
-                    decomposed = decompose_tensors(backtransformed, device)
+                    # Decompose on the actual data device (GPU by default to preserve
+                    # gradients through decompose/symmetrize operations)
+                    decompose_device = next(
+                        iter(backtransformed.values())
+                    ).block(0).values.device
+                    decomposed = decompose_tensors(backtransformed, decompose_device)
                     mean_var = symmetrize_over_grid(decomposed, so3_weights)
 
                 # Sum all variance terms as the loss, tracking per-key contributions

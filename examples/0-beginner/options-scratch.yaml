@@ -7,6 +7,9 @@ architecture:
     batch_size: 10  # the size of the training data feed to the model per batch, determining the GPU memory usage during the training
     log_interval: 1
     checkpoint_interval: 10  # it saves checkpoints of the model every 10 epochs
+    unsupervised_epochs: 10
+    unsupervised_l_max: 3
+    unsupervised_learning_rate: 1e-3
 
 # this needs specifying based on the specific dataset
 training_set:
