@@ -692,6 +692,8 @@ class DiskDataset(torch.utils.data.Dataset):
                 )
             self._fields_to_read = fields
 
+        self._fields_to_read.append("mtt::aux::system_index")
+
         self._sample_class = namedtuple("Sample", self._fields_to_read)
 
         # Do not open file in the main process and start sub-processes with None
@@ -719,24 +721,51 @@ class DiskDataset(torch.utils.data.Dataset):
                 with self.zip_file.open(f"{index}/system.mta", "r") as file:
                     system = load_system(file)
                     system_and_targets.append(system)
+            elif field_name == "mtt::aux::system_index":
+                tensor_map = TensorMap(
+                    keys=Labels(["_"], torch.tensor([[0]])),
+                    blocks=[
+                        TensorBlock(
+                            # Integer values are not supported (coming soon)
+                            values=torch.tensor([[index]]).to(torch.float64),
+                            samples=Labels(
+                                names=["system"],
+                                values=torch.tensor([[index]]),
+                            ),
+                            components=[],
+                            properties=Labels(["_"], torch.tensor([[0]])),
+                        )
+                    ],
+                )
+                system_and_targets.append(tensor_map)
             else:
+                # with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
+                #     numpy_buffer = np.load(file)
+                #     tensor_buffer = torch.from_numpy(numpy_buffer)
+                #     tensor_map = load_buffer(tensor_buffer)
+                #     system_and_targets.append(tensor_map)
+
                 with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
-                    numpy_buffer = np.load(file)
-                    tensor_buffer = torch.from_numpy(numpy_buffer)
+                    tensor_buffer = torch.frombuffer(file.read(), dtype=torch.uint8)
                     tensor_map = load_buffer(tensor_buffer)
-                    system_and_targets.append(tensor_map)
+                    system_and_targets.append(tensor_map) # Added
+
         return self._sample_class(*system_and_targets)
 
     def __iter__(self) -> Any:
         for i in range(len(self)):
             yield self[i]
 
-    def get_target_info(self, target_config: DictConfig) -> Dict[str, TargetInfo]:
+    def get_target_info(
+        self, target_config: DictConfig, is_extra_data: bool = False
+    ) -> Dict[str, TargetInfo]:
         """
         Get information about the targets in the dataset.
 
         :param target_config: The user-provided (through the yaml file) target
             configuration.
+        :param is_extra_data: Whether the target information is for extra data or not.
+            If ``True``, auxiliary variables will be added here, e.g. the system index.
         :return: A dictionary mapping target names to :py:class:`TargetInfo` objects.
         """
         target_info_dict = {}
@@ -763,14 +792,50 @@ class DiskDataset(torch.utils.data.Dataset):
                 _check_tensor_map_metadata(tensor_map, target_info.layout)
                 # make sure that the properties of the target_info.layout also match the
                 # actual properties of the tensor maps
+                if getattr(target_info, "is_coupled_atomic_basis", False):
+                    non_type_indices = [
+                        i for i, n in enumerate(target_info.layout.keys.names)
+                        if not n.endswith("atom_type")
+                    ]
+                    valid_ls = set(
+                        tuple(int(v) for v in row)
+                        for row in target_info.layout.keys.values[:, non_type_indices]
+                    )
+                    data_ls = set(
+                        tuple(int(v) for v in row)
+                        for row in tensor_map.keys.values[:, non_type_indices]
+                    ) 
+                    unexpected = data_ls - valid_ls
+                    if unexpected:
+                        raise ValueError(
+                            f"Target '{target_key}' contains (o3_lambda, o3_sigma) pairs"
+                            f"that are not reachable by the CG coupling of the declared irreps: "
+                            f"{unexpected}. Valid pairs from options: {valid_ls}"
+                        ) 
                 target_info.layout = _empty_tensor_map_like(tensor_map)
                 target_info_dict[target_key] = target_info
+
+        if is_extra_data:
+            # Add the system indices as extra data
+            target_info_dict["mtt::aux::system_index"] = get_generic_target_info(
+                "system_index",
+                {
+                    "quantity": "",
+                    "unit": "",
+                    "type": "scalar",
+                    "per_atom": False,
+                    "num_subtargets": 1,
+                },
+            )
         return target_info_dict
 
-    def __del__(self) -> None:
-        if self.zip_file is not None:
-            self.zip_file.close()
+    # def __del__(self) -> None:
+    #     if self.zip_file is not None:
+    #         self.zip_file.close()
 
+    def __del__(self):
+        if getattr(self, "zip_file", None) is not None:
+            self.zip_file.close()
 
 def _is_disk_dataset(dataset: Any) -> bool:
     # this also needs to detect if it's a ``torch.nn.utils.data.Subset`` object

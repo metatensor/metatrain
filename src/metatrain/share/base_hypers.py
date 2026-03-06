@@ -92,13 +92,34 @@ class CartesianTargetTypeHypers(TypedDict):
 
 @with_config(ConfigDict(extra="forbid", strict=True))
 class SphericalTargetIrrepsConfig(TypedDict):
+    num: NotRequired[int]
+    """Number of irreps of this type.
+
+    If not provided, the value is taken from the ``num_subtargets`` field of the
+    target hypers.
+    """
     o3_lambda: int
     o3_sigma: float
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))
 class SphericalTargetConfig(TypedDict):
-    irreps: list[SphericalTargetIrrepsConfig]
+    irreps: (
+        list[SphericalTargetIrrepsConfig] | dict[int, list[SphericalTargetIrrepsConfig]]
+    )
+    product: NotRequired[Literal["element-wise", "full"] | None] = None
+    coupled: NotRequired[bool] = False
+    """Means of describing a higher rank target that is made of the base irreps.
+
+    If ``product``is ``None`` or not provided, the target is of rank 1.
+    If ``product`` is ``"element-wise"``, the target is of rank 2, built by taking
+    the product of each irrep with itself.
+    If ``product`` is ``"full"``, the target is of rank 2, built by taking all possible
+    products between irreps.
+
+    In the future we might support passing custom products and the possibility
+    of creating targets of rank higher than 2 (if needed).
+    """
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))
