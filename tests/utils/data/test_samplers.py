@@ -393,13 +393,13 @@ def test_too_few_batches_raises():
 
 
 # ---------------------------------------------------------------------------
-# Padding with n_batches only slightly above num_replicas
+# Padding with odd batch count
 # ---------------------------------------------------------------------------
 
-def test_padding_when_n_batches_just_above_num_replicas():
-    """Padding is correct when n_batches = num_replicas + 1."""
+def test_padding_when_n_batches_not_divisible():
+    """Padding is correct when n_batches is not divisible by num_replicas."""
     # 9 structures × 3 atoms, max_atoms=9 → 3 batches; world_size=2
-    # → num_samples=2, total_size=4, padding_size=1
+    # remainder=1, padding_size=1 → total_size=4, num_samples=2 per rank
     atom_counts = [3] * 9
     ds = _FakeDataset(atom_counts)
     world_size = 2
