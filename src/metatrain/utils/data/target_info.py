@@ -13,7 +13,8 @@ from .spherical_target_helpers import (
     _build_spherical_target_block,
     _get_spherical_irreps_iter,
 )
-
+from collections import defaultdict
+import itertools as _itertools
 
 class TargetInfo:
     """A class that contains information about a target.
@@ -50,6 +51,7 @@ class TargetInfo:
         self.is_cartesian = False
         self.is_spherical = False
         self.is_atomic_basis = False
+        self.is_coupled_atomic_basis = False # Added
 
         self._check_layout(layout)
         self.layout = layout
@@ -337,6 +339,8 @@ class TargetInfo:
         self.is_scalar = state["is_scalar"]
         self.is_cartesian = state["is_cartesian"]
         self.is_spherical = state["is_spherical"]
+        self.is_coupled_atomic_basis = state.get("is_coupled_atomic_basis", False) # Added
+        self.is_atomic_basis = state.get("is_atomic_basis", False) # Added
 
         self.quantity = state["quantity"]
         self.unit = state["unit"]
@@ -549,13 +553,17 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
         if "product" in target["type"]["spherical"]
         else None
     )
+    coupled = target["type"]["spherical"].get("coupled", False) # Added
+
     keys = []
     blocks = []
 
     is_atomic_basis = isinstance(irreps, (dict, DictConfig))
 
     # Define the names of the keys in the tensormap
-    if product is None:
+    if coupled:
+        keys_names = ["o3_lambda", "o3_sigma"] # Added
+    elif product is None:
         keys_names = ["o3_lambda", "o3_sigma"]
     else:
         keys_names = ["o3_lambda_1", "o3_lambda_2", "o3_sigma_1", "o3_sigma_2"]
@@ -577,6 +585,32 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
 
             keys.append([*lambdas, *sigmas])
             blocks.append(block)
+    elif coupled:
+        for atom_type, atom_irreps in irreps.items():
+            basis = [
+                (irr.get("num", target["num_subtargets"]), irr.get("o3_lambda"), irr.get("o3_sigma"))
+                for irr in atom_irreps
+            ]
+            coupled_blocks = defaultdict(int)
+            for (num1, l1, sig1), (num2, l2, sig2) in _itertools.product(basis, repeat=2):
+                for lam in range(abs(l1 - l2), l1 + l2 + 1):
+                    sig = sig1 * sig2 * (-1) ** (l1 + l2 + lam)
+                    coupled_blocks[(lam, sig)] += num1 * num2
+            
+            for (lam, sig), n_props in sorted(coupled_blocks.items()):
+                if sig != 1:
+                    continue
+                block = TensorBlock(
+                    values=torch.empty(0, 2 * lam + 1, n_props, dtype=torch.float64),
+                    samples=Labels(
+                        names=sample_names,
+                        values=torch.empty((0, len(sample_names)), dtype=torch.int32),
+                    ),
+                    components=[Labels(names=["o3_mu"], values=torch.arange(-lam, lam + 1, dtype = torch.int32).reshape(-1, 1))],
+                    properties=Labels.range("n", n_props),
+                )
+                keys.append([lam, sig, int(atom_type)])
+                blocks.append(block) # Added
     else:
         # Loop over atomic types
         for atom_type, atom_irreps in irreps.items():
@@ -602,12 +636,15 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
         blocks=blocks,
     )
 
-    return TargetInfo(
+    info = TargetInfo(
         layout=layout,
         quantity=target["quantity"],
         unit=target["unit"],
         description=target.get("description", ""),
     )
+    if coupled:
+        info.is_coupled_atomic_basis = True # Added
+    return info # Added
 
 
 def is_auxiliary_output(name: str) -> bool:

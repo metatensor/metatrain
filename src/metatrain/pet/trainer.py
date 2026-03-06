@@ -414,6 +414,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         key
                         for key, info in train_targets.items()
                         if info.is_atomic_basis
+                        or getattr(info, "is_coupled_atomic_basis", False)
                     ],
                 )
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
@@ -498,7 +499,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         target_keys=[
                             key
                             for key, info in train_targets.items()
-                            if info.is_atomic_basis
+                            if info.is_atomic_basis 
+                            or getattr(info, "is_coupled_atomic_basis", False)
                         ],
                     )
                     val_loss_batch = loss_fn(predictions, targets, extra_data)

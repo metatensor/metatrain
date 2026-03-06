@@ -108,6 +108,7 @@ class SphericalTargetConfig(TypedDict):
         list[SphericalTargetIrrepsConfig] | dict[int, list[SphericalTargetIrrepsConfig]]
     )
     product: NotRequired[Literal["element-wise", "full"] | None] = None
+    coupled: NotRequired[bool] = False
     """Means of describing a higher rank target that is made of the base irreps.
 
     If ``product``is ``None`` or not provided, the target is of rank 1.

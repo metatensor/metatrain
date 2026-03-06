@@ -121,13 +121,13 @@ def get_merge_types_transform(
         new_extra = {**extra}
 
         for target_key, target_info in target_info_dict.items():
-            if target_info.is_atomic_basis:
+            if target_info.is_atomic_basis or getattr(target_info, "is_coupled_atomic_basis", False):
                 new_targets[target_key] = merge_types(
                     targets[target_key], fill_value=fill_value
                 )
 
         for extra_key, extra_info in extra_data_info_dict.items():
-            if extra_info.is_atomic_basis:
+            if extra_info.is_atomic_basis or getattr(target_info, "is_coupled_atomic_basis", False):
                 new_extra[extra_key] = merge_types(
                     extra[extra_key], fill_value=fill_value
                 )
