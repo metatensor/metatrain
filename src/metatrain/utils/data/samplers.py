@@ -100,7 +100,18 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
         self.start_iter = 0
 
         n = len(dataset)
-        self._atom_counts: List[int] = [_get_num_atoms(dataset, i) for i in range(n)]
+        # Fast path: avoid a Python loop over millions of structures.
+        # MemmapDataset exposes get_all_atom_counts() which returns np.diff(na)
+        # in one vectorised operation.
+        inner = dataset.dataset if isinstance(dataset, torch.utils.data.Subset) else dataset
+        if hasattr(inner, "get_all_atom_counts"):
+            all_counts = inner.get_all_atom_counts()
+            if isinstance(dataset, torch.utils.data.Subset):
+                self._atom_counts = [int(all_counts[i]) for i in dataset.indices]
+            else:
+                self._atom_counts = all_counts.tolist()
+        else:
+            self._atom_counts = [_get_num_atoms(dataset, i) for i in range(n)]
 
         # Pack once at init; only batch *order* changes each epoch.
         self.all_batches: List[List[int]] = self._build_batches()
