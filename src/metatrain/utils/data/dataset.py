@@ -1070,6 +1070,10 @@ class MemmapDataset(TorchDataset):
     def __len__(self) -> int:
         return self.ns
 
+    def get_num_atoms(self, i: int) -> int:
+        """Return the number of atoms in structure ``i`` without loading the full sample."""
+        return int(self.na[i + 1] - self.na[i])
+
     def __getitem__(self, i: int) -> Any:
         a = torch.tensor(self.a[self.na[i] : self.na[i + 1]], dtype=torch.int32)
         x = torch.tensor(self.x[self.na[i] : self.na[i + 1]], dtype=torch.float64)
