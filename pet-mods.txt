@@ -10,7 +10,11 @@ pet_7 -> SpH and explicit Bessel radial basis embedding
 pet_8 -> SoH and explicit Bessel radial basis embedding
 pet_9 -> Filippo's SoH embedding, simple MoE on linear readout layers
 pet_10 -> all biases removed from model
-pet_11 -> Filippo's SoH embedding, with Lmax=8
+pet_11 -> Filippo's SoH embedding, with Lmax=2
 pet_12 -> Filippo's SoH embedding, with Lmax=4
-pet_13 -> Filippo's SoH embedding, with Lmax=2
+pet_13 -> Filippo's SoH embedding, with Lmax=8
 pet_14 -> Filippo's SoH embedding, all biases removed
+
+pet_20 -> SSH with parametrizable Lmax
+pet_21 -> Z-conditioned linear readout layers
+pet_22 -> SSH (20) + Z-readout (21)
