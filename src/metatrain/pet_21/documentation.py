@@ -155,8 +155,6 @@ class ModelHypers(TypedDict):
     """Use ZBL potential for short-range repulsion"""
     long_range: LongRangeHypers = init_with_defaults(LongRangeHypers)
     """Long-range Coulomb interactions parameters."""
-    ssh_embedding_lmax: Optional[int] = None
-    """Lmax for the SSH embedding. If None, the SSH embedding is not used."""
 
 
 class TrainerHypers(TypedDict):
