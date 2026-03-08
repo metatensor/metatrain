@@ -1203,10 +1203,20 @@ class PET(ModelInterface[ModelHypers]):
                         node_atomic_predictions = torch.zeros(
                             node_last_layer_features.shape[0],
                             node_last_layer_by_block[0].weight.shape[0]
+                        ).to(
+                            dtype=node_last_layer_features.dtype,
+                            device=node_last_layer_features.device
                         )
                         for r, readout_layer in enumerate(node_last_layer_by_block):
-                            atomic_type_mask = element_indices_nodes == self.atomic_types[r]
-                            node_atomic_predictions[atomic_type_mask] = readout_layer(node_last_layer_features[atomic_type_mask])
+                            atomic_type_mask = element_indices_nodes == self.species_to_species_index[
+                                self.atomic_types[r]
+                            ]
+                            atomic_type_mask = atomic_type_mask.to(
+                                device=node_last_layer_features.device
+                            )
+                            node_atomic_predictions[atomic_type_mask] = readout_layer(
+                                node_last_layer_features[atomic_type_mask]
+                            )
                         node_atomic_predictions_by_block.append(node_atomic_predictions)
 
                     node_atomic_predictions_dict[output_name].append(
@@ -1233,10 +1243,20 @@ class PET(ModelInterface[ModelHypers]):
                             edge_last_layer_features.shape[0],
                             edge_last_layer_features.shape[1],
                             edge_last_layer_by_block[0].weight.shape[0]
+                        ).to(
+                            dtype=node_last_layer_features.dtype,
+                            device=node_last_layer_features.device
                         )
                         for r, readout_layer in enumerate(edge_last_layer_by_block):
-                            atomic_type_mask = element_indices_nodes == self.atomic_types[r]
-                            edge_atomic_predictions[atomic_type_mask] = readout_layer(edge_last_layer_features[atomic_type_mask])
+                            atomic_type_mask = element_indices_nodes == self.species_to_species_index[
+                                self.atomic_types[r]
+                            ]
+                            atomic_type_mask = atomic_type_mask.to(
+                                device=node_last_layer_features.device
+                            )
+                            edge_atomic_predictions[atomic_type_mask] = readout_layer(
+                                edge_last_layer_features[atomic_type_mask]
+                            )
                         expanded_padding_mask = padding_mask[..., None].repeat(
                             1, 1, edge_atomic_predictions.shape[2]
                         )
