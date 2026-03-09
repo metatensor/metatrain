@@ -224,7 +224,8 @@ def test_distributed_len_consistent():
 
 
 def test_distributed_set_epoch_sync():
-    """All ranks apply the same shuffle (same epoch seed) and get complementary batches."""
+    """All ranks apply the same shuffle (same epoch seed) and get complementary
+    batches."""
     atom_counts = [2] * 12  # 6 batches of 2 (max_atoms=4)
     ds = _FakeDataset(atom_counts)
     world_size = 2
@@ -352,7 +353,8 @@ def test_drop_last_no_remainder_unchanged():
 
 def test_max_atom_batch_sampler_drop_last():
     """MaxAtomBatchSampler forwards drop_last correctly."""
-    # 7 batches (21 structures, max_atoms=9): drop_last has no effect for num_replicas=1.
+    # 7 batches (21 structures, max_atoms=9): drop_last has no effect for
+    # num_replicas=1.
     atom_counts = [3] * 21
     ds = _FakeDataset(atom_counts)
     s = MaxAtomBatchSampler(ds, max_atoms=9, shuffle=False, drop_last=True)

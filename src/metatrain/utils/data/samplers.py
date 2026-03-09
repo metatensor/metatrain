@@ -38,7 +38,7 @@ def _greedy_pack(
     current_batch: List[int] = []
     current_atoms = 0
 
-    for idx, n in zip(indices, atom_counts):
+    for idx, n in zip(indices, atom_counts, strict=True):
         if n > max_atoms:
             logger.warning(
                 f"Structure {idx} has {n} atoms which exceeds max_atoms_per_batch "

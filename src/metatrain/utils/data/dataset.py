@@ -1071,7 +1071,8 @@ class MemmapDataset(TorchDataset):
         return self.ns
 
     def get_num_atoms(self, i: int) -> int:
-        """Return the number of atoms in structure ``i`` without loading the full sample."""
+        """Return the number of atoms in structure ``i`` without loading the full
+        sample."""
         return int(self.na[i + 1] - self.na[i])
 
     def get_all_atom_counts(self) -> np.ndarray:
