@@ -264,7 +264,7 @@ def get_dataset_description(path: str) -> DictConfig:
     :param path: The path to the dataset for which to get the description.
 
     :return: The dataset description as found in the dataset. If no description is
-    found, an empty DictConfig is returned.
+        found, an empty DictConfig is returned.
     """
     dataset_description = DictConfig({})
     # If the path is a zipfile.
