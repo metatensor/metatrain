@@ -16,5 +16,6 @@ pet_13 -> Filippo's SoH embedding, with Lmax=8
 pet_14 -> Filippo's SoH embedding, all biases removed
 
 pet_20 -> SSH with parametrizable Lmax
-pet_21 -> Z-conditioned linear readout layers
+# pet_21 -> Z-conditioned linear readout layers (not used)
 pet_22 -> SSH (20) + Z-readout (21)
+pet_23 -> SHH (20) + batched MLP Z-readout
