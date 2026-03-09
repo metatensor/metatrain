@@ -114,9 +114,6 @@ class ASEWriter(Writer):
                             gradient_block.values.detach().cpu().squeeze(-1).numpy()
                         )
 
-            for data_name in system.known_data():
-                if data_name in ("mtt::charge", "mtt::spin"):
-                    info[data_name] = system.get_data(data_name).block().values.item()
 
             atoms = ase.Atoms(
                 symbols=system.types.numpy(),
