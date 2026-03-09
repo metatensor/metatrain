@@ -1,10 +1,11 @@
-from typing import Tuple
+from typing import Tuple, Optional
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 
 from .utilities import DummyModule
+from sphericart.torch import SolidHarmonics
 
 
 AVAILABLE_NORMALIZATIONS = ["LayerNorm", "RMSNorm"]
@@ -389,6 +390,7 @@ class CartesianTransformer(torch.nn.Module):
         transformer_type: str,
         n_atomic_species: int,
         is_first: bool,
+        ssh_embedding_lmax: Optional[int] = None,
     ) -> None:
         super(CartesianTransformer, self).__init__()
         self.is_first = is_first
@@ -405,8 +407,15 @@ class CartesianTransformer(torch.nn.Module):
             transformer_type=transformer_type,
             attention_temperature=attention_temperature,
         )
-
-        self.edge_embedder = nn.Linear(4, d_model)
+        self.ssh_embedding_lmax = ssh_embedding_lmax
+        if ssh_embedding_lmax is None:  # standard PET edge geometry embedding
+            self.edge_embedder = nn.Linear(4, d_model)
+            self.spherical_harmonics = torch.nn.Identity()
+            self.rmsnorm = torch.nn.Identity()
+        else:  # SSH embedding
+            self.spherical_harmonics = SolidHarmonics(l_max=ssh_embedding_lmax)
+            self.edge_embedder = nn.Linear((ssh_embedding_lmax + 1) ** 2, d_model)
+            self.rmsnorm = nn.LayerNorm(d_model)
 
         if not is_first:
             n_merge = 3
@@ -460,9 +469,16 @@ class CartesianTransformer(torch.nn.Module):
             - The output edge embeddings, of shape (n_nodes, max_num_neighbors, d_model)
         """
         node_embeddings = input_node_embeddings
-        edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
-        edge_embeddings = torch.cat(edge_embeddings, dim=2)
+        if self.ssh_embedding_lmax is None:
+            edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
+            edge_embeddings = torch.cat(edge_embeddings, dim=2)
+        else:
+            edge_embeddings = self.spherical_harmonics(
+                edge_vectors.reshape(-1, 3)
+            ).reshape(edge_vectors.shape[0], edge_vectors.shape[1], -1)
         edge_embeddings = self.edge_embedder(edge_embeddings)
+        if self.ssh_embedding_lmax is not None:
+            edge_embeddings = self.rmsnorm(edge_embeddings)
 
         if not self.is_first:
             neighbor_elements_embeddings = self.neighbor_embedder(

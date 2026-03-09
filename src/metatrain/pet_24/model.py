@@ -36,6 +36,42 @@ from .modules.transformer import CartesianTransformer
 
 AVAILABLE_FEATURIZERS = typing.get_args(ModelHypers.__annotations__["featurizer_type"])
 
+class ZConditionedLinear(torch.nn.Module):
+    """
+    Species-conditioned linear layer implemented as a single batched matmul.
+    """
+
+    def __init__(self, n_species: int, in_features: int, out_features: int) -> None:
+        super().__init__()
+        import math
+
+        self.n_species = n_species
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = torch.nn.Parameter(
+            torch.empty(n_species, out_features, in_features)
+        )
+        self.bias = torch.nn.Parameter(torch.empty(n_species, out_features))
+        torch.nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        fan_in = in_features
+        bound = 1.0 / math.sqrt(fan_in) if fan_in > 0 else 0.0
+        torch.nn.init.uniform_(self.bias, -bound, bound)
+
+    def forward(
+        self, features: torch.Tensor, species_idx: torch.Tensor
+    ) -> torch.Tensor:
+        W = self.weight[species_idx]  # (n_atoms, out, in)
+        b = self.bias[species_idx]  # (n_atoms, out)
+        is_node = features.dim() == 2
+        if is_node:
+            features = features.unsqueeze(1)  # (n_atoms, 1, in)
+        out = torch.matmul(features, W.transpose(-2, -1)) + b.unsqueeze(1)
+        if is_node:
+            out = out.squeeze(1)
+        return out
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 class PET(ModelInterface[ModelHypers]):
     """
@@ -82,6 +118,7 @@ class PET(ModelInterface[ModelHypers]):
         self.attention_temperature = self.hypers["attention_temperature"]
         self.transformer_type = self.hypers["transformer_type"]
         self.featurizer_type = self.hypers["featurizer_type"]
+        self.ssh_embedding_lmax = self.hypers["ssh_embedding_lmax"]
 
         self.atomic_types = dataset_info.atomic_types
         self.requested_nl = NeighborListOptions(
@@ -106,6 +143,7 @@ class PET(ModelInterface[ModelHypers]):
                     self.transformer_type,
                     num_atomic_species,
                     layer_index == 0,  # is first layer
+                    self.ssh_embedding_lmax,
                 )
                 for layer_index in range(self.num_gnn_layers)
             ]
@@ -1198,27 +1236,11 @@ class PET(ModelInterface[ModelHypers]):
                     ][i]
                     node_atomic_predictions_by_block: List[torch.Tensor] = []
                     for node_last_layer_by_block in node_last_layer.values():
-
-                        # Iterate over atomic type-conditioned readout layers
-                        node_atomic_predictions = torch.zeros(
-                            node_last_layer_features.shape[0],
-                            node_last_layer_by_block[0].weight.shape[0]
-                        ).to(
-                            dtype=node_last_layer_features.dtype,
-                            device=node_last_layer_features.device
+                        node_atomic_predictions_by_block.append(
+                            node_last_layer_by_block(
+                                node_last_layer_features, element_indices_nodes
+                            )
                         )
-                        for r, readout_layer in enumerate(node_last_layer_by_block):
-                            atomic_type_mask = element_indices_nodes == self.species_to_species_index[
-                                self.atomic_types[r]
-                            ]
-                            atomic_type_mask = atomic_type_mask.to(
-                                device=node_last_layer_features.device
-                            )
-                            node_atomic_predictions[atomic_type_mask] = readout_layer(
-                                node_last_layer_features[atomic_type_mask]
-                            )
-                        node_atomic_predictions_by_block.append(node_atomic_predictions)
-
                     node_atomic_predictions_dict[output_name].append(
                         node_atomic_predictions_by_block
                     )
@@ -1238,25 +1260,9 @@ class PET(ModelInterface[ModelHypers]):
                     ][i]
                     edge_atomic_predictions_by_block: List[torch.Tensor] = []
                     for edge_last_layer_by_block in edge_last_layer.values():
-                        # Iterate over atomic type-conditioned readout layers
-                        edge_atomic_predictions = torch.zeros(
-                            edge_last_layer_features.shape[0],
-                            edge_last_layer_features.shape[1],
-                            edge_last_layer_by_block[0].weight.shape[0]
-                        ).to(
-                            dtype=node_last_layer_features.dtype,
-                            device=node_last_layer_features.device
+                        edge_atomic_predictions = edge_last_layer_by_block(
+                            edge_last_layer_features, element_indices_nodes
                         )
-                        for r, readout_layer in enumerate(edge_last_layer_by_block):
-                            atomic_type_mask = element_indices_nodes == self.species_to_species_index[
-                                self.atomic_types[r]
-                            ]
-                            atomic_type_mask = atomic_type_mask.to(
-                                device=node_last_layer_features.device
-                            )
-                            edge_atomic_predictions[atomic_type_mask] = readout_layer(
-                                edge_last_layer_features[atomic_type_mask]
-                            )
                         expanded_padding_mask = padding_mask[..., None].repeat(
                             1, 1, edge_atomic_predictions.shape[2]
                         )
@@ -1512,15 +1518,10 @@ class PET(ModelInterface[ModelHypers]):
             [
                 torch.nn.ModuleDict(
                     {
-                        key: torch.nn.ModuleList(
-                            [
-                                torch.nn.Linear(
-                                    self.d_head,
-                                    prod(shape),
-                                    bias=True,
-                                )
-                                for atomic_type in self.atomic_types
-                            ]
+                        key: ZConditionedLinear(
+                            n_species=len(self.atomic_types),
+                            in_features=self.d_head,
+                            out_features=prod(shape),
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }
@@ -1533,15 +1534,10 @@ class PET(ModelInterface[ModelHypers]):
             [
                 torch.nn.ModuleDict(
                     {
-                        key: torch.nn.ModuleList(
-                            [
-                                torch.nn.Linear(
-                                    self.d_head,
-                                    prod(shape),
-                                    bias=True,
-                                )
-                                for atomic_type in self.atomic_types
-                            ]
+                        key: ZConditionedLinear(
+                            n_species=len(self.atomic_types),
+                            in_features=self.d_head,
+                            out_features=prod(shape),
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }
@@ -1555,13 +1551,12 @@ class PET(ModelInterface[ModelHypers]):
         self.last_layer_parameter_names[target_name] = []
         for layer_index in range(self.num_readout_layers):
             for key in self.output_shapes[target_name].keys():
-                for atomic_type in self.atomic_types:
-                    self.last_layer_parameter_names[target_name].append(
-                        f"node_last_layers.{target_name}.{layer_index}.{key}.{atomic_type}.weight"
-                    )
-                    self.last_layer_parameter_names[target_name].append(
-                        f"edge_last_layers.{target_name}.{layer_index}.{key}.{atomic_type}.weight"
-                    )
+                self.last_layer_parameter_names[target_name].append(
+                    f"node_last_layers.{target_name}.{layer_index}.{key}.weight"
+                )
+                self.last_layer_parameter_names[target_name].append(
+                    f"edge_last_layers.{target_name}.{layer_index}.{key}.weight"
+                )
 
         ll_features_name = get_last_layer_features_name(target_name)
         self.outputs[ll_features_name] = ModelOutput(
@@ -1614,7 +1609,7 @@ class PET(ModelInterface[ModelHypers]):
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {
-            "architecture_name": "pet_21",
+            "architecture_name": "pet_24",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {

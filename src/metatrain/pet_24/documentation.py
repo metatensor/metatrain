@@ -70,7 +70,7 @@ from typing import Literal, Optional
 
 from typing_extensions import TypedDict
 
-from metatrain.pet_21.modules.finetuning import FinetuneHypers, NoFinetuneHypers
+from metatrain.pet_23.modules.finetuning import FinetuneHypers, NoFinetuneHypers
 from metatrain.utils.additive import FixedCompositionWeights
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.long_range import LongRangeHypers
@@ -155,6 +155,8 @@ class ModelHypers(TypedDict):
     """Use ZBL potential for short-range repulsion"""
     long_range: LongRangeHypers = init_with_defaults(LongRangeHypers)
     """Long-range Coulomb interactions parameters."""
+    ssh_embedding_lmax: Optional[int] = None
+    """Lmax for the SSH embedding. If None, the SSH embedding is not used."""
 
 
 class TrainerHypers(TypedDict):
