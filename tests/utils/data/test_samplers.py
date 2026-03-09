@@ -17,6 +17,7 @@ from metatrain.utils.data.samplers import (
 # Minimal fake dataset with get_num_atoms support
 # ---------------------------------------------------------------------------
 
+
 class _FakeDataset(torch.utils.data.Dataset):
     """Fake dataset whose atom counts are set explicitly."""
 
@@ -44,6 +45,7 @@ class _DatasetNoGetNumAtoms(torch.utils.data.Dataset):
 # ---------------------------------------------------------------------------
 # _greedy_pack unit tests
 # ---------------------------------------------------------------------------
+
 
 def test_greedy_pack_basic():
     """All batches respect the max_atoms limit."""
@@ -89,6 +91,7 @@ def test_greedy_pack_variable_sizes():
 # ---------------------------------------------------------------------------
 # MaxAtomBatchSampler (single-process) unit tests
 # ---------------------------------------------------------------------------
+
 
 def test_single_process_all_samples_covered():
     """All samples appear exactly once per epoch."""
@@ -169,6 +172,7 @@ def test_subset_compatibility():
 # ---------------------------------------------------------------------------
 # MaxAtomDistributedBatchSampler tests
 # ---------------------------------------------------------------------------
+
 
 def test_distributed_union_covers_all_samples():
     """The union of all ranks' batches covers all samples (ignoring pad repeats)."""
@@ -252,6 +256,7 @@ def test_distributed_set_epoch_sync():
 # Equivalence with fixed batch_size when atom counts are uniform
 # ---------------------------------------------------------------------------
 
+
 def test_equivalent_to_fixed_batch_size_uniform_atoms():
     """With uniform atom counts and no shuffle, batches match fixed batch_size."""
     n, n_atoms, batch_size = 15, 4, 3
@@ -269,6 +274,7 @@ def test_equivalent_to_fixed_batch_size_uniform_atoms():
 # ---------------------------------------------------------------------------
 # Stable packing (new behaviour: packing fixed at init, only order varies)
 # ---------------------------------------------------------------------------
+
 
 def test_packing_stable_across_epochs():
     """The set of batches (structure groupings) is identical across epochs.
@@ -294,6 +300,7 @@ def test_packing_stable_across_epochs():
 # drop_last
 # ---------------------------------------------------------------------------
 
+
 def test_drop_last_single_process():
     """drop_last=True drops tail batches instead of padding."""
     # 7 batches of 3 (21 structures, 3 atoms each, max_atoms=9), world_size=4
@@ -305,8 +312,12 @@ def test_drop_last_single_process():
 
     samplers_drop = [
         MaxAtomDistributedBatchSampler(
-            ds, max_atoms=9, num_replicas=world_size, rank=r,
-            shuffle=False, drop_last=True,
+            ds,
+            max_atoms=9,
+            num_replicas=world_size,
+            rank=r,
+            shuffle=False,
+            drop_last=True,
         )
         for r in range(world_size)
     ]
@@ -329,7 +340,7 @@ def test_drop_last_no_remainder_unchanged():
     ds = _FakeDataset(atom_counts)
     world_size = 5
 
-    s_pad  = MaxAtomDistributedBatchSampler(
+    s_pad = MaxAtomDistributedBatchSampler(
         ds, max_atoms=8, num_replicas=world_size, rank=0, shuffle=False, drop_last=False
     )
     s_drop = MaxAtomDistributedBatchSampler(
@@ -351,6 +362,7 @@ def test_max_atom_batch_sampler_drop_last():
 # ---------------------------------------------------------------------------
 # set_epoch_and_start_iteration (mid-epoch resumption)
 # ---------------------------------------------------------------------------
+
 
 def test_start_iter_skips_leading_batches():
     """set_epoch_and_start_iteration skips the first start_iter batches."""
@@ -384,6 +396,7 @@ def test_start_iter_reset_by_set_epoch():
 # Too-few-batches assertion
 # ---------------------------------------------------------------------------
 
+
 def test_too_few_batches_raises():
     """AssertionError when packed batches < num_replicas."""
     # 3 structures, 1 atom each, max_atoms=10 → 1 batch; num_replicas=4 → fails.
@@ -395,6 +408,7 @@ def test_too_few_batches_raises():
 # ---------------------------------------------------------------------------
 # Padding with odd batch count
 # ---------------------------------------------------------------------------
+
 
 def test_padding_when_n_batches_not_divisible():
     """Padding is correct when n_batches is not divisible by num_replicas."""

@@ -103,7 +103,9 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
         # Fast path: avoid a Python loop over millions of structures.
         # MemmapDataset exposes get_all_atom_counts() which returns np.diff(na)
         # in one vectorised operation.
-        inner = dataset.dataset if isinstance(dataset, torch.utils.data.Subset) else dataset
+        inner = (
+            dataset.dataset if isinstance(dataset, torch.utils.data.Subset) else dataset
+        )
         if hasattr(inner, "get_all_atom_counts"):
             all_counts = inner.get_all_atom_counts()
             if isinstance(dataset, torch.utils.data.Subset):
@@ -152,9 +154,7 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
         if self.shuffle:
             g = torch.Generator()
             g.manual_seed(self.seed + self.epoch)
-            batch_indices = torch.randperm(
-                len(self.all_batches), generator=g
-            ).tolist()
+            batch_indices = torch.randperm(len(self.all_batches), generator=g).tolist()
         else:
             batch_indices = list(range(len(self.all_batches)))
 
