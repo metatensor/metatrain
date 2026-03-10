@@ -64,6 +64,29 @@ class TestTorchscript(TorchscriptTests, SoapBPNNTests):
             model_hypers=hypers, dataset_info=dataset_info, dtype=dtype
         )
 
+    @pytest.mark.parametrize("add_lambda_basis", [True, False])
+    @pytest.mark.parametrize("legacy", [True, False])
+    def test_torchscript_spherical_combinations(
+        self, model_hypers, dataset_info_spherical, add_lambda_basis, legacy
+    ):
+        """
+        Tests that the model can be jitted with different combinations of legacy and
+        lambda basis.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info_spherical: Dataset to initialize the model (containing
+            spherical targets).
+        :param add_lambda_basis: Whether to add lambda basis functions or not.
+        :param legacy: Whether to use the legacy path or not.
+        """
+
+        hypers = copy.deepcopy(model_hypers)
+        hypers["legacy"] = legacy
+        hypers["add_lambda_basis"] = add_lambda_basis
+        self.test_torchscript_spherical(
+            model_hypers=hypers, dataset_info_spherical=dataset_info_spherical
+        )
+
 
 class TestExported(ExportedTests, SoapBPNNTests): ...
 

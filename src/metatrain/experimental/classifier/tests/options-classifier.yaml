@@ -1,0 +1,23 @@
+seed: 42
+
+architecture:
+  name: experimental.classifier
+  model:
+    hidden_sizes: [8, 2, 8]
+    feature_layer_index: 1
+  training:
+    model_checkpoint: model.ckpt
+    num_epochs: 2
+    batch_size: 10
+
+training_set:
+  systems:
+    read_from: qm9_reduced_100.xyz
+    length_unit: angstrom
+  targets:
+    mtt::class_probabilities:
+      key: class_label
+      num_subtargets: 3
+
+validation_set: 0.1
+test_set: 0.1

@@ -9,6 +9,16 @@ descriptors, computed with `torch-spex <https://github.com/lab-cosmo/torch-spex>
 
 {{SECTION_INSTALLATION}}
 
+Additional outputs
+------------------
+
+In addition to the targets defined in the dataset, the SOAP-BPNN architecture can also
+output the following additional quantity:
+
+- ``features``: the internal features, before the different heads for each target.
+- :ref:`mtt-aux-target-last-layer-features`: The features for a given target, taken
+  before the last linear layer of the corresponding head.
+
 {{SECTION_DEFAULT_HYPERS}}
 
 {{SECTION_MODEL_HYPERS}}
@@ -190,7 +200,7 @@ class TrainerHypers(TypedDict):
     see its documentation to understand exactly what to pass here.
     """
     per_structure_targets: list[str] = []
-    """Targets to calculate per-structure losses."""
+    """Targets to calculate per-structure losses and errors on."""
     num_workers: Optional[int] = None
     """Number of workers for data loading. If not provided, it is set
     automatically."""

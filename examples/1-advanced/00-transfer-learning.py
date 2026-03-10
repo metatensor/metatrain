@@ -116,6 +116,10 @@ using a relatively simple python script:
 
 .. code-block:: python
 
+  import metatomic.torch
+  import torch
+
+
   def set_output_head(checkpoint, head_name):
       for state_dict_name in ["model_state_dict", "best_model_state_dict"]:
           state_dict = checkpoint.get(state_dict_name)

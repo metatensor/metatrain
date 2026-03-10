@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import warnings
 from pathlib import Path
@@ -29,14 +30,12 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.pydantic import MetatrainValidationError
 from metatrain.utils.testing._utils import WANDB_AVAILABLE
 
-from . import (
+from ..conftest import (
     DATASET_PATH_CARBON,
     DATASET_PATH_DOS,
     DATASET_PATH_ETHANOL,
     DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
-    MODEL_PATH_64_BIT,
-    MODEL_PATH_PET,
     OPTIONS_EXTRA_DATA_PATH,
     OPTIONS_PATH,
     OPTIONS_PET_PATH,
@@ -113,10 +112,10 @@ def test_train(capfd, monkeypatch, tmp_path, output):
         assert len(subset_glob) == 1
 
     # Open the log file and check if the logging is correct
-    with open(log_glob[0]) as f:
+    with open(log_glob[0], encoding="utf-8") as f:
         file_log = f.read()
 
-    stdout_log = capfd.readouterr().out
+    stdout_log = capfd.readouterr().out.replace("\r\n", "\n")
 
     assert file_log == stdout_log
 
@@ -383,6 +382,20 @@ def test_empty_training_set(monkeypatch, tmp_path, options):
         train_model(options)
 
 
+def test_empty_validation_set(monkeypatch, tmp_path, options):
+    """Test that an error is raised if no training set is provided."""
+    monkeypatch.chdir(tmp_path)
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["validation_set"] = 0.0
+    options["test_set"] = 0.4
+
+    match = "Requested dataset of zero length. This dataset will be empty."
+    with pytest.warns(UserWarning, match=match):
+        train_model(options)
+
+
 @pytest.mark.parametrize("split", [-0.1, 1.1])
 def test_wrong_test_split_size(split, monkeypatch, tmp_path, options):
     """Test that an error is raised if the test split has the wrong size"""
@@ -402,7 +415,7 @@ def test_wrong_test_split_size(split, monkeypatch, tmp_path, options):
         train_model(options)
 
 
-@pytest.mark.parametrize("split", [0.0, 1.1])
+@pytest.mark.parametrize("split", [-0.1, 1.1])
 def test_wrong_validation_split_size(split, monkeypatch, tmp_path, options):
     """Test that an error is raised if the validation split has the wrong size"""
     monkeypatch.chdir(tmp_path)
@@ -415,7 +428,7 @@ def test_wrong_validation_split_size(split, monkeypatch, tmp_path, options):
     if split > 1:
         match = r"Input should be less than 1"
     if split <= 0:
-        match = r"Input should be greater than 0"
+        match = r"Input should be greater than or equal to 0"
 
     with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
@@ -450,6 +463,26 @@ def test_default_test_set(caplog, monkeypatch, tmp_path, options):
     # Remove test_set from options to test default behavior
     if "test_set" in options:
         del options["test_set"]
+
+    match = "Requested dataset of zero length. This dataset will be empty."
+    with pytest.warns(UserWarning, match=match):
+        train_model(options)
+
+    # check if the logging is correct
+    assert "This dataset is empty. No evaluation" in caplog.text
+
+
+def test_integer_validation_test_set_size(caplog, monkeypatch, tmp_path, options):
+    """Test that integer values (e.g., 0 instead of 0.0) work for
+    validation/test set."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    # Use integer 0 instead of float 0.0
+    options["validation_set"] = 0
+    options["test_set"] = 0
 
     match = "Requested dataset of zero length. This dataset will be empty."
     with pytest.warns(UserWarning, match=match):
@@ -653,20 +686,22 @@ def test_same_name_targets_extra_data(
         train_model(options_extra)
 
 
-def test_restart(options, monkeypatch, tmp_path):
+def test_restart(options, monkeypatch, tmp_path, MODEL_PATH_64_BIT):
     """Test that continuing training from a checkpoint runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
-    train_model(options, restart_from=MODEL_PATH_64_BIT)
+    train_model(options, restart_from=MODEL_PATH_64_BIT.with_suffix(".ckpt"))
 
 
-def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
+def test_finetune(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
     monkeypatch.chdir(tmp_path)
+
+    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
 
     options_pet["architecture"]["training"]["finetune"] = {
         "method": "heads",
-        "read_from": str(MODEL_PATH_PET),
+        "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
@@ -678,16 +713,18 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
     caplog.set_level(logging.INFO)
     train_model(options_pet)
 
-    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+    assert f"Starting finetuning from '{ckpt_path}'" in caplog.text
 
 
-def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
+def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
     monkeypatch.chdir(tmp_path)
+
+    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
 
     options_pet_transfer_learn = copy.deepcopy(options_pet)
     options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
         "method": "heads",
-        "read_from": str(MODEL_PATH_PET),
+        "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
@@ -702,16 +739,20 @@ def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path):
     caplog.set_level(logging.INFO)
     train_model(options_pet_transfer_learn)
 
-    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+    assert f"Starting finetuning from '{ckpt_path}'" in caplog.text
 
 
-def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
+def test_transfer_learn_with_forces(
+    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
+):
     monkeypatch.chdir(tmp_path)
+
+    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
 
     options_pet_transfer_learn = copy.deepcopy(options_pet)
     options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
         "method": "heads",
-        "read_from": str(MODEL_PATH_PET),
+        "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
             "last_layer_modules": ["node_last_layers", "edge_last_layers"],
@@ -735,16 +776,20 @@ def test_transfer_learn_with_forces(options_pet, caplog, monkeypatch, tmp_path):
     caplog.set_level(logging.INFO)
     train_model(options_pet_transfer_learn)
 
-    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+    assert f"Starting finetuning from '{ckpt_path}'" in caplog.text
 
 
-def test_transfer_learn_variant(options_pet, caplog, monkeypatch, tmp_path):
+def test_transfer_learn_variant(
+    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
+):
     monkeypatch.chdir(tmp_path)
+
+    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
 
     options_pet_transfer_learn = copy.deepcopy(options_pet)
     options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
         "method": "full",
-        "read_from": str(MODEL_PATH_PET),
+        "read_from": str(ckpt_path),
     }
     options_pet_transfer_learn["training_set"]["systems"]["read_from"] = (
         "ethanol_reduced_100.xyz"
@@ -765,16 +810,20 @@ def test_transfer_learn_variant(options_pet, caplog, monkeypatch, tmp_path):
     caplog.set_level(logging.INFO)
     train_model(options_pet_transfer_learn)
 
-    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+    assert f"Starting finetuning from '{ckpt_path}'" in caplog.text
 
 
-def test_transfer_learn_inherit_heads(options_pet, caplog, monkeypatch, tmp_path):
+def test_transfer_learn_inherit_heads(
+    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
+):
     monkeypatch.chdir(tmp_path)
+
+    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
 
     options_pet_transfer_learn = copy.deepcopy(options_pet)
     options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
         "method": "full",
-        "read_from": str(MODEL_PATH_PET),
+        "read_from": str(ckpt_path),
         "config": {},
         "inherit_heads": {
             "mtt::energy": "energy",
@@ -794,16 +843,18 @@ def test_transfer_learn_inherit_heads(options_pet, caplog, monkeypatch, tmp_path
 
 
 def test_transfer_learn_inherit_heads_invalid_source(
-    options_pet, caplog, monkeypatch, tmp_path
+    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
 ):
     monkeypatch.chdir(tmp_path)
+
+    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
 
     options_pet_transfer_learn_invalid_source = copy.deepcopy(options_pet)
     options_pet_transfer_learn_invalid_source["architecture"]["training"][
         "finetune"
     ] = {
         "method": "full",
-        "read_from": str(MODEL_PATH_PET),
+        "read_from": str(ckpt_path),
         "config": {},
         "inherit_heads": {
             "mtt::energy": "foo",
@@ -824,14 +875,16 @@ def test_transfer_learn_inherit_heads_invalid_source(
 
 
 def test_transfer_learn_inherit_heads_invalid_destination(
-    options_pet, caplog, monkeypatch, tmp_path
+    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
 ):
     monkeypatch.chdir(tmp_path)
+
+    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
 
     options_pet_transfer_learn_invalid_dest = copy.deepcopy(options_pet)
     options_pet_transfer_learn_invalid_dest["architecture"]["training"]["finetune"] = {
         "method": "full",
-        "read_from": str(MODEL_PATH_PET),
+        "read_from": str(ckpt_path),
         "inherit_heads": {
             "mtt::foo": "energy",
         },
@@ -849,12 +902,16 @@ def test_transfer_learn_inherit_heads_invalid_destination(
 
 
 @pytest.mark.parametrize("move_folder", [True, False])
-def test_restart_auto(options, caplog, monkeypatch, tmp_path, move_folder):
+def test_restart_auto(
+    options, caplog, monkeypatch, tmp_path, move_folder, MODEL_PATH_64_BIT
+):
     """Test that continuing with the `auto` keyword results in
     a continuation from the most recent checkpoint."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
     caplog.set_level(logging.INFO)
+
+    ckpt_path = MODEL_PATH_64_BIT.with_suffix(".ckpt")
 
     # Make up an output directory with some checkpoints
     true_checkpoint_dir = Path("outputs/2021-09-02/00-10-05")
@@ -873,7 +930,7 @@ def test_restart_auto(options, caplog, monkeypatch, tmp_path, move_folder):
         for checkpoint_dir in fake_checkpoints_dirs + [true_checkpoint_dir]:
             time.sleep(0.1)
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy(MODEL_PATH_64_BIT, checkpoint_dir / checkpoint_name)
+            shutil.copy(ckpt_path, checkpoint_dir / checkpoint_name)
 
     # also check that the timestamp-based implementation works with moved folders
     if move_folder:
@@ -898,7 +955,7 @@ def test_restart_auto_no_outputs(options, caplog, monkeypatch, tmp_path):
     assert "Restart training from" not in caplog.text
 
 
-def test_restart_different_dataset(options, monkeypatch, tmp_path):
+def test_restart_different_dataset(options, monkeypatch, tmp_path, MODEL_PATH_64_BIT):
     """Test that continuing training from a checkpoint runs without an error raise
     with a different dataset than the original."""
     monkeypatch.chdir(tmp_path)
@@ -907,7 +964,7 @@ def test_restart_different_dataset(options, monkeypatch, tmp_path):
     options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"]["targets"]["energy"]["key"] = "energy"
 
-    train_model(options, restart_from=MODEL_PATH_64_BIT)
+    train_model(options, restart_from=MODEL_PATH_64_BIT.with_suffix(".ckpt"))
 
 
 @pytest.mark.parametrize("seed", [None, 1234])
@@ -1353,6 +1410,10 @@ def test_train_memmap_dataset(monkeypatch, tmp_path, options_pet):
 
 
 @pytest.mark.skipif(not WANDB_AVAILABLE.present, reason=WANDB_AVAILABLE.message)
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="wandb 'latest-run' symlink not created on Windows without high privileges",
+)
 def test_train_wandb_logger(monkeypatch, tmp_path):
     """Test that training via the training cli runs with an attached wandb logger."""
     monkeypatch.chdir(tmp_path)
@@ -1610,7 +1671,6 @@ def test_regression_validation_batch_size_constraint_removed():
     trainer_files = [
         repo_root / "src/metatrain/pet/trainer.py",
         repo_root / "src/metatrain/soap_bpnn/trainer.py",
-        repo_root / "src/metatrain/deprecated/nanopet/trainer.py",
         repo_root / "src/metatrain/experimental/flashmd/trainer.py",
     ]
 

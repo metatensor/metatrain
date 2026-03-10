@@ -24,11 +24,11 @@ mtt --help
 
 # %%
 #
-# We now demonstrate how the workflow to ``train`` and ``eval`` a model from the command
-# line as shown in the figure above. For this example we use the
-# :ref:`architecture-soap_bpnn` architecture and a subset of the `QM9 dataset
-# <https://www.nature.com/articles/sdata201422>`_. You can obtain the dataset for this
-# example here: :download:`qm9_reduced_100.xyz <qm9_reduced_100.xyz>`.
+# We now demonstrate how the workflow to ``train`` and ``eval`` a model from the
+# command line as shown in the figure above. For this example we use the
+# :ref:`arch-soap_bpnn` architecture and a subset of the `QM9 dataset
+# <https://www.nature.com/articles/sdata201422>`_. You can obtain the dataset
+# for this example here: :download:`qm9_reduced_100.xyz <qm9_reduced_100.xyz>`.
 #
 # Training
 # --------

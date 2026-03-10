@@ -8,7 +8,6 @@ license = "BSD-3-Clause"
 description = "Training and evaluating machine learning models for atomistic systems."
 authors = [{name = "metatrain developers"}]
 
-# Strict version pinning to avoid regression test failing on new versions
 dependencies = [
     "ase",
     "huggingface_hub",
@@ -16,14 +15,14 @@ dependencies = [
     "metatensor-learn >=0.4.0,<0.5",
     "metatensor-operations >=0.4.0,<0.5",
     "metatensor-torch >=0.8.2,<0.9",
-    "metatomic-torch >=0.1.7,<0.2",
+    "metatomic-torch >=0.1.8,<0.2",
     "jsonschema",
     "pydantic >= 2.12", # Because of passing arguments to validator functions
     "typing_extensions", # For python < 3.12 typing.TypedDict has limited functionality
     "omegaconf >= 2.3.0",
     "python-hostlist",
     "tqdm",
-    "vesin",
+    "vesin >= 0.5.2" # Because of https://github.com/Luthaf/vesin/pull/119,
 ]
 
 keywords = ["machine learning", "molecular modeling"]
@@ -69,17 +68,18 @@ soap-bpnn = [
     "wigners",
 ]
 pet = []
-nanopet = []
 gap = [
     "featomic-torch >=0.7,<0.8",
     "skmatter",
     "scipy",
 ]
 llpr = []
+classifier = []
 mace = [
-    "mace-torch >=0.3.14",
+    "mace-torch >=0.3.14, <0.3.15",
     "e3nn"
 ]
+flashmd = []
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]
@@ -98,18 +98,23 @@ exclude_lines = [
 ]
 omit = [
     "*/site-packages/*",
-    "*/metatrain/experimental/*",
-    "*/metatrain/utils/testing/*"
+    "*/tests/*",
+    "src/metatrain/*/tests/*",
+    "src/metatrain/*/*/tests/*",
+    "src/metatrain/utils/testing/*",
+    "examples/*"
 ]
 
 [tool.coverage.paths]
 source = [
     "src/metatrain",
-    ".tox/*/lib/python*/site-packages/metatrain"
+    ".tox/*/lib/python*/site-packages/metatrain",
+    ".tox/*/Lib/site-packages/metatrain"
 ]
 
 [tool.coverage.run]
 patch = ["subprocess"]
+relative_files = true
 
 [tool.ruff]
 exclude = ["docs/src/examples/**", "src/metatrain/_version.py"]
@@ -159,6 +164,11 @@ filterwarnings = [
     "ignore:ast.Str is deprecated and will be removed in Python 3.14:DeprecationWarning",
     "ignore:Attribute s is deprecated and will be removed in Python 3.14:DeprecationWarning",
     "ignore:ast.NameConstant is deprecated and will be removed in Python 3.14:DeprecationWarning",
+    "ignore:`torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.save` is deprecated. Please switch to `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.trace_method` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.trace` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
     # PyTorch does not want these, but mypy requires them
     "ignore:The TorchScript type system doesn't support instance-level annotations on empty non-base types",
     # Sphericart double backward warning

@@ -1,26 +1,33 @@
 """
-FlashMD
-=======
+FlashMD (Experimental)
+======================
 
 FlashMD is a method for the direct prediction of positions and momenta in a molecular
 dynamics simulation, presented in :footcite:p:`bigi_flashmd_2025`. When compared to
 traditional molecular dynamics methods, it predicts the positions and momenta of atoms
-after a long time interval, allowing the use of much larger time steps, and does so
-in a way that does not require computing forces by backpropagation. Overall, it
-achieves a significant speedup (up to 60-90x) compared to molecular dynamics using
-an MLIP with similar architecture and number of parameters.
-The FlashMD architecture implemented in metatrain is based on the
-:ref:`PET architecture <architecture-pet>`.
+after a long time interval, allowing the use of much larger time steps, and does so in a
+way that does not require computing forces by backpropagation. Overall, it achieves a
+significant speedup (up to 60-90x) compared to molecular dynamics using an MLIP with
+similar architecture and number of parameters. The FlashMD architecture implemented in
+metatrain is based on the :ref:`PET architecture <arch-pet>`.
 
 {{SECTION_INSTALLATION}}
+
+Additional outputs
+------------------
+
+- ``features``: the internal FlashMD features, before the different heads for each
+  target.
+- :ref:`mtt-aux-target-last-layer-features`: The features for a given target, taken
+  before the last linear layer of the corresponding head.
 
 {{SECTION_DEFAULT_HYPERS}}
 
 Tuning hyperparameters
 ----------------------
 
-Most of the parameters of FlashMD are inherited from the PET architecure, although
-they might have different default values.
+Most of the parameters of FlashMD are inherited from the PET architecure, although they
+might have different default values.
 
 .. container:: mtt-hypers-remove-classname
 
@@ -221,7 +228,7 @@ class TrainerHypers(TypedDict):
     see its documentation to understand exactly what to pass here.
     """
     per_structure_targets: list[str] = []
-    """Targets to calculate per-structure losses."""
+    """Targets to calculate per-structure losses and errors on."""
     num_workers: Optional[int] = None
     """Number of workers for data loading. If not provided, it is set
     automatically."""

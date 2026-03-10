@@ -1,11 +1,11 @@
 """
-MACE
-====
+MACE (Experimental)
+===================
 
 Higher order equivariant message passing graph neural network
 :footcite:p:`batatia2022mace`.
 
-.. _architecture-mace_implementation:
+.. _arch-mace_implementation:
 
 Implementation
 --------------
@@ -18,25 +18,36 @@ layer (or MLP for invariant targets) to obtain the final predictions.
 
 One important feature is that the architecture is ready to take a pretrained MACE model
 file as input. The heads required to predict the targets will be added on top of the
-MACE model, so one can continue training for arbitrary targets. See the
-``mace_model`` hyperparameter for more details. For simply exporting a foundation MACE
-model to use as a ``metatomic`` model (e.g. in ASE or LAMMPS), see :ref:`exporting a
-foundation MACE model <architecture-mace_export_foundation_model>`.
+MACE model, so one can continue training for arbitrary targets. See the ``mace_model``
+hyperparameter for more details. For simply exporting a foundation MACE model to use as
+a ``metatomic`` model (e.g. in ASE or LAMMPS), see :ref:`exporting a foundation MACE
+model <arch-mace_export_foundation_model>`.
 
 {{SECTION_INSTALLATION}}
+
+Additional outputs
+------------------
+
+In addition to the targets defined in the dataset, the MACE architecture can also output
+the following additional quantity:
+
+- ``mtt::aux::mace_features``: The equivariant node features for all atoms, taken from
+  the last layer of MACE.
+- :ref:`mtt-aux-target-last-layer-features`: The equivariant features for a given
+  target, taken from the last layer of the corresponding head.
+
 
 {{SECTION_DEFAULT_HYPERS}}
 
 Tuning hyperparameters
 ----------------------
 
-The default hyperparameters above will work well in most cases, but they
-may not be optimal for your specific dataset. There is good number of
-parameters to tune, both for the
-:ref:`model <architecture-{{architecture}}_model_hypers>` and the
-:ref:`trainer <architecture-{{architecture}}_trainer_hypers>`. Since seeing them
-for the first time might be overwhelming, here we provide a **list of the
-parameters that are in general the most important**:
+The default hyperparameters above will work well in most cases, but they may not be
+optimal for your specific dataset. There is good number of parameters to tune, both for
+the :ref:`model <arch-{{architecture}}_model_hypers>` and the :ref:`trainer
+<arch-{{architecture}}_trainer_hypers>`. Since seeing them for the first time might be
+overwhelming, here we provide a **list of the parameters that are in general the most
+important**:
 
 .. container:: mtt-hypers-remove-classname
 
@@ -68,14 +79,14 @@ parameters that are in general the most important**:
 
 {{SECTION_TRAINER_HYPERS}}
 
-.. _architecture-mace_export_foundation_model:
+.. _arch-mace_export_foundation_model:
 
 Exporting a foundation MACE model
 ---------------------------------
 
-As it is now, exporting a foundation MACE model from one of their `provided model
-files <https://github.com/ACEsuit/mace-foundations>`_ involves using ``mtt train``
-with 0 epochs. To do so, use the following ``options.yaml`` file:
+As it is now, exporting a foundation MACE model from one of their `provided model files
+<https://github.com/ACEsuit/mace-foundations>`_ involves using ``mtt train`` with 0
+epochs. To do so, use the following ``options.yaml`` file:
 
 .. code-block:: yaml
 
@@ -92,8 +103,8 @@ with 0 epochs. To do so, use the following ``options.yaml`` file:
     training_set: dummy_dataset.xyz
     validation_set: dummy_dataset.xyz
 
-with ``dummy_dataset.xyz`` being any dataset containing at least one structure
-with just the ``energy`` property. For example, you can use:
+with ``dummy_dataset.xyz`` being any dataset containing at least one structure with just
+the ``energy`` property. For example, you can use:
 
 .. code-block::
 
@@ -372,7 +383,7 @@ class TrainerHypers(TypedDict):
         to set explicitly the baselines for that target in this hyperparameter.
     """
     per_structure_targets: list[str] = []
-    """Targets to calculate per-structure losses."""
+    """Targets to calculate per-structure losses and errors on."""
     num_workers: Optional[int] = None
     """Number of workers for data loading. If not provided, it is set automatically."""
     log_mae: bool = True

@@ -98,21 +98,36 @@ def _hf_hub_download_url(
     revision = unquote(match.group("revision"))
     filename = unquote(match.group("filename"))
 
-    # Extract subfolder if applicable
-    parts = filename.split("/", 1)
-    if len(parts) == 2:
-        subfolder, filename = parts
-    else:
-        subfolder = None
-
     return hf_hub_download(
         repo_id=repo_id,
         filename=filename,
-        subfolder=subfolder,
         cache_dir=cache_dir,
         revision=revision,
         token=hf_token,
         endpoint=endpoint,
+    )
+
+
+def download_model_from_hf(
+    repo_id: str,
+    filename: str,
+    revision: Optional[str] = None,
+    token: Optional[str] = None,
+) -> str:
+    """
+    Download a model file from the Hugging Face Hub.
+
+    :param repo_id: The repository ID (e.g., "metatensor/metatrain-test").
+    :param filename: The filename within the repository (e.g., "model.ckpt").
+    :param revision: The specific revision (branch, tag, or commit hash) to download.
+    :param token: Hugging Face API token for private repositories.
+    :return: The local path to the downloaded file.
+    """
+    return hf_hub_download(
+        repo_id=repo_id,
+        filename=filename,
+        revision=revision,
+        token=token,
     )
 
 
@@ -154,7 +169,9 @@ def load_model(
     path = str(path)
     url = urlparse(path)
 
-    if url.scheme:
+    # On Windows, drive letters (e.g. "D") are parsed as single-character URL schemes
+    # by urlparse. Only treat as a URL if the scheme is at least 2 characters long.
+    if url.scheme and len(url.scheme) > 1:
         if url.netloc == "huggingface.co":
             path = _hf_hub_download_url(url=url.geturl(), hf_token=hf_token)
         else:

@@ -174,9 +174,15 @@ outputs/
 examples/basic_usage/*.xyz
 extensions/
 
+# lock files for model training
+tests/resources/*.trainlock
+
 # sphinx gallery
 docs/src/generated_examples/
 *execution_times*
+
+# Modified README generated for docs
+docs/src/mtt_README.md
 
 # Sphinx architecture docs
 docs/src/architectures/generated/*

@@ -39,7 +39,6 @@ from metatrain.utils.transfer import batch_to
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import LLPRUncertaintyModel
-from .modules.recalib import apply_ensemble_training_strategy
 
 
 def get_scheduler(
@@ -77,7 +76,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 5
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -163,14 +162,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
             model.compute_covariance(
                 train_datasets, self.hypers["batch_size"], is_distributed
             )
-            logging.info("Computing LLPR inverse covariance matrix")
-            model.compute_inverse_covariance(self.hypers["regularizer"])
+            logging.info("Computing Cholesky decomposition of the covariance matrix")
+            model.compute_cholesky_decomposition(self.hypers["regularizer"])
             logging.info("Calibrating LLPR uncertainties")
             model.calibrate(
                 val_datasets,
                 self.hypers["batch_size"],
                 is_distributed,
-                self.hypers["calibrate_with_absolute_residuals"],
+                self.hypers["calibration_method"],
             )
             logging.info("Generating LLPR ensemble members")
             model.generate_ensemble()
@@ -305,7 +304,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             for gradient_name in target_info.gradients:
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
-        model = apply_ensemble_training_strategy(
+        model = _apply_ensemble_training_strategy(
             model, self.hypers["train_all_parameters"]
         )
 
@@ -461,56 +460,62 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
                 )
 
-            val_loss = 0.0
-            for batch in val_dataloader:
-                # Skip None batches (those outside batch_atom_bounds)
-                if should_skip_batch(batch, is_distributed, device):
-                    continue
+            with torch.set_grad_enabled(
+                any(target_info.gradients for target_info in train_targets.values())
+            ):  # keep gradients on if any of the targets require them
+                val_loss = 0.0
+                for batch in val_dataloader:
+                    # Skip None batches (those outside batch_atom_bounds)
+                    if should_skip_batch(batch, is_distributed, device):
+                        continue
 
-                systems, targets, extra_data = unpack_batch(batch)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
-                )
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
-                )
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    {key: train_targets[key] for key in targets.keys()},
-                    is_training=False, 
-                    is_llpr_ens=True,
-                )
-                val_loss_batch = loss_fn(predictions, targets, extra_data)
-
-                if is_distributed:
-                    # sum the loss over all processes
-                    torch.distributed.all_reduce(val_loss_batch)
-                val_loss += val_loss_batch.item()
-
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
-#                targets = _drop_gradient_blocks(targets)
-                val_rmse_calculator.update(predictions, targets)
-                if self.hypers["log_mae"]:
-                    val_mae_calculator.update(predictions, targets)
-
-            finalized_val_info = val_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets,
-                is_distributed=is_distributed,
-                device=device,
-            )
-            if self.hypers["log_mae"]:
-                finalized_val_info.update(
-                    val_mae_calculator.finalize(
-                        not_per_atom=["positions_gradients"] + per_structure_targets,
-                        is_distributed=is_distributed,
-                        device=device,
+                    systems, targets, extra_data = unpack_batch(batch)
+                    systems, targets, extra_data = batch_to(
+                        systems, targets, extra_data, device=device
                     )
+                    systems, targets, extra_data = batch_to(
+                        systems, targets, extra_data, dtype=dtype
+                    )
+                    predictions = evaluate_model(
+                        model,
+                        systems,
+                        {key: train_targets[key] for key in targets.keys()},
+                        is_training=False, 
+                    is_llpr_ens=True,
+                    )
+                    val_loss_batch = loss_fn(predictions, targets, extra_data)
+
+                    if is_distributed:
+                        # sum the loss over all processes
+                        torch.distributed.all_reduce(val_loss_batch)
+                    val_loss += val_loss_batch.item()
+
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(
+                        targets, systems, per_structure_targets
+                    )
+
+                    # targets = _drop_gradient_blocks(targets)
+                    val_rmse_calculator.update(predictions, targets)
+                    if self.hypers["log_mae"]:
+                        val_mae_calculator.update(predictions, targets)
+
+                finalized_val_info = val_rmse_calculator.finalize(
+                    not_per_atom=["positions_gradients"] + per_structure_targets,
+                    is_distributed=is_distributed,
+                    device=device,
                 )
+                if self.hypers["log_mae"]:
+                    finalized_val_info.update(
+                        val_mae_calculator.finalize(
+                            not_per_atom=["positions_gradients"]
+                            + per_structure_targets,
+                            is_distributed=is_distributed,
+                            device=device,
+                        )
+                    )
 
             # Now we log the information:
             finalized_train_info = {
@@ -600,7 +605,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
         trainer = cls(hypers)
         trainer.optimizer_state_dict = checkpoint["optimizer_state_dict"]
         trainer.scheduler_state_dict = checkpoint["scheduler_state_dict"]
-        trainer.epoch = checkpoint["epoch"]
+        if context == "restart":
+            trainer.epoch = checkpoint["epoch"]
+        else:
+            assert context == "finetune"
+            trainer.epoch = None  # interpreted as zero in the training loop
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
         trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
@@ -643,3 +652,30 @@ def _drop_gradient_blocks(targets: Dict[str, Any]) -> Dict[str, Any]:
             new_blocks.append(new_block)
         filtered_targets[key] = TensorMap(value.keys, new_blocks)
     return filtered_targets
+
+
+def _apply_ensemble_training_strategy(
+    model: torch.nn.Module,
+    train_all_parameters: bool,
+) -> torch.nn.Module:
+    """
+    Apply the user-specified ensemble training strategy to the LLPR-wrapped
+    model. This function modifies the model in place based on the provided
+    trainable parameters.
+
+    :param model: LLPR-wrapped model to be recalibrated.
+    :param train_all_parameters: Whether to train all parameters or only the LLPR
+        ensemble layers.
+    :return: the model with updated trainable parameters.
+    """
+
+    # Start by making all parameters trainable
+    for param in model.parameters():
+        param.requires_grad = True
+
+    if not train_all_parameters:
+        # Freeze all parameters of the base model
+        for param in model.model.parameters():
+            param.requires_grad = False
+
+    return model

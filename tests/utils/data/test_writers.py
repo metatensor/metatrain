@@ -7,7 +7,12 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelCapabilities, ModelOutput, System
 
 from metatrain.utils.data.readers.ase import read
-from metatrain.utils.data.writers import ASEWriter, DiskDatasetWriter, get_writer
+from metatrain.utils.data.writers import (
+    ASEWriter,
+    DiskDatasetWriter,
+    MetatensorWriter,
+    get_writer,
+)
 
 
 def systems_capabilities_predictions(
@@ -280,3 +285,106 @@ def test_write_disk_dataset_non_contiguous(monkeypatch, tmp_path):
     new_dataset = DiskDatasetWriter("test_output.zip")
     new_dataset.write(systems, predictions)
     new_dataset.finish()
+
+
+def test_ase_writer_streams_to_disk(monkeypatch, tmp_path):
+    """ASEWriter should write to disk in write(), not accumulate in memory."""
+    monkeypatch.chdir(tmp_path)
+
+    systems, capabilities, predictions = systems_capabilities_predictions()
+    filename = "test_streaming.xyz"
+
+    writer = ASEWriter(filename, capabilities=capabilities)
+
+    # first batch
+    writer.write(systems, predictions)
+    # writer should NOT hold accumulated data
+    assert not hasattr(writer, "_systems") or len(getattr(writer, "_systems", [])) == 0
+    assert not hasattr(writer, "_preds") or len(getattr(writer, "_preds", [])) == 0
+
+    # second batch
+    writer.write(systems, predictions)
+    assert not hasattr(writer, "_systems") or len(getattr(writer, "_systems", [])) == 0
+    assert not hasattr(writer, "_preds") or len(getattr(writer, "_preds", [])) == 0
+
+    writer.finish()
+
+    # verify all 4 structures present and correct
+    frames = read(filename, index=":")
+    assert len(frames) == 4
+    for i, atoms in enumerate(frames):
+        assert atoms.info["energy"] == float(
+            predictions["energy"].block().values[i % 2, 0]
+        )
+
+
+def test_metatensor_writer_streams_to_disk(monkeypatch, tmp_path):
+    """MetatensorWriter should save to temp files in write(), not accumulate."""
+    monkeypatch.chdir(tmp_path)
+
+    systems, capabilities, predictions = systems_capabilities_predictions()
+    filename = "test_streaming.mts"
+
+    writer = MetatensorWriter(filename, capabilities=capabilities)
+
+    # first batch
+    writer.write(systems, predictions)
+    assert not hasattr(writer, "_systems") or len(getattr(writer, "_systems", [])) == 0
+    assert not hasattr(writer, "_preds") or len(getattr(writer, "_preds", [])) == 0
+
+    # second batch
+    writer.write(systems, predictions)
+    assert not hasattr(writer, "_systems") or len(getattr(writer, "_systems", [])) == 0
+    assert not hasattr(writer, "_preds") or len(getattr(writer, "_preds", [])) == 0
+
+    writer.finish()
+
+    # verify output has all 4 systems with correct system label offsets
+    tensormap = mts.load("test_streaming_energy.mts")
+    assert tensormap.block().values.shape == (4, 1)
+    system_labels = tensormap.block().samples.column("system").tolist()
+    assert system_labels == [0, 1, 2, 3]
+    assert tensormap.block().gradient("positions").values.shape == (8, 3, 1)
+
+
+def test_disk_dataset_writer_multi_batch_gradients(monkeypatch, tmp_path):
+    """DiskDatasetWriter with gradients must not corrupt gradient sample indices.
+
+    Regression test for the bug where ``_split_tensormaps`` applied the
+    ``istart_system`` offset to the gradient "sample" column (a positional
+    reference into the parent block) instead of leaving it at 0.  On batches
+    after the first (``istart_system > 0``), this produced an out-of-range
+    sample index and metatensor raised::
+
+        RuntimeError: invalid value for the 'sample' dimension in gradient
+        samples: we got N, but the values contain 1 samples
+    """
+    monkeypatch.chdir(tmp_path)
+
+    systems, capabilities, predictions = systems_capabilities_predictions()
+
+    writer = DiskDatasetWriter("test_multi_batch.zip", capabilities=capabilities)
+    # First batch (istart_system=0) -- always worked
+    writer.write(systems, predictions)
+    # Second batch (istart_system=2) -- previously crashed on gradients
+    writer.write(systems, predictions)
+    writer.finish()
+
+
+def test_disk_dataset_writer_multi_batch_strain_gradients(monkeypatch, tmp_path):
+    """Same regression test but with strain gradients (samples=["sample"] only).
+
+    Strain gradients have a single "sample" column, so the eye-matrix offset
+    hit them too. Exercises both positions (["sample", "atom"]) and strain
+    (["sample"]) gradient layouts in a single run.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    systems, capabilities, predictions = systems_capabilities_predictions(
+        cell=torch.eye(3)
+    )
+
+    writer = DiskDatasetWriter("test_strain.zip", capabilities=capabilities)
+    writer.write(systems, predictions)
+    writer.write(systems, predictions)
+    writer.finish()

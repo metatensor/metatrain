@@ -425,7 +425,6 @@ class PET(ModelInterface[ModelHypers]):
                 self.cutoff_function,
                 self.cutoff_width,
                 self.num_neighbors_adaptive,
-                selected_atoms,
             )
 
         # the scaled_dot_product_attention function from torch cannot do
