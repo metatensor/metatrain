@@ -338,7 +338,7 @@ class TargetInfo:
         self.is_scalar = state["is_scalar"]
         self.is_cartesian = state["is_cartesian"]
         self.is_spherical = state["is_spherical"]
-        self.is_atomic_basis = state.get("is_atomic_basis", False) # Added
+        self.is_atomic_basis = state.get("is_atomic_basis", False)
 
         self.quantity = state["quantity"]
         self.unit = state["unit"]
@@ -555,7 +555,7 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
 
     # Define the names of the keys in the tensormap
     if product == "coupled" or product is None:
-        keys_names = ["o3_lambda", "o3_sigma"] # Added
+        keys_names = ["o3_lambda", "o3_sigma"] 
     else: # Cartesian
         keys_names = ["o3_lambda_1", "o3_lambda_2", "o3_sigma_1", "o3_sigma_2"]
 
@@ -577,10 +577,7 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
             keys.append([*lambdas, *sigmas])
             blocks.append(block)
     elif product == "coupled":
-        # print("irreps keys:", list(irreps.keys()))
-
         for atom_type, atom_irreps in irreps.items():
-            # print("processing atom_type:", atom_type, "irreps:", atom_irreps)
             basis = [
                 (irr.get("num", target["num_subtargets"]), irr.get("o3_lambda"), irr.get("o3_sigma"))
                 for irr in atom_irreps
@@ -604,7 +601,7 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
                     properties=Labels.range("n", n_props),
                 )
                 keys.append([lam, sig, int(atom_type)])
-                blocks.append(block) # Added
+                blocks.append(block)
     else:
         # Loop over atomic types
         for atom_type, atom_irreps in irreps.items():
