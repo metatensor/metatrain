@@ -19,7 +19,8 @@ jobs:
           - llpr
           - mace
           - pet
-          - soap-bpnn
+          - phace
+          - soap-bpnn        
 
     runs-on: ubuntu-22.04
 
