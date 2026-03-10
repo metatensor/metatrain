@@ -794,7 +794,8 @@ class DiskDataset(torch.utils.data.Dataset):
                     and target["type"]["spherical"].get("product") == "coupled"
                 ):
                     non_type_indices = [
-                        i for i, n in enumerate(target_info.layout.keys.names)
+                        i
+                        for i, n in enumerate(target_info.layout.keys.names)
                         if not n.endswith("atom_type")
                     ]
                     valid_ls = set(
@@ -804,12 +805,14 @@ class DiskDataset(torch.utils.data.Dataset):
                     data_ls = set(
                         tuple(int(v) for v in row)
                         for row in tensor_map.keys.values[:, non_type_indices]
-                    ) 
+                    )
                     unexpected = data_ls - valid_ls
                     if unexpected:
                         raise ValueError(
-                            f"Target '{target_key}' contains (o3_lambda, o3_sigma) pairs"
-                            f"that are not reachable by the CG coupling of the declared irreps: "
+                            f"Target '{target_key}' contains"
+                            "(o3_lambda, o3_sigma) pairs"
+                            "that are not reachable by the CG coupling"
+                            "of the declared irreps: "
                             f"{unexpected}. Valid pairs from options: {valid_ls}"
                         )
                 else:
@@ -833,6 +836,7 @@ class DiskDataset(torch.utils.data.Dataset):
     def __del__(self) -> None:
         if self.zip_file is not None:
             self.zip_file.close()
+
 
 def _is_disk_dataset(dataset: Any) -> bool:
     # this also needs to detect if it's a ``torch.nn.utils.data.Subset`` object
