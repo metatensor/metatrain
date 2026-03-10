@@ -2,7 +2,6 @@ import ast
 from pathlib import Path
 from typing import TypedDict
 
-import yaml  # type: ignore[import-untyped]
 from jinja2 import Environment, FileSystemLoader
 
 from metatrain.utils.architectures import (
@@ -19,19 +18,6 @@ ARCHITECTURES_DIR = Path(__file__).parent
 TEMPLATES_DIR = ARCHITECTURES_DIR / "templates"
 DEFAULT_HYPERS_DIR = ARCHITECTURES_DIR / "default_hypers"
 GENERATED_DIR = ARCHITECTURES_DIR / "generated"
-REPO_ROOT = ARCHITECTURES_DIR.parent.parent.parent
-
-
-def _get_codecov_component_names() -> dict[str, str]:
-    codecov_yml = REPO_ROOT / ".codecov.yml"
-    with open(codecov_yml) as f:
-        config = yaml.safe_load(f)
-
-    components = config.get("component_management", {}).get("individual_components", [])
-    return {c["component_id"]: c["name"] for c in components}
-
-
-CODECOV_COMPONENT_NAMES = _get_codecov_component_names()
 
 
 JINJA_ENV = Environment(
@@ -230,18 +216,11 @@ def generate_rst(
             **template_variables
         )
 
-    component_name = CODECOV_COMPONENT_NAMES.get(architecture_real_name)
-    if component_name is not None:
-        badge_target = (
-            f"https://app.codecov.io/gh/metatensor/metatrain/tree/main"
-            f"?components%5B0%5D={component_name}"
-        )
-    else:
-        codecov_arch_path = architecture_name.replace(".", "/")
-        badge_target = (
-            f"https://app.codecov.io/gh/metatensor/metatrain/tree/main"
-            f"/src/metatrain/{codecov_arch_path}"
-        )
+    arch_url_path = arch_path.replace(".", "/")
+    badge_target = (
+        f"https://app.codecov.io/gh/metatensor/metatrain/tree/main/src/{arch_url_path}"
+        f"?components%5B0%5D={architecture_real_name}"
+    )
     badge_string = (
         f".. image:: https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?component={architecture_real_name}"
         f"\n   :target: {badge_target}"
