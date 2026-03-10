@@ -15,6 +15,7 @@ from ase.calculators.calculator import Calculator, all_changes
 
 from .eqx import EqxPhACE, _get_adaptive_cutoffs, load_from_checkpoint
 
+
 # Optimization-level presets: name → geometric bucket ratio.
 # Higher optimization = finer padding grid = more JIT compilations = better
 # throughput per call.  Lower optimization = coarser grid = fewer compilations
@@ -243,7 +244,8 @@ class PhACEJAXCalculator(Calculator):
             if optimization_level not in _OPTIMIZATION_PRESETS:
                 raise ValueError(
                     f"Unknown optimization_level {optimization_level!r}. "
-                    f"Choose one of {list(_OPTIMIZATION_PRESETS)} or pass a float ratio."
+                    f"Choose one of {list(_OPTIMIZATION_PRESETS)} "
+                    "or pass a float ratio."
                 )
             self._bucket_ratio: float = _OPTIMIZATION_PRESETS[optimization_level]
         else:
