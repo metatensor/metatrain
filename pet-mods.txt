@@ -19,3 +19,4 @@ pet_20 -> SSH with parametrizable Lmax
 # pet_21 -> Z-conditioned linear readout layers (not used)
 pet_22 -> SSH (20) + Z-readout (21)
 pet_23 -> SHH (20) + batched MLP Z-readout
+pet_24 -> SHH (20) + batched linear Z-readout
