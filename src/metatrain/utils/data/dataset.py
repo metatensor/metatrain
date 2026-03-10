@@ -739,16 +739,11 @@ class DiskDataset(torch.utils.data.Dataset):
                 )
                 system_and_targets.append(tensor_map)
             else:
-                # with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
-                #     numpy_buffer = np.load(file)
-                #     tensor_buffer = torch.from_numpy(numpy_buffer)
-                #     tensor_map = load_buffer(tensor_buffer)
-                #     system_and_targets.append(tensor_map)
-
                 with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
-                    tensor_buffer = torch.frombuffer(file.read(), dtype=torch.uint8)
+                    numpy_buffer = np.load(file)
+                    tensor_buffer = torch.from_numpy(numpy_buffer)
                     tensor_map = load_buffer(tensor_buffer)
-                    system_and_targets.append(tensor_map) # Added
+                    system_and_targets.append(tensor_map)
 
         return self._sample_class(*system_and_targets)
 
@@ -835,12 +830,8 @@ class DiskDataset(torch.utils.data.Dataset):
             )
         return target_info_dict
 
-    # def __del__(self) -> None:
-    #     if self.zip_file is not None:
-    #         self.zip_file.close()
-
-    def __del__(self):
-        if getattr(self, "zip_file", None) is not None:
+    def __del__(self) -> None:
+        if self.zip_file is not None:
             self.zip_file.close()
 
 def _is_disk_dataset(dataset: Any) -> bool:
