@@ -136,6 +136,27 @@ class OutputTests(ArchitectureTests):
         model = model.to(system.positions.dtype)
         return model([system], {k: ModelOutput(per_atom=per_atom) for k in outputs})
 
+    def test_no_output(
+        self, model_hypers: dict, dataset_info: DatasetInfo, per_atom: bool
+    ) -> None:
+        """Tests that forward pass works for no output.
+
+        It also tests that there are no outputs returned.
+
+        If this test is failing, it means that your model always produces (or wants to
+        produce) outputs, even if none are requested.
+        If this is the expected behavior for your model, we need to introduce
+        a variable to skip this test, contact the ``metatrain`` developers.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset information.
+        :param per_atom: Whether the requested outputs are per-atom or not.
+        """
+
+        outputs = self._get_output(model_hypers, dataset_info, per_atom, [])
+
+        assert len(outputs) == 0
+
     def test_output_scalar(
         self, model_hypers: dict, dataset_info_scalar: DatasetInfo, per_atom: bool
     ) -> None:

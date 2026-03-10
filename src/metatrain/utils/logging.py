@@ -45,6 +45,17 @@ class CSVFileHandler(logging.FileHandler):
         super().__init__(*args, **kwargs)
         self._header_written = False
 
+    def _open(self) -> Any:
+        # Open with newline='' so that csv.writer controls line endings
+        # (avoids the extra \r from Python's text-mode translation on Windows).
+        return open(
+            self.baseFilename,
+            self.mode,
+            encoding=self.encoding,
+            errors=self.errors,
+            newline="",
+        )
+
     def emit(self, record: logging.LogRecord) -> None:
         """
         Override the default behavior preventing any output to the default log.

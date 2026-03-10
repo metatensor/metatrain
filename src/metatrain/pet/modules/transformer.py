@@ -461,7 +461,11 @@ class CartesianTransformer(torch.nn.Module):
         """
         node_embeddings = input_node_embeddings
         edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
-        edge_embeddings = torch.cat(edge_embeddings, dim=2)
+
+        # on some systems, on isolated atoms, a torchscript bug concatenates the two
+        # (empty) float tensors into an int tensors, causing an error later on
+        edge_embeddings = torch.cat(edge_embeddings, dim=2).to(edge_vectors.dtype)
+
         edge_embeddings = self.edge_embedder(edge_embeddings)
 
         if not self.is_first:
