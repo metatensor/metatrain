@@ -152,9 +152,10 @@ class TestCheckpoints(CheckpointTests, PhACETests):
     def minimal_model_hypers(self):
         hypers = get_default_hypers(self.architecture)["model"]
         hypers = copy.deepcopy(hypers)
-        hypers["num_element_channels"] = 2
+        hypers["num_element_channels"] = 1
         hypers["num_gnn_layers"] = 1
-        hypers["num_tensor_products"] = 2
+        hypers["num_tensor_products"] = 1
+        hypers["tensor_product_expansion_ratio"] = 1
         hypers["radial_basis"]["max_eigenvalue"] = 15.0
         hypers["radial_basis"]["mlp_expansion_ratio"] = 1
         hypers["radial_basis"]["mlp_depth"] = 2

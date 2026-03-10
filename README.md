@@ -39,6 +39,7 @@ model:
 | [MACE][arch-mace]                        | A higher order equivariant message passing neural network.                                                                           |
 | [GAP][arch-gap]                          | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
 | [FlashMD][arch-flashmd]                  | An architecture for the direct prediction of molecular dynamics                                                                      |
+| [PhACE][arch-phace] *(experimental)*     | PhACE, an SO(3)-equivariant message-passing model with tensor products                                                               |
 
 <!-- marker-arch-links -->
 
@@ -48,6 +49,7 @@ on a PR, since the docs use this README file directly.-->
 [arch-gap]: https://docs.metatensor.org/metatrain/latest/architectures/generated/gap.html
 [arch-mace]: https://docs.metatensor.org/metatrain/latest/architectures/generated/mace.html
 [arch-pet]: https://docs.metatensor.org/metatrain/latest/architectures/generated/pet.html
+[arch-phace]: https://docs.metatensor.org/metatrain/latest/architectures/generated/experimental.phace.html
 [arch-soap_bpnn]: https://docs.metatensor.org/metatrain/latest/architectures/generated/soap_bpnn.html
 
 <!-- marker-documentation -->
