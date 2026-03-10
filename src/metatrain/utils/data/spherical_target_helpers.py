@@ -79,7 +79,7 @@ def _build_spherical_target_block(
 def _get_spherical_irreps_iter(
     irreps: list[dict],
     target: dict,
-    product: Optional[Literal["element-wise", "full"]] = None,
+    product: Optional[Literal["cartesian", "coupled"]] = None,
 ) -> list[list[tuple[int, int, int]]]:
     irreps_iter = [
         [
@@ -91,17 +91,15 @@ def _get_spherical_irreps_iter(
         ]
         for irrep in irreps
     ]
-    if product == "element-wise":
-        irreps_iter = [irrep * 2 for irrep in irreps_iter]
-    elif product == "full":
+    if product == "cartesian":
         irreps_iter = [
             i_irrep + j_irrep
             for i_irrep, j_irrep in itertools.product(irreps_iter, repeat=2)
         ]
-    elif product is not None:
+    elif product is not None and product != "coupled":
         raise ValueError(
             f"Product '{product}' is not supported. Supported products are"
-            " 'element-wise' and 'full'."
+            " 'cartesian' and 'coupled'."
         )
     return irreps_iter
 

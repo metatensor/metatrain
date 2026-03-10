@@ -107,17 +107,15 @@ class SphericalTargetConfig(TypedDict):
     irreps: (
         list[SphericalTargetIrrepsConfig] | dict[int, list[SphericalTargetIrrepsConfig]]
     )
-    product: NotRequired[Literal["element-wise", "full"] | None] = None
+    product: NotRequired[Literal["cartesian", "coupled"] | None] = None
     """Means of describing a higher rank target that is made of the base irreps.
-
-    If ``product``is ``None`` or not provided, the target is of rank 1.
-    If ``product`` is ``"element-wise"``, the target is of rank 2, built by taking
-    the product of each irrep with itself.
-    If ``product`` is ``"full"``, the target is of rank 2, built by taking all possible
-    products between irreps.
-
-    In the future we might support passing custom products and the possibility
-    of creating targets of rank higher than 2 (if needed).
+    If ``product`` is ``None`` or not provided, the target is of rank 1.
+    If ``product`` is ``"cartesian"``, the target is of rank 2, built by taking all
+    possible uncoupled direct products between irreps, stored in the
+    (o3_lambda_1, o3_lambda_2, o3_sigma_1, o3_sigma_2) basis.
+    If ``product`` is ``"coupled"``, the target is of rank 2, built by taking all
+    possible CG-coupled products between irreps, stored in the
+    (o3_lambda, o3_sigma) basis.
     """
 
 

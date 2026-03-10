@@ -498,7 +498,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         target_keys=[
                             key
                             for key, info in train_targets.items()
-                            if info.is_atomic_basis
+                            if info.is_atomic_basis 
                         ],
                     )
                     val_loss_batch = loss_fn(predictions, targets, extra_data)
