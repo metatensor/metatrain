@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import tqdm
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import AtomisticModel, ModelOutput
+from metatomic.torch import AtomisticModel
 from omegaconf import DictConfig, OmegaConf
 
 from metatrain.cli.formatter import CustomHelpFormatter
@@ -130,8 +130,7 @@ def _prepare_eval_model_args(args: argparse.Namespace) -> None:
 def _eval_targets(
     model: Union[AtomisticModel, torch.jit.RecursiveScriptModule],
     dataset: Dataset,
-    target_info_dict: Dict[str, TargetInfo],
-    options: Dict[str, TargetInfo] | Dict[str, ModelOutput],
+    options: Dict[str, TargetInfo],
     batch_size: int = 1,
     check_consistency: bool = False,
     writer: Optional[Writer] = None,
@@ -209,7 +208,7 @@ def _eval_targets(
     for batch in tqdm.tqdm(dataloader, ncols=100):
         systems, batch_targets, batch_extra_data = unpack_batch(batch)
 
-        for target_key, target_info in target_info_dict.items():
+        for target_key, target_info in options.items():
             if target_info.is_atomic_basis:
                 batch_targets[target_key] = merge_types(batch_targets[target_key])
 
@@ -229,9 +228,7 @@ def _eval_targets(
             torch.cuda.synchronize()
         end_time = time.time()
 
-        target_keys = [
-            key for key, info in target_info_dict.items() if info.is_atomic_basis
-        ]
+        target_keys = [key for key, info in options.items() if info.is_atomic_basis]
         batch_targets, batch_predictions = match_predictions_to_targets(
             targets=batch_targets,
             predictions=batch_predictions,
@@ -351,7 +348,6 @@ def eval_model(
             _eval_targets(
                 model=model,
                 dataset=eval_dataset,
-                target_info_dict=eval_info_dict,
                 options=eval_info_dict,
                 batch_size=batch_size,
                 check_consistency=check_consistency,

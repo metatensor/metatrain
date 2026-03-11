@@ -1,4 +1,5 @@
 import itertools
+from collections import defaultdict
 from typing import List, Literal, Optional
 
 import numpy as np
@@ -10,6 +11,7 @@ def _build_spherical_target_block(
     sample_names: List[str],
     target_name: str,
     irreps: list[tuple[int, int, int]],
+    properties: Optional[Labels] = None,
 ) -> TensorBlock:
     """Builds an empty `TensorBlock` for some given spherical irreps.
 
@@ -17,6 +19,10 @@ def _build_spherical_target_block(
     :param target_name: The name of the target (used for the properties labels).
     :param irreps: A list of irreps, where each irrep is a tuple of the form
       (num_subtargets, o3_lambda, o3_sigma).
+    :param properties: An optional ``Labels`` object containing the properties
+        labels of the block. If `None`, the properties labels will be generated
+        automatically with names ``n`` for rank 1 blocks and ``n_1``,
+        ``n_2``, ... for higher rank blocks.
     :return: an empty `TensorBlock` with the appropriate samples, components
       and properties labels for the given irreps
     """
@@ -33,7 +39,8 @@ def _build_spherical_target_block(
                 ),
             )
         ]
-        properties = Labels.range("n", n_properties)
+        if properties is None:
+            properties = Labels.range("n", n_properties)
     else:
         n_properties = torch.tensor(irreps)[:, 0].prod()
         components = []
@@ -48,15 +55,16 @@ def _build_spherical_target_block(
                 )
             )
 
-        properties_values = list(
-            itertools.product(*[np.arange(irrep[0]) for irrep in irreps])
-        )
-        properties_values = torch.tensor(properties_values, dtype=torch.int32)
+        if properties is None:
+            properties_values = list(
+                itertools.product(*[np.arange(irrep[0]) for irrep in irreps])
+            )
+            properties_values = torch.tensor(properties_values, dtype=torch.int32)
 
-        properties = Labels(
-            names=[f"n_{component}" for component in range(1, rank + 1)],
-            values=properties_values,
-        )
+            properties = Labels(
+                names=[f"n_{component}" for component in range(1, rank + 1)],
+                values=properties_values,
+            )
 
     block = TensorBlock(
         # float64: otherwise metatensor can't serialize
@@ -80,28 +88,66 @@ def _get_spherical_irreps_iter(
     irreps: list[dict],
     target: dict,
     product: Optional[Literal["cartesian", "coupled"]] = None,
-) -> list[list[tuple[int, int, int]]]:
+) -> tuple[list[list[tuple[int, int, int]]], list[Labels]]:
+    if product is not None and product not in ["cartesian", "coupled"]:
+        raise ValueError(
+            f"Product '{product}' is not supported. Supported products are"
+            " 'cartesian' and 'coupled'."
+        )
+
     irreps_iter = [
         [
             (
-                irrep.get("num_subtargets", target["num_subtargets"]),
+                irrep.get("num", target["num_subtargets"]),
                 irrep["o3_lambda"],
                 irrep["o3_sigma"],
             )
         ]
         for irrep in irreps
     ]
-    if product == "cartesian":
+    if product in ["cartesian", "coupled"]:
         irreps_iter = [
             i_irrep + j_irrep
             for i_irrep, j_irrep in itertools.product(irreps_iter, repeat=2)
         ]
-    elif product is not None and product != "coupled":
-        raise ValueError(
-            f"Product '{product}' is not supported. Supported products are"
-            " 'cartesian' and 'coupled'."
-        )
-    return irreps_iter
+    if product == "coupled":
+        coupled_blocks: dict[tuple[int, int], int] = defaultdict(int)
+        coupled_properties = defaultdict(list)
+        for (num1, l1, sig1), (num2, l2, sig2) in irreps_iter:
+            for lam in range(abs(l1 - l2), l1 + l2 + 1):
+                sig = sig1 * sig2 * (-1) ** (l1 + l2 + lam)
+
+                # If the two spherical harmonics are in the same center,
+                # the coupled values for sigma = -1 are zero. This is true
+                # for the Hamiltonian, density matrix and overlap, but might
+                # be not true for other targets. In that case, we will need to
+                # add an input to specify if the target has this property.
+                # For per-pair targets (not introduced yet), this will not be
+                # the case.
+                if sig == -1:
+                    continue
+
+                coupled_blocks[(lam, sig)] += num1 * num2
+
+                # Build properties
+                added_properties = []
+                for i in range(num1):
+                    for j in range(num2):
+                        added_properties.append((l1, l2, i, j))
+                coupled_properties[(lam, sig)].extend(added_properties)
+
+        irreps_iter = [[(num, lam, sig)] for (lam, sig), num in coupled_blocks.items()]
+        properties = [
+            Labels(
+                names=["l_1", "l_2", "n_1", "n_2"],
+                values=torch.tensor(props, dtype=torch.int32),
+            )
+            for props in coupled_properties.values()
+        ]
+    else:
+        properties = [None] * len(irreps_iter)
+
+    return irreps_iter, properties
 
 
 def match_predictions_to_targets(
