@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import tqdm
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import AtomisticModel, ModelOutput
+from metatomic.torch import AtomisticModel
 from omegaconf import DictConfig, OmegaConf
 
 from metatrain.cli.formatter import CustomHelpFormatter
@@ -22,6 +22,8 @@ from metatrain.utils.data import (
     read_systems,
     unpack_batch,
 )
+from metatrain.utils.data._merge_atom_types import merge_types
+from metatrain.utils.data.spherical_target_helpers import match_predictions_to_targets
 from metatrain.utils.data.writers import (
     DiskDatasetWriter,
     Writer,
@@ -41,9 +43,6 @@ from metatrain.utils.omegaconf import expand_dataset_config
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.transfer import batch_to
 
-from metatrain.utils.data._merge_atom_types import merge_types
-from metatrain.utils.data.target_info import TargetInfo
-from metatrain.utils.data.spherical_target_helpers import match_predictions_to_targets
 
 logger = logging.getLogger(__name__)
 
@@ -131,8 +130,7 @@ def _prepare_eval_model_args(args: argparse.Namespace) -> None:
 def _eval_targets(
     model: Union[AtomisticModel, torch.jit.RecursiveScriptModule],
     dataset: Dataset,
-    target_info_dict: Dict[str, TargetInfo],
-    options: Dict[str, TargetInfo] | Dict[str, ModelOutput],
+    options: Dict[str, TargetInfo],
     batch_size: int = 1,
     check_consistency: bool = False,
     writer: Optional[Writer] = None,
@@ -210,14 +208,14 @@ def _eval_targets(
     for batch in tqdm.tqdm(dataloader, ncols=100):
         systems, batch_targets, batch_extra_data = unpack_batch(batch)
 
-        for target_key, target_info in target_info_dict.items():
+        for target_key, target_info in options.items():
             if target_info.is_atomic_basis:
                 batch_targets[target_key] = merge_types(batch_targets[target_key])
-        
+
         systems, batch_targets, batch_extra_data = batch_to(
             systems, batch_targets, batch_extra_data, dtype=dtype, device=device
         )
-                    
+
         start_time = time.time()
         batch_predictions = evaluate_model(
             model,
@@ -230,16 +228,13 @@ def _eval_targets(
             torch.cuda.synchronize()
         end_time = time.time()
 
-        target_keys = [
-            key for key, info in target_info_dict.items()
-            if info.is_atomic_basis
-        ]
+        target_keys = [key for key, info in options.items() if info.is_atomic_basis]
         batch_targets, batch_predictions = match_predictions_to_targets(
             targets=batch_targets,
             predictions=batch_predictions,
             extra_data=batch_extra_data,
             target_keys=target_keys,
-)
+        )
         # Update metrics
         preds_per_atom = average_by_num_atoms(
             batch_predictions, systems, per_structure_keys=[]
@@ -353,7 +348,6 @@ def eval_model(
             _eval_targets(
                 model=model,
                 dataset=eval_dataset,
-                target_info_dict=eval_info_dict,
                 options=eval_info_dict,
                 batch_size=batch_size,
                 check_consistency=check_consistency,

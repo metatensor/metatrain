@@ -337,6 +337,7 @@ class TargetInfo:
         self.is_scalar = state["is_scalar"]
         self.is_cartesian = state["is_cartesian"]
         self.is_spherical = state["is_spherical"]
+        self.is_atomic_basis = state.get("is_atomic_basis", False)
 
         self.quantity = state["quantity"]
         self.unit = state["unit"]
@@ -544,34 +545,37 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
         sample_names.append("atom")
 
     irreps = target["type"]["spherical"]["irreps"]
-    product = (
-        target["type"]["spherical"]["product"]
-        if "product" in target["type"]["spherical"]
-        else None
-    )
+    product = target["type"]["spherical"].get("product", None)
+
     keys = []
     blocks = []
 
     is_atomic_basis = isinstance(irreps, (dict, DictConfig))
 
     # Define the names of the keys in the tensormap
-    if product is None:
+    if product in [None, "coupled"]:
         keys_names = ["o3_lambda", "o3_sigma"]
-    else:
+    elif product == "cartesian":
         keys_names = ["o3_lambda_1", "o3_lambda_2", "o3_sigma_1", "o3_sigma_2"]
+    else:
+        raise ValueError(
+            f"Unknown product {product!r}. Supported values are 'cartesian', "
+            "'coupled' and None."
+        )
 
     if is_atomic_basis:
         keys_names.append("atom_type")
 
     # Build the tensormap blocks, and store their corresponding keys.
     if not is_atomic_basis:
-        irreps_iter = _get_spherical_irreps_iter(irreps, target, product)
+        irreps_iter, properties = _get_spherical_irreps_iter(irreps, target, product)
 
-        for irrep in irreps_iter:
+        for irrep, props in zip(irreps_iter, properties, strict=True):
             block = _build_spherical_target_block(
                 sample_names=sample_names,
                 target_name=target_name,
                 irreps=irrep,
+                properties=props,
             )
             _, lambdas, sigmas = torch.tensor(irrep).T
 
@@ -582,16 +586,16 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
         for atom_type, atom_irreps in irreps.items():
             # For each atomic type, essentially do the same as for the case with
             # no types. We simply have an extra key corresponding to the atomic type.
-            print(atom_type, atom_irreps)
-            irreps_iter = _get_spherical_irreps_iter(
+            irreps_iter, properties = _get_spherical_irreps_iter(
                 atom_irreps, target, product=product
             )
 
-            for irrep in irreps_iter:
+            for irrep, props in zip(irreps_iter, properties, strict=True):
                 block = _build_spherical_target_block(
                     sample_names=sample_names,
                     target_name=target_name,
                     irreps=irrep,
+                    properties=props,
                 )
                 _, lambdas, sigmas = torch.tensor(irrep).T
                 keys.append([*lambdas, *sigmas, atom_type])
@@ -602,12 +606,13 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
         blocks=blocks,
     )
 
-    return TargetInfo(
+    info = TargetInfo(
         layout=layout,
         quantity=target["quantity"],
         unit=target["unit"],
         description=target.get("description", ""),
     )
+    return info
 
 
 def is_auxiliary_output(name: str) -> bool:

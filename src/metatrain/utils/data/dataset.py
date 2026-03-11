@@ -787,7 +787,36 @@ class DiskDataset(torch.utils.data.Dataset):
                 _check_tensor_map_metadata(tensor_map, target_info.layout)
                 # make sure that the properties of the target_info.layout also match the
                 # actual properties of the tensor maps
-                target_info.layout = _empty_tensor_map_like(tensor_map)
+
+                if (
+                    isinstance(target.get("type"), (dict, DictConfig))
+                    and "spherical" in target["type"]
+                    and target["type"]["spherical"].get("product") == "coupled"
+                ):
+                    non_type_indices = [
+                        i
+                        for i, n in enumerate(target_info.layout.keys.names)
+                        if not n.endswith("atom_type")
+                    ]
+                    valid_ls = set(
+                        tuple(int(v) for v in row)
+                        for row in target_info.layout.keys.values[:, non_type_indices]
+                    )
+                    data_ls = set(
+                        tuple(int(v) for v in row)
+                        for row in tensor_map.keys.values[:, non_type_indices]
+                    )
+                    unexpected = data_ls - valid_ls
+                    if unexpected:
+                        raise ValueError(
+                            f"Target '{target_key}' contains"
+                            "(o3_lambda, o3_sigma) pairs"
+                            "that are not reachable by the CG coupling"
+                            "of the declared irreps: "
+                            f"{unexpected}. Valid pairs from options: {valid_ls}"
+                        )
+                else:
+                    target_info.layout = _empty_tensor_map_like(tensor_map)
                 target_info_dict[target_key] = target_info
 
         if is_extra_data:
