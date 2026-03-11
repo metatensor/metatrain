@@ -54,6 +54,11 @@ component_management:
       paths:
         - "src/metatrain/experimental/mace/.*"
 
+    - component_id: phace
+      name: PhACE
+      paths:
+        - "src/metatrain/experimental/phace/.*"
+
 ignore:
   # no need to report coverage of the test code themself
   - "src/metatrain/utils/testing/.*"

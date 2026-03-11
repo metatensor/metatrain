@@ -37,6 +37,7 @@ model:
 | [PET][arch-pet]                          | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
 | [SOAP-BPNN][arch-soap_bpnn]              | A Behler-Parrinello neural network with SOAP features                                                                                |
 | [MACE][arch-mace]                        | A higher order equivariant message passing neural network.                                                                           |
+| [PhACE][arch-phace]                      | SO(3)-equivariant message-passing model with physical radial functions and fast tensor products.                                     |
 | [GAP][arch-gap]                          | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
 | [FlashMD][arch-flashmd]                  | An architecture for the direct prediction of molecular dynamics                                                                      |
 
@@ -48,6 +49,7 @@ on a PR, since the docs use this README file directly.-->
 [arch-gap]: https://docs.metatensor.org/metatrain/latest/architectures/generated/gap.html
 [arch-mace]: https://docs.metatensor.org/metatrain/latest/architectures/generated/mace.html
 [arch-pet]: https://docs.metatensor.org/metatrain/latest/architectures/generated/pet.html
+[arch-phace]: https://docs.metatensor.org/metatrain/latest/architectures/generated/phace.html
 [arch-soap_bpnn]: https://docs.metatensor.org/metatrain/latest/architectures/generated/soap_bpnn.html
 
 <!-- marker-documentation -->
