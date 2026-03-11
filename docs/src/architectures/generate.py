@@ -216,10 +216,14 @@ def generate_rst(
             **template_variables
         )
 
-    codecov_arch_path = architecture_name.replace(".", "/")
+    arch_url_path = arch_path.replace(".", "/")
+    badge_target = (
+        f"https://app.codecov.io/gh/metatensor/metatrain/tree/main/src/{arch_url_path}"
+        f"?components%5B0%5D={architecture_real_name}"
+    )
     badge_string = (
         f".. image:: https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?component={architecture_real_name}"
-        f"\n   :target: https://codecov.io/gh/metatensor/metatrain/tree/main/src/metatrain/{codecov_arch_path}"
+        f"\n   :target: {badge_target}"
     )
 
     # Prepend docstring with reference and append missing sections
