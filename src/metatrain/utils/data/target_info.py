@@ -1,5 +1,3 @@
-import itertools as _itertools
-from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 import torch
@@ -555,82 +553,49 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
     is_atomic_basis = isinstance(irreps, (dict, DictConfig))
 
     # Define the names of the keys in the tensormap
-    if product == "coupled" or product is None:
+    if product in [None, "coupled"]:
         keys_names = ["o3_lambda", "o3_sigma"]
-    else:  # Cartesian
+    elif product == "cartesian":
         keys_names = ["o3_lambda_1", "o3_lambda_2", "o3_sigma_1", "o3_sigma_2"]
+    else:
+        raise ValueError(
+            f"Unknown product {product!r}. Supported values are 'cartesian', "
+            "'coupled' and None."
+        )
 
     if is_atomic_basis:
         keys_names.append("atom_type")
 
     # Build the tensormap blocks, and store their corresponding keys.
     if not is_atomic_basis:
-        irreps_iter = _get_spherical_irreps_iter(irreps, target, product)
+        irreps_iter, properties = _get_spherical_irreps_iter(irreps, target, product)
 
-        for irrep in irreps_iter:
+        for irrep, props in zip(irreps_iter, properties, strict=True):
             block = _build_spherical_target_block(
                 sample_names=sample_names,
                 target_name=target_name,
                 irreps=irrep,
+                properties=props,
             )
             _, lambdas, sigmas = torch.tensor(irrep).T
 
             keys.append([*lambdas, *sigmas])
             blocks.append(block)
-    elif product == "coupled":
-        for atom_type, atom_irreps in irreps.items():
-            basis = [
-                (
-                    irr.get("num", target["num_subtargets"]),
-                    irr.get("o3_lambda"),
-                    irr.get("o3_sigma"),
-                )
-                for irr in atom_irreps
-            ]
-            coupled_blocks = defaultdict(int)
-            for (num1, l1, sig1), (num2, l2, sig2) in _itertools.product(
-                basis, repeat=2
-            ):
-                for lam in range(abs(l1 - l2), l1 + l2 + 1):
-                    sig = sig1 * sig2 * (-1) ** (l1 + l2 + lam)
-                    coupled_blocks[(lam, sig)] += num1 * num2
-
-            for (lam, sig), n_props in sorted(coupled_blocks.items()):
-                if sig != 1:
-                    continue
-                block = TensorBlock(
-                    values=torch.empty(0, 2 * lam + 1, n_props, dtype=torch.float64),
-                    samples=Labels(
-                        names=sample_names,
-                        values=torch.empty((0, len(sample_names)), dtype=torch.int32),
-                    ),
-                    components=[
-                        Labels(
-                            names=["o3_mu"],
-                            values=torch.arange(
-                                -lam, lam + 1, dtype=torch.int32
-                            ).reshape(-1, 1),
-                        )
-                    ],
-                    properties=Labels.range("n", n_props),
-                )
-                keys.append([lam, sig, int(atom_type)])
-                blocks.append(block)
     else:
         # Loop over atomic types
         for atom_type, atom_irreps in irreps.items():
             # For each atomic type, essentially do the same as for the case with
             # no types. We simply have an extra key corresponding to the atomic type.
-            print(atom_type, atom_irreps)
-            irreps_iter = _get_spherical_irreps_iter(
+            irreps_iter, properties = _get_spherical_irreps_iter(
                 atom_irreps, target, product=product
             )
 
-            for irrep in irreps_iter:
+            for irrep, props in zip(irreps_iter, properties, strict=True):
                 block = _build_spherical_target_block(
                     sample_names=sample_names,
                     target_name=target_name,
                     irreps=irrep,
+                    properties=props,
                 )
                 _, lambdas, sigmas = torch.tensor(irrep).T
                 keys.append([*lambdas, *sigmas, atom_type])
