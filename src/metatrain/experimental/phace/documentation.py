@@ -1,6 +1,6 @@
 """
-PhACE
-=====
+PhACE (Experimental)
+====================
 
 PhACE is a physics-inspired equivariant neural network architecture. Compared to, for
 example, MACE and GRACE, it uses a geometrically motivated basis and a fast and
