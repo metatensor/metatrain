@@ -1,3 +1,5 @@
+import logging
+import zipfile
 from typing import Any, Union
 
 import torch
@@ -10,6 +12,7 @@ from metatrain.utils.loss import LossParams, LossSpecification
 from .. import RANDOM_SEED
 from .architectures import import_architecture
 from .devices import pick_devices
+from .pydantic import MetatrainValidationError, validate_dataset_description
 
 
 def _get_architecture_model(conf: BaseContainer) -> Any:
@@ -255,6 +258,94 @@ def check_dataset_options(dataset_config: ListConfig) -> None:
                     )
 
 
+def get_dataset_description(path: str) -> DictConfig:
+    """For the path to a given dataset, it gets its dataset description.
+
+    :param path: The path to the dataset for which to get the description.
+
+    :return: The dataset description as found in the dataset. If no description is
+        found, an empty DictConfig is returned.
+    """
+    dataset_description = DictConfig({})
+    # If the path is a zipfile.
+    if path.endswith(".zip"):
+        with zipfile.ZipFile(path, "r") as zip_file:
+            # If the mtt_dataset_description.yaml file exists,
+            # read the dataset specifications from it
+            if "mtt_dataset_description.yaml" in zip_file.namelist():
+                with zip_file.open("mtt_dataset_description.yaml", "r") as specs_file:
+                    yaml_string = specs_file.read().decode("utf-8")
+                    dataset_description = OmegaConf.create(yaml_string)
+    # For now we have no way of automatically getting the dataset description
+    # for other kinds of datasets.
+
+    try:
+        validate_dataset_description(OmegaConf.to_object(dataset_description))
+    except MetatrainValidationError:
+        logging.error(
+            f"Invalid dataset description found in {path}. See error details below."
+        )
+        raise
+
+    # Store info about the source of this description (for internal usage only)
+    dataset_description["__read_from__"] = path
+
+    return dataset_description
+
+
+def get_target_defaults(
+    dataset_description: DictConfig,
+    target: DictConfig,
+    target_key: str,
+) -> DictConfig:
+    """For a given target, gets its defaults as found in the dataset.
+
+    :param dataset_description: A dataset description that has been previously
+        read. The defaults will be retrieved from this unless the target has
+        a ``read_from`` field pointing to a different path.
+    :param target: The target for which to get the defaults. We get the
+        ``read_from`` field from it.
+    :param target_key: Key that the provided target has in the dataset config.
+
+    :return: The defaults for the target as found in the dataset description. If
+        the dataset does not contain any description of the target, an empty
+        DictConfig is returned.
+    """
+    read_from = OmegaConf.to_object(dataset_description).get("__read_from__")
+    if "read_from" in target and target["read_from"] != read_from:
+        dataset_description = get_dataset_description(target["read_from"])
+
+    # Get the target key to look for in the dataset description.
+    dataset_target_key = target.get("key") or target_key
+    target_specs = dataset_description.get("variables", {}).get(dataset_target_key, {})
+
+    if len(target_specs) > 0:
+        read_from = dataset_description["__read_from__"]
+        logging.info(f"Found specification for {target_key!r} in {read_from!r}.")
+
+    return DictConfig(target_specs)
+
+
+def get_systems_defaults(dataset_description: DictConfig) -> DictConfig:
+    """Gets the defaults for the systems section as found in a dataset description.
+
+    :param dataset_description: The dataset description from which to extract the
+        information.
+
+    :return: The defaults for the systems section. If the dataset description
+        does not contain any information about the systems,
+        an empty DictConfig is returned.
+    """
+    systems_defaults = dataset_description.get("systems", {})
+    if len(systems_defaults) > 0:
+        read_from = dataset_description["__read_from__"]
+        logging.info(
+            f"Found specification for systems in {read_from!r}: {systems_defaults}."
+        )
+
+    return DictConfig(systems_defaults)
+
+
 def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfig:
     """Expands shorthand notations in a dataset configuration to its full format.
 
@@ -297,18 +388,28 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
 
     # Perform expansion per config inside the ListConfig
     for conf_element in conf:
+        dataset_description = DictConfig({})
+
         if hasattr(conf_element, "systems"):
             if type(conf_element["systems"]) is str:
                 conf_element["systems"] = _resolve_single_str(conf_element["systems"])
 
+            dataset_description = get_dataset_description(
+                conf_element["systems"]["read_from"]
+            )
+            defaults = get_systems_defaults(dataset_description)
+
             conf_element["systems"] = OmegaConf.merge(
-                CONF_SYSTEMS, conf_element["systems"]
+                CONF_SYSTEMS, defaults, conf_element["systems"]
             )
 
         if hasattr(conf_element, "targets"):
             for target_key, target in conf_element["targets"].items():
                 if type(target) is str:
                     target = _resolve_single_str(target)
+
+                defaults = get_target_defaults(dataset_description, target, target_key)
+                target = OmegaConf.merge(defaults, target)
 
                 # for special case "energy" we enable sections for `forces` and `stress`
                 # gradients by default
@@ -374,7 +475,10 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
                 if type(extra_data) is str:
                     extra_data = _resolve_single_str(extra_data)
 
-                extra_data = OmegaConf.merge(CONF_EXTRA_DATA, extra_data)
+                defaults = get_target_defaults(
+                    dataset_description, extra_data, extra_data_key
+                )
+                extra_data = OmegaConf.merge(CONF_EXTRA_DATA, defaults, extra_data)
 
                 if extra_data["key"] is None:
                     extra_data["key"] = extra_data_key
