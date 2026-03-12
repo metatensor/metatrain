@@ -186,37 +186,30 @@ class TargetInfo:
                 )
 
         if self.is_spherical:
-            keys_names = layout.keys.names
+            # The following loop is ugly but it is for torchscript compatibility.
+            keys_names: list[str] = []
+            unknown_keys: list[str] = []
+            lambdas_indices: list[int] = []
+            sigmas_indices: list[int] = []
+            for name in layout.keys.names:
+                if name.endswith("atom_type"):
+                    self.is_atomic_basis = True
+                    continue
+                elif name.startswith("o3_lambda"):
+                    lambdas_indices.append(len(keys_names))
+                    keys_names.append(name)
+                elif name.startswith("o3_sigma"):
+                    sigmas_indices.append(len(keys_names))
+                    keys_names.append(name)
+                else:
+                    unknown_keys.append(name)
 
-            if any(name.endswith("atom_type") for name in keys_names):
-                self.is_atomic_basis = True
-                keys_names = [
-                    name for name in keys_names if not name.endswith("atom_type")
-                ]
-
-            unknown_keys = [
-                name
-                for name in keys_names
-                if not name.startswith("o3_lambda") and not name.startswith("o3_sigma")
-            ]
             if len(unknown_keys) > 0:
                 raise ValueError(
                     "The layout ``TensorMap`` of a spherical tensor target should only "
                     "have keys named 'o3_lambda', 'o3_sigma' or 'atom_type'"
                     f" Found unknown key names: '{unknown_keys}'."
                 )
-
-            # Get the key indices where lambdas and sigmas are located
-            lambdas_indices = [
-                i
-                for i, name in enumerate(layout.keys.names)
-                if name.startswith("o3_lambda")
-            ]
-            sigmas_indices = [
-                i
-                for i, name in enumerate(layout.keys.names)
-                if name.startswith("o3_sigma")
-            ]
 
             if len(lambdas_indices) != len(sigmas_indices):
                 raise ValueError(
