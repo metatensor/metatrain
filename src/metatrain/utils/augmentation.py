@@ -255,29 +255,60 @@ def _apply_wigner_D_matrices(
 ) -> TensorMap:
     new_blocks: List[TensorBlock] = []
     for key, block in target_tmap.items():
-        ell, sigma = int(key[0]), int(key[1])
         values = block.values
-        if "atom" in block.samples.names:
-            split_values = torch.split(
-                values, [len(system.positions) for system in systems]
-            )
-        else:
+        rank = len(block.components)
+        if block.samples.names == ["system"]:
             split_values = torch.split(values, [1 for _ in systems])
+        else:
+            # Get the values corresponding to each system by using the "system" sample.
+            # We assume that the "system" sample is the first one in block.samples.
+            unique_system_ids, inverse_indices = torch.unique(
+                block.samples.values[:, 0], return_inverse=True
+            )
+            split_values = [
+                values[inverse_indices == i] for i in range(len(unique_system_ids))
+            ]
+
         new_values = []
-        ell = (len(block.components[0]) - 1) // 2
-        for v, transformation, wigner_D_matrix in zip(
-            split_values, transformations, wigner_D_matrices[ell], strict=True
-        ):
-            is_inverted = torch.det(transformation) < 0
-            new_v = v.clone()
-            if is_inverted:  # inversion
-                new_v = new_v * (-1) ** ell * sigma
-            # fold property dimension in, apply transformation,
-            # unfold property dimension
-            new_v = new_v.transpose(1, 2)
-            new_v = new_v @ wigner_D_matrix.T
-            new_v = new_v.transpose(1, 2)
-            new_values.append(new_v)
+        if rank == 1:
+            ell, sigma = int(key[0]), int(key[1])
+            for v, transformation, wigner_D_matrix in zip(
+                split_values, transformations, wigner_D_matrices[ell], strict=True
+            ):
+                is_inverted = torch.det(transformation) < 0
+                new_v = v.clone()
+                if is_inverted:  # inversion
+                    new_v = new_v * (-1) ** ell * sigma
+                # fold property dimension in, apply transformation,
+                # unfold property dimension
+                new_v = new_v.transpose(1, 2)
+                new_v = new_v @ wigner_D_matrix.T
+                new_v = new_v.transpose(1, 2)
+                new_values.append(new_v)
+        elif rank == 2:
+            ell1, ell2, sigma1, sigma2 = (
+                int(key[0]),
+                int(key[1]),
+                int(key[2]),
+                int(key[3]),
+            )
+            for v, transformation, wigner_D_matrix1, wigner_D_matrix2 in zip(
+                split_values,
+                transformations,
+                wigner_D_matrices[ell1],
+                wigner_D_matrices[ell2],
+                strict=True,
+            ):
+                is_inverted = torch.det(transformation) < 0
+                new_v = v.clone()
+                if is_inverted:
+                    # Invert if the two components have different parity.
+                    new_v = new_v * (-1) ** ell1 * sigma1 * (-1) ** ell2 * sigma2
+                new_v = torch.einsum(
+                    "Aa,iabp,bB->iABp", wigner_D_matrix1, new_v, wigner_D_matrix2.T
+                )
+
+                new_values.append(new_v)
         new_values = torch.concatenate(new_values)
         new_block = TensorBlock(
             values=new_values,
@@ -393,6 +424,11 @@ def _apply_augmentations(
 
             is_spherical = all(
                 len(block.components) == 1 and block.components[0].names == ["o3_mu"]
+                for block in original_tmap.blocks()
+            ) or all(
+                len(block.components) == 2
+                and block.components[0].names == ["o3_mu_1"]
+                and block.components[1].names == ["o3_mu_2"]
                 for block in original_tmap.blocks()
             )
 

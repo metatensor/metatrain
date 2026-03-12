@@ -19,6 +19,8 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.data._merge_atom_types import get_merge_types_transform
+from metatrain.utils.data.spherical_target_helpers import match_predictions_to_targets
 from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
@@ -234,6 +236,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
+                get_merge_types_transform(train_targets, extra_data_info),
             ],
             batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
@@ -243,6 +246,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
+                get_merge_types_transform(train_targets, extra_data_info),
             ],
             batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
@@ -401,6 +405,17 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
+
+                targets, predictions = match_predictions_to_targets(
+                    targets,
+                    predictions,
+                    extra_data,
+                    target_keys=[
+                        key
+                        for key, info in train_targets.items()
+                        if info.is_atomic_basis
+                    ],
+                )
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
@@ -475,6 +490,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
                     targets = average_by_num_atoms(
                         targets, systems, per_structure_targets
+                    )
+                    targets, predictions = match_predictions_to_targets(
+                        targets,
+                        predictions,
+                        extra_data,
+                        target_keys=[
+                            key
+                            for key, info in train_targets.items()
+                            if info.is_atomic_basis
+                        ],
                     )
                     val_loss_batch = loss_fn(predictions, targets, extra_data)
 
