@@ -1064,14 +1064,6 @@ class MemmapDataset(TorchDataset):
                 mode="r",
             )
 
-        # Register per-system scalar arrays for extra_data keys (e.g. mtt::charge)
-        self.extra_data_arrays: Dict[str, MemmapArray] = {}
-        for key, opts in self.extra_data_config.items():
-            data_key = opts["key"]
-            self.extra_data_arrays[key] = MemmapArray(
-                path / f"{data_key}.bin", (self.ns,), "float32", mode="r"
-            )
-
         # Register arrays pointing to the targets
         self.target_arrays = {}
         for target_key, single_target_options in target_options.items():
