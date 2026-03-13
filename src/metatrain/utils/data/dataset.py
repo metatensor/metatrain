@@ -991,11 +991,18 @@ class MemmapDataset(TorchDataset):
         path: Union[str, Path],
         target_options: Dict[str, Any],
         system_options: Optional[Dict[str, Any]] = None,
+        extra_data_options: Optional[Dict[str, Any]] = None,
     ) -> None:
         path = Path(path)
         self.target_config = target_options
+        self.extra_data_config: Dict[str, Any] = (
+            extra_data_options if extra_data_options is not None else {}
+        )
         self.sample_class = namedtuple(
-            "Sample", ["system"] + list(self.target_config.keys())
+            "Sample",
+            ["system"]
+            + list(self.target_config.keys())
+            + list(self.extra_data_config.keys()),
         )
 
         # Information about the structures
@@ -1023,6 +1030,14 @@ class MemmapDataset(TorchDataset):
                 self.spin_array = MemmapArray(
                     path / f"{spin_key}.bin", (self.ns,), "float32", mode="r"
                 )
+
+        # Register per-system scalar arrays for extra_data keys (e.g. mtt::charge)
+        self.extra_data_arrays: Dict[str, MemmapArray] = {}
+        for key, opts in self.extra_data_config.items():
+            data_key = opts["key"]
+            self.extra_data_arrays[key] = MemmapArray(
+                path / f"{data_key}.bin", (self.ns,), "float32", mode="r"
+            )
 
         # Register arrays pointing to the targets
         self.target_arrays = {}
@@ -1263,7 +1278,33 @@ class MemmapDataset(TorchDataset):
                 ),
             )
 
-        sample = self.sample_class(**{"system": system, **target_dict})
+        # Build extra_data TensorMaps (per-system scalars returned in the sample,
+        # not attached to the system directly — CollateFn routes them to `extra`)
+        extra_data_dict = {}
+        for key, arr in self.extra_data_arrays.items():
+            prop_name = key.split("::")[-1]
+            extra_data_dict[key] = TensorMap(
+                keys=Labels.single(),
+                blocks=[
+                    TensorBlock(
+                        values=torch.tensor(
+                            [[float(arr[i])]], dtype=torch.float64
+                        ),
+                        samples=Labels(
+                            "system", torch.tensor([[i]], dtype=torch.int32)
+                        ),
+                        components=[],
+                        properties=Labels(prop_name, torch.tensor([[0]])),
+                    )
+                ],
+            )
+
+        # Use _make for positional construction so mtt:: keys work
+        sample = self.sample_class._make(
+            [system]
+            + [target_dict[k] for k in self.target_config]
+            + [extra_data_dict[k] for k in self.extra_data_config]
+        )
         return sample
 
     def get_target_info(self) -> Dict[str, TargetInfo]:
@@ -1299,3 +1340,21 @@ class MemmapDataset(TorchDataset):
                 target_info.layout = _empty_tensor_map_like(tensor_map)
                 target_info_dict[target_key] = target_info
         return target_info_dict
+
+    def get_extra_data_info(self) -> Dict[str, TargetInfo]:
+        """
+        Get information about the extra_data entries in the dataset.
+
+        :return: A dictionary mapping extra_data keys to :py:class:`TargetInfo`
+            objects.
+        """
+        extra_data_info_dict: Dict[str, TargetInfo] = {}
+        if not self.extra_data_config:
+            return extra_data_info_dict
+        first_sample = self[0]
+        for key, opts in self.extra_data_config.items():
+            tensor_map = first_sample[key]
+            target_info = get_generic_target_info(key, opts)
+            target_info.layout = _empty_tensor_map_like(tensor_map)
+            extra_data_info_dict[key] = target_info
+        return extra_data_info_dict

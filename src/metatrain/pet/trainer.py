@@ -40,6 +40,7 @@ from metatrain.utils.transfer import batch_to
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import PET
+from .modules.conditioning import get_system_conditioning_transform
 from .modules.finetuning import apply_finetuning_strategy
 
 
@@ -227,11 +228,24 @@ class Trainer(TrainerInterface[TrainerHypers]):
             target_info_dict=train_targets, extra_data_info_dict=extra_data_info
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
+        # The conditioning module declares what data it needs — query it directly
+        # so the trainer doesn't need to know the key names.
+        conditioning_keys = (
+            model.system_conditioning.required_data_keys
+            if model.system_conditioning is not None
+            else []
+        )
+        conditioning_callables = (
+            [get_system_conditioning_transform(conditioning_keys)]
+            if conditioning_keys
+            else []
+        )
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
                 rotational_augmenter.apply_random_augmentations,
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                *conditioning_callables,
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
@@ -241,6 +255,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             target_keys=list(train_targets.keys()),
             callables=[  # no augmentation for validation
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                *conditioning_callables,
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],

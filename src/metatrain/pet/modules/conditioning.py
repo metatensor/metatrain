@@ -1,6 +1,10 @@
 """System-level conditioning embeddings for charge and spin."""
 
+from typing import Callable, Dict, List, Tuple
+
 import torch
+from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import System
 
 
 class SystemConditioningEmbedding(torch.nn.Module):
@@ -11,12 +15,18 @@ class SystemConditioningEmbedding(torch.nn.Module):
     to the model's feature dimension. The resulting per-system embedding is broadcast
     to all atoms belonging to that system.
 
+    The module declares :attr:`required_data_keys` so that the training pipeline
+    can automatically set up the data transforms that attach the required values
+    to each ``System``, without the trainer needing to know the key names.
+
     :param d_out: Output embedding dimension (should match d_node).
     :param max_charge: Maximum absolute charge value. Supports charges in
         the range ``[-max_charge, +max_charge]``.
     :param max_spin: Maximum spin multiplicity (2S+1). Supports values in
         the range ``[1, max_spin]``.
     """
+
+    required_data_keys: List[str] = ["mtt::charge", "mtt::spin"]
 
     def __init__(self, d_out: int, max_charge: int = 10, max_spin: int = 10):
         super().__init__()
@@ -76,3 +86,68 @@ class SystemConditioningEmbedding(torch.nn.Module):
         s_emb = self.spin_embedding(spin - 1)  # [n_systems, d_out]
         system_emb = self.project(torch.cat([c_emb, s_emb], dim=-1))  # [n_systems, d]
         return system_emb[system_indices]  # [n_atoms, d_out]
+
+
+def get_system_conditioning_transform(
+    conditioning_keys: List[str],
+) -> Callable[
+    [List[System], Dict[str, TensorMap], Dict[str, TensorMap]],
+    Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]],
+]:
+    """Return a CollateFn callable that moves conditioning data from the extra
+    dict into each System via ``add_data``.
+
+    After ``group_and_join`` the extra dict contains batched TensorMaps keyed by
+    ``"mtt::charge"`` and ``"mtt::spin"``, with samples indexed 0, 1, … matching
+    the position of each system in the batch list.  This callable re-attaches
+    per-system scalars to the System objects so the PET model can read them with
+    ``system.get_data("mtt::charge")``.
+
+    NaN values are treated as missing: the corresponding system will not have the
+    data key attached and the model will fall back to its default (charge=0, spin=1).
+
+    :param conditioning_keys: List of extra_data keys present in
+        ``extra_data_info``, e.g. ``["mtt::charge", "mtt::spin"]``.
+    :return: A three-argument callable ``(systems, targets, extra) -> (systems,
+        targets, extra)``.
+    """
+
+    def transform(
+        systems: List[System],
+        targets: Dict[str, TensorMap],
+        extra: Dict[str, TensorMap],
+    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+        for key in conditioning_keys:
+            if key not in extra:
+                continue
+            prop_name = key.split("::")[-1]
+            block = extra[key].block()
+            for row_idx in range(len(block.samples)):
+                sys_idx = int(block.samples.entry(row_idx)["system"])
+                val = block.values[row_idx : row_idx + 1]  # shape [1, n_props]
+                if torch.isnan(val).any():
+                    continue
+                systems[sys_idx].add_data(
+                    key,
+                    TensorMap(
+                        keys=Labels.single(),
+                        blocks=[
+                            TensorBlock(
+                                values=val,
+                                samples=Labels(
+                                    "system",
+                                    torch.tensor(
+                                        [[sys_idx]],
+                                        device=val.device,
+                                        dtype=torch.int32,
+                                    ),
+                                ),
+                                components=[],
+                                properties=Labels.range(prop_name, val.shape[-1]),
+                            )
+                        ],
+                    ),
+                )
+        return systems, targets, extra
+
+    return transform

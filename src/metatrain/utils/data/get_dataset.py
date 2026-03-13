@@ -42,8 +42,10 @@ def get_dataset(
             options["systems"]["read_from"],
             options["targets"],
             system_options=options["systems"],
+            extra_data_options=options.get("extra_data"),
         )
         target_info_dictionary = dataset.get_target_info()
+        extra_data_info_dictionary = dataset.get_extra_data_info()
     else:
         systems = read_systems(
             filename=options["systems"]["read_from"],
