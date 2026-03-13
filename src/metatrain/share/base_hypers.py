@@ -59,12 +59,6 @@ class SystemsHypers(TypedDict):
 
     The list of possible length units is available `here
     <https://docs.metatensor.org/metatomic/latest/torch/reference/misc.html#known-quantities-units>`_."""
-    charge: NotRequired[SystemDataKeyHypers]
-    """Per-system total charge stored in a memmap ``.bin`` file. Only used
-    with memmap datasets and PET's ``system_conditioning`` feature."""
-    spin: NotRequired[SystemDataKeyHypers]
-    """Per-system spin multiplicity (2S+1) stored in a memmap ``.bin`` file.
-    Only used with memmap datasets and PET's ``system_conditioning`` feature."""
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))

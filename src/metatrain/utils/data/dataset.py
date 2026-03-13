@@ -1151,42 +1151,6 @@ class MemmapDataset(TorchDataset):
             pbc=torch.logical_not(torch.all(c == 0.0, dim=1)),
         )
 
-        # Attach optional per-system charge and spin data
-        if self.charge_array is not None:
-            system.add_data(
-                "mtt::charge",
-                TensorMap(
-                    keys=Labels.single(),
-                    blocks=[
-                        TensorBlock(
-                            values=torch.tensor([[float(self.charge_array[i])]]),
-                            samples=Labels(
-                                "system", torch.tensor([[i]], dtype=torch.int32)
-                            ),
-                            components=[],
-                            properties=Labels("charge", torch.tensor([[0]])),
-                        )
-                    ],
-                ),
-            )
-        if self.spin_array is not None:
-            system.add_data(
-                "mtt::spin",
-                TensorMap(
-                    keys=Labels.single(),
-                    blocks=[
-                        TensorBlock(
-                            values=torch.tensor([[float(self.spin_array[i])]]),
-                            samples=Labels(
-                                "system", torch.tensor([[i]], dtype=torch.int32)
-                            ),
-                            components=[],
-                            properties=Labels("spin", torch.tensor([[0]])),
-                        )
-                    ],
-                ),
-            )
-
         target_dict = {}
         for target_key, target_options in self.target_config.items():
             target_array = self.target_arrays[target_key]
