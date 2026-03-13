@@ -788,3 +788,173 @@ def test_memmap_rejects_non_int64_na(tmp_path, bad_dtype):
     }
     with pytest.raises(ValueError, match="int64 dtype"):
         MemmapDataset(tmp_path, target_options)
+
+
+# ============================================================
+# Helpers shared by MemmapDataset extra_data tests
+# ============================================================
+
+
+def _write_minimal_memmap(tmp_path, ns=3, values_per_system=None):
+    """Write the minimum binary files needed to construct a MemmapDataset.
+
+    Returns ``(target_options, energy_values)`` so callers can assert on targets.
+    Each system has exactly 1 atom.
+
+    *values_per_system* – list of length ``ns`` of per-system energy floats.
+    If *None* defaults to [1.0, 2.0, 3.0, ...].
+    """
+    if values_per_system is None:
+        values_per_system = list(range(1, ns + 1))
+
+    na = np.array([0] + list(range(1, ns + 1)), dtype=np.int64)  # 1 atom per system
+    np.save(tmp_path / "ns.npy", ns)
+    np.save(tmp_path / "na.npy", na)
+    np.zeros((ns, 3), dtype="float32").tofile(tmp_path / "x.bin")  # positions
+    np.ones((ns,), dtype="int32").tofile(tmp_path / "a.bin")  # atom types (H)
+    np.zeros((ns, 3, 3), dtype="float32").tofile(tmp_path / "c.bin")  # cells
+    np.array(values_per_system, dtype="float32").reshape(ns, 1).tofile(
+        tmp_path / "e.bin"
+    )
+
+    target_options = {
+        "energy": {
+            "key": "e",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "type": "scalar",
+            "quantity": "energy",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    return target_options, values_per_system
+
+
+# ============================================================
+# MemmapDataset extra_data tests
+# ============================================================
+
+
+def test_memmap_extra_data_values_in_sample(tmp_path):
+    """extra_data array values are returned as TensorMaps in the sample namedtuple."""
+    target_options, _ = _write_minimal_memmap(tmp_path)
+
+    charge_values = [10.0, 20.0, 30.0]
+    np.array(charge_values, dtype="float32").tofile(tmp_path / "charge.bin")
+
+    extra_data_options = {
+        "mtt::charge": {"key": "charge", "type": "scalar", "per_atom": False,
+                        "num_subtargets": 1, "quantity": ""},
+    }
+    dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
+
+    for i, expected in enumerate(charge_values):
+        sample = dataset[i]
+        tm = sample._asdict()["mtt::charge"]
+        assert tm.block().values.item() == pytest.approx(expected)
+
+
+def test_memmap_extra_data_system_label(tmp_path):
+    """The sample label in the extra_data TensorMap matches the system index."""
+    target_options, _ = _write_minimal_memmap(tmp_path)
+    np.array([0.0, 1.0, 2.0], dtype="float32").tofile(tmp_path / "feat.bin")
+
+    extra_data_options = {
+        "mtt::feat": {"key": "feat", "type": "scalar", "per_atom": False,
+                      "num_subtargets": 1, "quantity": ""},
+    }
+    dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
+
+    for i in range(3):
+        sample = dataset[i]
+        tm = sample._asdict()["mtt::feat"]
+        system_label = tm.block().samples["system"].tolist()
+        assert system_label == [i]
+
+
+def test_memmap_extra_data_property_name_from_key(tmp_path):
+    """Properties label is derived from the part after '::' in the extra_data key."""
+    target_options, _ = _write_minimal_memmap(tmp_path)
+    np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
+
+    extra_data_options = {
+        "mtt::charge": {"key": "charge", "type": "scalar", "per_atom": False,
+                        "num_subtargets": 1, "quantity": ""},
+    }
+    dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
+
+    tm = dataset[0]._asdict()["mtt::charge"]
+    prop_name = tm.block().properties.names[0]
+    assert prop_name == "charge"
+
+
+def test_memmap_extra_data_no_options_empty(tmp_path):
+    """MemmapDataset without extra_data_options has no extra fields in sample."""
+    target_options, _ = _write_minimal_memmap(tmp_path)
+
+    dataset = MemmapDataset(tmp_path, target_options)
+
+    sample = dataset[0]
+    assert set(sample._fields) == {"system", "energy"}
+
+
+def test_memmap_extra_data_fields_present_in_sample(tmp_path):
+    """extra_data keys appear as named fields in the sample namedtuple."""
+    target_options, _ = _write_minimal_memmap(tmp_path)
+    np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
+
+    extra_data_options = {
+        "mtt::charge": {"key": "charge", "type": "scalar", "per_atom": False,
+                        "num_subtargets": 1, "quantity": ""},
+    }
+    dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
+
+    assert "mtt::charge" in dataset[0]._fields
+
+
+def test_memmap_get_extra_data_info_returns_target_info(tmp_path):
+    """get_extra_data_info() returns a TargetInfo for each extra_data key."""
+    from metatrain.utils.data import TargetInfo
+
+    target_options, _ = _write_minimal_memmap(tmp_path)
+    np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
+
+    extra_data_options = {
+        "mtt::charge": {"key": "charge", "type": "scalar", "per_atom": False,
+                        "num_subtargets": 1, "quantity": "", "unit": ""},
+    }
+    dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
+
+    info = dataset.get_extra_data_info()
+
+    assert "mtt::charge" in info
+    assert isinstance(info["mtt::charge"], TargetInfo)
+
+
+def test_memmap_get_extra_data_info_empty_without_options(tmp_path):
+    """get_extra_data_info() returns an empty dict when no extra_data_options given."""
+    target_options, _ = _write_minimal_memmap(tmp_path)
+    dataset = MemmapDataset(tmp_path, target_options)
+    assert dataset.get_extra_data_info() == {}
+
+
+def test_memmap_extra_data_multiple_keys(tmp_path):
+    """Multiple extra_data keys are all loaded and accessible."""
+    target_options, _ = _write_minimal_memmap(tmp_path)
+    np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
+    np.array([4.0, 5.0, 6.0], dtype="float32").tofile(tmp_path / "spin.bin")
+
+    extra_data_options = {
+        "mtt::charge": {"key": "charge", "type": "scalar", "per_atom": False,
+                        "num_subtargets": 1, "quantity": ""},
+        "mtt::spin": {"key": "spin", "type": "scalar", "per_atom": False,
+                      "num_subtargets": 1, "quantity": ""},
+    }
+    dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
+
+    sample = dataset[1]
+    fields = sample._asdict()
+    assert fields["mtt::charge"].block().values.item() == pytest.approx(2.0)
+    assert fields["mtt::spin"].block().values.item() == pytest.approx(5.0)
