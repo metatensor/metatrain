@@ -767,6 +767,24 @@ class DiskDataset(torch.utils.data.Dataset):
                 target_info_dict[target_key] = target_info
         return target_info_dict
 
+    def get_extra_data_info(self) -> Dict[str, "TargetInfo"]:
+        """
+        Get information about the extra_data entries in the dataset.
+
+        :return: A dictionary mapping extra_data keys to :py:class:`TargetInfo`
+            objects describing each per-system scalar array.
+        """
+        extra_data_info_dict: Dict[str, "TargetInfo"] = {}
+        if not self.extra_data_config:
+            return extra_data_info_dict
+        first_sample = self[0]
+        for key, opts in self.extra_data_config.items():
+            tensor_map = first_sample[key]
+            target_info = get_generic_target_info(key, opts)
+            target_info.layout = _empty_tensor_map_like(tensor_map)
+            extra_data_info_dict[key] = target_info
+        return extra_data_info_dict
+
     def __del__(self) -> None:
         if self.zip_file is not None:
             self.zip_file.close()
@@ -980,13 +998,30 @@ class MemmapDataset(TorchDataset):
     :param path: Path to the directory containing the dataset.
     :param target_options: Dictionary containing the target configurations, in the
         format corresponding to metatrain yaml input files.
+    :param extra_data_options: Optional dictionary of extra per-system scalar arrays
+        to load alongside targets. Keys are the metatensor-style names (e.g.
+        ``"mtt::charge"``) and values are dicts with a ``"key"`` entry specifying
+        the ``.bin`` filename stem. The data is returned as :py:class:`TensorMap`
+        values in the sample namedtuple and forwarded to the ``extra`` argument of
+        :py:class:`CollateFn` callables.
     """
 
-    def __init__(self, path: Union[str, Path], target_options: Dict[str, Any]) -> None:
+    def __init__(
+        self,
+        path: Union[str, Path],
+        target_options: Dict[str, Any],
+        extra_data_options: Optional[Dict[str, Any]] = None,
+    ) -> None:
         path = Path(path)
         self.target_config = target_options
+        self.extra_data_config: Dict[str, Any] = (
+            extra_data_options if extra_data_options is not None else {}
+        )
         self.sample_class = namedtuple(
-            "Sample", ["system"] + list(self.target_config.keys())
+            "Sample",
+            ["system"]
+            + list(self.target_config.keys())
+            + list(self.extra_data_config.keys()),
         )
 
         # Information about the structures
@@ -1004,6 +1039,13 @@ class MemmapDataset(TorchDataset):
         if os.path.exists(path / "momenta.bin"):  # for FlashMD
             self.momenta = MemmapArray(
                 path / "momenta.bin", (self.na[-1], 3), "float32", mode="r"
+            )
+
+        # Register per-system scalar arrays for extra_data keys (e.g. "mtt::charge")
+        self.extra_data_arrays: Dict[str, MemmapArray] = {}
+        for key, opts in self.extra_data_config.items():
+            self.extra_data_arrays[key] = MemmapArray(
+                path / f"{opts['key']}.bin", (self.ns,), "float32", mode="r"
             )
 
         # Register arrays pointing to the targets
@@ -1213,8 +1255,30 @@ class MemmapDataset(TorchDataset):
                 ),
             )
 
+        # Build extra_data TensorMaps (per-system scalars returned in the sample
+        # and forwarded to the `extra` argument of CollateFn callables)
+        extra_data_dict = {}
+        for key, arr in self.extra_data_arrays.items():
+            prop_name = key.split("::")[-1]
+            extra_data_dict[key] = TensorMap(
+                keys=Labels.single(),
+                blocks=[
+                    TensorBlock(
+                        values=torch.tensor(
+                            [[float(arr[i])]], dtype=torch.float64
+                        ),
+                        samples=Labels(
+                            "system", torch.tensor([[i]], dtype=torch.int32)
+                        ),
+                        components=[],
+                        properties=Labels(prop_name, torch.tensor([[0]])),
+                    )
+                ],
+            )
+
         joint_dict = {"system": system}
         joint_dict.update(target_dict)
+        joint_dict.update(extra_data_dict)
         sample = self.sample_class._make(
             [joint_dict[name] for name in self.sample_class._fields]
         )
