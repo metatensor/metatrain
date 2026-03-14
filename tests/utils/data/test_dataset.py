@@ -1032,3 +1032,110 @@ def test_memmap_extra_data_non_scalar_type_raises(tmp_path):
     }
     with pytest.raises(ValueError, match="only 'scalar' is supported"):
         MemmapDataset(tmp_path, target_options, extra_data_options)
+
+
+def test_memmap_extra_data_mtt_prefix_accessible(tmp_path):
+    """mtt:: prefixed keys work: string-key access and field presence on the sample.
+
+    metatensor's custom namedtuple (unlike collections.namedtuple) accepts field
+    names containing '::' and supports sample["mtt::charge"] string-key access —
+    the same behaviour used by regular targets with mtt:: names.
+    """
+    target_options, _ = _write_minimal_memmap(tmp_path)
+    np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
+
+    extra_data_options = {
+        "mtt::charge": {
+            "key": "charge",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "quantity": "",
+        },
+    }
+    dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
+    sample = dataset[0]
+
+    # field is present under the full mtt:: name
+    assert "mtt::charge" in sample._fields
+    # string-key access works (metatensor namedtuple feature)
+    assert sample["mtt::charge"].block().values.item() == pytest.approx(1.0)
+
+
+def _write_heterogeneous_memmap(tmp_path, atoms_per_system):
+    """Write a MemmapDataset with varying atom counts per system.
+
+    *atoms_per_system* – list of int, e.g. [1, 3, 2].
+    Returns target_options.
+    """
+    ns = len(atoms_per_system)
+    na = np.array([0] + list(np.cumsum(atoms_per_system)), dtype=np.int64)
+    total_atoms = int(na[-1])
+
+    np.save(tmp_path / "ns.npy", ns)
+    np.save(tmp_path / "na.npy", na)
+    np.zeros((total_atoms, 3), dtype="float32").tofile(tmp_path / "x.bin")
+    np.ones((total_atoms,), dtype="int32").tofile(tmp_path / "a.bin")
+    np.zeros((ns, 3, 3), dtype="float32").tofile(tmp_path / "c.bin")
+    # energy: one value per system
+    np.arange(1, ns + 1, dtype="float32").reshape(ns, 1).tofile(tmp_path / "e.bin")
+
+    target_options = {
+        "energy": {
+            "key": "e",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "type": "scalar",
+            "quantity": "energy",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    return target_options, na
+
+
+def test_memmap_extra_data_per_atom_heterogeneous(tmp_path):
+    """Per-atom extra_data with heterogeneous atom counts returns the right atoms.
+
+    Systems have 1, 3, 2 atoms respectively (total 6).  The per-atom array is
+    written flat (all atoms concatenated) and __getitem__ must slice the correct
+    rows for each system using the cumulative na index.
+    """
+    atoms_per_system = [1, 3, 2]
+    target_options, na = _write_heterogeneous_memmap(tmp_path, atoms_per_system)
+
+    # per-atom feature: one row per atom, flat across all systems
+    # system 0 → atom 0         → value 10.0
+    # system 1 → atoms 1,2,3   → values 20.0, 21.0, 22.0
+    # system 2 → atoms 4,5     → values 30.0, 31.0
+    per_atom_values = np.array(
+        [10.0, 20.0, 21.0, 22.0, 30.0, 31.0], dtype="float32"
+    )
+    per_atom_values.tofile(tmp_path / "feat.bin")
+
+    extra_data_options = {
+        "mtt::feat": {
+            "key": "feat",
+            "type": "scalar",
+            "per_atom": True,
+            "num_subtargets": 1,
+            "quantity": "",
+        },
+    }
+    dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
+
+    # system 0: 1 atom
+    s0 = dataset[0]["mtt::feat"]
+    assert s0.block().samples.column("atom").tolist() == [0]
+    assert s0.block().values.flatten().tolist() == pytest.approx([10.0])
+
+    # system 1: 3 atoms
+    s1 = dataset[1]["mtt::feat"]
+    assert s1.block().samples.column("atom").tolist() == [0, 1, 2]
+    assert s1.block().values.flatten().tolist() == pytest.approx([20.0, 21.0, 22.0])
+
+    # system 2: 2 atoms
+    s2 = dataset[2]["mtt::feat"]
+    assert s2.block().samples.column("atom").tolist() == [0, 1]
+    assert s2.block().values.flatten().tolist() == pytest.approx([30.0, 31.0])
