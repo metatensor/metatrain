@@ -807,7 +807,9 @@ def _write_minimal_memmap(tmp_path, ns=3, values_per_system=None):
     if values_per_system is None:
         values_per_system = list(range(1, ns + 1))
 
-    na = np.array([0] + list(range(1, ns + 1)), dtype=np.int64)  # 1 atom per system
+    na = np.array(
+        [0] + list(range(1, ns + 1)), dtype=np.int64
+    )  # cumulative atom counts, 1 atom per system
     np.save(tmp_path / "ns.npy", ns)
     np.save(tmp_path / "na.npy", na)
     np.zeros((ns, 3), dtype="float32").tofile(tmp_path / "x.bin")  # positions
@@ -845,8 +847,13 @@ def test_memmap_extra_data_values_in_sample(tmp_path):
     np.array(charge_values, dtype="float32").tofile(tmp_path / "charge.bin")
 
     extra_data_options = {
-        "mtt::charge": {"key": "charge", "type": "scalar", "per_atom": False,
-                        "num_subtargets": 1, "quantity": ""},
+        "mtt::charge": {
+            "key": "charge",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "quantity": "",
+        },
     }
     dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
 
@@ -862,8 +869,13 @@ def test_memmap_extra_data_system_label(tmp_path):
     np.array([0.0, 1.0, 2.0], dtype="float32").tofile(tmp_path / "feat.bin")
 
     extra_data_options = {
-        "mtt::feat": {"key": "feat", "type": "scalar", "per_atom": False,
-                      "num_subtargets": 1, "quantity": ""},
+        "mtt::feat": {
+            "key": "feat",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "quantity": "",
+        },
     }
     dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
 
@@ -875,13 +887,18 @@ def test_memmap_extra_data_system_label(tmp_path):
 
 
 def test_memmap_extra_data_property_name_from_key(tmp_path):
-    """Properties label is derived from the part after '::' in the extra_data key."""
+    """Properties label name is the extra_data key with the 'mtt::' prefix stripped."""
     target_options, _ = _write_minimal_memmap(tmp_path)
     np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
 
     extra_data_options = {
-        "mtt::charge": {"key": "charge", "type": "scalar", "per_atom": False,
-                        "num_subtargets": 1, "quantity": ""},
+        "mtt::charge": {
+            "key": "charge",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "quantity": "",
+        },
     }
     dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
 
@@ -906,8 +923,13 @@ def test_memmap_extra_data_fields_present_in_sample(tmp_path):
     np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
 
     extra_data_options = {
-        "mtt::charge": {"key": "charge", "type": "scalar", "per_atom": False,
-                        "num_subtargets": 1, "quantity": ""},
+        "mtt::charge": {
+            "key": "charge",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "quantity": "",
+        },
     }
     dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
 
@@ -922,8 +944,14 @@ def test_memmap_get_extra_data_info_returns_target_info(tmp_path):
     np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
 
     extra_data_options = {
-        "mtt::charge": {"key": "charge", "type": "scalar", "per_atom": False,
-                        "num_subtargets": 1, "quantity": "", "unit": ""},
+        "mtt::charge": {
+            "key": "charge",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "quantity": "",
+            "unit": "",
+        },
     }
     dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
 
@@ -947,10 +975,20 @@ def test_memmap_extra_data_multiple_keys(tmp_path):
     np.array([4.0, 5.0, 6.0], dtype="float32").tofile(tmp_path / "spin.bin")
 
     extra_data_options = {
-        "mtt::charge": {"key": "charge", "type": "scalar", "per_atom": False,
-                        "num_subtargets": 1, "quantity": ""},
-        "mtt::spin": {"key": "spin", "type": "scalar", "per_atom": False,
-                      "num_subtargets": 1, "quantity": ""},
+        "mtt::charge": {
+            "key": "charge",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "quantity": "",
+        },
+        "mtt::spin": {
+            "key": "spin",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "quantity": "",
+        },
     }
     dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
 
@@ -958,3 +996,39 @@ def test_memmap_extra_data_multiple_keys(tmp_path):
     fields = sample._asdict()
     assert fields["mtt::charge"].block().values.item() == pytest.approx(2.0)
     assert fields["mtt::spin"].block().values.item() == pytest.approx(5.0)
+
+
+def test_memmap_extra_data_overlapping_key_raises(tmp_path):
+    """Passing an extra_data key that duplicates a target key raises ValueError."""
+    target_options, _ = _write_minimal_memmap(tmp_path)
+    np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "e.bin")
+
+    extra_data_options = {
+        "energy": {
+            "key": "e",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "quantity": "",
+        },
+    }
+    with pytest.raises(ValueError, match="overlap with target keys"):
+        MemmapDataset(tmp_path, target_options, extra_data_options)
+
+
+def test_memmap_extra_data_non_scalar_type_raises(tmp_path):
+    """Passing an extra_data entry with type != 'scalar' raises ValueError."""
+    target_options, _ = _write_minimal_memmap(tmp_path)
+    np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
+
+    extra_data_options = {
+        "mtt::charge": {
+            "key": "charge",
+            "type": {"cartesian": {"rank": 1}},
+            "per_atom": False,
+            "num_subtargets": 3,
+            "quantity": "",
+        },
+    }
+    with pytest.raises(ValueError, match="only 'scalar' is supported"):
+        MemmapDataset(tmp_path, target_options, extra_data_options)

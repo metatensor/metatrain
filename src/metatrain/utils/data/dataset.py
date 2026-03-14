@@ -767,14 +767,14 @@ class DiskDataset(torch.utils.data.Dataset):
                 target_info_dict[target_key] = target_info
         return target_info_dict
 
-    def get_extra_data_info(self) -> Dict[str, "TargetInfo"]:
+    def get_extra_data_info(self) -> Dict[str, TargetInfo]:
         """
         Get information about the extra_data entries in the dataset.
 
         :return: A dictionary mapping extra_data keys to :py:class:`TargetInfo`
             objects describing each per-system scalar array.
         """
-        extra_data_info_dict: Dict[str, "TargetInfo"] = {}
+        extra_data_info_dict: Dict[str, TargetInfo] = {}
         if not self.extra_data_config:
             return extra_data_info_dict
         first_sample = self[0]
@@ -1017,6 +1017,18 @@ class MemmapDataset(TorchDataset):
         self.extra_data_config: Dict[str, Any] = (
             extra_data_options if extra_data_options is not None else {}
         )
+        overlapping = set(target_options.keys()) & set(self.extra_data_config.keys())
+        if overlapping:
+            raise ValueError(
+                f"Extra data keys {overlapping} overlap with target keys. "
+                "Please use unique keys for targets and extra data."
+            )
+        for key, opts in self.extra_data_config.items():
+            if opts.get("type") != "scalar":
+                raise ValueError(
+                    f"Extra data key '{key}' has type '{opts.get('type')}'; "
+                    "only 'scalar' is supported for MemmapDataset extra data."
+                )
         self.sample_class = namedtuple(
             "Sample",
             ["system"]
@@ -1041,11 +1053,15 @@ class MemmapDataset(TorchDataset):
                 path / "momenta.bin", (self.na[-1], 3), "float32", mode="r"
             )
 
-        # Register per-system scalar arrays for extra_data keys (e.g. "mtt::charge")
+        # Register per-system (or per-atom) scalar arrays for extra_data keys
         self.extra_data_arrays: Dict[str, MemmapArray] = {}
         for key, opts in self.extra_data_config.items():
+            n_samples = self.na[-1] if opts["per_atom"] else self.ns
             self.extra_data_arrays[key] = MemmapArray(
-                path / f"{opts['key']}.bin", (self.ns,), "float32", mode="r"
+                path / f"{opts['key']}.bin",
+                (n_samples, opts["num_subtargets"]),
+                "float32",
+                mode="r",
             )
 
         # Register arrays pointing to the targets
@@ -1255,23 +1271,35 @@ class MemmapDataset(TorchDataset):
                 ),
             )
 
-        # Build extra_data TensorMaps (per-system scalars returned in the sample
-        # and forwarded to the `extra` argument of CollateFn callables)
+        # Build extra_data TensorMaps returned in the sample and forwarded to
+        # the `extra` argument of CollateFn callables
         extra_data_dict = {}
         for key, arr in self.extra_data_arrays.items():
-            prop_name = key.split("::")[-1]
+            is_per_atom = arr.shape[0] == self.na[-1]
+            if is_per_atom:
+                extra_samples = Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor(
+                        [[i, j] for j in range(self.na[i + 1] - self.na[i])],
+                        dtype=torch.int32,
+                    ),
+                )
+                extra_values = torch.tensor(
+                    arr[self.na[i] : self.na[i + 1]], dtype=torch.float64
+                )
+            else:
+                extra_samples = Labels("system", torch.tensor([[i]], dtype=torch.int32))
+                extra_values = torch.tensor(arr[None, i], dtype=torch.float64)
             extra_data_dict[key] = TensorMap(
                 keys=Labels.single(),
                 blocks=[
                     TensorBlock(
-                        values=torch.tensor(
-                            [[float(arr[i])]], dtype=torch.float64
-                        ),
-                        samples=Labels(
-                            "system", torch.tensor([[i]], dtype=torch.int32)
-                        ),
+                        values=extra_values,
+                        samples=extra_samples,
                         components=[],
-                        properties=Labels(prop_name, torch.tensor([[0]])),
+                        properties=Labels.range(
+                            key.replace("mtt::", ""), arr.shape[-1]
+                        ),
                     )
                 ],
             )
