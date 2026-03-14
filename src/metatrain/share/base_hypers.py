@@ -173,7 +173,7 @@ class TargetHypers(TypedDict):
     per_atom: NotRequired[bool] = False
     """Whether the target is a per-atom quantity, as opposed to a global
     (per-structure) quantity."""
-    type: TargetType
+    type: NotRequired[TargetType]
     """Specifies the type of the target.
 
     See :ref:`Fitting Generic Targets <fitting-generic-targets>` to understand
