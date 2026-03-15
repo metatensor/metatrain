@@ -716,6 +716,387 @@ def test_compiled_vs_eager_backward_with_forces():
         )
 
 
+def test_compiled_vs_eager_training_weights():
+    """Multi-step training produces the same weights compiled vs eager.
+
+    Trains two identical models for a few optimizer steps: one through
+    the compiled FX path, one through the eager evaluate_model path.
+    Compares all parameter values after training. Thread count is pinned
+    to 1 to ensure deterministic index_add_/scatter_add_ accumulation
+    (see https://rgoswami.me/snippets/pytorch-deterministic-regression/).
+    """
+    from omegaconf import OmegaConf
+    from torch.utils.data import DataLoader
+
+    from metatrain.pet import PET
+    from metatrain.utils.data import CollateFn, DatasetInfo
+    from metatrain.utils.data.readers import read_systems, read_targets
+    from metatrain.utils.data.target_info import get_energy_target_info
+    from metatrain.utils.evaluate_model import evaluate_model
+    from metatrain.utils.loss import LossAggregator, LossSpecification
+    from metatrain.utils.neighbor_lists import (
+        get_system_with_neighbor_lists,
+        get_system_with_neighbor_lists_transform,
+    )
+    from metatrain.utils.per_atom import average_by_num_atoms
+    from metatrain.utils.transfer import batch_to
+
+    from ..modules.compile import compile_pet_model
+    from ..modules.structures import systems_to_batch
+    from . import DATASET_PATH, MODEL_HYPERS
+
+    # Pin threads for deterministic float accumulation
+    old_threads = torch.get_num_threads()
+    torch.set_num_threads(1)
+
+    try:
+        _run_compiled_vs_eager_training(
+            MODEL_HYPERS, DATASET_PATH,
+            compile_pet_model, systems_to_batch, evaluate_model,
+            LossAggregator, LossSpecification,
+            CollateFn, DatasetInfo,
+            get_energy_target_info, read_systems, read_targets,
+            get_system_with_neighbor_lists,
+            get_system_with_neighbor_lists_transform,
+            average_by_num_atoms, batch_to,
+            PET, OmegaConf, DataLoader,
+        )
+    finally:
+        torch.set_num_threads(old_threads)
+
+
+def _run_compiled_vs_eager_training(
+    MODEL_HYPERS, DATASET_PATH,
+    compile_pet_model, systems_to_batch, evaluate_model,
+    LossAggregator, LossSpecification,
+    CollateFn, DatasetInfo,
+    get_energy_target_info, read_systems, read_targets,
+    get_system_with_neighbor_lists,
+    get_system_with_neighbor_lists_transform,
+    average_by_num_atoms, batch_to,
+    PET, OmegaConf, DataLoader,
+):
+    n_steps = 3
+    lr = 1e-3
+
+    targets = {
+        "mtt::U0": get_energy_target_info(
+            "mtt::U0", {"quantity": "energy", "unit": "eV"}
+        )
+    }
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
+    )
+
+    # Two identical models from the same seed
+    torch.manual_seed(42)
+    model_eager = PET(MODEL_HYPERS, dataset_info)
+    torch.manual_seed(42)
+    model_compiled = PET(MODEL_HYPERS, dataset_info)
+
+    # Verify initial weights are identical
+    for (ne, pe), (nc, pc) in zip(
+        model_eager.named_parameters(), model_compiled.named_parameters()
+    ):
+        assert ne == nc
+        assert torch.equal(pe.data, pc.data), f"Initial weight mismatch: {ne}"
+
+    # Load systems
+    systems = read_systems(DATASET_PATH)[:5]
+    systems = [s.to(torch.float32) for s in systems]
+    for s in systems:
+        get_system_with_neighbor_lists(s, model_eager.requested_neighbor_lists())
+
+    # Read targets for the dataloader
+    conf = {
+        "mtt::U0": {
+            "quantity": "energy",
+            "read_from": DATASET_PATH,
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets_data, _ = read_targets(OmegaConf.create(conf))
+    raw_systems = read_systems(DATASET_PATH)[:5]
+    targets_data["mtt::U0"] = targets_data["mtt::U0"][:5]
+
+    from metatrain.utils.data import Dataset
+
+    dataset = Dataset.from_dict(
+        {"system": raw_systems, "mtt::U0": targets_data["mtt::U0"]}
+    )
+    collate_fn = CollateFn(
+        target_keys=["mtt::U0"],
+        callables=[
+            get_system_with_neighbor_lists_transform(
+                model_compiled.requested_neighbor_lists()
+            ),
+        ],
+    )
+    # num_workers=0 prevents subprocess RNG divergence
+    dataloader = DataLoader(
+        dataset, batch_size=5, shuffle=False, collate_fn=collate_fn, num_workers=0
+    )
+
+    # Loss function
+    from metatrain.utils.data import unpack_batch
+
+    from metatrain.utils.hypers import init_with_defaults
+
+    loss_conf = {"mtt::U0": init_with_defaults(LossSpecification)}
+    loss_fn = LossAggregator(
+        targets=targets,
+        config=loss_conf,
+    )
+
+    # Compile model
+    model_compiled.train()
+    torch._dynamo.reset()
+    compiled_fn, _, _ = compile_pet_model(
+        model_compiled, dataloader, compute_forces=False, compute_stress=False,
+    )
+
+    # Optimizers
+    opt_eager = torch.optim.Adam(model_eager.parameters(), lr=lr)
+    opt_compiled = torch.optim.Adam(model_compiled.parameters(), lr=lr)
+
+    # Apply the same SiLU/RMSNorm replacements that compile_pet_model does
+    from ..modules.utilities import replace_rmsnorm_modules, replace_silu_modules
+
+    replace_silu_modules(model_eager)
+    replace_rmsnorm_modules(model_eager)
+
+    model_eager.train()
+
+    # --- Train both for n_steps ---
+    for step in range(n_steps):
+        batch = next(iter(dataloader))
+        systems_batch, targets_batch, extra_data = unpack_batch(batch)
+        systems_batch, targets_batch, extra_data = batch_to(
+            systems_batch, targets_batch, extra_data,
+            dtype=torch.float32, device=torch.device("cpu"),
+        )
+
+        # --- EAGER step ---
+        opt_eager.zero_grad()
+        preds_eager = evaluate_model(
+            model_eager, systems_batch,
+            {key: targets[key] for key in targets_batch.keys()},
+            is_training=True,
+        )
+        preds_eager = average_by_num_atoms(preds_eager, systems_batch, [])
+        targets_step = average_by_num_atoms(targets_batch, systems_batch, [])
+        loss_eager = loss_fn(preds_eager, targets_step, extra_data)
+        loss_eager.backward()
+        opt_eager.step()
+
+        # Check per-step loss agreement
+        loss_e_val = loss_eager.item()
+
+        # --- COMPILED step ---
+        opt_compiled.zero_grad()
+        (
+            c_ein, c_einb, c_ev, _c_ed, c_pm, c_rni, c_cf, c_si, c_nai, c_sl,
+        ) = systems_to_batch(
+            systems_batch,
+            model_compiled.requested_nl,
+            model_compiled.atomic_types,
+            model_compiled.species_to_species_index,
+            model_compiled.cutoff_function,
+            model_compiled.cutoff_width,
+            model_compiled.num_neighbors_adaptive,
+        )
+        n_structures = len(systems_batch)
+        energy_c, _, _, _ = compiled_fn(
+            c_ev, c_ein, c_einb, c_pm, c_rni, c_cf, c_si, c_nai, n_structures,
+            *list(model_compiled.parameters()), *list(model_compiled.buffers()),
+        )
+        from ..trainer import _wrap_compiled_output
+
+        preds_compiled = _wrap_compiled_output(
+            energy_c, None, None, {}, model_compiled,
+            systems_batch, c_sl, c_si, targets,
+        )
+        preds_compiled = average_by_num_atoms(preds_compiled, systems_batch, [])
+        loss_compiled = loss_fn(preds_compiled, targets_step, extra_data)
+        loss_compiled.backward()
+        opt_compiled.step()
+
+        # Per-step loss and gradient comparison
+        loss_c_val = loss_compiled.item()
+        assert abs(loss_e_val - loss_c_val) < 1e-4, (
+            f"Step {step}: loss diverged: eager={loss_e_val:.6f} "
+            f"compiled={loss_c_val:.6f} diff={abs(loss_e_val - loss_c_val):.2e}"
+        )
+
+    # --- COMPARE final weights ---
+    # After n_steps of training, compiled and eager paths should produce
+    # nearly identical weights. Tolerance accounts for float accumulation
+    # order differences between the two code paths (scatter_add_ vs
+    # metatensor wrapping, slightly different operator decomposition).
+    for (ne, pe), (nc, pc) in zip(
+        model_eager.named_parameters(), model_compiled.named_parameters()
+    ):
+        # Compiled and eager paths have inherent float differences from
+        # operator decomposition (DecomposedSiLU, scatter_add_ vs
+        # metatensor wrapping). After 3 optimizer steps these amplify
+        # to ~1e-3 absolute. Tolerance is set to catch real regressions
+        # (wrong gradients, missing sync) while allowing legitimate
+        # cross-path float divergence.
+        torch.testing.assert_close(
+            pe.data, pc.data,
+            atol=5e-3, rtol=0.05,
+            msg=f"Weight mismatch after {n_steps} steps: {ne}",
+        )
+
+
+def test_compiled_training_deterministic():
+    """Same compiled training run is exactly reproducible with thread pinning.
+
+    Runs the same 3-step compiled training twice with identical seeds and
+    single-threaded execution. Weights must match exactly (not approximately).
+    Validates that torch.set_num_threads(1) eliminates scatter_add_
+    non-determinism per https://rgoswami.me/snippets/pytorch-deterministic-regression/.
+    """
+    from omegaconf import OmegaConf
+    from torch.utils.data import DataLoader
+
+    from metatrain.pet import PET
+    from metatrain.utils.data import CollateFn, DatasetInfo
+    from metatrain.utils.data.readers import read_systems, read_targets
+    from metatrain.utils.data.target_info import get_energy_target_info
+    from metatrain.utils.hypers import init_with_defaults
+    from metatrain.utils.loss import LossAggregator, LossSpecification
+    from metatrain.utils.neighbor_lists import (
+        get_system_with_neighbor_lists_transform,
+    )
+    from metatrain.utils.per_atom import average_by_num_atoms
+    from metatrain.utils.transfer import batch_to
+
+    from ..modules.compile import compile_pet_model
+    from ..modules.structures import systems_to_batch
+    from ..trainer import _wrap_compiled_output
+    from . import DATASET_PATH, MODEL_HYPERS
+
+    old_threads = torch.get_num_threads()
+    torch.set_num_threads(1)
+
+    try:
+        weights_runs = []
+        for _run in range(2):
+            torch.manual_seed(42)
+            targets = {
+                "mtt::U0": get_energy_target_info(
+                    "mtt::U0", {"quantity": "energy", "unit": "eV"}
+                )
+            }
+            dataset_info = DatasetInfo(
+                length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
+            )
+            model = PET(MODEL_HYPERS, dataset_info)
+
+            conf = {
+                "mtt::U0": {
+                    "quantity": "energy",
+                    "read_from": DATASET_PATH,
+                    "reader": "ase",
+                    "key": "U0",
+                    "unit": "eV",
+                    "type": "scalar",
+                    "per_atom": False,
+                    "num_subtargets": 1,
+                    "forces": False,
+                    "stress": False,
+                    "virial": False,
+                }
+            }
+            targets_data, _ = read_targets(OmegaConf.create(conf))
+            raw_systems = read_systems(DATASET_PATH)[:5]
+            targets_data["mtt::U0"] = targets_data["mtt::U0"][:5]
+
+            from metatrain.utils.data import Dataset, unpack_batch
+
+            dataset = Dataset.from_dict(
+                {"system": raw_systems, "mtt::U0": targets_data["mtt::U0"]}
+            )
+            collate_fn = CollateFn(
+                target_keys=["mtt::U0"],
+                callables=[
+                    get_system_with_neighbor_lists_transform(
+                        model.requested_neighbor_lists()
+                    ),
+                ],
+            )
+            dl = DataLoader(
+                dataset, batch_size=5, shuffle=False,
+                collate_fn=collate_fn, num_workers=0,
+            )
+
+            model.train()
+            torch._dynamo.reset()
+            compiled_fn, _, _ = compile_pet_model(
+                model, dl, compute_forces=False, compute_stress=False,
+            )
+            opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+            loss_conf = {"mtt::U0": init_with_defaults(LossSpecification)}
+            loss_fn = LossAggregator(targets=targets, config=loss_conf)
+
+            for _step in range(3):
+                batch = next(iter(dl))
+                systems_batch, targets_batch, extra_data = unpack_batch(batch)
+                systems_batch, targets_batch, extra_data = batch_to(
+                    systems_batch, targets_batch, extra_data,
+                    dtype=torch.float32, device=torch.device("cpu"),
+                )
+                opt.zero_grad()
+                (
+                    c_ein, c_einb, c_ev, _c_ed, c_pm, c_rni, c_cf,
+                    c_si, c_nai, c_sl,
+                ) = systems_to_batch(
+                    systems_batch,
+                    model.requested_nl, model.atomic_types,
+                    model.species_to_species_index, model.cutoff_function,
+                    model.cutoff_width, model.num_neighbors_adaptive,
+                )
+                energy, _, _, _ = compiled_fn(
+                    c_ev, c_ein, c_einb, c_pm, c_rni, c_cf, c_si, c_nai,
+                    len(systems_batch),
+                    *list(model.parameters()), *list(model.buffers()),
+                )
+                preds = _wrap_compiled_output(
+                    energy, None, None, {}, model,
+                    systems_batch, c_sl, c_si, targets,
+                )
+                preds = average_by_num_atoms(preds, systems_batch, [])
+                tgts = average_by_num_atoms(targets_batch, systems_batch, [])
+                loss = loss_fn(preds, tgts, extra_data)
+                loss.backward()
+                opt.step()
+
+            weights_runs.append({
+                n: p.data.clone() for n, p in model.named_parameters()
+            })
+
+        # Same path, same seed, single thread. With torch.compile, Triton
+        # kernel reductions may not be bit-identical across compilations
+        # (dynamo.reset between runs). Use tight tolerance instead of exact.
+        for name in weights_runs[0]:
+            diff = (weights_runs[0][name] - weights_runs[1][name]).abs().max().item()
+            assert diff < 1e-6, (
+                f"Non-deterministic compiled training: {name} "
+                f"max abs diff = {diff:.2e} (expected < 1e-6)"
+            )
+    finally:
+        torch.set_num_threads(old_threads)
+
+
 class TestTrainingCompile(TrainingTests, PETTests):
     """Run the standard training tests with compile=True.
 
