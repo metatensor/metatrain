@@ -241,6 +241,13 @@ class TrainerHypers(TypedDict):
     loss: str | dict[str, LossSpecification | str] = "mse"
     """This section describes the loss function to be used. See the
     :ref:`loss-functions` for more details."""
+    max_atoms_per_batch: Optional[int] = None
+    """Maximum total atoms per batch. When set, uses atom-count-aware batching
+    (greedy bin-packing) instead of fixed ``batch_size``. Useful for datasets with
+    variable structure sizes to avoid OOM. Required when using ``compile=True`` with
+    ``distributed=True`` to prevent recompilation storms from variable batch shapes
+    across ranks."""
+
     batch_atom_bounds: list[Optional[int]] = [None, None]
     """Bounds for the number of atoms per batch as [min, max]. Batches with atom
     counts outside these bounds will be skipped during training. Use ``None`` for

@@ -1,6 +1,7 @@
 import copy
 import logging
 import math
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
@@ -17,6 +18,8 @@ from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    MaxAtomBatchSampler,
+    MaxAtomDistributedBatchSampler,
     get_num_workers,
     unpack_batch,
     validate_num_workers,
@@ -210,7 +213,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 13
+    __checkpoint_version__ = 14
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -307,11 +310,20 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if compile_enabled:
             torch._dynamo.reset()
             if is_distributed:
-                logging.warning(
-                    "torch.compile with DDP is not yet supported. "
-                    "Disabling compilation for distributed training."
-                )
-                compile_enabled = False
+                if self.hypers.get("max_atoms_per_batch") is None:
+                    raise ValueError(
+                        "compile=True with distributed=True requires "
+                        "max_atoms_per_batch to prevent recompilation storms "
+                        "from variable batch shapes across ranks."
+                    )
+                if "TORCHINDUCTOR_CACHE_DIR" not in os.environ:
+                    logging.warning(
+                        "TORCHINDUCTOR_CACHE_DIR is not set. On HPC clusters "
+                        "with small /tmp (e.g. RAM-backed tmpfs), set this to "
+                        "scratch storage to avoid compilation failures. "
+                        "Example: export TORCHINDUCTOR_CACHE_DIR="
+                        "/scratch/$USER/inductor_cache"
+                    )
 
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
@@ -334,7 +346,61 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         logging.info("Setting up data loaders")
 
-        if is_distributed:
+        max_atoms = self.hypers.get("max_atoms_per_batch")
+        use_max_atom_sampler = max_atoms is not None
+
+        if use_max_atom_sampler and is_distributed:
+            train_batch_samplers = [
+                MaxAtomDistributedBatchSampler(
+                    dataset=ds,
+                    max_atoms=max_atoms,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=True,
+                    seed=0,
+                )
+                for ds in train_datasets
+            ]
+            val_batch_samplers = [
+                MaxAtomDistributedBatchSampler(
+                    dataset=ds,
+                    max_atoms=max_atoms,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=False,
+                    seed=0,
+                )
+                for ds in val_datasets
+            ]
+            # These samplers support set_epoch()
+            epoch_samplers = list(train_batch_samplers)
+            train_samplers = [None] * len(train_datasets)
+            val_samplers = [None] * len(val_datasets)
+        elif use_max_atom_sampler:
+            train_batch_samplers = [
+                MaxAtomBatchSampler(
+                    dataset=ds,
+                    max_atoms=max_atoms,
+                    shuffle=True,
+                    seed=0,
+                )
+                for ds in train_datasets
+            ]
+            val_batch_samplers = [
+                MaxAtomBatchSampler(
+                    dataset=ds,
+                    max_atoms=max_atoms,
+                    shuffle=False,
+                    seed=0,
+                )
+                for ds in val_datasets
+            ]
+            epoch_samplers = list(train_batch_samplers)
+            train_samplers = [None] * len(train_datasets)
+            val_samplers = [None] * len(val_datasets)
+        elif is_distributed:
+            train_batch_samplers = [None] * len(train_datasets)
+            val_batch_samplers = [None] * len(val_datasets)
             train_samplers = [
                 DistributedSampler(
                     train_dataset,
@@ -355,9 +421,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
                 for val_dataset in val_datasets
             ]
+            epoch_samplers = list(train_samplers)
         else:
+            train_batch_samplers = [None] * len(train_datasets)
+            val_batch_samplers = [None] * len(val_datasets)
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
+            epoch_samplers = []
 
         # Extract additive models and scaler and move them to CPU/float64 so they
         # can be used in the collate function
@@ -412,53 +482,76 @@ class Trainer(TrainerInterface[TrainerHypers]):
             validate_num_workers(num_workers)
 
         train_dataloaders = []
-        for train_dataset, train_sampler in zip(
-            train_datasets, train_samplers, strict=True
+        for train_dataset, train_sampler, train_batch_sampler in zip(
+            train_datasets, train_samplers, train_batch_samplers, strict=True
         ):
-            if len(train_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A training dataset has fewer samples "
-                    f"({len(train_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
+            if train_batch_sampler is not None:
+                train_dataloaders.append(
+                    DataLoader(
+                        dataset=train_dataset,
+                        batch_sampler=train_batch_sampler,
+                        collate_fn=collate_fn_train,
+                        num_workers=num_workers,
+                    )
                 )
-            train_dataloaders.append(
-                DataLoader(
-                    dataset=train_dataset,
-                    batch_size=self.hypers["batch_size"],
-                    sampler=train_sampler,
-                    shuffle=(
-                        # the sampler takes care of this (if present)
-                        train_sampler is None
-                    ),
-                    drop_last=(
-                        # the sampler takes care of this (if present)
-                        train_sampler is None
-                    ),
-                    collate_fn=collate_fn_train,
-                    num_workers=num_workers,
+            else:
+                if len(train_dataset) < self.hypers["batch_size"]:
+                    raise ValueError(
+                        f"A training dataset has fewer samples "
+                        f"({len(train_dataset)}) than the batch size "
+                        f"({self.hypers['batch_size']}). "
+                        "Please reduce the batch size."
+                    )
+                train_dataloaders.append(
+                    DataLoader(
+                        dataset=train_dataset,
+                        batch_size=self.hypers["batch_size"],
+                        sampler=train_sampler,
+                        shuffle=(train_sampler is None),
+                        drop_last=(train_sampler is None),
+                        collate_fn=collate_fn_train,
+                        num_workers=num_workers,
+                    )
                 )
-            )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
         # Create dataloader for the validation datasets:
         val_dataloaders = []
-        for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
-            val_dataloaders.append(
-                DataLoader(
-                    dataset=val_dataset,
-                    batch_size=self.hypers["batch_size"],
-                    sampler=val_sampler,
-                    shuffle=False,
-                    drop_last=False,
-                    collate_fn=collate_fn_val,
-                    num_workers=num_workers,
+        for val_dataset, val_sampler, val_batch_sampler in zip(
+            val_datasets, val_samplers, val_batch_samplers, strict=True
+        ):
+            if val_batch_sampler is not None:
+                val_dataloaders.append(
+                    DataLoader(
+                        dataset=val_dataset,
+                        batch_sampler=val_batch_sampler,
+                        collate_fn=collate_fn_val,
+                        num_workers=num_workers,
+                    )
                 )
-            )
+            else:
+                val_dataloaders.append(
+                    DataLoader(
+                        dataset=val_dataset,
+                        batch_size=self.hypers["batch_size"],
+                        sampler=val_sampler,
+                        shuffle=False,
+                        drop_last=False,
+                        collate_fn=collate_fn_val,
+                        num_workers=num_workers,
+                    )
+                )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
+
+        # Helper to access the raw model regardless of DDP wrapping
+        raw_model = (
+            model.module
+            if isinstance(model, DistributedDataParallel)
+            else model
+        )
 
         outputs_list = []
         for target_name, target_info in train_targets.items():
@@ -494,7 +587,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not raw_model.has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a learning rate scheduler
@@ -502,7 +595,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not raw_model.has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         per_structure_targets = self.hypers["per_structure_targets"]
@@ -517,7 +610,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             compiled_fn, _compiled_param_names, _compiled_buffer_names = (
                 compile_pet_model(
-                    model,
+                    raw_model,
                     train_dataloader,
                     has_gradients,
                     has_strain_gradients,
@@ -534,9 +627,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
         epoch = start_epoch
 
         for epoch in range(start_epoch, self.hypers["num_epochs"]):
-            if is_distributed:
-                for train_sampler in train_samplers:
-                    train_sampler.set_epoch(epoch)
+            for sampler in epoch_samplers:
+                sampler.set_epoch(epoch)
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             if self.hypers["log_mae"]:
@@ -561,6 +653,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 if compile_enabled and compiled_fn is not None:
                     # FX-compiled path: call systems_to_batch directly,
                     # run the compiled function, and wrap outputs.
+                    # Use raw_model for attributes and parameters (the
+                    # compiled graph was traced on the unwrapped model).
+                    # DDP's post-accumulate-grad hooks on raw_model's
+                    # parameters handle gradient sync automatically.
                     (
                         c_element_indices_nodes,
                         c_element_indices_neighbors,
@@ -574,12 +670,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         c_sample_labels,
                     ) = systems_to_batch(
                         systems,
-                        model.requested_nl,
-                        model.atomic_types,
-                        model.species_to_species_index,
-                        model.cutoff_function,
-                        model.cutoff_width,
-                        model.num_neighbors_adaptive,
+                        raw_model.requested_nl,
+                        raw_model.atomic_types,
+                        raw_model.species_to_species_index,
+                        raw_model.cutoff_function,
+                        raw_model.cutoff_width,
+                        raw_model.num_neighbors_adaptive,
                     )
                     if has_gradients:
                         c_edge_vectors = c_edge_vectors.requires_grad_(True)
@@ -594,15 +690,15 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         c_system_indices,
                         c_neighbor_atom_indices,
                         n_structures,
-                        *list(model.parameters()),
-                        *list(model.buffers()),
+                        *list(raw_model.parameters()),
+                        *list(raw_model.buffers()),
                     )
                     predictions = _wrap_compiled_output(
                         energy,
                         forces,
                         stress,
                         raw_preds,
-                        model,
+                        raw_model,
                         systems,
                         c_sample_labels,
                         c_system_indices,
@@ -616,6 +712,17 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
                     train_loss_batch = loss_fn(predictions, targets, extra_data)
                     train_loss_batch.backward()
+
+                    # Compiled path bypasses model.forward(), so DDP's
+                    # automatic gradient hooks may not fire. Explicit
+                    # all-reduce ensures correctness with any backend.
+                    if is_distributed:
+                        for param in raw_model.parameters():
+                            if param.grad is not None:
+                                torch.distributed.all_reduce(
+                                    param.grad,
+                                    op=torch.distributed.ReduceOp.AVG,
+                                )
                 else:
                     predictions = evaluate_model(
                         model,
@@ -647,10 +754,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                scaled_predictions = (model.module if is_distributed else model).scaler(
+                scaled_predictions = raw_model.scaler(
                     systems, predictions
                 )
-                scaled_targets = (model.module if is_distributed else model).scaler(
+                scaled_targets = raw_model.scaler(
                     systems, targets
                 )
                 train_rmse_calculator.update(
@@ -709,10 +816,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         torch.distributed.all_reduce(val_loss_batch)
                     val_loss += val_loss_batch.item()
 
-                    scaled_predictions = (
-                        model.module if is_distributed else model
-                    ).scaler(systems, predictions)
-                    scaled_targets = (model.module if is_distributed else model).scaler(
+                    scaled_predictions = raw_model.scaler(systems, predictions)
+                    scaled_targets = raw_model.scaler(
                         systems, targets
                     )
                     val_rmse_calculator.update(
@@ -750,9 +855,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             if epoch == start_epoch:
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
-                    dataset_info=(
-                        model.module if is_distributed else model
-                    ).dataset_info,
+                    dataset_info=raw_model.dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
                 )
@@ -769,9 +872,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
             if val_metric < self.best_metric:
                 self.best_metric = val_metric
-                raw_state_dict = (
-                    model.module if is_distributed else model
-                ).state_dict()
+                raw_state_dict = raw_model.state_dict()
                 self.best_model_state_dict = {
                     k.replace("._orig_mod", ""): v.clone()
                     for k, v in raw_state_dict.items()
@@ -787,7 +888,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 self.epoch = epoch
                 if rank == 0:
                     self.save_checkpoint(
-                        (model.module if is_distributed else model),
+                        raw_model,
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
 
