@@ -170,14 +170,7 @@ html_theme_options = {
     "source_repository": "https://github.com/metatensor/metatrain",
     "source_branch": "main",
     "source_directory": "docs/src/",
-    "footer_icons": [
-        {
-            "name": "GitHub",
-            "url": project_dict["urls"]["repository"],
-            "html": "",
-            "class": "fa-brands fa-github fa-2x",
-        },
-    ],
+    "footer_icons": [],
 }
 
 html_sidebars = {
