@@ -65,9 +65,7 @@ def _greedy_pack(
 
 def _get_atom_counts(dataset: torch.utils.data.Dataset) -> np.ndarray:
     """Get atom counts for all samples, using vectorised path if available."""
-    inner = (
-        dataset.dataset if isinstance(dataset, torch.utils.data.Subset) else dataset
-    )
+    inner = dataset.dataset if isinstance(dataset, torch.utils.data.Subset) else dataset
     if hasattr(inner, "get_all_atom_counts"):
         all_counts = inner.get_all_atom_counts()
         if isinstance(dataset, torch.utils.data.Subset):

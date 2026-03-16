@@ -548,9 +548,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Helper to access the raw model regardless of DDP wrapping
         raw_model = (
-            model.module
-            if isinstance(model, DistributedDataParallel)
-            else model
+            model.module if isinstance(model, DistributedDataParallel) else model
         )
 
         outputs_list = []
@@ -754,12 +752,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                scaled_predictions = raw_model.scaler(
-                    systems, predictions
-                )
-                scaled_targets = raw_model.scaler(
-                    systems, targets
-                )
+                scaled_predictions = raw_model.scaler(systems, predictions)
+                scaled_targets = raw_model.scaler(systems, targets)
                 train_rmse_calculator.update(
                     scaled_predictions, scaled_targets, extra_data
                 )
@@ -817,9 +811,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     val_loss += val_loss_batch.item()
 
                     scaled_predictions = raw_model.scaler(systems, predictions)
-                    scaled_targets = raw_model.scaler(
-                        systems, targets
-                    )
+                    scaled_targets = raw_model.scaler(systems, targets)
                     val_rmse_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )

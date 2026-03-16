@@ -143,8 +143,12 @@ def test_distributed_all_indices_covered():
     all_indices = []
     for rank in range(world_size):
         sampler = MaxAtomDistributedBatchSampler(
-            ds, max_atoms=9, num_replicas=world_size, rank=rank,
-            shuffle=False, seed=0,
+            ds,
+            max_atoms=9,
+            num_replicas=world_size,
+            rank=rank,
+            shuffle=False,
+            seed=0,
         )
         for batch in sampler:
             all_indices.extend(batch)
@@ -162,8 +166,12 @@ def test_distributed_equal_batch_count():
     counts = []
     for rank in range(world_size):
         sampler = MaxAtomDistributedBatchSampler(
-            ds, max_atoms=9, num_replicas=world_size, rank=rank,
-            shuffle=False, seed=0,
+            ds,
+            max_atoms=9,
+            num_replicas=world_size,
+            rank=rank,
+            shuffle=False,
+            seed=0,
         )
         counts.append(len(list(sampler)))
 
@@ -175,10 +183,20 @@ def test_distributed_epoch_determinism():
     atom_counts = [2] * 30
     ds = _FakeDataset(atom_counts)
     s1 = MaxAtomDistributedBatchSampler(
-        ds, max_atoms=6, num_replicas=2, rank=0, shuffle=True, seed=42,
+        ds,
+        max_atoms=6,
+        num_replicas=2,
+        rank=0,
+        shuffle=True,
+        seed=42,
     )
     s2 = MaxAtomDistributedBatchSampler(
-        ds, max_atoms=6, num_replicas=2, rank=0, shuffle=True, seed=42,
+        ds,
+        max_atoms=6,
+        num_replicas=2,
+        rank=0,
+        shuffle=True,
+        seed=42,
     )
     s1.set_epoch(5)
     s2.set_epoch(5)
@@ -192,8 +210,12 @@ def test_distributed_atom_limit_respected():
     max_atoms = 7
     for rank in range(2):
         sampler = MaxAtomDistributedBatchSampler(
-            ds, max_atoms=max_atoms, num_replicas=2, rank=rank,
-            shuffle=False, seed=0,
+            ds,
+            max_atoms=max_atoms,
+            num_replicas=2,
+            rank=rank,
+            shuffle=False,
+            seed=0,
         )
         for batch in sampler:
             total = sum(atom_counts[i] for i in batch)
@@ -294,7 +316,16 @@ def _run_compiled_ddp_gradient_sync(rank, world_size, results_dict):
 
     # Forward + backward using compiled path with raw_model's params
     (
-        c_ein, c_einb, c_ev, _c_ed, c_pm, c_rni, c_cf, c_si, c_nai, c_sl,
+        c_ein,
+        c_einb,
+        c_ev,
+        _c_ed,
+        c_pm,
+        c_rni,
+        c_cf,
+        c_si,
+        c_nai,
+        c_sl,
     ) = systems_to_batch(
         rank_systems,
         raw_model.requested_nl,
@@ -308,8 +339,17 @@ def _run_compiled_ddp_gradient_sync(rank, world_size, results_dict):
     c_ev = c_ev.requires_grad_(True)
     n_structures = len(rank_systems)
     energy, forces, stress, raw_preds = compiled_fn(
-        c_ev, c_ein, c_einb, c_pm, c_rni, c_cf, c_si, c_nai, n_structures,
-        *list(raw_model.parameters()), *list(raw_model.buffers()),
+        c_ev,
+        c_ein,
+        c_einb,
+        c_pm,
+        c_rni,
+        c_cf,
+        c_si,
+        c_nai,
+        n_structures,
+        *list(raw_model.parameters()),
+        *list(raw_model.buffers()),
     )
     loss = energy.sum() + forces.sum() + stress.sum()
     loss.backward()
@@ -320,7 +360,8 @@ def _run_compiled_ddp_gradient_sync(rank, world_size, results_dict):
     for param in raw_model.parameters():
         if param.grad is not None:
             torch.distributed.all_reduce(
-                param.grad, op=torch.distributed.ReduceOp.AVG,
+                param.grad,
+                op=torch.distributed.ReduceOp.AVG,
             )
 
     # Collect gradient norms to verify they match across ranks.
@@ -333,9 +374,7 @@ def _run_compiled_ddp_gradient_sync(rank, world_size, results_dict):
     torch.distributed.destroy_process_group()
 
 
-@pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="CUDA required for DDP tests"
-)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required for DDP tests")
 def test_compiled_ddp_gradient_sync():
     """Verify DDP gradient hooks fire and sync gradients in compiled path."""
     import torch.multiprocessing as mp
@@ -362,7 +401,10 @@ def test_compiled_ddp_gradient_sync():
 
 
 def _setup_model_and_dl(
-    device, dtype=torch.float32, with_forces=True, with_stress=True,
+    device,
+    dtype=torch.float32,
+    with_forces=True,
+    with_stress=True,
 ):
     """Shared helper: create PET model + dataloader for DDP tests.
 
@@ -424,7 +466,11 @@ def _setup_model_and_dl(
         **{"mtt::U0": dummy_targets},
     )
     dl = torch.utils.data.DataLoader(
-        ds, batch_size=4, collate_fn=collate_fn, shuffle=False, num_workers=0,
+        ds,
+        batch_size=4,
+        collate_fn=collate_fn,
+        shuffle=False,
+        num_workers=0,
     )
     return model, dl, targets, systems
 
@@ -470,26 +516,46 @@ def _run_ddp_training_worker(rank, world_size, n_steps, results_dict):
         batch = next(iter(dl))
         systems_batch, targets_batch, extra_data = unpack_batch(batch)
         systems_batch, targets_batch, extra_data = batch_to(
-            systems_batch, targets_batch, extra_data,
-            dtype=torch.float32, device=device,
+            systems_batch,
+            targets_batch,
+            extra_data,
+            dtype=torch.float32,
+            device=device,
         )
         optimizer.zero_grad()
-        c_ein, c_einb, c_ev, _, c_pm, c_rni, c_cf, c_si, c_nai, c_sl = (
-            systems_to_batch(
-                systems_batch, raw_model.requested_nl, raw_model.atomic_types,
-                raw_model.species_to_species_index, raw_model.cutoff_function,
-                raw_model.cutoff_width, raw_model.num_neighbors_adaptive,
-            )
+        c_ein, c_einb, c_ev, _, c_pm, c_rni, c_cf, c_si, c_nai, c_sl = systems_to_batch(
+            systems_batch,
+            raw_model.requested_nl,
+            raw_model.atomic_types,
+            raw_model.species_to_species_index,
+            raw_model.cutoff_function,
+            raw_model.cutoff_width,
+            raw_model.num_neighbors_adaptive,
         )
         c_ev = c_ev.requires_grad_(True)
         energy, forces, stress, raw_preds = compiled_fn(
-            c_ev, c_ein, c_einb, c_pm, c_rni, c_cf, c_si, c_nai,
+            c_ev,
+            c_ein,
+            c_einb,
+            c_pm,
+            c_rni,
+            c_cf,
+            c_si,
+            c_nai,
             len(systems_batch),
-            *list(raw_model.parameters()), *list(raw_model.buffers()),
+            *list(raw_model.parameters()),
+            *list(raw_model.buffers()),
         )
         preds = _wrap_compiled_output(
-            energy, forces, stress, raw_preds, raw_model,
-            systems_batch, c_sl, c_si, targets,
+            energy,
+            forces,
+            stress,
+            raw_preds,
+            raw_model,
+            systems_batch,
+            c_sl,
+            c_si,
+            targets,
         )
         preds = average_by_num_atoms(preds, systems_batch, [])
         tgts = average_by_num_atoms(targets_batch, systems_batch, [])
@@ -498,7 +564,8 @@ def _run_ddp_training_worker(rank, world_size, n_steps, results_dict):
         for param in raw_model.parameters():
             if param.grad is not None:
                 torch.distributed.all_reduce(
-                    param.grad, op=torch.distributed.ReduceOp.AVG,
+                    param.grad,
+                    op=torch.distributed.ReduceOp.AVG,
                 )
         optimizer.step()
 
@@ -512,9 +579,7 @@ def _run_ddp_training_worker(rank, world_size, n_steps, results_dict):
     torch.distributed.destroy_process_group()
 
 
-@pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="CUDA required for DDP tests"
-)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required for DDP tests")
 def test_compiled_ddp_vs_single_training_weights():
     """Multi-step DDP+compile training produces similar weights to single-GPU compile.
 
@@ -553,28 +618,46 @@ def test_compiled_ddp_vs_single_training_weights():
         batch = next(iter(dl))
         systems_batch, targets_batch, extra_data = unpack_batch(batch)
         systems_batch, targets_batch, extra_data = batch_to(
-            systems_batch, targets_batch, extra_data,
-            dtype=torch.float32, device=device,
+            systems_batch,
+            targets_batch,
+            extra_data,
+            dtype=torch.float32,
+            device=device,
         )
         optimizer.zero_grad()
-        c_ein, c_einb, c_ev, _, c_pm, c_rni, c_cf, c_si, c_nai, c_sl = (
-            systems_to_batch(
-                systems_batch, model_single.requested_nl,
-                model_single.atomic_types,
-                model_single.species_to_species_index,
-                model_single.cutoff_function, model_single.cutoff_width,
-                model_single.num_neighbors_adaptive,
-            )
+        c_ein, c_einb, c_ev, _, c_pm, c_rni, c_cf, c_si, c_nai, c_sl = systems_to_batch(
+            systems_batch,
+            model_single.requested_nl,
+            model_single.atomic_types,
+            model_single.species_to_species_index,
+            model_single.cutoff_function,
+            model_single.cutoff_width,
+            model_single.num_neighbors_adaptive,
         )
         c_ev = c_ev.requires_grad_(True)
         energy, forces, stress, raw_preds = compiled_fn(
-            c_ev, c_ein, c_einb, c_pm, c_rni, c_cf, c_si, c_nai,
+            c_ev,
+            c_ein,
+            c_einb,
+            c_pm,
+            c_rni,
+            c_cf,
+            c_si,
+            c_nai,
             len(systems_batch),
-            *list(model_single.parameters()), *list(model_single.buffers()),
+            *list(model_single.parameters()),
+            *list(model_single.buffers()),
         )
         preds = _wrap_compiled_output(
-            energy, forces, stress, raw_preds, model_single,
-            systems_batch, c_sl, c_si, targets,
+            energy,
+            forces,
+            stress,
+            raw_preds,
+            model_single,
+            systems_batch,
+            c_sl,
+            c_si,
+            targets,
         )
         preds = average_by_num_atoms(preds, systems_batch, [])
         tgts = average_by_num_atoms(targets_batch, systems_batch, [])
@@ -606,8 +689,10 @@ def test_compiled_ddp_vs_single_training_weights():
     # but via all_reduce(AVG). Weights should be very close.
     for name in single_weights:
         torch.testing.assert_close(
-            single_weights[name], ddp_weights[name],
-            atol=5e-3, rtol=0.05,
+            single_weights[name],
+            ddp_weights[name],
+            atol=5e-3,
+            rtol=0.05,
             msg=f"DDP vs single weight mismatch after {n_steps} steps: {name}",
         )
 
@@ -617,9 +702,7 @@ def test_compiled_ddp_vs_single_training_weights():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="CUDA required for DDP tests"
-)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required for DDP tests")
 def test_compiled_ddp_checkpoint_roundtrip(tmp_path):
     """Checkpoint from compiled+DDP training loads and produces same outputs."""
     from metatrain.pet.modules.compile import compile_pet_model
@@ -652,20 +735,39 @@ def test_compiled_ddp_checkpoint_roundtrip(tmp_path):
         sb, tb, ed = unpack_batch(batch)
         sb, tb, ed = batch_to(sb, tb, ed, dtype=torch.float32, device=device)
         optimizer.zero_grad()
-        c_ein, c_einb, c_ev, _, c_pm, c_rni, c_cf, c_si, c_nai, c_sl = (
-            systems_to_batch(
-                sb, model.requested_nl, model.atomic_types,
-                model.species_to_species_index, model.cutoff_function,
-                model.cutoff_width, model.num_neighbors_adaptive,
-            )
+        c_ein, c_einb, c_ev, _, c_pm, c_rni, c_cf, c_si, c_nai, c_sl = systems_to_batch(
+            sb,
+            model.requested_nl,
+            model.atomic_types,
+            model.species_to_species_index,
+            model.cutoff_function,
+            model.cutoff_width,
+            model.num_neighbors_adaptive,
         )
         c_ev = c_ev.requires_grad_(True)
         energy, forces, stress, raw_preds = compiled_fn(
-            c_ev, c_ein, c_einb, c_pm, c_rni, c_cf, c_si, c_nai,
-            len(sb), *list(model.parameters()), *list(model.buffers()),
+            c_ev,
+            c_ein,
+            c_einb,
+            c_pm,
+            c_rni,
+            c_cf,
+            c_si,
+            c_nai,
+            len(sb),
+            *list(model.parameters()),
+            *list(model.buffers()),
         )
         preds = _wrap_compiled_output(
-            energy, forces, stress, raw_preds, model, sb, c_sl, c_si, targets,
+            energy,
+            forces,
+            stress,
+            raw_preds,
+            model,
+            sb,
+            c_sl,
+            c_si,
+            targets,
         )
         preds = average_by_num_atoms(preds, sb, [])
         tgts = average_by_num_atoms(tb, sb, [])
@@ -710,8 +812,10 @@ def test_compiled_ddp_checkpoint_roundtrip(tmp_path):
     vals_before = output_before["mtt::U0"].block().values
     vals_after = output_after["mtt::U0"].block().values
     torch.testing.assert_close(
-        vals_before, vals_after,
-        atol=1e-5, rtol=1e-5,
+        vals_before,
+        vals_after,
+        atol=1e-5,
+        rtol=1e-5,
         msg="Checkpoint round-trip: output mismatch",
     )
 
@@ -721,9 +825,7 @@ def test_compiled_ddp_checkpoint_roundtrip(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="CUDA required"
-)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 def test_no_recompilation_on_same_batch_shape():
     """Verify no recompilation when batch shapes are consistent.
 
@@ -755,19 +857,30 @@ def test_no_recompilation_on_same_batch_shape():
         batch = next(iter(dl))
         sb, tb, ed = unpack_batch(batch)
         sb, tb, ed = batch_to(sb, tb, ed, dtype=torch.float32, device=device)
-        c_ein, c_einb, c_ev, _, c_pm, c_rni, c_cf, c_si, c_nai, _ = (
-            systems_to_batch(
-                sb, model.requested_nl, model.atomic_types,
-                model.species_to_species_index, model.cutoff_function,
-                model.cutoff_width, model.num_neighbors_adaptive,
-            )
+        c_ein, c_einb, c_ev, _, c_pm, c_rni, c_cf, c_si, c_nai, _ = systems_to_batch(
+            sb,
+            model.requested_nl,
+            model.atomic_types,
+            model.species_to_species_index,
+            model.cutoff_function,
+            model.cutoff_width,
+            model.num_neighbors_adaptive,
         )
         c_ev = c_ev.requires_grad_(True)
         torch.cuda.synchronize()
         t0 = time.perf_counter()
         compiled_fn(
-            c_ev, c_ein, c_einb, c_pm, c_rni, c_cf, c_si, c_nai,
-            len(sb), *list(model.parameters()), *list(model.buffers()),
+            c_ev,
+            c_ein,
+            c_einb,
+            c_pm,
+            c_rni,
+            c_cf,
+            c_si,
+            c_nai,
+            len(sb),
+            *list(model.parameters()),
+            *list(model.buffers()),
         )
         torch.cuda.synchronize()
         call_times.append(time.perf_counter() - t0)
@@ -779,6 +892,6 @@ def test_no_recompilation_on_same_batch_shape():
     median_ss = sorted(steady_state)[len(steady_state) // 2]
     for i, t in enumerate(steady_state):
         assert t < median_ss * 10, (
-            f"Call {i+2} took {t*1000:.1f} ms vs median {median_ss*1000:.1f} ms "
+            f"Call {i + 2} took {t * 1000:.1f} ms vs median {median_ss * 1000:.1f} ms "
             "(possible recompilation)"
         )
