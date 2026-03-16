@@ -103,8 +103,8 @@ following configuration trains a *SOAP-BPNN* model on the QM9 dataset:
 # architecture used to train the model
 architecture:
   name: soap_bpnn
-training:
-  num_epochs: 5  # a very short training run
+  training:
+    num_epochs: 5  # a very short training run
 
 # Mandatory section defining the parameters for system and target data of the training set
 training_set:
