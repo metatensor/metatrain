@@ -14,8 +14,9 @@ def test_train_readme_example(monkeypatch, tmp_path):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     # Parse the README to extract the training example
-    with open(README_PATH, "r") as f:
+    with open(README_PATH, "r", encoding="utf-8") as f:
         readme = f.read()
+
     start = readme.find("```yaml")
     end = readme.find("```\n", start)
     assert start != -1 and end != -1, "Could not find training example in README"
