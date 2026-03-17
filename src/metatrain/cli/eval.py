@@ -323,7 +323,7 @@ def eval_model(
             eval_info_dict = copy.deepcopy(model.capabilities().outputs)
             for name, model_output in eval_info_dict.items():
                 if "energy" in name:
-                    model_output.per_atom = False  # type: ignore
+                    model_output.sample_kind = "system"  # type: ignore
 
             eval_dataset = Dataset.from_dict({"system": eval_systems, **eval_targets})
 

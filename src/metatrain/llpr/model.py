@@ -139,7 +139,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             additional_capabilities[uncertainty_name] = ModelOutput(
                 quantity=output.quantity,
                 unit=output.unit,
-                per_atom=output.per_atom,
+                sample_kind=output.sample_kind,
                 description=output.description,
             )
         self.capabilities = ModelCapabilities(
@@ -196,7 +196,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             ensemble_outputs[ensemble_output_name] = ModelOutput(
                 quantity=old_capabilities.outputs[name].quantity,
                 unit=old_capabilities.outputs[name].unit,
-                per_atom=old_capabilities.outputs[name].per_atom,
+                sample_kind=old_capabilities.outputs[name].sample_kind,
                 description=f"ensemble of '{name}'",
             )
         self.capabilities = ModelCapabilities(
@@ -356,7 +356,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     .replace("_ensemble", "")
                 )
                 outputs_for_model[f"mtt::aux::{target_name}_last_layer_features"] = (
-                    ModelOutput(per_atom=output.per_atom)
+                    ModelOutput(sample_kind=output.sample_kind)
                 )
                 # for both uncertainties and ensembles, we need the original output,
                 # so we request it as well
@@ -621,7 +621,11 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 )
                 systems = [system.to(device=device, dtype=dtype) for system in systems]
                 outputs_for_targets = {
-                    name: ModelOutput(per_atom="atom" in target.block(0).samples.names)
+                    name: ModelOutput(
+                        sample_kind="atom"
+                        if "atom" in target.block(0).samples.names
+                        else "system"
+                    )
                     for name, target in targets.items()
                 }
                 outputs_for_features = {
@@ -637,7 +641,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     ]
                     # TODO: interface ll_feat calculation with the loss function,
                     # paying attention to normalization w.r.t. n_atoms
-                    if not outputs_for_targets[name].per_atom:
+                    if outputs_for_targets[name].sample_kind == "system":
                         ll_feats = (
                             ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(1)
                         )
@@ -777,10 +781,16 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
                 requested_outputs = {}
                 for name in targets:
-                    per_atom = "atom" in targets[name].block(0).samples.names
-                    requested_outputs[name] = ModelOutput(per_atom=per_atom)
+                    sample_kind = (
+                        "atom"
+                        if "atom" in targets[name].block(0).samples.names
+                        else "system"
+                    )
+                    requested_outputs[name] = ModelOutput(sample_kind=sample_kind)
                     uncertainty_name = _get_uncertainty_name(name)
-                    requested_outputs[uncertainty_name] = ModelOutput(per_atom=per_atom)
+                    requested_outputs[uncertainty_name] = ModelOutput(
+                        sample_kind=sample_kind
+                    )
 
                 outputs = self.forward(systems, requested_outputs)
 
@@ -877,7 +887,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             new_outputs[ensemble_name] = ModelOutput(
                 quantity=old_outputs[name].quantity,
                 unit=old_outputs[name].unit,
-                per_atom=old_outputs[name].per_atom,
+                sample_kind=old_outputs[name].sample_kind,
                 description=f"ensemble of {name}",
             )
         self.capabilities = ModelCapabilities(
