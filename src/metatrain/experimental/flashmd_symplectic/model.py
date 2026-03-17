@@ -142,7 +142,7 @@ class FlashMDSymplectic(ModelInterface):
         )
 
         self.outputs = {
-            "features": ModelOutput(unit="", per_atom=True)
+            "features": ModelOutput(unit="", sample_kind="atom")
         }  # the model is always capable of outputting the internal features
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
@@ -1283,7 +1283,7 @@ class FlashMDSymplectic(ModelInterface):
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
-            per_atom=True,
+            sample_kind="atom",
         )
 
         self.node_heads[target_name] = torch.nn.ModuleList(
@@ -1343,7 +1343,7 @@ class FlashMDSymplectic(ModelInterface):
         )
 
         ll_features_name = get_last_layer_features_name(target_name)
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+        self.outputs[ll_features_name] = ModelOutput(sample_kind="atom")
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [
             block.components for block in target_info.layout.blocks()

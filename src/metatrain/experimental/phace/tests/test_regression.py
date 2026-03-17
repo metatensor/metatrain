@@ -56,7 +56,7 @@ def test_regression_init():
 
     output = model(
         systems,
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind="system")},
     )
 
     expected_output = torch.tensor(
@@ -102,7 +102,7 @@ def test_regression_train():
             "key": "U0",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -153,7 +153,7 @@ def test_regression_train():
     model = torch.jit.script(model)
     output = model(
         systems[:5],
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind="system")},
     )
 
     expected_output = torch.tensor(

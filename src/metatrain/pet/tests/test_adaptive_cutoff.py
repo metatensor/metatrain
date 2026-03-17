@@ -48,7 +48,7 @@ def test_adaptive_cutoff_functionality(num_neighbors_adaptive):
         pbc=torch.tensor([True, True, True]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     _ = model([system], outputs)
 
 
@@ -203,7 +203,7 @@ def test_adaptive_cutoff_empty_system():
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     energy = model([system], outputs)["energy"].block().values.squeeze(-1)
     assert torch.numel(energy) == 0
 
@@ -235,7 +235,7 @@ def test_adaptive_cutoff_isolated_atom():
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     _ = model([system], outputs)
 
 
@@ -267,5 +267,5 @@ def test_adaptive_cutoff_dissociated_atoms(cutoff):
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     _ = model([system], outputs)

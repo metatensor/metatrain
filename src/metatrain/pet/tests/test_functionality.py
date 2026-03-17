@@ -41,7 +41,7 @@ def test_pet_padding():
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     lone_output = model([system], outputs)
 
     system_2 = System(
@@ -93,7 +93,7 @@ def test_empty_system():
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     energy = model([system], outputs)["energy"].block().values.squeeze(-1)
     assert torch.numel(energy) == 0
 
@@ -120,7 +120,7 @@ def test_isolated_atoms():
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     energy = model([system], outputs)["energy"].block().values.squeeze(-1)[0]
 
     assert torch.isfinite(energy)
@@ -148,7 +148,7 @@ def test_dissociated_atoms():
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     energy = model([system], outputs)["energy"].block().values.squeeze(-1)[0]
 
     assert torch.isfinite(energy)
@@ -176,8 +176,8 @@ def test_consistency():
     assert torch.allclose(attention_output_torch, attention_output_manual, atol=1e-6)
 
 
-@pytest.mark.parametrize("per_atom", [True, False])
-def test_nc_stress(per_atom):
+@pytest.mark.parametrize("sample_kind", ["atom", "system"])
+def test_nc_stress(sample_kind):
     """Tests that the model can predict a symmetric rank-2 tensor as the NC stress."""
     # (note that no composition energies are supplied or calculated here)
 
@@ -192,7 +192,7 @@ def test_nc_stress(per_atom):
                     "unit": "",
                     "type": {"cartesian": {"rank": 2}},
                     "num_subtargets": 100,
-                    "per_atom": per_atom,
+                    "sample_kind": sample_kind,
                 },
             )
         },
@@ -207,7 +207,7 @@ def test_nc_stress(per_atom):
         pbc=torch.tensor([True, True, True]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"non_conservative_stress": ModelOutput(per_atom=per_atom)}
+    outputs = {"non_conservative_stress": ModelOutput(sample_kind=sample_kind)}
     stress = model([system], outputs)["non_conservative_stress"].block().values
     assert torch.allclose(stress, stress.transpose(1, 2))
 

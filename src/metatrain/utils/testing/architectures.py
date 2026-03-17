@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 import torch
@@ -62,7 +62,7 @@ class ArchitectureTests:
             "key": "U0",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -136,12 +136,12 @@ class ArchitectureTests:
             },
         )
 
-    @pytest.fixture(params=[True, False])
-    def per_atom(self, request: pytest.FixtureRequest) -> bool:
-        """Fixture to test both per-atom and per-system targets.
+    @pytest.fixture(params=["system", "atom"])
+    def sample_kind(self, request: pytest.FixtureRequest) -> Literal["atom", "system"]:
+        """Fixture to provide the sample kind for testing.
 
         :param request: The pytest request fixture.
-        :return: Whether the target is per-atom or not.
+        :return: The sample kind to be used.
         """
         return request.param
 
@@ -156,12 +156,12 @@ class ArchitectureTests:
         return request.param
 
     @pytest.fixture
-    def dataset_info_scalar(self, num_subtargets: int, per_atom: bool) -> DatasetInfo:
+    def dataset_info_scalar(self, num_subtargets: int, sample_kind: Literal["atom", "system"]) -> DatasetInfo:
         """Fixture that provides a basic ``DatasetInfo`` with a scalar target
         for testing.
 
         :param num_subtargets: The number of scalars in the target.
-        :param per_atom: Whether the target is per-atom or not.
+        :param sample_kind: The kind of samples for which to request features.
         :return: A ``DatasetInfo`` instance with a scalar target.
         """
         return DatasetInfo(
@@ -175,18 +175,20 @@ class ArchitectureTests:
                         "unit": "",
                         "type": "scalar",
                         "num_subtargets": num_subtargets,
-                        "per_atom": per_atom,
+                        "sample_kind": sample_kind,
                     },
                 )
             },
         )
 
     @pytest.fixture
-    def dataset_info_vector(self, per_atom: bool) -> DatasetInfo:
+    def dataset_info_vector(
+        self, sample_kind: Literal["atom", "system"]
+    ) -> DatasetInfo:
         """Fixture that provides a basic ``DatasetInfo`` with a vector target
         for testing.
 
-        :param per_atom: Whether the target is per-atom or not.
+        :param sample_kind: The kind of samples for which to request features.
         :return: A ``DatasetInfo`` instance with a vector target.
         """
         return DatasetInfo(
@@ -200,7 +202,7 @@ class ArchitectureTests:
                         "unit": "",
                         "type": {"cartesian": {"rank": 1}},
                         "num_subtargets": 5,
-                        "per_atom": per_atom,
+                        "sample_kind": sample_kind,
                     },
                 )
             },
@@ -228,12 +230,12 @@ class ArchitectureTests:
 
     @pytest.fixture
     def dataset_info_spherical(
-        self, per_atom: bool, o3_lambda: int, o3_sigma: int
+        self, sample_kind: Literal["atom", "system"], o3_lambda: int, o3_sigma: int
     ) -> DatasetInfo:
         """Fixture that provides a basic ``DatasetInfo`` with a
         spherical target for testing.
 
-        :param per_atom: Whether the target is per-atom or not.
+        :param sample_kind: The kind of samples for which to request features.
         :param o3_lambda: The O(3) lambda of the spherical target.
         :param o3_sigma: The O(3) sigma of the spherical target.
         :return: A ``DatasetInfo`` instance with a spherical target.
@@ -255,18 +257,20 @@ class ArchitectureTests:
                             }
                         },
                         "num_subtargets": 5,
-                        "per_atom": per_atom,
+                        "sample_kind": sample_kind,
                     },
                 )
             },
         )
 
     @pytest.fixture
-    def dataset_info_multispherical(self, per_atom: bool) -> DatasetInfo:
+    def dataset_info_multispherical(
+        self, sample_kind: Literal["atom", "system"]
+    ) -> DatasetInfo:
         """Fixture that provides a basic ``DatasetInfo`` with multiple spherical
         targets for testing.
 
-        :param per_atom: Whether the target is per-atom or not.
+        :param sample_kind: The kind of samples for which to request features.
         :return: A ``DatasetInfo`` instance with a multiple spherical targets.
         """
         return DatasetInfo(
@@ -288,7 +292,7 @@ class ArchitectureTests:
                             }
                         },
                         "num_subtargets": 100,
-                        "per_atom": per_atom,
+                        "sample_kind": sample_kind,
                     },
                 )
             },
