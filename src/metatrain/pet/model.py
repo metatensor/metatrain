@@ -28,8 +28,14 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .documentation import ModelHypers
+from .modules.diagnostic import (
+    DIAGNOSTIC_PREFIX,
+    create_diagnostic_feature_tensormap,
+    prepare_diagnostic_handles,
+    standardize_featurizer_input_tensor,
+)
 from .modules.finetuning import apply_finetuning_strategy
-from .modules.structures import systems_to_batch
+from .modules.structures import get_pair_sample_labels, systems_to_batch
 from .modules.transformer import CartesianTransformer
 
 
@@ -417,6 +423,10 @@ class PET(ModelInterface[ModelHypers]):
                 cutoff_factors,
                 system_indices,
                 sample_labels,
+                centers,
+                neighbors,
+                nef_to_edges_neighbor,
+                cell_shifts,
             ) = systems_to_batch(
                 systems,
                 nl_options,
@@ -426,6 +436,24 @@ class PET(ModelInterface[ModelHypers]):
                 self.cutoff_width,
                 self.num_neighbors_adaptive,
             )
+
+        # optional diagnostic token capture by registering temporary module hooks
+        diagnostic_handles = torch.jit.annotate(List[Any], [])
+        _diagnostic_pair_labels: Optional[Labels] = None
+        if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
+            if any(k.startswith(DIAGNOSTIC_PREFIX) for k in outputs):
+                _diagnostic_pair_labels = get_pair_sample_labels(
+                    sample_labels, centers, neighbors, cell_shifts
+                )
+                diagnostic_handles = prepare_diagnostic_handles(
+                    self,
+                    outputs,
+                    return_dict,
+                    centers,
+                    nef_to_edges_neighbor,
+                    sample_labels,
+                    _diagnostic_pair_labels,
+                )
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
@@ -442,6 +470,22 @@ class PET(ModelInterface[ModelHypers]):
                 padding_mask=padding_mask,
                 cutoff_factors=cutoff_factors,
             )
+            # Allow direct diagnostic capture of raw featurizer input tensors
+            # (e.g. ``mtt::features::edge_vectors``).  These are handled explicitly
+            # here rather than via hooks because they are plain tensors, not module
+            # outputs.
+            if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
+                if _diagnostic_pair_labels is not None:
+                    for name, tensor in featurizer_inputs.items():
+                        key = DIAGNOSTIC_PREFIX + name
+                        if key in outputs:
+                            return_dict[key] = create_diagnostic_feature_tensormap(
+                                standardize_featurizer_input_tensor(name, tensor),
+                                centers,
+                                nef_to_edges_neighbor,
+                                sample_labels,
+                                _diagnostic_pair_labels,
+                            )
             node_features_list, edge_features_list = self._calculate_features(
                 featurizer_inputs,
                 use_manual_attention=use_manual_attention,
@@ -566,6 +610,11 @@ class PET(ModelInterface[ModelHypers]):
                         return_dict[name] = TensorMap(
                             return_dict[name].keys, output_blocks
                         )
+
+        # Remove any diagnostic hooks we registered during this forward pass.
+        if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
+            for h in diagnostic_handles:
+                h.remove()
 
         return return_dict
 
