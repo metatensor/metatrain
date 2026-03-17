@@ -271,7 +271,7 @@ def _get_model_outputs(
                 key: ModelOutput(
                     quantity=value.quantity,
                     unit=value.unit,
-                    per_atom=value.per_atom,
+                    sample_kind=value.sample_kind,
                     description=value.description,
                 )
                 for key, value in targets.items()
@@ -285,7 +285,7 @@ def _get_model_outputs(
                 key: ModelOutput(
                     quantity=value.quantity,
                     unit=value.unit,
-                    per_atom=value.per_atom,
+                    sample_kind=value.sample_kind,
                     description=value.description,
                 )
                 for key, value in targets.items()

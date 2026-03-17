@@ -254,7 +254,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             "mtt::aux::mace_features",
             {
                 "type": {"spherical": {"irreps": self.features_irreps}},
-                "per_atom": True,
+                "sample_kind": "atom",
                 "properties_name": "feature",
             },
         )
@@ -264,7 +264,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             k: ModelOutput(
                 quantity=targets[k].quantity if k in targets else "",
                 unit=targets[k].unit if k in targets else "",
-                per_atom=True,
+                sample_kind="atom",
             )
             for k in self.layouts
         }
@@ -347,6 +347,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+
         # --------------------------
         # Moving to device and dtype
         # --------------------------
@@ -444,7 +445,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
             return_dict[output_name] = (
                 per_atom_output
-                if outputs[output_name].per_atom
+                if outputs[output_name].sample_kind == "atom"
                 else sum_over_atoms(per_atom_output)
             )
 
@@ -698,7 +699,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             f"{target_name}_last_layer_features",
             {
                 "type": {"spherical": {"irreps": llf_irreps}},
-                "per_atom": True,
+                "sample_kind": "atom",
                 "properties_name": "feature",
             },
         )
@@ -789,7 +790,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         else:
             # Get info about the mace head target
             mace_head_target = self.hypers["mace_head_target"]
-            per_atom = self.dataset_info.targets[mace_head_target].per_atom
+            per_atom = self.dataset_info.targets[mace_head_target].sample_kind == "atom"
 
             # Define scaling weights for the target
             weights = (

@@ -43,7 +43,7 @@ def model_trainer_():
                 "rank": 1,
             }
         },
-        "per_atom": True,
+        "sample_kind": "atom",
         "num_subtargets": 1,
     }
 
@@ -58,7 +58,7 @@ def model_trainer_():
                 "rank": 1,
             }
         },
-        "per_atom": True,
+        "sample_kind": "atom",
         "num_subtargets": 1,
     }
 
@@ -132,7 +132,7 @@ class TestCheckpoints(CheckpointTests):
                     "rank": 1,
                 }
             },
-            "per_atom": True,
+            "sample_kind": "atom",
             "num_subtargets": 1,
         }
 
@@ -147,7 +147,7 @@ class TestCheckpoints(CheckpointTests):
                     "rank": 1,
                 }
             },
-            "per_atom": True,
+            "sample_kind": "atom",
             "num_subtargets": 1,
         }
 

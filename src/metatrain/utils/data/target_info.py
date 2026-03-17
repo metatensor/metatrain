@@ -72,8 +72,33 @@ class TargetInfo:
 
     @property
     def per_atom(self) -> bool:
-        """Whether the target is per atom."""
-        return "atom" in self.layout.block(0).samples.names
+        """Whether the target is a per-atom quantity or system wide.
+
+        This is provided for backward compatibility, since ``sample_kind``
+        is now a more general version of it. If ``sample_kind`` is not
+        one of "system" or "atom", trying to get ``per_atom`` will raise
+        an error.
+        """
+        sample_kind = self.sample_kind
+
+        if sample_kind == "atom":
+            return True
+        elif sample_kind == "system":
+            return False
+        else:
+            raise ValueError(
+                f"Cannot determine whether the target is per-atom or system-wide "
+                f"because its sample_kind is '{sample_kind}'."
+            )
+
+    @property
+    def sample_kind(self) -> Literal["system", "atom"]:
+        """The kind of sample the target corresponds to."""
+        sample_names = self.layout.block(0).samples.names
+        if "atom" in sample_names:
+            return "atom"
+        else:
+            return "system"
 
     @property
     def component_labels(self) -> List[List[Labels]]:
@@ -447,7 +472,7 @@ def get_generic_target_info(target_name: str, target: DictConfig) -> TargetInfo:
 
 def _get_scalar_target_info(target_name: str, target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
-    if target["per_atom"]:
+    if target["sample_kind"] == "atom":
         sample_names.append("atom")
 
     block = TensorBlock(
@@ -481,7 +506,7 @@ def _get_scalar_target_info(target_name: str, target: DictConfig) -> TargetInfo:
 
 def _get_cartesian_target_info(target_name: str, target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
-    if target["per_atom"]:
+    if target["sample_kind"] == "atom":
         sample_names.append("atom")
 
     cartesian_key = next(iter(target["type"]))
@@ -532,7 +557,7 @@ def _get_cartesian_target_info(target_name: str, target: DictConfig) -> TargetIn
 
 def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
-    if target["per_atom"]:
+    if target["sample_kind"] == "atom":
         sample_names.append("atom")
 
     irreps = target["type"]["spherical"]["irreps"]

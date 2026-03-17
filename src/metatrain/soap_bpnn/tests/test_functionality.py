@@ -48,7 +48,8 @@ def test_scalar_output(legacy):
     model = SoapBpnn(hypers, dataset_info)
     system = _make_system(model)
     output = model(
-        [system], {"energy": ModelOutput(quantity="energy", unit="eV", per_atom=False)}
+        [system],
+        {"energy": ModelOutput(quantity="energy", unit="eV", sample_kind="system")},
     )
     values = output["energy"].block().values
     assert values.shape == (1, 1)
@@ -69,14 +70,14 @@ def test_cartesian_rank1(legacy):
                     "unit": "",
                     "type": {"cartesian": {"rank": 1}},
                     "num_subtargets": 1,
-                    "per_atom": False,
+                    "sample_kind": "system",
                 },
             )
         },
     )
     model = SoapBpnn(hypers, dataset_info)
     system = _make_system(model)
-    output = model([system], {"dipole": ModelOutput(per_atom=False)})
+    output = model([system], {"dipole": ModelOutput(sample_kind="system")})
     values = output["dipole"].block().values
     # shape: (n_structures, 3, n_properties)
     assert values.shape == (1, 3, 1)
@@ -84,8 +85,8 @@ def test_cartesian_rank1(legacy):
 
 @pytest.mark.parametrize("add_lambda_basis", [True, False])
 @pytest.mark.parametrize("legacy", [True, False])
-@pytest.mark.parametrize("per_atom", [True, False])
-def test_nc_stress(legacy, per_atom, add_lambda_basis):
+@pytest.mark.parametrize("sample_kind", ["atom", "system"])
+def test_nc_stress(legacy, sample_kind, add_lambda_basis):
     """Tests that rank-2 Cartesian NC stress is symmetric."""
     hypers = _make_hypers(legacy, add_lambda_basis)
     dataset_info = DatasetInfo(
@@ -99,14 +100,14 @@ def test_nc_stress(legacy, per_atom, add_lambda_basis):
                     "unit": "",
                     "type": {"cartesian": {"rank": 2}},
                     "num_subtargets": 1,
-                    "per_atom": per_atom,
+                    "sample_kind": sample_kind,
                 },
             )
         },
     )
     model = SoapBpnn(hypers, dataset_info)
     system = _make_system(model)
-    outputs = {"non_conservative_stress": ModelOutput(per_atom=per_atom)}
+    outputs = {"non_conservative_stress": ModelOutput(sample_kind=sample_kind)}
     stress = model([system], outputs)["non_conservative_stress"].block().values
     assert torch.allclose(stress, stress.transpose(-3, -2))
 
@@ -131,14 +132,14 @@ def test_spherical_output(legacy, add_lambda_basis):
                         }
                     },
                     "num_subtargets": 1,
-                    "per_atom": False,
+                    "sample_kind": "system",
                 },
             )
         },
     )
     model = SoapBpnn(hypers, dataset_info)
     system = _make_system(model)
-    output = model([system], {"spherical_target": ModelOutput(per_atom=False)})
+    output = model([system], {"spherical_target": ModelOutput(sample_kind="system")})
     tmap = output["spherical_target"]
     assert len(tmap.keys) == 1
     assert tmap.keys.names == ["o3_lambda", "o3_sigma"]
@@ -161,7 +162,8 @@ def test_mlp_head(add_lambda_basis):
     model = SoapBpnn(hypers, dataset_info)
     system = _make_system(model)
     output = model(
-        [system], {"energy": ModelOutput(quantity="energy", unit="eV", per_atom=False)}
+        [system],
+        {"energy": ModelOutput(quantity="energy", unit="eV", sample_kind="system")},
     )
     values = output["energy"].block().values
     assert values.shape == (1, 1)
@@ -181,7 +183,7 @@ def test_multiple_targets(legacy, add_lambda_basis):
                 "unit": "",
                 "type": {"cartesian": {"rank": 2}},
                 "num_subtargets": 1,
-                "per_atom": False,
+                "sample_kind": "system",
             },
         ),
     }
@@ -193,8 +195,8 @@ def test_multiple_targets(legacy, add_lambda_basis):
     model = SoapBpnn(hypers, dataset_info)
     system = _make_system(model)
     outputs = {
-        "energy": ModelOutput(quantity="energy", unit="eV", per_atom=False),
-        "non_conservative_stress": ModelOutput(per_atom=False),
+        "energy": ModelOutput(quantity="energy", unit="eV", sample_kind="system"),
+        "non_conservative_stress": ModelOutput(sample_kind="system"),
     }
     result = model([system], outputs)
     assert "energy" in result

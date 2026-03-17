@@ -221,7 +221,7 @@ class DPA3(ModelInterface[ModelHypers]):
         self.outputs[target_name] = ModelOutput(
             quantity=target.quantity,
             unit=target.unit,
-            per_atom=True,
+            sample_kind="system",
         )
 
     def get_rcut(self):
@@ -365,7 +365,7 @@ class DPA3(ModelInterface[ModelHypers]):
                 )
 
         for output_name, atomic_property in atomic_properties.items():
-            if outputs[output_name].per_atom:
+            if outputs[output_name].sample_kind == "atom":
                 return_dict[output_name] = atomic_property
             else:
                 # sum the atomic property to get the total property
