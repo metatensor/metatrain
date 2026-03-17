@@ -710,7 +710,11 @@ class DiskDataset(torch.utils.data.Dataset):
         return self._len
 
     def get_num_atoms(self, index: int) -> int:
-        """Return the number of atoms in sample ``index`` without full loading."""
+        """Return the number of atoms in sample ``index`` without full loading.
+
+        :param index: Sample index.
+        :return: Number of atoms.
+        """
         self._open_zip_once()
         assert self.zip_file is not None
         with self.zip_file.open(f"{index}/system.mta", "r") as file:
@@ -1079,11 +1083,18 @@ class MemmapDataset(TorchDataset):
         return self.ns
 
     def get_num_atoms(self, i: int) -> int:
-        """Return atom count for sample ``i`` from the cumulative array."""
+        """Return atom count for sample ``i`` from the cumulative array.
+
+        :param i: Sample index.
+        :return: Number of atoms.
+        """
         return int(self.na[i + 1] - self.na[i])
 
     def get_all_atom_counts(self) -> np.ndarray:
-        """Return atom counts for all samples as a numpy array."""
+        """Return atom counts for all samples as a numpy array.
+
+        :return: Array of atom counts per sample.
+        """
         return np.diff(self.na)
 
     def __getitem__(self, i: int) -> Any:

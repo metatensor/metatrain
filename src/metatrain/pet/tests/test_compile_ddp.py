@@ -391,7 +391,7 @@ def test_compiled_ddp_gradient_sync():
     grads_0 = results[0]
     grads_1 = results[1]
     assert len(grads_0) == len(grads_1)
-    for g0, g1 in zip(grads_0, grads_1):
+    for g0, g1 in zip(grads_0, grads_1, strict=True):
         assert abs(g0 - g1) < 1e-5, f"Gradient mismatch: {g0} vs {g1}"
 
 
@@ -707,16 +707,13 @@ def test_compiled_ddp_checkpoint_roundtrip(tmp_path):
     """Checkpoint from compiled+DDP training loads and produces same outputs."""
     from metatrain.pet.modules.compile import compile_pet_model
     from metatrain.pet.modules.structures import systems_to_batch
-    from metatrain.pet.trainer import Trainer, _wrap_compiled_output
+    from metatrain.pet.trainer import _wrap_compiled_output
     from metatrain.utils.data import unpack_batch
-    from metatrain.utils.data.readers import read_systems
     from metatrain.utils.hypers import init_with_defaults
     from metatrain.utils.loss import LossAggregator, LossSpecification
     from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
     from metatrain.utils.per_atom import average_by_num_atoms
     from metatrain.utils.transfer import batch_to
-
-    from . import DATASET_PATH, MODEL_HYPERS
 
     device = torch.device("cuda:0")
     torch.manual_seed(42)
@@ -853,7 +850,7 @@ def test_no_recompilation_on_same_batch_shape():
     import time
 
     call_times = []
-    for i in range(5):
+    for _i in range(5):
         batch = next(iter(dl))
         sb, tb, ed = unpack_batch(batch)
         sb, tb, ed = batch_to(sb, tb, ed, dtype=torch.float32, device=device)

@@ -816,7 +816,9 @@ def _run_compiled_vs_eager_training(
 
     # Verify initial weights are identical
     for (ne, pe), (nc, pc) in zip(
-        model_eager.named_parameters(), model_compiled.named_parameters()
+        model_eager.named_parameters(),
+        model_compiled.named_parameters(),
+        strict=True,
     ):
         assert ne == nc
         assert torch.equal(pe.data, pc.data), f"Initial weight mismatch: {ne}"
@@ -867,7 +869,6 @@ def _run_compiled_vs_eager_training(
 
     # Loss function
     from metatrain.utils.data import unpack_batch
-
     from metatrain.utils.hypers import init_with_defaults
 
     loss_conf = {"mtt::U0": init_with_defaults(LossSpecification)}
@@ -993,8 +994,10 @@ def _run_compiled_vs_eager_training(
     # nearly identical weights. Tolerance accounts for float accumulation
     # order differences between the two code paths (scatter_add_ vs
     # metatensor wrapping, slightly different operator decomposition).
-    for (ne, pe), (nc, pc) in zip(
-        model_eager.named_parameters(), model_compiled.named_parameters()
+    for (ne, pe), (_nc, pc) in zip(
+        model_eager.named_parameters(),
+        model_compiled.named_parameters(),
+        strict=True,
     ):
         # Compiled and eager paths have inherent float differences from
         # operator decomposition (DecomposedSiLU, scatter_add_ vs

@@ -13,7 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 def _get_num_atoms(dataset: torch.utils.data.Dataset, i: int) -> int:
-    """Return atom count for sample ``i``, resolving ``Subset`` wrappers."""
+    """Return atom count for sample ``i``, resolving ``Subset`` wrappers.
+
+    :param dataset: The dataset to query.
+    :param i: Index of the sample.
+    :return: Number of atoms in sample ``i``.
+    """
     if isinstance(dataset, torch.utils.data.Subset):
         return _get_num_atoms(dataset.dataset, dataset.indices[i])
     if hasattr(dataset, "get_num_atoms"):
@@ -38,12 +43,17 @@ def _greedy_pack(
     """Greedily pack ``indices`` into batches where total atoms <= ``max_atoms``.
 
     Single structures that alone exceed ``max_atoms`` are skipped with a warning.
+
+    :param indices: Sample indices to pack.
+    :param atom_counts: Atom count for each index.
+    :param max_atoms: Maximum atoms per batch.
+    :return: List of batches, each a list of indices.
     """
     batches: List[List[int]] = []
     current_batch: List[int] = []
     current_atoms = 0
 
-    for idx, n in zip(indices, atom_counts):
+    for idx, n in zip(indices, atom_counts, strict=True):
         if n > max_atoms:
             logger.warning(
                 f"Structure {idx} has {n} atoms which exceeds max_atoms_per_batch "
@@ -64,7 +74,11 @@ def _greedy_pack(
 
 
 def _get_atom_counts(dataset: torch.utils.data.Dataset) -> np.ndarray:
-    """Get atom counts for all samples, using vectorised path if available."""
+    """Get atom counts for all samples, using vectorised path if available.
+
+    :param dataset: The dataset to query.
+    :return: Array of atom counts per sample.
+    """
     inner = dataset.dataset if isinstance(dataset, torch.utils.data.Subset) else dataset
     if hasattr(inner, "get_all_atom_counts"):
         all_counts = inner.get_all_atom_counts()

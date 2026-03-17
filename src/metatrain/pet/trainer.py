@@ -350,6 +350,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         use_max_atom_sampler = max_atoms is not None
 
         if use_max_atom_sampler and is_distributed:
+            assert max_atoms is not None
             train_batch_samplers = [
                 MaxAtomDistributedBatchSampler(
                     dataset=ds,
@@ -377,6 +378,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
         elif use_max_atom_sampler:
+            assert max_atoms is not None
             train_batch_samplers = [
                 MaxAtomBatchSampler(
                     dataset=ds,
@@ -399,8 +401,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
         elif is_distributed:
-            train_batch_samplers = [None] * len(train_datasets)
-            val_batch_samplers = [None] * len(val_datasets)
+            train_batch_samplers = [None] * len(train_datasets)  # type: ignore[list-item]
+            val_batch_samplers = [None] * len(val_datasets)  # type: ignore[list-item]
             train_samplers = [
                 DistributedSampler(
                     train_dataset,
@@ -421,10 +423,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
                 for val_dataset in val_datasets
             ]
-            epoch_samplers = list(train_samplers)
+            epoch_samplers = list(train_samplers)  # type: ignore[arg-type]
         else:
-            train_batch_samplers = [None] * len(train_datasets)
-            val_batch_samplers = [None] * len(val_datasets)
+            train_batch_samplers = [None] * len(train_datasets)  # type: ignore[list-item]
+            val_batch_samplers = [None] * len(val_datasets)  # type: ignore[list-item]
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
             epoch_samplers = []
