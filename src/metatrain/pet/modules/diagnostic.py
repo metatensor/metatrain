@@ -115,14 +115,12 @@ def standardize_featurizer_input_tensor(
         * cutoff_factors: (n_atoms, max_nbrs) -> (n_atoms, max_nbrs, 1)``  [edge]
         * edge_vectors: already in the correct shape (n_atoms, max_nbrs, 3)
 
-    :param name: The featurizer-input name (must be a member of
-        :data:`FEATURIZER_INPUT_NAMES`).
-    :param tensor: The raw tensor from ``systems_to_batch``.
-    :return: Normalized tensor ready for :func:`create_diagnostic_feature_tensormap`.
+    :param name: the featurizer-input name.
+    :param tensor: the raw tensor from ``systems_to_batch``.
+    :return: normalized tensor ready for :func:`create_diagnostic_feature_tensormap`.
     :raises ValueError: If ``name`` is not a recognised featurizer-input name.
     """
     if name == "element_indices_nodes":
-        # 1-D (n_atoms,) int  →  2-D (n_atoms, 1) float  [node-like]
         return tensor.unsqueeze(-1).float()
 
     elif name == "element_indices_neighbors":
