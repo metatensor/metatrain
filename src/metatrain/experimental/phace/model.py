@@ -327,7 +327,7 @@ class PhACE(ModelInterface[ModelHypers]):
                 return_dict[output_name] = metatensor.torch.slice(
                     return_dict[output_name], axis="samples", selection=selected_atoms
                 )
-            if not outputs[output_name].sample_kind == "atom":
+            if outputs[output_name].sample_kind == "system":
                 return_dict[output_name] = metatensor.torch.sum_over_samples(
                     return_dict[output_name], ["atom"]
                 )
@@ -379,7 +379,7 @@ class PhACE(ModelInterface[ModelHypers]):
                 return_dict[output_name] = metatensor.torch.slice(
                     return_dict[output_name], axis="samples", selection=selected_atoms
                 )
-            if not outputs[output_name].sample_kind == "atom":
+            if outputs[output_name].sample_kind == "system":
                 return_dict[output_name] = metatensor.torch.sum_over_samples(
                     return_dict[output_name], ["atom"]
                 )

@@ -245,13 +245,12 @@ def sanitize_target_hypers(target_hypers: TargetHypers) -> TargetHypers:
             "sample_kind" in target_hypers
             and target_hypers["sample_kind"] != sample_kind
         ):
-            if target_hypers["sample_kind"] != sample_kind:
-                raise ValueError(
-                    f"Conflict between `per_atom` and `sample_kind`: The input "
-                    f"{per_atom=} corresponds to {sample_kind=}, but sample_kind is "
-                    f"set to '{target_hypers['sample_kind']}'. Please remove the"
-                    "`per_atom` key and set `sample_kind` to the desired value."
-                )
+            raise ValueError(
+                f"Conflict between `per_atom` and `sample_kind`: The input "
+                f"{per_atom=} corresponds to {sample_kind=}, but sample_kind is "
+                f"set to '{target_hypers['sample_kind']}'. Please remove the "
+                "`per_atom` key and set `sample_kind` to the desired value."
+            )
 
         target_hypers["sample_kind"] = sample_kind
     elif "sample_kind" not in target_hypers:

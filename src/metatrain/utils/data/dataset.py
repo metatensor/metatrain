@@ -792,7 +792,7 @@ class DiskDataset(torch.utils.data.Dataset):
         for target_key, target in target_config.items():
             is_energy = (
                 (target["quantity"] == "energy")
-                and (not target["sample_kind"] == "atom")
+                and target["sample_kind"] == "system"
                 and target["num_subtargets"] == 1
                 and target["type"] == "scalar"
             )
@@ -1374,7 +1374,7 @@ class MemmapDataset(TorchDataset):
         for target_key, target in self.target_config.items():
             is_energy = (
                 (target["quantity"] == "energy")
-                and (not target["sample_kind"] == "atom")
+                and target["sample_kind"] == "system"
                 and target["num_subtargets"] == 1
                 and target["type"] == "scalar"
             )
