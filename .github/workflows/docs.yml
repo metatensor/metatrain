@@ -32,6 +32,14 @@ jobs:
           # Use the CPU-only version of torch
           PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
 
+      - name: check that the build did not create additional files in git
+        run: |
+          untracked="$(git ls-files --exclude-standard --others)"
+          if [ -n "$untracked" ]; then
+            printf >&2 "Error: running the example created untracked files:\n%s\n" "$untracked"
+            exit 1
+          fi
+
       - name: put documentation in the website
         run: |
           git clone https://github.com/$GITHUB_REPOSITORY --branch gh-pages gh-pages
