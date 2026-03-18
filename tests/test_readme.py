@@ -1,3 +1,4 @@
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,9 +18,9 @@ def test_train_readme_example(monkeypatch, tmp_path):
     with open(README_PATH, "r", encoding="utf-8") as f:
         readme = f.read()
 
-   match = re.search(r"```yaml\n(.*?)```", readme, re.DOTALL)
-   assert match, "Could not find training example in README"
-   yaml_string = match.group(1)
+    match = re.search(r"```yaml\n(.*?)```", readme, re.DOTALL)
+    assert match, "Could not find training example in README"
+    yaml_string = match.group(1)
     yaml_string = yaml_string.replace(
         "num_epochs: 5", "num_epochs: 1"
     )  # Reduce epochs for testing
