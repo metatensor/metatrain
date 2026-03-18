@@ -23,13 +23,13 @@ run the training process and the integration of ASE.
 
 import subprocess
 
+import ase.geometry.rdf
 import ase.md
 import ase.md.velocitydistribution
 import ase.units
 import ase.visualize.plot
 import matplotlib.pyplot as plt
 import numpy as np
-from ase.geometry.analysis import Analysis
 from metatomic.torch.ase_calculator import MetatomicCalculator
 
 
@@ -176,15 +176,19 @@ for atoms in trajectory:
 
 # %%
 #
-# We now can initilize the :py:class:`ase.geometry.analysis.Analysis` objects and
-# compute the the RDF using the :py:meth:`ase.geometry.analysis.Analysis.get_rdf`
-# method.
+# We now can use :py:class:`ase.geometry.rdf.get_rdf` to compute the RDF
 
-ana_traj = Analysis(trajectory)
-ana_train = Analysis(train_frames)
+rdf_traj = []
+for atoms in trajectory:
+    rdf_traj.append(
+        ase.geometry.rdf.get_rdf(atoms, rmax=5, nbins=50, elements=["C", "H"])
+    )
 
-rdf_traj = ana_traj.get_rdf(rmax=5, nbins=50, elements=["C", "H"], return_dists=True)
-rdf_train = ana_train.get_rdf(rmax=5, nbins=50, elements=["C", "H"], return_dists=True)
+rdf_train = []
+for atoms in train_frames:
+    rdf_train.append(
+        ase.geometry.rdf.get_rdf(atoms, rmax=5, nbins=50, elements=["C", "H"])
+    )
 
 # %%
 #
