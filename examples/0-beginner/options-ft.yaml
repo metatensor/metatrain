@@ -7,7 +7,7 @@ architecture:
     warmup_fraction: 0.01
     finetune:
       method: full
-      read_from: pet-mad-v1.1.0.ckpt
+      read_from: data/pet-mad-v1.1.0.ckpt
 
 training_set:
   systems:

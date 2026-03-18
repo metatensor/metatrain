@@ -72,13 +72,14 @@ def get_writer(
         determined from the file extension.
     :return: a :py:class:`Writer` instance.
     """
+    path = Path(filename)
 
     if fileformat is None:
-        fileformat = Path(filename).suffix
+        fileformat = path.suffix
 
     try:
         writer_factory = PREDICTIONS_WRITERS[fileformat]
     except KeyError:
         raise ValueError(f"fileformat '{fileformat}' is not supported")
 
-    return writer_factory(Path(filename).stem + fileformat, capabilities, append)
+    return writer_factory(path.with_suffix(fileformat), capabilities, append)

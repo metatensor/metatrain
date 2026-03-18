@@ -23,6 +23,7 @@ where the class membership is uncertain.
 # %%
 
 import subprocess
+from pathlib import Path
 
 import ase.io
 import chemiscope
@@ -119,11 +120,16 @@ ase.io.write("carbon_allotropes.xyz", structures)
 # for our classifier. We will use PET-MAD, a universal interatomic potential for
 # materials and molecules.
 
-PET_MAD_URL = (
-    "https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.0.2/models/pet-mad-v1.0.2.ckpt"
-)
-
-subprocess.run(["wget", PET_MAD_URL], check=True)
+if not Path("data/pet-mad-v1.0.2.ckpt").exists():
+    subprocess.run(
+        [
+            "wget",
+            "https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.0.2/models/pet-mad-v1.0.2.ckpt",
+            "-O",
+            "data/pet-mad-v1.0.2.ckpt",
+        ],
+        check=True,
+    )
 
 # %%
 #
@@ -144,9 +150,9 @@ subprocess.run(["wget", PET_MAD_URL], check=True)
 #    :language: yaml
 
 # Here, we run training as a subprocess, in reality you would run this from the command
-# line as ``mtt train options-classifier.yaml -o classifier.pt``.
+# line as ``mtt train options-classifier.yaml -o data/classifier.pt``.
 subprocess.run(
-    ["mtt", "train", "options-classifier.yaml", "-o", "classifier.pt"],
+    ["mtt", "train", "options-classifier.yaml", "-o", "data/classifier.pt"],
     check=True,
 )
 
@@ -161,7 +167,7 @@ subprocess.run(
 # Let's test the classifier on some structures:
 
 # Load the model
-calc = MetatomicCalculator("classifier.pt")
+calc = MetatomicCalculator("data/classifier.pt")
 
 structures = ase.io.read("carbon_allotropes.xyz", index=":")
 

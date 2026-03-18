@@ -51,20 +51,28 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 # ensemble models.
 
 # Here, we run training as a subprocess. In practice, you would run this from
-# the command line, e.g., ``mtt train options-model.yaml -o model.pt``.
+# the command line, e.g., ``mtt train options-model.yaml -o data/model.pt``.
 
 print("Training baseline model...")
-subprocess.run(["mtt", "train", "options-model.yaml", "-o", "model.pt"], check=True)
+subprocess.run(
+    ["mtt", "train", "options-model.yaml", "-o", "data/model.pt"], check=True
+)
 
 print("Training LLPR ensemble model...")
 subprocess.run(
-    ["mtt", "train", "options-llpr-ensemble.yaml", "-o", "model-llpr-ens.pt"],
+    ["mtt", "train", "options-llpr-ensemble.yaml", "-o", "data/model-llpr-ens.pt"],
     check=True,
 )
 
 print("Training LLPR ensemble model with further backpropagation...")
 subprocess.run(
-    ["mtt", "train", "options-llpr-ensemble-train.yaml", "-o", "model-llpr-ens-tr.pt"],
+    [
+        "mtt",
+        "train",
+        "options-llpr-ensemble-train.yaml",
+        "-o",
+        "data/model-llpr-ens-tr.pt",
+    ],
     check=True,
 )
 # %%
@@ -76,7 +84,7 @@ subprocess.run(
 structures = ase.io.read("ethanol_reduced_100.xyz", ":5")
 
 # Load the ensemble-trained model
-calc = MetatomicCalculator("model-llpr-ens.pt", extensions_directory="extensions/")
+calc = MetatomicCalculator("data/model-llpr-ens.pt", extensions_directory="extensions/")
 
 # Get predictions with both ensemble and analytical uncertainties
 # (note that all these quantities are also available per-atom with ``per_atom=True``)

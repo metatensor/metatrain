@@ -39,7 +39,7 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 # Here, we run training as a subprocess, in reality you would run this from the command
 # line as ``mtt train options-ase.yaml --output model-md.pt``.
 subprocess.run(
-    ["mtt", "train", "options-ase.yaml", "--output", "model-md.pt"], check=True
+    ["mtt", "train", "options-ase.yaml", "--output", "data/model-md.pt"], check=True
 )
 
 # %%
@@ -80,7 +80,7 @@ ase.md.velocitydistribution.MaxwellBoltzmannDistribution(atoms, temperature_K=30
 # We now register our exported model as the energy calculator to obtain energies and
 # forces.
 
-atoms.calc = MetatomicCalculator("model-md.pt", extensions_directory="extensions/")
+atoms.calc = MetatomicCalculator("data/model-md.pt", extensions_directory="extensions/")
 
 # %%
 #

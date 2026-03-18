@@ -294,7 +294,7 @@ def eval_model(
         idx_suffix = f"_{i}" if len(options_list) > 1 else ""
         extra_log_message = f" with index {i}" if len(options_list) > 1 else ""
         logging.info(f"Evaluating dataset{extra_log_message}")
-        filename = f"{output.stem}{idx_suffix}{output.suffix}"
+        filename = output.with_stem(output.stem + idx_suffix).with_suffix(output.suffix)
 
         # pick the right writer
         writer = get_writer(filename, capabilities=model.capabilities(), append=append)

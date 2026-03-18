@@ -40,9 +40,11 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 # Here, we run training as a subprocess, in reality you would run this from the command
 # line, e.g. ``mtt train options-no-zbl.yaml -o model_no_zbl.pt``.
 subprocess.run(
-    ["mtt", "train", "options-no-zbl.yaml", "-o", "model_no_zbl.pt"], check=True
+    ["mtt", "train", "options-no-zbl.yaml", "-o", "data/model_no_zbl.pt"], check=True
 )
-subprocess.run(["mtt", "train", "options_zbl.yaml", "-o", "model_zbl.pt"], check=True)
+subprocess.run(
+    ["mtt", "train", "options_zbl.yaml", "-o", "data/model_zbl.pt"], check=True
+)
 
 # %%
 #
@@ -69,8 +71,10 @@ for pair in [("H", "H"), ("H", "C"), ("C", "C"), ("C", "O"), ("O", "O"), ("H", "
 #
 # We now load the two exported models, one with and one without ZBL corrections
 
-calc_no_zbl = MetatomicCalculator("model_no_zbl.pt", extensions_directory="extensions/")
-calc_zbl = MetatomicCalculator("model_zbl.pt", extensions_directory="extensions/")
+calc_no_zbl = MetatomicCalculator(
+    "data/model_no_zbl.pt", extensions_directory="extensions/"
+)
+calc_zbl = MetatomicCalculator("data/model_zbl.pt", extensions_directory="extensions/")
 
 
 # %%

@@ -84,7 +84,7 @@ for i, fname in enumerate(filelist):
 
     frames.append(atoms)
 
-ase.io.write("data.xyz", frames)
+ase.io.write("data/data.xyz", frames)
 
 # %%
 #
@@ -100,7 +100,7 @@ ase.io.write("data.xyz", frames)
 # lists that the model will use during training. We first create the writer object that
 # will write the data to a zip file.
 
-disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100.zip")
+disk_dataset_writer = DiskDatasetWriter("data/qm9_reduced_100.zip")
 
 # %%
 #
@@ -141,7 +141,7 @@ disk_dataset_writer.finish()
 # efficient (but also potentially run into memory issues). We use the same ``frames``
 # that we created above.
 
-disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100_all_at_once.zip")
+disk_dataset_writer = DiskDatasetWriter("data/qm9_reduced_100_all_at_once.zip")
 
 systems = systems_to_torch(frames, dtype=torch.float64)
 systems = [
@@ -188,7 +188,7 @@ disk_dataset_writer.finish()
 
 structures = ase.io.read("carbon_reduced_100.xyz", index=":")
 
-root = Path("carbon_reduced_100_memmap/")
+root = Path("data/carbon_reduced_100_memmap/")
 root.mkdir(exist_ok=True)
 
 ns_path = root / "ns.npy"

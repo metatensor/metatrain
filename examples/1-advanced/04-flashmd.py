@@ -105,7 +105,7 @@ for i in range(0, len(trajectory) - time_lag, spacing):
     structures_for_dataset.append(s)
 
 # Write the structures to an xyz file
-ase.io.write("flashmd.xyz", structures_for_dataset)
+ase.io.write("data/flashmd.xyz", structures_for_dataset)
 
 # %%
 #
@@ -122,7 +122,10 @@ ase.io.write("flashmd.xyz", structures_for_dataset)
 
 # Here, we run training as a subprocess, in reality you would run this from the command
 # line as ``mtt train options-flashmd.yaml``.
-subprocess.run(["mtt", "train", "options-flashmd.yaml"], check=True)
+subprocess.run(
+    ["mtt", "train", "options-flashmd.yaml", "-o", "data/flashmd-model.ckpt"],
+    check=True,
+)
 
 # %%
 #
@@ -150,10 +153,19 @@ subprocess.run(["mtt", "train", "options-flashmd.yaml"], check=True)
 file_path = hf_hub_download(
     repo_id="lab-cosmo/flashmd",
     filename=f"flashmd_pet-omatpes-v2_{time_lag}fs.ckpt",
-    local_dir=".",
+    local_dir="data/",
     local_dir_use_symlinks=False,
 )
 
 # In this script, we run training as a subprocess; in reality you would run this from
 # the command line as ``mtt train options-flashmd-finetune.yaml``.
-subprocess.run(["mtt", "train", "options-flashmd-finetune.yaml"], check=True)
+subprocess.run(
+    [
+        "mtt",
+        "train",
+        "options-flashmd-finetune.yaml",
+        "-o",
+        "data/flashmd-finetune.ckpt",
+    ],
+    check=True,
+)

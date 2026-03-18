@@ -154,11 +154,11 @@ def _prepare_export_model_args(args: argparse.Namespace) -> None:
     # Logic to determine default output filename based on input source
     if args.__dict__.get("output") is None:
         if args.path_in_repo is not None:
-            stem = Path(args.path_in_repo).stem
+            path = Path(args.path_in_repo)
         else:
-            stem = Path(args.path).stem
+            path = Path(args.path)
 
-        args.__dict__["output"] = stem + ".pt"
+        args.__dict__["output"] = path.with_suffix(".pt")
 
 
 def export_model(

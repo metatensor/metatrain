@@ -114,7 +114,7 @@ for index in range(len(structures)):
 
 
 # Write the structures to an xyz file
-ase.io.write("DOS.xyz", structures)
+ase.io.write("data/DOS.xyz", structures)
 
 # %%
 #

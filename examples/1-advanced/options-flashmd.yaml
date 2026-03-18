@@ -19,7 +19,7 @@ architecture:
 
 training_set:
   systems:
-    read_from: flashmd.xyz
+    read_from: data/flashmd.xyz
     length_unit: A
   targets:
     positions:

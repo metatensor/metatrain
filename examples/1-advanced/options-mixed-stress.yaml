@@ -8,7 +8,7 @@ architecture:
 
 training_set:
   systems:
-    read_from: mixed_structures.xyz
+    read_from: data/mixed_structures.xyz
     length_unit: angstrom
   targets:
     energy:

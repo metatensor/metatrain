@@ -80,7 +80,7 @@ def generate_examples():
     del os.environ["METATOMIC_IMPORT_FOR_SPHINX"]
     del os.environ["PYTORCH_JIT"]
     script = os.path.join(ROOT, "docs", "generate_examples", "generate-examples.py")
-    subprocess.run([sys.executable, script])
+    subprocess.run([sys.executable, script], check=True)
     os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
     os.environ["METATOMIC_IMPORT_FOR_SPHINX"] = "1"
     os.environ["PYTORCH_JIT"] = "0"

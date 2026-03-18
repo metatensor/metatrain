@@ -7,7 +7,7 @@ architecture:
   model:
     num_ensemble_members: {energy: 32}  # This enables the LLPR-sampled ensemble
   training:
-    model_checkpoint: model.ckpt
+    model_checkpoint: data/model.ckpt
     batch_size: 4
 
 # Section defining the parameters for system and target data

@@ -25,3 +25,6 @@ sphinx_gallery_conf = {
     "remove_config_comments": True,
     "within_subsection_order": "FileNameSortKey",
 }
+
+# Stop execution immediately if an example fails
+abort_on_example_error = 1

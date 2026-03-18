@@ -22,7 +22,7 @@ architecture:
 
 # Section defining the parameters for system and target data
 training_set:
-  systems: DOS.xyz
+  systems: data/DOS.xyz
   targets:
     mtt::dos:
       key: dos
@@ -37,7 +37,7 @@ training_set:
       num_subtargets: 3830
 
 validation_set:
-  systems: DOS.xyz
+  systems: data/DOS.xyz
   targets:
     mtt::dos:
       key: dos

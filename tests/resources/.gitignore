@@ -1,4 +1,5 @@
-*.json.gz
-
 extensions/
 outputs/
+
+*.ckpt
+*.pt
