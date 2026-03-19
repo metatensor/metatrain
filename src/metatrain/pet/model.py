@@ -294,6 +294,14 @@ class PET(ModelInterface[ModelHypers]):
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
 
+    def requested_inputs(self) -> Dict[str, ModelOutput]:
+        if self.system_conditioning is not None:
+            return {
+                "mtt::charge": ModelOutput(quantity="", unit="", per_atom=False),
+                "mtt::spin": ModelOutput(quantity="", unit="", per_atom=False),
+            }
+        return {}
+
     def forward(
         self,
         systems: List[System],
