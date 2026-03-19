@@ -278,6 +278,15 @@ def model_update_v11_v12(checkpoint: dict) -> None:
         checkpoint["model_data"]["model_hypers"]["max_charge"] = 10
     if "max_spin" not in checkpoint["model_data"]["model_hypers"]:
         checkpoint["model_data"]["model_hypers"]["max_spin"] = 10
+    # Rename edge_linear -> edge_embedder (muon2 branch used edge_linear)
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if "gnn_layers" in k and ".edge_linear." in k:
+                    k = k.replace(".edge_linear.", ".edge_embedder.")
+                new_state_dict[k] = v
+            checkpoint[key] = new_state_dict
 
 
 ###########################
