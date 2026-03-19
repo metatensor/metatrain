@@ -4,7 +4,7 @@ import itertools
 import logging
 import time
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import torch
@@ -22,6 +22,8 @@ from metatrain.utils.data import (
     read_systems,
     unpack_batch,
 )
+from metatrain.utils.data.readers import read_extra_data
+from metatrain.utils.system_data import get_system_data_transform
 from metatrain.utils.data.writers import (
     DiskDatasetWriter,
     Writer,
@@ -132,6 +134,7 @@ def _eval_targets(
     batch_size: int = 1,
     check_consistency: bool = False,
     writer: Optional[Writer] = None,
+    extra_data_keys: Optional[List[str]] = None,
 ) -> None:
     """
     Evaluate `model` on `dataset`, accumulate RMSE/MAE, and (if `writer` is provided)
@@ -176,10 +179,10 @@ def _eval_targets(
     # Create a dataloader
     target_keys = list(model.capabilities().outputs.keys())
     requested_neighbor_lists = get_requested_neighbor_lists(model)
-    collate_fn = CollateFn(
-        target_keys,
-        callables=[get_system_with_neighbor_lists_transform(requested_neighbor_lists)],
-    )
+    callables = [get_system_with_neighbor_lists_transform(requested_neighbor_lists)]
+    if extra_data_keys:
+        callables.append(get_system_data_transform(extra_data_keys))
+    collate_fn = CollateFn(target_keys, callables=callables)
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, collate_fn=collate_fn, shuffle=False
     )
@@ -300,8 +303,10 @@ def eval_model(
         writer = get_writer(filename, capabilities=model.capabilities(), append=append)
 
         # build the dataset & target-info
+        extra_data_keys: List[str] = []
         if hasattr(options, "targets"):
-            eval_dataset, eval_info_dict, _ = get_dataset(options)
+            eval_dataset, eval_info_dict, extra_data_info_dict = get_dataset(options)
+            extra_data_keys = list(extra_data_info_dict.keys())
             eval_systems = (
                 [d.system for d in eval_dataset]
                 if not isinstance(writer, DiskDatasetWriter)
@@ -319,13 +324,20 @@ def eval_model(
             )
 
             # FIXME: this works only for energy models
-            eval_targets: Dict[str, TensorMap] = {}
+            eval_targets: Dict[str, List[TensorMap]] = {}
             eval_info_dict = copy.deepcopy(model.capabilities().outputs)
             for name, model_output in eval_info_dict.items():
                 if "energy" in name:
                     model_output.per_atom = False  # type: ignore
 
-            eval_dataset = Dataset.from_dict({"system": eval_systems, **eval_targets})
+            extra_data: Dict[str, List[TensorMap]] = {}
+            if "extra_data" in options:
+                extra_data, _ = read_extra_data(conf=options["extra_data"])
+                extra_data_keys = list(extra_data.keys())
+
+            eval_dataset = Dataset.from_dict(
+                {"system": eval_systems, **eval_targets, **extra_data}
+            )
 
         # run evaluation & writing
         try:
@@ -338,6 +350,7 @@ def eval_model(
                 batch_size=batch_size,
                 check_consistency=check_consistency,
                 writer=writer,
+                extra_data_keys=extra_data_keys,
             )
         except Exception as e:
             raise ArchitectureError(e)

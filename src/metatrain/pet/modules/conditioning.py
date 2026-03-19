@@ -1,10 +1,18 @@
 """System-level conditioning embeddings for charge and spin."""
 
-from typing import Callable, Dict, List, Tuple
+from typing import List
 
 import torch
-from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import System
+
+from metatrain.utils.system_data import get_system_data_transform
+
+
+def get_system_conditioning_transform(conditioning_keys: List[str]):
+    """Alias for :func:`metatrain.utils.system_data.get_system_data_transform`.
+
+    Kept for backwards compatibility with code that imports from this module.
+    """
+    return get_system_data_transform(conditioning_keys)
 
 
 class SystemConditioningEmbedding(torch.nn.Module):
@@ -88,66 +96,3 @@ class SystemConditioningEmbedding(torch.nn.Module):
         return system_emb[system_indices]  # [n_atoms, d_out]
 
 
-def get_system_conditioning_transform(
-    conditioning_keys: List[str],
-) -> Callable[
-    [List[System], Dict[str, TensorMap], Dict[str, TensorMap]],
-    Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]],
-]:
-    """Return a CollateFn callable that moves conditioning data from the extra
-    dict into each System via ``add_data``.
-
-    After ``group_and_join`` the extra dict contains batched TensorMaps keyed by
-    ``"mtt::charge"`` and ``"mtt::spin"``, with samples indexed 0, 1, … matching
-    the position of each system in the batch list.  This callable re-attaches
-    per-system scalars to the System objects so the PET model can read them with
-    ``system.get_data("mtt::charge")``.
-
-    NaN values are treated as missing: the corresponding system will not have the
-    data key attached and the model will fall back to its default (charge=0, spin=1).
-
-    :param conditioning_keys: List of extra_data keys present in
-        ``extra_data_info``, e.g. ``["mtt::charge", "mtt::spin"]``.
-    :return: A three-argument callable ``(systems, targets, extra) -> (systems,
-        targets, extra)``.
-    """
-
-    def transform(
-        systems: List[System],
-        targets: Dict[str, TensorMap],
-        extra: Dict[str, TensorMap],
-    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
-        for key in conditioning_keys:
-            if key not in extra:
-                continue
-            prop_name = key.split("::")[-1]
-            block = extra[key].block()
-            for row_idx in range(len(block.samples)):
-                sys_idx = int(block.samples.entry(row_idx)["system"])
-                val = block.values[row_idx : row_idx + 1]  # shape [1, n_props]
-                if torch.isnan(val).any():
-                    continue
-                systems[sys_idx].add_data(
-                    key,
-                    TensorMap(
-                        keys=Labels.single(),
-                        blocks=[
-                            TensorBlock(
-                                values=val,
-                                samples=Labels(
-                                    "system",
-                                    torch.tensor(
-                                        [[sys_idx]],
-                                        device=val.device,
-                                        dtype=torch.int32,
-                                    ),
-                                ),
-                                components=[],
-                                properties=Labels.range(prop_name, val.shape[-1]),
-                            )
-                        ],
-                    ),
-                )
-        return systems, targets, extra
-
-    return transform

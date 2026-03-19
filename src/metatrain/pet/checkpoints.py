@@ -271,6 +271,8 @@ def model_update_v11_v12(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to update.
     """
+    import logging
+
     state_dict = (
         checkpoint.get("model_state_dict")
         or checkpoint.get("best_model_state_dict")
@@ -278,6 +280,10 @@ def model_update_v11_v12(checkpoint: dict) -> None:
     )
     has_conditioning_weights = any(
         k.startswith("system_conditioning.") for k in state_dict
+    )
+    logging.info(
+        "Checkpoint upgrade v11→v12: system_conditioning weights %s in checkpoint.",
+        "found" if has_conditioning_weights else "NOT found",
     )
     # Adding system conditioning hyperparameters — enabled if weights already present
     # (muon2 branch trained with system conditioning), disabled otherwise.
