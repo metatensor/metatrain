@@ -44,11 +44,10 @@ def get_system_data_transform(
             prop_name = key.split("::")[-1]
             block = extra[key].block()
             for row_idx in range(len(block.samples)):
-                sys_idx = int(block.samples.entry(row_idx)["system"])
                 val = block.values[row_idx : row_idx + 1]  # shape [1, n_props]
                 if torch.isnan(val).any():
                     continue
-                systems[sys_idx].add_data(
+                systems[row_idx].add_data(
                     key,
                     TensorMap(
                         keys=Labels.single(),
@@ -58,7 +57,7 @@ def get_system_data_transform(
                                 samples=Labels(
                                     "system",
                                     torch.tensor(
-                                        [[sys_idx]],
+                                        [[row_idx]],
                                         device=val.device,
                                         dtype=torch.int32,
                                     ),
