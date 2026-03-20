@@ -54,6 +54,8 @@ def get_system_data_transform(
                 val = block.values[row_idx : row_idx + 1]  # shape [1, n_props]
                 if torch.isnan(val).any():
                     continue
+                if key in systems[row_idx].known_data():
+                    continue
                 systems[row_idx].add_data(
                     key,
                     TensorMap(
