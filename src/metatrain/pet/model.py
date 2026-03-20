@@ -479,10 +479,6 @@ class PET(ModelInterface[ModelHypers]):
                                 + str(i)
                             )
                         charges[i] = raw_charge.long().squeeze()
-                    else:
-                        logging.debug(
-                            "System %d has no mtt::charge data; defaulting to 0.", i
-                        )
                     if "mtt::spin" in system.known_data():
                         raw_spin = system.get_data("mtt::spin").block().values
                         if not torch.equal(raw_spin.round(), raw_spin):
@@ -493,10 +489,6 @@ class PET(ModelInterface[ModelHypers]):
                                 + str(i)
                             )
                         spins[i] = raw_spin.long().squeeze()
-                    else:
-                        logging.debug(
-                            "System %d has no mtt::spin data; defaulting to 1.", i
-                        )
                 self.system_conditioning.validate(charges, spins)
                 featurizer_inputs["charge"] = charges
                 featurizer_inputs["spin"] = spins
