@@ -473,8 +473,10 @@ class PET(ModelInterface[ModelHypers]):
                         raw_charge = system.get_data("mtt::charge").block().values
                         if not torch.equal(raw_charge.round(), raw_charge):
                             raise ValueError(
-                                f"mtt::charge must be an integer value, "
-                                f"got {raw_charge.item():.6g} for system {i}."
+                                "mtt::charge must be an integer value, got "
+                                + str(raw_charge.item())
+                                + " for system "
+                                + str(i)
                             )
                         charges[i] = raw_charge.long().squeeze()
                     else:
@@ -485,8 +487,10 @@ class PET(ModelInterface[ModelHypers]):
                         raw_spin = system.get_data("mtt::spin").block().values
                         if not torch.equal(raw_spin.round(), raw_spin):
                             raise ValueError(
-                                f"mtt::spin must be an integer value, "
-                                f"got {raw_spin.item():.6g} for system {i}."
+                                "mtt::spin must be an integer value, got "
+                                + str(raw_spin.item())
+                                + " for system "
+                                + str(i)
                             )
                         spins[i] = raw_spin.long().squeeze()
                     else:
