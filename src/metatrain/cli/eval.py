@@ -23,7 +23,6 @@ from metatrain.utils.data import (
     unpack_batch,
 )
 from metatrain.utils.data.readers import read_extra_data
-from metatrain.utils.system_data import get_system_data_transform
 from metatrain.utils.data.writers import (
     DiskDatasetWriter,
     Writer,
@@ -41,6 +40,7 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.omegaconf import expand_dataset_config
 from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.system_data import get_system_data_transform
 from metatrain.utils.transfer import batch_to
 
 
@@ -303,10 +303,13 @@ def eval_model(
         writer = get_writer(filename, capabilities=model.capabilities(), append=append)
 
         # build the dataset & target-info
+        requested_inputs = set(model.requested_inputs().keys())
         extra_data_keys: List[str] = []
         if hasattr(options, "targets"):
             eval_dataset, eval_info_dict, extra_data_info_dict = get_dataset(options)
-            extra_data_keys = list(extra_data_info_dict.keys())
+            extra_data_keys = [
+                k for k in extra_data_info_dict.keys() if k in requested_inputs
+            ]
             eval_systems = (
                 [d.system for d in eval_dataset]
                 if not isinstance(writer, DiskDatasetWriter)
@@ -333,7 +336,9 @@ def eval_model(
             extra_data: Dict[str, List[TensorMap]] = {}
             if "extra_data" in options:
                 extra_data, _ = read_extra_data(conf=options["extra_data"])
-                extra_data_keys = list(extra_data.keys())
+                extra_data_keys = [
+                    k for k in extra_data.keys() if k in requested_inputs
+                ]
 
             eval_dataset = Dataset.from_dict(
                 {"system": eval_systems, **eval_targets, **extra_data}

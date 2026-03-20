@@ -2,10 +2,12 @@
 
 import copy
 
+import ase
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
+from metatomic.torch.ase_calculator import MetatomicCalculator
 
 from metatrain.pet import PET
 from metatrain.pet.modules.conditioning import SystemConditioningEmbedding
@@ -99,8 +101,9 @@ def test_conditioning_different_d_node_d_pet():
     assert "energy" in result
 
 
-def _train_steps(model, n_steps=10):
+def _train_steps(model, n_steps=20):
     """Do a few optimizer steps to break the zero-init of the conditioning gate."""
+    torch.manual_seed(42)
     model.train()
     for _ in range(n_steps):
         system = _make_system(model, charge=2, spin=3)
@@ -240,3 +243,55 @@ def test_conditioning_out_of_range():
         ValueError, match=r"spin multiplicity values must be in \[1, 4\]"
     ):
         module.validate(torch.tensor([0]), torch.tensor([0]))
+
+
+def test_conditioning_export_and_ase_inference(tmp_path, monkeypatch):
+    """Export a conditioned model and verify ASE calculator produces charge-dependent
+    energies and correctly invalidates the cache when atoms.info changes."""
+    monkeypatch.chdir(tmp_path)
+
+    hypers = _small_hypers()
+    model = PET(hypers, _dataset_info())
+    _train_steps(model)
+    model.export().save("pet_conditioned.pt")
+
+    atoms = ase.Atoms(
+        "CH",
+        positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.1]],
+        cell=[10, 10, 10],
+        pbc=False,
+    )
+
+    # --- check_consistency=True must not raise ---
+    atoms.info["charge"] = 0
+    atoms.info["spin"] = 1
+    calc = MetatomicCalculator("pet_conditioned.pt", check_consistency=True)
+    atoms.calc = calc
+    e_neutral = atoms.get_potential_energy()
+
+    # --- different charge gives different energy ---
+    atoms.info["charge"] = 1
+    atoms.calc.reset()
+    e_cation = atoms.get_potential_energy()
+    assert e_neutral != e_cation, (
+        "charge=0 and charge=1 should produce different energies"
+    )
+
+    # --- cache invalidation: changing atoms.info["charge"] triggers recalc ---
+    atoms2 = ase.Atoms(
+        "CH",
+        positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.1]],
+        cell=[10, 10, 10],
+        pbc=False,
+    )
+    atoms2.info["charge"] = 0
+    atoms2.info["spin"] = 1
+    calc2 = MetatomicCalculator("pet_conditioned.pt", check_consistency=False)
+    atoms2.calc = calc2
+    e_0 = atoms2.get_potential_energy()
+
+    atoms2.info["charge"] = 2  # change without reset — check_state must detect it
+    e_2 = atoms2.get_potential_energy()
+    assert e_0 != e_2, (
+        "Cache should be invalidated when atoms.info['charge'] changes"
+    )

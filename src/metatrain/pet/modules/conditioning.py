@@ -43,6 +43,10 @@ class SystemConditioningEmbedding(torch.nn.Module):
         d_inner = d_out
         self.charge_embedding = torch.nn.Embedding(2 * max_charge + 1, d_inner)
         self.spin_embedding = torch.nn.Embedding(max_spin, d_inner)
+        # Zero-init the output gate so the module starts as a no-op (adds zero
+        # to node features).  This stabilises early training: the base model
+        # learns first and the conditioning branch activates gradually as the
+        # gate weights move off zero.
         gate = torch.nn.Linear(d_inner, d_out)
         torch.nn.init.zeros_(gate.weight)
         torch.nn.init.zeros_(gate.bias)

@@ -43,6 +43,13 @@ def get_system_data_transform(
                 continue
             prop_name = key.split("::")[-1]
             block = extra[key].block()
+            if block.samples.names != ["system"]:
+                raise ValueError(
+                    f"get_system_data_transform expects per-system TensorMaps "
+                    f"(samples=['system']), got samples={block.samples.names} "
+                    f"for key '{key}'. Per-atom extra data cannot be attached "
+                    "to System objects this way."
+                )
             for row_idx in range(len(block.samples)):
                 val = block.values[row_idx : row_idx + 1]  # shape [1, n_props]
                 if torch.isnan(val).any():

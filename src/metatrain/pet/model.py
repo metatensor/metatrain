@@ -470,12 +470,28 @@ class PET(ModelInterface[ModelHypers]):
                 spins = torch.ones(n_systems, dtype=torch.long, device=device)
                 for i, system in enumerate(systems):
                     if "mtt::charge" in system.known_data():
-                        charges[i] = (
-                            system.get_data("mtt::charge").block().values.long().squeeze()
+                        raw_charge = system.get_data("mtt::charge").block().values
+                        if not torch.equal(raw_charge.round(), raw_charge):
+                            raise ValueError(
+                                f"mtt::charge must be an integer value, "
+                                f"got {raw_charge.item():.6g} for system {i}."
+                            )
+                        charges[i] = raw_charge.long().squeeze()
+                    else:
+                        logging.debug(
+                            "System %d has no mtt::charge data; defaulting to 0.", i
                         )
                     if "mtt::spin" in system.known_data():
-                        spins[i] = (
-                            system.get_data("mtt::spin").block().values.long().squeeze()
+                        raw_spin = system.get_data("mtt::spin").block().values
+                        if not torch.equal(raw_spin.round(), raw_spin):
+                            raise ValueError(
+                                f"mtt::spin must be an integer value, "
+                                f"got {raw_spin.item():.6g} for system {i}."
+                            )
+                        spins[i] = raw_spin.long().squeeze()
+                    else:
+                        logging.debug(
+                            "System %d has no mtt::spin data; defaulting to 1.", i
                         )
                 self.system_conditioning.validate(charges, spins)
                 featurizer_inputs["charge"] = charges
