@@ -303,13 +303,10 @@ def eval_model(
         writer = get_writer(filename, capabilities=model.capabilities(), append=append)
 
         # build the dataset & target-info
-        requested_inputs = set(model.requested_inputs().keys())
         extra_data_keys: List[str] = []
         if hasattr(options, "targets"):
             eval_dataset, eval_info_dict, extra_data_info_dict = get_dataset(options)
-            extra_data_keys = [
-                k for k in extra_data_info_dict.keys() if k in requested_inputs
-            ]
+            extra_data_keys = list(extra_data_info_dict.keys())
             eval_systems = (
                 [d.system for d in eval_dataset]
                 if not isinstance(writer, DiskDatasetWriter)
@@ -336,9 +333,7 @@ def eval_model(
             extra_data: Dict[str, List[TensorMap]] = {}
             if "extra_data" in options:
                 extra_data, _ = read_extra_data(conf=options["extra_data"])
-                extra_data_keys = [
-                    k for k in extra_data.keys() if k in requested_inputs
-                ]
+                extra_data_keys = list(extra_data.keys())
 
             eval_dataset = Dataset.from_dict(
                 {"system": eval_systems, **eval_targets, **extra_data}

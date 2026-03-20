@@ -12,9 +12,13 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 from metatrain.pet import PET
 from metatrain.pet.modules.conditioning import SystemConditioningEmbedding
 from metatrain.utils.architectures import get_default_hypers
-from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data import CollateFn, Dataset, DatasetInfo, unpack_batch
 from metatrain.utils.data.target_info import get_energy_target_info
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.neighbor_lists import (
+    get_system_with_neighbor_lists,
+    get_system_with_neighbor_lists_transform,
+)
+from metatrain.utils.system_data import get_system_data_transform
 
 
 def _small_hypers(system_conditioning=True, **kwargs):
@@ -294,4 +298,105 @@ def test_conditioning_export_and_ase_inference(tmp_path, monkeypatch):
     e_2 = atoms2.get_potential_energy()
     assert e_0 != e_2, (
         "Cache should be invalidated when atoms.info['charge'] changes"
+    )
+
+
+def _make_raw_system() -> System:
+    """2-atom system without neighbor lists (as stored in a Dataset).
+
+    Uses float64 to match what read_systems() produces; batch_to() later
+    converts to the model's float32.
+    """
+    return System(
+        types=torch.tensor([6, 1]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.1]], dtype=torch.float64),
+        cell=torch.zeros(3, 3, dtype=torch.float64),
+        pbc=torch.tensor([False, False, False]),
+    )
+
+
+def _make_extra_tmap(value: float, prop_name: str) -> TensorMap:
+    return TensorMap(
+        keys=Labels.single(),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[value]], dtype=torch.float64),
+                samples=Labels("system", torch.tensor([[0]])),
+                components=[],
+                properties=Labels(prop_name, torch.tensor([[0]])),
+            )
+        ],
+    )
+
+
+def test_eval_routes_extra_data_to_conditioning():
+    """Regression: extra_data charge/spin must reach system conditioning during eval.
+
+    Simulates the eval data pipeline (Dataset + CollateFn with
+    get_system_data_transform) and verifies that a non-default charge produces
+    different model predictions than the default (charge=0).
+
+    This would silently fail if extra_data_keys were filtered to empty (e.g.
+    by incorrectly gating on model.requested_inputs() which returns {} for
+    exported models), causing all systems to fall back to charge=0 / spin=1.
+    """
+    hypers = _small_hypers()
+    model = PET(hypers, _dataset_info())
+    _train_steps(model)
+    model.eval()
+
+    extra_data_keys = ["mtt::charge", "mtt::spin"]
+
+    dataset_neutral = Dataset.from_dict(
+        {
+            "system": [_make_raw_system()],
+            "mtt::charge": [_make_extra_tmap(0.0, "charge")],
+            "mtt::spin": [_make_extra_tmap(1.0, "spin")],
+        }
+    )
+    dataset_charged = Dataset.from_dict(
+        {
+            "system": [_make_raw_system()],
+            "mtt::charge": [_make_extra_tmap(2.0, "charge")],  # non-default
+            "mtt::spin": [_make_extra_tmap(1.0, "spin")],
+        }
+    )
+
+    callables = [
+        get_system_with_neighbor_lists_transform(model.requested_neighbor_lists()),
+        get_system_data_transform(extra_data_keys),
+    ]
+    collate_fn = CollateFn(["energy"], callables=callables)
+
+    systems_neutral, _, _ = unpack_batch(collate_fn([dataset_neutral[0]]))
+    systems_charged, _, _ = unpack_batch(collate_fn([dataset_charged[0]]))
+
+    # Verify charge was actually attached to systems — if the transform is
+    # skipped, known_data() will be empty and the assertion fails here.
+    assert "mtt::charge" in systems_neutral[0].known_data(), (
+        "mtt::charge not attached to neutral system — "
+        "get_system_data_transform was not applied"
+    )
+    assert "mtt::charge" in systems_charged[0].known_data(), (
+        "mtt::charge not attached to charged system — "
+        "get_system_data_transform was not applied"
+    )
+
+    charge_neutral = systems_neutral[0].get_data("mtt::charge").block().values.item()
+    charge_charged = systems_charged[0].get_data("mtt::charge").block().values.item()
+    assert charge_neutral == 0.0
+    assert charge_charged == 2.0
+
+    # Convert to float32 (model dtype), mirroring batch_to() in the eval loop
+    systems_neutral = [s.to(dtype=torch.float32) for s in systems_neutral]
+    systems_charged = [s.to(dtype=torch.float32) for s in systems_charged]
+
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    with torch.no_grad():
+        e_neutral = model(systems_neutral, outputs)["energy"].block().values
+        e_charged = model(systems_charged, outputs)["energy"].block().values
+
+    assert not torch.allclose(e_neutral, e_charged), (
+        "charge=0 and charge=2 produce identical energies — "
+        "conditioning is not being applied (extra_data not routed to systems)"
     )
