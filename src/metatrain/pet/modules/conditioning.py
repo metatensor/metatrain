@@ -1,13 +1,20 @@
 """System-level conditioning embeddings for charge and spin."""
 
-from typing import List
+from typing import Callable, Dict, List, Tuple
 
 import torch
+from metatensor.torch import TensorMap
+from metatomic.torch import System
 
 from metatrain.utils.system_data import get_system_data_transform
 
 
-def get_system_conditioning_transform(conditioning_keys: List[str]):
+def get_system_conditioning_transform(
+    conditioning_keys: List[str],
+) -> Callable[
+    [List[System], Dict[str, TensorMap], Dict[str, TensorMap]],
+    Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]],
+]:
     """Alias for :func:`metatrain.utils.system_data.get_system_data_transform`.
 
     Kept for backwards compatibility with code that imports from this module.
