@@ -1109,9 +1109,7 @@ def test_memmap_extra_data_per_atom_heterogeneous(tmp_path):
     # system 0 → atom 0         → value 10.0
     # system 1 → atoms 1,2,3   → values 20.0, 21.0, 22.0
     # system 2 → atoms 4,5     → values 30.0, 31.0
-    per_atom_values = np.array(
-        [10.0, 20.0, 21.0, 22.0, 30.0, 31.0], dtype="float32"
-    )
+    per_atom_values = np.array([10.0, 20.0, 21.0, 22.0, 30.0, 31.0], dtype="float32")
     per_atom_values.tofile(tmp_path / "feat.bin")
 
     extra_data_options = {

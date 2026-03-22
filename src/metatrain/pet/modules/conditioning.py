@@ -98,5 +98,3 @@ class SystemConditioningEmbedding(torch.nn.Module):
         s_emb = self.spin_embedding(spin - 1)  # [n_systems, d_out]
         system_emb = self.project(torch.cat([c_emb, s_emb], dim=-1))  # [n_systems, d]
         return system_emb[system_indices]  # [n_atoms, d_out]
-
-

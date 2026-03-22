@@ -288,9 +288,9 @@ def model_update_v11_v12(checkpoint: dict) -> None:
     # Adding system conditioning hyperparameters — enabled if weights already present
     # (muon2 branch trained with system conditioning), disabled otherwise.
     if "system_conditioning" not in checkpoint["model_data"]["model_hypers"]:
-        checkpoint["model_data"]["model_hypers"][
-            "system_conditioning"
-        ] = has_conditioning_weights
+        checkpoint["model_data"]["model_hypers"]["system_conditioning"] = (
+            has_conditioning_weights
+        )
     if "max_charge" not in checkpoint["model_data"]["model_hypers"]:
         checkpoint["model_data"]["model_hypers"]["max_charge"] = 10
     if "max_spin" not in checkpoint["model_data"]["model_hypers"]:

@@ -296,9 +296,7 @@ def test_conditioning_export_and_ase_inference(tmp_path, monkeypatch):
 
     atoms2.info["charge"] = 2  # change without reset — check_state must detect it
     e_2 = atoms2.get_potential_energy()
-    assert e_0 != e_2, (
-        "Cache should be invalidated when atoms.info['charge'] changes"
-    )
+    assert e_0 != e_2, "Cache should be invalidated when atoms.info['charge'] changes"
 
 
 def _make_raw_system() -> System:
