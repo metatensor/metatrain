@@ -1,0 +1,33 @@
+seed: 42
+
+architecture:
+  name: experimental.phace
+  model:
+    num_tensor_products: 4
+    num_gnn_layers: 3
+    cutoff: 10.0
+    cutoff_width: 0.5
+    num_element_channels: 128
+    force_rectangular: false
+  training:
+    compile: false
+    batch_size: 5
+    num_epochs: 100
+    learning_rate: 0.003
+    warmup_fraction: 0.01
+    gradient_clipping: 1.0
+    log_interval: 1
+    log_mae: true
+    best_model_metric: mae_prod
+
+training_set:
+  systems:
+    read_from: ethanol_reduced_100.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: energy
+      unit: kcal/mol
+
+test_set: 0.1
+validation_set: 0.1

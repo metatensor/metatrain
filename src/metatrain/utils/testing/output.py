@@ -48,9 +48,14 @@ class OutputTests(ArchitectureTests):
     """Whether the model supports returning features."""
     supports_last_layer_features: bool = True
     """Whether the model supports returning last-layer features."""
-    is_equivariant_model: bool = True
+    is_equivariant_rotations: bool = True
     """Whether the model is equivariant (i.e. produces outputs that
     transform correctly under rotations by architecture's design)."""
+    is_equivariant_reflections: bool = True
+    """Whether the model is equivariant (i.e. produces outputs that
+    transform correctly under reflections by architecture's design)."""
+    equivariance_error_tolerance: float = 1e-5
+    """Tolerance for equivariance tests."""
 
     @pytest.fixture
     def n_features(self) -> Optional[int | list[int]]:
@@ -130,6 +135,27 @@ class OutputTests(ArchitectureTests):
 
         model = model.to(system.positions.dtype)
         return model([system], {k: ModelOutput(per_atom=per_atom) for k in outputs})
+
+    def test_no_output(
+        self, model_hypers: dict, dataset_info: DatasetInfo, per_atom: bool
+    ) -> None:
+        """Tests that forward pass works for no output.
+
+        It also tests that there are no outputs returned.
+
+        If this test is failing, it means that your model always produces (or wants to
+        produce) outputs, even if none are requested.
+        If this is the expected behavior for your model, we need to introduce
+        a variable to skip this test, contact the ``metatrain`` developers.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info: Dataset information.
+        :param per_atom: Whether the requested outputs are per-atom or not.
+        """
+
+        outputs = self._get_output(model_hypers, dataset_info, per_atom, [])
+
+        assert len(outputs) == 0
 
     def test_output_scalar(
         self, model_hypers: dict, dataset_info_scalar: DatasetInfo, per_atom: bool
@@ -547,7 +573,7 @@ class OutputTests(ArchitectureTests):
         assert "energy" in outputs
         assert "mtt::aux::energy_last_layer_features" in outputs
 
-        last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block()
+        last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block(0)
         expected_samples = ["system", "atom"] if per_atom else ["system"]
         assert last_layer_features.samples.names == expected_samples
         assert last_layer_features.properties.names == ["feature"]
@@ -606,7 +632,7 @@ class OutputTests(ArchitectureTests):
         )
         model = model.to(systems[0].positions.dtype)
         out = model(systems, outputs, selected_atoms=selected_atoms)
-        features = out[output_label].block().samples.values
+        features = out[output_label].block(0).samples.values
         assert features.shape == selected_atoms.values.shape
 
     def test_single_atom(
@@ -645,14 +671,14 @@ class OutputTests(ArchitectureTests):
 
         This test is skipped if the model does not support scalar outputs,
         or if the model is not equivariant by design, i.e., if either
-        ``supports_scalar_outputs`` or ``is_equivariant_model`` is set to
+        ``supports_scalar_outputs`` or ``is_equivariant_rotations`` is set to
         ``False``.
 
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info: Dataset information to initialize the model.
         :param dataset_path: Path to a dataset file to read systems from.
         """
-        if not self.supports_scalar_outputs or not self.is_equivariant_model:
+        if not self.supports_scalar_outputs or not self.is_equivariant_rotations:
             pytest.skip(
                 f"{self.architecture} does not produce invariant scalar outputs."
             )
@@ -681,6 +707,8 @@ class OutputTests(ArchitectureTests):
         torch.testing.assert_close(
             original_output["energy"].block().values,
             rotated_output["energy"].block().values,
+            atol=self.equivariance_error_tolerance,
+            rtol=self.equivariance_error_tolerance,
         )
 
     def test_output_spherical_equivariant_rotations(
@@ -691,7 +719,7 @@ class OutputTests(ArchitectureTests):
 
         This test is skipped if the model does not support spherical outputs,
         or if the model is not equivariant by design, i.e., if either
-        ``supports_spherical_outputs`` or ``is_equivariant_model`` is set to
+        ``supports_spherical_outputs`` or ``is_equivariant_rotations`` is set to
         ``False``.
 
         :param model_hypers: Hyperparameters to initialize the model.
@@ -699,7 +727,7 @@ class OutputTests(ArchitectureTests):
         :param dataset_path: Path to a dataset file to read systems from.
         """
 
-        if not self.supports_spherical_outputs or not self.is_equivariant_model:
+        if not self.supports_spherical_outputs or not self.is_equivariant_rotations:
             pytest.skip(
                 f"{self.architecture} does not produce equivariant spherical outputs."
             )
@@ -736,8 +764,8 @@ class OutputTests(ArchitectureTests):
                 rotation,
             ),
             rotated_output["spherical_target"].block().values.detach().numpy(),
-            atol=1e-5,
-            rtol=1e-5,
+            atol=self.equivariance_error_tolerance,
+            rtol=self.equivariance_error_tolerance,
         )
 
     def test_output_spherical_equivariant_inversion(
@@ -754,7 +782,7 @@ class OutputTests(ArchitectureTests):
 
         This test is skipped if the model does not support spherical outputs,
         or if the model is not equivariant by design, i.e., if either
-        ``supports_spherical_outputs`` or ``is_equivariant_model`` is set to
+        ``supports_spherical_outputs`` or ``is_equivariant_reflections`` is set to
         ``False``.
 
         :param model_hypers: Hyperparameters to initialize the model.
@@ -764,7 +792,7 @@ class OutputTests(ArchitectureTests):
         :param o3_sigma: The O(3) sigma of the spherical output to test.
         """
 
-        if not self.supports_spherical_outputs or not self.is_equivariant_model:
+        if not self.supports_spherical_outputs or not self.is_equivariant_reflections:
             pytest.skip(
                 f"{self.architecture} does not produce equivariant spherical outputs."
             )

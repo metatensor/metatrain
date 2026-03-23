@@ -216,8 +216,31 @@ def generate_rst(
             **template_variables
         )
 
+    arch_url_path = arch_path.replace(".", "/")
+    badge_target = (
+        f"https://app.codecov.io/gh/metatensor/metatrain/tree/main/src/{arch_url_path}"
+        f"?components%5B0%5D={architecture_real_name}"
+    )
+    badge_string = (
+        f".. image:: https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?component={architecture_real_name}"
+        f"\n   :target: {badge_target}"
+    )
+
     # Prepend docstring with reference and append missing sections
-    docstring = f".. _arch-{template_variables['architecture']}:" + "\n\n" + docstring
+    lines = docstring.split("\n")
+    title_id = 0
+    underline_id = 1
+    docstring = (
+        f".. _arch-{template_variables['architecture']}:\n\n"
+        + lines[title_id]
+        + "\n"
+        + lines[underline_id]
+        + "\n\n"
+        + badge_string
+        + "\n"
+        + "\n".join(lines[2:])
+    )
+
     # Check for missing sections and add them to the end of the docstring
     for section in SECTIONS:
         section_var = "{{SECTION_" + section.upper() + "}}"
