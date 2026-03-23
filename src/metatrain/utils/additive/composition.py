@@ -14,14 +14,12 @@ from metatrain.utils.data import (
 )
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists_transform
 
-from ..data import DatasetInfo, TargetInfo, unpack_batch
-from ..transfer import batch_to
+from ..data import DatasetInfo, TargetInfo
 from ._base_composition import (
     BaseCompositionModel,
     FixedCompositionWeights,
     _include_key,
 )
-from .remove import remove_additive
 
 
 class CompositionModel(torch.nn.Module):

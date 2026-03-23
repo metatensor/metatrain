@@ -11,11 +11,8 @@ from metatrain.utils.data import (
     CombinedDataLoader,
     Dataset,
 )
-from metatrain.utils.per_atom import average_by_num_atoms
 
-from ..additive import remove_additive
-from ..data import DatasetInfo, TargetInfo, unpack_batch
-from ..transfer import batch_to
+from ..data import DatasetInfo, TargetInfo
 from ._base_scaler import BaseScaler, FixedScalerWeights
 
 

@@ -22,6 +22,7 @@ from metatrain.experimental.phace.modules.base_model import (
     GradientModel,
 )
 from metatrain.experimental.phace.modules.cg_coefficients import ClebschGordanReal
+from metatrain.experimental.phace.modules.finetuning import apply_finetuning_strategy
 from metatrain.experimental.phace.utils import systems_to_batch
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
@@ -49,7 +50,7 @@ class PhACE(ModelInterface[ModelHypers]):
     """PhACE model: metatensor-based wrapper around ``BaseModel``
     and/or ``GradientModel``."""
 
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(references={})
@@ -153,6 +154,8 @@ class PhACE(ModelInterface[ModelHypers]):
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
+
+        self.finetune_config: Dict[str, Any] = {}
 
     @torch.jit.export
     def supported_outputs(self) -> Dict[str, ModelOutput]:
@@ -521,6 +524,9 @@ class PhACE(ModelInterface[ModelHypers]):
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
         )
+        finetune_config = model_state_dict.pop("finetune_config", {})
+        if finetune_config:
+            model = apply_finetuning_strategy(model, finetune_config)
         state_dict_iterator = iter(model_state_dict.values())
         next(state_dict_iterator)  # skip an int tensor
         next(state_dict_iterator)  # skip another int tensor
@@ -628,6 +634,8 @@ class PhACE(ModelInterface[ModelHypers]):
         ]
 
     def get_checkpoint(self) -> Dict:
+        model_state_dict = self.state_dict()
+        model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {
             "architecture_name": "experimental.phace",
             "model_ckpt_version": self.__checkpoint_version__,
@@ -638,7 +646,7 @@ class PhACE(ModelInterface[ModelHypers]):
             },
             "epoch": None,
             "best_epoch": None,
-            "model_state_dict": self.state_dict(),
+            "model_state_dict": model_state_dict,
             "best_model_state_dict": self.state_dict(),
         }
         return checkpoint

@@ -23,6 +23,7 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
@@ -35,11 +36,11 @@ from metatrain.utils.neighbor_lists import (
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
-from metatrain.utils.distributed.batch_utils import should_skip_batch
 
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import PhACE
+from .modules.finetuning import apply_finetuning_strategy
 from .utils import InversionAugmenter, systems_to_batch
 
 
@@ -133,7 +134,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -184,6 +185,29 @@ class Trainer(TrainerInterface[TrainerHypers]):
             logging.info(f"Training on {world_size} devices with dtype {dtype}")
         else:
             logging.info(f"Training on device {device} with dtype {dtype}")
+
+        # Apply fine-tuning strategy if provided
+        is_finetune = self.hypers["finetune"]["read_from"] is not None
+        if is_finetune:
+            assert self.hypers["finetune"]["read_from"] is not None  # for mypy
+            model = apply_finetuning_strategy(model, self.hypers["finetune"])
+            method = self.hypers["finetune"]["method"]
+            num_params = sum(p.numel() for p in model.parameters())
+            num_trainable_params = sum(
+                p.numel() for p in model.parameters() if p.requires_grad
+            )
+            logging.info(f"Applied finetuning strategy: {method}")
+            logging.info(
+                f"Number of trainable parameters: {num_trainable_params} "
+                f"[{num_trainable_params / num_params:.2%} %]"
+            )
+            inherit_heads = self.hypers["finetune"]["inherit_heads"]
+            if inherit_heads:
+                logging.info(
+                    "Inheriting initial weights for heads and last layers for targets: "
+                    f"from {list(inherit_heads.values())} to "
+                    f"{list(inherit_heads.keys())}"
+                )
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
@@ -641,6 +665,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
+        if self.best_model_state_dict is not None:
+            self.best_model_state_dict["finetune_config"] = model.finetune_config
         checkpoint.update(
             {
                 "train_hypers": self.hypers,

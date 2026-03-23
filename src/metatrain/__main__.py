@@ -7,6 +7,8 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
+import torch
+
 from . import PACKAGE_ROOT, __version__
 from .cli.eval import _add_eval_model_parser, _prepare_eval_model_args, eval_model
 from .cli.export import (
@@ -18,7 +20,7 @@ from .cli.train import _add_train_model_parser, _prepare_train_model_args, train
 from .utils.distributed.logging import is_main_process
 from .utils.logging import ROOT_LOGGER, setup_logging
 
-import torch
+
 torch.set_float32_matmul_precision("highest")
 
 

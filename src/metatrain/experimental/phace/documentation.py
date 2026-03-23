@@ -62,6 +62,10 @@ from typing import Literal, Optional
 
 from typing_extensions import TypedDict
 
+from metatrain.experimental.phace.modules.finetuning import (
+    FinetuneHypers,
+    NoFinetuneHypers,
+)
 from metatrain.utils.additive import FixedCompositionWeights
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
@@ -308,3 +312,36 @@ class TrainerHypers(TypedDict):
     counts outside these bounds will be skipped during training. Use ``None`` for
     either value to disable that bound. This is useful for preventing out-of-memory
     errors and ensuring consistent computational load. Default: ``[None, None]``."""
+
+    finetune: NoFinetuneHypers | FinetuneHypers = {
+        "read_from": None,
+        "method": "full",
+        "config": {},
+        "inherit_heads": {},
+    }
+    """Finetuning hyperparameters.
+
+    Setting ``read_from`` to a path enables finetuning from a pretrained PhACE
+    checkpoint. The ``method`` can be one of:
+
+    - ``"full"``: all parameters are trainable (default when ``read_from`` is set).
+    - ``"heads"``: only the output heads and last layers are trained; the rest of
+      the model is frozen.
+    - ``"lora"``: LoRA adapters are injected into the linear layers and only those
+      are trained.
+
+    Example for heads-only finetuning::
+
+        finetune:
+          read_from: /path/to/pretrained.ckpt
+          method: heads
+
+    Example for LoRA finetuning::
+
+        finetune:
+          read_from: /path/to/pretrained.ckpt
+          method: lora
+          config:
+            rank: 8
+            alpha: 16
+    """
