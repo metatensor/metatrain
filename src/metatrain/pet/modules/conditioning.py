@@ -18,6 +18,9 @@ def get_system_conditioning_transform(
     """Alias for :func:`metatrain.utils.system_data.get_system_data_transform`.
 
     Kept for backwards compatibility with code that imports from this module.
+
+    :param conditioning_keys: List of system-data keys to attach to each system.
+    :return: A callable transform that attaches the requested data to systems.
     """
     return get_system_data_transform(conditioning_keys)
 
