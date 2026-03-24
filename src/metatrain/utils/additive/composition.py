@@ -444,23 +444,14 @@ class CompositionModel(torch.nn.Module):
                 "since it is not either scalar or spherical."
             )
             return False
-        if (
-            target_info.is_spherical
-            and len(target_info.layout.blocks({"o3_lambda": 0, "o3_sigma": 1})) == 0
+        if target_info.is_spherical and (
+            "o3_lambda" not in target_info.layout.keys.names  # Rank 2
+            or len(target_info.layout.blocks({"o3_lambda": 0, "o3_sigma": 1}))
+            == 0  # No invariant blocks
         ):
             logging.debug(
                 f"Composition model does not support spherical target {target_name} "
                 "since it does not have any invariant blocks."
-            )
-            return False
-
-        if (
-            target_info.is_atomic_basis
-            and len(target_info.layout.blocks({"o3_lambda": 0, "o3_sigma": 1})) == 0
-        ):
-            logging.debug(
-                "Composition model does not support atomic basis target "
-                f"{target_name} since it does not have any invariant blocks."
             )
             return False
 

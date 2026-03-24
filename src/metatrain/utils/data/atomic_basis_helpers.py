@@ -181,7 +181,7 @@ def _densify_per_atom_atomic_basis_target(
 
         # Now broadcast the existing values to the new shape
         properties_mask = properties.select(block.properties)
-        padded_values[:, :, properties_mask] = block.values
+        padded_values[..., properties_mask] = block.values
         padded_block = TensorBlock(
             values=padded_values,
             samples=block.samples,
@@ -347,7 +347,7 @@ def _sparsify_per_atom_atomic_basis_target(
     sparse_blocks: List[TensorBlock] = []
     for key, block in tensor.items():
         for atom_type in unique_types:
-            new_key = torch.cat([key.values[:2], atom_type.view(1)], dim=0)
+            new_key = torch.cat([key.values, atom_type.view(1)], dim=0)
             sparse_block = TensorBlock(
                 values=block.values[atom_type_masks[atom_type.item()]],
                 samples=Labels(
@@ -378,9 +378,21 @@ def _sparsify_per_atom_atomic_basis_target(
 
         key_vals.append(key.values)
         block = tensor[key]
+
         properties_mask = layout_block.properties.select(block.properties)
+        # Do block.values[..., properties_mask] in a torchscriptable way.
+        if block.values.ndim == 3:
+            values = block.values[:, :, properties_mask]
+        elif block.values.ndim == 4:
+            values = block.values[:, :, :, properties_mask]
+        else:
+            raise ValueError(
+                "Tensorblocks with more than 2 component dimensions can't be "
+                "sparsified with the current implementation."
+            )
+
         unpadded_block = TensorBlock(
-            values=block.values[:, :, properties_mask],
+            values=values,
             samples=block.samples,
             components=block.components,
             properties=layout_block.properties,

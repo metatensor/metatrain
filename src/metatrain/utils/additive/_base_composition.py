@@ -578,8 +578,8 @@ def _include_key(key: LabelsEntry) -> bool:
     """
     valid_key_names = [
         ["_"],  # scalar
-        ["o3_lambda", "o3_sigma"],  # spherical
-        ["o3_lambda", "o3_sigma", "atom_type"],  # atomic basis onsite
+        ["o3_lambda", "o3_sigma"],  # spherical rank 1
+        ["o3_lambda", "o3_sigma", "atom_type"],  # atomic basis rank 1
     ]
     include_key = False
 
