@@ -45,7 +45,6 @@ class Scaler(torch.nn.Module):
         self.target_infos = {
             target_name: target_info
             for target_name, target_info in dataset_info.targets.items()
-            if not target_info.is_atomic_basis
         }
 
         # Initialize the scaler model

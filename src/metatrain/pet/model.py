@@ -20,7 +20,10 @@ from metatomic.torch import (
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
-from metatrain.utils.data._merge_atom_types import merge_types
+from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_target,
+    sparsify_atomic_basis_target,
+)
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
@@ -161,6 +164,7 @@ class PET(ModelInterface[ModelHypers]):
         self.property_labels: Dict[str, List[Labels]] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
+        self.dataset_info = dataset_info
         self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
@@ -418,6 +422,7 @@ class PET(ModelInterface[ModelHypers]):
                 cutoff_factors,
                 system_indices,
                 sample_labels,
+                species,
             ) = systems_to_batch(
                 systems,
                 nl_options,
@@ -522,9 +527,16 @@ class PET(ModelInterface[ModelHypers]):
                 return_dict[k] = v
 
         # **Post-processing (Evaluation Only)**
-
         with torch.profiler.record_function("PET::post-processing"):
             if not self.training:
+                # For atomic basis targets, sparsify to create blocks with "atom_type"
+                # in the key dimensions, and ensure properties are unpadded.
+                for k, v in atomic_predictions_dict.items():
+                    if self.dataset_info.targets[k].is_atomic_basis:
+                        return_dict[k] = sparsify_atomic_basis_target(
+                            systems, v, self.dataset_info.targets[k].layout, species
+                        )
+
                 # at evaluation, we also introduce the scaler and additive contributions
                 return_dict = self.scaler(
                     systems, return_dict, selected_atoms=selected_atoms
@@ -1209,7 +1221,7 @@ class PET(ModelInterface[ModelHypers]):
         """
         output_layout = target_info.layout
         if target_info.is_atomic_basis:
-            output_layout = merge_types(output_layout)
+            output_layout = densify_atomic_basis_target(output_layout, output_layout)
 
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}

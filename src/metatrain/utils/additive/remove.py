@@ -3,7 +3,7 @@ from typing import Callable, Dict, List, Tuple
 
 import metatensor.torch as mts
 import torch
-from metatensor.torch import TensorMap
+from metatensor.torch import Labels, TensorMap
 from metatensor.torch.operations._add import _add_block_block
 from metatensor.torch.operations._multiply import _multiply_block_constant
 from metatomic.torch import System
@@ -55,8 +55,16 @@ def remove_additive(
         # make the samples the same so we can use metatensor.torch.subtract
         # we also need to detach the values to avoid backpropagating through the
         # subtraction
+        key_vals = []
         blocks = []
         for block_key, old_block in additive_contribution[target_key].items():
+            if block_key not in targets[target_key].keys:
+                # This happens in the case of atomic basis targets, where weights blocks
+                # exist for all global atom types but ht etarget may only contain a
+                # subset of those.
+                assert target_info_dict[target_key].is_atomic_basis
+                continue
+            key_vals.append(block_key.values)
             device = targets[target_key].block(block_key).values.device
             block = mts.TensorBlock(
                 values=old_block.values.detach().to(device=device),
@@ -84,7 +92,9 @@ def remove_additive(
                 )
             blocks.append(block)
         additive_contribution[target_key] = TensorMap(
-            keys=additive_contribution[target_key].keys.to(device=device),
+            keys=Labels(
+                additive_contribution[target_key].keys.names, torch.vstack(key_vals)
+            ).to(device=device),
             blocks=blocks,
         )
         # Sparse subtract the additive contribution from the appropriate target blocks
