@@ -63,8 +63,10 @@ component_management:
 ignore:
   # no need to report coverage of the test code themself
   - "src/metatrain/utils/testing/.*"
-  - "src/metatrain/**/tests/.*"
+  - "src/metatrain/.*/tests/.*"
   # we don't currently run distributed tests on CI
   - "src/metatrain/utils/distributed/.*"
+  # auto-generated
+  - "src/metatrain/_version.py"
 
 comment: false
