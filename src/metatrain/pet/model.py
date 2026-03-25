@@ -437,6 +437,7 @@ class PET(ModelInterface[ModelHypers]):
                 self.num_neighbors_adaptive,
             )
 
+        # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
         # optional diagnostic token capture by registering temporary module hooks
         diagnostic_handles = torch.jit.annotate(List[Any], [])
         _diagnostic_pair_labels: Optional[Labels] = None
@@ -454,6 +455,7 @@ class PET(ModelInterface[ModelHypers]):
                     sample_labels,
                     _diagnostic_pair_labels,
                 )
+        # ===== END DIAGNOSTIC-RELATED BLOCK
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
@@ -470,6 +472,8 @@ class PET(ModelInterface[ModelHypers]):
                 padding_mask=padding_mask,
                 cutoff_factors=cutoff_factors,
             )
+
+            # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
             # Allow direct diagnostic capture of raw featurizer input tensors
             # (e.g. ``mtt::features::edge_vectors``).  These are handled explicitly
             # here rather than via hooks because they are plain tensors, not module
@@ -486,6 +490,8 @@ class PET(ModelInterface[ModelHypers]):
                                 sample_labels,
                                 _diagnostic_pair_labels,
                             )
+            # ===== END DIAGNOSTIC-RELATED BLOCK
+
             node_features_list, edge_features_list = self._calculate_features(
                 featurizer_inputs,
                 use_manual_attention=use_manual_attention,
@@ -611,10 +617,12 @@ class PET(ModelInterface[ModelHypers]):
                             return_dict[name].keys, output_blocks
                         )
 
+        # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
         # Remove any diagnostic hooks we registered during this forward pass.
         if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
             for h in diagnostic_handles:
                 h.remove()
+        # ===== END DIAGNOSTIC-RELATED BLOCK
 
         return return_dict
 
