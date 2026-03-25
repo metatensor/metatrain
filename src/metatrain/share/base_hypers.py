@@ -112,8 +112,8 @@ class SphericalTargetIrrepsConfig(TypedDict):
     num: NotRequired[int]
     """Number of irreps of this type.
 
-    If not provided, the value is taken from the ``num_subtargets`` field of the
-    target hypers.
+    Note that this will get multiplied by the number of subtargets
+    specified in ``TargetHypers``.
     """
     o3_lambda: int
     o3_sigma: float
@@ -124,15 +124,15 @@ class SphericalTargetConfig(TypedDict):
     irreps: (
         list[SphericalTargetIrrepsConfig] | dict[int, list[SphericalTargetIrrepsConfig]]
     )
-    product: NotRequired[Literal["cartesian", "coupled"] | None] = None
+    product: NotRequired[Literal[None, "cartesian", "coupled"]] = None
     """Means of describing a higher rank target that is made of the base irreps.
-    If ``product`` is ``None`` or not provided, the target is of rank 1.
-    If ``product`` is ``"cartesian"``, the target is of rank 2, built by taking all
-    possible uncoupled direct products between irreps, stored in the
-    (o3_lambda_1, o3_lambda_2, o3_sigma_1, o3_sigma_2) basis.
-    If ``product`` is ``"coupled"``, the target is of rank 2, built by taking all
-    possible CG-coupled products between irreps, stored in the
-    (o3_lambda, o3_sigma) basis.
+    If:
+    - ``product`` is ``None`` or not provided: the target is of rank 1.
+    - ``product`` is ``"cartesian"``: the target is of rank 2, built by taking all
+      possible outer products between irreps.
+    -``product`` is ``"coupled"``: same as ``"cartesian"``, but then taking the
+      generated products and coupling them to their irreducible representations.
+      The target is therefore of rank 1.
     """
 
 
