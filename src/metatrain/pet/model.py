@@ -164,7 +164,6 @@ class PET(ModelInterface[ModelHypers]):
         self.property_labels: Dict[str, List[Labels]] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
-        self.dataset_info = dataset_info
         self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
