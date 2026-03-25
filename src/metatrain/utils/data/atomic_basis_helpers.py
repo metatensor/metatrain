@@ -379,7 +379,9 @@ def _sparsify_per_atom_atomic_basis_target(
         key_vals.append(key.values)
         block = tensor[key]
 
-        properties_mask = layout_block.properties.select(block.properties)
+        layout_properties = layout_block.properties.to(block.properties.device)
+
+        properties_mask = layout_properties.select(block.properties)
         # Do block.values[..., properties_mask] in a torchscriptable way.
         if block.values.ndim == 3:
             values = block.values[:, :, properties_mask]
@@ -395,11 +397,11 @@ def _sparsify_per_atom_atomic_basis_target(
             values=values,
             samples=block.samples,
             components=block.components,
-            properties=layout_block.properties,
+            properties=layout_properties,
         )
         unpadded_blocks.append(unpadded_block)
 
-    return TensorMap(Labels(layout.keys.names, torch.vstack(key_vals)), unpadded_blocks)
+    return TensorMap(Labels(layout.keys.names, torch.vstack(key_vals).to(unpadded_blocks[0].values.device)), unpadded_blocks)
 
 
 def sparsify_atomic_basis_target(
