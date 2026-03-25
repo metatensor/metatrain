@@ -401,7 +401,13 @@ def _sparsify_per_atom_atomic_basis_target(
         )
         unpadded_blocks.append(unpadded_block)
 
-    return TensorMap(Labels(layout.keys.names, torch.vstack(key_vals).to(unpadded_blocks[0].values.device)), unpadded_blocks)
+    return TensorMap(
+        Labels(
+            layout.keys.names,
+            torch.vstack(key_vals).to(unpadded_blocks[0].values.device),
+        ),
+        unpadded_blocks,
+    )
 
 
 def sparsify_atomic_basis_target(
