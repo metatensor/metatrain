@@ -381,8 +381,25 @@ class BaseCompositionModel(torch.nn.Module):
                     XTY_shape = XTY_values.shape
                     if len(XTY_values.shape) != 2:
                         XTY_values = XTY_values.reshape(XTY_values.shape[0], -1)
-                    weight_vals = _solve_linear_system(XTX_values, XTY_values)
-                    weight_vals = weight_vals.reshape(*XTY_shape)
+
+                    if torch.all(XTX_values == 0):
+                        # If XTX is all zeros, it means that this key was not present in
+                        # the training data, so we set the weights to zero to avoid
+                        # numerical issues when solving the linear system.
+                        # This can happen when we are handling an atomic-basis target
+                        logging.warning(
+                            f"The composition model has not seen any block for {key}."
+                            f" Setting composition weights to zero for this block."
+                        )
+                        weight_vals = torch.zeros(
+                            (len(self.atomic_types), *XTY_shape[1:]),
+                            dtype=XTY_values.dtype,
+                            device=XTY_values.device,
+                        )
+
+                    else:
+                        weight_vals = _solve_linear_system(XTX_values, XTY_values)
+                        weight_vals = weight_vals.reshape(*XTY_shape)
 
                 blocks.append(
                     TensorBlock(
