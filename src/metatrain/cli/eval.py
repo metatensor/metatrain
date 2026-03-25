@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import tqdm
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import AtomisticModel
+from metatomic.torch import AtomisticModel, ModelOutput
 from omegaconf import DictConfig, OmegaConf
 
 from metatrain.cli.formatter import CustomHelpFormatter
@@ -128,7 +128,7 @@ def _prepare_eval_model_args(args: argparse.Namespace) -> None:
 def _eval_targets(
     model: Union[AtomisticModel, torch.jit.RecursiveScriptModule],
     dataset: Dataset,
-    options: Dict[str, TargetInfo],
+    options: Dict[str, TargetInfo] | Dict[str, ModelOutput],
     batch_size: int = 1,
     check_consistency: bool = False,
     writer: Optional[Writer] = None,
@@ -178,9 +178,7 @@ def _eval_targets(
     requested_neighbor_lists = get_requested_neighbor_lists(model)
     collate_fn = CollateFn(
         target_keys,
-        callables=[
-            get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-        ],
+        callables=[get_system_with_neighbor_lists_transform(requested_neighbor_lists)],
     )
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, collate_fn=collate_fn, shuffle=False
@@ -207,7 +205,6 @@ def _eval_targets(
     # Main evaluation loop
     for batch in tqdm.tqdm(dataloader, ncols=100):
         systems, batch_targets, batch_extra_data = unpack_batch(batch)
-
         systems, batch_targets, batch_extra_data = batch_to(
             systems, batch_targets, batch_extra_data, dtype=dtype, device=device
         )
