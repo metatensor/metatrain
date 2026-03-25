@@ -316,6 +316,35 @@ def test_multiple_diagnostic_outputs():
     assert "mtt::features::gnn_layers.0_node" in result
 
 
+@pytest.mark.parametrize("featurizer_type", ["feedforward", "residual"])
+def test_multiple_diagnostic_outputs_raw_features_residual(featurizer_type):
+    """Requesting multiple diagnostic outputs at once should work."""
+    dataset_info = _make_dataset_info()
+    # Modify a few of the default hypers
+    hypers = MODEL_HYPERS.copy()
+    hypers["d_node"] = 128
+    hypers["d_pet"] = 64
+    hypers["d_head"] = 32
+    hypers["featurizer_type"] = featurizer_type
+
+    model = PET(hypers, dataset_info)
+    system = _make_water_system(model)
+
+    for readout_layer in range(model.num_readout_layers):
+        outputs = [
+            f"mtt::features::backbone_featurizer_node.{readout_layer}",
+            f"mtt::features::backbone_featurizer_edge.{readout_layer}",
+            f"mtt::features::lastlayer_featurizer_node.energy.{readout_layer}",
+            f"mtt::features::lastlayer_featurizer_edge.energy.{readout_layer}",
+        ]
+        result = model([system], {name: ModelOutput(per_atom=True) for name in outputs})
+
+        assert result[outputs[0]].block().values.shape[1] == 128  # d_node
+        assert result[outputs[1]].block().values.shape[1] == 64  # d_pet
+        assert result[outputs[2]].block().values.shape[1] == 32  # d_head
+        assert result[outputs[3]].block().values.shape[1] == 32  # d_head
+
+
 # ---------------------------------------------------------------------------
 # Invalid path raises informative error
 # ---------------------------------------------------------------------------

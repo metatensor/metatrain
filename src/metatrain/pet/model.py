@@ -156,6 +156,31 @@ class PET(ModelInterface[ModelHypers]):
             self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
         )  # for LLPR
 
+        # ===== BEGIN DIAGNOSTIC-RELATED ATTRIBUTES
+        self.backbone_featurizer_node = torch.nn.ModuleList(
+            [torch.nn.Identity() for _ in range(self.num_readout_layers)]
+        )
+        self.backbone_featurizer_edge = torch.nn.ModuleList(
+            [torch.nn.Identity() for _ in range(self.num_readout_layers)]
+        )
+        self.lastlayer_featurizer_node = torch.nn.ModuleDict(
+            {
+                target_name: torch.nn.ModuleList(
+                    [torch.nn.Identity() for _ in range(self.num_readout_layers)]
+                )
+                for target_name in dataset_info.targets.keys()
+            }
+        )
+        self.lastlayer_featurizer_edge = torch.nn.ModuleDict(
+            {
+                target_name: torch.nn.ModuleList(
+                    [torch.nn.Identity() for _ in range(self.num_readout_layers)]
+                )
+                for target_name in dataset_info.targets.keys()
+            }
+        )
+        # ===== END DIAGNOSTIC-RELATED ATTRIBUTES
+
         # the model is always capable of outputting the internal features
         self.outputs = {
             "features": ModelOutput(per_atom=True, description="internal features")
@@ -533,6 +558,7 @@ class PET(ModelInterface[ModelHypers]):
                     edge_features_list,
                 )
             )
+
             last_layer_features_dict = self._get_output_last_layer_features(
                 node_last_layer_features_dict,
                 edge_last_layer_features_dict,
@@ -645,9 +671,32 @@ class PET(ModelInterface[ModelHypers]):
             contains tensors from all GNN layers.
         """
         if self.featurizer_type == "feedforward":
-            return self._feedforward_featurization_impl(inputs, use_manual_attention)
+            node_features_list, edge_features_list = (
+                self._feedforward_featurization_impl(inputs, use_manual_attention)
+            )
         else:
-            return self._residual_featurization_impl(inputs, use_manual_attention)
+            node_features_list, edge_features_list = self._residual_featurization_impl(
+                inputs, use_manual_attention
+            )
+
+        # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
+        # Pass the raw node and edge backbone features through identity modules to
+        # enable them to be captured by diagnostic hooks if needed.
+        node_features_list = [
+            identity(features)
+            for features, identity in zip(
+                node_features_list, self.backbone_featurizer_node, strict=True
+            )
+        ]
+        edge_features_list = [
+            identity(features)
+            for features, identity in zip(
+                edge_features_list, self.backbone_featurizer_edge, strict=True
+            )
+        ]
+        # ===== END DIAGNOSTIC-RELATED BLOCK
+
+        return node_features_list, edge_features_list
 
     def _feedforward_featurization_impl(
         self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
@@ -888,6 +937,33 @@ class PET(ModelInterface[ModelHypers]):
                 edge_last_layer_features_dict[output_name].append(
                     edge_head(edge_features_list[i])
                 )
+
+        # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
+        # Pass the raw node and edge last layer features through identity modules to
+        # enable them to be captured by diagnostic hooks if needed.
+        node_last_layer_features_dict = {
+            target_name: [
+                identity(features)
+                for features, identity in zip(
+                    features_list,
+                    self.lastlayer_featurizer_node[target_name],
+                    strict=True,
+                )
+            ]
+            for target_name, features_list in node_last_layer_features_dict.items()
+        }
+        edge_last_layer_features_dict = {
+            target_name: [
+                identity(features)
+                for features, identity in zip(
+                    features_list,
+                    self.lastlayer_featurizer_edge[target_name],
+                    strict=True,
+                )
+            ]
+            for target_name, features_list in edge_last_layer_features_dict.items()
+        }
+        # ===== END DIAGNOSTIC-RELATED BLOCK
 
         return node_last_layer_features_dict, edge_last_layer_features_dict
 
