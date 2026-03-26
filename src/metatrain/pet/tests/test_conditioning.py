@@ -70,9 +70,9 @@ def _make_system(model, charge=None, spin=None):
         pbc=torch.tensor([False, False, False]),
     )
     if charge is not None:
-        system.add_data("mtt::charge", _make_scalar_tmap(charge, "charge"))
+        system.add_data("charge", _make_scalar_tmap(charge, "charge"))
     if spin is not None:
-        system.add_data("mtt::spin", _make_scalar_tmap(spin, "spin"))
+        system.add_data("spin", _make_scalar_tmap(spin, "spin"))
     return get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
 
@@ -291,20 +291,20 @@ def test_eval_routes_extra_data_to_conditioning():
     _train_steps(model)
     model.eval()
 
-    extra_data_keys = ["mtt::charge", "mtt::spin"]
+    extra_data_keys = ["charge", "spin"]
 
     dataset_neutral = Dataset.from_dict(
         {
             "system": [_make_raw_system()],
-            "mtt::charge": [_make_extra_tmap(0.0, "charge")],
-            "mtt::spin": [_make_extra_tmap(1.0, "spin")],
+            "charge": [_make_extra_tmap(0.0, "charge")],
+            "spin": [_make_extra_tmap(1.0, "spin")],
         }
     )
     dataset_charged = Dataset.from_dict(
         {
             "system": [_make_raw_system()],
-            "mtt::charge": [_make_extra_tmap(2.0, "charge")],  # non-default
-            "mtt::spin": [_make_extra_tmap(1.0, "spin")],
+            "charge": [_make_extra_tmap(2.0, "charge")],  # non-default
+            "spin": [_make_extra_tmap(1.0, "spin")],
         }
     )
 
@@ -319,17 +319,17 @@ def test_eval_routes_extra_data_to_conditioning():
 
     # Verify charge was actually attached to systems — if the transform is
     # skipped, known_data() will be empty and the assertion fails here.
-    assert "mtt::charge" in systems_neutral[0].known_data(), (
-        "mtt::charge not attached to neutral system — "
+    assert "charge" in systems_neutral[0].known_data(), (
+        "charge not attached to neutral system — "
         "get_system_data_transform was not applied"
     )
-    assert "mtt::charge" in systems_charged[0].known_data(), (
-        "mtt::charge not attached to charged system — "
+    assert "charge" in systems_charged[0].known_data(), (
+        "charge not attached to charged system — "
         "get_system_data_transform was not applied"
     )
 
-    charge_neutral = systems_neutral[0].get_data("mtt::charge").block().values.item()
-    charge_charged = systems_charged[0].get_data("mtt::charge").block().values.item()
+    charge_neutral = systems_neutral[0].get_data("charge").block().values.item()
+    charge_charged = systems_charged[0].get_data("charge").block().values.item()
     assert charge_neutral == 0.0
     assert charge_charged == 2.0
 

@@ -24,7 +24,7 @@ class SystemConditioningEmbedding(torch.nn.Module):
         the range ``[1, max_spin]``.
     """
 
-    required_data_keys: List[str] = ["mtt::charge", "mtt::spin"]
+    required_data_keys: List[str] = ["charge", "spin"]
 
     def __init__(self, d_out: int, max_charge: int = 10, max_spin: int = 10):
         super().__init__()

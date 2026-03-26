@@ -469,21 +469,21 @@ class PET(ModelInterface[ModelHypers]):
                 charges = torch.zeros(n_systems, dtype=torch.long, device=device)
                 spins = torch.ones(n_systems, dtype=torch.long, device=device)
                 for i, system in enumerate(systems):
-                    if "mtt::charge" in system.known_data():
-                        raw_charge = system.get_data("mtt::charge").block().values
+                    if "charge" in system.known_data():
+                        raw_charge = system.get_data("charge").block().values
                         if not torch.equal(raw_charge.round(), raw_charge):
                             raise ValueError(
-                                "mtt::charge must be an integer value, got "
+                                "charge must be an integer value, got "
                                 + str(raw_charge.item())
                                 + " for system "
                                 + str(i)
                             )
                         charges[i] = raw_charge.long().squeeze()
-                    if "mtt::spin" in system.known_data():
-                        raw_spin = system.get_data("mtt::spin").block().values
+                    if "spin" in system.known_data():
+                        raw_spin = system.get_data("spin").block().values
                         if not torch.equal(raw_spin.round(), raw_spin):
                             raise ValueError(
-                                "mtt::spin must be an integer value, got "
+                                "spin must be an integer value, got "
                                 + str(raw_spin.item())
                                 + " for system "
                                 + str(i)

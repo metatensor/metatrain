@@ -1000,7 +1000,7 @@ class MemmapDataset(TorchDataset):
         format corresponding to metatrain yaml input files.
     :param extra_data_options: Optional dictionary of extra per-system scalar arrays
         to load alongside targets. Keys are the metatensor-style names (e.g.
-        ``"mtt::charge"``) and values are dicts with a ``"key"`` entry specifying
+        ``"charge"``) and values are dicts with a ``"key"`` entry specifying
         the ``.bin`` filename stem. The data is returned as :py:class:`TensorMap`
         values in the sample namedtuple and forwarded to the ``extra`` argument of
         :py:class:`CollateFn` callables.

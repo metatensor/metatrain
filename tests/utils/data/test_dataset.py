@@ -847,7 +847,7 @@ def test_memmap_extra_data_values_in_sample(tmp_path):
     np.array(charge_values, dtype="float32").tofile(tmp_path / "charge.bin")
 
     extra_data_options = {
-        "mtt::charge": {
+        "charge": {
             "key": "charge",
             "type": "scalar",
             "per_atom": False,
@@ -859,7 +859,7 @@ def test_memmap_extra_data_values_in_sample(tmp_path):
 
     for i, expected in enumerate(charge_values):
         sample = dataset[i]
-        tm = sample._asdict()["mtt::charge"]
+        tm = sample._asdict()["charge"]
         assert tm.block().values.item() == pytest.approx(expected)
 
 
@@ -892,7 +892,7 @@ def test_memmap_extra_data_property_name_from_key(tmp_path):
     np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
 
     extra_data_options = {
-        "mtt::charge": {
+        "charge": {
             "key": "charge",
             "type": "scalar",
             "per_atom": False,
@@ -902,7 +902,7 @@ def test_memmap_extra_data_property_name_from_key(tmp_path):
     }
     dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
 
-    tm = dataset[0]._asdict()["mtt::charge"]
+    tm = dataset[0]._asdict()["charge"]
     prop_name = tm.block().properties.names[0]
     assert prop_name == "charge"
 
@@ -923,7 +923,7 @@ def test_memmap_extra_data_fields_present_in_sample(tmp_path):
     np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
 
     extra_data_options = {
-        "mtt::charge": {
+        "charge": {
             "key": "charge",
             "type": "scalar",
             "per_atom": False,
@@ -933,7 +933,7 @@ def test_memmap_extra_data_fields_present_in_sample(tmp_path):
     }
     dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
 
-    assert "mtt::charge" in dataset[0]._fields
+    assert "charge" in dataset[0]._fields
 
 
 def test_memmap_get_extra_data_info_returns_target_info(tmp_path):
@@ -944,7 +944,7 @@ def test_memmap_get_extra_data_info_returns_target_info(tmp_path):
     np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
 
     extra_data_options = {
-        "mtt::charge": {
+        "charge": {
             "key": "charge",
             "type": "scalar",
             "per_atom": False,
@@ -957,8 +957,8 @@ def test_memmap_get_extra_data_info_returns_target_info(tmp_path):
 
     info = dataset.get_extra_data_info()
 
-    assert "mtt::charge" in info
-    assert isinstance(info["mtt::charge"], TargetInfo)
+    assert "charge" in info
+    assert isinstance(info["charge"], TargetInfo)
 
 
 def test_memmap_get_extra_data_info_empty_without_options(tmp_path):
@@ -975,14 +975,14 @@ def test_memmap_extra_data_multiple_keys(tmp_path):
     np.array([4.0, 5.0, 6.0], dtype="float32").tofile(tmp_path / "spin.bin")
 
     extra_data_options = {
-        "mtt::charge": {
+        "charge": {
             "key": "charge",
             "type": "scalar",
             "per_atom": False,
             "num_subtargets": 1,
             "quantity": "",
         },
-        "mtt::spin": {
+        "spin": {
             "key": "spin",
             "type": "scalar",
             "per_atom": False,
@@ -994,8 +994,8 @@ def test_memmap_extra_data_multiple_keys(tmp_path):
 
     sample = dataset[1]
     fields = sample._asdict()
-    assert fields["mtt::charge"].block().values.item() == pytest.approx(2.0)
-    assert fields["mtt::spin"].block().values.item() == pytest.approx(5.0)
+    assert fields["charge"].block().values.item() == pytest.approx(2.0)
+    assert fields["spin"].block().values.item() == pytest.approx(5.0)
 
 
 def test_memmap_extra_data_overlapping_key_raises(tmp_path):
@@ -1022,7 +1022,7 @@ def test_memmap_extra_data_non_scalar_type_raises(tmp_path):
     np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
 
     extra_data_options = {
-        "mtt::charge": {
+        "charge": {
             "key": "charge",
             "type": {"cartesian": {"rank": 1}},
             "per_atom": False,
@@ -1038,14 +1038,14 @@ def test_memmap_extra_data_mtt_prefix_accessible(tmp_path):
     """mtt:: prefixed keys work: string-key access and field presence on the sample.
 
     metatensor's custom namedtuple (unlike collections.namedtuple) accepts field
-    names containing '::' and supports sample["mtt::charge"] string-key access —
+    names containing '::' and supports sample["charge"] string-key access —
     the same behaviour used by regular targets with mtt:: names.
     """
     target_options, _ = _write_minimal_memmap(tmp_path)
     np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
 
     extra_data_options = {
-        "mtt::charge": {
+        "charge": {
             "key": "charge",
             "type": "scalar",
             "per_atom": False,
@@ -1057,9 +1057,9 @@ def test_memmap_extra_data_mtt_prefix_accessible(tmp_path):
     sample = dataset[0]
 
     # field is present under the full mtt:: name
-    assert "mtt::charge" in sample._fields
+    assert "charge" in sample._fields
     # string-key access works (metatensor namedtuple feature)
-    assert sample["mtt::charge"].block().values.item() == pytest.approx(1.0)
+    assert sample["charge"].block().values.item() == pytest.approx(1.0)
 
 
 def _write_heterogeneous_memmap(tmp_path, atoms_per_system):

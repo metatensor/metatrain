@@ -18,7 +18,7 @@ def get_system_data_transform(
 
     After ``group_and_join`` the extra dict contains batched
     :class:`TensorMap` objects keyed by the requested names (e.g.
-    ``"mtt::charge"``, ``"mtt::spin"``), with the ``"system"`` sample
+    ``"charge"``, ``"spin"``), with the ``"system"`` sample
     dimension indexed 0, 1, … matching the position of each system in the
     batch list.  This callable re-attaches those per-system scalars to the
     :class:`System` objects so that models can read them with
@@ -28,7 +28,7 @@ def get_system_data_transform(
     the data key attached and the model will fall back to its own default.
 
     :param data_keys: List of extra_data keys to route from the ``extra``
-        dict into each system, e.g. ``["mtt::charge", "mtt::spin"]``.
+        dict into each system, e.g. ``["charge", "spin"]``.
     :return: A three-argument callable
         ``(systems, targets, extra) -> (systems, targets, extra)``.
     """
