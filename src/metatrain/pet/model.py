@@ -157,27 +157,13 @@ class PET(ModelInterface[ModelHypers]):
         )  # for LLPR
 
         # ===== BEGIN DIAGNOSTIC-RELATED ATTRIBUTES
-        self.backbone_featurizer_node = torch.nn.ModuleList(
+        # These are used to capture the raw backbone features before they are processed
+        # by the featurizer heads, for diagnostic purposes.
+        self.node_backbone = torch.nn.ModuleList(
             [torch.nn.Identity() for _ in range(self.num_readout_layers)]
         )
-        self.backbone_featurizer_edge = torch.nn.ModuleList(
+        self.edge_backbone = torch.nn.ModuleList(
             [torch.nn.Identity() for _ in range(self.num_readout_layers)]
-        )
-        self.lastlayer_featurizer_node = torch.nn.ModuleDict(
-            {
-                target_name: torch.nn.ModuleList(
-                    [torch.nn.Identity() for _ in range(self.num_readout_layers)]
-                )
-                for target_name in dataset_info.targets.keys()
-            }
-        )
-        self.lastlayer_featurizer_edge = torch.nn.ModuleDict(
-            {
-                target_name: torch.nn.ModuleList(
-                    [torch.nn.Identity() for _ in range(self.num_readout_layers)]
-                )
-                for target_name in dataset_info.targets.keys()
-            }
         )
         # ===== END DIAGNOSTIC-RELATED ATTRIBUTES
 
@@ -685,13 +671,13 @@ class PET(ModelInterface[ModelHypers]):
         node_features_list = [
             identity(features)
             for features, identity in zip(
-                node_features_list, self.backbone_featurizer_node, strict=True
+                node_features_list, self.node_backbone, strict=True
             )
         ]
         edge_features_list = [
             identity(features)
             for features, identity in zip(
-                edge_features_list, self.backbone_featurizer_edge, strict=True
+                edge_features_list, self.edge_backbone, strict=True
             )
         ]
         # ===== END DIAGNOSTIC-RELATED BLOCK
@@ -937,33 +923,6 @@ class PET(ModelInterface[ModelHypers]):
                 edge_last_layer_features_dict[output_name].append(
                     edge_head(edge_features_list[i])
                 )
-
-        # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
-        # Pass the raw node and edge last layer features through identity modules to
-        # enable them to be captured by diagnostic hooks if needed.
-        node_last_layer_features_dict = {
-            target_name: [
-                identity(features)
-                for features, identity in zip(
-                    features_list,
-                    self.lastlayer_featurizer_node[target_name],
-                    strict=True,
-                )
-            ]
-            for target_name, features_list in node_last_layer_features_dict.items()
-        }
-        edge_last_layer_features_dict = {
-            target_name: [
-                identity(features)
-                for features, identity in zip(
-                    features_list,
-                    self.lastlayer_featurizer_edge[target_name],
-                    strict=True,
-                )
-            ]
-            for target_name, features_list in edge_last_layer_features_dict.items()
-        }
-        # ===== END DIAGNOSTIC-RELATED BLOCK
 
         return node_last_layer_features_dict, edge_last_layer_features_dict
 

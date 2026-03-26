@@ -317,7 +317,7 @@ def test_multiple_diagnostic_outputs():
 
 
 @pytest.mark.parametrize("featurizer_type", ["feedforward", "residual"])
-def test_multiple_diagnostic_outputs_raw_features_residual(featurizer_type):
+def test_multiple_diagnostic_outputs_raw_features(featurizer_type):
     """Requesting multiple diagnostic outputs at once should work."""
     dataset_info = _make_dataset_info()
     # Modify a few of the default hypers
@@ -332,10 +332,10 @@ def test_multiple_diagnostic_outputs_raw_features_residual(featurizer_type):
 
     for readout_layer in range(model.num_readout_layers):
         outputs = [
-            f"mtt::features::backbone_featurizer_node.{readout_layer}",
-            f"mtt::features::backbone_featurizer_edge.{readout_layer}",
-            f"mtt::features::lastlayer_featurizer_node.energy.{readout_layer}",
-            f"mtt::features::lastlayer_featurizer_edge.energy.{readout_layer}",
+            f"mtt::features::node_backbone.{readout_layer}",
+            f"mtt::features::edge_backbone.{readout_layer}",
+            f"mtt::features::node_heads.energy.{readout_layer}",
+            f"mtt::features::edge_heads.energy.{readout_layer}",
         ]
         result = model([system], {name: ModelOutput(per_atom=True) for name in outputs})
 
