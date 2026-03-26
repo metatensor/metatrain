@@ -85,6 +85,30 @@ def main():
         log_file = checkpoint_dir / "train.log"
         error_file = checkpoint_dir / error_file
 
+    # Setup wandb logging if `wandb` options are provided and we are in the main
+    # process before the logger!
+    if callable == "train_model":
+        # Parse the output from the input file here to see if wandb was requested.
+        _prepare_train_model_args(args)
+        options = args.__dict__["options"]
+        
+        if hasattr(options, "wandb") and is_main_process():
+            try:
+                import wandb
+            except ImportError:
+                raise ImportError(
+                    "Wandb is enabled but not installed. "
+                    "Please install wandb using `pip install wandb` to use this logger."
+                )
+
+            from omegaconf import DictConfig, OmegaConf
+            from .utils.logging import WandbHandler
+            
+            run = wandb.init(
+                **options["wandb"], config=OmegaConf.to_container(options, resolve=True)
+            )
+            ROOT_LOGGER.addHandler(WandbHandler(run))
+
     with setup_logging(ROOT_LOGGER, log_file=log_file, level=level):
         try:
             if callable == "eval_model":
@@ -94,7 +118,6 @@ def main():
                 _prepare_export_model_args(args)
                 export_model(**args.__dict__)
             elif callable == "train_model":
-                _prepare_train_model_args(args)
                 train_model(**args.__dict__)
             else:
                 raise ValueError("internal error when selecting a sub-command")

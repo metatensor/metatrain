@@ -249,22 +249,6 @@ def train_model(
         torch.cuda.manual_seed(options["seed"])
         torch.cuda.manual_seed_all(options["seed"])
 
-    # setup wandb logging
-    if hasattr(options, "wandb") and is_main_process():
-        try:
-            import wandb
-        except ImportError:
-            raise ImportError(
-                "Wandb is enabled but not installed. "
-                "Please install wandb using `pip install wandb` to use this logger."
-            )
-        logging.info("Setting up wandb logging")
-
-        run = wandb.init(
-            **options["wandb"], config=OmegaConf.to_container(options, resolve=True)
-        )
-        ROOT_LOGGER.addHandler(WandbHandler(run))
-
     ############################
     # SET UP TRAINING SET ######
     ############################
