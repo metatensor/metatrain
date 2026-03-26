@@ -135,7 +135,8 @@ def _process_restart_from(restart_from: str) -> Optional[Union[str, Path]]:
 
     pattern = re.compile(r".*\d{4}-\d{2}-\d{2}/\d{2}-\d{2}-\d{2}/*")
     checkpoints = sorted(
-        (f for f in Path("outputs").glob("*/*/*.ckpt") if pattern.match(str(f))),
+        # Use as_posix() so the forward-slash regex matches on Windows too
+        (f for f in Path("outputs").glob("*/*/*.ckpt") if pattern.match(f.as_posix())),
         key=lambda f: f.stat().st_mtime,
         reverse=True,
     )

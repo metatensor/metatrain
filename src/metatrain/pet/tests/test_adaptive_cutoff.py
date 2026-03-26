@@ -143,7 +143,7 @@ def test_adapted_cutoffs(num_neighbors_adaptive):
         cell_shifts,
         system_indices,
         sample_labels,
-    ) = concatenate_structures(systems, options, None)
+    ) = concatenate_structures(systems, options)
 
     # somehow the backward of this operation is very slow at evaluation,
     # where there is only one cell, therefore we simplify the calculation
@@ -175,3 +175,97 @@ def test_adapted_cutoffs(num_neighbors_adaptive):
     adapted_num_neighbors = torch.bincount(centers, minlength=num_nodes)
     diff = torch.abs(adapted_num_neighbors - num_neighbors_adaptive)
     assert torch.all(diff <= 10)
+
+
+def test_adaptive_cutoff_empty_system():
+    """Tests that the model can handle an empty system."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = 8
+    hypers["cutoff"] = 10.0
+
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([], dtype=torch.long),
+        positions=torch.empty((0, 3)),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    energy = model([system], outputs)["energy"].block().values.squeeze(-1)
+    assert torch.numel(energy) == 0
+
+
+def test_adaptive_cutoff_isolated_atom():
+    """Tests that the model can predict energies for an isolated atom
+    with adaptive cutoff enabled."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = 8
+    hypers["cutoff"] = 10.0
+
+    model = PET(hypers, dataset_info)
+
+    system = System(
+        types=torch.tensor([6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    _ = model([system], outputs)
+
+
+@pytest.mark.parametrize("cutoff", [10.0, 5.0])
+def test_adaptive_cutoff_dissociated_atoms(cutoff):
+    """Tests that the model can predict energies for an isolated atom
+    with adaptive cutoff enabled."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = 8
+    hypers["cutoff"] = cutoff
+
+    model = PET(hypers, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 7.5]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    _ = model([system], outputs)

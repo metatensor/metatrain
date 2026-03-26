@@ -17,9 +17,8 @@ jobs:
             python-version: "3.13"
           - os: macos-14
             python-version: "3.13"
-          # To be restored once we figure out the issue with the windows build
-          # - os: windows-2019
-          #   python-version: "3.13"
+          - os: windows-2022
+            python-version: "3.13"
 
     runs-on: ${{ matrix.os }}
 
@@ -51,10 +50,8 @@ jobs:
         uv pip install coverage[toml]
         uv tool install tox --with tox-uv
 
-    - name: run Python tests and collect coverage
-      run: |
-        tox -e tests
-        coverage xml --data-file tests/.coverage
+    - name: run Python tests
+      run: tox -e tests
       env:
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu

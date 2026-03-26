@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Union
 
 import ase
 import ase.io
+import numpy as np
 import torch
 from metatensor.torch import TensorMap
 from metatomic.torch import ModelCapabilities, System
@@ -15,6 +16,9 @@ from .writers import Writer, _split_tensormaps
 class ASEWriter(Writer):
     """
     Write systems and predictions to an ASE-compatible XYZ file.
+
+    Systems and predictions are converted and written to disk immediately in
+    each ``write()`` call, avoiding unbounded memory growth for large datasets.
 
     :param filename: Path to the output XYZ file.
     :param capabilities: Model capabilities (unused, but matches base signature).
@@ -32,32 +36,19 @@ class ASEWriter(Writer):
         super().__init__(filename, capabilities, append)
         self._first = True
 
-        self._systems: List[System] = []
-        self._preds: List[Dict[str, TensorMap]] = []
-
     def write(self, systems: List[System], predictions: Dict[str, TensorMap]) -> None:
         """
-        Accumulate systems and predictions to write them all at once in ``finish``.
+        Convert systems and predictions to ASE Atoms and write to disk immediately.
 
         :param systems: List of systems to write.
         :param predictions: Dictionary of TensorMaps with predictions for the systems.
         """
-        self._systems.extend([system.to("cpu").to(torch.float64) for system in systems])
-        self._preds.extend(_split_tensormaps(systems, predictions))
-
-    def finish(self) -> None:
-        """
-        Write all accumulated systems and predictions to the XYZ file.
-        """
-        if not self._systems:
-            return
-
-        systems = self._systems
-        predictions_by_structure = self._preds
+        cpu_systems = [system.to("cpu").to(torch.float64) for system in systems]
+        per_system_preds = _split_tensormaps(cpu_systems, predictions)
 
         frames = []
         for system, system_predictions in zip(
-            systems, predictions_by_structure, strict=True
+            cpu_systems, per_system_preds, strict=True
         ):
             info = {}
             arrays = {}
@@ -72,7 +63,7 @@ class ASEWriter(Writer):
                     # save inside arrays
                     values = block.values.detach().cpu().numpy()
                     arrays[target_name] = values.reshape(values.shape[0], -1)
-                    # reshaping reshaping because `arrays` only accepts 2D arrays
+                    # reshaping because `arrays` only accepts 2D arrays
                 else:
                     # save inside info
                     if block.values.numel() == 1:
@@ -105,16 +96,13 @@ class ASEWriter(Writer):
                             gradient_block.values.detach().cpu().squeeze(-1).numpy()
                         )
                         if not torch.any(system.cell != 0):
-                            raise ValueError(
-                                "stresses cannot be written for non-periodic systems."
+                            strain_derivatives = np.full(
+                                strain_derivatives.shape, np.nan
                             )
                         cell_volume = torch.det(system.cell).item()
                         if cell_volume == 0:
-                            raise ValueError(
-                                (
-                                    "stresses cannot be written for "
-                                    "systems with zero volume."
-                                )
+                            strain_derivatives = np.full(
+                                strain_derivatives.shape, np.nan
                             )
                         info[external_name_virial] = -strain_derivatives
                         info[external_name_stress] = strain_derivatives / cell_volume
@@ -141,4 +129,12 @@ class ASEWriter(Writer):
 
             frames.append(atoms)
 
-        ase.io.write(self.filename, frames)
+        if self._first:
+            ase.io.write(self.filename, frames)
+            self._first = False
+        else:
+            ase.io.write(self.filename, frames, append=True)
+
+    def finish(self) -> None:
+        """No-op: all data is written in ``write()``."""
+        pass

@@ -267,6 +267,9 @@ class Scaler(torch.nn.Module):
         :raises ValueError: If no scales have been computed or if `outputs` keys
             contain unsupported keys.
         """
+        if len(outputs) == 0:
+            return {}
+
         device = list(outputs.values())[0][0].values.device
         dtype = list(outputs.values())[0][0].values.dtype
 

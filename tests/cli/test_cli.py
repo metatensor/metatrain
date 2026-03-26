@@ -3,6 +3,7 @@
 import glob
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from subprocess import CalledProcessError
 from typing import List
@@ -39,7 +40,7 @@ def test_help():
 
 def test_version():
     stdout = subprocess.run(["mtt", "--version"], capture_output=True).stdout
-    assert stdout.decode("ascii") == f"metatrain {__version__}\n"
+    assert stdout.decode("ascii").strip() == f"metatrain {__version__}"
 
 
 def test_debug_flag():
@@ -54,6 +55,9 @@ def test_shell_completion_flag():
     assert Path(completion_path.decode("ascii")).is_file
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="bash shell completion not supported on Windows"
+)
 def test_syntax_completion_bash():
     subprocess.check_call(
         args=[
@@ -110,6 +114,9 @@ def get_completion_suggestions(partial_word: str) -> List[str]:
 @pytest.mark.parametrize(
     "partial_word, expected_completion",
     [(" ", ["--debug", "--help", "--version", "-h", "eval", "export", "train"])],
+)
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="bash shell completion not supported on Windows"
 )
 def test_subcommand_completion(partial_word, expected_completion):
     """Test that expected subcommand completion matches."""
