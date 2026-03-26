@@ -297,8 +297,8 @@ class PET(ModelInterface[ModelHypers]):
     def requested_inputs(self) -> Dict[str, ModelOutput]:
         if self.system_conditioning is not None:
             return {
-                "mtt::charge": ModelOutput(quantity="", unit="", per_atom=False),
-                "mtt::spin": ModelOutput(quantity="", unit="", per_atom=False),
+                key: ModelOutput(quantity="", unit="", per_atom=False)
+                for key in self.system_conditioning.required_data_keys
             }
         return {}
 

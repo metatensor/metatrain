@@ -228,13 +228,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             target_info_dict=train_targets, extra_data_info_dict=extra_data_info
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
-        # The conditioning module declares what data it needs — query it directly
-        # so the trainer doesn't need to know the key names.
-        conditioning_keys = (
-            model.system_conditioning.required_data_keys
-            if model.system_conditioning is not None
-            else []
-        )
+        conditioning_keys = list(model.requested_inputs().keys())
         conditioning_callables = (
             [get_system_data_transform(conditioning_keys)] if conditioning_keys else []
         )
