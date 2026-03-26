@@ -35,12 +35,12 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
+from metatrain.utils.system_data import get_system_data_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import PET
-from .modules.conditioning import get_system_conditioning_transform
 from .modules.finetuning import apply_finetuning_strategy
 
 
@@ -236,9 +236,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             else []
         )
         conditioning_callables = (
-            [get_system_conditioning_transform(conditioning_keys)]
-            if conditioning_keys
-            else []
+            [get_system_data_transform(conditioning_keys)] if conditioning_keys else []
         )
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
