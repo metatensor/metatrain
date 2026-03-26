@@ -37,7 +37,7 @@ from ..utils.io import (
     model_from_checkpoint,
     trainer_from_checkpoint,
 )
-from ..utils.logging import ROOT_LOGGER, WandbHandler, human_readable
+from ..utils.logging import human_readable
 from ..utils.omegaconf import (
     BASE_OPTIONS,
     check_units,

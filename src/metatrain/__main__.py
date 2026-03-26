@@ -91,7 +91,7 @@ def main():
         # Parse the output from the input file here to see if wandb was requested.
         _prepare_train_model_args(args)
         options = args.__dict__["options"]
-        
+
         if hasattr(options, "wandb") and is_main_process():
             try:
                 import wandb
@@ -101,9 +101,10 @@ def main():
                     "Please install wandb using `pip install wandb` to use this logger."
                 )
 
-            from omegaconf import DictConfig, OmegaConf
+            from omegaconf import OmegaConf
+
             from .utils.logging import WandbHandler
-            
+
             run = wandb.init(
                 **options["wandb"], config=OmegaConf.to_container(options, resolve=True)
             )
