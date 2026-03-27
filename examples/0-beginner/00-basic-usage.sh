@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # .. _label_basic_usage:
 #
 # Basic Usage
@@ -106,18 +108,17 @@ mtt train --help
 #
 # We now evaluate the model on the training dataset, where the first arguments specifies
 # trained model and the second an option file containing the path of the dataset for
-# evaulation. The extensions of the model, if any, can be specified via the ``-e`` flag.
+# evaulation. The extensions of the model, if any, can be specified via the ``--extensions`` flag.
 
-mtt eval model.pt eval-basic.yaml -e extensions/
+mtt eval model.pt eval-basic.yaml --extensions extensions/ --output data/eval-basic-output.xyz
 
 # %%
 #
 # The evaluation command predicts those properties the model was trained against; here
-# ``"U0"``. The predictions together with the systems have been written in a file named
-# ``output.xyz`` in the current directory. The written file starts with the following
-# lines
+# ``"U0"``. The predictions together with the systems have been written in a file that
+# starts with the following lines
 
-head -n 20 output.xyz
+head -n 20 data/eval-basic-output.xyz
 
 # %%
 #

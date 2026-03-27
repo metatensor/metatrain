@@ -61,7 +61,7 @@ class MetatensorWriter(Writer):
             return
 
         tmp_path = Path(self._tmp_dir.name)
-        filename_base = Path(self.filename).stem
+        filename_base = Path(self.filename).with_suffix(".mts")
 
         for target_name in self._target_names:
             batch_tmaps = []
@@ -70,7 +70,8 @@ class MetatensorWriter(Writer):
                 batch_tmaps.append(mts.load(str(fname)))
 
             merged = _concatenate_tensormaps_flat(batch_tmaps)
-            mts.save(filename_base + "_" + target_name + ".mts", merged)
+            filename = filename_base.with_stem(filename_base.stem + "_" + target_name)
+            mts.save(filename, merged)
 
         self._tmp_dir.cleanup()
 

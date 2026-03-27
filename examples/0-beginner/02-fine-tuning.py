@@ -95,6 +95,7 @@ is not necessary for the normal usage.
 #
 import glob
 import subprocess
+from pathlib import Path
 
 import ase.io
 import matplotlib.pyplot as plt
@@ -112,16 +113,21 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 # %%
 #
 subprocess.run(["rm", "-rf", "outputs"], check=True)
-subprocess.run(
-    [
-        "wget",
-        "https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.1.0/models/pet-mad-v1.1.0.ckpt",
-    ],
-    check=True,
-)
 
-subprocess.run(["mtt", "train", "options-ft.yaml", "-o", "model-ft.pt"], check=True)
-subprocess.run(["rm", "-rf", "pet-mad-v1.1.0.ckpt"], check=True)
+if not Path("data/pet-mad-v1.1.0.ckpt").exists():
+    subprocess.run(
+        [
+            "wget",
+            "https://huggingface.co/lab-cosmo/pet-mad/resolve/v1.1.0/models/pet-mad-v1.1.0.ckpt",
+            "-O",
+            "data/pet-mad-v1.1.0.ckpt",
+        ],
+        check=True,
+    )
+
+subprocess.run(
+    ["mtt", "train", "options-ft.yaml", "-o", "data/model-ft.pt"], check=True
+)
 # %%
 #
 # After training, we can check if finetuning was successful.
@@ -196,12 +202,11 @@ plt.show()
 #
 # .. code-block:: bash
 #
-#  mtt eval model-ft.pt options-ft-eval.yaml -o output-ft.xyz
+#  mtt eval data/model-ft.pt options-ft-eval.yaml -o output-ft.xyz
 #
 # Then you can simply read the predicted energies in the headers of the xyz file.
-# Another possibility is to load your fine-tuned model ``model-ft.pt`` as ``metatomic``
-# model and evaluate energies and forces with ASE in Python.
-#
+# Another possibility is to load your fine-tuned model ``data/model-ft.pt`` as
+# ``metatomic`` model and evaluate energies and forces with ASE in Python.
 
 # %%
 #
@@ -234,9 +239,8 @@ targets = ase.io.read(
     format="extxyz",
     index=":",
 )
-calc_ft = MetatomicCalculator(
-    "model-ft.pt", variants={"energy": "finetune"}, extensions_directory=None
-)
+calc_ft = MetatomicCalculator("data/model-ft.pt", variants={"energy": "finetune"})
+
 with np.errstate(invalid="ignore"):
     e_targets = np.array(
         [frame.get_total_energy() / len(frame) for frame in targets]

@@ -48,9 +48,13 @@ from metatomic.torch.ase_calculator import MetatomicCalculator
 # We first train the baseline model without uncertainties and then the LLPR model.
 
 # Here, we run training as a subprocess, in reality you would run this from the command
-# line, e.g. ``mtt train options-model.yaml -o model.pt``.
-subprocess.run(["mtt", "train", "options-model.yaml", "-o", "model.pt"], check=True)
-subprocess.run(["mtt", "train", "options-llpr.yaml", "-o", "model-llpr.pt"], check=True)
+# line, e.g. ``mtt train options-model.yaml -o data/model.pt``.
+subprocess.run(
+    ["mtt", "train", "options-model.yaml", "-o", "data/model.pt"], check=True
+)
+subprocess.run(
+    ["mtt", "train", "options-llpr.yaml", "-o", "data/model-llpr.pt"], check=True
+)
 
 # %%
 #
@@ -67,7 +71,7 @@ structures = ase.io.read("ethanol_reduced_100.xyz", ":5")
 #
 # and load the model as an ASE calculator
 calc = MetatomicCalculator(
-    "model-llpr.pt", extensions_directory="extensions/", device="cpu"
+    "data/model-llpr.pt", extensions_directory="extensions/", device="cpu"
 )
 
 # the uncertainties are available throguh the ``run_model`` method of the calculator

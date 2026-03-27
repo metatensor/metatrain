@@ -74,7 +74,7 @@ for _ in range(5):
 # Write structures to file
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
-    ase.io.write("mixed_structures.xyz", structures)
+    ase.io.write("data/mixed_structures.xyz", structures)
 
 print(f"Created dataset with {len(structures)} structures:")
 print("  - 5 bulk structures (with valid stress)")
@@ -104,7 +104,10 @@ print("  - 5 slabs (with NaN stress)")
 
 # Here, we run training as a subprocess, in reality you would run this from the command
 # line as ``mtt train options-mixed-stress.yaml``.
-subprocess.run(["mtt", "train", "options-mixed-stress.yaml"], check=True)
+subprocess.run(
+    ["mtt", "train", "options-mixed-stress.yaml", "-o", "data/mixed-stress-model.ckpt"],
+    check=True,
+)
 
 # %%
 #
