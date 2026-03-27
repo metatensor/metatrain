@@ -42,7 +42,7 @@ import subprocess
 import ase.io
 import numpy as np
 from metatomic.torch import ModelOutput
-from metatomic.torch.ase_calculator import MetatomicCalculator
+from metatomic_ase import MetatomicCalculator
 
 
 # %%

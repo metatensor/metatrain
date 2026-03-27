@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from ase.build import bulk, graphene
 from metatomic.torch import ModelOutput
-from metatomic.torch.ase_calculator import MetatomicCalculator
+from metatomic_ase import MetatomicCalculator
 
 
 # %%

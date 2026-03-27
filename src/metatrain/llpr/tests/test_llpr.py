@@ -9,7 +9,7 @@ import pytest
 import torch
 from ase.md import VelocityVerlet
 from metatomic.torch import ModelOutput
-from metatomic.torch.ase_calculator import MetatomicCalculator
+from metatomic_ase import MetatomicCalculator
 
 
 HERE = Path(__file__).parent
