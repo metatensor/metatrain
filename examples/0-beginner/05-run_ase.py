@@ -29,7 +29,7 @@ import ase.units
 import ase.visualize.plot
 import matplotlib.pyplot as plt
 import numpy as np
-from ase.geometry.analysis import Analysis
+from ase.geometry.rdf import get_rdf
 from metatomic.torch.ase_calculator import MetatomicCalculator
 
 
@@ -179,12 +179,10 @@ for atoms in trajectory:
 # We now can initilize the :py:class:`ase.geometry.analysis.Analysis` objects and
 # compute the the RDF using the :py:meth:`ase.geometry.analysis.Analysis.get_rdf`
 # method.
+rdf_kwargs = {"rmax": 5, "nbins": 50, "elements": ["C", "H"], "return_dists": True}
 
-ana_traj = Analysis(trajectory)
-ana_train = Analysis(train_frames)
-
-rdf_traj = ana_traj.get_rdf(rmax=5, nbins=50, elements=["C", "H"], return_dists=True)
-rdf_train = ana_train.get_rdf(rmax=5, nbins=50, elements=["C", "H"], return_dists=True)
+rdf_traj = get_rdf(atoms=trajectory, **rdf_kwargs)
+rdf_train = get_rdf(atoms=train_frames, **rdf_kwargs)
 
 # %%
 #
