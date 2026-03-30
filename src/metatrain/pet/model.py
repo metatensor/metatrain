@@ -172,9 +172,8 @@ class PET(ModelInterface[ModelHypers]):
         for i, species in enumerate(self.atomic_types):
             self.species_to_species_index[species] = i
 
-        # long-range module
+        # long-range modules
         if self.hypers["long_range"]["enable"]:
-            self.long_range = True
             if not self.hypers["long_range"]["use_ewald"]:
                 warnings.warn(
                     "Training PET with the LongRangeFeaturizer initialized "
@@ -184,14 +183,41 @@ class PET(ModelInterface[ModelHypers]):
                     UserWarning,
                     stacklevel=2,
                 )
-            self.long_range_featurizer = LongRangeFeaturizer(
-                hypers=self.hypers["long_range"],
-                feature_dim=self.d_node,
-                neighbor_list_options=self.requested_nl,
-            )
+            if self.hypers["long_range"]["every_layer"]:
+                self.long_range_every_layer = True
+                self.long_range_at_the_end = False
+                self.long_range_featurizers = torch.nn.ModuleList(
+                    [
+                        LongRangeFeaturizer(
+                            hypers=self.hypers["long_range"],
+                            feature_dim=self.d_node,
+                            neighbor_list_options=self.requested_nl,
+                        )
+                        for _ in range(self.num_gnn_layers)
+                    ]
+                )
+            else:
+                self.long_range_at_the_end = True
+                self.long_range_every_layer = False
+                self.long_range_featurizers = torch.nn.ModuleList(
+                    [
+                        LongRangeFeaturizer(
+                            hypers=self.hypers["long_range"],
+                            feature_dim=self.d_node,
+                            neighbor_list_options=self.requested_nl,
+                        )
+                    ]
+                    + [
+                        DummyLongRangeFeaturizer()
+                        for _ in range(self.num_gnn_layers - 1)
+                    ]
+                )
         else:
-            self.long_range = False
-            self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
+            self.long_range_every_layer = False
+            self.long_range_at_the_end = False
+            self.long_range_featurizers = torch.nn.ModuleList(  # for torchscript
+                [DummyLongRangeFeaturizer() for _ in range(self.num_gnn_layers)]
+            )
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
@@ -433,6 +459,7 @@ class PET(ModelInterface[ModelHypers]):
 
         with torch.profiler.record_function("PET::_calculate_features"):
             # **Stage 1: Feature Computation via GNN Layers**
+            flattened_lengths = edge_distances[padding_mask]
             featurizer_inputs: Dict[str, torch.Tensor] = dict(
                 element_indices_nodes=element_indices_nodes,
                 element_indices_neighbors=element_indices_neighbors,
@@ -445,19 +472,9 @@ class PET(ModelInterface[ModelHypers]):
             node_features_list, edge_features_list = self._calculate_features(
                 featurizer_inputs,
                 use_manual_attention=use_manual_attention,
+                systems=systems,
+                flattened_lengths=flattened_lengths,
             )
-
-            # If the long-range module is activated, we add the long-range features
-            # on top of the node features
-
-            if self.long_range:
-                long_range_features = self._calculate_long_range_features(
-                    systems, node_features_list, edge_distances, padding_mask
-                )
-                for i in range(self.num_readout_layers):
-                    node_features_list[i] = (
-                        node_features_list[i] + long_range_features
-                    ) * 0.5**0.5
 
         # **Stage 2: Intermediate Feature Output (Optional)**
         with torch.profiler.record_function("PET::_get_output_features"):
@@ -570,7 +587,11 @@ class PET(ModelInterface[ModelHypers]):
         return return_dict
 
     def _calculate_features(
-        self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
+        self,
+        inputs: Dict[str, torch.Tensor],
+        use_manual_attention: bool,
+        systems: List[System],
+        flattened_lengths: torch.Tensor,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
         Calculate node and edge features using the selected featurization strategy.
@@ -580,6 +601,9 @@ class PET(ModelInterface[ModelHypers]):
             computation
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
+        :param systems: Systems in the current batch, used for long-range features
+        :param flattened_lengths: Flattened neighbor distances matching the batch
+            neighbor list
         :return: Tuple of two lists:
             - List of node feature tensors
             - List of edge feature tensors
@@ -588,12 +612,26 @@ class PET(ModelInterface[ModelHypers]):
             contains tensors from all GNN layers.
         """
         if self.featurizer_type == "feedforward":
-            return self._feedforward_featurization_impl(inputs, use_manual_attention)
+            return self._feedforward_featurization_impl(
+                inputs,
+                use_manual_attention,
+                systems,
+                flattened_lengths,
+            )
         else:
-            return self._residual_featurization_impl(inputs, use_manual_attention)
+            return self._residual_featurization_impl(
+                inputs,
+                use_manual_attention,
+                systems,
+                flattened_lengths,
+            )
 
     def _feedforward_featurization_impl(
-        self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
+        self,
+        inputs: Dict[str, torch.Tensor],
+        use_manual_attention: bool,
+        systems: List[System],
+        flattened_lengths: torch.Tensor,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
         Feedforward featurization: iterates features through all GNN layers,
@@ -604,6 +642,9 @@ class PET(ModelInterface[ModelHypers]):
             computation
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
+        :param systems: Systems in the current batch, used for long-range features
+        :param flattened_lengths: Flattened neighbor distances matching the batch
+            neighbor list
         :return: Tuple of two lists:
             - List of node feature tensors from the final GNN layer
             - List of edge feature tensors from the final GNN layer
@@ -613,8 +654,12 @@ class PET(ModelInterface[ModelHypers]):
 
         input_node_embeddings = self.node_embedders[0](inputs["element_indices_nodes"])
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
-        for combination_norm, combination_mlp, gnn_layer in zip(
-            self.combination_norms, self.combination_mlps, self.gnn_layers, strict=True
+        for combination_norm, combination_mlp, gnn_layer, long_range_featurizer in zip(
+            self.combination_norms,
+            self.combination_mlps,
+            self.gnn_layers,
+            self.long_range_featurizers,
+            strict=True,
         ):
             output_node_embeddings, output_edge_embeddings = gnn_layer(
                 input_node_embeddings,
@@ -649,13 +694,26 @@ class PET(ModelInterface[ModelHypers]):
                 + output_edge_embeddings
                 + combination_mlp(combination_norm(concatenated))
             )
+            if self.long_range_every_layer:
+                input_node_embeddings = long_range_featurizer(
+                    systems, input_node_embeddings, flattened_lengths
+                )
+
+        if self.long_range_at_the_end:
+            input_node_embeddings = self.long_range_featurizers[0](
+                systems, input_node_embeddings, flattened_lengths
+            )
 
         node_features_list.append(input_node_embeddings)
         edge_features_list.append(input_edge_embeddings)
         return node_features_list, edge_features_list
 
     def _residual_featurization_impl(
-        self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
+        self,
+        inputs: Dict[str, torch.Tensor],
+        use_manual_attention: bool,
+        systems: List[System],
+        flattened_lengths: torch.Tensor,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
         Residual featurization: saves intermediate features from each GNN layer
@@ -665,6 +723,9 @@ class PET(ModelInterface[ModelHypers]):
             computation
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
+        :param systems: Systems in the current batch, used for long-range features
+        :param flattened_lengths: Flattened neighbor distances matching the batch
+            neighbor list
         :return: Tuple of two lists:
             - List of node feature tensors from all GNN layers
             - List of edge feature tensors from all GNN layers
@@ -672,8 +733,11 @@ class PET(ModelInterface[ModelHypers]):
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
-        for node_embedder, gnn_layer in zip(
-            self.node_embedders, self.gnn_layers, strict=True
+        for node_embedder, gnn_layer, long_range_featurizer in zip(
+            self.node_embedders,
+            self.gnn_layers,
+            self.long_range_featurizers,
+            strict=True,
         ):
             input_node_embeddings = node_embedder(inputs["element_indices_nodes"])
             output_node_embeddings, output_edge_embeddings = gnn_layer(
@@ -686,6 +750,10 @@ class PET(ModelInterface[ModelHypers]):
                 inputs["cutoff_factors"],
                 use_manual_attention,
             )
+            if self.long_range_every_layer:
+                output_node_embeddings = long_range_featurizer(
+                    systems, output_node_embeddings, flattened_lengths
+                )
             node_features_list.append(output_node_embeddings)
             edge_features_list.append(output_edge_embeddings)
 
@@ -703,40 +771,13 @@ class PET(ModelInterface[ModelHypers]):
                 output_edge_embeddings.shape[2],
             )
             input_edge_embeddings = 0.5 * (input_edge_embeddings + new_input_messages)
+
+        if self.long_range_at_the_end:
+            for i in range(len(node_features_list)):
+                node_features_list[i] = self.long_range_featurizers[0](
+                    systems, node_features_list[i], flattened_lengths
+                )
         return node_features_list, edge_features_list
-
-    def _calculate_long_range_features(
-        self,
-        systems: List[System],
-        node_features_list: List[torch.Tensor],
-        edge_distances: torch.Tensor,
-        padding_mask: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Calculate long-range electrostatic features using Ewald summation.
-        Forces use_ewald=True during training for stability.
-
-        :param systems: List of `metatomic.torch.System` objects to process.
-        :param node_features_list: List of node feature tensors from each GNN layer.
-        :param edge_distances: Tensor of edge distances [n_atoms, max_num_neighbors].
-        :param padding_mask: Boolean mask indicating real vs padded neighbors
-            [n_atoms, max_num_neighbors].
-        :return: Tensor of long-range features [n_atoms, d_pet].
-        """
-        if self.training:
-            # Currently, the long-range implementation show instabilities
-            # during training if P3MCalculator is used instead of the
-            # EwaldCalculator. We will use the EwaldCalculator for training.
-            self.long_range_featurizer.use_ewald = True
-        flattened_lengths = edge_distances[padding_mask]
-        short_range_features = (
-            torch.stack(node_features_list).sum(dim=0)
-            * (1 / len(node_features_list)) ** 0.5
-        )
-        long_range_features = self.long_range_featurizer(
-            systems, short_range_features, flattened_lengths
-        )
-        return long_range_features
 
     def _get_output_features(
         self,

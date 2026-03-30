@@ -1,0 +1,38 @@
+seed: 42
+
+architecture:
+  name: pet
+  model:
+    cutoff: 8.0
+    num_neighbors_adaptive: 32
+    cutoff_function: Bump
+    cutoff_width: 1.0
+    d_pet: 128
+    d_head: 512
+    d_node: 512
+    d_feedforward: 256
+    num_heads: 8
+    num_attention_layers: 1
+    num_gnn_layers: 3
+    normalization: RMSNorm
+    activation: SwiGLU
+    attention_temperature: 1.0
+    transformer_type: PreLN
+    featurizer_type: feedforward
+    long_range:
+      enable: true
+      use_ewald: true
+      smearing: 1.4
+      kspace_resolution: 1.33
+      interpolation_nodes: 5
+      prefactor: 1.5
+      every_layer: true
+  training:
+    batch_size: 4
+    num_epochs: 100
+    warmup_fraction: 0.01
+    learning_rate: 0.0001
+
+training_set: mad-val-metatrain-filtered.xyz
+validation_set: 0.1
+test_set: 0.0

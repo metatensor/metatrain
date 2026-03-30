@@ -15,7 +15,7 @@ class LongRangeHypers(TypedDict):
 
     enable: bool = False
     """Toggle for enabling long-range interactions"""
-    use_ewald: bool = False
+    use_ewald: bool = True
     """Use Ewald summation. If False, P3M is used"""
     smearing: float = 1.4
     """Smearing width in Fourier space"""
@@ -23,6 +23,11 @@ class LongRangeHypers(TypedDict):
     """Resolution of the reciprocal space grid"""
     interpolation_nodes: int = 5
     """Number of grid points for interpolation (for PME only)"""
+    prefactor: float = 1.5
+    """Prefactor for the long-range potential features."""
+    every_layer: bool = False
+    """Whether to compute long-range features at every layer of the model, or only at
+    the end."""
 
 
 class LongRangeFeaturizer(torch.nn.Module):
@@ -56,6 +61,8 @@ class LongRangeFeaturizer(torch.nn.Module):
                 "`torch-pme` is required for long-range models. "
                 "Please install it with `pip install 'torch-pme>=0.3.2'`."
             )
+
+        self.prefactor = float(hypers["prefactor"])
 
         self.ewald_calculator = EwaldCalculator(
             potential=CoulombPotential(
@@ -96,7 +103,14 @@ class LongRangeFeaturizer(torch.nn.Module):
         self.neighbor_list_options = neighbor_list_options
         """Neighbor list information for the short-range model."""
 
-        self.charges_map = torch.nn.Linear(feature_dim, feature_dim)
+        self.norm = torch.nn.RMSNorm(feature_dim)
+        """RMS normalization to be applied to the input features."""
+
+        self.charges_map = torch.nn.Sequential(
+            torch.nn.Linear(feature_dim, feature_dim),
+            torch.nn.SiLU(),
+            torch.nn.Linear(feature_dim, feature_dim),
+        )
         """Map the short-range features to atomic charges."""
 
         self.out_projection = torch.nn.Sequential(
@@ -104,6 +118,7 @@ class LongRangeFeaturizer(torch.nn.Module):
             torch.nn.SiLU(),
             torch.nn.Linear(feature_dim, feature_dim),
         )
+        """Transforms the long-range features before the output."""
 
     def forward(
         self,
@@ -122,10 +137,10 @@ class LongRangeFeaturizer(torch.nn.Module):
             class.
         :return: A tensor of long-range features for the systems.
         """
+        features = self.norm(features)
         charges = self.charges_map(features)
 
         last_len_nodes = 0
-        last_len_edges = 0
         long_range_features = []
         for system in systems:
             system_charges = charges[last_len_nodes : last_len_nodes + len(system)]
@@ -135,11 +150,20 @@ class LongRangeFeaturizer(torch.nn.Module):
             neighbor_indices_system = neighbor_list.samples.view(
                 ["first_atom", "second_atom"]
             ).values
+            neighbor_cell_shifts_system = neighbor_list.samples.values[:, 2:]
 
-            neighbor_distances_system = neighbor_distances[
-                last_len_edges : last_len_edges + len(neighbor_indices_system)
-            ]
-            last_len_edges += len(neighbor_indices_system)
+            neighbor_distances_system = torch.sqrt(
+                torch.sum(
+                    (
+                        system.positions[neighbor_indices_system[:, 1]]
+                        - system.positions[neighbor_indices_system[:, 0]]
+                        + neighbor_cell_shifts_system.to(system.cell.dtype)
+                        @ system.cell
+                    )
+                    ** 2,
+                    dim=1,
+                )
+            )
 
             if system.pbc.any():
                 if system.pbc.sum() == 1:
@@ -186,9 +210,11 @@ class LongRangeFeaturizer(torch.nn.Module):
                     neighbor_indices=neighbor_indices_system,
                     neighbor_distances=neighbor_distances_system,
                 )
-            long_range_features.append(self.out_projection(potential))
+            long_range_features.append(potential)
 
-        return torch.concatenate(long_range_features)
+        return features + self.out_projection(
+            self.prefactor * torch.concatenate(long_range_features)
+        )
 
 
 class DummyLongRangeFeaturizer(torch.nn.Module):
