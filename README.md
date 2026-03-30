@@ -154,9 +154,9 @@ Thanks goes to all people who make metatrain possible:
 
 If you found metatrain useful for your work, you can cite the corresponding article:
 
-- F. Bigi, J.W. Abbott, P. Loche et. al. Metatensor and metatomic: foundational
-  libraries for interoperable atomistic machine learning, (2026).
-  `https://doi.org/10.1063/5.0304911 <https://doi.org/10.1063/5.0304911>`_
+F. Bigi, J.W. Abbott, P. Loche et. al.<br>
+Metatensor and metatomic: foundational libraries for interoperable atomistic machine learning, (2026).<br>
+[https://doi.org/10.1063/5.0304911](https://doi.org/10.1063/5.0304911)
 
 ```bibtex
 @article{bigi_metatensor_2026,
