@@ -152,7 +152,7 @@ Thanks goes to all people who make metatrain possible:
 
 # Citing metatrain
 
-If you found metatrain useful for your work, you can cite the corresponding article:
+If you found metatrain useful for your work, please cite the corresponding article:
 
 F. Bigi, J.W. Abbott, P. Loche et. al.<br>
 Metatensor and metatomic: foundational libraries for interoperable atomistic machine learning, (2026).<br>
