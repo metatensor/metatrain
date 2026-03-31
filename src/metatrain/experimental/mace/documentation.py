@@ -319,6 +319,8 @@ class TrainerHypers(TypedDict):
         - "readouts_lr_factor"
     
     Any missing keys are set to 1.0.
+
+    Only used if the mace version is >= 0.3.15. Otherwise ignored.
     """
 
     freeze: int = 0
@@ -326,6 +328,8 @@ class TrainerHypers(TypedDict):
 
     Can be positive or negative, e.g. -1 means the last layer is frozen.
     0 means all layers are active.
+
+    Only used if the mace version is >= 0.3.15. Otherwise ignored.
     """
 
     # General training parameters that are shared across architectures
