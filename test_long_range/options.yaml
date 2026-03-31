@@ -33,6 +33,6 @@ architecture:
     warmup_fraction: 0.01
     learning_rate: 0.0001
 
-training_set: mad-val-metatrain-filtered.xyz
+training_set: small.xyz
 validation_set: 0.1
 test_set: 0.0
