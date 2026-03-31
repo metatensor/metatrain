@@ -174,4 +174,4 @@ Metatensor and metatomic: foundational libraries for interoperable atomistic mac
 }
 ```
 
-<!-- marker-end -->
+<!-- marker-end --> <!-- Update docs/src/cite.rst if you add more sections before this marker -->
