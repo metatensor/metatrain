@@ -173,3 +173,5 @@ Metatensor and metatomic: foundational libraries for interoperable atomistic mac
   doi = {10.1063/5.0304911},
 }
 ```
+
+<!-- marker-end -->
