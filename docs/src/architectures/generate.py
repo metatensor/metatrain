@@ -1,4 +1,5 @@
 import ast
+import warnings
 from pathlib import Path
 from typing import TypedDict
 
@@ -226,6 +227,27 @@ def generate_rst(
         f"\n   :target: {badge_target}"
     )
 
+    # Get maintainers from the CODEOWNERS file.
+    codeowners_file = ARCHITECTURES_DIR.parent.parent.parent / "CODEOWNERS"
+    owners = []
+    with open(codeowners_file, "r") as f:
+        for line in f.readlines():
+            if line.startswith(f"**/{architecture_real_name}"):
+                _, *owners = line.split()
+                break
+
+    if len(owners) == 0:
+        warnings.warn(
+            f"No codeowners found for architecture '{architecture_real_name}' in "
+            f"CODEOWNERS file.",
+            stacklevel=2,
+        )
+        owners_links = ""
+    else:
+        owners_links = ", ".join(
+            f"`{owner} <https://github.com/{owner.lstrip('@')}>`_" for owner in owners
+        )
+
     # Prepend docstring with reference and append missing sections
     lines = docstring.split("\n")
     title_id = 0
@@ -237,6 +259,7 @@ def generate_rst(
         + lines[underline_id]
         + "\n\n"
         + badge_string
+        + f"\n\n*Maintained by* {owners_links}."
         + "\n"
         + "\n".join(lines[2:])
     )
