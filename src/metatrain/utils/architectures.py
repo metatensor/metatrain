@@ -4,7 +4,7 @@ import sys
 from importlib.util import find_spec
 from pathlib import Path
 from types import ModuleType
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union
 
 from omegaconf import OmegaConf
 
@@ -261,22 +261,39 @@ def get_hypers_classes(name: str) -> Dict[str, type]:
     }
 
 
-def get_default_hypers(name: str) -> Dict:
-    """
-    Returns the default architecture hyperparameters.
+def get_default_hypers(name: str, base_precision: Optional[int] = None) -> Dict:
+    """Returns the default architecture hyperparameters.
+
+    When *base_precision* is ``None`` (the default), the returned dict may
+    contain ``"${base_precision}"`` interpolation strings in precision fields.
+    These resolve automatically after ``OmegaConf.merge`` with a config that
+    provides ``base_precision`` at the root level.
+
+    When *base_precision* is an integer (16, 32, or 64), all interpolations are
+    resolved before returning so callers get a plain dict of concrete values.
 
     :param name: Name of the architecture
-    :return: Default hyperparameters of the architectures
+    :param base_precision: If given, resolve ``${base_precision}`` interpolations
+        to this value before returning.
+    :return: Default hyperparameters of the architecture
     """
     check_architecture_name(name)
 
     hypers_classes = get_hypers_classes(name)
 
-    return {
+    defaults = {
         "name": name,
         "model": init_with_defaults(hypers_classes["model"]),
         "training": init_with_defaults(hypers_classes["trainer"]),
     }
+
+    if base_precision is not None:
+        cfg = OmegaConf.create({"base_precision": base_precision, **defaults})
+        container = OmegaConf.to_container(cfg, resolve=True)
+        container.pop("base_precision")
+        return container
+
+    return defaults
 
 
 def write_hypers_yaml(name: str, output_path: Path | str) -> None:
