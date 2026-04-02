@@ -14,7 +14,7 @@
 `metatrain` is a command line interface (CLI) to **train** and **evaluate** atomistic
 models of various architectures. It features a common `yaml` option inputs to configure
 training and evaluation. Trained models are exported as standalone files that can be
-used directly in various molecular dynamics (MD) engines (e.g. `ASE`, `LAMMPS`, `i-PI`, 
+used directly in various molecular dynamics (MD) engines (e.g. `ASE`, `LAMMPS`, `i-PI`,
 `TorchSim`, `ESPResSo`,...) using the [metatomic](https://docs.metatensor.org/metatomic)
 interface.
 
@@ -147,6 +147,8 @@ Submit new features or bug fixes through a pull request.
 Thanks goes to all people who make metatrain possible:
 
 [![Contributors](https://contrib.rocks/image?repo=metatensor/metatrain)](https://github.com/metatensor/metatrain/graphs/contributors)
+
+The overall metatrain project is [maintained](https://github.com/lab-cosmo/.github/blob/main/Maintainers.md) by @frostedoyster, @pfebrer, and @PicoCentauri who will reply to issues and pull requests opened on this repository as soon as possible. You can mention them directly if you did not receive an answer after a couple of days. Additionally, different architectures are maintained by separate maintainers, you can find their names in the corresponding [documentation](https://docs.metatensor.org/metatrain/latest/architectures/)
 
 <!-- marker-cite -->
 
