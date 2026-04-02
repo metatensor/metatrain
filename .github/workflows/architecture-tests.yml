@@ -49,7 +49,7 @@ jobs:
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
 
     - name: upload to codecov.io
-      uses: codecov/codecov-action@v5
+      uses: codecov/codecov-action@v6
       with:
         fail_ci_if_error: false
         files: coverage.xml
