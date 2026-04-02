@@ -241,6 +241,13 @@ class TrainerHypers(TypedDict):
     loss: str | dict[str, LossSpecification | str] = "mse"
     """This section describes the loss function to be used. See the
     :ref:`loss-functions` for more details."""
+    max_atoms_per_batch: Optional[int] = None
+    """Maximum total atoms per batch. When set, uses atom-count-aware batching
+    (greedy bin-packing) instead of fixed ``batch_size``. Useful for datasets with
+    variable structure sizes to avoid OOM. Required when using ``compile=True`` with
+    ``distributed=True`` to prevent recompilation storms from variable batch shapes
+    across ranks."""
+
     batch_atom_bounds: list[Optional[int]] = [None, None]
     """Bounds for the number of atoms per batch as [min, max]. Batches with atom
     counts outside these bounds will be skipped during training. Use ``None`` for
@@ -256,4 +263,15 @@ class TrainerHypers(TypedDict):
     """Parameters for fine-tuning trained PET models.
 
     See :ref:`label_fine_tuning_concept` for more details.
+    """
+    compile: bool = False
+    """Whether to use full-graph FX compilation during training.
+
+    When enabled, the entire PET model (including force/stress computation via
+    ``autograd.grad``) is traced into a single FX graph using ``make_fx`` and
+    then compiled with ``torch.compile(dynamic=True, fullgraph=True)``. This
+    gives maximum kernel fusion, zero compiled/eager boundary crossings, and
+    always uses ``scaled_dot_product_attention`` (SDPA). Expect a one-time
+    compilation cost at the start of training, followed by speedups on every
+    subsequent step.
     """

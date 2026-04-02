@@ -1,10 +1,13 @@
 import copy
 import logging
 import math
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
+from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import System
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
@@ -15,6 +18,8 @@ from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    MaxAtomBatchSampler,
+    MaxAtomDistributedBatchSampler,
     get_num_workers,
     unpack_batch,
     validate_num_workers,
@@ -41,6 +46,137 @@ from . import checkpoints
 from .documentation import TrainerHypers
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
+from .modules.structures import systems_to_batch
+
+
+def _wrap_compiled_output(
+    energy: torch.Tensor,
+    forces: torch.Tensor,
+    stress: torch.Tensor,
+    raw_predictions: Dict[str, Dict[str, torch.Tensor]],
+    model: PET,
+    systems: List[System],
+    sample_labels: Labels,
+    system_indices: torch.Tensor,
+    train_targets: Dict,
+) -> Dict[str, TensorMap]:
+    """Convert compiled function outputs to Dict[str, TensorMap].
+
+    Produces the same format as ``evaluate_model`` so the loss function
+    and metric accumulators work unchanged.
+
+    :param energy: Per-structure energy tensor from the compiled function.
+    :param forces: Per-atom force tensor, or ``None``.
+    :param stress: Per-structure stress tensor, or ``None``.
+    :param raw_predictions: Per-atom predictions keyed by target and block.
+    :param model: The PET model instance.
+    :param systems: The input systems for this batch.
+    :param sample_labels: Labels indicating system and atom indices.
+    :param system_indices: System index for each atom in the batch.
+    :param train_targets: Target information dict from the training config.
+    :return: Predictions as ``Dict[str, TensorMap]``.
+    """
+    from metatrain.utils.sum_over_atoms import sum_over_atoms
+
+    device = system_indices.device
+    predictions: Dict[str, TensorMap] = {}
+
+    # Identify the energy target
+    energy_target_name = None
+    for tname in model.target_names:
+        if tname in model.outputs and model.outputs[tname].quantity == "energy":
+            energy_target_name = tname
+            break
+
+    # Build energy TensorMap (per-structure) with optional gradient blocks
+    if energy_target_name is not None and energy is not None:
+        n_structures = energy.shape[0]
+        energy_block = TensorBlock(
+            values=energy.unsqueeze(-1),
+            samples=Labels(
+                "system",
+                torch.arange(n_structures, device=device, dtype=torch.int32).unsqueeze(
+                    -1
+                ),
+                assume_unique=True,
+            ),
+            components=[],
+            properties=Labels("energy", torch.tensor([[0]], device=device)),
+        )
+
+        if forces is not None:
+            # Position gradient block: samples are ["sample", "atom"]
+            # matching evaluate_model's _position_gradients_to_block format
+            grad_samples = Labels(
+                names=["sample", "atom"],
+                values=sample_labels.values.to(torch.int32),
+                assume_unique=True,
+            ).to(device)
+            xyz_labels = Labels("xyz", torch.tensor([[0], [1], [2]], device=device))
+            forces_block = TensorBlock(
+                values=forces.unsqueeze(-1),
+                samples=grad_samples,
+                components=[xyz_labels],
+                properties=Labels("energy", torch.tensor([[0]], device=device)),
+            )
+            energy_block.add_gradient("positions", forces_block)
+
+        if stress is not None:
+            stress_samples = Labels(
+                "sample",
+                torch.arange(n_structures, device=device, dtype=torch.int32).unsqueeze(
+                    -1
+                ),
+                assume_unique=True,
+            )
+            xyz1 = Labels("xyz_1", torch.tensor([[0], [1], [2]], device=device))
+            xyz2 = Labels("xyz_2", torch.tensor([[0], [1], [2]], device=device))
+            stress_block = TensorBlock(
+                values=stress.unsqueeze(-1),
+                samples=stress_samples,
+                components=[xyz1, xyz2],
+                properties=Labels("energy", torch.tensor([[0]], device=device)),
+            )
+            energy_block.add_gradient("strain", stress_block)
+
+        predictions[energy_target_name] = TensorMap(
+            keys=model.single_label.to(device),
+            blocks=[energy_block],
+        )
+
+    # Non-energy targets: wrap per-atom raw predictions into TensorMaps
+    for target_name in model.target_names:
+        if target_name == energy_target_name:
+            continue
+        if target_name not in raw_predictions:
+            continue
+        if target_name not in train_targets:
+            continue
+
+        target_preds = raw_predictions[target_name]
+        blocks = []
+        for key, shape, components, properties in zip(
+            model.output_shapes[target_name].keys(),
+            model.output_shapes[target_name].values(),
+            model.component_labels[target_name],
+            model.property_labels[target_name],
+            strict=True,
+        ):
+            values = target_preds[key].reshape([-1] + shape)
+            block = TensorBlock(
+                values=values,
+                samples=sample_labels,
+                components=components,
+                properties=properties,
+            )
+            blocks.append(block)
+
+        tmap = TensorMap(keys=model.key_labels[target_name].to(device), blocks=blocks)
+        if not train_targets[target_name].per_atom:
+            tmap = sum_over_atoms(tmap)
+        predictions[target_name] = tmap
+
+    return predictions
 
 
 def get_scheduler(
@@ -77,7 +213,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 12
+    __checkpoint_version__ = 14
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -160,6 +296,35 @@ class Trainer(TrainerInterface[TrainerHypers]):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
+        # torch.compile: full-graph FX compilation of the entire model
+        # (including force/stress computation via autograd.grad).
+        compile_enabled = self.hypers.get("compile", False)
+        has_gradients = any(
+            len(target_info.gradients) > 0
+            for target_info in model.dataset_info.targets.values()
+        )
+        has_strain_gradients = any(
+            "strain" in target_info.gradients
+            for target_info in model.dataset_info.targets.values()
+        )
+        if compile_enabled:
+            torch._dynamo.reset()
+            if is_distributed:
+                if self.hypers.get("max_atoms_per_batch") is None:
+                    raise ValueError(
+                        "compile=True with distributed=True requires "
+                        "max_atoms_per_batch to prevent recompilation storms "
+                        "from variable batch shapes across ranks."
+                    )
+                if "TORCHINDUCTOR_CACHE_DIR" not in os.environ:
+                    logging.warning(
+                        "TORCHINDUCTOR_CACHE_DIR is not set. On HPC clusters "
+                        "with small /tmp (e.g. RAM-backed tmpfs), set this to "
+                        "scratch storage to avoid compilation failures. "
+                        "Example: export TORCHINDUCTOR_CACHE_DIR="
+                        "/scratch/$USER/inductor_cache"
+                    )
+
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
             train_datasets,
@@ -181,7 +346,63 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         logging.info("Setting up data loaders")
 
-        if is_distributed:
+        max_atoms = self.hypers.get("max_atoms_per_batch")
+        use_max_atom_sampler = max_atoms is not None
+
+        if use_max_atom_sampler and is_distributed:
+            assert max_atoms is not None
+            train_batch_samplers = [
+                MaxAtomDistributedBatchSampler(
+                    dataset=ds,
+                    max_atoms=max_atoms,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=True,
+                    seed=0,
+                )
+                for ds in train_datasets
+            ]
+            val_batch_samplers = [
+                MaxAtomDistributedBatchSampler(
+                    dataset=ds,
+                    max_atoms=max_atoms,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=False,
+                    seed=0,
+                )
+                for ds in val_datasets
+            ]
+            # These samplers support set_epoch()
+            epoch_samplers = list(train_batch_samplers)
+            train_samplers = [None] * len(train_datasets)
+            val_samplers = [None] * len(val_datasets)
+        elif use_max_atom_sampler:
+            assert max_atoms is not None
+            train_batch_samplers = [
+                MaxAtomBatchSampler(
+                    dataset=ds,
+                    max_atoms=max_atoms,
+                    shuffle=True,
+                    seed=0,
+                )
+                for ds in train_datasets
+            ]
+            val_batch_samplers = [
+                MaxAtomBatchSampler(
+                    dataset=ds,
+                    max_atoms=max_atoms,
+                    shuffle=False,
+                    seed=0,
+                )
+                for ds in val_datasets
+            ]
+            epoch_samplers = list(train_batch_samplers)
+            train_samplers = [None] * len(train_datasets)
+            val_samplers = [None] * len(val_datasets)
+        elif is_distributed:
+            train_batch_samplers = [None] * len(train_datasets)  # type: ignore[list-item]
+            val_batch_samplers = [None] * len(val_datasets)  # type: ignore[list-item]
             train_samplers = [
                 DistributedSampler(
                     train_dataset,
@@ -202,9 +423,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
                 for val_dataset in val_datasets
             ]
+            epoch_samplers = list(train_samplers)  # type: ignore[arg-type]
         else:
+            train_batch_samplers = [None] * len(train_datasets)  # type: ignore[list-item]
+            val_batch_samplers = [None] * len(val_datasets)  # type: ignore[list-item]
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
+            epoch_samplers = []
 
         # Extract additive models and scaler and move them to CPU/float64 so they
         # can be used in the collate function
@@ -259,53 +484,74 @@ class Trainer(TrainerInterface[TrainerHypers]):
             validate_num_workers(num_workers)
 
         train_dataloaders = []
-        for train_dataset, train_sampler in zip(
-            train_datasets, train_samplers, strict=True
+        for train_dataset, train_sampler, train_batch_sampler in zip(
+            train_datasets, train_samplers, train_batch_samplers, strict=True
         ):
-            if len(train_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A training dataset has fewer samples "
-                    f"({len(train_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
+            if train_batch_sampler is not None:
+                train_dataloaders.append(
+                    DataLoader(
+                        dataset=train_dataset,
+                        batch_sampler=train_batch_sampler,
+                        collate_fn=collate_fn_train,
+                        num_workers=num_workers,
+                    )
                 )
-            train_dataloaders.append(
-                DataLoader(
-                    dataset=train_dataset,
-                    batch_size=self.hypers["batch_size"],
-                    sampler=train_sampler,
-                    shuffle=(
-                        # the sampler takes care of this (if present)
-                        train_sampler is None
-                    ),
-                    drop_last=(
-                        # the sampler takes care of this (if present)
-                        train_sampler is None
-                    ),
-                    collate_fn=collate_fn_train,
-                    num_workers=num_workers,
+            else:
+                if len(train_dataset) < self.hypers["batch_size"]:
+                    raise ValueError(
+                        f"A training dataset has fewer samples "
+                        f"({len(train_dataset)}) than the batch size "
+                        f"({self.hypers['batch_size']}). "
+                        "Please reduce the batch size."
+                    )
+                train_dataloaders.append(
+                    DataLoader(
+                        dataset=train_dataset,
+                        batch_size=self.hypers["batch_size"],
+                        sampler=train_sampler,
+                        shuffle=(train_sampler is None),
+                        drop_last=(train_sampler is None),
+                        collate_fn=collate_fn_train,
+                        num_workers=num_workers,
+                    )
                 )
-            )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
         # Create dataloader for the validation datasets:
         val_dataloaders = []
-        for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
-            val_dataloaders.append(
-                DataLoader(
-                    dataset=val_dataset,
-                    batch_size=self.hypers["batch_size"],
-                    sampler=val_sampler,
-                    shuffle=False,
-                    drop_last=False,
-                    collate_fn=collate_fn_val,
-                    num_workers=num_workers,
+        for val_dataset, val_sampler, val_batch_sampler in zip(
+            val_datasets, val_samplers, val_batch_samplers, strict=True
+        ):
+            if val_batch_sampler is not None:
+                val_dataloaders.append(
+                    DataLoader(
+                        dataset=val_dataset,
+                        batch_sampler=val_batch_sampler,
+                        collate_fn=collate_fn_val,
+                        num_workers=num_workers,
+                    )
                 )
-            )
+            else:
+                val_dataloaders.append(
+                    DataLoader(
+                        dataset=val_dataset,
+                        batch_size=self.hypers["batch_size"],
+                        sampler=val_sampler,
+                        shuffle=False,
+                        drop_last=False,
+                        collate_fn=collate_fn_val,
+                        num_workers=num_workers,
+                    )
+                )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
+
+        # Helper to access the raw model regardless of DDP wrapping
+        raw_model = (
+            model.module if isinstance(model, DistributedDataParallel) else model
+        )
 
         outputs_list = []
         for target_name, target_info in train_targets.items():
@@ -341,7 +587,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not raw_model.has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a learning rate scheduler
@@ -349,13 +595,28 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not raw_model.has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         per_structure_targets = self.hypers["per_structure_targets"]
 
         # Log the initial learning rate:
         logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
+
+        # Full-graph FX compilation (after dataloaders are ready for tracing).
+        compiled_fn = None
+        if compile_enabled:
+            from .modules.compile import compile_pet_model
+
+            compiled_fn, _compiled_param_names, _compiled_buffer_names = (
+                compile_pet_model(
+                    raw_model,
+                    train_dataloader,
+                    has_gradients,
+                    has_strain_gradients,
+                )
+            )
+            logging.info("FX compilation complete (will optimize on first call)")
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
@@ -366,9 +627,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
         epoch = start_epoch
 
         for epoch in range(start_epoch, self.hypers["num_epochs"]):
-            if is_distributed:
-                for train_sampler in train_samplers:
-                    train_sampler.set_epoch(epoch)
+            for sampler in epoch_samplers:
+                sampler.set_epoch(epoch)
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             if self.hypers["log_mae"]:
@@ -389,27 +649,100 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device
                 )
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    {key: train_targets[key] for key in targets.keys()},
-                    is_training=True,
-                )
 
-                # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = loss_fn(predictions, targets, extra_data)
+                if compile_enabled and compiled_fn is not None:
+                    # FX-compiled path: call systems_to_batch directly,
+                    # run the compiled function, and wrap outputs.
+                    # Use raw_model for attributes and parameters (the
+                    # compiled graph was traced on the unwrapped model).
+                    # DDP's post-accumulate-grad hooks on raw_model's
+                    # parameters handle gradient sync automatically.
+                    (
+                        c_element_indices_nodes,
+                        c_element_indices_neighbors,
+                        c_edge_vectors,
+                        _c_edge_distances,
+                        c_padding_mask,
+                        c_reverse_neighbor_index,
+                        c_cutoff_factors,
+                        c_system_indices,
+                        c_neighbor_atom_indices,
+                        c_sample_labels,
+                    ) = systems_to_batch(
+                        systems,
+                        raw_model.requested_nl,
+                        raw_model.atomic_types,
+                        raw_model.species_to_species_index,
+                        raw_model.cutoff_function,
+                        raw_model.cutoff_width,
+                        raw_model.num_neighbors_adaptive,
+                    )
+                    if has_gradients:
+                        c_edge_vectors = c_edge_vectors.requires_grad_(True)
+                    n_structures = len(systems)
+                    energy, forces, stress, raw_preds = compiled_fn(
+                        c_edge_vectors,
+                        c_element_indices_nodes,
+                        c_element_indices_neighbors,
+                        c_padding_mask,
+                        c_reverse_neighbor_index,
+                        c_cutoff_factors,
+                        c_system_indices,
+                        c_neighbor_atom_indices,
+                        n_structures,
+                        *list(raw_model.parameters()),
+                        *list(raw_model.buffers()),
+                    )
+                    predictions = _wrap_compiled_output(
+                        energy,
+                        forces,
+                        stress,
+                        raw_preds,
+                        raw_model,
+                        systems,
+                        c_sample_labels,
+                        c_system_indices,
+                        train_targets,
+                    )
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(
+                        targets, systems, per_structure_targets
+                    )
+                    train_loss_batch = loss_fn(predictions, targets, extra_data)
+                    train_loss_batch.backward()
 
-                if is_distributed:
-                    # make sure all parameters contribute to the gradient calculation
-                    # to make torch DDP happy
-                    for param in model.parameters():
-                        train_loss_batch += 0.0 * param.sum()
+                    # Compiled path bypasses model.forward(), so DDP's
+                    # automatic gradient hooks may not fire. Explicit
+                    # all-reduce ensures correctness with any backend.
+                    if is_distributed:
+                        for param in raw_model.parameters():
+                            if param.grad is not None:
+                                torch.distributed.all_reduce(
+                                    param.grad,
+                                    op=torch.distributed.ReduceOp.AVG,
+                                )
+                else:
+                    predictions = evaluate_model(
+                        model,
+                        systems,
+                        {key: train_targets[key] for key in targets.keys()},
+                        is_training=True,
+                    )
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(
+                        targets, systems, per_structure_targets
+                    )
+                    train_loss_batch = loss_fn(predictions, targets, extra_data)
 
-                train_loss_batch.backward()
+                    if is_distributed:
+                        for param in model.parameters():
+                            train_loss_batch += 0.0 * param.sum()
+
+                    train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
                 )
@@ -421,12 +754,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                scaled_predictions = (model.module if is_distributed else model).scaler(
-                    systems, predictions
-                )
-                scaled_targets = (model.module if is_distributed else model).scaler(
-                    systems, targets
-                )
+                scaled_predictions = raw_model.scaler(systems, predictions)
+                scaled_targets = raw_model.scaler(systems, targets)
                 train_rmse_calculator.update(
                     scaled_predictions, scaled_targets, extra_data
                 )
@@ -483,12 +812,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         torch.distributed.all_reduce(val_loss_batch)
                     val_loss += val_loss_batch.item()
 
-                    scaled_predictions = (
-                        model.module if is_distributed else model
-                    ).scaler(systems, predictions)
-                    scaled_targets = (model.module if is_distributed else model).scaler(
-                        systems, targets
-                    )
+                    scaled_predictions = raw_model.scaler(systems, predictions)
+                    scaled_targets = raw_model.scaler(systems, targets)
                     val_rmse_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )
@@ -524,9 +849,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             if epoch == start_epoch:
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
-                    dataset_info=(
-                        model.module if is_distributed else model
-                    ).dataset_info,
+                    dataset_info=raw_model.dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
                 )
@@ -543,9 +866,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
             if val_metric < self.best_metric:
                 self.best_metric = val_metric
-                self.best_model_state_dict = copy.deepcopy(
-                    (model.module if is_distributed else model).state_dict()
-                )
+                raw_state_dict = raw_model.state_dict()
+                self.best_model_state_dict = {
+                    k.replace("._orig_mod", ""): v.clone()
+                    for k, v in raw_state_dict.items()
+                }
                 self.best_epoch = epoch
                 self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 
@@ -557,7 +882,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 self.epoch = epoch
                 if rank == 0:
                     self.save_checkpoint(
-                        (model.module if is_distributed else model),
+                        raw_model,
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
 
