@@ -272,9 +272,7 @@ def _apply_wigner_D_matrices(
             # batch indices.
             system_ids = block.samples.values[:, block.samples.names.index("system")]
             unique_system_ids = torch.unique(system_ids)
-            split_values = [
-                values[system_ids == i] for i in unique_system_ids
-            ]
+            split_values = [values[system_ids == i] for i in unique_system_ids]
 
         new_values = []
         for v, transformation, wigner_D_matrix in zip(
