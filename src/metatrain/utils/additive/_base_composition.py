@@ -267,7 +267,7 @@ class BaseCompositionModel(torch.nn.Module):
                 type_index = self.type_to_index[atom_type]
                 atom_type_mask = per_atom_X[:, type_index].bool()
                 X = per_atom_X[atom_type_mask]
-                Xs[atom_type] = (X, X.T @ X)
+                Xs[int(atom_type)] = (X, X.T @ X)
 
         # accumulate
         for target_name, target in targets.items():

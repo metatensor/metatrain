@@ -786,7 +786,8 @@ class DiskDataset(torch.utils.data.Dataset):
                 _check_tensor_map_metadata(tensor_map, target_info.layout)
                 # make sure that the properties of the target_info.layout also match the
                 # actual properties of the tensor maps
-                target_info.layout = _empty_tensor_map_like(tensor_map)
+                if not target_info.is_atomic_basis:
+                    target_info.layout = _empty_tensor_map_like(tensor_map)
                 target_info_dict[target_key] = target_info
 
         if is_extra_data:
