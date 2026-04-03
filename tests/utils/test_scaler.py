@@ -1224,7 +1224,7 @@ def test_scaler_spherical_per_atom_masked(batch_size):
 @pytest.mark.parametrize(
     "batch_size,missing_type", [(1, False), (1, True), (2, False), (2, True)]
 )
-def test_scaler_spherical_per_atom_atomicbasis(batch_size, missing_type):
+def test_scaler_spherical_per_atom_atomic_basis(batch_size, missing_type):
     """Test the calculation of scaling weights for a multi-block per-atom
     spherical target, expressed in an atomic basis."""
 
@@ -1537,6 +1537,46 @@ def test_scaler_rotation_invariance():
         mts.allclose_raise(
             scaler.model.scales["spherical"], scaler_rotated.model.scales["spherical"]
         )
+
+
+def test_scaler_spherical_per_atom_rank_2():
+    """
+    Test the calculation of scales for a spherical per-atom rank 2 target (keys:
+    o3_lambda_1, o3_sigma_1, o3_lambda_2, o3_sigma_2) is correct.
+    """
+    # TODO!
+    raise NotImplementedError
+
+
+def test_scaler_spherical_per_atom_rank_2_rotation_invariance():
+    """
+    Test the calculation of scales for a spherical per-atom rank 2 target (keys:
+    o3_lambda_1, o3_sigma_1, o3_lambda_2, o3_sigma_2) is invariant under fitting on a
+    rotated version of the dataset.
+    """
+    # TODO!
+    raise NotImplementedError
+
+
+@pytest.mark.parametrize("missing_type", [False, True])
+def test_scaler_spherical_atomic_basis_rank_2(missing_type):
+    """
+    Test the calculation of scales for a spherical per-atom rank 2 atomic basis target
+    (keys: o3_lambda_1, o3_sigma_1, o3_lambda_2, o3_sigma_2, atom_type) is correct.
+    """
+    # TODO!
+    raise NotImplementedError
+
+
+@pytest.mark.parametrize("missing_type", [False, True])
+def test_scaler_spherical_atomic_basis_rank_2_rotation_invariance(missing_type):
+    """
+    Test the calculation of scales for a spherical per-atom rank 2 atomic basis target
+    (keys: o3_lambda_1, o3_sigma_1, o3_lambda_2, o3_sigma_2, atom_type) is invariant
+    under fitting on a rotated version of the dataset.
+    """
+    # TODO!
+    raise NotImplementedError
 
 
 def test_scaler_torchscript(tmpdir):

@@ -791,7 +791,8 @@ class DiskDataset(torch.utils.data.Dataset):
                 if (
                     isinstance(target.get("type"), (dict, DictConfig))
                     and "spherical" in target["type"]
-                    and target["type"]["spherical"].get("product") == "coupled"
+                    and target["type"]["spherical"].get("product")
+                    in ["coupled", "cartesian"]
                 ):
                     non_type_indices = [
                         i
@@ -808,13 +809,23 @@ class DiskDataset(torch.utils.data.Dataset):
                     )
                     unexpected = data_ls - valid_ls
                     if unexpected:
-                        raise ValueError(
-                            f"Target '{target_key}' contains"
-                            "(o3_lambda, o3_sigma) pairs"
-                            "that are not reachable by the CG coupling"
-                            "of the declared irreps: "
-                            f"{unexpected}. Valid pairs from options: {valid_ls}"
-                        )
+                        if len(non_type_indices) == 2:
+                            raise ValueError(
+                                f"Target '{target_key}' contains"
+                                "(o3_lambda, o3_sigma) pairs"
+                                "that are not reachable by the CG coupling"
+                                "of the declared irreps: "
+                                f"{unexpected}. Valid pairs from options: {valid_ls}"
+                            )
+                        else:
+                            assert len(non_type_indices) == 4
+                            raise ValueError(
+                                f"Target '{target_key}' contains"
+                                "(o3_lambda_1, o3_lambda_2, o3_sigma_1, "
+                                "o3_sigma_2) combinations that are not reachable "
+                                "by the CG coupling of the declared irreps: "
+                                f"{unexpected}. Valid pairs from options: {valid_ls}"
+                            )
                 else:
                     target_info.layout = _empty_tensor_map_like(tensor_map)
                 target_info_dict[target_key] = target_info
