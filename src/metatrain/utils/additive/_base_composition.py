@@ -263,10 +263,11 @@ class BaseCompositionModel(torch.nn.Module):
             # of that type. Reminder: X has shape (n_atoms, n_atomic_types).
             # We are assuming here that targets with "atom_type" are per-atom!
             per_atom_X = Xs["per_atom"][0]
-            for i in range(len(self.atomic_types)):
-                atom_type_mask = per_atom_X[:, i].bool()
+            for atom_type in self.atomic_types:
+                type_index = self.type_to_index[atom_type]
+                atom_type_mask = per_atom_X[:, type_index].bool()
                 X = per_atom_X[atom_type_mask]
-                Xs[i] = (X, X.T @ X)
+                Xs[atom_type] = (X, X.T @ X)
 
         # accumulate
         for target_name, target in targets.items():
