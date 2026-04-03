@@ -1,10 +1,10 @@
 # mypy: disable-error-code=misc
 # We ignore misc errors in this file because TypedDict
 # with default values is not allowed by mypy.
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from annotated_types import Interval
-from pydantic import ConfigDict, NonNegativeInt, with_config
+from pydantic import ConfigDict, Discriminator, NonNegativeInt, Tag, with_config
 from typing_extensions import NotRequired, TypedDict
 
 
@@ -125,6 +125,37 @@ class SphericalTargetTypeHypers(TypedDict):
     spherical: SphericalTargetConfig
 
 
+def target_type_discriminator(v: Any) -> str | None:
+    """Discriminator function for the TargetType union.
+
+    It helps pydantic determine whether it is dealing with a scalar,
+    cartesian or spherical target. This will make pydantic try to
+    validate only against the relevant typed dict, which makes
+    validation errors much cleaner.
+
+    :param v: The value to discriminate.
+    :return: The tag of the type that pydantic should validate.
+    """
+    if isinstance(v, dict):
+        if "cartesian" in v:
+            return "cartesian"
+        elif "spherical" in v:
+            return "spherical"
+    elif isinstance(v, str) and v == "scalar":
+        return "scalar"
+    # Could not determine the target type, pydantic will raise a
+    # validation error with the appropriate message.
+    return None
+
+
+TargetType = Annotated[
+    Annotated[ScalarTargetTypeHyper, Tag("scalar")]
+    | Annotated[CartesianTargetTypeHypers, Tag("cartesian")]
+    | Annotated[SphericalTargetTypeHypers, Tag("spherical")],
+    Discriminator(target_type_discriminator),
+]
+
+
 @with_config(ConfigDict(extra="forbid", strict=True))
 class TargetHypers(TypedDict):
     """Hyperparameters for the targets in the dataset."""
@@ -159,9 +190,7 @@ class TargetHypers(TypedDict):
     per_atom: NotRequired[bool] = False
     """Whether the target is a per-atom quantity, as opposed to a global
     (per-structure) quantity."""
-    type: NotRequired[
-        ScalarTargetTypeHyper | CartesianTargetTypeHypers | SphericalTargetTypeHypers
-    ]
+    type: NotRequired[TargetType]
     """Specifies the type of the target.
 
     See :ref:`Fitting Generic Targets <fitting-generic-targets>` to understand
@@ -206,7 +235,63 @@ class DatasetDictHypers(TypedDict):
     """Additional data to include from the dataset."""
 
 
-DatasetSpec = DatasetDictHypers | list[DatasetDictHypers] | str
+def training_set_discriminator(v: Any) -> str | None:
+    """Discriminator function for the TrainingSetSpec union.
+
+    It helps pydantic determine whether it is dealing with a single dataset
+    specification, a list of dataset specifications or a string path to a
+    dataset. This will make pydantic try to validate only against the
+    relevant type, which makes validation errors much cleaner.
+
+    :param v: The value to discriminate.
+    :return: The tag of the type that pydantic should validate.
+    """
+    if isinstance(v, dict):
+        return "dict"
+    elif isinstance(v, list):
+        return "list"
+    elif isinstance(v, str):
+        return "str"
+    # Could not determine the training set spec type, pydantic will raise a
+    # validation error with the appropriate message.
+    return None
+
+
+def val_or_test_set_discriminator(v: Any) -> str | None:
+    """Discriminator function for the ValOrTestSetSpec union.
+
+    Same as the training discriminator, but accepts also numbers.
+
+    :param v: The value to discriminate.
+    :return: The tag of the type that pydantic should validate.
+    """
+    if isinstance(v, dict):
+        return "dict"
+    elif isinstance(v, list):
+        return "list"
+    elif isinstance(v, str):
+        return "str"
+    elif isinstance(v, (int, float)):
+        return "fraction"
+    # Could not determine the val/test set spec type, pydantic will raise a
+    # validation error with the appropriate message.
+    return None
+
+
+TrainingSetSpec = Annotated[
+    Annotated[DatasetDictHypers, Tag("dict")]
+    | Annotated[list[DatasetDictHypers], Tag("list")]
+    | Annotated[str, Tag("str")],
+    Discriminator(training_set_discriminator),
+]
+
+ValOrTestSetSpec = Annotated[
+    Annotated[DatasetDictHypers, Tag("dict")]
+    | Annotated[list[DatasetDictHypers], Tag("list")]
+    | Annotated[str, Tag("str")]
+    | Annotated[int | float, Interval(ge=0.0, lt=1.0), Tag("fraction")],
+    Discriminator(val_or_test_set_discriminator),
+]
 
 WandbConfig = dict
 
@@ -240,11 +325,9 @@ class BaseHypers(TypedDict):
 
     If ``None``, W&B logging is disabled."""
 
-    training_set: DatasetSpec
+    training_set: TrainingSetSpec
     """Specification of the training dataset."""
-    validation_set: DatasetSpec | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
+    validation_set: ValOrTestSetSpec
     """Specification of the validation dataset."""
-    test_set: NotRequired[
-        DatasetSpec | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
-    ]
+    test_set: NotRequired[ValOrTestSetSpec] = 0.0
     """Specification of the test dataset."""

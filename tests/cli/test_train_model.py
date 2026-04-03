@@ -234,7 +234,7 @@ def test_train_unknown_arch_options(monkeypatch, tmp_path):
     """
     options = OmegaConf.create(options_str)
 
-    match = r"Unrecognized option 'training\.num_epoch'"
+    match = r"Unrecognized option 'num_epoch' for training hyperparameters"
     with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
 
