@@ -127,8 +127,9 @@ class SphericalTargetConfig(TypedDict):
     product: NotRequired[Literal[None, "coupled"]] = None
     """Means of describing a higher rank target that is made of the base irreps.
     If:
+
     - ``product`` is ``None`` or not provided: the target is of rank 1.
-    -``product`` is ``"coupled"``: the target is built by all the possible products
+    - ``product`` is ``"coupled"``: the target is built by all the possible products
       between irreps and coupling them to their irreducible representations.
       The target is therefore still of rank 1.
     """

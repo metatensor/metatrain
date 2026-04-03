@@ -484,7 +484,7 @@ class BaseCompositionModel(torch.nn.Module):
                 # atoms in the samples of each block
                 if "atom_type" in key.names:
                     type_index = self.type_to_index[int(key["atom_type"])]
-                    atom_type_mask = X_block[:, type_index].bool()
+                    atom_type_mask = X_block[:, type_index].to(dtype=torch.bool)
                     sample_labels_block = Labels(
                         sample_labels_block.names,
                         sample_labels_block.values[atom_type_mask],
