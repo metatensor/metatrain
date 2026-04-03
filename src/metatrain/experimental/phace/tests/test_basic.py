@@ -34,6 +34,7 @@ class PhACETests(ArchitectureTests):
 class TestOutput(OutputTests, PhACETests):
     is_equivariant_reflections = False
     equivariance_error_tolerance = 1e-4  # due to many layers in the default hypers
+    supports_spherical_atomic_basis_outputs = False
 
     @pytest.fixture
     def n_last_layer_features(self) -> int:

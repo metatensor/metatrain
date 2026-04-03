@@ -254,17 +254,28 @@ def _apply_wigner_D_matrices(
     wigner_D_matrices: Dict[int, List[torch.Tensor]],
 ) -> TensorMap:
     new_blocks: List[TensorBlock] = []
+    is_atomic_basis = any(k.startswith("atom_type") for k in target_tmap.keys.names)
     for key, block in target_tmap.items():
         ell, sigma = int(key[0]), int(key[1])
         values = block.values
-        if "atom" in block.samples.names:
+        if block.samples.names == ["system"]:
+            split_values = torch.split(values, [1 for _ in systems])
+        elif not is_atomic_basis:
             split_values = torch.split(
                 values, [len(system.positions) for system in systems]
             )
         else:
-            split_values = torch.split(values, [1 for _ in systems])
+            # We can't assume that blocks have all atoms.
+            # TODO: We can't assume that blocks have all systems either
+            # (and we do for now)!!! We can also solve this by getting
+            # the batch's system indices or reindexing the target to
+            # batch indices.
+            unique_system_ids = torch.unique(block.samples["system"])
+            split_values = [
+                values[block.samples["system"] == i] for i in unique_system_ids
+            ]
+
         new_values = []
-        ell = (len(block.components[0]) - 1) // 2
         for v, transformation, wigner_D_matrix in zip(
             split_values, transformations, wigner_D_matrices[ell], strict=True
         ):

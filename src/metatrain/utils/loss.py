@@ -199,12 +199,11 @@ class BaseTensorMapLoss(LossInterface):
         all_predictions_flattened = torch.cat(list_of_prediction_segments)
         all_targets_flattened = torch.cat(list_of_target_segments)
 
-        # For stress targets, we allow users to use NaN entries for systems without
-        # PBCs or with mixed PBCs. We filter them out here.
-        if self.gradient == "strain" or "non_conservative_stress" in self.target:
-            valid_mask = ~torch.isnan(all_targets_flattened)
-            all_predictions_flattened = all_predictions_flattened[valid_mask]
-            all_targets_flattened = all_targets_flattened[valid_mask]
+        # Don't include in the loss calculation any points where
+        # the target is NaN
+        not_nan = ~torch.isnan(all_targets_flattened)
+        all_targets_flattened = all_targets_flattened[not_nan]
+        all_predictions_flattened = all_predictions_flattened[not_nan]
 
         if len(all_targets_flattened) == 0:
             # No valid data points to compute the loss
