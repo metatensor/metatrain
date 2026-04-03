@@ -270,9 +270,10 @@ def _apply_wigner_D_matrices(
             # (and we do for now)!!! We can also solve this by getting
             # the batch's system indices or reindexing the target to
             # batch indices.
-            unique_system_ids = torch.unique(block.samples["system"])
+            system_ids = block.samples.values[:, block.samples.names.index("system")]
+            unique_system_ids = torch.unique(system_ids)
             split_values = [
-                values[block.samples["system"] == i] for i in unique_system_ids
+                values[system_ids == i] for i in unique_system_ids
             ]
 
         new_values = []
