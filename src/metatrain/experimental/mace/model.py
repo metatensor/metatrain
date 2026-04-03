@@ -449,13 +449,13 @@ class MetaMACE(ModelInterface[ModelHypers]):
         if not self.training:
             # For atomic basis targets, sparsify to create blocks with "atom_type"
             # in the key dimensions, and ensure properties are unpadded.
+            targets = self.dataset_info.targets
             for k, v in return_dict.items():
-                if self.dataset_info.targets[k].is_atomic_basis:
+                if k in targets and targets[k].is_atomic_basis:
                     return_dict[k] = sparsify_atomic_basis_target(
                         systems,
                         v,
-                        self.dataset_info.targets[k].layout,
-                        data["atom_types"],
+                        targets[k].layout,
                     )
             return_dict = self.scaler(systems, return_dict)
             self.add_additive_contributions(
@@ -664,9 +664,11 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 self.mace_model.readouts, self.per_layer_irreps
             )
         else:
+            output_info = copy.deepcopy(target_info)
+            output_info.layout = output_layout
             head = NonLinearHead(
                 irreps_in=self.features_irreps,
-                irreps_out=target_info_to_e3nn_irreps(target_info),
+                irreps_out=target_info_to_e3nn_irreps(output_info),
                 MLP_irreps=o3.Irreps(self.hypers["MLP_irreps"]),
                 gate=mace_modules.gate_dict.get(self.hypers["gate"], None),
             )

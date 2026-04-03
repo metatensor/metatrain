@@ -68,5 +68,4 @@ def create_batch(
         "node_attrs": torch.nn.functional.one_hot(
             torch.hstack(atom_types), num_classes=n_types
         ).to(dtype),
-        "atom_types": torch.hstack(atom_types),
     }
