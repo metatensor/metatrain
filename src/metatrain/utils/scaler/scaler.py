@@ -159,8 +159,8 @@ class Scaler(torch.nn.Module):
         if not isinstance(datasets, list):
             datasets = [datasets]
 
-        if len(self.target_infos) == 0:  # no (new) targets to fit
-            return
+        # if len(self.target_infos) == 0:  # no (new) targets to fit
+        #     return
 
         # Create dataloader for the training datasets
         dataloader = self._get_dataloader(
@@ -205,7 +205,7 @@ class Scaler(torch.nn.Module):
                     torch.distributed.all_reduce(Y2_block.values)
 
         # Compute the scales on all ranks
-        self.model.fit(fixed_weights=fixed_weights, targets_to_fit=self.new_outputs)
+        self.model.fit(fixed_weights=fixed_weights)
 
         # update the buffer scales now they are fitted
         for target_name in self.model.scales.keys():
@@ -232,7 +232,7 @@ class Scaler(torch.nn.Module):
         self.target_infos = {
             target_name: target_info
             for target_name, target_info in merged_info.targets.items()
-            if target_name not in self.dataset_info.targets
+            # if target_name not in self.dataset_info.targets
         }
 
         self.dataset_info = merged_info

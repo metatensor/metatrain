@@ -208,8 +208,8 @@ class CompositionModel(torch.nn.Module):
         if not isinstance(datasets, list):
             datasets = [datasets]
 
-        if len(self.target_infos) == 0:  # no (new) targets to fit
-            return
+        # if len(self.target_infos) == 0:  # no (new) targets to fit
+        #     return
 
         # Create dataloader for the training datasets. Note that these might need
         # neighbor lists if any of the `additive_models` require them.
@@ -268,7 +268,7 @@ class CompositionModel(torch.nn.Module):
                     torch.distributed.all_reduce(XTY_block.values)
 
         # Fit the model on all ranks
-        self.model.fit(fixed_weights, targets_to_fit=self._new_outputs)
+        self.model.fit(fixed_weights)
 
         # update the buffer weights now they are fitted
         for target_name in self.model.weights.keys():
