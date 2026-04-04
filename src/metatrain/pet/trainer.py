@@ -541,7 +541,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             val_metric = get_selected_metric(
                 finalized_val_info, self.hypers["best_model_metric"]
             )
-            if val_metric < self.best_metric:
+            if val_metric <= self.best_metric:
                 self.best_metric = val_metric
                 self.best_model_state_dict = copy.deepcopy(
                     (model.module if is_distributed else model).state_dict()

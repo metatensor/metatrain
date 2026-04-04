@@ -433,16 +433,16 @@ def train_model(
     # PRINT DATASET STATS #####
     ###########################
 
-    if sum(len(d) for d in train_datasets + val_datasets + test_datasets) < 1_000_000:
-        # only print stats if the datasets are not too large (avoids hanging)
-        _print_stats("Training", train_datasets, dataset_info)
-        _print_stats("Validation", val_datasets, dataset_info)
-        _print_stats("Test", test_datasets, dataset_info)
-    else:
-        logging.info(
-            "Datasets are too large (>1M total structures) to calculate statistics "
-            "quickly. Skipping statistics."
-        )
+    # if sum(len(d) for d in train_datasets + val_datasets + test_datasets) < 1_000_000:
+    #     # only print stats if the datasets are not too large (avoids hanging)
+    #     _print_stats("Training", train_datasets, dataset_info)
+    #     _print_stats("Validation", val_datasets, dataset_info)
+    #     _print_stats("Test", test_datasets, dataset_info)
+    # else:
+    #     logging.info(
+    #         "Datasets are too large (>1M total structures) to calculate statistics "
+    #         "quickly. Skipping statistics."
+    #     )
 
     ###########################
     # SAVE EXPANDED OPTIONS ###
