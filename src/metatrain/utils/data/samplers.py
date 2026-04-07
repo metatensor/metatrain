@@ -215,6 +215,13 @@ class MaxAtomBatchSampler(MaxAtomDistributedBatchSampler):
     """Single-process version of :class:`MaxAtomDistributedBatchSampler`.
 
     Convenience wrapper that fixes ``num_replicas=1`` and ``rank=0``.
+
+    :param dataset: The dataset to sample from.
+    :param max_atoms: Maximum total atoms per batch.
+    :param shuffle: Whether to shuffle batch order each epoch.
+    :param seed: Random seed for reproducibility.
+    :param drop_last: Whether to drop the last incomplete batch.
+    :param min_atoms: Minimum total atoms required to keep a batch.
     """
 
     def __init__(
@@ -226,15 +233,6 @@ class MaxAtomBatchSampler(MaxAtomDistributedBatchSampler):
         drop_last: bool = False,
         min_atoms: int = 0,
     ) -> None:
-        """Initialize the sampler.
-
-        :param dataset: The dataset to sample from.
-        :param max_atoms: Maximum total atoms per batch.
-        :param shuffle: Whether to shuffle batch order each epoch.
-        :param seed: Random seed for reproducibility.
-        :param drop_last: Whether to drop the last incomplete batch.
-        :param min_atoms: Minimum total atoms required to keep a batch.
-        """
         super().__init__(
             dataset=dataset,
             max_atoms=max_atoms,
