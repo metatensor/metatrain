@@ -674,7 +674,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         """
 
         for name in self.outputs_list:
-            print(name)
             uncertainty_name = _get_uncertainty_name(name)
             covariance = self._get_covariance(uncertainty_name).to(dtype=torch.float64)
             cholesky = self._get_cholesky(uncertainty_name)
@@ -713,7 +712,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 else:
                     logging.info(
                         f"Used regularization parameter of {r:.1e} to "
-                        f"compute the Cholesky decomposition for `{uncertainty_name}`"
+                        f"compute the Cholesky decomposition for `{name}`"
                     )
 
     def calibrate(
