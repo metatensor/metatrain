@@ -122,6 +122,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             rank = torch.distributed.get_rank()
         else:
             rank = 0
+            world_size = 1
             device = devices[0]
             # only one device, as we don't support non-distributed multi-gpu for now
 
@@ -228,6 +229,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
             target_info_dict=train_targets, extra_data_info_dict=extra_data_info
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
+        max_atoms = self.hypers["max_atoms_per_batch"]
+        # When max_atoms_per_batch is set, batches are pre-filtered by atom count at
+        # construction time, so batch_atom_bounds filtering in the collate function is
+        # not needed (and its documented behaviour is to be ignored in this mode).
+        batch_atom_bounds = (
+            None if max_atoms is not None else self.hypers["batch_atom_bounds"]
+        )
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
@@ -236,7 +244,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
-            batch_atom_bounds=self.hypers["batch_atom_bounds"],
+            batch_atom_bounds=batch_atom_bounds,
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
@@ -245,7 +253,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
-            batch_atom_bounds=self.hypers["batch_atom_bounds"],
+            batch_atom_bounds=batch_atom_bounds,
         )
 
         # Create dataloader for the training datasets:
@@ -259,11 +267,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
             num_workers = self.hypers["num_workers"]
             validate_num_workers(num_workers)
 
-        max_atoms = self.hypers.get("max_atoms_per_batch", None)
-
         # Samplers that need set_epoch() called each epoch (may be DistributedSampler
         # or MaxAtomDistributedBatchSampler depending on which path is taken below).
-        epoch_samplers: List[Any] = []
+        epoch_samplers: List[Union[DistributedSampler, MaxAtomDistributedBatchSampler]] = []
 
         train_dataloaders = []
         for train_dataset, train_sampler in zip(
@@ -273,10 +279,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 batch_sampler = MaxAtomDistributedBatchSampler(
                     dataset=train_dataset,
                     max_atoms=max_atoms,
+                    min_atoms=self.hypers["min_atoms_per_batch"],
                     num_replicas=world_size,
                     rank=rank,
                     shuffle=True,
-                    seed=0,
+                    seed=self.hypers["sampler_seed"],
+                    drop_last=True,
                 )
                 epoch_samplers.append(batch_sampler)
                 train_dataloaders.append(
@@ -320,7 +328,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     num_replicas=world_size,
                     rank=rank,
                     shuffle=False,
-                    seed=0,
+                    seed=self.hypers["sampler_seed"],
                 )
                 val_dataloaders.append(
                     DataLoader(

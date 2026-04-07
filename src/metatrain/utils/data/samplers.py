@@ -1,4 +1,13 @@
-"""Batch samplers for atom-count-aware batching."""
+"""Batch samplers for atom-count-aware batching.
+
+The design of :class:`MaxAtomDistributedBatchSampler` is based on the
+``MaxAtomDistributedBatchSampler`` from the fairchem library:
+
+    https://github.com/facebookresearch/fairchem
+
+Copyright (c) Meta Platforms, Inc. and affiliates.
+Licensed under the MIT License.
+"""
 
 import logging
 import math
@@ -29,10 +38,12 @@ def _greedy_pack(
     indices: List[int],
     atom_counts: List[int],
     max_atoms: int,
+    min_atoms: int = 0,
 ) -> List[List[int]]:
     """Greedily pack ``indices`` into batches where total atoms <= ``max_atoms``.
 
     Single structures that alone exceed ``max_atoms`` are skipped with a warning.
+    Completed batches whose total atom count falls below ``min_atoms`` are dropped.
     """
     batches: List[List[int]] = []
     current_batch: List[int] = []
@@ -46,13 +57,14 @@ def _greedy_pack(
             )
             continue
         if current_atoms + n > max_atoms and current_batch:
-            batches.append(current_batch)
+            if current_atoms >= min_atoms:
+                batches.append(current_batch)
             current_batch = []
             current_atoms = 0
         current_batch.append(idx)
         current_atoms += n
 
-    if current_batch:
+    if current_batch and current_atoms >= min_atoms:
         batches.append(current_batch)
 
     return batches
@@ -77,6 +89,9 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
     :param drop_last: If ``True``, drop tail batches so the count is evenly divisible
         by ``num_replicas`` (no padding/repetition). If ``False``, repeat batches from
         the front to pad.
+    :param min_atoms: Minimum total number of atoms required for a batch to be kept.
+        Batches whose total atom count falls below this threshold are discarded during
+        packing. Defaults to ``0`` (no minimum).
     """
 
     def __init__(
@@ -88,16 +103,17 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
         shuffle: bool = True,
         seed: int = 0,
         drop_last: bool = False,
+        min_atoms: int = 0,
     ) -> None:
         self.dataset = dataset
         self.max_atoms = max_atoms
+        self.min_atoms = min_atoms
         self.num_replicas = num_replicas
         self.rank = rank
         self.shuffle = shuffle
         self.seed = seed
         self.drop_last = drop_last
         self.epoch = 0
-        self.start_iter = 0
 
         n = len(dataset)
         # Fast path: avoid a Python loop over millions of structures.
@@ -118,11 +134,12 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
         # Pack once at init; only batch *order* changes each epoch.
         self.all_batches: List[List[int]] = self._build_batches()
 
-        assert len(self.all_batches) >= self.num_replicas, (
-            f"Only {len(self.all_batches)} batches were packed but "
-            f"num_replicas={self.num_replicas}. Increase the dataset size or "
-            "reduce max_atoms."
-        )
+        if len(self.all_batches) < self.num_replicas:
+            raise ValueError(
+                f"Only {len(self.all_batches)} batches were packed but "
+                f"num_replicas={self.num_replicas}. Increase the dataset size or "
+                "reduce max_atoms."
+            )
 
         if self.drop_last and len(self.all_batches) % self.num_replicas != 0:
             self.num_samples = math.floor(len(self.all_batches) / self.num_replicas)
@@ -133,12 +150,6 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
     def set_epoch(self, epoch: int) -> None:
         """Set the epoch for deterministic shuffling. Call before each epoch."""
         self.epoch = epoch
-        self.start_iter = 0
-
-    def set_epoch_and_start_iteration(self, epoch: int, start_iter: int) -> None:
-        """Set epoch and starting batch index for mid-epoch checkpoint resumption."""
-        self.epoch = epoch
-        self.start_iter = start_iter
 
     def _build_batches(self) -> List[List[int]]:
         """Pack structures into batches (called once at init)."""
@@ -147,7 +158,7 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
             rng = np.random.default_rng(self.seed)
             rng.shuffle(indices)
         atom_counts = [self._atom_counts[i] for i in indices]
-        return _greedy_pack(indices, atom_counts, self.max_atoms)
+        return _greedy_pack(indices, atom_counts, self.max_atoms, self.min_atoms)
 
     def __iter__(self) -> Iterator[List[int]]:
         # Shuffle batch presentation order per epoch.
@@ -177,7 +188,7 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
         assert len(batch_indices) == self.num_samples
 
         batch_slice = [self.all_batches[i] for i in batch_indices]
-        return iter(batch_slice[self.start_iter :])
+        return iter(batch_slice)
 
     def __len__(self) -> int:
         return self.num_samples
@@ -196,6 +207,7 @@ class MaxAtomBatchSampler(MaxAtomDistributedBatchSampler):
         shuffle: bool = True,
         seed: int = 0,
         drop_last: bool = False,
+        min_atoms: int = 0,
     ) -> None:
         super().__init__(
             dataset=dataset,
@@ -205,4 +217,5 @@ class MaxAtomBatchSampler(MaxAtomDistributedBatchSampler):
             shuffle=shuffle,
             seed=seed,
             drop_last=drop_last,
+            min_atoms=min_atoms,
         )

@@ -2,10 +2,13 @@
 
 import logging
 
+import numpy as np
 import pytest
 import torch
 import torch.utils.data
+from torch.utils.data import DataLoader
 
+from metatrain.utils.data.dataset import MemmapDataset
 from metatrain.utils.data.samplers import (
     MaxAtomBatchSampler,
     MaxAtomDistributedBatchSampler,
@@ -65,6 +68,42 @@ def test_greedy_pack_all_fit_one_batch():
     batches = _greedy_pack(indices, atom_counts, max_atoms=8)
     assert len(batches) == 1
     assert sorted(batches[0]) == [0, 1, 2, 3]
+
+
+def test_greedy_pack_min_atoms_drops_small_batches():
+    """Batches whose total atom count is below min_atoms are dropped."""
+    # 5 structures: sizes [3, 1, 3, 1, 3]. With max_atoms=3, greedy packs into
+    # batches [3], [1], [3], [1], [3]. min_atoms=2 drops the two size-1 batches.
+    indices = [0, 1, 2, 3, 4]
+    atom_counts = [3, 1, 3, 1, 3]
+    batches = _greedy_pack(indices, atom_counts, max_atoms=3, min_atoms=2)
+    assert len(batches) == 3
+    for batch in batches:
+        assert sum(atom_counts[i] for i in batch) >= 2
+
+
+def test_max_atom_batch_sampler_min_atoms_drops_small_batches():
+    """MaxAtomBatchSampler with min_atoms drops batches below the threshold."""
+    # 5 structures: sizes [3, 1, 3, 1, 3]. max_atoms=3 forces one structure per
+    # batch; min_atoms=2 discards the two singleton batches with 1 atom each.
+    atom_counts = [3, 1, 3, 1, 3]
+    ds = _FakeDataset(atom_counts)
+    sampler = MaxAtomBatchSampler(ds, max_atoms=3, min_atoms=2, shuffle=False)
+    batches = list(sampler)
+    assert len(batches) == 3
+    for batch in batches:
+        assert sum(atom_counts[i] for i in batch) >= 2
+
+
+def test_greedy_pack_min_atoms_zero_unchanged():
+    """min_atoms=0 (default) keeps all batches, including the final partial one."""
+    indices = list(range(5))
+    atom_counts = [3, 3, 3, 3, 1]  # last batch has only 1 atom
+    batches_default = _greedy_pack(indices, atom_counts, max_atoms=3)
+    batches_explicit = _greedy_pack(indices, atom_counts, max_atoms=3, min_atoms=0)
+    assert batches_default == batches_explicit
+    # The last singleton batch is kept
+    assert len(batches_default) == 5
 
 
 def test_greedy_pack_oversized_structure_skipped(caplog):
@@ -362,48 +401,15 @@ def test_max_atom_batch_sampler_drop_last():
 
 
 # ---------------------------------------------------------------------------
-# set_epoch_and_start_iteration (mid-epoch resumption)
-# ---------------------------------------------------------------------------
-
-
-def test_start_iter_skips_leading_batches():
-    """set_epoch_and_start_iteration skips the first start_iter batches."""
-    atom_counts = [2] * 20  # 5 batches of 4 (max_atoms=8)
-    ds = _FakeDataset(atom_counts)
-    sampler = MaxAtomBatchSampler(ds, max_atoms=8, shuffle=False)
-
-    full = list(sampler)  # 5 batches
-
-    sampler.set_epoch_and_start_iteration(0, 2)
-    resumed = list(sampler)
-
-    assert resumed == full[2:]
-
-
-def test_start_iter_reset_by_set_epoch():
-    """set_epoch resets start_iter to 0."""
-    atom_counts = [2] * 20
-    ds = _FakeDataset(atom_counts)
-    sampler = MaxAtomBatchSampler(ds, max_atoms=8, shuffle=False)
-
-    sampler.set_epoch_and_start_iteration(0, 3)
-    assert sampler.start_iter == 3
-
-    sampler.set_epoch(1)
-    assert sampler.start_iter == 0
-    assert len(list(sampler)) == len(sampler)
-
-
-# ---------------------------------------------------------------------------
-# Too-few-batches assertion
+# Too-few-batches error
 # ---------------------------------------------------------------------------
 
 
 def test_too_few_batches_raises():
-    """AssertionError when packed batches < num_replicas."""
+    """ValueError when packed batches < num_replicas."""
     # 3 structures, 1 atom each, max_atoms=10 → 1 batch; num_replicas=4 → fails.
     ds = _FakeDataset([1] * 3)
-    with pytest.raises(AssertionError, match="num_replicas"):
+    with pytest.raises(ValueError, match="num_replicas"):
         MaxAtomDistributedBatchSampler(ds, max_atoms=10, num_replicas=4, rank=0)
 
 
@@ -432,3 +438,73 @@ def test_padding_when_n_batches_not_divisible():
     # All 9 original indices appear in the union (one batch is repeated for padding).
     all_indices = [idx for s in samplers for b in s for idx in b]
     assert set(all_indices) == set(range(9))
+
+
+# ---------------------------------------------------------------------------
+# Cross-validation: batch contents match a fixed batch_size DataLoader
+# ---------------------------------------------------------------------------
+
+
+def test_max_atom_sampler_cross_validation_batch_contents(tmp_path):
+    """With uniform atom counts, MaxAtomBatchSampler yields identical batch contents
+    to a fixed batch_size DataLoader (both shuffle=False) on a real MemmapDataset.
+
+    Given that test_equivalent_to_fixed_batch_size_uniform_atoms already proves index
+    equivalence, this test proves the full pipeline
+    (sampler → MemmapDataset.__getitem__) is equivalent, validating that the sampler
+    does not corrupt data ordering or content.
+    """
+    rng = np.random.default_rng(0)
+    ns, atoms_per = 12, 4
+    total = ns * atoms_per
+    na = np.arange(0, total + 1, atoms_per, dtype=np.int64)
+
+    np.save(tmp_path / "ns.npy", ns)
+    np.save(tmp_path / "na.npy", na)
+    rng.uniform(0, 3, (total, 3)).astype("float32").tofile(tmp_path / "x.bin")
+    np.full(total, 6, dtype="int32").tofile(tmp_path / "a.bin")
+    np.zeros((ns, 3, 3), dtype="float32").tofile(tmp_path / "c.bin")
+    rng.standard_normal((ns, 1)).astype("float32").tofile(tmp_path / "e.bin")
+
+    dataset = MemmapDataset(
+        tmp_path,
+        {
+            "energy": {
+                "key": "e",
+                "per_atom": False,
+                "num_subtargets": 1,
+                "type": "scalar",
+                "quantity": "energy",
+                "forces": False,
+                "stress": False,
+                "virial": False,
+            }
+        },
+    )
+
+    batch_size = 3  # 3 structures × 4 atoms = 12 atoms per batch
+
+    def collate(samples):
+        positions = torch.cat([s.system.positions for s in samples])
+        energies = torch.cat([s.energy.block().values for s in samples])
+        return positions, energies
+
+    loader_fixed = DataLoader(
+        dataset, batch_size=batch_size, shuffle=False, collate_fn=collate
+    )
+    sampler = MaxAtomBatchSampler(
+        dataset, max_atoms=batch_size * atoms_per, shuffle=False
+    )
+    loader_maxatom = DataLoader(
+        dataset, batch_sampler=sampler, collate_fn=collate
+    )
+
+    batches_fixed = list(loader_fixed)
+    batches_maxatom = list(loader_maxatom)
+
+    assert len(batches_fixed) == len(batches_maxatom) == ns // batch_size
+    for (pos_fixed, e_fixed), (pos_maxatom, e_maxatom) in zip(
+        batches_fixed, batches_maxatom
+    ):
+        torch.testing.assert_close(pos_fixed, pos_maxatom)
+        torch.testing.assert_close(e_fixed, e_maxatom)
