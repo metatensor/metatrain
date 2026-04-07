@@ -673,19 +673,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             regularization parameter until the matrix is positive-definite.
         """
 
-    def compute_cholesky_decomposition(
-        self, regularizer: Optional[float] = None
-    ) -> None:
-        """A function to compute the Cholesky decomposition of the covariance matrix.
-
-        The Cholesky decomposition is stored as a buffer in the model.
-
-        :param regularizer: A regularization parameter to ensure the matrix is
-            positive-definite. If not provided, the function will try to compute the
-            Cholesky decomposition without regularization and increase the
-            regularization parameter until the matrix is positive-definite.
-        """
-
         for name in self.outputs_list:
             print(name)
             uncertainty_name = _get_uncertainty_name(name)
