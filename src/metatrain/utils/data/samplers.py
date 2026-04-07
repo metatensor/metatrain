@@ -22,7 +22,12 @@ logger = logging.getLogger(__name__)
 
 
 def _get_num_atoms(dataset: torch.utils.data.Dataset, i: int) -> int:
-    """Return atom count for sample ``i``, resolving ``Subset`` wrappers."""
+    """Return atom count for sample ``i``, resolving ``Subset`` wrappers.
+
+    :param dataset: The dataset to query.
+    :param i: The sample index.
+    :return: The number of atoms in sample ``i``.
+    """
     if isinstance(dataset, torch.utils.data.Subset):
         return _get_num_atoms(dataset.dataset, dataset.indices[i])
     if hasattr(dataset, "get_num_atoms"):
@@ -44,6 +49,12 @@ def _greedy_pack(
 
     Single structures that alone exceed ``max_atoms`` are skipped with a warning.
     Completed batches whose total atom count falls below ``min_atoms`` are dropped.
+
+    :param indices: Dataset indices to pack.
+    :param atom_counts: Atom count for each index (parallel to ``indices``).
+    :param max_atoms: Maximum total atoms allowed per batch.
+    :param min_atoms: Minimum total atoms required to keep a batch.
+    :return: List of batches, each batch being a list of dataset indices.
     """
     batches: List[List[int]] = []
     current_batch: List[int] = []
@@ -148,11 +159,17 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
         self.total_size = self.num_samples * self.num_replicas
 
     def set_epoch(self, epoch: int) -> None:
-        """Set the epoch for deterministic shuffling. Call before each epoch."""
+        """Set the epoch for deterministic shuffling. Call before each epoch.
+
+        :param epoch: The current epoch number.
+        """
         self.epoch = epoch
 
     def _build_batches(self) -> List[List[int]]:
-        """Pack structures into batches (called once at init)."""
+        """Pack structures into batches (called once at init).
+
+        :return: List of batches, each batch being a list of dataset indices.
+        """
         indices = list(range(len(self.dataset)))
         if self.shuffle:
             rng = np.random.default_rng(self.seed)
@@ -209,6 +226,15 @@ class MaxAtomBatchSampler(MaxAtomDistributedBatchSampler):
         drop_last: bool = False,
         min_atoms: int = 0,
     ) -> None:
+        """Initialize the sampler.
+
+        :param dataset: The dataset to sample from.
+        :param max_atoms: Maximum total atoms per batch.
+        :param shuffle: Whether to shuffle batch order each epoch.
+        :param seed: Random seed for reproducibility.
+        :param drop_last: Whether to drop the last incomplete batch.
+        :param min_atoms: Minimum total atoms required to keep a batch.
+        """
         super().__init__(
             dataset=dataset,
             max_atoms=max_atoms,
