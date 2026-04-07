@@ -172,7 +172,7 @@ class DPA3(ModelInterface[ModelHypers]):
             # uses CPU RNG (deterministic across CUDA/CPU environments).
             type_map = [ase.data.chemical_symbols[z] for z in self.atomic_types]
             # deepmd-kit expects precision as strings; convert at the boundary.
-            deepmd_hypers = copy.deepcopy(dict(hypers))
+            deepmd_hypers: Dict[str, Any] = copy.deepcopy(dict(hypers))
             deepmd_hypers["type_map"] = type_map
             deepmd_hypers["descriptor"]["precision"] = _INT_TO_DEEPMD_PREC[desc_prec]
             deepmd_hypers["fitting_net"]["precision"] = _INT_TO_DEEPMD_PREC[fit_prec]
@@ -483,7 +483,7 @@ class DPA3(ModelInterface[ModelHypers]):
         self.to(dtype)
 
         # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This funciton moves them:
+        # be registered correctly with Pytorch. This function moves them:
 
         self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
