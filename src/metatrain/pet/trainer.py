@@ -269,7 +269,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Samplers that need set_epoch() called each epoch (may be DistributedSampler
         # or MaxAtomDistributedBatchSampler depending on which path is taken below).
-        epoch_samplers: List[Union[DistributedSampler, MaxAtomDistributedBatchSampler]] = []
+        epoch_samplers: List[
+            Union[DistributedSampler, MaxAtomDistributedBatchSampler]
+        ] = []
 
         train_dataloaders = []
         for train_dataset, train_sampler in zip(

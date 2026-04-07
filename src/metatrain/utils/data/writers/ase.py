@@ -112,7 +112,6 @@ class ASEWriter(Writer):
                             gradient_block.values.detach().cpu().squeeze(-1).numpy()
                         )
 
-
             atoms = ase.Atoms(
                 symbols=system.types.numpy(),
                 positions=system.positions.detach().numpy(),

@@ -495,16 +495,14 @@ def test_max_atom_sampler_cross_validation_batch_contents(tmp_path):
     sampler = MaxAtomBatchSampler(
         dataset, max_atoms=batch_size * atoms_per, shuffle=False
     )
-    loader_maxatom = DataLoader(
-        dataset, batch_sampler=sampler, collate_fn=collate
-    )
+    loader_maxatom = DataLoader(dataset, batch_sampler=sampler, collate_fn=collate)
 
     batches_fixed = list(loader_fixed)
     batches_maxatom = list(loader_maxatom)
 
     assert len(batches_fixed) == len(batches_maxatom) == ns // batch_size
     for (pos_fixed, e_fixed), (pos_maxatom, e_maxatom) in zip(
-        batches_fixed, batches_maxatom
+        batches_fixed, batches_maxatom, strict=True
     ):
         torch.testing.assert_close(pos_fixed, pos_maxatom)
         torch.testing.assert_close(e_fixed, e_maxatom)
