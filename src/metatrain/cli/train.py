@@ -249,6 +249,9 @@ def train_model(
         torch.cuda.manual_seed(options["seed"])
         torch.cuda.manual_seed_all(options["seed"])
 
+    # Make the seed available to architecture trainers (e.g. for sampler seeding)
+    hypers["training"]["seed"] = options["seed"]
+
     # setup wandb logging
     if hasattr(options, "wandb") and is_main_process():
         try:
