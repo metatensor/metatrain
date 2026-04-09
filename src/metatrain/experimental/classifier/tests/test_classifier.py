@@ -8,7 +8,7 @@ import ase.io
 import pytest
 import torch
 from metatomic.torch import ModelOutput
-from metatomic.torch.ase_calculator import MetatomicCalculator
+from metatomic_ase import MetatomicCalculator
 from omegaconf import OmegaConf
 
 from metatrain.experimental.classifier import Classifier

@@ -8,6 +8,23 @@ from pydantic import ConfigDict, NonNegativeInt, with_config
 from typing_extensions import NotRequired, TypedDict
 
 
+class BasePrecision:
+    """OmegaConf interpolation that resolves to ``base_precision``.
+
+    Use :attr:`value` as the default for architecture precision fields so they
+    automatically track the user's ``base_precision`` (16, 32, or 64)::
+
+        precision: int = BasePrecision.value
+
+    The value ``"${base_precision}"`` is a native OmegaConf interpolation.
+    After ``OmegaConf.merge``, accessing the field resolves it through the
+    root-level ``base_precision`` key (which itself may use the
+    ``${default_precision:}`` resolver).
+    """
+
+    value: str = "${base_precision}"
+
+
 @with_config(ConfigDict(extra="forbid", strict=True))
 class ArchitectureBaseHypers(TypedDict):
     name: str

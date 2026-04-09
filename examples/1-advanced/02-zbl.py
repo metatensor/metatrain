@@ -32,7 +32,7 @@ import ase
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from metatomic.torch.ase_calculator import MetatomicCalculator
+from metatomic_ase import MetatomicCalculator
 
 
 # %%

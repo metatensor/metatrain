@@ -3,10 +3,11 @@
 # is modified.
 
 **/soap_bpnn            @frostedoyster
-**/pet                  @abmazitov
+**/pet                  @abmazitov @frostedoyster @sofiia-chorna
 **/gap                  @DavideTisi
 **/phace                @frostedoyster
 **/llpr                 @frostedoyster @SanggyuChong
 **/flashmd              @johannes-spies @frostedoyster
 **/classifier           @frostedoyster
 **/mace                 @pfebrer @jwa7
+**/dpa3                 @HaoZeke

@@ -40,7 +40,7 @@ import matplotlib.pyplot as plt
 from ase.visualize.plot import plot_atoms
 from matplotlib.colors import LogNorm
 from metatomic.torch import ModelOutput
-from metatomic.torch.ase_calculator import MetatomicCalculator
+from metatomic_ase import MetatomicCalculator
 
 
 # %%
