@@ -203,6 +203,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     use_embedding_readout=self.hypers["use_embedding_readout"],
                     use_last_readout_only=self.hypers["use_last_readout_only"],
                     use_agnostic_product=self.hypers["use_agnostic_product"],
+                    # Maceles things
+                    atomic_inter_scale=1.,
+                    atomic_inter_shift=0.,
                 )
 
         # ---------------------------
