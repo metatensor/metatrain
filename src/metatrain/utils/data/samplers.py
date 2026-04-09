@@ -59,6 +59,9 @@ def _greedy_pack(
     batches: List[List[int]] = []
     current_batch: List[int] = []
     current_atoms = 0
+    n_oversized = 0
+    n_dropped_batches = 0
+    n_dropped_structures = 0
 
     for idx, n in zip(indices, atom_counts, strict=True):
         if n > max_atoms:
@@ -66,17 +69,33 @@ def _greedy_pack(
                 f"Structure {idx} has {n} atoms which exceeds max_atoms_per_batch "
                 f"({max_atoms}). Skipping this structure."
             )
+            n_oversized += 1
             continue
         if current_atoms + n > max_atoms and current_batch:
             if current_atoms >= min_atoms:
                 batches.append(current_batch)
+            else:
+                n_dropped_batches += 1
+                n_dropped_structures += len(current_batch)
             current_batch = []
             current_atoms = 0
         current_batch.append(idx)
         current_atoms += n
 
-    if current_batch and current_atoms >= min_atoms:
-        batches.append(current_batch)
+    if current_batch:
+        if current_atoms >= min_atoms:
+            batches.append(current_batch)
+        else:
+            n_dropped_batches += 1
+            n_dropped_structures += len(current_batch)
+
+    n_skipped = n_oversized + n_dropped_structures
+    if n_skipped > 0:
+        logger.info(
+            f"Greedy packing: {n_skipped}/{len(indices)} structures will be skipped "
+            f"per epoch ({n_oversized} oversized, {n_dropped_structures} in "
+            f"{n_dropped_batches} batches below min_atoms={min_atoms})."
+        )
 
     return batches
 
