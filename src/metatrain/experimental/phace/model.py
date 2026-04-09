@@ -25,6 +25,10 @@ from metatrain.experimental.phace.modules.cg_coefficients import ClebschGordanRe
 from metatrain.experimental.phace.utils import systems_to_batch
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_target,
+    sparsify_atomic_basis_target,
+)
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
@@ -458,6 +462,16 @@ class PhACE(ModelInterface[ModelHypers]):
             )
 
         if not self.training:
+            # For atomic basis targets, sparsify to create blocks with "atom_type"
+            # in the key dimensions, and ensure properties are unpadded.
+            targets = self.dataset_info.targets
+            for k, v in return_dict.items():
+                if k in targets and targets[k].is_atomic_basis:
+                    return_dict[k] = sparsify_atomic_basis_target(
+                        systems,
+                        v,
+                        targets[k].layout,
+                    )
             # at evaluation, we also introduce the scaler and additive contributions
             return_dict = self.scaler(systems, return_dict)
             for additive_model in self.additive_models:
@@ -582,7 +596,9 @@ class PhACE(ModelInterface[ModelHypers]):
             per_atom=True,
         )
 
-        if target_info.is_cartesian and len(target_info.layout.block().components) == 2:
+        output_layout = target_info.layout
+
+        if target_info.is_cartesian and len(output_layout.block().components) == 2:
             # rank-2 Cartesian: store internal spherical layout (l=0, l=1, l=2)
             # so that the forward pass constructs the spherical TensorMap, which
             # is then converted to Cartesian by _to_cartesian_rank_2.
@@ -602,17 +618,21 @@ class PhACE(ModelInterface[ModelHypers]):
                         )
                     ]
                 )
-                internal_property_labels.append(target_info.layout.block().properties)
+                internal_property_labels.append(output_layout.block().properties)
             self.key_labels[target_name] = internal_keys
             self.component_labels[target_name] = internal_component_labels
             self.property_labels[target_name] = internal_property_labels
         else:
-            self.key_labels[target_name] = target_info.layout.keys
+            if target_info.is_atomic_basis:
+                output_layout = densify_atomic_basis_target(
+                    output_layout, output_layout
+                )
+            self.key_labels[target_name] = output_layout.keys
             self.component_labels[target_name] = [
-                block.components for block in target_info.layout.blocks()
+                block.components for block in output_layout.blocks()
             ]
             self.property_labels[target_name] = [
-                block.properties for block in target_info.layout.blocks()
+                block.properties for block in output_layout.blocks()
             ]
 
     def requested_neighbor_lists(

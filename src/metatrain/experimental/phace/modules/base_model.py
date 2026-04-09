@@ -4,6 +4,10 @@ import numpy as np
 import torch
 from torch.func import functional_call, grad
 
+from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_target,
+)
+
 from .cg_coefficients import get_cg_coefficients
 from .cg_iterator import CGIterator
 from .layers import Linear
@@ -276,6 +280,8 @@ class BaseModel(torch.nn.Module):
             # specified by the user
             use_mlp = self.head_types[target_name] == "mlp"
 
+        output_layout = target_info.layout
+
         if use_mlp:
             if target_info.is_spherical or target_info.is_cartesian:
                 # (in the future, one could consider enabling the MLP for the scalar
@@ -297,29 +303,25 @@ class BaseModel(torch.nn.Module):
 
         if target_info.is_scalar:
             self.last_layers[target_name] = torch.nn.ModuleDict(
-                {
-                    "0": Linear(
-                        self.k_max_l[0], len(target_info.layout.block().properties)
-                    )
-                }
+                {"0": Linear(self.k_max_l[0], len(output_layout.block().properties))}
             )
         elif target_info.is_cartesian:
             # here, we handle Cartesian targets
             # the conversion to Cartesian is performed in the metatensor wrapper
             # (model.py)
-            if len(target_info.layout.block().components) == 1:
+            if len(output_layout.block().components) == 1:
                 # rank-1: treat as a spherical L=1 target
                 self.last_layers[target_name] = torch.nn.ModuleDict(
                     {
                         "1": Linear(
-                            self.k_max_l[1], len(target_info.layout.block().properties)
+                            self.k_max_l[1], len(output_layout.block().properties)
                         )
                     }
                 )
-            elif len(target_info.layout.block().components) == 2:
+            elif len(output_layout.block().components) == 2:
                 # rank-2: predict as 3 spherical components (l=0,1,2),
                 # converted to Cartesian in the metatensor wrapper (model.py)
-                num_props = len(target_info.layout.block().properties)
+                num_props = len(output_layout.block().properties)
                 rank2_layers: Dict[str, torch.nn.Module] = {}
                 for l in [0, 1, 2]:  # noqa: E741
                     if l > self.l_max:
@@ -335,8 +337,12 @@ class BaseModel(torch.nn.Module):
                     "PhACE only supports Cartesian targets with rank=1 or rank=2."
                 )
         else:  # spherical equivariant
+            if target_info.is_atomic_basis:
+                output_layout = densify_atomic_basis_target(
+                    output_layout, output_layout
+                )
             irreps = []
-            for key in target_info.layout.keys:
+            for key in output_layout.keys:
                 key_values = key.values
                 l = int(key_values[0])  # noqa: E741
                 # s = int(key_values[1]) is ignored here
@@ -352,7 +358,7 @@ class BaseModel(torch.nn.Module):
                 {
                     str(l): Linear(
                         self.k_max_l[l],
-                        len(target_info.layout.block({"o3_lambda": l}).properties),
+                        len(output_layout.block({"o3_lambda": l}).properties),
                     )
                     for l in irreps  # noqa: E741
                 }
