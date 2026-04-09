@@ -1,9 +1,16 @@
 from pathlib import Path
 
-import tomllib
+import pytest
 from omegaconf import OmegaConf
 
 from metatrain.utils.architectures import find_all_architectures
+
+
+TOML_AVAILABLE = True
+try:
+    import tomllib
+except ModuleNotFoundError:
+    TOML_AVAILABLE = False
 
 
 def test_architecture_in_codecov():
@@ -52,6 +59,9 @@ def test_architecture_in_tox():
 
 def test_pyproject_toml_extras():
     """Test that all architectures are included in pyproject.toml extras."""
+    if not TOML_AVAILABLE:
+        pytest.skip("tomllib is not available in this Python version")
+
     all_arches = find_all_architectures()
 
     pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
