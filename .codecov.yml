@@ -60,6 +60,11 @@ component_management:
       paths:
         - "src/metatrain/experimental/phace/.*"
 
+    - component_id: dpa3
+      name: DPA3
+      paths:
+        - "src/metatrain/experimental/dpa3/.*"
+
 ignore:
   # no need to report coverage of the test code themself
   - "src/metatrain/utils/testing/.*"
