@@ -10,6 +10,7 @@ import torch
 from e3nn import o3
 from e3nn.util import jit
 from mace.modules import MACE
+from mace.modules.extensions import MACELES
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
@@ -169,7 +170,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     "The TorchScript type system",
                     UserWarning,
                 )
-                self.mace_model = MACE(
+                self.mace_model = MACELES(
                     r_max=self.hypers["r_max"],
                     num_bessel=self.hypers["num_radial_basis"],
                     num_polynomial_cutoff=self.hypers["num_cutoff_basis"],
