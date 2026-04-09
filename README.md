@@ -40,11 +40,13 @@ model:
 | [PhACE][arch-phace]                      | SO(3)-equivariant message-passing model with physical radial functions and fast tensor products.                                     |
 | [GAP][arch-gap]                          | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
 | [FlashMD][arch-flashmd]                  | An architecture for the direct prediction of molecular dynamics                                                                      |
+| [DPA3][arch-dpa3]                        | An invariant graph neural network based on line graph series representations                                                         |
 
 <!-- marker-arch-links -->
 
 <!-- links for the different architectures. To be replaced if we are building the docs locally or
 on a PR, since the docs use this README file directly.-->
+[arch-dpa3]: https://docs.metatensor.org/metatrain/latest/architectures/generated/dpa3.html
 [arch-flashmd]: https://docs.metatensor.org/metatrain/latest/architectures/generated/flashmd.html
 [arch-gap]: https://docs.metatensor.org/metatrain/latest/architectures/generated/gap.html
 [arch-mace]: https://docs.metatensor.org/metatrain/latest/architectures/generated/mace.html
