@@ -1181,7 +1181,6 @@ class MemmapDataset(TorchDataset):
                 and not target_options["per_atom"]
                 and target_options["num_subtargets"] == 1
             )
-            property_name = "energy" if is_energy else "_"
 
             target_block = TensorBlock(
                 values=torch.tensor(
@@ -1250,6 +1249,7 @@ class MemmapDataset(TorchDataset):
             target_dict[target_key] = target_tensormap
 
         if hasattr(self, "momenta"):
+            assert self.momenta is not None
             momenta = torch.tensor(
                 self.momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
             )
