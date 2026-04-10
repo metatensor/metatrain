@@ -1,5 +1,5 @@
 """
-DPA3 (experimental)
+DPA3 (Experimental)
 ======================
 
 This is an interface to the DPA3 (Deep Potential Attention 3) architecture
@@ -57,10 +57,21 @@ weights instead of training from scratch:
 Energy biases and standard deviations are extracted from the loaded model and
 handed to metatrain's composition model and scaler automatically.
 
-References
-----------
+{{SECTION_MODEL_HYPERS}}
 
-.. footbibliography::
+with the following definitions needed to fully understand some of the parameters:
+
+.. autoclass:: {{architecture_path}}.documentation.DescriptorHypers
+    :members:
+    :undoc-members:
+
+.. autoclass:: {{architecture_path}}.documentation.RepflowHypers
+    :members:
+    :undoc-members:
+
+.. autoclass:: {{architecture_path}}.documentation.FittingNetHypers
+    :members:
+    :undoc-members:
 
 """
 
