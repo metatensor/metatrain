@@ -431,7 +431,6 @@ class FlashMDSymplectic(ModelInterface):
                 nl_options,
                 self.atomic_types,
                 self.species_to_species_index,
-                selected_atoms,
             )
         momenta_for_diff = momenta.clone()
         momenta_for_diff.requires_grad_(True)
