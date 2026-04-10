@@ -16,6 +16,7 @@ dependencies = [
     "metatensor-operations >=0.4.0,<0.5",
     "metatensor-torch >=0.8.2,<0.9",
     "metatomic-torch >=0.1.8,<0.2",
+    "metatomic-ase >=0.1.0,<0.2",
     "jsonschema",
     "pydantic >= 2.12", # Because of passing arguments to validator functions
     "typing_extensions", # For python < 3.12 typing.TypedDict has limited functionality
@@ -85,6 +86,10 @@ mace = [
     "e3nn"
 ]
 flashmd = []
+dpa3 = [
+    "deepmd-kit[torch]>=3.1.0",
+    "torch>=2.7",
+]
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]
@@ -189,6 +194,8 @@ filterwarnings = [
     "ignore:Initializing zero-element tensors is a no-op:UserWarning",
     # MACE warning with newer versions of pytorch (because they use e3nn==0.4.4)
     "ignore:Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed:UserWarning",
+    # vesin.metatomic deprecation
+    "ignore:`compute_requested_neighbors_from_options` is deprecated and will be removed in a future version:UserWarning"
 ]
 addopts = ["-p", "mtt_plugin"]
 pythonpath = "src/metatrain/utils/testing"

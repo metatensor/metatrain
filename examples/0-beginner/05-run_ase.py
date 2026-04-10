@@ -30,7 +30,7 @@ import ase.units
 import ase.visualize.plot
 import matplotlib.pyplot as plt
 import numpy as np
-from metatomic.torch.ase_calculator import MetatomicCalculator
+from metatomic_ase import MetatomicCalculator
 
 
 # %%

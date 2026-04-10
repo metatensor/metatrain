@@ -4,7 +4,7 @@ import pytest
 import torch
 from ase.md import VelocityVerlet
 from metatomic.torch import ModelOutput, System
-from metatomic.torch.ase_calculator import MetatomicCalculator
+from metatomic_ase import MetatomicCalculator
 
 from metatrain.pet import PET
 from metatrain.pet.modules.transformer import AttentionBlock

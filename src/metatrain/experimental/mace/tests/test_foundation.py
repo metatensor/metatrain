@@ -3,7 +3,7 @@ from pathlib import Path
 import ase.io
 import torch
 from mace.calculators import MACECalculator
-from metatomic.torch.ase_calculator import MetatomicCalculator
+from metatomic_ase import MetatomicCalculator
 
 from metatrain.experimental.mace.utils._load_model_file import load_mace_model_file
 

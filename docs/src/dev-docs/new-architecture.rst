@@ -408,6 +408,35 @@ be generated:
    :members:
    :undoc-members:
 
+.. _newarchitecture-precision-hypers:
+
+Precision hyperparameters
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Metatrain has a hyperparameter for precision called ``base_precision``, which is shared
+across all architectures. The precision selected by the user goes to the ``dtype`` argument
+of the trainers' :py:func:`~metatrain.utils.abc.TrainerInterface.train` method.
+
+For many architectures, this will be enough. However, some architectures might need more complex
+precision inputs. For example, if the architecture has mixed precision, one might want
+to pass different precisions for different parts of the model. This would naturally be
+done through the model hyperparameters. In these cases, for users to have a consistent
+experience across architectures, precision values should default to the value of
+``base_precision`` (unless it doesn't make sense). To enable this, it suffices to define
+your precision hyperparameters like:
+
+.. code-block:: python
+
+    from typing import Literal
+    from metatrain.share.base_hypers import BasePrecision
+
+    class ModelHypers(TypedDict):
+        # ...other hypers here...
+        my_precision: int | Literal[BasePrecision.value] = BasePrecision.value
+
+If the user doesn't specify ``my_precision``, the model will receive
+the value of ``base_precision``.
+
 .. _ckpt_version:
 
 Checkpoint versioning
