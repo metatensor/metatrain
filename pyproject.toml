@@ -86,6 +86,7 @@ mace = [
     "e3nn"
 ]
 flashmd = []
+flashmd_symplectic = []
 dpa3 = [
     "deepmd-kit[torch]>=3.1.0",
     "torch>=2.7",
