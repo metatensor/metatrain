@@ -1248,8 +1248,8 @@ class MemmapDataset(TorchDataset):
             )
             target_dict[target_key] = target_tensormap
 
-        if getattr(self, "momenta", None) is not None:
-            momenta = getattr(self, "momenta")
+        momenta = getattr(self, "momenta", None)
+        if momenta is not None:
             momenta = torch.tensor(
                 momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
             )
