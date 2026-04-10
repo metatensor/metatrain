@@ -380,6 +380,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
         assert node_features is not None  # For torchscript
         node_energy = mace_output["node_energy"]
         assert node_energy is not None  # For torchscript
+        les_energy = mace_output["les_energy"]
+        assert les_energy is not None  # For torchscript
 
         # ---------------------------------
         #   Run heads and collect outputs
@@ -440,6 +442,21 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 if outputs[output_name].per_atom
                 else sum_over_atoms(per_atom_output)
             )
+
+            # Add les energy contribution (which is per-system)
+            if not outputs[output_name].per_atom and output_name == self.hypers["mace_head_target"]:
+                return_dict[output_name] = TensorMap(
+                    keys=return_dict[output_name].keys,
+                    blocks=[
+                        TensorBlock(
+                            values=block.values + les_energy.reshape(*block.values.shape),
+                            samples=block.samples,
+                            components=block.components,
+                            properties=block.properties,
+                        )
+                        for block in return_dict[output_name].blocks()
+                    ]
+                )
 
         # -----------------------------------------
         #   Undo data preprocessing (eval only)
