@@ -291,6 +291,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         self.finetune_config: Dict[str, Any] = {}
 
+        self.mace_head_target = self.hypers["mace_head_target"]
+
     def restart(self, dataset_info: DatasetInfo) -> "MetaMACE":
         # Check that the new dataset info does not contain new atomic types
         if new_atomic_types := set(dataset_info.atomic_types) - set(
@@ -444,12 +446,12 @@ class MetaMACE(ModelInterface[ModelHypers]):
             )
 
             # Add les energy contribution (which is per-system)
-            if not outputs[output_name].per_atom and output_name == self.hypers["mace_head_target"]:
+            if not outputs[output_name].per_atom and output_name == self.mace_head_target:
                 return_dict[output_name] = TensorMap(
                     keys=return_dict[output_name].keys,
                     blocks=[
                         TensorBlock(
-                            values=block.values + les_energy.reshape(*block.values.shape),
+                            values=block.values + les_energy.reshape(block.values.shape),
                             samples=block.samples,
                             components=block.components,
                             properties=block.properties,
