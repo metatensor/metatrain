@@ -24,6 +24,13 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Added
+#####
+
+- Allow extraction of the outputs of arbitrary internal layers in PET. These are
+  requested model outputs named with a ``"mtt::features::<layer_name>"`` when running
+  inference of a PET checkpoint programmatically.
+
 Fixed
 #####
 
