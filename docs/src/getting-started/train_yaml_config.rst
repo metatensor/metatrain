@@ -3,6 +3,8 @@
 Training YAML Reference
 ***********************
 
+Download the :download:`JSON schema <../architectures/generated/mtt_train_schema.json>`.
+
 Overview
 ========
 

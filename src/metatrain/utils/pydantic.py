@@ -1,9 +1,11 @@
 import logging
-from typing import Any
+from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, TypeAdapter, ValidationError, create_model
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError, create_model
+from typing_extensions import NotRequired
 
 from ..share.base_hypers import BaseHypers
+from .hypers import init_with_defaults
 
 
 class MetatrainValidationError(Exception):
@@ -139,3 +141,88 @@ def validate_base_options(options: dict) -> None:
     :raises ValueError: If the options are invalid.
     """
     validate(BaseHypers, options)
+
+
+def get_train_json_schema(allow_missing_hypers: bool) -> dict:
+    """Generate a JSON schema for the training options.
+
+    This JSON schema is a full specification for the input yaml files of
+    ``mtt train``. Therefore, it includes all possible architectures.
+
+    :param allow_missing_hypers: Whether to allow missing hyperparameters.
+      If you want to use the JSON schema for validating user input, you
+      should set this to ``True``, as it will allow users to omit fields that
+      have default values. If you want to use the JSON schema for
+      validating the input once filled in with defaults, you should set
+      this to ``False``.
+    """
+    from .architectures import find_all_architectures, preload_documentation_module
+
+    def set_not_required_and_defaults(cls):
+        """Helper function to set all fields of a class as NotRequired
+        and add default values if they exist.
+
+        This is because ModelHypers and TrainerHypers are written to validate the
+        options once all defaults have been filled in, but for a JSON schema to
+        validate user input, we want to allow missing fields.
+        """
+        annotations = {}
+        for k, v in cls.__annotations__.items():
+            if allow_missing_hypers:
+                annotations[k] = NotRequired[v]
+            if hasattr(cls, k):
+                annotations[k] = Annotated[
+                    annotations[k], Field(default=getattr(cls, k))
+                ]
+        cls.__annotations__ = annotations
+        return cls
+
+    # Get the model for the architecture options of each architecture.
+    arch_models = []
+    for arch_name in find_all_architectures():
+        arch_doc = preload_documentation_module(arch_name)
+
+        ModelHypers = set_not_required_and_defaults(arch_doc.ModelHypers)
+        TrainerHypers = set_not_required_and_defaults(arch_doc.TrainerHypers)
+
+        ArchModel = create_model(
+            f"{arch_name}Architecture",
+            name=(
+                Literal[arch_name],
+                Field(
+                    description="Name of the architecture. The architecure options "
+                    "will depend on the chosen architecture."
+                ),
+            ),
+            atomic_types=(list[int], Field(default=None)),
+            model=(
+                ModelHypers,
+                Field(
+                    default=init_with_defaults(ModelHypers),
+                    description=ModelHypers.__doc__,
+                ),
+            ),
+            training=(
+                TrainerHypers,
+                Field(
+                    default=init_with_defaults(TrainerHypers),
+                    description=TrainerHypers.__doc__,
+                ),
+            ),
+            __config__={
+                "extra": "forbid",
+                "strict": True,
+                "use_attribute_docstrings": True,
+            },
+        )
+
+        arch_models.append(ArchModel)
+
+    # Build the global model for the training options, setting the
+    # architecture field to be a union of all the possible architectures.
+    _baseHypers = set_not_required_and_defaults(BaseHypers)
+    _baseHypers.__annotations__["architecture"] = Union[tuple(arch_models)]
+
+    mtttrain_model = TypeAdapter(_baseHypers)
+
+    return mtttrain_model.json_schema()
