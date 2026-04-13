@@ -3,7 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel, TypeAdapter, ValidationError, create_model
 
-from ..share.base_hypers import BaseHypers
+from ..share.base_hypers import BaseHypers, DatasetDescription
 
 
 class MetatrainValidationError(Exception):
@@ -139,3 +139,14 @@ def validate_base_options(options: dict) -> None:
     :raises ValueError: If the options are invalid.
     """
     validate(BaseHypers, options)
+
+
+def validate_dataset_description(description: dict) -> None:
+    """Validate dataset descriptions using Pydantic.
+
+    :param description: The dataset description to validate.
+
+    :raises ValueError: If the description is invalid.
+    """
+
+    validate(DatasetDescription, description)

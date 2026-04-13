@@ -201,8 +201,7 @@ class DatasetDictHypers(TypedDict):
     systems: str | SystemsHypers
     """Path to the dataset file or a dictionary specifying the dataset."""
     targets: dict[str, TargetHypers | str]
-
-    extra_data: NotRequired[dict]
+    extra_data: NotRequired[dict[str, TargetHypers | str]]
     """Additional data to include from the dataset."""
 
 
@@ -248,3 +247,29 @@ class BaseHypers(TypedDict):
         DatasetSpec | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
     ]
     """Specification of the test dataset."""
+
+
+@with_config(ConfigDict(strict=True))
+class DatasetDescription(TypedDict):
+    """Schema for a dataset description.
+
+    The main goal of a dataset description is to contain information
+    about the dataset (e.g. units, variable types, ...) so that
+    metatrain can automatically retrieve this information. In this way,
+    ``metatrain`` can minimize the amount of information that the user
+    needs to explicitly provide in the input yaml files.
+
+    Apart from the keys described here, a dataset description can contain
+    any additional keys. For now, ``metatrain`` will simply ignore these
+    additional keys.
+    """
+
+    systems: NotRequired[SystemsHypers]
+    """Information about the systems in the dataset."""
+    variables: NotRequired[dict[str, TargetHypers | str]]
+    """Information about the variables in the dataset.
+
+    "Variable" is a general term that includes both what ``metatrain``
+    defines as ``targets`` and ``extra_data``. This is because a given
+    variable may be a target for one model and extra data for another model.
+    """
