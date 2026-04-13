@@ -155,16 +155,20 @@ def get_train_json_schema(allow_missing_hypers: bool) -> dict:
       have default values. If you want to use the JSON schema for
       validating the input once filled in with defaults, you should set
       this to ``False``.
+    :return: The JSON schema as a dictionary.
     """
     from .architectures import find_all_architectures, preload_documentation_module
 
-    def set_not_required_and_defaults(cls):
+    def set_not_required_and_defaults(cls: type) -> type:
         """Helper function to set all fields of a class as NotRequired
         and add default values if they exist.
 
         This is because ModelHypers and TrainerHypers are written to validate the
         options once all defaults have been filled in, but for a JSON schema to
         validate user input, we want to allow missing fields.
+
+        :param cls: The class to modify.
+        :return: The modified class.
         """
         annotations = {}
         for k, v in cls.__annotations__.items():
