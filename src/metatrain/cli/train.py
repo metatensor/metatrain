@@ -149,7 +149,7 @@ def _setup_wandb_logging(logger: logging.Logger, args: argparse.Namespace) -> No
         ...
 
     # Try to setup wandb logging if the options are present.
-    if hasattr(options, "wandb") and is_main_process():
+    if options is not None and hasattr(options, "wandb") and is_main_process():
         try:
             import wandb
         except ImportError:
@@ -165,7 +165,10 @@ def _setup_wandb_logging(logger: logging.Logger, args: argparse.Namespace) -> No
 
 
 def _extend_wandb_config(options: Union[Dict, DictConfig]) -> None:
-    """Update the wandb configuration with the expanded options."""
+    """Update the wandb configuration with the expanded options.
+
+    :param options: The options to update the configuration with.
+    """
     try:
         import wandb
 
