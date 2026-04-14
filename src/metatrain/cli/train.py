@@ -164,6 +164,19 @@ def _setup_wandb_logging(logger: logging.Logger, args: argparse.Namespace) -> No
         logger.addHandler(WandbHandler(run))
 
 
+def _extend_wandb_config(options: Union[Dict, DictConfig]) -> None:
+    """Update the wandb configuration with the expanded options."""
+    try:
+        import wandb
+
+        if wandb.run is not None:
+            wandb.config.update(
+                OmegaConf.to_container(options, resolve=True), allow_val_change=True
+            )
+    except ImportError:
+        pass
+
+
 def _process_restart_from(restart_from: str) -> Optional[Union[str, Path]]:
     if restart_from != "auto":
         return restart_from
@@ -421,6 +434,12 @@ def train_model(
     # Expand loss options and finalize the hypers
     options = expand_loss_config(options)
     hypers = OmegaConf.to_container(options["architecture"], resolve=True)
+
+    if is_main_process():
+        # Update the wandb configuration here because the initial wandb setup
+        # only logs the unexpanded options. We pass the fully resolved
+        # options (including BASE_OPTIONS) to the logger now.
+        _extend_wandb_config(options)
 
     ############################################
     # SAVE TRAIN, VALIDATION, TEST INDICES #####
