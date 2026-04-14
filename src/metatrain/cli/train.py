@@ -37,7 +37,7 @@ from ..utils.io import (
     model_from_checkpoint,
     trainer_from_checkpoint,
 )
-from ..utils.logging import human_readable
+from ..utils.logging import WandbHandler, human_readable
 from ..utils.omegaconf import (
     BASE_OPTIONS,
     check_units,
@@ -127,6 +127,31 @@ def _prepare_train_model_args(args: argparse.Namespace) -> None:
     override_options = OmegaConf.from_dotlist(override_options)
 
     args.options = OmegaConf.merge(args.options, override_options)
+
+
+def _setup_wandb_logging(logger: logging.Logger, args: argparse.Namespace) -> None:
+    """Set up Weights and Biases logging if `wandb` options are provided.
+
+    :param logger: The logger to use for logging messages.
+    :param args: The argparse.Namespace containing the arguments.
+    """
+    # Parse the output from the input file here to see if wandb was requested.
+    _prepare_train_model_args(args)
+    options = args.__dict__["options"]
+
+    if hasattr(options, "wandb") and is_main_process():
+        try:
+            import wandb
+        except ImportError:
+            raise ImportError(
+                "Wandb is enabled but not installed. "
+                "Please install wandb using `pip install wandb` to use this logger."
+            )
+
+        run = wandb.init(
+            **options["wandb"], config=OmegaConf.to_container(options, resolve=True)
+        )
+        logger.addHandler(WandbHandler(run))
 
 
 def _process_restart_from(restart_from: str) -> Optional[Union[str, Path]]:

@@ -14,7 +14,11 @@ from .cli.export import (
     _prepare_export_model_args,
     export_model,
 )
-from .cli.train import _add_train_model_parser, _prepare_train_model_args, train_model
+from .cli.train import (
+    _add_train_model_parser,
+    _setup_wandb_logging,
+    train_model,
+)
 from .utils.distributed.logging import is_main_process
 from .utils.logging import ROOT_LOGGER, setup_logging
 
@@ -85,30 +89,9 @@ def main():
         log_file = checkpoint_dir / "train.log"
         error_file = checkpoint_dir / error_file
 
-    # Setup wandb logging if `wandb` options are provided and we are in the main
-    # process before the logger!
+    # Setup wandb logging before the console logger to include all output.
     if callable == "train_model":
-        # Parse the output from the input file here to see if wandb was requested.
-        _prepare_train_model_args(args)
-        options = args.__dict__["options"]
-
-        if hasattr(options, "wandb") and is_main_process():
-            try:
-                import wandb
-            except ImportError:
-                raise ImportError(
-                    "Wandb is enabled but not installed. "
-                    "Please install wandb using `pip install wandb` to use this logger."
-                )
-
-            from omegaconf import OmegaConf
-
-            from .utils.logging import WandbHandler
-
-            run = wandb.init(
-                **options["wandb"], config=OmegaConf.to_container(options, resolve=True)
-            )
-            ROOT_LOGGER.addHandler(WandbHandler(run))
+        _setup_wandb_logging(ROOT_LOGGER, args)
 
     with setup_logging(ROOT_LOGGER, log_file=log_file, level=level):
         try:
