@@ -1,4 +1,5 @@
 import argparse
+import copy
 import itertools
 import logging
 import os
@@ -135,10 +136,19 @@ def _setup_wandb_logging(logger: logging.Logger, args: argparse.Namespace) -> No
     :param logger: The logger to use for logging messages.
     :param args: The argparse.Namespace containing the arguments.
     """
-    # Parse the output from the input file here to see if wandb was requested.
-    _prepare_train_model_args(args)
-    options = args.__dict__["options"]
+    # Don't modify the incoming args to prevent errors.
+    args = copy.deepcopy(args)
 
+    # Be very graceful in parsing the options -- true errors should be handled once
+    # the logger is setup in setup_logging!
+    options = None
+    try:
+        _prepare_train_model_args(args)
+        options = args.__dict__["options"]
+    except Exception:
+        ...
+    
+    # Try to setup wandb logging if the options are present.
     if hasattr(options, "wandb") and is_main_process():
         try:
             import wandb

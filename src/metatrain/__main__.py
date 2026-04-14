@@ -17,6 +17,7 @@ from .cli.export import (
 from .cli.train import (
     _add_train_model_parser,
     _setup_wandb_logging,
+    _prepare_train_model_args,
     train_model,
 )
 from .utils.distributed.logging import is_main_process
@@ -102,6 +103,7 @@ def main():
                 _prepare_export_model_args(args)
                 export_model(**args.__dict__)
             elif callable == "train_model":
+                _prepare_train_model_args(args)
                 train_model(**args.__dict__)
             else:
                 raise ValueError("internal error when selecting a sub-command")
