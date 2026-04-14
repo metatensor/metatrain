@@ -147,7 +147,7 @@ def _setup_wandb_logging(logger: logging.Logger, args: argparse.Namespace) -> No
         options = args.__dict__["options"]
     except Exception:
         ...
-    
+
     # Try to setup wandb logging if the options are present.
     if hasattr(options, "wandb") and is_main_process():
         try:

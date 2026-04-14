@@ -16,8 +16,8 @@ from .cli.export import (
 )
 from .cli.train import (
     _add_train_model_parser,
-    _setup_wandb_logging,
     _prepare_train_model_args,
+    _setup_wandb_logging,
     train_model,
 )
 from .utils.distributed.logging import is_main_process
