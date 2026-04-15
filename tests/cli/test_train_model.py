@@ -1849,12 +1849,12 @@ def test_seed_deterministic(monkeypatch, tmp_path, options):
     options["test_set"] = 0.1
 
     # Run twice with same seed
-    train_model(options, output="model1.pt")
-    train_model(options, output="model2.pt")
+    train_model(options, output="model1.pt", checkpoint_dir="folder1")
+    train_model(options, output="model2.pt", checkpoint_dir="folder2")
 
     # Load and compare weights - with same seed they should be identical
-    m1 = torch.load("model1.ckpt", weights_only=False)
-    m2 = torch.load("model2.ckpt", weights_only=False)
+    m1 = torch.load("folder1/model1.ckpt", weights_only=False)
+    m2 = torch.load("folder2/model2.ckpt", weights_only=False)
 
     for key in m1["model_state_dict"]:
         v1, v2 = m1["model_state_dict"][key], m2["model_state_dict"][key]

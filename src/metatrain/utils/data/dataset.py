@@ -866,7 +866,7 @@ def _save_indices(
 
     # case 2: there is only one dataset
     elif len(train_indices) == 1:  # val and test are the same length
-        os.mkdir(os.path.join(checkpoint_dir, "indices/"))
+        os.makedirs(os.path.join(checkpoint_dir, "indices/"), exist_ok=True)
         if train_indices[0] is not None:
             np.savetxt(
                 os.path.join(checkpoint_dir, "indices/training.txt"),
