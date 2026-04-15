@@ -114,9 +114,9 @@ class MACETests(ArchitectureTests):
         :return: Hyperparameters for the model.
         """
         defaults = copy.deepcopy(get_default_hypers(self.architecture)["model"])
-        if mace_init_mode == "from_hypers":
-            defaults["hidden_irreps"] = "20x0e + 20x1o + 20x2e"
-        else:
+        defaults["hidden_irreps"] = "10x0e + 10x1o + 10x2e"
+        defaults["correlation"] = 2
+        if mace_init_mode == "from_file":
             defaults["mace_model"] = mace_model_path
         return defaults
 
