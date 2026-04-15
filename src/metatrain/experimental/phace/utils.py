@@ -225,7 +225,7 @@ def _apply_inversions_to_spherical_tensor_map(
         sigma = int(key[1])
         values = block.values
         if block.samples.names == ["system"]:
-            split_values = torch.split(values, [1 for _ in systems])
+            split_values = torch.split(values, 1, dim=0)
         elif not is_atomic_basis:
             split_values = torch.split(
                 values, [len(system.positions) for system in systems]
