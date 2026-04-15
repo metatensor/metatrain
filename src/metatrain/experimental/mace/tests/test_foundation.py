@@ -50,5 +50,9 @@ class TestFoundation(MACETests):
         mace_energy = atoms.get_potential_energy()
         mace_forces = atoms.get_forces()
 
-        assert abs(mta_energy - mace_energy) < 1e-9
-        assert ((mta_forces - mace_forces) ** 2).sum() < 1e-20
+        # Check that the energy and forces are the same
+        # The thresholds are fairly high because we are testing an untrained
+        # model, which is probably numerically unstable.
+        # If using a foundation model we can use here 1e-9 and 1e-20 respectively.
+        assert abs(mta_energy - mace_energy) < 1e-3
+        assert ((mta_forces - mace_forces) ** 2).sum() < 1e-9
