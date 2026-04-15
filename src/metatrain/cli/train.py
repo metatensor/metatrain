@@ -52,6 +52,40 @@ from .export import _has_extensions
 from .formatter import CustomHelpFormatter
 
 
+def _is_indices_only_config(config: DictConfig) -> bool:
+    """Check if config is indices-only (no systems/targets, just indices).
+
+    This is used for validation_set and test_set configs that reference
+    the training source file via indices only.
+
+    :param config: The DictConfig to check.
+    :return: True if config is indices-only, False otherwise.
+    """
+    return (
+        isinstance(config, DictConfig)
+        and "indices" in config
+        and "systems" not in config
+    )
+
+
+def _validate_indices(indices: List[int], dataset_size: int, set_name: str) -> None:
+    """Validate indices are within dataset bounds.
+
+    :param indices: List of indices to validate
+    :param dataset_size: Size of the dataset
+    :param set_name: Name of the set (for error messages)
+    :raises ValueError: If indices are empty or out of range
+    """
+    if not indices:
+        raise ValueError(f"{set_name} indices cannot be empty")
+    max_idx = max(indices)
+    if max_idx >= dataset_size:
+        raise ValueError(
+            f"{set_name} index {max_idx} out of range for "
+            f"dataset of size {dataset_size}"
+        )
+
+
 def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
     """Add `train_model` paramaters to an argparse (sub)-parser.
 
@@ -316,13 +350,7 @@ def train_model(
         if "indices" in train_options:
             base_path = Path(train_options["systems"]["read_from"]).parent
             train_idx = load_indices(train_options["indices"], base_path)
-            # Validate indices
-            max_idx = max(train_idx)
-            if max_idx >= len(full_datasets[i_dataset]):
-                raise ValueError(
-                    f"Training set index {max_idx} out of range for dataset of "
-                    f"size {len(full_datasets[i_dataset])}"
-                )
+            _validate_indices(train_idx, len(full_datasets[i_dataset]), "Training set")
             train_datasets[i_dataset] = Subset(full_datasets[i_dataset], train_idx)
             explicit_train_indices[i_dataset] = train_idx
 
@@ -337,13 +365,7 @@ def train_model(
     train_indices: List[Optional[List[int]]] = []
     val_indices: List[Optional[List[int]]] = []
 
-    # Check if validation_set is indices-only config (references training source)
-    # Note: options[...] is DictConfig, not dict, so check with hasattr or "in"
-    val_is_indices_only = (
-        isinstance(options["validation_set"], DictConfig)
-        and "indices" in options["validation_set"]
-        and "systems" not in options["validation_set"]
-    )
+    val_is_indices_only = _is_indices_only_config(options["validation_set"])
 
     if isinstance(options["validation_set"], (int, float)):
         val_size = options["validation_set"]
@@ -378,13 +400,7 @@ def train_model(
         # Indices reference the training source file(s)
         base_path = Path(options["training_set"][0]["systems"]["read_from"]).parent
         val_idx = load_indices(options["validation_set"]["indices"], base_path)
-        # Validate indices against first full dataset
-        max_idx = max(val_idx)
-        if max_idx >= len(full_datasets[0]):
-            raise ValueError(
-                f"Validation set index {max_idx} out of range for dataset of "
-                f"size {len(full_datasets[0])}"
-            )
+        _validate_indices(val_idx, len(full_datasets[0]), "Validation set")
         # Create subset from full dataset (not the potentially filtered train_datasets)
         val_datasets.append(Subset(full_datasets[0], val_idx))
         val_indices.append(val_idx)
@@ -411,12 +427,7 @@ def train_model(
             if "indices" in valid_options:
                 base_path = Path(valid_options["systems"]["read_from"]).parent
                 idx = load_indices(valid_options["indices"], base_path)
-                max_idx = max(idx)
-                if max_idx >= len(dataset):
-                    raise ValueError(
-                        f"Validation set index {max_idx} out of range for dataset "
-                        f"of size {len(dataset)}"
-                    )
+                _validate_indices(idx, len(dataset), "Validation set")
                 dataset = Subset(dataset, idx)
                 val_indices.append(idx)
             else:
@@ -432,13 +443,7 @@ def train_model(
     test_datasets: List[Union[Dataset, Subset]] = []
     test_indices: List[Optional[List[int]]] = []
 
-    # Check if test_set is indices-only config (references training source)
-    # Note: options[...] is DictConfig, not dict, so check with DictConfig
-    test_is_indices_only = (
-        isinstance(options.get("test_set"), DictConfig)
-        and "indices" in options.get("test_set", {})
-        and "systems" not in options.get("test_set", {})
-    )
+    test_is_indices_only = _is_indices_only_config(options.get("test_set"))
 
     if isinstance(options["test_set"], (int, float)):
         test_size = options["test_set"]
@@ -476,13 +481,7 @@ def train_model(
         # Indices reference the training source file(s)
         base_path = Path(options["training_set"][0]["systems"]["read_from"]).parent
         test_idx = load_indices(options["test_set"]["indices"], base_path)
-        # Validate indices against first full dataset
-        max_idx = max(test_idx)
-        if max_idx >= len(full_datasets[0]):
-            raise ValueError(
-                f"Test set index {max_idx} out of range for dataset of "
-                f"size {len(full_datasets[0])}"
-            )
+        _validate_indices(test_idx, len(full_datasets[0]), "Test set")
         # Create subset from full dataset
         test_datasets.append(Subset(full_datasets[0], test_idx))
         test_indices.append(test_idx)
@@ -507,12 +506,7 @@ def train_model(
             if "indices" in test_options:
                 base_path = Path(test_options["systems"]["read_from"]).parent
                 idx = load_indices(test_options["indices"], base_path)
-                max_idx = max(idx)
-                if max_idx >= len(dataset):
-                    raise ValueError(
-                        f"Test set index {max_idx} out of range for dataset "
-                        f"of size {len(dataset)}"
-                    )
+                _validate_indices(idx, len(dataset), "Test set")
                 dataset = Subset(dataset, idx)
                 test_indices.append(idx)
             else:
