@@ -1736,3 +1736,147 @@ def test_regression_validation_batch_size_constraint_removed():
                     )
         else:
             raise ValueError(f"Trainer file {trainer_file} does not exist.")
+
+
+# ============================================================================
+# Tests for explicit indices feature
+# ============================================================================
+
+
+def test_train_with_training_set_indices(monkeypatch, tmp_path, options):
+    """Training with explicit indices in training_set config."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    # Use only first 80 samples via indices, fraction splits for val/test
+    train_idx = list(range(80))
+    options["training_set"]["indices"] = train_idx
+    options["validation_set"] = 0.1
+    options["test_set"] = 0.1
+
+    train_model(options)
+    assert Path("model.pt").is_file()
+
+
+def test_train_with_indices_only_validation(monkeypatch, tmp_path, options):
+    """Training with indices-only validation_set (no systems/targets)."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["training_set"]["indices"] = list(range(80))
+    options["validation_set"] = OmegaConf.create({"indices": list(range(80, 100))})
+    options["test_set"] = 0.1  # 10% of training for test
+
+    train_model(options)
+    assert Path("model.pt").is_file()
+
+
+def test_train_with_indices_file(monkeypatch, tmp_path, options):
+    """Training with indices loaded from file."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    # Write indices to file
+    Path("train_idx.txt").write_text("\n".join(str(i) for i in range(80)))
+    Path("val_idx.txt").write_text("\n".join(str(i) for i in range(80, 100)))
+
+    options["training_set"]["indices"] = "train_idx.txt"
+    options["validation_set"] = OmegaConf.create({"indices": "val_idx.txt"})
+    options["test_set"] = 0.1
+
+    train_model(options)
+    assert Path("model.pt").is_file()
+
+
+def test_train_multi_dataset_with_indices(monkeypatch, tmp_path, options):
+    """Multi-dataset training with full config including indices."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    # Two training sets from same file with different indices
+    # Must use full config (systems/targets/indices) for each
+    base_config = OmegaConf.to_container(options["training_set"])
+    options["training_set"] = OmegaConf.create(
+        [
+            {**base_config, "indices": list(range(0, 35))},
+            {**base_config, "indices": list(range(35, 70))},
+        ]
+    )
+    # Validation also needs full config for multi-dataset
+    options["validation_set"] = OmegaConf.create(
+        [
+            {**base_config, "indices": list(range(70, 85))},
+            {**base_config, "indices": list(range(85, 100))},
+        ]
+    )
+    options["test_set"] = 0.1
+
+    train_model(options)
+    assert Path("model.pt").is_file()
+
+
+def test_indices_only_multi_dataset_error(monkeypatch, tmp_path, options):
+    """indices-only config raises error for multi-dataset."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    base_config = OmegaConf.to_container(options["training_set"])
+    options["training_set"] = OmegaConf.create(
+        [
+            {**base_config, "indices": list(range(0, 50))},
+            {**base_config, "indices": list(range(50, 100))},
+        ]
+    )
+    # indices-only doesn't work with multi-dataset
+    options["validation_set"] = OmegaConf.create({"indices": list(range(80, 100))})
+
+    with pytest.raises(ValueError, match="indices-only.*multi"):
+        train_model(options)
+
+
+def test_model_seed_deterministic(monkeypatch, tmp_path, options):
+    """model_seed produces deterministic model initialization."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["seed"] = 0
+    options["model_seed"] = 42
+    options["architecture"]["training"]["num_epochs"] = 1
+    options["test_set"] = 0.1
+
+    # Run twice with same model_seed
+    train_model(options, output="model1.pt")
+    train_model(options, output="model2.pt")
+
+    # Load and compare weights - with same model_seed they should be identical
+    m1 = torch.load("model1.ckpt", weights_only=False)
+    m2 = torch.load("model2.ckpt", weights_only=False)
+
+    for key in m1["model_state_dict"]:
+        v1, v2 = m1["model_state_dict"][key], m2["model_state_dict"][key]
+        if isinstance(v1, torch.Tensor):
+            torch.testing.assert_close(v1, v2)
+
+
+def test_indices_out_of_range_error(monkeypatch, tmp_path, options):
+    """Index exceeding dataset size raises clear error."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    # Index 999 exceeds dataset size of 100
+    options["training_set"]["indices"] = [0, 1, 999]
+    options["validation_set"] = 0.1
+
+    with pytest.raises(ValueError, match="out of range"):
+        train_model(options)
+
+
+def test_indices_empty_validation_error(monkeypatch, tmp_path, options):
+    """Empty indices for validation raises error."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["validation_set"] = OmegaConf.create({"indices": []})
+
+    with pytest.raises(ValueError, match="cannot be empty"):
+        train_model(options)

@@ -235,7 +235,9 @@ DatasetSpec = DatasetDictHypers | list[DatasetDictHypers] | str
 
 @with_config(ConfigDict(extra="forbid", strict=True))
 class IndicesOnlyHypers(TypedDict):
-    """Config for validation/test sets that reference the training source via indices."""
+    """
+    Config for validation/test sets that reference the training source via indices.
+    """
 
     indices: list[int] | str
     """Indices into the training set source file.
@@ -289,7 +291,9 @@ class BaseHypers(TypedDict):
     training_set: DatasetSpec
     """Specification of the training dataset."""
     validation_set: (
-        IndicesOnlyHypers | DatasetSpec | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
+        IndicesOnlyHypers
+        | DatasetSpec
+        | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
     )
     """Specification of the validation dataset.
 
@@ -298,7 +302,9 @@ class BaseHypers(TypedDict):
     the training source file.
     """
     test_set: NotRequired[
-        IndicesOnlyHypers | DatasetSpec | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
+        IndicesOnlyHypers
+        | DatasetSpec
+        | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
     ]
     """Specification of the test dataset.
 

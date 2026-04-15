@@ -11,7 +11,6 @@ from typing import Dict, List, Optional, Union
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
-
 from torch.utils.data import Subset
 
 from metatrain.utils.data import Dataset
@@ -334,9 +333,9 @@ def train_model(
     ############################
 
     logging.info("Setting up validation set")
-    val_datasets = []
-    train_indices = []
-    val_indices = []
+    val_datasets: List[Union[Dataset, Subset]] = []
+    train_indices: List[Optional[List[int]]] = []
+    val_indices: List[Optional[List[int]]] = []
 
     # Check if validation_set is indices-only config (references training source)
     # Note: options[...] is DictConfig, not dict, so check with hasattr or "in"
@@ -358,9 +357,24 @@ def train_model(
             )
             train_datasets[i_dataset] = train_dataset_new
             val_datasets.append(val_dataset)
-            train_indices.append(train_dataset_new.indices)
-            val_indices.append(val_dataset.indices)
+            # Remap indices to original space if training_set had explicit indices
+            orig_indices = explicit_train_indices[i_dataset]
+            if orig_indices is not None:
+                train_indices.append(
+                    [orig_indices[i] for i in train_dataset_new.indices]
+                )
+                val_indices.append([orig_indices[i] for i in val_dataset.indices])
+            else:
+                train_indices.append(train_dataset_new.indices)
+                val_indices.append(val_dataset.indices)
     elif val_is_indices_only:
+        # Indices-only config only works for single dataset
+        if len(options["training_set"]) > 1:
+            raise ValueError(
+                "indices-only validation_set config is not supported with "
+                "multi-dataset training_set. "
+                "Use full config with systems/targets/indices for each dataset."
+            )
         # Indices reference the training source file(s)
         base_path = Path(options["training_set"][0]["systems"]["read_from"]).parent
         val_idx = load_indices(options["validation_set"]["indices"], base_path)
@@ -415,8 +429,8 @@ def train_model(
     ############################
 
     logging.info("Setting up test set")
-    test_datasets = []
-    test_indices = []
+    test_datasets: List[Union[Dataset, Subset]] = []
+    test_indices: List[Optional[List[int]]] = []
 
     # Check if test_set is indices-only config (references training source)
     # Note: options[...] is DictConfig, not dict, so check with DictConfig
@@ -443,15 +457,22 @@ def train_model(
             new_train_indices = (
                 train_dataset_new.indices
                 if there_was_no_validation_split
-                else [train_indices[i_dataset][i] for i in train_dataset_new.indices]
+                else [train_indices[i_dataset][i] for i in train_dataset_new.indices]  # type: ignore[index]
             )
             test_indices.append(
                 test_dataset.indices
                 if there_was_no_validation_split
-                else [train_indices[i_dataset][i] for i in test_dataset.indices]
+                else [train_indices[i_dataset][i] for i in test_dataset.indices]  # type: ignore[index]
             )
             train_indices[i_dataset] = new_train_indices
     elif test_is_indices_only:
+        # Indices-only config only works for single dataset
+        if len(options["training_set"]) > 1:
+            raise ValueError(
+                "indices-only test_set config is not supported with "
+                "multi-dataset training_set. "
+                "Use full config with systems/targets/indices for each dataset."
+            )
         # Indices reference the training source file(s)
         base_path = Path(options["training_set"][0]["systems"]["read_from"]).parent
         test_idx = load_indices(options["test_set"]["indices"], base_path)

@@ -651,8 +651,9 @@ def load_indices(indices_spec: Union[List[int], str], base_path: Path) -> List[i
     :returns: List of integer indices.
     :raises ValueError: If indices are empty or contain invalid values.
     """
-    if isinstance(indices_spec, list):
-        indices = indices_spec
+    # Check for list-like objects (including OmegaConf ListConfig)
+    if not isinstance(indices_spec, str):
+        indices = list(indices_spec)
     else:
         # It's a path string
         path = Path(indices_spec)
@@ -661,9 +662,7 @@ def load_indices(indices_spec: Union[List[int], str], base_path: Path) -> List[i
         if not path.exists():
             raise ValueError(f"Indices file not found: {path}")
         indices = [
-            int(line.strip())
-            for line in path.read_text().splitlines()
-            if line.strip()
+            int(line.strip()) for line in path.read_text().splitlines() if line.strip()
         ]
 
     if len(indices) == 0:
@@ -867,7 +866,7 @@ def _save_indices(
 
     # case 2: there is only one dataset
     elif len(train_indices) == 1:  # val and test are the same length
-        os.mkdir(os.path.join(checkpoint_dir, "indices/"))
+        os.makedirs(os.path.join(checkpoint_dir, "indices/"), exist_ok=True)
         if train_indices[0] is not None:
             np.savetxt(
                 os.path.join(checkpoint_dir, "indices/training.txt"),
@@ -889,7 +888,7 @@ def _save_indices(
 
     # case 3: there are multiple datasets
     else:
-        os.mkdir(os.path.join(checkpoint_dir, "indices/"))
+        os.makedirs(os.path.join(checkpoint_dir, "indices/"), exist_ok=True)
         for i, (train, val, test) in enumerate(
             zip(train_indices, val_indices, test_indices, strict=True)
         ):
