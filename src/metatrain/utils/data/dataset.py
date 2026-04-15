@@ -642,6 +642,39 @@ def _train_test_random_split(
     ]
 
 
+def load_indices(indices_spec: Union[List[int], str], base_path: Path) -> List[int]:
+    """Load indices from a list or a file path.
+
+    :param indices_spec: Either a list of integers or a path to a text file
+        containing one index per line.
+    :param base_path: Base path for resolving relative file paths.
+    :returns: List of integer indices.
+    :raises ValueError: If indices are empty or contain invalid values.
+    """
+    if isinstance(indices_spec, list):
+        indices = indices_spec
+    else:
+        # It's a path string
+        path = Path(indices_spec)
+        if not path.is_absolute():
+            path = base_path / path
+        if not path.exists():
+            raise ValueError(f"Indices file not found: {path}")
+        indices = [
+            int(line.strip())
+            for line in path.read_text().splitlines()
+            if line.strip()
+        ]
+
+    if len(indices) == 0:
+        raise ValueError("Indices cannot be empty")
+
+    if any(i < 0 for i in indices):
+        raise ValueError("Indices must be non-negative integers")
+
+    return indices
+
+
 class DiskDataset(torch.utils.data.Dataset):
     """
     A class representing a dataset stored on disk.

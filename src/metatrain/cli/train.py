@@ -12,6 +12,8 @@ import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
 
+from torch.utils.data import Subset
+
 from metatrain.utils.data import Dataset
 
 from ..utils.abc import ModelInterface, TrainerInterface
@@ -26,6 +28,7 @@ from ..utils.data import (
     get_atomic_types,
     get_dataset,
     get_stats,
+    load_indices,
 )
 from ..utils.data.dataset import _save_indices, _train_test_random_split
 from ..utils.devices import pick_devices
@@ -302,6 +305,28 @@ def train_model(
                 )
         extra_data_info_dict.update(extra_data_info_dict_single)
 
+    # Store full datasets before any index-based filtering
+    # (needed when val/test use indices referencing training source)
+    full_datasets = list(train_datasets)
+
+    # Track explicit training indices (if specified in config)
+    explicit_train_indices: List[Optional[List[int]]] = [None] * len(train_datasets)
+
+    # Apply indices filtering to training set if specified
+    for i_dataset, train_options in enumerate(options["training_set"]):
+        if "indices" in train_options:
+            base_path = Path(train_options["systems"]["read_from"]).parent
+            train_idx = load_indices(train_options["indices"], base_path)
+            # Validate indices
+            max_idx = max(train_idx)
+            if max_idx >= len(full_datasets[i_dataset]):
+                raise ValueError(
+                    f"Training set index {max_idx} out of range for dataset of "
+                    f"size {len(full_datasets[i_dataset])}"
+                )
+            train_datasets[i_dataset] = Subset(full_datasets[i_dataset], train_idx)
+            explicit_train_indices[i_dataset] = train_idx
+
     train_size = 1.0
 
     ############################
@@ -312,6 +337,15 @@ def train_model(
     val_datasets = []
     train_indices = []
     val_indices = []
+
+    # Check if validation_set is indices-only config (references training source)
+    # Note: options[...] is DictConfig, not dict, so check with hasattr or "in"
+    val_is_indices_only = (
+        isinstance(options["validation_set"], DictConfig)
+        and "indices" in options["validation_set"]
+        and "systems" not in options["validation_set"]
+    )
+
     if isinstance(options["validation_set"], (int, float)):
         val_size = options["validation_set"]
         train_size -= val_size
@@ -326,6 +360,22 @@ def train_model(
             val_datasets.append(val_dataset)
             train_indices.append(train_dataset_new.indices)
             val_indices.append(val_dataset.indices)
+    elif val_is_indices_only:
+        # Indices reference the training source file(s)
+        base_path = Path(options["training_set"][0]["systems"]["read_from"]).parent
+        val_idx = load_indices(options["validation_set"]["indices"], base_path)
+        # Validate indices against first full dataset
+        max_idx = max(val_idx)
+        if max_idx >= len(full_datasets[0]):
+            raise ValueError(
+                f"Validation set index {max_idx} out of range for dataset of "
+                f"size {len(full_datasets[0])}"
+            )
+        # Create subset from full dataset (not the potentially filtered train_datasets)
+        val_datasets.append(Subset(full_datasets[0], val_idx))
+        val_indices.append(val_idx)
+        # Use explicit training indices if they were specified
+        train_indices.append(explicit_train_indices[0])
     else:
         options["validation_set"] = expand_dataset_config(options["validation_set"])
 
@@ -343,9 +393,22 @@ def train_model(
 
         for valid_options in options["validation_set"]:
             dataset, _, _ = get_dataset(valid_options)
+            # Apply indices filtering if specified in the config
+            if "indices" in valid_options:
+                base_path = Path(valid_options["systems"]["read_from"]).parent
+                idx = load_indices(valid_options["indices"], base_path)
+                max_idx = max(idx)
+                if max_idx >= len(dataset):
+                    raise ValueError(
+                        f"Validation set index {max_idx} out of range for dataset "
+                        f"of size {len(dataset)}"
+                    )
+                dataset = Subset(dataset, idx)
+                val_indices.append(idx)
+            else:
+                val_indices.append(None)
             val_datasets.append(dataset)
             train_indices.append(None)
-            val_indices.append(None)
 
     ############################
     # SET UP TEST SET ##########
@@ -354,6 +417,15 @@ def train_model(
     logging.info("Setting up test set")
     test_datasets = []
     test_indices = []
+
+    # Check if test_set is indices-only config (references training source)
+    # Note: options[...] is DictConfig, not dict, so check with DictConfig
+    test_is_indices_only = (
+        isinstance(options.get("test_set"), DictConfig)
+        and "indices" in options.get("test_set", {})
+        and "systems" not in options.get("test_set", {})
+    )
+
     if isinstance(options["test_set"], (int, float)):
         test_size = options["test_set"]
         train_size -= test_size
@@ -379,6 +451,20 @@ def train_model(
                 else [train_indices[i_dataset][i] for i in test_dataset.indices]
             )
             train_indices[i_dataset] = new_train_indices
+    elif test_is_indices_only:
+        # Indices reference the training source file(s)
+        base_path = Path(options["training_set"][0]["systems"]["read_from"]).parent
+        test_idx = load_indices(options["test_set"]["indices"], base_path)
+        # Validate indices against first full dataset
+        max_idx = max(test_idx)
+        if max_idx >= len(full_datasets[0]):
+            raise ValueError(
+                f"Test set index {max_idx} out of range for dataset of "
+                f"size {len(full_datasets[0])}"
+            )
+        # Create subset from full dataset
+        test_datasets.append(Subset(full_datasets[0], test_idx))
+        test_indices.append(test_idx)
     else:
         options["test_set"] = expand_dataset_config(options["test_set"])
 
@@ -396,8 +482,21 @@ def train_model(
 
         for test_options in options["test_set"]:
             dataset, _, _ = get_dataset(test_options)
+            # Apply indices filtering if specified in the config
+            if "indices" in test_options:
+                base_path = Path(test_options["systems"]["read_from"]).parent
+                idx = load_indices(test_options["indices"], base_path)
+                max_idx = max(idx)
+                if max_idx >= len(dataset):
+                    raise ValueError(
+                        f"Test set index {max_idx} out of range for dataset "
+                        f"of size {len(dataset)}"
+                    )
+                dataset = Subset(dataset, idx)
+                test_indices.append(idx)
+            else:
+                test_indices.append(None)
             test_datasets.append(dataset)
-            test_indices.append(None)
 
     # Expand loss options and finalize the hypers
     options = expand_loss_config(options)
@@ -462,6 +561,18 @@ def train_model(
     ###########################
     # SETTING UP MODEL ########
     ###########################
+
+    # If model_seed is explicitly specified, reset random state for model initialization
+    # This ensures deterministic model init regardless of data loading path
+    if "model_seed" in options:
+        model_seed = options["model_seed"]
+        logging.info(f"Using model_seed {model_seed} for model initialization")
+        torch.manual_seed(model_seed)
+        np.random.seed(model_seed)
+        random.seed(model_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(model_seed)
+            torch.cuda.manual_seed_all(model_seed)
 
     logging.info("Setting up model")
 
