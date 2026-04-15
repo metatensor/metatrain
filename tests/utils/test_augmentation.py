@@ -294,18 +294,22 @@ def test_rotation_per_atom_spherical_atomicbasis(batch_size):
 
     rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
 
-    # Apply the augmentation to the target
-    _, RfX, _ = rotational_augmenter.apply_augmentations(
-        X,
-        {target_name: fX},
-        extra_data={},
-        rotations=[Rotation.from_matrix(R.T)] * batch_size,
-        inversions=[1] * batch_size,
-    )
-    RfX = RfX[target_name]
+    with pytest.raises(
+        torch.jit.Error,
+        match="Rotational augmentation of atomic basis targets is not supported yet.",
+    ):
+        # Apply the augmentation to the target
+        _, RfX, _ = rotational_augmenter.apply_augmentations(
+            X,
+            {target_name: fX},
+            extra_data={},
+            rotations=[Rotation.from_matrix(R.T)] * batch_size,
+            inversions=[1] * batch_size,
+        )
+        RfX = RfX[target_name]
 
-    # Check that the rotated target matches the reference
-    mts.allclose_raise(RfX, fRX, atol=1e-5)
+        # Check that the rotated target matches the reference
+        mts.allclose_raise(RfX, fRX, atol=1e-5)
 
 
 def test_missing_library(monkeypatch, layout_spherical):

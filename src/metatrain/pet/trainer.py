@@ -236,11 +236,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
                 atomic_basis_transform,
                 rotational_augmenter.apply_random_augmentations,
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
             ],
             batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )

@@ -265,14 +265,11 @@ def _apply_wigner_D_matrices(
                 values, [len(system.positions) for system in systems]
             )
         else:
-            # We can't assume that blocks have all atoms.
-            # TODO: We can't assume that blocks have all systems either
-            # (and we do for now)!!! We can also solve this by getting
-            # the batch's system indices or reindexing the target to
-            # batch indices.
-            system_ids = block.samples.values[:, block.samples.names.index("system")]
-            unique_system_ids = torch.unique(system_ids)
-            split_values = [values[system_ids == i] for i in unique_system_ids]
+            # Atomic basis: not straightforward because a given block doesn't
+            # necessarily have all atoms nor all systems.
+            raise ValueError(
+                "Rotational augmentation of atomic basis targets is not supported yet."
+            )
 
         new_values = []
         for v, transformation, wigner_D_matrix in zip(
