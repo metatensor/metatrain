@@ -23,6 +23,9 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.data.atomic_basis_helpers import (
+    get_prepare_atomic_basis_targets_transform,
+)
 from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
@@ -276,13 +279,19 @@ class Trainer(TrainerInterface[TrainerHypers]):
             target_info_dict=train_targets, extra_data_info_dict=extra_data_info
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
+        atomic_basis_transform, atomic_basis_reverse_transform = (
+            get_prepare_atomic_basis_targets_transform(
+                train_targets, dataset_info.extra_data
+            )
+        )
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
-                inversion_augmenter.apply_random_augmentations,
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
+                atomic_basis_transform,
+                inversion_augmenter.apply_random_augmentations,
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
             ],
         )
         collate_fn_val = CollateFn(
@@ -291,6 +300,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
+                atomic_basis_transform,
             ],
         )
 
@@ -338,13 +348,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Create dataloader for the validation datasets:
         val_dataloaders = []
         for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
-            if len(val_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A validation dataset has fewer samples "
-                    f"({len(val_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
             val_dataloaders.append(
                 DataLoader(
                     dataset=val_dataset,
@@ -494,6 +497,15 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
+                # if any atomic basis outputs are present, reverse the transform
+                # before calculating metrics
+                systems, targets, extra_data = atomic_basis_reverse_transform(
+                    systems, targets, extra_data
+                )
+                systems, predictions, _ = atomic_basis_reverse_transform(
+                    systems, predictions, {}
+                )
+
                 scaled_predictions = model.scaler(systems, predictions)
                 scaled_targets = model.scaler(systems, targets)
                 train_rmse_calculator.update(
@@ -549,6 +561,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         # sum the loss over all processes
                         torch.distributed.all_reduce(val_loss_batch)
                     val_loss += val_loss_batch.item()
+                    # if any atomic basis outputs are present, reverse the transform
+                    # before calculating metrics
+                    systems, targets, extra_data = atomic_basis_reverse_transform(
+                        systems, targets, extra_data
+                    )
+                    systems, predictions, _ = atomic_basis_reverse_transform(
+                        systems, predictions, {}
+                    )
                     scaled_predictions = model.scaler(systems, predictions)
                     scaled_targets = model.scaler(systems, targets)
                     val_rmse_calculator.update(

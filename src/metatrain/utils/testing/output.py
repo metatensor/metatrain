@@ -12,6 +12,7 @@ from metatrain.utils.data.readers import (
     read_systems,
 )
 from metatrain.utils.data.readers.ase import read
+from metatrain.utils.data.readers.metatensor import _check_tensor_map_metadata
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
@@ -42,6 +43,8 @@ class OutputTests(ArchitectureTests):
     """Whether the model supports vector outputs."""
     supports_spherical_outputs: bool = True
     """Whether the model supports spherical tensor outputs."""
+    supports_spherical_atomic_basis_outputs: bool = True
+    """Whether the model supports spherical atomic basis outputs."""
     supports_selected_atoms: bool = True
     """Whether the model supports the ``selected_atoms`` argument in the
     ``forward()`` method.
@@ -105,6 +108,7 @@ class OutputTests(ArchitectureTests):
         dataset_info: DatasetInfo,
         per_atom: bool,
         outputs: Optional[list[str]] = None,
+        check_metadata: bool = True,
     ) -> dict[str, mts.TensorMap]:
         """Helper function to get the model output for different types of outputs.
 
@@ -115,6 +119,8 @@ class OutputTests(ArchitectureTests):
         :param per_atom: Whether the requested outputs are per-atom or not.
         :param outputs: List of output names to request. If ``None``, all outputs
             defined in the model are requested.
+        :param check_metadata: Whether to check that the metadata of the returned
+            outputs matches that of the targets in the dataset info.
 
         :return: The model outputs.
         """
@@ -136,7 +142,13 @@ class OutputTests(ArchitectureTests):
             outputs = list(model.outputs.keys())
 
         model = model.to(system.positions.dtype)
-        return model([system], {k: ModelOutput(per_atom=per_atom) for k in outputs})
+        model.eval()
+
+        out = model([system], {k: ModelOutput(per_atom=per_atom) for k in outputs})
+        if check_metadata:
+            for k, v in out.items():
+                _check_tensor_map_metadata(v, dataset_info.targets[k].layout)
+        return out
 
     def test_no_output(
         self, model_hypers: dict, dataset_info: DatasetInfo, per_atom: bool
@@ -202,12 +214,8 @@ class OutputTests(ArchitectureTests):
         )
 
         if per_atom:
-            assert outputs["scalar"].block().samples.names == ["system", "atom"]
             assert outputs["scalar"].block().values.shape == (4, num_subtargets)
         else:
-            assert outputs["scalar"].block().samples.names == ["system"], (
-                outputs["scalar"].block().samples.names
-            )
             assert outputs["scalar"].block().values.shape == (1, num_subtargets)
 
     def test_output_vector(
@@ -237,10 +245,8 @@ class OutputTests(ArchitectureTests):
         )
 
         if per_atom:
-            assert outputs["vector"].block().samples.names == ["system", "atom"]
             assert outputs["vector"].block().values.shape == (4, 3, 5)
         else:
-            assert outputs["vector"].block().samples.names == ["system"]
             assert outputs["vector"].block().values.shape == (1, 3, 5)
 
     def test_output_spherical(
@@ -271,13 +277,8 @@ class OutputTests(ArchitectureTests):
         )
 
         if per_atom:
-            assert outputs["spherical_target"].block().samples.names == [
-                "system",
-                "atom",
-            ]
             assert outputs["spherical_target"].block().values.shape[0] == 4
         else:
-            assert outputs["spherical_target"].block().samples.names == ["system"]
             assert outputs["spherical_target"].block().values.shape[0] == 1
 
     def test_output_multispherical(
@@ -319,14 +320,49 @@ class OutputTests(ArchitectureTests):
             spherical_target_block = outputs["spherical_tensor"].block(i)
 
             if per_atom:
-                assert spherical_target_block.samples.names == [
-                    "system",
-                    "atom",
-                ]
                 assert spherical_target_block.values.shape[0] == 4
             else:
-                assert spherical_target_block.samples.names == ["system"]
                 assert spherical_target_block.values.shape[0] == 1
+
+    def test_output_spherical_atomic_basis(
+        self,
+        model_hypers: dict,
+        dataset_info_spherical_atomic_basis: DatasetInfo,
+    ) -> None:
+        """Tests that forward pass works for spherical outputs that
+        use an atomic basis.
+
+        It also tests that the returned outputs have the expected samples
+        and values shape.
+
+        This test is skipped if the model does not support spherical outputs,
+        i.e., if ``supports_spherical_outputs`` is set to ``False`` or it does
+        not support spherical atomic basis outputs, i.e., if
+        ``supports_spherical_atomic_basis_outputs`` is set to ``False``.
+
+        If this test is failing and ``test_output_spherical`` is passing, your model
+        probably is not handling the possibility that spherical outputs can be in an
+        atomic basis.
+
+        If ``test_output_spherical`` is also failing, fix that test first.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info_spherical_atomic_basis: Dataset information with spherical
+            outputs using an atomic basis.
+        """
+        if not self.supports_spherical_outputs:
+            pytest.skip(f"{self.architecture} does not support spherical outputs.")
+        if not self.supports_spherical_atomic_basis_outputs:
+            pytest.skip(
+                f"{self.architecture} does not support spherical atomic basis outputs."
+            )
+
+        self._get_output(
+            model_hypers,
+            dataset_info_spherical_atomic_basis,
+            per_atom=True,
+            outputs=["spherical_tensor_atomic_basis"],
+        )
 
     def test_prediction_energy_subset_elements(
         self, model_hypers: dict, dataset_info: DatasetInfo

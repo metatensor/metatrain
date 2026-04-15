@@ -254,17 +254,24 @@ def _apply_wigner_D_matrices(
     wigner_D_matrices: Dict[int, List[torch.Tensor]],
 ) -> TensorMap:
     new_blocks: List[TensorBlock] = []
+    is_atomic_basis = any(k.startswith("atom_type") for k in target_tmap.keys.names)
     for key, block in target_tmap.items():
         ell, sigma = int(key[0]), int(key[1])
         values = block.values
-        if "atom" in block.samples.names:
+        if block.samples.names == ["system"]:
+            split_values = torch.split(values, [1 for _ in systems])
+        elif not is_atomic_basis:
             split_values = torch.split(
                 values, [len(system.positions) for system in systems]
             )
         else:
-            split_values = torch.split(values, [1 for _ in systems])
+            # Atomic basis: not straightforward because a given block doesn't
+            # necessarily have all atoms nor all systems.
+            raise ValueError(
+                "Rotational augmentation of atomic basis targets is not supported yet."
+            )
+
         new_values = []
-        ell = (len(block.components[0]) - 1) // 2
         for v, transformation, wigner_D_matrix in zip(
             split_values, transformations, wigner_D_matrices[ell], strict=True
         ):
