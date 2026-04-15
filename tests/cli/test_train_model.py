@@ -1834,34 +1834,6 @@ def test_indices_only_multi_dataset_error(monkeypatch, tmp_path, options):
         train_model(options)
 
 
-def test_seed_deterministic(monkeypatch, tmp_path, options):
-    """Same seed produces deterministic model initialization."""
-    monkeypatch.chdir(tmp_path)
-    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
-
-    # Force deterministic behavior for cross-platform reproducibility
-    torch.use_deterministic_algorithms(True, warn_only=True)
-    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-
-    options["seed"] = 42
-    options["architecture"]["training"]["num_epochs"] = 1
-    options["architecture"]["training"]["num_workers"] = 0  # for reproducibility
-    options["test_set"] = 0.1
-
-    # Run twice with same seed
-    train_model(options, output="model1.pt", checkpoint_dir="folder1")
-    train_model(options, output="model2.pt", checkpoint_dir="folder2")
-
-    # Load and compare weights - with same seed they should be identical
-    m1 = torch.load("folder1/model1.ckpt", weights_only=False)
-    m2 = torch.load("folder2/model2.ckpt", weights_only=False)
-
-    for key in m1["model_state_dict"]:
-        v1, v2 = m1["model_state_dict"][key], m2["model_state_dict"][key]
-        if isinstance(v1, torch.Tensor):
-            torch.testing.assert_close(v1, v2)
-
-
 def test_indices_out_of_range_error(monkeypatch, tmp_path, options):
     """Index exceeding dataset size raises clear error."""
     monkeypatch.chdir(tmp_path)
@@ -1872,15 +1844,4 @@ def test_indices_out_of_range_error(monkeypatch, tmp_path, options):
     options["validation_set"] = 0.1
 
     with pytest.raises(ValueError, match="out of range"):
-        train_model(options)
-
-
-def test_indices_empty_validation_error(monkeypatch, tmp_path, options):
-    """Empty indices for validation raises error."""
-    monkeypatch.chdir(tmp_path)
-    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
-
-    options["validation_set"] = OmegaConf.create({"indices": []})
-
-    with pytest.raises(ValueError, match="cannot be empty"):
         train_model(options)

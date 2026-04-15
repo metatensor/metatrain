@@ -648,8 +648,8 @@ def load_indices(indices_spec: Union[List[int], str], base_path: Path) -> List[i
     :param indices_spec: Either a list of integers or a path to a text file
         containing one index per line.
     :param base_path: Base path for resolving relative file paths.
-    :returns: List of integer indices.
-    :raises ValueError: If indices are empty or contain invalid values.
+    :returns: List of integer indices (may be empty for empty val/test sets).
+    :raises ValueError: If indices contain invalid values.
     """
     # Check for list-like objects (including OmegaConf ListConfig)
     if not isinstance(indices_spec, str):
@@ -665,10 +665,7 @@ def load_indices(indices_spec: Union[List[int], str], base_path: Path) -> List[i
             int(line.strip()) for line in path.read_text().splitlines() if line.strip()
         ]
 
-    if len(indices) == 0:
-        raise ValueError("Indices cannot be empty")
-
-    if any(i < 0 for i in indices):
+    if indices and any(i < 0 for i in indices):
         raise ValueError("Indices must be non-negative integers")
 
     return indices
@@ -866,7 +863,7 @@ def _save_indices(
 
     # case 2: there is only one dataset
     elif len(train_indices) == 1:  # val and test are the same length
-        os.makedirs(os.path.join(checkpoint_dir, "indices/"), exist_ok=True)
+        os.mkdir(os.path.join(checkpoint_dir, "indices/"))
         if train_indices[0] is not None:
             np.savetxt(
                 os.path.join(checkpoint_dir, "indices/training.txt"),

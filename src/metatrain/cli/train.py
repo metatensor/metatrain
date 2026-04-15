@@ -74,10 +74,10 @@ def _validate_indices(indices: List[int], dataset_size: int, set_name: str) -> N
     :param indices: List of indices to validate
     :param dataset_size: Size of the dataset
     :param set_name: Name of the set (for error messages)
-    :raises ValueError: If indices are empty or out of range
+    :raises ValueError: If indices are out of range
     """
     if not indices:
-        raise ValueError(f"{set_name} indices cannot be empty")
+        return  # Empty indices allowed (e.g., for empty val/test sets)
     max_idx = max(indices)
     if max_idx >= dataset_size:
         raise ValueError(
