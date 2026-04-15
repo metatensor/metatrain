@@ -1839,9 +1839,14 @@ def test_model_seed_deterministic(monkeypatch, tmp_path, options):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
+    # Force deterministic behavior for cross-platform reproducibility
+    torch.use_deterministic_algorithms(True, warn_only=True)
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+
     options["seed"] = 0
     options["model_seed"] = 42
     options["architecture"]["training"]["num_epochs"] = 1
+    options["architecture"]["training"]["num_workers"] = 0  # for reproducibility
     options["test_set"] = 0.1
 
     # Run twice with same model_seed
