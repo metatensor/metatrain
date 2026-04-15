@@ -275,14 +275,6 @@ class BaseHypers(TypedDict):
     important for ensuring reproducibility. If not specified, the seed is generated
     randomly and reported in the log.
     """
-    model_seed: NotRequired[NonNegativeInt]
-    """Seed used specifically for model initialization.
-
-    If not specified, defaults to ``seed``. This is useful when using explicit
-    split indices: the data loading path affects random state differently than
-    fraction-based splits, so specifying ``model_seed`` ensures deterministic
-    model initialization regardless of how splits are defined.
-    """
     wandb: NotRequired[WandbConfig]
     """Configuration for Weights & Biases logging.
 

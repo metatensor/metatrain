@@ -577,18 +577,6 @@ def train_model(
     # SETTING UP MODEL ########
     ###########################
 
-    # If model_seed is explicitly specified, reset random state for model initialization
-    # This ensures deterministic model init regardless of data loading path
-    if "model_seed" in options:
-        model_seed = options["model_seed"]
-        logging.info(f"Using model_seed {model_seed} for model initialization")
-        torch.manual_seed(model_seed)
-        np.random.seed(model_seed)
-        random.seed(model_seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed(model_seed)
-            torch.cuda.manual_seed_all(model_seed)
-
     logging.info("Setting up model")
 
     # Resolving the model initialization options

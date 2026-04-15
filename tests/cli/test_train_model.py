@@ -1834,8 +1834,8 @@ def test_indices_only_multi_dataset_error(monkeypatch, tmp_path, options):
         train_model(options)
 
 
-def test_model_seed_deterministic(monkeypatch, tmp_path, options):
-    """model_seed produces deterministic model initialization."""
+def test_seed_deterministic(monkeypatch, tmp_path, options):
+    """Same seed produces deterministic model initialization."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
@@ -1843,17 +1843,16 @@ def test_model_seed_deterministic(monkeypatch, tmp_path, options):
     torch.use_deterministic_algorithms(True, warn_only=True)
     monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
-    options["seed"] = 0
-    options["model_seed"] = 42
+    options["seed"] = 42
     options["architecture"]["training"]["num_epochs"] = 1
     options["architecture"]["training"]["num_workers"] = 0  # for reproducibility
     options["test_set"] = 0.1
 
-    # Run twice with same model_seed
+    # Run twice with same seed
     train_model(options, output="model1.pt")
     train_model(options, output="model2.pt")
 
-    # Load and compare weights - with same model_seed they should be identical
+    # Load and compare weights - with same seed they should be identical
     m1 = torch.load("model1.ckpt", weights_only=False)
     m2 = torch.load("model2.ckpt", weights_only=False)
 

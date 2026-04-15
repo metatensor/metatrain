@@ -138,15 +138,3 @@ def test_indices_in_full_dataset_config():
         "validation_set": 0.1,
     }
     validate_base_options(config)  # should not raise
-
-
-def test_model_seed_optional():
-    """model_seed is optional and accepts non-negative int."""
-    config = {
-        "architecture": {"name": "soap_bpnn"},
-        "training_set": {"systems": "data.xyz", "targets": {"energy": {"key": "E"}}},
-        "validation_set": 0.1,
-        "seed": 0,
-        "model_seed": 42,
-    }
-    validate_base_options(config)  # should not raise
