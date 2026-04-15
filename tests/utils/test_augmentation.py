@@ -295,7 +295,7 @@ def test_rotation_per_atom_spherical_atomicbasis(batch_size):
     rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
 
     with pytest.raises(
-        torch.jit.Error,
+        (ValueError, torch.jit.Error),
         match="Rotational augmentation of atomic basis targets is not supported yet.",
     ):
         # Apply the augmentation to the target
