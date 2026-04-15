@@ -439,7 +439,7 @@ def train_model(
     hypers = OmegaConf.to_container(options["architecture"], resolve=True)
 
     if is_main_process():
-        # Update the wandb configuration here because the initial wandb setup
+        # Update the wandb configuration here because the initial wandb setup (in `__main__.py`)
         # only logs the unexpanded options. We pass the fully resolved
         # options (including BASE_OPTIONS) to the logger now.
         _extend_wandb_config(options)
