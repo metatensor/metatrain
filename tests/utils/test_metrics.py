@@ -3,7 +3,12 @@ import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
+from metatrain.utils.metrics import (
+    MAEAccumulator,
+    RMSEAccumulator,
+    _get_global_keys,
+    get_selected_metric,
+)
 
 
 @pytest.fixture
@@ -279,3 +284,15 @@ def test_get_selected_metric():
 
     selected_metric = "loss"
     assert get_selected_metric(metrics, selected_metric) == 1
+
+
+def test_get_global_keys_raises():
+    """
+    Tests the _get_global_keys function raises an error if distributed is not available.
+    """
+
+    keys = ["a", "b", "c"]
+    with pytest.raises(
+        ValueError, match="Default process group has not been initialized"
+    ):
+        _get_global_keys(keys)
