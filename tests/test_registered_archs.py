@@ -60,7 +60,7 @@ def test_architecture_in_readme():
     all_arches = find_all_architectures()
 
     readme_path = Path(__file__).parent.parent / "README.md"
-    readme_content = readme_path.read_text()
+    readme_content = readme_path.read_text(encoding="utf-8")
 
     for arch in all_arches:
         # Strip experimental./deprecated. prefix — README lists bare names
