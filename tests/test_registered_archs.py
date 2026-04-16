@@ -3,7 +3,10 @@ from pathlib import Path
 import pytest
 from omegaconf import OmegaConf
 
-from metatrain.utils.architectures import find_all_architectures
+from metatrain.utils.architectures import (
+    find_all_architectures,
+    preload_documentation_module,
+)
 
 
 TOML_AVAILABLE = True
@@ -137,3 +140,18 @@ def test_pyproject_toml_extras():
                 f"Architecture '{arch}' is not included in pyproject.toml extras."
                 f" Please add it to the list of extras in the file."
             )
+
+
+def test_experimental_archs_have_experimental_in_title():
+    """Test that experimental architectures have '(Experimental)' in their doc title."""
+    all_arches = find_all_architectures()
+    experimental_arches = [a for a in all_arches if a.startswith("experimental.")]
+
+    for arch in experimental_arches:
+        doc_module = preload_documentation_module(arch)
+        docstring = doc_module.__doc__ or ""
+        first_line = next((line for line in docstring.splitlines() if line.strip()), "")
+        assert "(Experimental)" in first_line, (
+            f"Architecture '{arch}' is experimental but its documentation title "
+            f"does not contain '(Experimental)'. First line was: {first_line!r}"
+        )
