@@ -642,12 +642,11 @@ def _train_test_random_split(
     ]
 
 
-def load_indices(indices_spec: Union[List[int], str], base_path: Path) -> List[int]:
+def load_indices(indices_spec: Union[List[int], str]) -> List[int]:
     """Load indices from a list or a file path.
 
     :param indices_spec: Either a list of integers or a path to a text file
         containing one index per line.
-    :param base_path: Base path for resolving relative file paths.
     :returns: List of integer indices (may be empty for empty val/test sets).
     :raises ValueError: If indices contain invalid values.
     """
@@ -658,7 +657,7 @@ def load_indices(indices_spec: Union[List[int], str], base_path: Path) -> List[i
         # It's a path string
         path = Path(indices_spec)
         if not path.is_absolute():
-            path = base_path / path
+            path = Path.cwd() / path
         if not path.exists():
             raise ValueError(f"Indices file not found: {path}")
         indices = [

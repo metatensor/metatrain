@@ -348,8 +348,7 @@ def train_model(
     # Apply indices filtering to training set if specified
     for i_dataset, train_options in enumerate(options["training_set"]):
         if "indices" in train_options:
-            base_path = Path(train_options["systems"]["read_from"]).parent
-            train_idx = load_indices(train_options["indices"], base_path)
+            train_idx = load_indices(train_options["indices"])
             _validate_indices(train_idx, len(full_datasets[i_dataset]), "Training set")
             train_datasets[i_dataset] = Subset(full_datasets[i_dataset], train_idx)
             explicit_train_indices[i_dataset] = train_idx
@@ -398,8 +397,7 @@ def train_model(
                 "Use full config with systems/targets/indices for each dataset."
             )
         # Indices reference the training source file(s)
-        base_path = Path(options["training_set"][0]["systems"]["read_from"]).parent
-        val_idx = load_indices(options["validation_set"]["indices"], base_path)
+        val_idx = load_indices(options["validation_set"]["indices"])
         _validate_indices(val_idx, len(full_datasets[0]), "Validation set")
         # Create subset from full dataset (not the potentially filtered train_datasets)
         val_datasets.append(Subset(full_datasets[0], val_idx))
@@ -425,8 +423,7 @@ def train_model(
             dataset, _, _ = get_dataset(valid_options)
             # Apply indices filtering if specified in the config
             if "indices" in valid_options:
-                base_path = Path(valid_options["systems"]["read_from"]).parent
-                idx = load_indices(valid_options["indices"], base_path)
+                idx = load_indices(valid_options["indices"])
                 _validate_indices(idx, len(dataset), "Validation set")
                 dataset = Subset(dataset, idx)
                 val_indices.append(idx)
@@ -479,8 +476,7 @@ def train_model(
                 "Use full config with systems/targets/indices for each dataset."
             )
         # Indices reference the training source file(s)
-        base_path = Path(options["training_set"][0]["systems"]["read_from"]).parent
-        test_idx = load_indices(options["test_set"]["indices"], base_path)
+        test_idx = load_indices(options["test_set"]["indices"])
         _validate_indices(test_idx, len(full_datasets[0]), "Test set")
         # Create subset from full dataset
         test_datasets.append(Subset(full_datasets[0], test_idx))
@@ -504,8 +500,7 @@ def train_model(
             dataset, _, _ = get_dataset(test_options)
             # Apply indices filtering if specified in the config
             if "indices" in test_options:
-                base_path = Path(test_options["systems"]["read_from"]).parent
-                idx = load_indices(test_options["indices"], base_path)
+                idx = load_indices(test_options["indices"])
                 _validate_indices(idx, len(dataset), "Test set")
                 dataset = Subset(dataset, idx)
                 test_indices.append(idx)
