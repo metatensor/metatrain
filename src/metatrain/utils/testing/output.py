@@ -422,7 +422,7 @@ class OutputTests(ArchitectureTests):
         torch.set_default_dtype(torch.float64)
 
         try:
-            model = self.model_cls(model_hypers, dataset_info)
+            model = self.model_cls(model_hypers, dataset_info).to(torch.float64)
 
             # Since we don't yet support atomic predictions, we will test this by
             # predicting on a system with two monomers at a large distance
