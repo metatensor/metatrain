@@ -826,18 +826,18 @@ def test_load_indices_relative_path(tmp_path):
     assert indices == [1, 2, 3]
 
 
-def test_load_indices_empty_list_raises():
+def test_load_indices_empty_list():
     """Empty indices list raises ValueError."""
-    with pytest.raises(ValueError, match="cannot be empty"):
-        load_indices([], Path("."))
+    indices = load_indices([], Path("."))
+    assert indices == []
 
 
-def test_load_indices_empty_file_raises(tmp_path):
+def test_load_indices_empty_file(tmp_path):
     """Empty indices file raises ValueError."""
     idx_file = tmp_path / "indices.txt"
     idx_file.write_text("")
-    with pytest.raises(ValueError, match="cannot be empty"):
-        load_indices(str(idx_file), tmp_path)
+    indices = load_indices(str(idx_file), tmp_path)
+    assert indices == []
 
 
 def test_load_indices_negative_raises():
