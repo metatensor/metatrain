@@ -19,6 +19,10 @@ from metatomic.torch import (
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import TargetInfo
+from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_target,
+    sparsify_atomic_basis_target,
+)
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
@@ -809,6 +813,16 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 return_dict[output_name] = sum_over_atoms(atomic_property)
 
         if not self.training:
+            # For atomic basis targets, sparsify to create blocks with "atom_type"
+            # in the key dimensions, and ensure properties are unpadded.
+            targets = self.dataset_info.targets
+            for k, v in return_dict.items():
+                if k in targets and targets[k].is_atomic_basis:
+                    return_dict[k] = sparsify_atomic_basis_target(
+                        systems,
+                        v,
+                        targets[k].layout,
+                    )
             # at evaluation, we also introduce the scaler and additive contributions
             return_dict = self.scaler(
                 systems, return_dict, selected_atoms=selected_atoms
@@ -989,8 +1003,9 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         # register bases of spherical tensors (TensorBasis)
         self.num_properties[target_name] = {}
         self.basis_calculators[target_name] = torch.nn.ModuleDict({})
+        output_layout = target.layout
         if target.is_scalar:
-            for key, block in target.layout.items():
+            for key, block in output_layout.items():
                 dict_key = target_name
                 for n, k in zip(key.names, key.values, strict=True):
                     dict_key += f"_{n}_{int(k)}"
@@ -1006,7 +1021,11 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                     legacy=self.legacy,
                 )
         elif target.is_spherical:
-            for key, block in target.layout.items():
+            if target.is_atomic_basis:
+                output_layout = densify_atomic_basis_target(
+                    output_layout, output_layout
+                )
+            for key, block in output_layout.items():
                 dict_key = target_name
                 for n, k in zip(key.names, key.values, strict=True):
                     dict_key += f"_{n}_{int(k)}"
@@ -1024,7 +1043,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                     self.legacy,
                 )
         elif target.is_cartesian:
-            n_cart_components = len(target.layout.block().components)
+            n_cart_components = len(output_layout.block().components)
             if n_cart_components == 1:
                 # rank-1: hard-code to spherical (o3_lambda=1, o3_sigma=1)
                 self.cartesian_rank1_targets.append(target_name)
@@ -1045,7 +1064,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                         target_name + f"_o3_lambda_{o3_lambda}_o3_sigma_{o3_sigma}"
                     )
                     self.num_properties[target_name][dict_key] = len(
-                        target.layout.block().properties.values
+                        output_layout.block().properties.values
                     )
                     self.basis_calculators[target_name][dict_key] = TensorBasis(
                         self.atomic_types,
@@ -1102,7 +1121,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         # For rank-2 Cartesian targets, construct an internal spherical layout
         # so the last-layer/label setup matches the spherical decomposition.
         if target_name in self.cartesian_rank2_targets:
-            num_subtargets = len(target.layout.block().properties.values)
+            num_subtargets = len(output_layout.block().properties.values)
             internal_keys = Labels(
                 ["o3_lambda", "o3_sigma"],
                 torch.tensor([[0, 1], [1, -1], [2, 1]]),
@@ -1125,12 +1144,12 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                                 torch.arange(-o3_lambda, o3_lambda + 1).reshape(-1, 1),
                             )
                         ],
-                        properties=target.layout.block().properties,
+                        properties=output_layout.block().properties,
                     )
                 )
             layout_for_layers = TensorMap(keys=internal_keys, blocks=internal_blocks)
         else:
-            layout_for_layers = target.layout
+            layout_for_layers = output_layout
 
         # last linear layers, one per block
         self.last_layers[target_name] = torch.nn.ModuleDict({})

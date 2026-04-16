@@ -1,5 +1,8 @@
-from typing import Any, Dict, List, Optional
+import itertools
+from collections import defaultdict
+from typing import Any, Dict, List, Literal, Optional
 
+import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap, equal_metadata
 from metatomic.torch import ModelOutput
@@ -44,6 +47,7 @@ class TargetInfo:
         self.is_scalar = False
         self.is_cartesian = False
         self.is_spherical = False
+        self.is_atomic_basis = False
 
         self._check_layout(layout)
         self.layout = layout
@@ -183,41 +187,78 @@ class TargetInfo:
                 )
 
         if self.is_spherical:
-            if layout.keys.names != ["o3_lambda", "o3_sigma"]:
+            # The following loop is ugly but it is for torchscript compatibility.
+            keys_names: list[str] = []
+            unknown_keys: list[str] = []
+            lambdas_indices: list[int] = []
+            sigmas_indices: list[int] = []
+            for name in layout.keys.names:
+                if name.endswith("atom_type"):
+                    self.is_atomic_basis = True
+                    continue
+                elif name.startswith("o3_lambda"):
+                    lambdas_indices.append(len(keys_names))
+                    keys_names.append(name)
+                elif name.startswith("o3_sigma"):
+                    sigmas_indices.append(len(keys_names))
+                    keys_names.append(name)
+                else:
+                    unknown_keys.append(name)
+
+            if len(unknown_keys) > 0:
                 raise ValueError(
-                    "The layout ``TensorMap`` of a spherical tensor target "
-                    "should have  two keys named 'o3_lambda' and 'o3_sigma'."
-                    f"Found '{layout.keys.names}' instead."
+                    "The layout ``TensorMap`` of a spherical tensor target should only "
+                    "have keys named 'o3_lambda', 'o3_sigma' or 'atom_type'"
+                    f" Found unknown key names: '{unknown_keys}'."
                 )
+
+            if len(lambdas_indices) != len(sigmas_indices):
+                raise ValueError(
+                    "The layout ``TensorMap`` of a spherical tensor target should have "
+                    "the same number of 'o3_lambda' and 'o3_sigma' names."
+                    f" Found {len(lambdas_indices)} 'o3_lambda' keys and "
+                    f"{len(sigmas_indices)} 'o3_sigma' keys."
+                    f" Keys found: {layout.keys.names}."
+                )
+
             for key, block in layout.items():
-                o3_lambda, o3_sigma = (
-                    int(key.values[0].item()),
-                    int(key.values[1].item()),
-                )
-                if o3_sigma not in [-1, 1]:
-                    raise ValueError(
-                        "The layout ``TensorMap`` of a spherical tensor target should "
-                        "have a key sample 'o3_sigma' that is either -1 or 1."
-                        f"Found '{o3_sigma}' instead."
-                    )
-                if o3_lambda < 0:
-                    raise ValueError(
-                        "The layout ``TensorMap`` of a spherical tensor target should "
-                        "have a key sample 'o3_lambda' that is non-negative."
-                        f"Found '{o3_lambda}' instead."
-                    )
+                lambdas = key.values[lambdas_indices]
+                sigmas = key.values[sigmas_indices]
                 components = block.components
-                if len(components) != 1:
+
+                if len(components) != len(lambdas):
                     raise ValueError(
-                        "The layout ``TensorMap`` of a spherical tensor target should "
-                        "have a single component."
+                        "The layout ``TensorMap`` of a spherical tensor target"
+                        " should have as many components as 'o3_lambda' keys"
+                        " in the layout ``TensorMap``."
+                        f" Found {len(components)} components and {len(lambdas)} "
+                        f"'o3_lambda' keys."
                     )
-                if len(components[0]) != 2 * o3_lambda + 1:
-                    raise ValueError(
-                        "Each ``TensorBlock`` of a spherical tensor target should have "
-                        "a component with 2*o3_lambda + 1 elements."
-                        f"Found '{len(components[0])}' elements instead."
-                    )
+
+                for i, o3_sigma in enumerate(sigmas):
+                    if o3_sigma not in [-1, 1]:
+                        raise ValueError(
+                            "The layout ``TensorMap`` of a spherical tensor target"
+                            "should have 'o3_sigma' key values that are either -1 or 1."
+                            f" Found '{o3_sigma}' instead for {layout.keys.names[i]}."
+                        )
+                for i, o3_lambda in enumerate(lambdas):
+                    if o3_lambda < 0:
+                        raise ValueError(
+                            "The layout ``TensorMap`` of a spherical tensor target"
+                            "should have 'o3_lambda' key values that are non-negative"
+                            " integers."
+                            f" Found '{o3_lambda}' instead for {layout.keys.names[i]}."
+                        )
+
+                    if len(components[i]) != 2 * o3_lambda + 1:
+                        raise ValueError(
+                            "The components of a spherical tensor target should have "
+                            f"2*o3_lambda + 1 elements. For {layout.keys.names[i]} with"
+                            f" o3_lambda={o3_lambda}, found '{len(components[0])}'"
+                            " elements instead."
+                        )
+
                 if len(block.gradients_list()) > 0:
                     raise ValueError(
                         "Gradients of spherical tensor targets are not supported."
@@ -290,6 +331,7 @@ class TargetInfo:
         self.is_scalar = state["is_scalar"]
         self.is_cartesian = state["is_cartesian"]
         self.is_spherical = state["is_spherical"]
+        self.is_atomic_basis = state.get("is_atomic_basis", False)
 
         self.quantity = state["quantity"]
         self.unit = state["unit"]
@@ -497,52 +539,213 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
         sample_names.append("atom")
 
     irreps = target["type"]["spherical"]["irreps"]
+    product = target["type"]["spherical"].get("product", None)
+
     keys = []
     blocks = []
-    for irrep in irreps:
-        components = [
-            Labels(
-                names=["o3_mu"],
-                values=torch.arange(
-                    -irrep["o3_lambda"], irrep["o3_lambda"] + 1, dtype=torch.int32
-                ).reshape(-1, 1),
-            )
-        ]
-        block = TensorBlock(
-            # float64: otherwise metatensor can't serialize
-            values=torch.empty(
-                0,
-                2 * irrep["o3_lambda"] + 1,
-                target["num_subtargets"],
-                dtype=torch.float64,
-            ),
-            samples=Labels(
-                names=sample_names,
-                values=torch.empty((0, len(sample_names)), dtype=torch.int32),
-            ),
-            components=components,
-            properties=Labels.range(
-                # remove variant and/or mtt:: prefix from target name
-                (
-                    target_name.split("/")[0] if "/" in target_name else target_name
-                ).replace("mtt::", ""),
-                target["num_subtargets"],
-            ),
+
+    is_atomic_basis = isinstance(irreps, (dict, DictConfig))
+
+    # Define the names of the keys in the tensormap
+    if product in [None, "coupled"]:
+        keys_names = ["o3_lambda", "o3_sigma"]
+    else:
+        raise ValueError(
+            f"Unknown product {product!r}. Supported values are 'coupled', and None."
         )
-        keys.append([irrep["o3_lambda"], irrep["o3_sigma"]])
-        blocks.append(block)
+
+    if is_atomic_basis:
+        keys_names.append("atom_type")
+
+    # Build the tensormap blocks, and store their corresponding keys.
+    if not is_atomic_basis:
+        irreps_iter, properties = _get_spherical_irreps_iter(irreps, target, product)
+
+        for irrep, props in zip(irreps_iter, properties, strict=True):
+            block = _build_spherical_target_block(
+                sample_names=sample_names,
+                target_name=target_name,
+                irreps=irrep,
+                properties=props,
+            )
+            _, lambdas, sigmas = torch.tensor(irrep).T
+
+            keys.append([*lambdas, *sigmas])
+            blocks.append(block)
+    else:
+        # Loop over atomic types
+        for atom_type, atom_irreps in irreps.items():
+            # For each atomic type, essentially do the same as for the case with
+            # no types. We simply have an extra key corresponding to the atomic type.
+            irreps_iter, properties = _get_spherical_irreps_iter(
+                atom_irreps, target, product=product
+            )
+
+            for irrep, props in zip(irreps_iter, properties, strict=True):
+                block = _build_spherical_target_block(
+                    sample_names=sample_names,
+                    target_name=target_name,
+                    irreps=irrep,
+                    properties=props,
+                )
+                _, lambdas, sigmas = torch.tensor(irrep).T
+                keys.append([*lambdas, *sigmas, atom_type])
+                blocks.append(block)
 
     layout = TensorMap(
-        keys=Labels(["o3_lambda", "o3_sigma"], torch.tensor(keys, dtype=torch.int32)),
+        keys=Labels(keys_names, torch.tensor(keys, dtype=torch.int32)),
         blocks=blocks,
     )
 
-    return TargetInfo(
+    info = TargetInfo(
         layout=layout,
         quantity=target["quantity"],
         unit=target["unit"],
         description=target.get("description", ""),
     )
+    return info
+
+
+def _build_spherical_target_block(
+    sample_names: List[str],
+    target_name: str,
+    irreps: list[tuple[int, int, int]],
+    properties: Optional[Labels] = None,
+) -> TensorBlock:
+    """Builds an empty `TensorBlock` for some given spherical irreps.
+
+    :param sample_names: The names of the sample labels of the block.
+    :param target_name: The name of the target (used for the properties labels).
+    :param irreps: A list of irreps, where each irrep is a tuple of the form
+      (num_subtargets, o3_lambda, o3_sigma).
+    :param properties: An optional ``Labels`` object containing the properties
+        labels of the block. If `None`, the properties labels will be generated
+        automatically with names ``n`` for rank 1 blocks and ``n_1``,
+        ``n_2``, ... for higher rank blocks.
+    :return: an empty `TensorBlock` with the appropriate samples, components
+      and properties labels for the given irreps
+    """
+    rank = len(irreps)
+
+    if rank == 1:
+        lambd = irreps[0][1]
+        n_properties = irreps[0][0]
+        components = [
+            Labels(
+                names=["o3_mu"],
+                values=torch.arange(-lambd, lambd + 1, dtype=torch.int32).reshape(
+                    -1, 1
+                ),
+            )
+        ]
+        if properties is None:
+            properties = Labels.range("n", n_properties)
+    else:
+        n_properties = torch.tensor(irreps)[:, 0].prod()
+        components = []
+        for component in range(1, rank + 1):
+            lambd = irreps[component - 1][1]
+            components.append(
+                Labels(
+                    names=[f"o3_mu_{component}"],
+                    values=torch.arange(-lambd, lambd + 1, dtype=torch.int32).reshape(
+                        -1, 1
+                    ),
+                )
+            )
+
+        if properties is None:
+            properties_values = list(
+                itertools.product(*[np.arange(irrep[0]) for irrep in irreps])
+            )
+            properties_values = torch.tensor(properties_values, dtype=torch.int32)
+
+            properties = Labels(
+                names=[f"n_{component}" for component in range(1, rank + 1)],
+                values=properties_values,
+            )
+
+    block = TensorBlock(
+        # float64: otherwise metatensor can't serialize
+        values=torch.empty(
+            0,
+            *[len(component) for component in components],
+            n_properties,
+            dtype=torch.float64,
+        ),
+        samples=Labels(
+            names=sample_names,
+            values=torch.empty((0, len(sample_names)), dtype=torch.int32),
+        ),
+        components=components,
+        properties=properties,
+    )
+    return block
+
+
+def _get_spherical_irreps_iter(
+    irreps: list[dict],
+    target: dict,
+    product: Optional[Literal["coupled"]] = None,
+) -> tuple[list[list[tuple[int, int, int]]], list[Labels]]:
+    if product is not None and product not in ["coupled"]:
+        raise ValueError(
+            f"Product {product!r} is not supported. Supported products are ['coupled']."
+        )
+
+    irreps_iter = [
+        [
+            (
+                irrep.get("num", 1) * target["num_subtargets"],
+                irrep["o3_lambda"],
+                irrep["o3_sigma"],
+            )
+        ]
+        for irrep in irreps
+    ]
+    if product is not None:
+        irreps_iter = [
+            i_irrep + j_irrep
+            for i_irrep, j_irrep in itertools.product(irreps_iter, repeat=2)
+        ]
+    if product == "coupled":
+        coupled_blocks: dict[tuple[int, int], int] = defaultdict(int)
+        coupled_properties = defaultdict(list)
+        for (num1, l1, sig1), (num2, l2, sig2) in irreps_iter:
+            for lam in range(abs(l1 - l2), l1 + l2 + 1):
+                sig = sig1 * sig2 * (-1) ** (l1 + l2 + lam)
+
+                # If the two spherical harmonics are in the same center,
+                # the coupled values for sigma = -1 are zero. This is true
+                # for the Hamiltonian, density matrix and overlap, but might
+                # be not true for other targets. In that case, we will need to
+                # add an input to specify if the target has this property.
+                # For per-pair targets (not introduced yet), this will not be
+                # the case.
+                if sig == -1:
+                    continue
+
+                coupled_blocks[(lam, sig)] += num1 * num2
+
+                # Build properties
+                added_properties = []
+                for i in range(num1):
+                    for j in range(num2):
+                        added_properties.append((l1, l2, i, j))
+                coupled_properties[(lam, sig)].extend(added_properties)
+
+        irreps_iter = [[(num, lam, sig)] for (lam, sig), num in coupled_blocks.items()]
+        properties = [
+            Labels(
+                names=["l_1", "l_2", "n_1", "n_2"],
+                values=torch.tensor(props, dtype=torch.int32),
+            )
+            for props in coupled_properties.values()
+        ]
+    else:
+        properties = [None] * len(irreps_iter)
+
+    return irreps_iter, properties
 
 
 def is_auxiliary_output(name: str) -> bool:

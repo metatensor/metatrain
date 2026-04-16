@@ -1038,3 +1038,195 @@ def test_composition_spherical():
         output_O["energy"].block({"o3_lambda": 0}).values,
         torch.tensor([[[1.0]]], dtype=torch.float64),
     )
+
+
+@pytest.mark.parametrize("missing_type", [False, True])
+def test_composition_spherical_atomic_basis(missing_type):
+    """Test the calculation of composition weights for a spherical
+    target that is on an atomic basis (and per atom).
+
+    :param missing_type: whether to include set up `DatasetInfo` with an atomic type
+       that is not present in the dataset, to test that it is correctly ignored
+       and does not cause an error.
+    """
+
+    # Here we use two synthetic structures:
+    # - O atom, with a scalar of 1.0
+    # - H2O molecule, with scalars of 1.0, 1.5, 2.0
+    # The expected composition weights are 1.25 for H and 1.5 for O.
+
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+    tensor_map_1 = TensorMap(
+        keys=Labels(
+            names=["o3_lambda", "o3_sigma", "atom_type"],
+            values=torch.tensor([[0, 1, 8], [1, 1, 8]]),
+        ),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[1.0]], dtype=torch.float64).reshape(-1, 1, 1),
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[0, 0]])),
+                components=[
+                    Labels(
+                        names=["o3_mu"],
+                        values=torch.tensor([[0]]),
+                    )
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+            TensorBlock(
+                values=torch.randn((1, 3, 1), dtype=torch.float64),
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[0, 0]])),
+                components=[
+                    Labels(
+                        names=["o3_mu"],
+                        values=torch.arange(-1, 2).reshape(-1, 1),
+                    )
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+        ],
+    )
+    tensor_map_2 = TensorMap(
+        keys=Labels(
+            names=["o3_lambda", "o3_sigma", "atom_type"],
+            values=torch.tensor([[0, 1, 1], [0, 1, 8], [1, 1, 8]]),
+        ),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[1.0], [1.5]], dtype=torch.float64).reshape(
+                    -1, 1, 1
+                ),
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[1, 0], [1, 1]]),
+                ),
+                components=[
+                    Labels(
+                        names=["o3_mu"],
+                        values=torch.tensor([[0]]),
+                    )
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+            TensorBlock(
+                values=torch.tensor([[2.0]], dtype=torch.float64).reshape(-1, 1, 1),
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[1, 2]]),
+                ),
+                components=[
+                    Labels(
+                        names=["o3_mu"],
+                        values=torch.tensor([[0]]),
+                    )
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+            TensorBlock(
+                values=torch.randn((1, 3, 1), dtype=torch.float64),
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[1, 2]]),
+                ),
+                components=[
+                    Labels(
+                        names=["o3_mu"],
+                        values=torch.arange(-1, 2).reshape(-1, 1),
+                    )
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+        ],
+    )
+
+    dataset = Dataset.from_dict(
+        {"system": systems, "spherical_atomic_basis": [tensor_map_1, tensor_map_2]}
+    )
+
+    # Set up basis.
+    atomic_types = [1, 8]
+    irreps = {
+        1: [
+            {"o3_lambda": 0, "o3_sigma": 1},
+        ],
+        8: [
+            {"o3_lambda": 0, "o3_sigma": 1},
+            {"o3_lambda": 1, "o3_sigma": 1},
+        ],
+    }
+    # Add missing type to the basis.
+    if missing_type:
+        atomic_types.append(9)
+        irreps[9] = [
+            {"o3_lambda": 0, "o3_sigma": 1},
+        ]
+
+    composition_model = CompositionModel(
+        hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=atomic_types,
+            targets={
+                "spherical_atomic_basis": get_generic_target_info(
+                    "spherical_atomic_basis",
+                    {
+                        "quantity": "",
+                        "unit": "",
+                        "type": {"spherical": {"irreps": irreps}},
+                        "num_subtargets": 1,
+                        "per_atom": True,
+                    },
+                )
+            },
+        ),
+    )
+
+    composition_model.train_model([dataset], [], batch_size=1, is_distributed=False)
+    assert composition_model.atomic_types == atomic_types
+    output = composition_model(
+        [systems[1]], {"spherical_atomic_basis": ModelOutput(per_atom=True)}
+    )
+
+    H_block = output["spherical_atomic_basis"].block({"atom_type": 1})
+    O_block = output["spherical_atomic_basis"].block({"atom_type": 8})
+
+    # Check that the composition weights are correct for both H and O.
+    torch.testing.assert_close(
+        H_block.values,
+        torch.tensor([1.25, 1.25], dtype=torch.float64).reshape(-1, 1, 1),
+    )
+    torch.testing.assert_close(
+        O_block.values, torch.tensor([1.5], dtype=torch.float64).reshape(-1, 1, 1)
+    )
+
+    if missing_type:
+        # Check that if we pass a system with the missing type, we get a zero
+        # contribution from the composition model.
+        system_F = System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([9]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        )
+        output_F = composition_model(
+            [system_F], {"spherical_atomic_basis": ModelOutput(per_atom=True)}
+        )
+        F_block = output_F["spherical_atomic_basis"].block({"atom_type": 9})
+        torch.testing.assert_close(
+            F_block.values, torch.tensor([0.0], dtype=torch.float64).reshape(-1, 1, 1)
+        )

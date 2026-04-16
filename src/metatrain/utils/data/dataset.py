@@ -692,6 +692,8 @@ class DiskDataset(torch.utils.data.Dataset):
                 )
             self._fields_to_read = fields
 
+        self._fields_to_read.append("mtt::aux::system_index")
+
         self._sample_class = namedtuple("Sample", self._fields_to_read)
 
         # Do not open file in the main process and start sub-processes with None
@@ -719,6 +721,23 @@ class DiskDataset(torch.utils.data.Dataset):
                 with self.zip_file.open(f"{index}/system.mta", "r") as file:
                     system = load_system(file)
                     system_and_targets.append(system)
+            elif field_name == "mtt::aux::system_index":
+                tensor_map = TensorMap(
+                    keys=Labels(["_"], torch.tensor([[0]])),
+                    blocks=[
+                        TensorBlock(
+                            # Integer values are not supported (coming soon)
+                            values=torch.tensor([[index]]).to(torch.float64),
+                            samples=Labels(
+                                names=["system"],
+                                values=torch.tensor([[index]]),
+                            ),
+                            components=[],
+                            properties=Labels(["_"], torch.tensor([[0]])),
+                        )
+                    ],
+                )
+                system_and_targets.append(tensor_map)
             else:
                 with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
                     numpy_buffer = np.load(file)
@@ -731,12 +750,16 @@ class DiskDataset(torch.utils.data.Dataset):
         for i in range(len(self)):
             yield self[i]
 
-    def get_target_info(self, target_config: DictConfig) -> Dict[str, TargetInfo]:
+    def get_target_info(
+        self, target_config: DictConfig, is_extra_data: bool = False
+    ) -> Dict[str, TargetInfo]:
         """
         Get information about the targets in the dataset.
 
         :param target_config: The user-provided (through the yaml file) target
             configuration.
+        :param is_extra_data: Whether the target information is for extra data or not.
+            If ``True``, auxiliary variables will be added here, e.g. the system index.
         :return: A dictionary mapping target names to :py:class:`TargetInfo` objects.
         """
         target_info_dict = {}
@@ -763,8 +786,22 @@ class DiskDataset(torch.utils.data.Dataset):
                 _check_tensor_map_metadata(tensor_map, target_info.layout)
                 # make sure that the properties of the target_info.layout also match the
                 # actual properties of the tensor maps
-                target_info.layout = _empty_tensor_map_like(tensor_map)
+                if not target_info.is_atomic_basis:
+                    target_info.layout = _empty_tensor_map_like(tensor_map)
                 target_info_dict[target_key] = target_info
+
+        if is_extra_data:
+            # Add the system indices as extra data
+            target_info_dict["mtt::aux::system_index"] = get_generic_target_info(
+                "system_index",
+                {
+                    "quantity": "",
+                    "unit": "",
+                    "type": "scalar",
+                    "per_atom": False,
+                    "num_subtargets": 1,
+                },
+            )
         return target_info_dict
 
     def __del__(self) -> None:

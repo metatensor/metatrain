@@ -120,6 +120,7 @@ def systems_to_batch(
     torch.Tensor,
     torch.Tensor,
     Labels,
+    torch.Tensor,
 ]:
     """
     Converts a list of systems to a batch required for the PET model.
@@ -282,4 +283,5 @@ def systems_to_batch(
         cutoff_factors,
         system_indices,
         sample_labels,
+        species,
     )
