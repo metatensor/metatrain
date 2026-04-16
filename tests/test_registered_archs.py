@@ -52,6 +52,24 @@ def test_codeowners_there():
         )
 
 
+def test_architecture_in_readme():
+    """Test that all architectures are mentioned in the README."""
+    all_arches = find_all_architectures()
+
+    readme_path = Path(__file__).parent.parent / "README.md"
+    readme_content = readme_path.read_text()
+
+    for arch in all_arches:
+        # Strip experimental./deprecated. prefix — README lists bare names
+        bare_name = arch.split(".")[-1]
+        # Match the anchor definition line, e.g. [arch-soap_bpnn]:
+        if f"[arch-{bare_name}]:" not in readme_content:
+            raise ValueError(
+                f"Architecture '{arch}' is not mentioned in README.md."
+                f" Please add an entry with an '[arch-{bare_name}]:' anchor."
+            )
+
+
 def test_architecture_in_codecov():
     """Test that all architectures are in codecov.yml for coverage reporting."""
     all_arches = find_all_architectures()
