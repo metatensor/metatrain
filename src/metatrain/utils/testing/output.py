@@ -43,6 +43,8 @@ class OutputTests(ArchitectureTests):
     """Whether the model supports vector outputs."""
     supports_spherical_outputs: bool = True
     """Whether the model supports spherical tensor outputs."""
+    supports_spherical_rank2_outputs: bool = True
+    """Whether the model supports spherical tensor outputs of rank 2."""
     supports_spherical_atomic_basis_outputs: bool = True
     """Whether the model supports spherical atomic basis outputs."""
     supports_selected_atoms: bool = True
@@ -324,6 +326,51 @@ class OutputTests(ArchitectureTests):
             else:
                 assert spherical_target_block.values.shape[0] == 1
 
+    def test_output_spherical_rank2(
+        self,
+        model_hypers: dict,
+        dataset_info_spherical_rank2: DatasetInfo,
+        per_atom: bool,
+    ) -> None:
+        """Tests that forward pass works for spherical outputs of rank 2.
+
+        It also tests that the returned outputs have the expected samples
+        and values shape.
+
+        This test is skipped if the model does not support spherical outputs,
+        i.e., if ``supports_spherical_outputs`` is set to ``False``, or it does
+        not support spherical rank 2 outputs, i.e., if
+        ``supports_spherical_rank2_outputs`` is set to ``False``.
+
+        If this test is failing, your model might:
+        - not be producing spherical outputs of rank 2 when requested.
+        - not be taking into account correctly the ``per_atom`` field of the
+        outputs passed to the ``outputs`` argument of the ``forward()`` method.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info_spherical_rank2: Dataset information with spherical
+          outputs of rank 2.
+        :param per_atom: Whether the requested outputs are per-atom or not.
+        """
+        if not self.supports_spherical_outputs:
+            pytest.skip(f"{self.architecture} does not support spherical outputs.")
+        if not self.supports_spherical_rank2_outputs:
+            pytest.skip(
+                f"{self.architecture} does not support spherical rank 2 outputs."
+            )
+
+        outputs = self._get_output(
+            model_hypers,
+            dataset_info_spherical_rank2,
+            per_atom,
+            ["spherical_tensor_rank2"],
+        )
+
+        if per_atom:
+            assert outputs["spherical_tensor_rank2"].block().values.shape[0] == 4
+        else:
+            assert outputs["spherical_tensor_rank2"].block().values.shape[0] == 1
+
     def test_output_spherical_atomic_basis(
         self,
         model_hypers: dict,
@@ -362,6 +409,51 @@ class OutputTests(ArchitectureTests):
             dataset_info_spherical_atomic_basis,
             per_atom=True,
             outputs=["spherical_tensor_atomic_basis"],
+        )
+
+    def test_output_spherical_atomic_basis_rank2(
+        self,
+        model_hypers: dict,
+        dataset_info_spherical_atomic_basis_rank2: DatasetInfo,
+    ) -> None:
+        """Tests that forward pass works for spherical outputs that
+        use an atomic basis and are of rank 2.
+
+        It also tests that the returned outputs have the expected samples
+        and values shape.
+
+        This test is skipped if one of the following is False:
+        - ``supports_spherical_outputs``
+        - ``supports_spherical_atomic_basis_outputs``
+        - ``supports_spherical_rank2_outputs``
+
+        If this test is failing and
+        - ``test_output_spherical``, ``test_output_spherical_atomic_basis`` and
+          ``test_output_spherical_rank2`` are passing: your model is not handling
+          the possibility that outputs can be spherical, in an atomic basis and
+          of rank 2 at the same time.
+        - Any of the previously mentioned tests is failing: fix those tests first.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info_spherical_atomic_basis_rank2: Dataset information with
+            spherical outputs of rank 2 using an atomic basis.
+        """
+        if not self.supports_spherical_outputs:
+            pytest.skip(f"{self.architecture} does not support spherical outputs.")
+        if not self.supports_spherical_atomic_basis_outputs:
+            pytest.skip(
+                f"{self.architecture} does not support spherical atomic basis outputs."
+            )
+        if not self.supports_spherical_rank2_outputs:
+            pytest.skip(
+                f"{self.architecture} does not support spherical rank 2 outputs."
+            )
+
+        self._get_output(
+            model_hypers,
+            dataset_info_spherical_atomic_basis_rank2,
+            per_atom=True,
+            outputs=["spherical_tensor_atomic_basis_rank2"],
         )
 
     def test_prediction_energy_subset_elements(

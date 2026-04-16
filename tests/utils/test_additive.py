@@ -26,6 +26,8 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from metatrain.utils.data.readers.metatensor import _empty_tensor_map_like
+
 
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
@@ -1789,4 +1791,686 @@ def test_composition_spherical_atomic_basis_dense_nan_weights():
         torch.tensor([2.0, 3.0], dtype=torch.float64),
         rtol=1e-10,
         atol=1e-10,
+    )
+
+
+
+def test_composition_spherical_per_atom_rank_2():
+    """
+    Test the calculation of composition weights for a spherical per-atom rank 2 target
+    (keys: o3_lambda_1, o3_lambda_2, o3_sigma_1, o3_sigma_2) is correct.
+
+    All atoms contribute to the same blocks,
+    so the composition model fits a single weight per atomic type.
+    """
+
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                dtype=torch.float64,
+            ),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+
+    pp_full_sys1 = torch.zeros(1, 3, 3, 1, dtype=torch.float64)
+    pp_full_sys1[0, torch.arange(3), torch.arange(3), 0] = torch.tensor(
+        [1.0, 2.0, 3.0], dtype=torch.float64
+    )
+    pp_full_sys2 = torch.zeros(3, 3, 3, 1, dtype=torch.float64)
+    pp_full_sys2[2, torch.arange(3), torch.arange(3), 0] = torch.tensor(
+        [3.0, 4.0, 5.0], dtype=torch.float64
+    )
+
+    tensor_map_1 = TensorMap(
+        keys=Labels(
+            names=["o3_lambda_1", "o3_lambda_2", "o3_sigma_1", "o3_sigma_2"],
+            values=torch.tensor([[0, 0, 1, 1], [1, 1, 1, 1]]),
+        ),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[[[1.0]]]], dtype=torch.float64),
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[0, 0]])),
+                components=[
+                    Labels(names=["o3_mu_1"], values=torch.tensor([[0]])),
+                    Labels(names=["o3_mu_2"], values=torch.tensor([[0]])),
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+            TensorBlock(
+                values=pp_full_sys1,
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[0, 0]])),
+                components=[
+                    Labels(names=["o3_mu_1"], values=torch.arange(-1, 2).reshape(-1, 1)),
+                    Labels(names=["o3_mu_2"], values=torch.arange(-1, 2).reshape(-1, 1)),
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+        ],
+    )
+
+    ss_vals_sys2 = torch.tensor([[[[1.0]]], [[[1.5]]], [[[2.0]]]], dtype=torch.float64)
+    tensor_map_2 = TensorMap(
+        keys=Labels(
+            names=["o3_lambda_1", "o3_lambda_2", "o3_sigma_1", "o3_sigma_2"],
+            values=torch.tensor([[0, 0, 1, 1], [1, 1, 1, 1]]),
+        ),
+        blocks=[
+            TensorBlock(
+                values=ss_vals_sys2,
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[1, 0], [1, 1], [1, 2]]),
+                ),
+                components=[
+                    Labels(names=["o3_mu_1"], values=torch.tensor([[0]])),
+                    Labels(names=["o3_mu_2"], values=torch.tensor([[0]])),
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+            TensorBlock(
+                values=pp_full_sys2,
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[1, 0], [1, 1], [1, 2]]),
+                ),
+                components=[
+                    Labels(names=["o3_mu_1"], values=torch.arange(-1, 2).reshape(-1, 1)),
+                    Labels(names=["o3_mu_2"], values=torch.arange(-1, 2).reshape(-1, 1)),
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+        ],
+    )
+
+    dataset = Dataset.from_dict(
+        {"system": systems, "rank_2_target": [tensor_map_1, tensor_map_2]}
+    )
+
+    target_info = get_generic_target_info(
+        "rank_2_target",
+        {
+            "quantity": "",
+            "unit": "",
+            "type": {
+                "spherical": {
+                    "irreps": {
+                        1: [{"o3_lambda": 0, "o3_sigma": 1}],
+                        8: [
+                            {"o3_lambda": 0, "o3_sigma": 1},
+                            {"o3_lambda": 1, "o3_sigma": 1},
+                        ],
+                    },
+                    "product": "cartesian",
+                }
+            },
+            "num_subtargets": 1,
+            "per_atom": True,
+        },
+    )
+    target_info.layout = _empty_tensor_map_like(tensor_map_1)
+
+    composition_model = CompositionModel(
+        hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 8],
+            targets={"rank_2_target": target_info},
+        ),
+    )
+
+    composition_model.train_model([dataset], [], batch_size=1, is_distributed=False)
+
+    output = composition_model(
+        [systems[1]], {"rank_2_target": ModelOutput(per_atom=True)}
+    )
+
+    ss_key = {"o3_lambda_1": 0, "o3_lambda_2": 0, "o3_sigma_1": 1, "o3_sigma_2": 1}
+    pp_key = {"o3_lambda_1": 1, "o3_lambda_2": 1, "o3_sigma_1": 1, "o3_sigma_2": 1}
+
+    ss_block = output["rank_2_target"].block(ss_key)
+    torch.testing.assert_close(
+        ss_block.values,
+        torch.tensor(
+            [1.25, 1.25, 1.5], dtype=torch.float64
+        ).reshape(-1, 1, 1, 1),
+    )
+
+    pp_block = output["rank_2_target"].block(pp_key)
+    expected_pp = torch.zeros(3, 3, 3, 1, dtype=torch.float64)
+    expected_pp[2, torch.arange(3), torch.arange(3), 0] = torch.tensor(
+        [3.0, 3.0, 3.0], dtype=torch.float64
+    )
+    torch.testing.assert_close(pp_block.values, expected_pp)
+
+def test_composition_spherical_per_atom_rank_2_rotation_invariance():
+    """
+    Test the calculation of composition weights for a spherical per-atom rank 2 target
+    (keys: o3_lambda_1, o3_lambda_2, o3_sigma_1, o3_sigma_2) is invariant under fitting
+    on a rotated version of the dataset.
+    """
+
+    def Rz(theta):
+        c, s = torch.cos(torch.tensor(theta)), torch.sin(torch.tensor(theta))
+        return torch.tensor(
+            [[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]], dtype=torch.float64
+        )
+
+    positions = torch.tensor(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+    )
+    R = Rz(torch.pi / 2)
+    positions_rotated = positions @ R.T
+
+    system = System(
+        positions=positions,
+        types=torch.tensor([8, 1, 1]),
+        cell=torch.eye(3, dtype=torch.float64),
+        pbc=torch.tensor([True, True, True]),
+    )
+    system_rotated = System(
+        positions=positions_rotated,
+        types=torch.tensor([8, 1, 1]),
+        cell=torch.eye(3, dtype=torch.float64),
+        pbc=torch.tensor([True, True, True]),
+    )
+
+    ss_vals = torch.tensor([[[[1.0]]], [[[1.5]]], [[[2.0]]]], dtype=torch.float64)
+
+    pp_full = torch.zeros(3, 3, 3, 1, dtype=torch.float64)
+    pp_full[torch.arange(3), torch.arange(3), torch.arange(3), 0] = torch.tensor(
+        [1.0, 2.0, 3.0], dtype=torch.float64
+    )
+    pp_vals = pp_full[..., 0]  
+    pp_vals_rotated = torch.einsum("ac,bd,icd->iab", R, R, pp_vals).unsqueeze(-1)
+
+    def make_tensor_map(ss_values, pp_values, system_idx):
+        samples_3 = Labels(
+            names=["system", "atom"],
+            values=torch.tensor(
+                [[system_idx, 0], [system_idx, 1], [system_idx, 2]]
+            ),
+        )
+        return TensorMap(
+            keys=Labels(
+                names=["o3_lambda_1", "o3_lambda_2", "o3_sigma_1", "o3_sigma_2"],
+                values=torch.tensor([[0, 0, 1, 1], [1, 1, 1, 1]]),
+            ),
+            blocks=[
+                TensorBlock(
+                    values=ss_values,
+                    samples=samples_3,
+                    components=[
+                        Labels(names=["o3_mu_1"], values=torch.tensor([[0]])),
+                        Labels(names=["o3_mu_2"], values=torch.tensor([[0]])),
+                    ],
+                    properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                ),
+                TensorBlock(
+                    values=pp_values,
+                    samples=samples_3,
+                    components=[
+                        Labels(
+                            names=["o3_mu_1"],
+                            values=torch.arange(-1, 2).reshape(-1, 1),
+                        ),
+                        Labels(
+                            names=["o3_mu_2"],
+                            values=torch.arange(-1, 2).reshape(-1, 1),
+                        ),
+                    ],
+                    properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                ),
+            ],
+        )
+
+    target_info = get_generic_target_info(
+        "rank_2_target",
+        {
+            "quantity": "",
+            "unit": "",
+            "type": {
+                "spherical": {
+                    "irreps": {
+                        1: [{"o3_lambda": 0, "o3_sigma": 1}],
+                        8: [
+                            {"o3_lambda": 0, "o3_sigma": 1},
+                            {"o3_lambda": 1, "o3_sigma": 1},
+                        ],
+                    },
+                    "product": "cartesian",
+                }
+            },
+            "num_subtargets": 1,
+            "per_atom": True,
+        },
+    )
+    target_info.layout = _empty_tensor_map_like(make_tensor_map(ss_vals, pp_full, 0))
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 8],
+        targets={"rank_2_target": target_info},
+    )
+
+    dataset_orig = Dataset.from_dict(
+        {
+            "system": [system],
+            "rank_2_target": [make_tensor_map(ss_vals, pp_full, 0)],
+        }
+    )
+    model_orig = CompositionModel(hypers={}, dataset_info=dataset_info)
+    model_orig.train_model([dataset_orig], [], batch_size=1, is_distributed=False)
+
+    dataset_rot = Dataset.from_dict(
+        {
+            "system": [system_rotated],
+            "rank_2_target": [make_tensor_map(ss_vals, pp_vals_rotated, 0)],
+        }
+    )
+    model_rot = CompositionModel(hypers={}, dataset_info=dataset_info)
+    model_rot.train_model([dataset_rot], [], batch_size=1, is_distributed=False)
+
+    weights_orig = model_orig.model.weights["rank_2_target"]
+    weights_rot = model_rot.model.weights["rank_2_target"]
+
+    ss_key = {"o3_lambda_1": 0, "o3_lambda_2": 0, "o3_sigma_1": 1, "o3_sigma_2": 1}
+    pp_key = {"o3_lambda_1": 1, "o3_lambda_2": 1, "o3_sigma_1": 1, "o3_sigma_2": 1}
+
+    torch.testing.assert_close(
+        weights_orig.block(ss_key).values,
+        weights_rot.block(ss_key).values,
+    )
+    torch.testing.assert_close(
+        weights_orig.block(pp_key).values,
+        weights_rot.block(pp_key).values,
+    )
+
+@pytest.mark.parametrize("missing_type", [False, True])
+def test_composition_spherical_atomic_basis_rank_2(missing_type):
+    """
+    Test the calculation of composition weights for a spherical per-atom rank 2 atomic
+    basis target (keys: o3_lambda_1, o3_sigma_1, o3_lambda_2, o3_sigma_2, atom_type) is
+    correct.
+    """
+
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                dtype=torch.float64,
+            ),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+
+    pp_full_sys1 = torch.zeros(1, 3, 3, 1, dtype=torch.float64)
+    pp_full_sys1[0, torch.arange(3), torch.arange(3), 0] = torch.tensor(
+        [1.0, 2.0, 3.0], dtype=torch.float64
+    )
+    pp_full_sys2 = torch.zeros(1, 3, 3, 1, dtype=torch.float64)
+    pp_full_sys2[0, torch.arange(3), torch.arange(3), 0] = torch.tensor(
+        [3.0, 4.0, 5.0], dtype=torch.float64
+    )
+
+    tensor_map_1 = TensorMap(
+        keys=Labels(
+            names=[
+                "o3_lambda_1",
+                "o3_lambda_2",
+                "o3_sigma_1",
+                "o3_sigma_2",
+                "atom_type",
+            ],
+            values=torch.tensor([[0, 0, 1, 1, 8], [1, 1, 1, 1, 8]]),
+        ),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[[[1.0]]]], dtype=torch.float64),
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[0, 0]])),
+                components=[
+                    Labels(names=["o3_mu_1"], values=torch.tensor([[0]])),
+                    Labels(names=["o3_mu_2"], values=torch.tensor([[0]])),
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+            TensorBlock(
+                values=pp_full_sys1,
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[0, 0]])),
+                components=[
+                    Labels(
+                        names=["o3_mu_1"], values=torch.arange(-1, 2).reshape(-1, 1)
+                    ),
+                    Labels(
+                        names=["o3_mu_2"], values=torch.arange(-1, 2).reshape(-1, 1)
+                    ),
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+        ],
+    )
+
+    tensor_map_2 = TensorMap(
+        keys=Labels(
+            names=[
+                "o3_lambda_1",
+                "o3_lambda_2",
+                "o3_sigma_1",
+                "o3_sigma_2",
+                "atom_type",
+            ],
+            values=torch.tensor([[0, 0, 1, 1, 1], [0, 0, 1, 1, 8], [1, 1, 1, 1, 8]]),
+        ),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[[[1.0]]], [[[1.5]]]], dtype=torch.float64),
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[1, 0], [1, 1]]),
+                ),
+                components=[
+                    Labels(names=["o3_mu_1"], values=torch.tensor([[0]])),
+                    Labels(names=["o3_mu_2"], values=torch.tensor([[0]])),
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+            TensorBlock(
+                values=torch.tensor([[[[2.0]]]], dtype=torch.float64),
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[1, 2]]),
+                ),
+                components=[
+                    Labels(names=["o3_mu_1"], values=torch.tensor([[0]])),
+                    Labels(names=["o3_mu_2"], values=torch.tensor([[0]])),
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+            TensorBlock(
+                values=pp_full_sys2,
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[1, 2]]),
+                ),
+                components=[
+                    Labels(
+                        names=["o3_mu_1"], values=torch.arange(-1, 2).reshape(-1, 1)
+                    ),
+                    Labels(
+                        names=["o3_mu_2"], values=torch.arange(-1, 2).reshape(-1, 1)
+                    ),
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+        ],
+    )
+
+    dataset = Dataset.from_dict(
+        {
+            "system": systems,
+            "uncoupled_hamiltonian": [tensor_map_1, tensor_map_2],
+        }
+    )
+
+    atomic_types = [1, 8]
+    irreps = {
+        1: [{"o3_lambda": 0, "o3_sigma": 1}],
+        8: [
+            {"o3_lambda": 0, "o3_sigma": 1},
+            {"o3_lambda": 1, "o3_sigma": 1},
+        ],
+    }
+    if missing_type:
+        atomic_types.append(9)
+        irreps[9] = [{"o3_lambda": 0, "o3_sigma": 1}]
+
+    composition_model = CompositionModel(
+        hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=atomic_types,
+            targets={
+                "uncoupled_hamiltonian": get_generic_target_info(
+                    "uncoupled_hamiltonian",
+                    {
+                        "quantity": "",
+                        "unit": "",
+                        "type": {
+                            "spherical": {"irreps": irreps, "product": "cartesian"}
+                        },
+                        "num_subtargets": 1,
+                        "per_atom": True,
+                    },
+                )
+            },
+        ),
+    )
+
+    composition_model.train_model([dataset], [], batch_size=1, is_distributed=False)
+    assert composition_model.atomic_types == atomic_types
+
+    output = composition_model(
+        [systems[1]], {"uncoupled_hamiltonian": ModelOutput(per_atom=True)}
+    )
+
+    ss_key = {"o3_lambda_1": 0, "o3_lambda_2": 0, "o3_sigma_1": 1, "o3_sigma_2": 1}
+    pp_key = {"o3_lambda_1": 1, "o3_lambda_2": 1, "o3_sigma_1": 1, "o3_sigma_2": 1}
+
+    H_ss_block = output["uncoupled_hamiltonian"].block({**ss_key, "atom_type": 1})
+    torch.testing.assert_close(
+        H_ss_block.values,
+        torch.tensor([1.25, 1.25], dtype=torch.float64).reshape(-1, 1, 1, 1),
+    )
+
+    O_ss_block = output["uncoupled_hamiltonian"].block({**ss_key, "atom_type": 8})
+    torch.testing.assert_close(
+        O_ss_block.values,
+        torch.tensor([1.5], dtype=torch.float64).reshape(-1, 1, 1, 1),
+    )
+
+    O_pp_block = output["uncoupled_hamiltonian"].block({**pp_key, "atom_type": 8})
+    expected_pp = torch.zeros(1, 3, 3, 1, dtype=torch.float64)
+    expected_pp[0, torch.arange(3), torch.arange(3), 0] = torch.tensor(
+        [3.0, 3.0, 3.0], dtype=torch.float64
+    )
+    torch.testing.assert_close(O_pp_block.values, expected_pp)
+
+    if missing_type:
+        system_F = System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([9]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        )
+        output_F = composition_model(
+            [system_F], {"uncoupled_hamiltonian": ModelOutput(per_atom=True)}
+        )
+        F_ss_block = output_F["uncoupled_hamiltonian"].block({**ss_key, "atom_type": 9})
+        torch.testing.assert_close(
+            F_ss_block.values,
+            torch.tensor([0.0], dtype=torch.float64).reshape(-1, 1, 1, 1),
+        )
+
+@pytest.mark.parametrize("missing_type", [False, True])
+def test_composition_spherical_atomic_basis_rank_2_rotation_invariance(missing_type):
+    """
+    Test the calculation of composition weights for a spherical per-atom rank 2 atomic
+    basis target (keys: o3_lambda_1, o3_lambda_2, o3_sigma_1, o3_sigma_2, atom_type) is
+    invariant under fitting on a rotated version of the dataset.
+    """
+
+    def Rz(theta):
+        c, s = torch.cos(torch.tensor(theta)), torch.sin(torch.tensor(theta))
+        return torch.tensor(
+            [[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]], dtype=torch.float64
+        )
+
+    positions = torch.tensor(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+    )
+    R = Rz(torch.pi / 2)
+    positions_rotated = positions @ R.T
+
+    system = System(
+        positions=positions,
+        types=torch.tensor([8, 1, 1]),
+        cell=torch.eye(3, dtype=torch.float64),
+        pbc=torch.tensor([True, True, True]),
+    )
+    system_rotated = System(
+        positions=positions_rotated,
+        types=torch.tensor([8, 1, 1]),
+        cell=torch.eye(3, dtype=torch.float64),
+        pbc=torch.tensor([True, True, True]),
+    )
+
+    pp_O = torch.zeros(1, 3, 3, 1, dtype=torch.float64)
+    pp_O[0, torch.arange(3), torch.arange(3), 0] = torch.tensor(
+        [1.0, 2.0, 3.0], dtype=torch.float64
+    )
+    pp_O_rotated = torch.einsum(
+        "ac,bd,icd->iab", R, R, pp_O[..., 0]
+    ).unsqueeze(-1)
+
+    def make_tensor_map(system_idx, pp_O_vals):
+        return TensorMap(
+            keys=Labels(
+                names=[
+                    "o3_lambda_1",
+                    "o3_lambda_2",
+                    "o3_sigma_1",
+                    "o3_sigma_2",
+                    "atom_type",
+                ],
+                values=torch.tensor([[0, 0, 1, 1, 1], [0, 0, 1, 1, 8], [1, 1, 1, 1, 8]]),
+            ),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[[[1.0]]], [[[1.5]]]], dtype=torch.float64),
+                    samples=Labels(
+                        names=["system", "atom"],
+                        values=torch.tensor([[system_idx, 1], [system_idx, 2]]),
+                    ),
+                    components=[
+                        Labels(names=["o3_mu_1"], values=torch.tensor([[0]])),
+                        Labels(names=["o3_mu_2"], values=torch.tensor([[0]])),
+                    ],
+                    properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                ),
+                TensorBlock(
+                    values=torch.tensor([[[[2.0]]]], dtype=torch.float64),
+                    samples=Labels(
+                        names=["system", "atom"],
+                        values=torch.tensor([[system_idx, 0]]),
+                    ),
+                    components=[
+                        Labels(names=["o3_mu_1"], values=torch.tensor([[0]])),
+                        Labels(names=["o3_mu_2"], values=torch.tensor([[0]])),
+                    ],
+                    properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                ),
+                TensorBlock(
+                    values=pp_O_vals,
+                    samples=Labels(
+                        names=["system", "atom"],
+                        values=torch.tensor([[system_idx, 0]]),
+                    ),
+                    components=[
+                        Labels(
+                            names=["o3_mu_1"],
+                            values=torch.arange(-1, 2).reshape(-1, 1),
+                        ),
+                        Labels(
+                            names=["o3_mu_2"],
+                            values=torch.arange(-1, 2).reshape(-1, 1),
+                        ),
+                    ],
+                    properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                ),
+            ],
+        )
+
+    atomic_types = [1, 8]
+    irreps = {
+        1: [{"o3_lambda": 0, "o3_sigma": 1}],
+        8: [
+            {"o3_lambda": 0, "o3_sigma": 1},
+            {"o3_lambda": 1, "o3_sigma": 1},
+        ],
+    }
+    if missing_type:
+        atomic_types.append(9)
+        irreps[9] = [{"o3_lambda": 0, "o3_sigma": 1}]
+
+    target_info = get_generic_target_info(
+        "uncoupled_hamiltonian",
+        {
+            "quantity": "",
+            "unit": "",
+            "type": {
+                "spherical": {"irreps": irreps, "product": "cartesian"}
+            },
+            "num_subtargets": 1,
+            "per_atom": True,
+        },
+    )
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=atomic_types,
+        targets={"uncoupled_hamiltonian": target_info},
+    )
+
+    dataset_orig = Dataset.from_dict(
+        {
+            "system": [system],
+            "uncoupled_hamiltonian": [make_tensor_map(0, pp_O)],
+        }
+    )
+    model_orig = CompositionModel(hypers={}, dataset_info=dataset_info)
+    model_orig.train_model([dataset_orig], [], batch_size=1, is_distributed=False)
+
+    dataset_rot = Dataset.from_dict(
+        {
+            "system": [system_rotated],
+            "uncoupled_hamiltonian": [make_tensor_map(0, pp_O_rotated)],
+        }
+    )
+    model_rot = CompositionModel(hypers={}, dataset_info=dataset_info)
+    model_rot.train_model([dataset_rot], [], batch_size=1, is_distributed=False)
+
+    weights_orig = model_orig.model.weights["uncoupled_hamiltonian"]
+    weights_rot = model_rot.model.weights["uncoupled_hamiltonian"]
+
+    ss_key = {"o3_lambda_1": 0, "o3_lambda_2": 0, "o3_sigma_1": 1, "o3_sigma_2": 1}
+    pp_key = {"o3_lambda_1": 1, "o3_lambda_2": 1, "o3_sigma_1": 1, "o3_sigma_2": 1}
+
+    torch.testing.assert_close(
+        weights_orig.block({**ss_key, "atom_type": 1}).values,
+        weights_rot.block({**ss_key, "atom_type": 1}).values,
+    )
+    torch.testing.assert_close(
+        weights_orig.block({**ss_key, "atom_type": 8}).values,
+        weights_rot.block({**ss_key, "atom_type": 8}).values,
+    )
+
+    torch.testing.assert_close(
+        weights_orig.block({**pp_key, "atom_type": 8}).values,
+        weights_rot.block({**pp_key, "atom_type": 8}).values,
     )
