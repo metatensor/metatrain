@@ -137,14 +137,14 @@ def _setup_wandb_logging(logger: logging.Logger, args: argparse.Namespace) -> No
     :param args: The argparse.Namespace containing the arguments.
     """
     # Don't modify the incoming args to prevent errors.
-    args = copy.deepcopy(args)
+    detached_args = copy.deepcopy(args)
 
     # Be very graceful in parsing the options -- true errors should be handled once
     # the logger is setup in setup_logging!
     options = None
     try:
-        _prepare_train_model_args(args)
-        options = args.__dict__["options"]
+        _prepare_train_model_args(detached_args)
+        options = detached_args.__dict__["options"]
     except Exception:
         ...
 
