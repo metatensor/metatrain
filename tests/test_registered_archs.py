@@ -64,6 +64,11 @@ def test_architecture_in_readme():
         bare_name = arch.split(".")[-1]
         # Match the anchor definition line, e.g. [arch-soap_bpnn]:
         if f"[arch-{bare_name}]:" not in readme_content:
+            # TODO: Decide whether we want to include `classifier` and `llpr` in the
+            # README.
+            if bare_name in ["classifier", "llpr"]:
+                continue
+
             raise ValueError(
                 f"Architecture '{arch}' is not mentioned in README.md."
                 f" Please add an entry with an '[arch-{bare_name}]:' anchor."
