@@ -13,6 +13,45 @@ except ModuleNotFoundError:
     TOML_AVAILABLE = False
 
 
+def test_codeowners_there():
+    """Test that an architeture has owners specified in CODEOWNERS."""
+    codeowners_path = Path(__file__).parent.parent / "CODEOWNERS"
+
+    # NOTE: For simplicity, this is a very basic parser. If there is a more complex
+    # architecture setup, we can change this test.
+
+    architectures = find_all_architectures()
+    with open(codeowners_path, "r") as f:
+        for line in f:
+            if line.startswith("#") or not line.strip():
+                continue
+            path, *owners = line.split()
+
+            # Fortunately, the architecture names match the directory names.
+            path = path[3:]  # Remove leading "**/"
+            if not (path in architectures or "experimental." + path in architectures):
+                raise ValueError(
+                    "Found architecture path in CODEOWNERS that does not match any "
+                    "architecture: %s. Was it removed but you forgot to update the "
+                    "CODEOWNERS file?" % path
+                )
+            if path in architectures:
+                architectures.remove(path)
+            else:
+                architectures.remove("experimental." + path)
+
+            assert len(owners) > 0, (
+                f"No owners specified for architecture path '{path}' in CODEOWNERS. "
+                "Please add at least one owner."
+            )
+
+    for architecture in architectures:
+        raise ValueError(
+            f"Architecture '{architecture}' does not have an entry in CODEOWNERS. "
+            "Please add an entry for it with at least one owner."
+        )
+
+
 def test_architecture_in_codecov():
     """Test that all architectures are in codecov.yml for coverage reporting."""
     all_arches = find_all_architectures()
