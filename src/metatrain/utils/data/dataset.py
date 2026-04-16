@@ -660,9 +660,7 @@ def load_indices(indices_spec: Union[List[int], str]) -> List[int]:
             path = Path.cwd() / path
         if not path.exists():
             raise ValueError(f"Indices file not found: {path}")
-        indices = [
-            int(line.strip()) for line in path.read_text().splitlines() if line.strip()
-        ]
+        indices = np.loadtxt(path, dtype=int).tolist()
 
     if indices and any(i < 0 for i in indices):
         raise ValueError("Indices must be non-negative integers")

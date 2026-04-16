@@ -258,8 +258,8 @@ can be condensed into
 Indices
 -------
 
-``indices`` can either be a path to a text file containing a list of integer numbers,
-one per line:
+``indices`` can either be a path to a text file containing a list of numbers that 
+can be loaded with ``numpy.loadtxt``:
 
 .. code-block:: yaml
 
