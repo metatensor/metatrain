@@ -828,16 +828,17 @@ def test_load_indices_relative_path(tmp_path, monkeypatch):
 
 
 def test_load_indices_empty_list():
-    """Empty indices list raises ValueError."""
+    """Empty indices list"""
     indices = load_indices([])
     assert indices == []
 
 
 def test_load_indices_empty_file(tmp_path):
-    """Empty indices file raises ValueError."""
+    """Empty indices file raises numpy warning."""
     idx_file = tmp_path / "indices.txt"
     idx_file.write_text("")
-    indices = load_indices(str(idx_file))
+    with pytest.warns(UserWarning, match="loadtxt: input contained no data"):
+        indices = load_indices(str(idx_file))
     assert indices == []
 
 
