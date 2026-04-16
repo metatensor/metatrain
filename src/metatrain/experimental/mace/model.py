@@ -24,6 +24,10 @@ from metatomic.torch import (
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_target,
+    sparsify_atomic_basis_target,
+)
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
@@ -443,6 +447,16 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         # At evaluation, we also introduce the scaler and additive contributions
         if not self.training:
+            # For atomic basis targets, sparsify to create blocks with "atom_type"
+            # in the key dimensions, and ensure properties are unpadded.
+            targets = self.dataset_info.targets
+            for k, v in return_dict.items():
+                if k in targets and targets[k].is_atomic_basis:
+                    return_dict[k] = sparsify_atomic_basis_target(
+                        systems,
+                        v,
+                        targets[k].layout,
+                    )
             return_dict = self.scaler(systems, return_dict)
             self.add_additive_contributions(
                 return_dict, systems, outputs, selected_atoms
@@ -637,7 +651,11 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     "MetaMACE does not support Cartesian tensors with rank > 1."
                 )
 
-        self.layouts[target_name] = target_info.layout
+        output_layout = target_info.layout
+        if target_info.is_atomic_basis:
+            output_layout = densify_atomic_basis_target(output_layout, output_layout)
+
+        self.layouts[target_name] = output_layout
 
         if target_name == self.hypers["mace_head_target"]:
             # Fake head that will not compute the target, but will help
@@ -646,9 +664,11 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 self.mace_model.readouts, self.per_layer_irreps
             )
         else:
+            output_info = copy.deepcopy(target_info)
+            output_info.layout = output_layout
             head = NonLinearHead(
                 irreps_in=self.features_irreps,
-                irreps_out=target_info_to_e3nn_irreps(target_info),
+                irreps_out=target_info_to_e3nn_irreps(output_info),
                 MLP_irreps=o3.Irreps(self.hypers["MLP_irreps"]),
                 gate=mace_modules.gate_dict.get(self.hypers["gate"], None),
             )
