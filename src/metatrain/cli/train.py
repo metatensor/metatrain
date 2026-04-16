@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Union
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import Subset
 
 from metatrain.utils.data import Dataset
 
@@ -27,6 +28,7 @@ from ..utils.data import (
     get_atomic_types,
     get_dataset,
     get_stats,
+    load_indices,
 )
 from ..utils.data.dataset import _save_indices, _train_test_random_split
 from ..utils.devices import pick_devices
@@ -49,6 +51,40 @@ from ..utils.pydantic import validate_base_options
 from .eval import _eval_targets
 from .export import _has_extensions
 from .formatter import CustomHelpFormatter
+
+
+def _is_indices_only_config(config: DictConfig) -> bool:
+    """Check if config is indices-only (no systems/targets, just indices).
+
+    This is used for validation_set and test_set configs that reference
+    the training source file via indices only.
+
+    :param config: The DictConfig to check.
+    :return: True if config is indices-only, False otherwise.
+    """
+    return (
+        isinstance(config, DictConfig)
+        and "indices" in config
+        and "systems" not in config
+    )
+
+
+def _validate_indices(indices: List[int], dataset_size: int, set_name: str) -> None:
+    """Validate indices are within dataset bounds.
+
+    :param indices: List of indices to validate
+    :param dataset_size: Size of the dataset
+    :param set_name: Name of the set (for error messages)
+    :raises ValueError: If indices are out of range
+    """
+    if not indices:
+        return  # Empty indices allowed (e.g., for empty val/test sets)
+    max_idx = max(indices)
+    if max_idx >= dataset_size:
+        raise ValueError(
+            f"{set_name} index {max_idx} out of range for "
+            f"dataset of size {dataset_size}"
+        )
 
 
 def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
@@ -337,6 +373,21 @@ def train_model(
                 )
         extra_data_info_dict.update(extra_data_info_dict_single)
 
+    # Store full datasets before any index-based filtering
+    # (needed when val/test use indices referencing training source)
+    full_datasets = list(train_datasets)
+
+    # Track explicit training indices (if specified in config)
+    explicit_train_indices: List[Optional[List[int]]] = [None] * len(train_datasets)
+
+    # Apply indices filtering to training set if specified
+    for i_dataset, train_options in enumerate(options["training_set"]):
+        if "indices" in train_options:
+            train_idx = load_indices(train_options["indices"])
+            _validate_indices(train_idx, len(full_datasets[i_dataset]), "Training set")
+            train_datasets[i_dataset] = Subset(full_datasets[i_dataset], train_idx)
+            explicit_train_indices[i_dataset] = train_idx
+
     train_size = 1.0
 
     ############################
@@ -344,9 +395,12 @@ def train_model(
     ############################
 
     logging.info("Setting up validation set")
-    val_datasets = []
-    train_indices = []
-    val_indices = []
+    val_datasets: List[Union[Dataset, Subset]] = []
+    train_indices: List[Optional[List[int]]] = []
+    val_indices: List[Optional[List[int]]] = []
+
+    val_is_indices_only = _is_indices_only_config(options["validation_set"])
+
     if isinstance(options["validation_set"], (int, float)):
         val_size = options["validation_set"]
         train_size -= val_size
@@ -359,8 +413,32 @@ def train_model(
             )
             train_datasets[i_dataset] = train_dataset_new
             val_datasets.append(val_dataset)
-            train_indices.append(train_dataset_new.indices)
-            val_indices.append(val_dataset.indices)
+            # Remap indices to original space if training_set had explicit indices
+            orig_indices = explicit_train_indices[i_dataset]
+            if orig_indices is not None:
+                train_indices.append(
+                    [orig_indices[i] for i in train_dataset_new.indices]
+                )
+                val_indices.append([orig_indices[i] for i in val_dataset.indices])
+            else:
+                train_indices.append(train_dataset_new.indices)
+                val_indices.append(val_dataset.indices)
+    elif val_is_indices_only:
+        # Indices-only config only works for single dataset
+        if len(options["training_set"]) > 1:
+            raise ValueError(
+                "indices-only validation_set config is not supported with "
+                "multi-dataset training_set. "
+                "Use full config with systems/targets/indices for each dataset."
+            )
+        # Indices reference the training source file(s)
+        val_idx = load_indices(options["validation_set"]["indices"])
+        _validate_indices(val_idx, len(full_datasets[0]), "Validation set")
+        # Create subset from full dataset (not the potentially filtered train_datasets)
+        val_datasets.append(Subset(full_datasets[0], val_idx))
+        val_indices.append(val_idx)
+        # Use explicit training indices if they were specified
+        train_indices.append(explicit_train_indices[0])
     else:
         options["validation_set"] = expand_dataset_config(options["validation_set"])
 
@@ -378,17 +456,27 @@ def train_model(
 
         for valid_options in options["validation_set"]:
             dataset, _, _ = get_dataset(valid_options)
+            # Apply indices filtering if specified in the config
+            if "indices" in valid_options:
+                idx = load_indices(valid_options["indices"])
+                _validate_indices(idx, len(dataset), "Validation set")
+                dataset = Subset(dataset, idx)
+                val_indices.append(idx)
+            else:
+                val_indices.append(None)
             val_datasets.append(dataset)
             train_indices.append(None)
-            val_indices.append(None)
 
     ############################
     # SET UP TEST SET ##########
     ############################
 
     logging.info("Setting up test set")
-    test_datasets = []
-    test_indices = []
+    test_datasets: List[Union[Dataset, Subset]] = []
+    test_indices: List[Optional[List[int]]] = []
+
+    test_is_indices_only = _is_indices_only_config(options.get("test_set"))
+
     if isinstance(options["test_set"], (int, float)):
         test_size = options["test_set"]
         train_size -= test_size
@@ -406,14 +494,28 @@ def train_model(
             new_train_indices = (
                 train_dataset_new.indices
                 if there_was_no_validation_split
-                else [train_indices[i_dataset][i] for i in train_dataset_new.indices]
+                else [train_indices[i_dataset][i] for i in train_dataset_new.indices]  # type: ignore[index]
             )
             test_indices.append(
                 test_dataset.indices
                 if there_was_no_validation_split
-                else [train_indices[i_dataset][i] for i in test_dataset.indices]
+                else [train_indices[i_dataset][i] for i in test_dataset.indices]  # type: ignore[index]
             )
             train_indices[i_dataset] = new_train_indices
+    elif test_is_indices_only:
+        # Indices-only config only works for single dataset
+        if len(options["training_set"]) > 1:
+            raise ValueError(
+                "indices-only test_set config is not supported with "
+                "multi-dataset training_set. "
+                "Use full config with systems/targets/indices for each dataset."
+            )
+        # Indices reference the training source file(s)
+        test_idx = load_indices(options["test_set"]["indices"])
+        _validate_indices(test_idx, len(full_datasets[0]), "Test set")
+        # Create subset from full dataset
+        test_datasets.append(Subset(full_datasets[0], test_idx))
+        test_indices.append(test_idx)
     else:
         options["test_set"] = expand_dataset_config(options["test_set"])
 
@@ -431,8 +533,15 @@ def train_model(
 
         for test_options in options["test_set"]:
             dataset, _, _ = get_dataset(test_options)
+            # Apply indices filtering if specified in the config
+            if "indices" in test_options:
+                idx = load_indices(test_options["indices"])
+                _validate_indices(idx, len(dataset), "Test set")
+                dataset = Subset(dataset, idx)
+                test_indices.append(idx)
+            else:
+                test_indices.append(None)
             test_datasets.append(dataset)
-            test_indices.append(None)
 
     # Expand loss options and finalize the hypers
     options = expand_loss_config(options)
