@@ -1,4 +1,5 @@
 import argparse
+import copy
 import itertools
 import logging
 import os
@@ -37,7 +38,7 @@ from ..utils.io import (
     model_from_checkpoint,
     trainer_from_checkpoint,
 )
-from ..utils.logging import ROOT_LOGGER, WandbHandler, human_readable
+from ..utils.logging import WandbHandler, human_readable
 from ..utils.omegaconf import (
     BASE_OPTIONS,
     check_units,
@@ -127,6 +128,56 @@ def _prepare_train_model_args(args: argparse.Namespace) -> None:
     override_options = OmegaConf.from_dotlist(override_options)
 
     args.options = OmegaConf.merge(args.options, override_options)
+
+
+def _setup_wandb_logging(logger: logging.Logger, args: argparse.Namespace) -> None:
+    """Set up Weights and Biases logging if `wandb` options are provided.
+
+    :param logger: The logger to use for logging messages.
+    :param args: The argparse.Namespace containing the arguments.
+    """
+    # Don't modify the incoming args to prevent errors.
+    detached_args = copy.deepcopy(args)
+
+    # Be very graceful in parsing the options -- true errors should be handled once
+    # the logger is setup in setup_logging!
+    options = None
+    try:
+        _prepare_train_model_args(detached_args)
+        options = detached_args.__dict__["options"]
+    except Exception:
+        ...
+
+    # Try to setup wandb logging if the options are present.
+    if options is not None and hasattr(options, "wandb") and is_main_process():
+        try:
+            import wandb
+        except ImportError:
+            raise ImportError(
+                "Wandb is enabled but not installed. "
+                "Please install wandb using `pip install wandb` to use this logger."
+            )
+
+        run = wandb.init(
+            **options["wandb"], config=OmegaConf.to_container(options, resolve=True)
+        )
+        logger.addHandler(WandbHandler(run))
+
+
+def _extend_wandb_config(options: Union[Dict, DictConfig]) -> None:
+    """Update the wandb configuration with the expanded options.
+
+    :param options: The options to update the configuration with.
+    """
+    try:
+        import wandb
+
+        if wandb.run is not None:
+            wandb.config.update(
+                OmegaConf.to_container(options, resolve=True), allow_val_change=True
+            )
+    except ImportError:
+        pass
 
 
 def _process_restart_from(restart_from: str) -> Optional[Union[str, Path]]:
@@ -248,22 +299,6 @@ def train_model(
     if torch.cuda.is_available():
         torch.cuda.manual_seed(options["seed"])
         torch.cuda.manual_seed_all(options["seed"])
-
-    # setup wandb logging
-    if hasattr(options, "wandb") and is_main_process():
-        try:
-            import wandb
-        except ImportError:
-            raise ImportError(
-                "Wandb is enabled but not installed. "
-                "Please install wandb using `pip install wandb` to use this logger."
-            )
-        logging.info("Setting up wandb logging")
-
-        run = wandb.init(
-            **options["wandb"], config=OmegaConf.to_container(options, resolve=True)
-        )
-        ROOT_LOGGER.addHandler(WandbHandler(run))
 
     ############################
     # SET UP TRAINING SET ######
@@ -402,6 +437,12 @@ def train_model(
     # Expand loss options and finalize the hypers
     options = expand_loss_config(options)
     hypers = OmegaConf.to_container(options["architecture"], resolve=True)
+
+    if is_main_process():
+        # Update the wandb configuration here because the initial wandb setup (in
+        # `__main__.py`) only logs the unexpanded options. We pass the fully resolved
+        # options (including BASE_OPTIONS) to the logger now.
+        _extend_wandb_config(options)
 
     ############################################
     # SAVE TRAIN, VALIDATION, TEST INDICES #####
