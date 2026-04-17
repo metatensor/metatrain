@@ -1,6 +1,6 @@
 """
-Symplectic FlashMD
-==================
+Symplectic FlashMD (Experimental)
+=================================
 
 The symplectic variant of :ref:`FlashMD <arch-flashmd>`.
 
