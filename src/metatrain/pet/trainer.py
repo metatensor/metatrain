@@ -293,7 +293,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     num_replicas=world_size,
                     rank=rank,
                     shuffle=True,
-                    seed=self.hypers["seed"],
                     drop_last=True,
                 )
                 epoch_samplers.append(batch_sampler)
@@ -338,7 +337,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     num_replicas=world_size,
                     rank=rank,
                     shuffle=False,
-                    seed=self.hypers["seed"],
                 )
                 val_dataloaders.append(
                     DataLoader(

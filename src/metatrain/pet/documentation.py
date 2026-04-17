@@ -258,9 +258,6 @@ class TrainerHypers(TypedDict):
     """Minimum total number of atoms required to keep a batch when
     ``max_atoms_per_batch`` is set. Batches whose total atom count falls below this
     threshold are discarded during packing. Defaults to ``0`` (no minimum)."""
-    seed: int = 0
-    """Random seed for the batch sampler when ``max_atoms_per_batch`` is set.
-    Automatically populated from the top-level ``seed`` option by the training CLI."""
 
     finetune: NoFinetuneHypers | FinetuneHypers = {
         "read_from": None,

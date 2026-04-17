@@ -103,9 +103,10 @@ def _greedy_pack(
 class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
     """Distributed batch sampler that packs structures greedily up to ``max_atoms``.
 
-    Structure-to-batch packing is performed **once at construction** using ``seed``
-    (stable across epochs). Each epoch, the *order* in which batches are presented
-    to each rank is reshuffled using ``seed + epoch``, mirroring the fairchem
+    Structure-to-batch packing is performed **once at construction** using a
+    hardcoded seed (stable across runs, ranks, and restarts). Each epoch, the
+    *order* in which batches are presented to each rank is reshuffled
+    deterministically from the epoch number, mirroring the fairchem
     ``MaxAtomDistributedBatchSampler`` design.
 
     :param dataset: The dataset to sample from. Must support ``get_num_atoms(i)``
@@ -114,8 +115,6 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
     :param num_replicas: Number of distributed processes (world size).
     :param rank: Rank of the current process.
     :param shuffle: Whether to shuffle batch presentation order each epoch.
-    :param seed: Base random seed. Packing uses ``seed``; per-epoch order uses
-        ``seed + epoch``.
     :param drop_last: If ``True``, drop tail batches so the count is evenly divisible
         by ``num_replicas`` (no padding/repetition). If ``False``, repeat batches from
         the front to pad.
@@ -131,7 +130,6 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
         num_replicas: int = 1,
         rank: int = 0,
         shuffle: bool = True,
-        seed: int = 0,
         drop_last: bool = False,
         min_atoms: int = 0,
     ) -> None:
@@ -141,7 +139,6 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
         self.num_replicas = num_replicas
         self.rank = rank
         self.shuffle = shuffle
-        self.seed = seed
         self.drop_last = drop_last
         self.epoch = 0
 
@@ -191,16 +188,20 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
         """
         indices = list(range(len(self.dataset)))
         if self.shuffle:
-            rng = np.random.default_rng(self.seed)
+            # Hardcoded seed so packing is identical across runs, ranks, and
+            # restarts regardless of the global RNG state.
+            rng = np.random.default_rng(0)
             rng.shuffle(indices)
         atom_counts = [self._atom_counts[i] for i in indices]
         return _greedy_pack(indices, atom_counts, self.max_atoms, self.min_atoms)
 
     def __iter__(self) -> Iterator[List[int]]:
-        # Shuffle batch presentation order per epoch.
+        # Shuffle batch presentation order per epoch. We use a local generator keyed
+        # solely on ``self.epoch`` so that all ranks agree on the order without
+        # requiring the global RNG state to be synchronised across processes.
         if self.shuffle:
             g = torch.Generator()
-            g.manual_seed(self.seed + self.epoch)
+            g.manual_seed(self.epoch)
             batch_indices = torch.randperm(len(self.all_batches), generator=g).tolist()
         else:
             batch_indices = list(range(len(self.all_batches)))
@@ -238,7 +239,6 @@ class MaxAtomBatchSampler(MaxAtomDistributedBatchSampler):
     :param dataset: The dataset to sample from.
     :param max_atoms: Maximum total atoms per batch.
     :param shuffle: Whether to shuffle batch order each epoch.
-    :param seed: Random seed for reproducibility.
     :param drop_last: Whether to drop the last incomplete batch.
     :param min_atoms: Minimum total atoms required to keep a batch.
     """
@@ -248,7 +248,6 @@ class MaxAtomBatchSampler(MaxAtomDistributedBatchSampler):
         dataset: torch.utils.data.Dataset,
         max_atoms: int,
         shuffle: bool = True,
-        seed: int = 0,
         drop_last: bool = False,
         min_atoms: int = 0,
     ) -> None:
@@ -258,7 +257,6 @@ class MaxAtomBatchSampler(MaxAtomDistributedBatchSampler):
             num_replicas=1,
             rank=0,
             shuffle=shuffle,
-            seed=seed,
             drop_last=drop_last,
             min_atoms=min_atoms,
         )

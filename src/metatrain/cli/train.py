@@ -546,8 +546,6 @@ def train_model(
     # Expand loss options and finalize the hypers
     options = expand_loss_config(options)
     hypers = OmegaConf.to_container(options["architecture"], resolve=True)
-    # Make the seed available to architecture trainers (e.g. for sampler seeding)
-    hypers["training"]["seed"] = options["seed"]
 
     if is_main_process():
         # Update the wandb configuration here because the initial wandb setup (in

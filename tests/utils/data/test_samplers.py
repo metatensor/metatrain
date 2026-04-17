@@ -136,7 +136,7 @@ def test_single_process_all_samples_covered():
     """All samples appear exactly once per epoch."""
     atom_counts = [3] * 20
     ds = _FakeDataset(atom_counts)
-    sampler = MaxAtomBatchSampler(ds, max_atoms=9, shuffle=False, seed=0)
+    sampler = MaxAtomBatchSampler(ds, max_atoms=9, shuffle=False)
     all_indices = sorted(sum(list(sampler), []))
     assert all_indices == list(range(20))
 
@@ -166,7 +166,7 @@ def test_set_epoch_changes_order():
     """Different epochs produce different batch ordering."""
     atom_counts = [2] * 30
     ds = _FakeDataset(atom_counts)
-    sampler = MaxAtomBatchSampler(ds, max_atoms=6, shuffle=True, seed=42)
+    sampler = MaxAtomBatchSampler(ds, max_atoms=6, shuffle=True)
 
     sampler.set_epoch(0)
     batches_e0 = list(sampler)
@@ -181,7 +181,7 @@ def test_same_epoch_same_order():
     """Same epoch always produces the same batches (deterministic)."""
     atom_counts = [2] * 20
     ds = _FakeDataset(atom_counts)
-    sampler = MaxAtomBatchSampler(ds, max_atoms=6, shuffle=True, seed=7)
+    sampler = MaxAtomBatchSampler(ds, max_atoms=6, shuffle=True)
 
     sampler.set_epoch(3)
     run1 = list(sampler)
@@ -270,13 +270,13 @@ def test_distributed_set_epoch_sync():
     world_size = 2
 
     sampler_r0_e0 = MaxAtomDistributedBatchSampler(
-        ds, max_atoms=4, num_replicas=world_size, rank=0, shuffle=True, seed=0
+        ds, max_atoms=4, num_replicas=world_size, rank=0, shuffle=True
     )
     sampler_r1_e0 = MaxAtomDistributedBatchSampler(
-        ds, max_atoms=4, num_replicas=world_size, rank=1, shuffle=True, seed=0
+        ds, max_atoms=4, num_replicas=world_size, rank=1, shuffle=True
     )
     sampler_r0_e1 = MaxAtomDistributedBatchSampler(
-        ds, max_atoms=4, num_replicas=world_size, rank=0, shuffle=True, seed=0
+        ds, max_atoms=4, num_replicas=world_size, rank=0, shuffle=True
     )
     sampler_r0_e1.set_epoch(1)
 
@@ -302,7 +302,7 @@ def test_equivalent_to_fixed_batch_size_uniform_atoms():
     n, n_atoms, batch_size = 15, 4, 3
     ds = _FakeDataset([n_atoms] * n)
     sampler = MaxAtomBatchSampler(
-        ds, max_atoms=n_atoms * batch_size, shuffle=False, seed=0
+        ds, max_atoms=n_atoms * batch_size, shuffle=False
     )
     batches = list(sampler)
 
@@ -323,7 +323,7 @@ def test_packing_stable_across_epochs():
     """
     atom_counts = [2] * 20
     ds = _FakeDataset(atom_counts)
-    sampler = MaxAtomBatchSampler(ds, max_atoms=6, shuffle=True, seed=0)
+    sampler = MaxAtomBatchSampler(ds, max_atoms=6, shuffle=True)
 
     sampler.set_epoch(0)
     batches_e0 = list(sampler)
