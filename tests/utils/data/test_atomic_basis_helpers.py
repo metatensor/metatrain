@@ -127,18 +127,10 @@ def _make_sparse_tensor():
 
     # Use easily distinguishable values to make assertion failures informative. H and C
     # have disjoint property indices, matching the layout above.
-    h_l0 = torch.arange(6, dtype=torch.float64).reshape(
-        3, 1, 2
-    )  # (3 atoms, 1 comp, n=[0,1])
-    c_l0 = torch.arange(100, 104, dtype=torch.float64).reshape(
-        2, 1, 2
-    )  # (2 atoms, 1 comp, n=[2,3])
-    h_l1 = (
-        torch.arange(9, dtype=torch.float64).reshape(3, 3, 1) + 200.0
-    )  # (3 atoms, 3 comps, n=[0])
-    c_l1 = (
-        torch.arange(12, dtype=torch.float64).reshape(2, 3, 2) + 300.0
-    )  # (2 atoms, 3 comps, n=[1])
+    h_l0 = torch.arange(6, dtype=torch.float64).reshape(3, 1, 2)
+    c_l0 = torch.arange(100, 104, dtype=torch.float64).reshape(2, 1, 2)
+    h_l1 = torch.arange(9, dtype=torch.float64).reshape(3, 3, 1) + 200.0
+    c_l1 = torch.arange(12, dtype=torch.float64).reshape(2, 3, 2) + 300.0
 
     return TensorMap(
         keys=Labels(
@@ -245,12 +237,12 @@ def test_densify_nan_padding_structure():
     l0 = dense.block({"o3_lambda": 0, "o3_sigma": 1})
     assert l0.values.shape == (5, 1, 3)
 
-    # H atoms: real at union positions 0,1 (n=0,1); NaN at positions 2,3 (n=2,3)
+    # H atoms: real at union positions 0,1 (n=0,1); NaN at positions 2 (n=2)
     h_l0_orig = torch.arange(6, dtype=torch.float64).reshape(3, 1, 2)
     torch.testing.assert_close(l0.values[h_idx][..., :2], h_l0_orig)
     assert torch.all(torch.isnan(l0.values[h_idx][..., 2:]))
 
-    # C atoms: NaN at union positions 0,3 (n=0,3); real at positions 1,2 (n=1,2)
+    # C atoms: NaN at union position 0 (n=0); real at positions 1,2 (n=1,2)
     c_l0_orig = torch.arange(100, 104, dtype=torch.float64).reshape(2, 1, 2)
     assert torch.all(torch.isnan(l0.values[c_idx][..., 0]))
     torch.testing.assert_close(l0.values[c_idx][..., 1:], c_l0_orig)
