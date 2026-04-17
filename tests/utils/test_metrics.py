@@ -361,7 +361,10 @@ def test_rmse_finalize_distributed_missing_key_on_local_rank(monkeypatch):
     assert abs(result["forces RMSE (per atom)"] - 3.0**0.5) < 1e-6
 
 
-def test_rmse_finalize_distributed_extra_key_only_on_local_rank(monkeypatch):
+@pytest.mark.parametrize("separate_blocks", [False, True])
+def test_rmse_finalize_distributed_extra_key_only_on_local_rank(
+    monkeypatch, separate_blocks
+):
     """
     Tests RMSEAccumulator.finalize with is_distributed=True when the local rank has a
     key that the remote rank does not. The remote rank contributes zero via all_reduce.
@@ -388,7 +391,7 @@ def test_rmse_finalize_distributed_extra_key_only_on_local_rank(monkeypatch):
     monkeypatch.setattr(torch.distributed, "all_gather_object", fake_all_gather_object)
     monkeypatch.setattr(torch.distributed, "all_reduce", fake_all_reduce)
 
-    acc = RMSEAccumulator()
+    acc = RMSEAccumulator(separate_blocks=separate_blocks)
     acc.information = {"energy": (4.0, 2), "forces": (9.0, 3)}
 
     result = acc.finalize(
