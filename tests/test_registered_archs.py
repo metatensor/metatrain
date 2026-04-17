@@ -25,9 +25,7 @@ def test_codeowners_there():
 
     architectures = find_all_architectures()
     # Strip any "experimental." or "deprecated." prefixes to get the directory names.
-    architectures = [
-        a.split(".")[-1] if "." in a else a for a in architectures
-    ]
+    architectures = [a.split(".")[-1] if "." in a else a for a in architectures]
 
     with open(codeowners_path, "r") as f:
         for line in f:
