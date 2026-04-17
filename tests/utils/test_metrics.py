@@ -443,3 +443,79 @@ def test_mae_finalize_distributed_missing_key_on_local_rank(monkeypatch):
     assert abs(result["energy MAE (per atom)"] - 1.0) < 1e-6
     # forces: (0.0 + 6.0) / (0 + 3) = 2.0
     assert abs(result["forces MAE (per atom)"] - 2.0) < 1e-6
+
+
+@pytest.mark.parametrize(
+    "accumulator_class,metric_suffix,expected_block0,expected_block1",
+    [
+        (RMSEAccumulator, "RMSE (per atom)", (1.0 / 2) ** 0.5, 1.0),
+        (MAEAccumulator, "MAE (per atom)", 1.0 / 2, 1.0),
+    ],
+)
+def test_finalize_distributed_separate_blocks_missing_block_on_local_rank(
+    monkeypatch, accumulator_class, metric_suffix, expected_block0, expected_block1
+):
+    """
+    Tests finalize(is_distributed=True) with separate_blocks=True when each rank
+    processed a different subset of blocks. Rank 0 only sees label_name=0; rank 1 only
+    sees label_name=1. After finalize, both block metrics must appear with correct
+    values.
+    """
+
+    def fake_get_world_size():
+        return 2
+
+    def fake_all_gather_object(output_list, local_obj):
+        output_list[0] = local_obj  # ["energy (label_name=0)"]
+        output_list[1] = ["energy (label_name=1)"]
+
+    # Sorted global keys: ["energy (label_name=0)", "energy (label_name=1)"]
+    # Rank 1 contributes 0 for block0 (never saw it), (4.0, 4) for block1
+    remote_additions = [0.0, 0, 4.0, 4]
+    call_count = {"i": 0}
+
+    def fake_all_reduce(tensor):
+        tensor.add_(remote_additions[call_count["i"]])
+        call_count["i"] += 1
+
+    monkeypatch.setattr(torch.distributed, "get_world_size", fake_get_world_size)
+    monkeypatch.setattr(torch.distributed, "all_gather_object", fake_all_gather_object)
+    monkeypatch.setattr(torch.distributed, "all_reduce", fake_all_reduce)
+
+    # Build a TensorMap with a single block (label_name=0), simulating rank 0 only
+    # processing structures from that block.
+    # target values: [[2.0], [2.0]], prediction values: [[1.0], [2.0]]
+    # diffs: [[-1.0], [0.0]] -> SSE=1.0, SAE=1.0, n_elems=2
+    block_keys = Labels("label_name", torch.tensor([[0]]))
+    target_block = TensorBlock(
+        values=torch.tensor([[2.0], [2.0]]),
+        samples=Labels.range("samples", 2),
+        components=[],
+        properties=Labels("energy", torch.tensor([[0]])),
+    )
+    prediction_block = TensorBlock(
+        values=torch.tensor([[1.0], [2.0]]),
+        samples=Labels.range("samples", 2),
+        components=[],
+        properties=Labels("energy", torch.tensor([[0]])),
+    )
+    target_tm = TensorMap(keys=block_keys, blocks=[target_block])
+    prediction_tm = TensorMap(keys=block_keys, blocks=[prediction_block])
+
+    acc = accumulator_class(separate_blocks=True)
+    acc.update({"energy": prediction_tm}, {"energy": target_tm})
+
+    result = acc.finalize(
+        not_per_atom=[], is_distributed=True, device=torch.device("cpu")
+    )
+
+    # block1 must appear
+    assert f"energy (label_name=1) {metric_suffix}" in result
+    # block0: (1.0 + 0) / (2 + 0)
+    assert (
+        abs(result[f"energy (label_name=0) {metric_suffix}"] - expected_block0) < 1e-6
+    )
+    # block1: (0 + 4.0) / (0 + 4)
+    assert (
+        abs(result[f"energy (label_name=1) {metric_suffix}"] - expected_block1) < 1e-6
+    )
