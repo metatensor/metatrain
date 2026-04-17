@@ -296,3 +296,147 @@ def test_get_global_keys_raises():
         ValueError, match="Default process group has not been initialized"
     ):
         _get_global_keys(keys)
+
+
+def test_get_global_keys_basic(monkeypatch):
+    """
+    Tests _get_global_keys unions, deduplicates and sorts keys across ranks.
+    """
+
+    def fake_get_world_size():
+        return 2
+
+    def fake_all_gather_object(output_list, local_obj):
+        output_list[0] = local_obj
+        output_list[1] = ["b", "c", "d"]
+
+    monkeypatch.setattr(torch.distributed, "get_world_size", fake_get_world_size)
+    monkeypatch.setattr(torch.distributed, "all_gather_object", fake_all_gather_object)
+
+    result = _get_global_keys(["a", "b", "c"])
+    assert result == ["a", "b", "c", "d"]
+
+
+def test_rmse_finalize_distributed_missing_key_on_local_rank(monkeypatch):
+    """
+    Tests RMSEAccumulator.finalize with is_distributed=True when a key present on a
+    remote rank is absent from the local rank. This is the core scenario fixed by the
+    branch: the local rank must contribute zeros for that key so all_reduce produces
+    the correct global RMSE.
+    """
+
+    # Rank 0 has only "energy"; rank 1 also has "forces"
+    def fake_get_world_size():
+        return 2
+
+    def fake_all_gather_object(output_list, local_obj):
+        output_list[0] = local_obj  # ["energy"]
+        output_list[1] = ["energy", "forces"]
+
+    # all_reduce is called once per (key, tensor) pair in sorted key order:
+    # "energy" sse, "energy" n_elems, "forces" sse, "forces" n_elems
+    remote_additions = [4.0, 2, 9.0, 3]
+    call_count = {"i": 0}
+
+    def fake_all_reduce(tensor):
+        tensor.add_(remote_additions[call_count["i"]])
+        call_count["i"] += 1
+
+    monkeypatch.setattr(torch.distributed, "get_world_size", fake_get_world_size)
+    monkeypatch.setattr(torch.distributed, "all_gather_object", fake_all_gather_object)
+    monkeypatch.setattr(torch.distributed, "all_reduce", fake_all_reduce)
+
+    acc = RMSEAccumulator()
+    acc.information = {"energy": (4.0, 2)}  # sse=4.0, n_elems=2
+
+    result = acc.finalize(
+        not_per_atom=[], is_distributed=True, device=torch.device("cpu")
+    )
+
+    # "forces" must appear — regression guard for the bug
+    assert "forces RMSE (per atom)" in result
+    # energy: (4.0 + 4.0) / (2 + 2) -> sqrt(2.0)
+    assert abs(result["energy RMSE (per atom)"] - 2.0**0.5) < 1e-6
+    # forces: (0.0 + 9.0) / (0 + 3) -> sqrt(3.0)
+    assert abs(result["forces RMSE (per atom)"] - 3.0**0.5) < 1e-6
+
+
+def test_rmse_finalize_distributed_extra_key_only_on_local_rank(monkeypatch):
+    """
+    Tests RMSEAccumulator.finalize with is_distributed=True when the local rank has a
+    key that the remote rank does not. The remote rank contributes zero via all_reduce.
+    """
+
+    def fake_get_world_size():
+        return 2
+
+    def fake_all_gather_object(output_list, local_obj):
+        output_list[0] = local_obj  # ["energy", "forces"]
+        output_list[1] = ["energy"]
+
+    # Sorted global keys: ["energy", "forces"]
+    # all_reduce call order: energy sse, energy n_elems, forces sse, forces n_elems
+    # Remote rank contributes to "energy" but zero for "forces"
+    remote_additions = [4.0, 2, 0.0, 0]
+    call_count = {"i": 0}
+
+    def fake_all_reduce(tensor):
+        tensor.add_(remote_additions[call_count["i"]])
+        call_count["i"] += 1
+
+    monkeypatch.setattr(torch.distributed, "get_world_size", fake_get_world_size)
+    monkeypatch.setattr(torch.distributed, "all_gather_object", fake_all_gather_object)
+    monkeypatch.setattr(torch.distributed, "all_reduce", fake_all_reduce)
+
+    acc = RMSEAccumulator()
+    acc.information = {"energy": (4.0, 2), "forces": (9.0, 3)}
+
+    result = acc.finalize(
+        not_per_atom=[], is_distributed=True, device=torch.device("cpu")
+    )
+
+    # energy: (4.0 + 4.0) / (2 + 2) -> sqrt(2.0)
+    assert abs(result["energy RMSE (per atom)"] - 2.0**0.5) < 1e-6
+    # forces: (9.0 + 0.0) / (3 + 0) -> sqrt(3.0)
+    assert abs(result["forces RMSE (per atom)"] - 3.0**0.5) < 1e-6
+
+
+def test_mae_finalize_distributed_missing_key_on_local_rank(monkeypatch):
+    """
+    Tests MAEAccumulator.finalize with is_distributed=True when a key present on a
+    remote rank is absent from the local rank.
+    """
+
+    def fake_get_world_size():
+        return 2
+
+    def fake_all_gather_object(output_list, local_obj):
+        output_list[0] = local_obj  # ["energy"]
+        output_list[1] = ["energy", "forces"]
+
+    # Sorted global keys: ["energy", "forces"]
+    # all_reduce call order: energy sae, energy n_elems, forces sae, forces n_elems
+    remote_additions = [4.0, 4, 6.0, 3]
+    call_count = {"i": 0}
+
+    def fake_all_reduce(tensor):
+        tensor.add_(remote_additions[call_count["i"]])
+        call_count["i"] += 1
+
+    monkeypatch.setattr(torch.distributed, "get_world_size", fake_get_world_size)
+    monkeypatch.setattr(torch.distributed, "all_gather_object", fake_all_gather_object)
+    monkeypatch.setattr(torch.distributed, "all_reduce", fake_all_reduce)
+
+    acc = MAEAccumulator()
+    acc.information = {"energy": (4.0, 4)}  # sae=4.0, n_elems=4
+
+    result = acc.finalize(
+        not_per_atom=[], is_distributed=True, device=torch.device("cpu")
+    )
+
+    # "forces" must appear — regression guard for the bug
+    assert "forces MAE (per atom)" in result
+    # energy: (4.0 + 4.0) / (4 + 4) = 1.0
+    assert abs(result["energy MAE (per atom)"] - 1.0) < 1e-6
+    # forces: (0.0 + 6.0) / (0 + 3) = 2.0
+    assert abs(result["forces MAE (per atom)"] - 2.0) < 1e-6
