@@ -7,7 +7,7 @@ architecture:
     distributed: true
     batch_size: 1
     num_epochs: 5
-    atomic_baseline: {"mtt::dummy": {1: 0.0, 6: 0.0}}
+    atomic_baseline: {mtt::dummy: {1: 0.0, 6: 0.0}}
 
 training_set:
   systems:
@@ -15,8 +15,8 @@ training_set:
     length_unit: angstrom
   targets:
     mtt::dummy:
-      quantity: ""
-      unit: ""
+      quantity: ''
+      unit: ''
       per_atom: true
       type:
         spherical:
