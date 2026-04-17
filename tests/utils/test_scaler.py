@@ -557,13 +557,13 @@ def test_scaler_spherical(batch_size):
                     values=torch.tensor([sc], dtype=torch.float64).unsqueeze(-1),
                     samples=Labels(names=["system"], values=torch.tensor([[i]])),
                     components=[Labels.range("o3_mu", 1)],
-                    properties=Labels(names=["spherical"], values=torch.tensor([[0]])),
+                    properties=Labels(names=["n"], values=torch.tensor([[0]])),
                 ),
                 TensorBlock(
                     values=torch.tensor([sph], dtype=torch.float64).unsqueeze(-1),
                     samples=Labels(names=["system"], values=torch.tensor([[i]])),
                     components=[Labels.range("o3_mu", 5)],
-                    properties=Labels(names=["spherical"], values=torch.tensor([[1]])),
+                    properties=Labels(names=["n"], values=torch.tensor([[1]])),
                 ),
             ],
         )
@@ -614,7 +614,7 @@ def test_scaler_spherical(batch_size):
                     values=torch.tensor([[0], [1]]),
                 ),
                 components=[Labels.range("o3_mu", 1)],
-                properties=Labels.range("spherical", 1),
+                properties=Labels.range("n", 1),
             ),
             TensorBlock(
                 values=torch.tensor(
@@ -629,7 +629,7 @@ def test_scaler_spherical(batch_size):
                     values=torch.tensor([[0], [1]]),
                 ),
                 components=[Labels.range("o3_mu", 5)],
-                properties=Labels.range("spherical", 1),
+                properties=Labels.range("n", 1),
             ),
         ],
     )
@@ -1219,6 +1219,198 @@ def test_scaler_spherical_per_atom_masked(batch_size):
     mts.allclose_raise(
         scaler.model.scales["spherical"], expected_scales, rtol=1e-5, atol=1e-5
     )
+
+
+@pytest.mark.parametrize(
+    "batch_size,missing_type", [(1, False), (1, True), (2, False), (2, True)]
+)
+def test_scaler_spherical_per_atom_atomic_basis(batch_size, missing_type):
+    """Test the calculation of scaling weights for a multi-block per-atom
+    spherical target, expressed in an atomic basis."""
+
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+
+    tensor_map_1 = TensorMap(
+        keys=Labels(
+            names=["o3_lambda", "o3_sigma", "atom_type"],
+            values=torch.tensor([[0, 1, 8], [1, 1, 8]]),
+        ),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[1.0]], dtype=torch.float64).reshape(-1, 1, 1),
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[0, 0]])),
+                components=[
+                    Labels(
+                        names=["o3_mu"],
+                        values=torch.tensor([[0]]),
+                    )
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+            TensorBlock(
+                values=torch.tensor([1.5, 0.8, 3.2], dtype=torch.float64).reshape(
+                    1, 3, 1
+                ),
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[0, 0]])),
+                components=[
+                    Labels(
+                        names=["o3_mu"],
+                        values=torch.arange(-1, 2).reshape(-1, 1),
+                    )
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+        ],
+    )
+    tensor_map_2 = TensorMap(
+        keys=Labels(
+            names=["o3_lambda", "o3_sigma", "atom_type"],
+            values=torch.tensor([[0, 1, 1], [0, 1, 8], [1, 1, 8]]),
+        ),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[1.0], [1.5]], dtype=torch.float64).reshape(
+                    -1, 1, 1
+                ),
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[1, 0], [1, 1]]),
+                ),
+                components=[
+                    Labels(
+                        names=["o3_mu"],
+                        values=torch.tensor([[0]]),
+                    )
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+            TensorBlock(
+                values=torch.tensor([[2.0]], dtype=torch.float64).reshape(-1, 1, 1),
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[1, 2]]),
+                ),
+                components=[
+                    Labels(
+                        names=["o3_mu"],
+                        values=torch.tensor([[0]]),
+                    )
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+            TensorBlock(
+                values=torch.tensor([0.2, 3, 1.1], dtype=torch.float64).reshape(
+                    1, 3, 1
+                ),
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[1, 2]]),
+                ),
+                components=[
+                    Labels(
+                        names=["o3_mu"],
+                        values=torch.arange(-1, 2).reshape(-1, 1),
+                    )
+                ],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            ),
+        ],
+    )
+
+    dataset = Dataset.from_dict(
+        {"system": systems, "spherical_atomic_basis": [tensor_map_1, tensor_map_2]}
+    )
+
+    # Set up basis.
+    atomic_types = [1, 8]
+    irreps = {
+        1: [
+            {"o3_lambda": 0, "o3_sigma": 1},
+        ],
+        8: [
+            {"o3_lambda": 0, "o3_sigma": 1},
+            {"o3_lambda": 1, "o3_sigma": 1},
+        ],
+    }
+    # Add missing type to the basis.
+    if missing_type:
+        atomic_types.append(9)
+        irreps[9] = [
+            {"o3_lambda": 0, "o3_sigma": 1},
+        ]
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=atomic_types,
+        targets={
+            "spherical_atomic_basis": get_generic_target_info(
+                "spherical_atomic_basis",
+                {
+                    "quantity": "",
+                    "unit": "",
+                    "type": {"spherical": {"irreps": irreps}},
+                    "num_subtargets": 1,
+                    "per_atom": True,
+                },
+            )
+        },
+    )
+
+    scaler = Scaler(
+        hypers={},
+        dataset_info=dataset_info,
+    ).to(torch.float64)
+
+    scaler.train_model(
+        dataset,
+        additive_models=[],
+        batch_size=batch_size,
+        is_distributed=False,
+    )
+
+    expected_scales = {
+        # L = 0, hydrogen.
+        (0, 1): (torch.tensor([1.0, 1.5]) ** 2).mean().sqrt(),
+        # L = 0, oxygen.
+        (0, 8): (torch.tensor([1.0, 2.0]) ** 2).mean().sqrt(),
+        # L = 1, oxygen.
+        (1, 8): (torch.tensor([1.5, 0.8, 3.2, 0.2, 3, 1.1]) ** 2).mean().sqrt(),
+        # L = 0, fluor.
+        (0, 9): torch.tensor(1.0),
+    }
+
+    for key in scaler.model.scales["spherical_atomic_basis"].keys:
+        block = scaler.model.scales["spherical_atomic_basis"].block(key)
+        atom_type = key["atom_type"]
+        atom_type_index = atomic_types.index(atom_type)
+        o3_lambda = key["o3_lambda"]
+
+        # Check that the scale is correct for the atom type.
+        computed_scale = block.values[atom_type_index, 0]
+        expected_scale = expected_scales[(o3_lambda, atom_type)].to(torch.float64)
+        torch.testing.assert_close(computed_scale, expected_scale)
+
+        # And the scales for all the atom types that are not key["atom_type"]
+        # should be 1.0.
+        other_scales = block.values[
+            torch.arange(len(atomic_types)) != atom_type_index, 0
+        ]
+        torch.testing.assert_close(other_scales, torch.ones_like(other_scales))
 
 
 def test_scaler_rotation_invariance():

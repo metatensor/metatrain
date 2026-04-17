@@ -10,6 +10,7 @@ from .dataset import (  # noqa: F401
     get_atomic_types,
     get_num_workers,
     get_stats,
+    load_indices,
     unpack_batch,
     validate_num_workers,
 )

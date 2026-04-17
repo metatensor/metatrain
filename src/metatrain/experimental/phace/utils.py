@@ -220,15 +220,23 @@ def _apply_inversions_to_spherical_tensor_map(
     by ``(-1)^l * sigma`` when the corresponding system is inverted.
     """
     new_blocks: List[TensorBlock] = []
+    is_atomic_basis = any(k.startswith("atom_type") for k in target_tmap.keys.names)
     for key, block in target_tmap.items():
         sigma = int(key[1])
         values = block.values
-        if "atom" in block.samples.names:
+        if block.samples.names == ["system"]:
+            split_values = torch.split(values, 1, dim=0)
+        elif not is_atomic_basis:
             split_values = torch.split(
                 values, [len(system.positions) for system in systems]
             )
         else:
-            split_values = torch.split(values, [1 for _ in systems])
+            # Atomic basis: not straightforward because a given block doesn't
+            # necessarily have all atoms nor all systems.
+            raise ValueError(
+                "Inversion augmentation of atomic basis targets is not supported yet."
+            )
+
         new_values = []
         ell = (len(block.components[0]) - 1) // 2
         for v, i in zip(split_values, inversions, strict=True):

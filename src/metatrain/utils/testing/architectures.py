@@ -227,10 +227,13 @@ class ArchitectureTests:
         return request.param
 
     @pytest.fixture
-    def dataset_info_spherical(self, o3_lambda: int, o3_sigma: int) -> DatasetInfo:
+    def dataset_info_spherical(
+        self, per_atom: bool, o3_lambda: int, o3_sigma: int
+    ) -> DatasetInfo:
         """Fixture that provides a basic ``DatasetInfo`` with a
         spherical target for testing.
 
+        :param per_atom: Whether the target is per-atom or not.
         :param o3_lambda: The O(3) lambda of the spherical target.
         :param o3_sigma: The O(3) sigma of the spherical target.
         :return: A ``DatasetInfo`` instance with a spherical target.
@@ -252,7 +255,7 @@ class ArchitectureTests:
                             }
                         },
                         "num_subtargets": 5,
-                        "per_atom": False,
+                        "per_atom": per_atom,
                     },
                 )
             },
@@ -286,6 +289,55 @@ class ArchitectureTests:
                         },
                         "num_subtargets": 100,
                         "per_atom": per_atom,
+                    },
+                )
+            },
+        )
+
+    @pytest.fixture
+    def dataset_info_spherical_atomic_basis(self) -> DatasetInfo:
+        """Fixture that provides a basic ``DatasetInfo`` with a spherical
+        target that uses an atomic basis for testing.
+
+        :return: A ``DatasetInfo`` instance with a spherical target in
+            an atomic basis.
+        """
+        return DatasetInfo(
+            length_unit="Angstrom",
+            atomic_types=[1, 6, 7, 8],
+            targets={
+                "spherical_tensor_atomic_basis": get_generic_target_info(
+                    "spherical_tensor_atomic_basis",
+                    {
+                        "quantity": "spherical_tensor_atomic_basis",
+                        "unit": "",
+                        "type": {
+                            "spherical": {
+                                "irreps": {
+                                    1: [
+                                        {"num": 2, "o3_lambda": 0, "o3_sigma": 1},
+                                        {"num": 1, "o3_lambda": 1, "o3_sigma": 1},
+                                    ],
+                                    6: [
+                                        {"num": 3, "o3_lambda": 0, "o3_sigma": 1},
+                                        {"num": 2, "o3_lambda": 1, "o3_sigma": 1},
+                                        {"num": 1, "o3_lambda": 2, "o3_sigma": 1},
+                                    ],
+                                    7: [
+                                        {"num": 3, "o3_lambda": 0, "o3_sigma": 1},
+                                        {"num": 2, "o3_lambda": 1, "o3_sigma": 1},
+                                        {"num": 1, "o3_lambda": 2, "o3_sigma": 1},
+                                    ],
+                                    8: [
+                                        {"num": 3, "o3_lambda": 0, "o3_sigma": 1},
+                                        {"num": 2, "o3_lambda": 1, "o3_sigma": 1},
+                                        {"num": 1, "o3_lambda": 2, "o3_sigma": 1},
+                                    ],
+                                },
+                            }
+                        },
+                        "num_subtargets": 2,
+                        "per_atom": True,
                     },
                 )
             },

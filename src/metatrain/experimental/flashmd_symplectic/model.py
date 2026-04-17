@@ -1,5 +1,4 @@
 import logging
-import typing
 import warnings
 from math import prod
 from typing import Any, Dict, List, Literal, Optional, Tuple
@@ -16,14 +15,17 @@ from metatomic.torch import (
     NeighborListOptions,
     System,
 )
+from torch.profiler import record_function
 
+from metatrain.experimental.flashmd.modules.encoder import NodeEncoder
+from metatrain.experimental.flashmd.modules.structures import systems_to_batch
+from metatrain.pet.modules.finetuning import apply_finetuning_strategy
+from metatrain.pet.modules.transformer import CartesianTransformer
+from metatrain.pet.modules.utilities import cutoff_func_bump as cutoff_func
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
-from metatrain.utils.data.atomic_basis_helpers import (
-    densify_atomic_basis_target,
-    sparsify_atomic_basis_target,
-)
+from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
@@ -31,48 +33,33 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
-from .documentation import ModelHypers
-from .modules.finetuning import apply_finetuning_strategy
-from .modules.structures import systems_to_batch
-from .modules.transformer import CartesianTransformer
 
 
-AVAILABLE_FEATURIZERS = typing.get_args(ModelHypers.__annotations__["featurizer_type"])
+AVAILABLE_FEATURIZERS = ["feedforward", "residual"]
 
 
-class PET(ModelInterface[ModelHypers]):
+class FlashMDSymplectic(ModelInterface):
     """
-    Metatrain-native implementation of the PET architecture.
+    Implementation of the symplectic FlashMD architecture.
 
-    Originally proposed in work (https://arxiv.org/abs/2305.19302v3),
-    and published in the `pet` package (https://github.com/spozdn/pet).
-
-    :param hypers: Hyperparameters for the PET model. See the documentation for details.
-    :param dataset_info: Information about the dataset, including atomic types and
-        targets.
+    For more information, you can refer to https://arxiv.org/abs/2508.01068.
     """
 
-    __checkpoint_version__ = 11
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
-        references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
+        references={"architecture": ["https://arxiv.org/abs/2508.01068"]}
     )
     component_labels: Dict[str, List[List[Labels]]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
-    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         # Cache frequently accessed hyperparameters
         self.cutoff = float(self.hypers["cutoff"])
-        self.cutoff_function = self.hypers["cutoff_function"]
         self.cutoff_width = float(self.hypers["cutoff_width"])
-        self.num_neighbors_adaptive = (
-            float(self.hypers["num_neighbors_adaptive"])
-            if self.hypers["num_neighbors_adaptive"] is not None
-            else None
-        )
         self.d_pet = self.hypers["d_pet"]
         self.d_node = self.hypers["d_node"]
         self.d_head = self.hypers["d_head"]
@@ -82,8 +69,8 @@ class PET(ModelInterface[ModelHypers]):
         self.num_attention_layers = self.hypers["num_attention_layers"]
         self.normalization = self.hypers["normalization"]
         self.activation = self.hypers["activation"]
-        self.attention_temperature = self.hypers["attention_temperature"]
         self.transformer_type = self.hypers["transformer_type"]
+        self.attention_temperature = self.hypers["attention_temperature"]
         self.featurizer_type = self.hypers["featurizer_type"]
 
         self.atomic_types = dataset_info.atomic_types
@@ -140,7 +127,7 @@ class PET(ModelInterface[ModelHypers]):
 
         self.node_embedders = torch.nn.ModuleList(
             [
-                torch.nn.Embedding(num_atomic_species, self.d_node)
+                NodeEncoder(num_atomic_species, self.d_node)
                 for _ in range(self.num_readout_layers)
             ]
         )
@@ -152,22 +139,25 @@ class PET(ModelInterface[ModelHypers]):
         self.edge_last_layers = torch.nn.ModuleDict()
         self.last_layer_feature_size = (
             self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
-        )  # for LLPR
+        )
 
-        # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(per_atom=True, description="internal features")
-        }
+            "features": ModelOutput(unit="", per_atom=True)
+        }  # the model is always capable of outputting the internal features
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
         self.key_labels: Dict[str, Labels] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
-        self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
+
+        self._add_output(
+            "mtt::S3",
+            get_energy_target_info("mtt::S3", {"quantity": "energy", "unit": ""}),
+        )
 
         self.register_buffer(
             "species_to_species_index",
@@ -181,8 +171,8 @@ class PET(ModelInterface[ModelHypers]):
             self.long_range = True
             if not self.hypers["long_range"]["use_ewald"]:
                 warnings.warn(
-                    "Training PET with the LongRangeFeaturizer initialized "
-                    "with `use_ewald=False` causes instabilities during training. "
+                    "Training FlashMD with the LongRangeFeaturizer initialized "
+                    "with `use_ewald=False` might cause instabilities during training. "
                     "The `use_ewald` variable will be force-switched to `True`. "
                     "during training.",
                     UserWarning,
@@ -190,7 +180,7 @@ class PET(ModelInterface[ModelHypers]):
                 )
             self.long_range_featurizer = LongRangeFeaturizer(
                 hypers=self.hypers["long_range"],
-                feature_dim=self.d_node,
+                feature_dim=self.d_pet,
                 neighbor_list_options=self.requested_nl,
             )
         else:
@@ -212,23 +202,6 @@ class PET(ModelInterface[ModelHypers]):
             ),
         )
         additive_models = [composition_model]
-
-        # Adds the ZBL repulsion model if requested
-        if self.hypers["zbl"]:
-            additive_models.append(
-                ZBL(
-                    {},
-                    dataset_info=DatasetInfo(
-                        length_unit=dataset_info.length_unit,
-                        atomic_types=self.atomic_types,
-                        targets={
-                            target_name: target_info
-                            for target_name, target_info in dataset_info.targets.items()
-                            if ZBL.is_valid_target(target_name, target_info)
-                        },
-                    ),
-                )
-            )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
@@ -238,10 +211,22 @@ class PET(ModelInterface[ModelHypers]):
 
         self.finetune_config: Dict[str, Any] = {}
 
+        self.register_buffer(
+            "masses", torch.full((max(self.atomic_types) + 1,), float("nan"))
+        )
+        self.register_buffer("timestep", torch.tensor(float("nan")))
+
+    def set_masses(self, masses: Dict[int, float]):
+        for atomic_number, mass in masses.items():
+            self.masses[atomic_number] = mass
+
+    def set_timestep(self, timestep: float):
+        self.timestep = torch.tensor(timestep)
+
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
-    def restart(self, dataset_info: DatasetInfo) -> "PET":
+    def restart(self, dataset_info: DatasetInfo) -> "FlashMDSymplectic":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -257,17 +242,20 @@ class PET(ModelInterface[ModelHypers]):
         if len(new_atomic_types) > 0:
             raise ValueError(
                 f"New atomic types found in the dataset: {new_atomic_types}. "
-                "The PET model does not support adding new atomic types."
+                "The FlashMD model does not support adding new atomic types."
             )
 
         # register new outputs as new last layers
         for target_name, target in new_targets.items():
+            if "mtt::delta_" in target_name or "delta_" in target_name:
+                # delta learning targets are not directly predicted by the model
+                continue
             self.target_names.append(target_name)
             self._add_output(target_name, target)
 
         self.dataset_info = merged_info
 
-        # restart the composition and scaler models
+        # restart the composition models
         self.additive_models[0] = self.additive_models[0].restart(
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
@@ -293,7 +281,7 @@ class PET(ModelInterface[ModelHypers]):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         """
-        Forward pass of the PET model.
+        Forward pass of the FlashMD model.
 
         The forward pass processes atomic systems through multiple stages to produce
         predictions for the requested outputs. The computation follows a graph neural
@@ -369,8 +357,6 @@ class PET(ModelInterface[ModelHypers]):
           layers for each output block
         - Contributions from all GNN layers are summed
         - Edge contributions are summed over neighbors with cutoff weighting
-        - For rank-2 Cartesian tensors (e.g., stress), predictions are symmetrized and
-          normalized by cell volume
         - Multiple tensor blocks per output are handled independently
 
         **Post-processing (Evaluation Only)**
@@ -402,6 +388,13 @@ class PET(ModelInterface[ModelHypers]):
             predictions (depending on the ModelOutput configuration) with appropriate
             metatensor metadata (samples, components, properties).
         """
+        outputs = dict(outputs)  # make a copy to avoid modifying input
+        if "mtt::S3" not in outputs:
+            outputs["mtt::S3"] = ModelOutput()
+            s3_requested = False
+        else:
+            s3_requested = True
+
         device = systems[0].device
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
@@ -409,42 +402,64 @@ class PET(ModelInterface[ModelHypers]):
         if self.single_label.values.device != device:
             self._move_labels_to_device(device)
 
-        with torch.profiler.record_function("PET::systems_to_batch"):
-            # **Stage 0: Input Preparation**
+        # Here, we verify that all systems have masses attached.
+        verify_masses(systems, self.masses)
+
+        positions_for_diff = torch.concatenate(
+            [system.positions for system in systems], dim=0
+        )
+        positions_for_diff.requires_grad_(True)
+        system_positions = torch.split(
+            positions_for_diff, [len(system) for system in systems]
+        )
+        for system, pos in zip(systems, system_positions, strict=True):
+            system.positions = pos
+
+        # **Stage 0: Input Preparation**
+        with record_function("FlashMD::systems_to_batch"):
             (
                 element_indices_nodes,
+                momenta,
                 element_indices_neighbors,
                 edge_vectors,
-                edge_distances,
                 padding_mask,
                 reverse_neighbor_index,
-                cutoff_factors,
                 system_indices,
                 sample_labels,
-                species,
             ) = systems_to_batch(
                 systems,
                 nl_options,
                 self.atomic_types,
                 self.species_to_species_index,
-                self.cutoff_function,
-                self.cutoff_width,
-                self.num_neighbors_adaptive,
             )
+        momenta_for_diff = momenta.clone()
+        momenta_for_diff.requires_grad_(True)
+        momenta = momenta_for_diff
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
         use_manual_attention = edge_vectors.requires_grad and self.training
 
-        with torch.profiler.record_function("PET::_calculate_features"):
-            # **Stage 1: Feature Computation via GNN Layers**
+        edge_distances = torch.sqrt(torch.sum(edge_vectors**2, dim=2) + 1e-15)
+        cutoff_factors = cutoff_func(
+            edge_distances,
+            torch.tensor(
+                self.cutoff, device=edge_distances.device, dtype=edge_distances.dtype
+            ),
+            self.cutoff_width,
+        )
+        cutoff_factors[~padding_mask] = 0.0
+
+        # **Stage 1: Feature Computation via GNN Layers**
+        with record_function("FlashMD::_calculate_features"):
             featurizer_inputs: Dict[str, torch.Tensor] = dict(
                 element_indices_nodes=element_indices_nodes,
                 element_indices_neighbors=element_indices_neighbors,
                 edge_vectors=edge_vectors,
-                edge_distances=edge_distances,
+                momenta=momenta,
                 reverse_neighbor_index=reverse_neighbor_index,
                 padding_mask=padding_mask,
+                edge_distances=edge_distances,
                 cutoff_factors=cutoff_factors,
             )
             node_features_list, edge_features_list = self._calculate_features(
@@ -452,10 +467,11 @@ class PET(ModelInterface[ModelHypers]):
                 use_manual_attention=use_manual_attention,
             )
 
-            # If the long-range module is activated, we add the long-range features
-            # on top of the node features
+        # If the long-range module is activated, we add the long-range features
+        # on top of the node features
 
-            if self.long_range:
+        if self.long_range:
+            with record_function("FlashMD::_calculate_long_range_features"):
                 long_range_features = self._calculate_long_range_features(
                     systems, node_features_list, edge_distances, padding_mask
                 )
@@ -465,8 +481,9 @@ class PET(ModelInterface[ModelHypers]):
                     ) * 0.5**0.5
 
         # **Stage 2: Intermediate Feature Output (Optional)**
-        with torch.profiler.record_function("PET::_get_output_features"):
-            if "features" in outputs:
+
+        if "features" in outputs:
+            with record_function("FlashMD::_get_output_features"):
                 features_dict = self._get_output_features(
                     node_features_list,
                     edge_features_list,
@@ -481,13 +498,14 @@ class PET(ModelInterface[ModelHypers]):
                     return_dict[k] = v
 
         # **Stage 3: Last Layer Feature Computation**
-        with torch.profiler.record_function("PET::_calculate_last_layer_features"):
+        with record_function("FlashMD::_calculate_last_layer_features"):
             node_last_layer_features_dict, edge_last_layer_features_dict = (
                 self._calculate_last_layer_features(
                     node_features_list,
                     edge_features_list,
                 )
             )
+        with record_function("FlashMD::_get_output_last_layer_features"):
             last_layer_features_dict = self._get_output_last_layer_features(
                 node_last_layer_features_dict,
                 edge_last_layer_features_dict,
@@ -501,7 +519,7 @@ class PET(ModelInterface[ModelHypers]):
                 return_dict[k] = v
 
         # **Stage 4: Atomic Predictions**
-        with torch.profiler.record_function("PET::_calculate_atomic_predictions"):
+        with record_function("FlashMD::_calculate_atomic_predictions"):
             node_atomic_predictions_dict, edge_atomic_predictions_dict = (
                 self._calculate_atomic_predictions(
                     node_last_layer_features_dict,
@@ -511,6 +529,8 @@ class PET(ModelInterface[ModelHypers]):
                     outputs,
                 )
             )
+
+        with record_function("FlashMD::_get_output_atomic_predictions"):
             atomic_predictions_dict = self._get_output_atomic_predictions(
                 systems,
                 node_atomic_predictions_dict,
@@ -525,21 +545,64 @@ class PET(ModelInterface[ModelHypers]):
             for k, v in atomic_predictions_dict.items():
                 return_dict[k] = v
 
-        # **Post-processing (Evaluation Only)**
-        with torch.profiler.record_function("PET::post-processing"):
-            if not self.training:
-                # For atomic basis targets, sparsify to create blocks with "atom_type"
-                # in the key dimensions, and ensure properties are unpadded.
-                for k, v in atomic_predictions_dict.items():
-                    if self.dataset_info.targets[k].is_atomic_basis:
-                        return_dict[k] = sparsify_atomic_basis_target(
-                            systems, v, self.dataset_info.targets[k].layout, species
+        generating_function_sum = return_dict["mtt::S3"].block().values.sum()
+        dSdq_opt, dSdp_opt = torch.autograd.grad(
+            [generating_function_sum],
+            [positions_for_diff, momenta_for_diff],
+            retain_graph=self.training,
+            create_graph=self.training,
+        )
+        if dSdq_opt is not None:
+            dSdq = dSdq_opt
+        else:
+            raise ValueError("Error dSdq :(")
+        if dSdp_opt is not None:
+            dSdp = dSdp_opt
+        else:
+            raise ValueError("Error dSdp :(")
+        return_dict["positions"] = TensorMap(
+            keys=self.single_label,
+            blocks=[
+                TensorBlock(
+                    values=dSdp.unsqueeze(-1),
+                    samples=sample_labels,
+                    components=[
+                        Labels(
+                            names="xyz",
+                            values=torch.tensor([[0], [1], [2]], device=device),
                         )
-
-                # at evaluation, we also introduce the scaler and additive contributions
-                return_dict = self.scaler(
-                    systems, return_dict, selected_atoms=selected_atoms
+                    ],
+                    properties=self.dataset_info.targets["positions"]
+                    .layout.block(0)
+                    .properties.to(device),
                 )
+            ],
+        )
+        return_dict["momenta"] = TensorMap(
+            keys=self.single_label,
+            blocks=[
+                TensorBlock(
+                    values=-dSdq.unsqueeze(-1),
+                    samples=sample_labels,
+                    components=[
+                        Labels(
+                            names="xyz",
+                            values=torch.tensor([[0], [1], [2]], device=device),
+                        )
+                    ],
+                    properties=self.dataset_info.targets["momenta"]
+                    .layout.block(0)
+                    .properties.to(device),
+                )
+            ],
+        )
+
+        # **Post-processing (Evaluation Only)**
+
+        if not self.training:
+            with record_function("FlashMD::post-processing"):
+                # at evaluation, we also introduce the scaler and additive contributions
+                return_dict = self.scaler(systems, return_dict)
                 for additive_model in self.additive_models:
                     outputs_for_additive_model: Dict[str, ModelOutput] = {}
                     for name, output in outputs.items():
@@ -579,6 +642,9 @@ class PET(ModelInterface[ModelHypers]):
                             return_dict[name].keys, output_blocks
                         )
 
+        if not s3_requested:
+            return_dict.pop("mtt::S3")
+
         return return_dict
 
     def _calculate_features(
@@ -593,11 +659,8 @@ class PET(ModelInterface[ModelHypers]):
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
         :return: Tuple of two lists:
-            - List of node feature tensors
-            - List of edge feature tensors
-            In the case of feedforward featurization, each list contains a single tensor
-            from the final GNN layer. In the case of residual featurization, each list
-            contains tensors from all GNN layers.
+            - List of node feature tensors from each GNN layer
+            - List of edge feature tensors from each GNN layer
         """
         if self.featurizer_type == "feedforward":
             return self._feedforward_featurization_impl(inputs, use_manual_attention)
@@ -623,7 +686,9 @@ class PET(ModelInterface[ModelHypers]):
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
 
-        input_node_embeddings = self.node_embedders[0](inputs["element_indices_nodes"])
+        input_node_embeddings = self.node_embedders[0](
+            inputs["element_indices_nodes"], inputs["momenta"]
+        )
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
         for combination_norm, combination_mlp, gnn_layer in zip(
             self.combination_norms, self.combination_mlps, self.gnn_layers, strict=True
@@ -678,8 +743,8 @@ class PET(ModelInterface[ModelHypers]):
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
         :return: Tuple of two lists:
-            - List of node feature tensors from all GNN layers
-            - List of edge feature tensors from all GNN layers
+            - List of node feature tensors from the final GNN layer
+            - List of edge feature tensors from the final GNN layer
         """
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
@@ -687,7 +752,9 @@ class PET(ModelInterface[ModelHypers]):
         for node_embedder, gnn_layer in zip(
             self.node_embedders, self.gnn_layers, strict=True
         ):
-            input_node_embeddings = node_embedder(inputs["element_indices_nodes"])
+            input_node_embeddings = node_embedder(
+                inputs["element_indices_nodes"], inputs["momenta"]
+            )
             output_node_embeddings, output_edge_embeddings = gnn_layer(
                 input_node_embeddings,
                 input_edge_embeddings,
@@ -705,7 +772,6 @@ class PET(ModelInterface[ModelHypers]):
             # using a reversed neighbor list, so the new input message
             # from atom `j` to atom `i` in on the GNN layer N+1 is a
             # reversed message from atom `i` to atom `j` on the GNN layer N.
-            # (Flatten, index, and reshape to the original shape)
             new_input_messages = output_edge_embeddings.reshape(
                 output_edge_embeddings.shape[0] * output_edge_embeddings.shape[1],
                 output_edge_embeddings.shape[2],
@@ -1058,7 +1124,7 @@ class PET(ModelInterface[ModelHypers]):
             predictions, either per-atom or summed over atoms.
         """
         atomic_predictions_tmap_dict: Dict[str, TensorMap] = {}
-        for output_name in self.target_names:
+        for output_name in self.target_names + ["mtt::S3"]:
             if output_name in outputs:
                 atomic_predictions_by_block = {
                     key: torch.zeros(
@@ -1082,20 +1148,6 @@ class PET(ModelInterface[ModelHypers]):
                         atomic_predictions_by_block[key] = atomic_predictions_by_block[
                             key
                         ] + (node_atomic_predictions + edge_atomic_predictions)
-
-                if output_name == "non_conservative_stress":  # TODO: variants
-                    block_key = list(atomic_predictions_by_block.keys())[0]
-                    output_shapes_values = list(
-                        self.output_shapes[output_name].values()
-                    )
-                    num_properties = output_shapes_values[0][-1]
-                    symmetrized = process_non_conservative_stress(
-                        atomic_predictions_by_block[block_key],
-                        systems,
-                        system_indices,
-                        num_properties,
-                    )
-                    atomic_predictions_by_block[block_key] = symmetrized
 
                 blocks = [
                     TensorBlock(
@@ -1144,7 +1196,7 @@ class PET(ModelInterface[ModelHypers]):
         cls,
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
-    ) -> "PET":
+    ) -> "FlashMDSymplectic":
         if context == "restart":
             logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
@@ -1180,7 +1232,7 @@ class PET(ModelInterface[ModelHypers]):
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for PET")
+            raise ValueError(f"unsupported dtype {dtype} for FlashMD")
 
         # Make sure the model is all in the same dtype
         # For example, after training, the additive models could still be in
@@ -1218,13 +1270,9 @@ class PET(ModelInterface[ModelHypers]):
         :param target_name: Name of the target to add.
         :param target_info: TargetInfo object containing details about the target.
         """
-        output_layout = target_info.layout
-        if target_info.is_atomic_basis:
-            output_layout = densify_atomic_basis_target(output_layout, output_layout)
-
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}
-        for key, block in output_layout.items():
+        for key, block in target_info.layout.items():
             dict_key = target_name
             for n, k in zip(key.names, key.values, strict=True):
                 dict_key += f"_{n}_{int(k)}"
@@ -1236,7 +1284,6 @@ class PET(ModelInterface[ModelHypers]):
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
-            description=target_info.description,
         )
 
         self.node_heads[target_name] = torch.nn.ModuleList(
@@ -1295,28 +1342,14 @@ class PET(ModelInterface[ModelHypers]):
             ]
         )
 
-        # Register last-layer parameters, in the same order as they are returned as
-        # last-layer features in the model
-        self.last_layer_parameter_names[target_name] = []
-        for layer_index in range(self.num_readout_layers):
-            for key in self.output_shapes[target_name].keys():
-                self.last_layer_parameter_names[target_name].append(
-                    f"node_last_layers.{target_name}.{layer_index}.{key}.weight"
-                )
-                self.last_layer_parameter_names[target_name].append(
-                    f"edge_last_layers.{target_name}.{layer_index}.{key}.weight"
-                )
-
         ll_features_name = get_last_layer_features_name(target_name)
-        self.outputs[ll_features_name] = ModelOutput(
-            per_atom=True, description=f"last layer features for {target_name}"
-        )
-        self.key_labels[target_name] = output_layout.keys
+        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+        self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [
-            block.components for block in output_layout.blocks()
+            block.components for block in target_info.layout.blocks()
         ]
         self.property_labels[target_name] = [
-            block.properties for block in output_layout.blocks()
+            block.properties for block in target_info.layout.blocks()
         ]
 
     def _move_labels_to_device(self, device: torch.device) -> None:
@@ -1358,7 +1391,7 @@ class PET(ModelInterface[ModelHypers]):
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {
-            "architecture_name": "pet",
+            "architecture_name": "experimental.flashmd_symplectic",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {
@@ -1371,42 +1404,6 @@ class PET(ModelInterface[ModelHypers]):
             "best_model_state_dict": self.state_dict(),
         }
         return checkpoint
-
-
-def process_non_conservative_stress(
-    tensor: torch.Tensor,
-    systems: List[System],
-    system_indices: torch.Tensor,
-    num_properties: int,
-) -> torch.Tensor:
-    """
-    Symmetrizes and normalizes by the volume rank-2 Cartesian tensors that are meant
-    to predict the non-conservative stress.
-
-    :param tensor: Tensor of shape [n_atoms, 9 * num_properties].
-    :param systems: List of `metatomic.torch.System` objects to process.
-    :param system_indices: Tensor mapping each atom to its system index [n_atoms].
-    :param num_properties: Number of properties in the tensor (e.g., 6 for stress).
-    :return: Symmetrized tensor of shape [n_atoms, 3, 3, num_properties], divided by the
-        cell volume.
-    """
-    # Reshape to 3x3 matrix per atom
-    tensor_as_three_by_three = tensor.reshape(-1, 3, 3, num_properties)
-
-    # Normalize by cell volume
-    volumes = torch.stack([torch.abs(torch.det(system.cell)) for system in systems])
-    # Zero volume can happen due to metatomic's convention of zero cell
-    # vectors for non-periodic directions. The actual volume is +inf
-    volumes[volumes == 0.0] = torch.inf
-    volumes_by_atom = volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
-    tensor_as_three_by_three = tensor_as_three_by_three / volumes_by_atom
-
-    # Symmetrize
-    tensor_as_three_by_three = (
-        tensor_as_three_by_three + tensor_as_three_by_three.transpose(1, 2)
-    ) / 2.0
-
-    return tensor_as_three_by_three
 
 
 def get_last_layer_features_name(target_name: str) -> str:
@@ -1436,3 +1433,64 @@ def should_compute_last_layer_features(
         output_name.replace("mtt::aux::", "")
     )
     return ll_features_name in requested_outputs
+
+
+def verify_masses(systems: list[System], masses: torch.Tensor):
+    """Attach masses to systems that don't have them yet."""
+    for system_index, system in enumerate(systems):
+        if "masses" not in system.known_data():
+            # obtain the masses from the atomic types
+            values = masses[system.types].unsqueeze(-1)
+
+            # wrap everything in a tensor map and attach to the system
+            label_values = torch.column_stack(
+                [
+                    torch.zeros(len(system), dtype=torch.int32, device=values.device),
+                    torch.arange(len(system), device=values.device),
+                ]
+            )
+
+            masses_map = TensorMap(
+                keys=Labels(
+                    names="_",
+                    values=torch.zeros((1, 1), dtype=torch.int32, device=values.device),
+                ),
+                blocks=[
+                    TensorBlock(
+                        values=values,
+                        samples=Labels(
+                            names=["system", "atom"],
+                            values=label_values,
+                        ),
+                        components=[],
+                        properties=Labels(
+                            names="mass",
+                            values=torch.arange(1, device=values.device).unsqueeze(-1),
+                        ),
+                    )
+                ],
+            )
+            system.add_data("masses", masses_map)
+        else:
+            # verify that the masses are correct
+            # (compare them to the ones stored in the model)
+            system_masses = system.get_data("masses").block(0).values.squeeze(-1)
+            expected_system_masses = masses[system.types]
+            # NOTE: 1e-3 is a bit rough, but it covers the case that someone is using
+            # the wrong isotope
+            if not torch.allclose(system_masses, expected_system_masses, rtol=1e-3):
+                # find which atom has the wrong mass
+                for atom_index in range(len(system)):
+                    # get the (model's expected) mass for this atom
+                    atomic_number = system.types[atom_index]
+                    model_mass = masses[atomic_number]
+                    # get the mass stored in the system
+                    system_mass = system_masses[atom_index]
+                    if not torch.allclose(model_mass, system_mass):
+                        raise ValueError(
+                            f"The mass of atom {atom_index} in system {system_index} "
+                            f"is {model_mass}, while the expected mass for atomic "
+                            f"number {atomic_number} is {system_mass}. FlashMD is not "
+                            "transferable to systems with different masses than it "
+                            "was trained on."
+                        )

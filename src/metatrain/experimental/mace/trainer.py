@@ -22,6 +22,9 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.data.atomic_basis_helpers import (
+    get_prepare_atomic_basis_targets_transform,
+)
 from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
@@ -272,12 +275,18 @@ class Trainer(TrainerInterface):
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
         requested_neighbor_lists = get_requested_neighbor_lists(model)
+        atomic_basis_transform, atomic_basis_reverse_transform = (
+            get_prepare_atomic_basis_targets_transform(
+                train_targets, dataset_info.extra_data
+            )
+        )
         collate_fn = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
+                atomic_basis_transform,
             ],
             batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
@@ -441,6 +450,15 @@ class Trainer(TrainerInterface):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
+                # if any atomic basis outputs are present, reverse the transform
+                # before calculating metrics
+                systems, targets, extra_data = atomic_basis_reverse_transform(
+                    systems, targets, extra_data
+                )
+                systems, predictions, _ = atomic_basis_reverse_transform(
+                    systems, predictions, {}
+                )
+
                 scaled_predictions = (model.module if is_distributed else model).scaler(
                     systems, predictions
                 )
@@ -502,6 +520,15 @@ class Trainer(TrainerInterface):
                         # sum the loss over all processes
                         torch.distributed.all_reduce(val_loss_batch)
                     val_loss += val_loss_batch.item()
+
+                    # if any atomic basis outputs are present, reverse the transform
+                    # before calculating metrics
+                    systems, targets, extra_data = atomic_basis_reverse_transform(
+                        systems, targets, extra_data
+                    )
+                    systems, predictions, _ = atomic_basis_reverse_transform(
+                        systems, predictions, {}
+                    )
 
                     scaled_predictions = (
                         model.module if is_distributed else model

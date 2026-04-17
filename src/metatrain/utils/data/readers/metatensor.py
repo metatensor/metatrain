@@ -115,13 +115,34 @@ def read_generic(
 
 
 def _check_tensor_map_metadata(tensor_map: TensorMap, layout: TensorMap) -> None:
-    if tensor_map.keys != layout.keys:
+    # Keys names have to match
+    if tensor_map.keys.names != layout.keys.names:
         raise ValueError(
-            f"Unexpected keys in metatensor targets: "
-            f"expected: {layout.keys} "
-            f"actual: {tensor_map.keys}"
+            f"Unexpected keys names in metatensor targets: "
+            f"expected: {layout.keys.names} "
+            f"actual: {tensor_map.keys.names}"
         )
-    for key in layout.keys:
+
+    is_atomic_basis = any(name.endswith("atom_type") for name in layout.keys.names)
+    if is_atomic_basis:
+        # All keys in the tensormap must be present in the layout,
+        # but we allow the tensormap to miss some keys (i.e. we
+        # don't force target tensormaps to contain all species)
+        if len(tensor_map.keys.intersection(layout.keys)) != len(tensor_map.keys):
+            raise ValueError(
+                f"Unexpected keys in metatensor targets: "
+                f"expected: {layout.keys.values} "
+                f"actual: {tensor_map.keys.values}"
+            )
+    else:
+        if tensor_map.keys != layout.keys:
+            raise ValueError(
+                f"Unexpected keys in metatensor targets: "
+                f"expected: {layout.keys} "
+                f"actual: {tensor_map.keys}"
+            )
+
+    for key in tensor_map.keys:
         block = tensor_map.block(key)
         block_from_layout = layout.block(key)
         if block.samples.names != block_from_layout.samples.names:
