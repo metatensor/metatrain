@@ -32,15 +32,16 @@ compatibility with various MD engines.
 Currently `metatrain` supports the following architectures for building an atomistic
 model:
 
-| Name                                     | Description                                                                                                                          |
-|------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| [PET][arch-pet]                          | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
-| [SOAP-BPNN][arch-soap_bpnn]              | A Behler-Parrinello neural network with SOAP features                                                                                |
-| [MACE][arch-mace]                        | A higher order equivariant message passing neural network.                                                                           |
-| [PhACE][arch-phace]                      | SO(3)-equivariant message-passing model with physical radial functions and fast tensor products.                                     |
-| [GAP][arch-gap]                          | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
-| [FlashMD][arch-flashmd]                  | An architecture for the direct prediction of molecular dynamics                                                                      |
-| [DPA3][arch-dpa3]                        | An invariant graph neural network based on line graph series representations                                                         |
+| Name                                          | Description                                                                                                                          |
+|-----------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| [PET][arch-pet]                               | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
+| [SOAP-BPNN][arch-soap_bpnn]                   | A Behler-Parrinello neural network with SOAP features                                                                                |
+| [MACE][arch-mace]                             | A higher order equivariant message passing neural network.                                                                           |
+| [PhACE][arch-phace]                           | SO(3)-equivariant message-passing model with physical radial functions and fast tensor products.                                     |
+| [GAP][arch-gap]                               | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
+| [FlashMD][arch-flashmd]                       | An architecture for the direct prediction of molecular dynamics                                                                      |
+| [DPA3][arch-dpa3]                             | An invariant graph neural network based on line graph series representations                                                         |
+| [Symplectic FlashMD][arch-flashmd_symplectic] | A symplectic variant of FlashMD for the direct prediction of molecular dynamics.                                                     |
 
 <!-- marker-arch-links -->
 
@@ -53,6 +54,7 @@ on a PR, since the docs use this README file directly.-->
 [arch-pet]: https://docs.metatensor.org/metatrain/latest/architectures/generated/pet.html
 [arch-phace]: https://docs.metatensor.org/metatrain/latest/architectures/generated/phace.html
 [arch-soap_bpnn]: https://docs.metatensor.org/metatrain/latest/architectures/generated/soap_bpnn.html
+[arch-flashmd_symplectic]: https://docs.metatensor.org/metatrain/latest/architectures/generated/flashmd_symplectic.html
 
 <!-- marker-documentation -->
 
