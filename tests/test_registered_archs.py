@@ -24,6 +24,11 @@ def test_codeowners_there():
     # architecture setup, we can change this test.
 
     architectures = find_all_architectures()
+    # Strip any "experimental." or "deprecated." prefixes to get the directory names.
+    architectures = [
+        a.split(".")[-1] if "." in a else a for a in architectures
+    ]
+
     with open(codeowners_path, "r") as f:
         for line in f:
             if line.startswith("#") or not line.strip():
@@ -32,16 +37,13 @@ def test_codeowners_there():
 
             # Fortunately, the architecture names match the directory names.
             path = path[3:]  # Remove leading "**/"
-            if not (path in architectures or "experimental." + path in architectures):
+            if path not in architectures:
                 raise ValueError(
                     "Found architecture path in CODEOWNERS that does not match any "
                     "architecture: %s. Was it removed but you forgot to update the "
                     "CODEOWNERS file?" % path
                 )
-            if path in architectures:
-                architectures.remove(path)
-            else:
-                architectures.remove("experimental." + path)
+            architectures.remove(path)
 
             assert len(owners) > 0, (
                 f"No owners specified for architecture path '{path}' in CODEOWNERS. "
