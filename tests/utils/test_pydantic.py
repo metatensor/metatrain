@@ -9,6 +9,7 @@ from metatrain.utils.pydantic import (
     MetatrainValidationError,
     validate,
     validate_architecture_options,
+    validate_base_options,
 )
 
 
@@ -98,3 +99,42 @@ def test_validate_architecture_options_warning(caplog):
     validate_architecture_options(options, model_hypers=Hypers, trainer_hypers=Hypers)
 
     assert "Architecture does not provide validation of hyperparameters" in caplog.text
+
+
+# ============================================================================
+# Tests for validate_base_options with indices
+# ============================================================================
+
+
+def test_indices_only_validation_set_list():
+    """validation_set accepts indices-only config with list."""
+    config = {
+        "architecture": {"name": "soap_bpnn"},
+        "training_set": {"systems": "data.xyz", "targets": {"energy": {"key": "E"}}},
+        "validation_set": {"indices": [0, 1, 2]},
+    }
+    validate_base_options(config)  # should not raise
+
+
+def test_indices_only_validation_set_string():
+    """validation_set accepts indices-only config with file path."""
+    config = {
+        "architecture": {"name": "soap_bpnn"},
+        "training_set": {"systems": "data.xyz", "targets": {"energy": {"key": "E"}}},
+        "validation_set": {"indices": "indices.txt"},
+    }
+    validate_base_options(config)  # should not raise
+
+
+def test_indices_in_full_dataset_config():
+    """Dataset config accepts optional indices field."""
+    config = {
+        "architecture": {"name": "soap_bpnn"},
+        "training_set": {
+            "systems": "data.xyz",
+            "targets": {"energy": {"key": "E"}},
+            "indices": [0, 1, 2, 3],
+        },
+        "validation_set": 0.1,
+    }
+    validate_base_options(config)  # should not raise

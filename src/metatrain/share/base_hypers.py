@@ -221,9 +221,32 @@ class DatasetDictHypers(TypedDict):
 
     extra_data: NotRequired[dict]
     """Additional data to include from the dataset."""
+    indices: NotRequired[list[int] | str]
+    """Explicit indices to select from the dataset.
+
+    Can be either a list of integers (e.g., ``[0, 1, 5, 10]``) or a path to a
+    text file containing one index per line. When specified, only the structures
+    at these indices will be used from the dataset.
+    """
 
 
 DatasetSpec = DatasetDictHypers | list[DatasetDictHypers] | str
+
+
+@with_config(ConfigDict(extra="forbid", strict=True))
+class IndicesOnlyHypers(TypedDict):
+    """
+    Config for validation/test sets that reference the training source via indices.
+    """
+
+    indices: list[int] | str
+    """Indices into the training set source file.
+
+    Can be either a list of integers (e.g., ``[0, 1, 5, 10]``) or a path to a
+    text file containing one index per line. The indices reference the same
+    source file as specified in ``training_set.systems.read_from``.
+    """
+
 
 WandbConfig = dict
 
@@ -259,9 +282,25 @@ class BaseHypers(TypedDict):
 
     training_set: DatasetSpec
     """Specification of the training dataset."""
-    validation_set: DatasetSpec | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
-    """Specification of the validation dataset."""
+    validation_set: (
+        IndicesOnlyHypers
+        | DatasetSpec
+        | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
+    )
+    """Specification of the validation dataset.
+
+    Can be a float fraction (e.g., ``0.1`` for 10% of training data),
+    a full dataset specification, or an ``indices`` dict referencing
+    the training source file.
+    """
     test_set: NotRequired[
-        DatasetSpec | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
+        IndicesOnlyHypers
+        | DatasetSpec
+        | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
     ]
-    """Specification of the test dataset."""
+    """Specification of the test dataset.
+
+    Can be a float fraction (e.g., ``0.1`` for 10% of training data),
+    a full dataset specification, or an ``indices`` dict referencing
+    the training source file.
+    """
