@@ -132,3 +132,28 @@ test distributed multitarget finetuning:
     SLURM_UNBUFFEREDIO: 1
     USE_NCCL: 'cuda12'
     GIT_STRATEGY: fetch
+
+test distributed atomic types in keys:
+  stage: test
+  needs:
+    - job: "test distributed atomic types in keys"
+      artifacts: true
+  extends: .container-runner-daint-gh200
+  image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
+  timeout: 24h
+  script:
+    - flock /tmp/ldconfig.lock -c "test -f /tmp/ld_$CI_JOB_ID || { ldconfig || true; touch /tmp/ld_$CI_JOB_ID; }"
+    - . /mtt-venv/bin/activate
+    - cd tests/distributed
+    - mtt train options-density.yaml | tee train-density.log
+    - 'if [ $SLURM_PROCID == 0 ]; then grep "Training finished!" train-density.log || { echo "FAILED: The density models has not finished training"; exit 1; }; fi'
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 4
+    SLURM_GPUS_PER_TASK: 1
+    SLURM_CPUS_PER_TASK: 16
+    SLURM_TIMELIMIT: '00:10:00'
+    SLURM_UNBUFFEREDIO: 1
+    USE_NCCL: 'cuda12'
+    GIT_STRATEGY: fetch

@@ -1,0 +1,29 @@
+seed: 42
+device: cuda
+
+architecture:
+  name: pet
+  training:
+    distributed: true
+    batch_size: 1
+    num_epochs: 5
+    atomic_baseline: {"mtt::dummy": {1: 0.0, 6: 0.0}}
+
+training_set:
+  systems:
+    read_from: dummy_ri_density.zip
+    length_unit: angstrom
+  targets:
+    mtt::dummy:
+      quantity: ""
+      unit: ""
+      per_atom: true
+      type:
+        spherical:
+          irreps:
+            1: &basis
+              - {o3_lambda: 0, o3_sigma: 1, num: 5}
+            6: *basis
+
+test_set: 0.0
+validation_set: 0.5
