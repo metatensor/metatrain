@@ -642,6 +642,32 @@ def _train_test_random_split(
     ]
 
 
+def load_indices(indices_spec: Union[List[int], str]) -> List[int]:
+    """Load indices from a list or a file path.
+
+    :param indices_spec: Either a list of integers or a path to a text file
+        containing one index per line.
+    :returns: List of integer indices (may be empty for empty val/test sets).
+    :raises ValueError: If indices contain invalid values.
+    """
+    # Check for list-like objects (including OmegaConf ListConfig)
+    if not isinstance(indices_spec, str):
+        indices = list(indices_spec)
+    else:
+        # It's a path string
+        path = Path(indices_spec)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        if not path.exists():
+            raise ValueError(f"Indices file not found: {path}")
+        indices = np.loadtxt(path, dtype=int).tolist()
+
+    if indices and any(i < 0 for i in indices):
+        raise ValueError("Indices must be non-negative integers")
+
+    return indices
+
+
 class DiskDataset(torch.utils.data.Dataset):
     """
     A class representing a dataset stored on disk.
@@ -856,7 +882,7 @@ def _save_indices(
 
     # case 3: there are multiple datasets
     else:
-        os.mkdir(os.path.join(checkpoint_dir, "indices/"))
+        os.makedirs(os.path.join(checkpoint_dir, "indices/"), exist_ok=True)
         for i, (train, val, test) in enumerate(
             zip(train_indices, val_indices, test_indices, strict=True)
         ):

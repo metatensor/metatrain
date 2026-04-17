@@ -95,7 +95,7 @@ and is usually used to decide on the best model. The test set is only used after
 and it is used to evaluate the model's performance on an unseen dataset after training.
 If not specified, no test set will be created.
 Each subsection has the same parameter configuration. As an example, the configuration
-of the training set is usually divided into three main sections:
+of the training set is usually divided into four main sections:
 
 .. code-block:: yaml
 
@@ -106,6 +106,8 @@ of the training set is usually divided into three main sections:
             ...
         extra_data:
             ...
+        indices:
+            ...
 
 with the three sections being:
 
@@ -113,6 +115,7 @@ with the three sections being:
 - ``targets``: defines the outputs to be predicted by the model.
 - ``extra_data``: defines any additional data required by the loss function during
   training.
+-  ``indices``: if present, it defines a subset of indices of the full data to be used for training.
 
 The validation and test set sections can also be fully specified in the same way as the
 training set section, but they can also be simply a fraction of the training set. For
@@ -251,6 +254,29 @@ can be condensed into
 .. note::
 
    Unknown keys are ignored and not deleted in all sections during dataset parsing.
+
+Indices
+-------
+
+``indices`` can either be a path to a text file containing a list of numbers that
+can be loaded with ``numpy.loadtxt``:
+
+.. code-block:: yaml
+
+        targets:
+            indices: /path/to/indices.txt
+
+.. note::
+
+   If relative, the path is relative to the current working directory, i.e., where
+   ``mtt`` is run from.
+
+or it can be an explicit list of integers:
+
+.. code-block:: yaml
+
+        targets:
+            indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 Datasets requiring additional data
 ----------------------------------
