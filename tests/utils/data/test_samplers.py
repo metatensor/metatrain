@@ -301,9 +301,7 @@ def test_equivalent_to_fixed_batch_size_uniform_atoms():
     """With uniform atom counts and no shuffle, batches match fixed batch_size."""
     n, n_atoms, batch_size = 15, 4, 3
     ds = _FakeDataset([n_atoms] * n)
-    sampler = MaxAtomBatchSampler(
-        ds, max_atoms=n_atoms * batch_size, shuffle=False
-    )
+    sampler = MaxAtomBatchSampler(ds, max_atoms=n_atoms * batch_size, shuffle=False)
     batches = list(sampler)
 
     expected = [list(range(i, i + batch_size)) for i in range(0, n, batch_size)]
