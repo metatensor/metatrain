@@ -136,8 +136,7 @@ test distributed multitarget finetuning:
 test distributed atomic types in keys:
   stage: test
   needs:
-    - job: "test distributed atomic types in keys"
-      artifacts: true
+    - build base
   extends: .container-runner-daint-gh200
   image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
   timeout: 24h
