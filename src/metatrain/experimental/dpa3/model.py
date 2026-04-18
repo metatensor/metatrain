@@ -221,7 +221,7 @@ class DPA3(ModelInterface[ModelHypers]):
         self.outputs[target_name] = ModelOutput(
             quantity=target.quantity,
             unit=target.unit,
-            sample_kind="system",
+            sample_kind="atom",
         )
 
     def get_rcut(self):

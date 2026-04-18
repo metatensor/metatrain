@@ -868,7 +868,7 @@ class FlashMDSymplectic(ModelInterface):
                 axis="samples",
                 selection=selected_atoms,
             )
-        if requested_outputs["features"].per_atom:
+        if requested_outputs["features"].sample_kind == "atom":
             features_dict["features"] = feature_tmap
         else:
             features_dict["features"] = sum_over_atoms(feature_tmap)
@@ -993,7 +993,7 @@ class FlashMDSymplectic(ModelInterface):
                     selection=selected_atoms,
                 )
             last_layer_features_options = requested_outputs[output_name]
-            if last_layer_features_options.per_atom:
+            if last_layer_features_options.sample_kind == "atom":
                 last_layer_features_outputs[output_name] = last_layer_feature_tmap
             else:
                 last_layer_features_outputs[output_name] = sum_over_atoms(
@@ -1182,7 +1182,7 @@ class FlashMDSymplectic(ModelInterface):
         # to get the final per-structure predictions for each requested output.
 
         for output_name, atomic_property in atomic_predictions_tmap_dict.items():
-            if outputs[output_name].per_atom:
+            if outputs[output_name].sample_kind == "atom":
                 atomic_predictions_tmap_dict[output_name] = atomic_property
             else:
                 atomic_predictions_tmap_dict[output_name] = sum_over_atoms(

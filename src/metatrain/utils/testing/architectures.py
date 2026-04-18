@@ -156,7 +156,9 @@ class ArchitectureTests:
         return request.param
 
     @pytest.fixture
-    def dataset_info_scalar(self, num_subtargets: int, sample_kind: Literal["atom", "system"]) -> DatasetInfo:
+    def dataset_info_scalar(
+        self, num_subtargets: int, sample_kind: Literal["atom", "system"]
+    ) -> DatasetInfo:
         """Fixture that provides a basic ``DatasetInfo`` with a scalar target
         for testing.
 
