@@ -144,7 +144,9 @@ class OutputTests(ArchitectureTests):
         model = model.to(system.positions.dtype)
         model.eval()
 
-        out = model([system], {k: ModelOutput(sample_kind=sample_kind) for k in outputs})
+        out = model(
+            [system], {k: ModelOutput(sample_kind=sample_kind) for k in outputs}
+        )
         if check_metadata:
             for k, v in out.items():
                 _check_tensor_map_metadata(v, dataset_info.targets[k].layout)
