@@ -1139,6 +1139,24 @@ class MemmapDataset(TorchDataset):
     def __len__(self) -> int:
         return self.ns
 
+    def get_num_atoms(self, i: int) -> int:
+        """Return the number of atoms in structure ``i`` without loading the full
+        sample.
+
+        :param i: The structure index.
+        :return: The number of atoms in structure ``i``.
+        """
+        return int(self.na[i + 1] - self.na[i])
+
+    def get_all_atom_counts(self) -> np.ndarray:
+        """Return atom counts for all structures as a numpy int64 array.
+
+        Much faster than calling ``get_num_atoms`` in a loop for large datasets.
+
+        :return: Array of atom counts, one per structure.
+        """
+        return np.diff(self.na).astype(np.int64)
+
     def __getitem__(self, i: int) -> Any:
         a = torch.tensor(self.a[self.na[i] : self.na[i + 1]], dtype=torch.int32)
         x = torch.tensor(self.x[self.na[i] : self.na[i + 1]], dtype=torch.float64)
