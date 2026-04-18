@@ -311,50 +311,52 @@ def prepare_atomic_basis_targets(
 # ===== Sparsification utilities (atom types back to keys)
 
 
-def _precompute_unpad_masks(layout: TensorMap) -> list[torch.Tensor]:
-    """
-    Precompute the property index masks used in the unpadding step of
-    :func:`_sparsify_per_atom_atomic_basis_target`.
+def _compute_sparse_properties(
+    layout: TensorMap,
+) -> dict[str, tuple[Labels, torch.Tensor]]:
+    """Compute the properties of the sparse tensor map that results from
+    sparsifying a given dense tensor map.
 
-    For each key in ``layout``, the mask is a 1-D integer tensor of length
-    ``len(layout_block.properties)`` whose i-th element is the position of
-    ``layout_block.properties[i]`` inside the padded (union) property labels for
-    that irrep. This is identical to calling
-    ``layout_properties.select(padded_properties)`` at runtime, but only needs to
-    be done once since both label sets are fixed for a given basis set definition.
+    This can be computed once and for all for a given layout, and be reused to
+    sparsify as many padded tensor maps as needed with the function
+    :func:`sparsify_atomic_basis_target`.
 
     :param layout: the layout TensorMap defining the global basis set.
-    :return: list of integer index tensors, one per key in ``layout.keys``,
-        ordered consistently with ``layout.items()``.
+    :return: a dictionary mapping each key in the layout to a tuple containing the
+      sparse properties and the mask to select them from the padded properties.
     """
-    non_type_indices = [
-        i for i, name in enumerate(layout.keys.names) if not name.endswith("atom_type")
-    ]
+    sparse_properties: dict[str, tuple[Labels, torch.Tensor]] = {}
+    non_type_indices: list[int] = []
+    for i, name in enumerate(layout.keys.names):
+        if not name.endswith("atom_type"):
+            non_type_indices.append(i)
 
     # Build union of properties across atom types for each non-type key — same
     # logic as _densify_per_atom_atomic_basis_target.
-    union_properties: dict = {}
+    union_properties: dict[str, Labels] = {}
     for key, block in layout.items():
-        k = tuple(key.values[i].item() for i in non_type_indices)
+        k = str([key.values[i].item() for i in non_type_indices])
         if k not in union_properties:
             union_properties[k] = block.properties
         else:
             union_properties[k] = union_properties[k].union(block.properties)
 
-    masks = []
     for key, block in layout.items():
-        k = tuple(key.values[i].item() for i in non_type_indices)
-        padded_properties = union_properties[k]
-        masks.append(block.properties.select(padded_properties))
-    return masks
+        k_vals: list[int] = key.values.to(torch.int64).tolist()
+        padded_properties = union_properties[str([k_vals[i] for i in non_type_indices])]
+
+        sparse_properties[str(k_vals)] = (
+            block.properties,
+            padded_properties.select(block.properties),
+        )
+    return sparse_properties
 
 
 def _sparsify_per_atom_atomic_basis_target(
     systems: List[System],
     tensor: TensorMap,
-    layout: TensorMap,
+    sparse_properties: dict[str, tuple[Labels, torch.Tensor]],
     atom_types_batch: Optional[torch.Tensor] = None,
-    precomputed_masks: Optional[list[torch.Tensor]] = None,
 ) -> TensorMap:
     """
     Sparsify the per-atom atomic basis target by creating blocks with an explicit
@@ -363,13 +365,11 @@ def _sparsify_per_atom_atomic_basis_target(
 
     :param systems: List of systems in the batch.
     :param tensor: the atomic basis target TensorMap to sparsify.
-    :param layout: the layout TensorMap defining the global basis set.
+    :param sparse_properties: a dictionary mapping each key in the sparse layout to a
+        tuple containing the sparse properties and the mask to select them from the
+        padded properties.
     :param atom_types_batch: Optional tensor containing the atom types for each sample
         in the batch. If not provided, these are inferred from the systems.
-    :param precomputed_masks: Optional list of precomputed property index masks, one per
-        key in ``layout``, as returned by :func:`_precompute_unpad_masks`. When
-        provided, avoids recomputing ``layout_properties.select(block.properties)`` on
-        every call.
     :return: the sparsified atomic basis target TensorMap
     """
     if atom_types_batch is None:
@@ -379,30 +379,68 @@ def _sparsify_per_atom_atomic_basis_target(
             dim=0,
         )
 
+    device = tensor[0].values.device
+
     # Sparsify by moving the "atom_type" from the samples to the keys
-    unique_types = torch.unique(atom_types_batch)
+    unique_types: list[int] = (
+        torch.unique(atom_types_batch).to(torch.int64).cpu().tolist()
+    )
     atom_type_masks: Dict[int, torch.Tensor] = {}
     atom_type_samples: Dict[int, Labels] = {}
 
+    # Compute the samples masks (i.e. get the indices for the atoms
+    # of each type), and build the samples labels. This could be computed
+    # in the dataloader since it only depends on the atom types of the systems.
+    sample_indices = torch.arange(len(atom_types_batch)).to(device=device)
     for atom_type in unique_types:
-        atom_type_masks[atom_type.item()] = torch.arange(len(atom_types_batch)).to(
-            device=atom_types_batch.device
-        )[atom_types_batch == atom_type]
-        atom_type_samples[atom_type.item()] = Labels(
+        atom_type_masks[atom_type] = sample_indices[atom_types_batch == atom_type]
+        atom_type_samples[atom_type] = Labels(
             names=["system", "atom"],
-            values=tensor[0].samples.values[atom_type_masks[atom_type.item()]],
+            values=tensor[0].samples.values[atom_type_masks[atom_type]],
         )
 
+    # Build the sparsified tensormap by looping over the dense one
+    # and splitting each block into one block per atom type.
     new_keys: List[torch.Tensor] = []
     sparse_blocks: List[TensorBlock] = []
     for key, block in tensor.items():
         for atom_type in unique_types:
-            new_key = torch.cat([key.values, atom_type.view(1)], dim=0)
+            new_key = torch.cat(
+                [key.values, torch.tensor([atom_type], device=key.values.device)], dim=0
+            )
+
+            # Key to look up at the sparse_properties dict.
+            k_vals: list[int] = new_key.to(torch.int64).tolist()
+            k = str(k_vals)
+            if k not in sparse_properties:
+                # This irreps do not exist for this given atom type
+                continue
+
+            # Get the unpadded properties and the mask to select them from the padded
+            # block
+            layout_properties, properties_mask = sparse_properties[k]
+            layout_properties = layout_properties.to(device)
+            properties_mask = properties_mask.to(device)
+
+            # Select samples
+            values = block.values[atom_type_masks[atom_type]]
+            # Select properties
+            # Do block.values[..., properties_mask] in a torchscriptable way.
+            if block.values.ndim == 3:
+                values = values[:, :, properties_mask]
+            elif block.values.ndim == 4:
+                values = values[:, :, :, properties_mask]
+            else:
+                raise ValueError(
+                    "Tensorblocks with more than 2 component dimensions can't be "
+                    "sparsified with the current implementation."
+                )
+
             sparse_block = TensorBlock(
-                values=block.values[atom_type_masks[atom_type.item()]],
-                samples=atom_type_samples[atom_type.item()],
+                values=values,
+                samples=atom_type_samples[atom_type],
                 components=block.components,
-                properties=block.properties,
+                properties=layout_properties,
             )
 
             new_keys.append(new_key)
@@ -413,74 +451,7 @@ def _sparsify_per_atom_atomic_basis_target(
         sparse_blocks,
     )
 
-    # Now unpad the properties. Iterate over keys of the layout to automatically filter
-    # out any blocks created that aren't in the basis set definition.
-
-    # Block lookup — build a Python dict from the sparsified tensor so each lookup is
-    # O(1) rather than O(n_keys) (metatensor label search).
-    sparsified_blocks: Dict[str, TensorBlock] = {
-        "_".join([str(x.item()) for x in k.values]): b for k, b in tensor.items()
-    }
-    present: List[
-        tuple[int, torch.Tensor, TensorBlock, Labels]
-    ] = []  # (key_idx, key.values, block, layout_properties)
-    for key_idx, (key, layout_block) in enumerate(layout.items()):
-        block = sparsified_blocks.get("_".join([str(x.item()) for x in key.values]))
-        if block is None:
-            # can happen if this atom type isn't present in the batch
-            assert not torch.any(unique_types == key["atom_type"])
-            continue
-        present.append(
-            (
-                key_idx,
-                key.values,
-                block,
-                layout_block.properties.to(block.values.device),
-            )
-        )
-
-    # Value slicing — extract unpadded property columns from each block.
-    sliced: List[
-        tuple[torch.Tensor, torch.Tensor, TensorBlock, Labels]
-    ] = []  # (key_vals_tensor, values, block, layout_properties)
-    for key_idx, key_values, block, layout_properties in present:
-        if precomputed_masks is not None:
-            properties_mask = precomputed_masks[key_idx].to(block.values.device)
-        else:
-            properties_mask = layout_properties.select(block.properties)
-        # Do block.values[..., properties_mask] in a torchscriptable way.
-        if block.values.ndim == 3:
-            values = block.values[:, :, properties_mask]
-        elif block.values.ndim == 4:
-            values = block.values[:, :, :, properties_mask]
-        else:
-            raise ValueError(
-                "Tensorblocks with more than 2 component dimensions can't be "
-                "sparsified with the current implementation."
-            )
-        sliced.append((key_values, values, block, layout_properties))
-
-    # TensorBlock construction — wrap sliced values in metatensor objects.
-    key_vals: List[torch.Tensor] = []
-    unpadded_blocks: List[TensorBlock] = []
-    for key_values, values, block, layout_properties in sliced:
-        key_vals.append(key_values)
-        unpadded_blocks.append(
-            TensorBlock(
-                values=values,
-                samples=block.samples,
-                components=block.components,
-                properties=layout_properties,
-            )
-        )
-
-    return TensorMap(
-        Labels(
-            layout.keys.names,
-            torch.vstack(key_vals).to(unpadded_blocks[0].values.device),
-        ),
-        unpadded_blocks,
-    )
+    return tensor
 
 
 def sparsify_atomic_basis_target(
@@ -488,7 +459,7 @@ def sparsify_atomic_basis_target(
     tensor: TensorMap,
     layout: TensorMap,
     atom_types_batch: Optional[torch.Tensor] = None,
-    precomputed_masks: Optional[list[torch.Tensor]] = None,
+    sparse_properties: Optional[dict[str, tuple[Labels, torch.Tensor]]] = None,
 ) -> TensorMap:
     """
     Sparsify the atomic basis target by creating blocks with an explicit "atom_type"
@@ -501,16 +472,18 @@ def sparsify_atomic_basis_target(
         all blocks that should be present in the sparsified output).
     :param atom_types_batch: Optional tensor containing the atom types for each sample
         in the batch. If not provided, these are inferred from the systems.
-    :param precomputed_masks: Optional list of precomputed property index masks, one per
-        key in ``layout``, as returned by :func:`_precompute_unpad_masks`. When
-        provided, avoids recomputing ``layout_properties.select(block.properties)`` on
-        every call.
+    :param sparse_properties: Dictionary mapping each key in the sparse layout to a
+        tuple containing the sparse properties and the mask to select them from the
+        padded properties. If not provided, it is computed from ``layout``.
 
     :return: the sparsified atomic basis target TensorMap
     """
+    if sparse_properties is None:
+        sparse_properties = _compute_sparse_properties(layout)
+
     if "atom" in tensor.sample_names:
         return _sparsify_per_atom_atomic_basis_target(
-            systems, tensor, layout, atom_types_batch, precomputed_masks
+            systems, tensor, sparse_properties, atom_types_batch
         )
 
     raise NotImplementedError(
@@ -646,17 +619,16 @@ def get_prepare_atomic_basis_targets_transform(
 
         return systems, targets, extra
 
-    # Precompute unpad masks for all atomic basis targets and extra data.
-    # This avoids calling layout_properties.select(block.properties) on every
-    # batch inside _sparsify_per_atom_atomic_basis_target — both label sets are
-    # fixed for the entire training run.
-    unpad_masks: Dict[str, list[torch.Tensor]] = {}
+    # Precompute property masks for all atomic basis targets and extra data.
+    # This avoids calling layout_properties.select(block.properties) every
+    # time we want to sparsify a batch.
+    sparse_properties: dict[str, dict] = {}
     for name, info in target_info_dict.items():
         if info.is_atomic_basis:
-            unpad_masks[name] = _precompute_unpad_masks(info.layout)
+            sparse_properties[name] = _compute_sparse_properties(info.layout)
     for name, info in extra_data_info_dict.items():
         if info.is_atomic_basis:
-            unpad_masks[name] = _precompute_unpad_masks(info.layout)
+            sparse_properties[name] = _compute_sparse_properties(info.layout)
 
     def reverse_transform(
         systems: List[System],
@@ -679,7 +651,7 @@ def get_prepare_atomic_basis_targets_transform(
                     systems,
                     tensor,
                     target_info_dict[name].layout,
-                    precomputed_masks=unpad_masks.get(name),
+                    sparse_properties=sparse_properties.get(name),
                 )
 
         for name, tensor in extra.items():
@@ -691,7 +663,7 @@ def get_prepare_atomic_basis_targets_transform(
                     systems,
                     tensor,
                     extra_data_info_dict[name].layout,
-                    precomputed_masks=unpad_masks.get(name),
+                    sparse_properties=sparse_properties.get(name),
                 )
 
         return systems, targets, extra
