@@ -495,7 +495,6 @@ def sparsify_atomic_basis_target(
     )
 
 
-torch.jit.script(_compute_sparse_properties).save("sparsify_atomic_basis_target.pt")
 # ===== dataloader transforms
 
 
