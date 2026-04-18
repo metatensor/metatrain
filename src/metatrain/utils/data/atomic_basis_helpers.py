@@ -381,7 +381,7 @@ def _sparsify_per_atom_atomic_basis_target(
 
         layout_properties = layout_block.properties.to(block.properties.device)
 
-        properties_mask = layout_properties.select(block.properties)
+        properties_mask = block.properties.select(layout_properties)
         # Do block.values[..., properties_mask] in a torchscriptable way.
         if block.values.ndim == 3:
             values = block.values[:, :, properties_mask]
