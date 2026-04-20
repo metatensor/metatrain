@@ -288,20 +288,19 @@ class BaseCompositionModel(torch.nn.Module):
                 # TODO: store XTX by sample kind instead, saving memory
                 self.XTX[target_name][key].values[:] += XTX
 
-                # Compute "XTY", i.e. X.T @ Y
-                if self.sample_kinds[target_name] == "per_structure":
-                    # For per-structure targets, we can directly compute X.T @ Y as
-                    # there is no NaN property padding.
-                    self.XTY[target_name][key].values[:] += torch.tensordot(
-                        X, Y, dims=([0], [0])
-                    )
+                # Compute and accummulate "XTY", i.e. X.T @ Y
+                XTY = self.XTY[target_name][key]
+                if self.sample_kinds[target_name] != "per_atom":
+                    # Explicitly compute X.T @ Y.
+                    XTY.values[:] += torch.tensordot(X, Y, dims=([0], [0]))
                 else:
-                    # For per-atom targets, these *could* be atomic basis and have NaN
-                    # padding. Compute XTY separately for each atomic type.
-                    for i in range(X.shape[1]):
-                        self.XTY[target_name][key].values[i] += torch.sum(
-                            Y[X[:, i].bool()], dim=0
-                        )
+                    # X in this case is a one hot encoding of the atom types,
+                    # so we just need to sum Y over atoms of each type to get X.T @ Y.
+                    # This avoids NaNs getting leaked from one atom type to another.
+                    type_indices = X.argmax(dim=1)
+                    # scatter_add_ does not broadcast, so we have to expand type_indices
+                    idx = type_indices.reshape(-1, *[1] * len(Y.shape[1:])).expand_as(Y)
+                    XTY.values.scatter_add_(dim=0, index=idx, src=Y)
 
     def _sanitize_fixed_weights(
         self,
@@ -417,9 +416,13 @@ class BaseCompositionModel(torch.nn.Module):
                         )
 
                     else:
-                        if self.sample_kinds[target_name] == "per_structure":
+                        if self.sample_kinds[target_name] != "per_atom":
+                            # Solve linear system explicitly.
                             weight_vals = _solve_linear_system(XTX_values, XTY_values)
                         else:
+                            # XTX in this case is a diagonal matrix (the counts of atoms
+                            # of each type), so we can solve it faster. This also avoids
+                            # NaNs getting leaked from one atom type to another.
                             weight_vals = XTY_values / torch.diag(XTX_values).unsqueeze(
                                 1
                             )
@@ -508,13 +511,14 @@ class BaseCompositionModel(torch.nn.Module):
                     X_block = X_block[atom_type_mask]
 
                 # Compute X.T @ W
-                if self.sample_kinds[output_name] == "per_structure":
+                if self.sample_kinds[output_name] != "per_atom":
                     out_vals = torch.tensordot(
                         X_block, weight_block.values, dims=([1], [0])
                     )
                 else:
                     # No multiplication is needed for per-atom targets, we just need to
                     # broadcast the weights according to the atom types in the samples.
+                    # This also avoids NaN getting leaked from one atom type to another.
                     out_vals = weight_block.values[X_block.argmax(dim=1)]
 
                 prediction_blocks.append(

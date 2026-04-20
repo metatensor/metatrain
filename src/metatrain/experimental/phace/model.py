@@ -27,7 +27,6 @@ from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
-    densify_atomic_basis_target,
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
@@ -74,9 +73,13 @@ class PhACE(ModelInterface[ModelHypers]):
         self.dataset_info = dataset_info
         self.hypers = hypers
 
+        # Modified dataset_info with the targets as they will be seen by
+        # the model during training.
+        train_dataset_info = self._train_dataset_info(dataset_info)
+
         # Two types of model wrapper: one with gradients (training) and one without
         # (torchscript-based export).
-        base_model = BaseModel(hypers, dataset_info)
+        base_model = BaseModel(hypers, train_dataset_info)
         self.fake_gradient_model = FakeGradientModel(base_model)
         self.gradient_model = GradientModel(base_model)
         self.module = self.fake_gradient_model
@@ -116,50 +119,46 @@ class PhACE(ModelInterface[ModelHypers]):
         self._sph_to_cart_rank2 = W
 
         self.mlp_head_num_layers = self.hypers["mlp_head_num_layers"]
-        for target_name, target_info in dataset_info.targets.items():
+        for target_name, target_info in train_dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
         self.last_layer_feature_size = self.k_max_l[0]
-
-        # as PhACE handles atomic basis targets in the densified form, we modify the
-        # layouts of the atomic basis targets in dataset_info, specifically for passing
-        # to the composition model and scaler. This only modifies atomic basis targets.
-        dataset_info_dense = densify_atomic_basis_dataset_info(dataset_info)
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
         composition_model = CompositionModel(
             hypers={},
             dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
+                length_unit=train_dataset_info.length_unit,
                 atomic_types=self.atomic_types,
                 targets={
                     target_name: target_info
-                    for target_name, target_info in dataset_info_dense.targets.items()
+                    for target_name, target_info in train_dataset_info.targets.items()
                     if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
         additive_models = [composition_model]
         if self.hypers["zbl"]:
+            zbl_targets = {
+                target_name: target_info
+                for target_name, target_info in train_dataset_info.targets.items()
+                if ZBL.is_valid_target(target_name, target_info)
+            }
             additive_models.append(
                 ZBL(
                     {},
                     dataset_info=DatasetInfo(
-                        length_unit=dataset_info.length_unit,
+                        length_unit=train_dataset_info.length_unit,
                         atomic_types=self.atomic_types,
-                        targets={
-                            target_name: target_info
-                            for target_name, target_info in dataset_info.targets.items()
-                            if ZBL.is_valid_target(target_name, target_info)
-                        },
+                        targets=zbl_targets,
                     ),
                 )
             )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(hypers={}, dataset_info=dataset_info_dense)
+        self.scaler = Scaler(hypers={}, dataset_info=train_dataset_info)
 
         self.single_label = Labels.single()
 
@@ -186,25 +185,29 @@ class PhACE(ModelInterface[ModelHypers]):
                 "The PhACE model does not support adding new atomic types."
             )
 
+        # Modified dataset_info with the targets as they will be seen by
+        # the model during training.
+        train_dataset_info = self._train_dataset_info(dataset_info)
+
         # register new outputs as new last layers
-        for target_name, target in new_targets.items():
-            self._add_output(target_name, target)
+        for target_name in new_targets:
+            self._add_output(target_name, train_dataset_info.targets[target_name])
 
         self.dataset_info = merged_info
 
         # restart the composition and scaler models
         self.additive_models[0].restart(
             dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
+                length_unit=train_dataset_info.length_unit,
                 atomic_types=self.atomic_types,
                 targets={
                     target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
+                    for target_name, target_info in train_dataset_info.targets.items()
                     if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
-        self.scaler.restart(dataset_info)
+        self.scaler.restart(train_dataset_info)
 
         return self
 
@@ -596,6 +599,18 @@ class PhACE(ModelInterface[ModelHypers]):
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 
+    def _train_dataset_info(self, dataset_info: DatasetInfo) -> DatasetInfo:
+        """Converts the original dataset info to one corresponding to what the
+        model will see during training, which depends on transforms applied to
+        the targets during data loading.
+
+        :param dataset_info: Original dataset info describing the targets as
+            they are in the raw data.
+        :return: Modified dataset info describing the targets as they will be
+            seen by the model during training.
+        """
+        return densify_atomic_basis_dataset_info(dataset_info)
+
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
@@ -603,9 +618,7 @@ class PhACE(ModelInterface[ModelHypers]):
             per_atom=True,
         )
 
-        output_layout = target_info.layout
-
-        if target_info.is_cartesian and len(output_layout.block().components) == 2:
+        if target_info.is_cartesian and len(target_info.layout.block().components) == 2:
             # rank-2 Cartesian: store internal spherical layout (l=0, l=1, l=2)
             # so that the forward pass constructs the spherical TensorMap, which
             # is then converted to Cartesian by _to_cartesian_rank_2.
@@ -625,21 +638,17 @@ class PhACE(ModelInterface[ModelHypers]):
                         )
                     ]
                 )
-                internal_property_labels.append(output_layout.block().properties)
+                internal_property_labels.append(target_info.layout.block().properties)
             self.key_labels[target_name] = internal_keys
             self.component_labels[target_name] = internal_component_labels
             self.property_labels[target_name] = internal_property_labels
         else:
-            if target_info.is_atomic_basis:
-                output_layout = densify_atomic_basis_target(
-                    output_layout, output_layout
-                )
-            self.key_labels[target_name] = output_layout.keys
+            self.key_labels[target_name] = target_info.layout.keys
             self.component_labels[target_name] = [
-                block.components for block in output_layout.blocks()
+                block.components for block in target_info.layout.blocks()
             ]
             self.property_labels[target_name] = [
-                block.properties for block in output_layout.blocks()
+                block.properties for block in target_info.layout.blocks()
             ]
 
     def requested_neighbor_lists(

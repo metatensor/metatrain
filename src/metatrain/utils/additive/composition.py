@@ -1,19 +1,16 @@
 import logging
-from typing import Callable, Dict, List, Optional, Union
+from typing import Callable, Dict, List, Optional, Sequence, Union
 
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import ModelOutput, System
+from metatomic.torch import ModelOutput, NeighborListOptions, System
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
-)
-from metatrain.utils.data.atomic_basis_helpers import (
-    densify_atomic_basis_target,
 )
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists_transform
 
@@ -24,7 +21,7 @@ from ._base_composition import (
     FixedCompositionWeights,
     _include_key,
 )
-from .remove import get_remove_additive_transform
+from .remove import remove_additive
 
 
 class CompositionModel(torch.nn.Module):
@@ -96,60 +93,13 @@ class CompositionModel(torch.nn.Module):
             self._new_outputs.append(target_name)
             self._add_output(target_name, target_info)
 
-    def _get_collate_fn(
-        self,
-        additive_models: List[torch.nn.Module],
-        initial_transforms: List[Callable],
-    ) -> CollateFn:
-        """
-        Build a collate function for the dataloader that will be used to fit the
-        composition weights. This collate function will include the necessary callables:
-
-            - any initial transforms provided in `initial_transforms`
-            - adds any necessary neighbor lists.
-            - adds additive model contributions (other than the composition model) that
-              are present in the model.
-
-        :param additive_models: A list of the additive models whose contributions should
-            be removed from the targets before fitting the composition weights. This is
-            used to build the collate function for the dataloader.
-        :param initial_transforms: A list of any additional callables to be included in
-            the collate function, which should be applied before the callable that
-            removes the additive contributions. This can be used to include the atomic
-            basis transform, for example, if needed.
-        :return: The created collate function.
-        """
-        callables = []
-        if len(initial_transforms) > 0:
-            callables += initial_transforms
-
-        if len(additive_models) > 0:
-            requested_neighbor_lists = []
-            for additive_model in additive_models:
-                if hasattr(additive_model, "requested_neighbor_lists"):
-                    requested_neighbor_lists += (
-                        additive_model.requested_neighbor_lists()
-                    )
-
-            callables += [
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_remove_additive_transform(
-                    additive_models, self.dataset_info.targets
-                ),
-            ]
-
-        return CollateFn(
-            target_keys=list(self.dataset_info.targets.keys()),
-            callables=callables,
-        )
-
     def _get_dataloader(
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        additive_models: List[torch.nn.Module],
+        requested_neighbor_lists: List[NeighborListOptions],
         batch_size: int,
         is_distributed: bool,
-        initial_transforms: List[Callable],
+        initial_transforms: Sequence[Callable],
     ) -> DataLoader:
         """
         Create a DataLoader for the provided datasets. As the dataloader is only used to
@@ -159,17 +109,28 @@ class CompositionModel(torch.nn.Module):
         precision is enforced.
 
         :param datasets: A list of datasets to create the dataloader from.
-        :param additive_models: A list of the additive models whose contributions should
-            be removed from the targets before fitting the composition weights. This is
-            used to build the collate function for the dataloader.
+        :param requested_neighbor_lists: A list of `NeighborListOptions` objects,
+            each of which specifies the parameters for a neighbor list that might be
+            required by the additive models whose contributions will be removed from
+            the targets before fitting the composition weights.
         :param batch_size: The batch size to use for the dataloader.
         :param is_distributed: Whether to use distributed sampling for the dataloader.
-        :param initial_transforms: A list of any additional callables to be included in
-            the collate function, which should be applied before the callable that
-            removes the additive contributions. This can be used to include the atomic
-            basis transform, for example, if needed.
+        :param initial_transforms: A list of callables to be included in
+            the collate function. The callables passed here will be applied before the
+            other callables set by the composition model.
         :return: A DataLoader for the CompositionModel fitting.
         """
+        # Create the collate function
+        collate_fn = CollateFn(
+            target_keys=list(self.dataset_info.targets.keys()),
+            callables=[
+                *initial_transforms,
+                # these neighbor lists might be required by the other additive models
+                # that need to be removed from the targets before fitting the
+                # composition weights
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+            ],
+        )
 
         dtype = datasets[0][0]["system"].positions.dtype
         if dtype != torch.float64:
@@ -211,9 +172,7 @@ class CompositionModel(torch.nn.Module):
                     sampler=sampler,
                     shuffle=None if sampler else False,
                     drop_last=False,
-                    collate_fn=self._get_collate_fn(
-                        additive_models, initial_transforms
-                    ),
+                    collate_fn=collate_fn,
                 )
             )
 
@@ -226,7 +185,7 @@ class CompositionModel(torch.nn.Module):
         batch_size: int,
         is_distributed: bool,
         fixed_weights: Optional[FixedCompositionWeights] = None,
-        initial_transforms: Optional[List[Callable]] = None,
+        initial_transforms: Sequence[Callable] = (),
     ) -> None:
         """
         Train the composition model on the provided training data in the ``datasets``.
@@ -250,10 +209,9 @@ class CompositionModel(torch.nn.Module):
             If a dict of weights is provided for a target, all atomic types handled
             by the model must have a weight specified.
             If ``None``, all weights will be fitted normally.
-        :param initial_transforms: A list of any additional callables to be included in
-            the collate function, which should be applied before the callable that
-            removes the additive contributions. This can be used to include the atomic
-            basis transform, for example, if needed.
+        :param initial_transforms: A list of callables to be included in
+            the collate function of the dataloader. The callables passed here will be
+            applied before the other callables set by the composition model.
         """
 
         if not isinstance(datasets, list):
@@ -262,8 +220,12 @@ class CompositionModel(torch.nn.Module):
         if len(self.target_infos) == 0:  # no (new) targets to fit
             return
 
-        if initial_transforms is None:
-            initial_transforms = []
+        # Create dataloader for the training datasets. Note that these might need
+        # neighbor lists if any of the `additive_models` require them.
+        requested_neighbor_lists = []
+        for additive_model in additive_models:
+            if hasattr(additive_model, "requested_neighbor_lists"):
+                requested_neighbor_lists += additive_model.requested_neighbor_lists()
 
         # Create dataloader for the training datasets
         dataloader = self._get_dataloader(
@@ -291,6 +253,18 @@ class CompositionModel(torch.nn.Module):
             }
             if len(targets) == 0:
                 break
+
+            # remove additive contributions from these targets
+            for additive_model in additive_models:
+                targets = remove_additive(
+                    systems,
+                    targets,
+                    additive_model,
+                    {
+                        target_name: self.target_infos[target_name]
+                        for target_name in targets
+                    },
+                )
 
             self.model.accumulate(systems, targets)
 
@@ -408,10 +382,6 @@ class CompositionModel(torch.nn.Module):
         return self.outputs
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-        layout = target_info.layout
-        if target_info.is_atomic_basis:
-            layout = densify_atomic_basis_target(layout, layout)
-
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
@@ -422,10 +392,12 @@ class CompositionModel(torch.nn.Module):
         # Create a fake weights buffer for the target, filtering the blocks that will
         # not be fitted
         layout = mts.filter_blocks(
-            layout,
+            target_info.layout,
             Labels(
-                layout.keys.names,
-                torch.vstack([key.values for key in layout.keys if _include_key(key)]),
+                target_info.layout.keys.names,
+                torch.vstack(
+                    [key.values for key in target_info.layout.keys if _include_key(key)]
+                ),
                 assume_unique=True,
             ),
         )
