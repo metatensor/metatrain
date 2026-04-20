@@ -5,6 +5,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
+from ..data import DatasetInfo
 from .target_info import TargetInfo
 
 
@@ -677,3 +678,38 @@ def get_prepare_atomic_basis_targets_transform(
         return systems, targets, extra
 
     return transform, reverse_transform
+
+
+# ===== DatasetInfo manipulation utilities
+
+
+def densify_atomic_basis_dataset_info(dataset_info: DatasetInfo) -> DatasetInfo:
+    """
+    Densify the atomic basis target layouts in the TargetInfos of the input
+    ``dataset_info`` by moving any
+
+    :param dataset_info: the input DatasetInfo with TargetInfos containing atomic basis
+        targets to densify.
+    :return: a new DatasetInfo with the same information as the input, but with the
+        atomic basis targets densified.
+    """
+
+    return DatasetInfo(
+        length_unit=dataset_info.length_unit,
+        atomic_types=dataset_info.atomic_types,
+        targets={
+            target_name: (
+                TargetInfo(
+                    quantity=target_info.quantity,
+                    unit=target_info.unit,
+                    layout=densify_atomic_basis_target(
+                        target_info.layout, target_info.layout
+                    ),
+                    description=target_info.description,
+                )
+                if target_info.is_atomic_basis
+                else target_info
+            )
+            for target_name, target_info in dataset_info.targets.items()
+        },
+    )

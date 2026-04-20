@@ -25,7 +25,7 @@ from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.atomic_basis_helpers import (
-    densify_atomic_basis_target,
+    densify_atomic_basis_dataset_info,
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
@@ -240,11 +240,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # ---------------------------
         #    Add heads for targets
         # ---------------------------
+        # Modified dataset_info with the targets as they will be seen by
+        # the model during training.
+        train_dataset_info = self._train_dataset_info(dataset_info)
 
         # Create heads for each target, store the layout for each of them.
         self.heads = torch.nn.ModuleDict()
         self.layouts: Dict[str, TensorMap] = {}
-        for target_name, target_info in dataset_info.targets.items():
+        for target_name, target_info in train_dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
         self.layouts["mtt::aux::mace_features"] = get_e3nn_mts_layout(
@@ -280,14 +283,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 atomic_types=self.atomic_types,
                 targets={
                     target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
+                    for target_name, target_info in train_dataset_info.targets.items()
                     if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
         self.additive_models = torch.nn.ModuleList([composition_model])
 
-        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
+        self.scaler = Scaler(hypers={}, dataset_info=train_dataset_info)
 
         self.finetune_config: Dict[str, Any] = {}
 
@@ -312,25 +315,29 @@ class MetaMACE(ModelInterface[ModelHypers]):
         }
         self.has_new_targets = len(new_targets) > 0
 
+        # Modified dataset_info with the targets as they will be seen by
+        # the model during training.
+        train_dataset_info = self._train_dataset_info(dataset_info)
+
         # Add extra heads for the new targets
-        for target_name, target in new_targets.items():
-            self._add_output(target_name, target)
+        for target_name in new_targets:
+            self._add_output(target_name, train_dataset_info.targets[target_name])
 
         self.dataset_info = merged_info
 
         # restart the composition and scaler models
         self.additive_models[0] = self.additive_models[0].restart(
             dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
+                length_unit=train_dataset_info.length_unit,
                 atomic_types=self.dataset_info.atomic_types,
                 targets={
                     target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
+                    for target_name, target_info in train_dataset_info.targets.items()
                     if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
-        self.scaler = self.scaler.restart(dataset_info)
+        self.scaler = self.scaler.restart(train_dataset_info)
 
         return self
 
@@ -447,6 +454,10 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         # At evaluation, we also introduce the scaler and additive contributions
         if not self.training:
+            return_dict = self.scaler(systems, return_dict)
+            self.add_additive_contributions(
+                return_dict, systems, outputs, selected_atoms
+            )
             # For atomic basis targets, sparsify to create blocks with "atom_type"
             # in the key dimensions, and ensure properties are unpadded.
             targets = self.dataset_info.targets
@@ -457,10 +468,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
                         v,
                         targets[k].layout,
                     )
-            return_dict = self.scaler(systems, return_dict)
-            self.add_additive_contributions(
-                return_dict, systems, outputs, selected_atoms
-            )
 
         return return_dict
 
@@ -637,6 +644,18 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         return model
 
+    def _train_dataset_info(self, dataset_info: DatasetInfo) -> DatasetInfo:
+        """Converts the original dataset info to one corresponding to what the
+        model will see during training, which depends on transforms applied to
+        the targets during data loading.
+
+        :param dataset_info: Original dataset info describing the targets as
+            they are in the raw data.
+        :return: Modified dataset info describing the targets as they will be
+            seen by the model during training.
+        """
+        return densify_atomic_basis_dataset_info(dataset_info)
+
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         """
         Register a new output target by creating corresponding heads and last layers.
@@ -651,11 +670,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     "MetaMACE does not support Cartesian tensors with rank > 1."
                 )
 
-        output_layout = target_info.layout
-        if target_info.is_atomic_basis:
-            output_layout = densify_atomic_basis_target(output_layout, output_layout)
-
-        self.layouts[target_name] = output_layout
+        self.layouts[target_name] = target_info.layout
 
         if target_name == self.hypers["mace_head_target"]:
             # Fake head that will not compute the target, but will help
@@ -665,7 +680,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             )
         else:
             output_info = copy.deepcopy(target_info)
-            output_info.layout = output_layout
+            output_info.layout = target_info.layout
             head = NonLinearHead(
                 irreps_in=self.features_irreps,
                 irreps_out=target_info_to_e3nn_irreps(output_info),

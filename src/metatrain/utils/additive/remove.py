@@ -154,12 +154,12 @@ def get_remove_additive_transform(
         :return: The systems, updated targets and extra data.
         """
         for additive_model in additive_models:
-            new_targets = remove_additive(
+            targets = remove_additive(
                 systems,
                 targets,
                 additive_model,
                 target_info_dict,
             )
-        return systems, new_targets, extra
+        return systems, targets, extra
 
     return transform
