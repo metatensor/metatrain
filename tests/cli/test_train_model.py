@@ -1151,7 +1151,7 @@ def test_train_generic_target(monkeypatch, tmp_path):
     options["training_set"]["targets"]["energy"]["type"] = {
         "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
     }
-    options["training_set"]["targets"]["energy"]["per_atom"] = True
+    options["training_set"]["targets"]["energy"]["sample_kind"] = "atom"
     options["training_set"]["targets"]["energy"]["key"] = "forces"
 
     train_model(options)
@@ -1166,7 +1166,7 @@ def test_train_direct_forces(monkeypatch, tmp_path):
     options = OmegaConf.load(OPTIONS_PET_PATH)
     options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"]["targets"]["energy"]["type"] = {"cartesian": {"rank": 1}}
-    options["training_set"]["targets"]["energy"]["per_atom"] = True
+    options["training_set"]["targets"]["energy"]["sample_kind"] = "atom"
     options["training_set"]["targets"]["energy"]["key"] = "forces"
 
     train_model(options)
@@ -1186,7 +1186,7 @@ def test_train_density_of_states(monkeypatch, tmp_path):
             "key": "DOS",
             "quantity": "",
             "unit": "",
-            "per_atom": False,
+            "sample_kind": "system",
             "type": "scalar",
             "num_subtargets": 4806,
         }
@@ -1197,7 +1197,7 @@ def test_train_density_of_states(monkeypatch, tmp_path):
             "key": "mask",
             "quantity": "",
             "unit": "",
-            "per_atom": False,
+            "sample_kind": "system",
             "type": "scalar",
             "num_subtargets": 4806,
         }
@@ -1390,7 +1390,7 @@ def test_train_memmap_dataset(monkeypatch, tmp_path, options_pet):
                 "key": "f",
                 "quantity": "force",
                 "unit": "eV/A",
-                "per_atom": True,
+                "sample_kind": "atom",
                 "type": {"cartesian": {"rank": 1}},
             }
         )

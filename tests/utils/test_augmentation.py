@@ -112,7 +112,7 @@ def test_rotation_per_structure_spherical(batch_size):
                             ]
                         }
                     },
-                    "per_atom": False,
+                    "sample_kind": "system",
                     "num_subtargets": 1,
                 },
             )
@@ -195,7 +195,7 @@ def test_rotation_per_atom_spherical(batch_size):
                             ]
                         }
                     },
-                    "per_atom": False,
+                    "sample_kind": "atom",
                     "num_subtargets": 1,
                 },
             )
@@ -285,7 +285,7 @@ def test_rotation_per_atom_spherical_atomicbasis(batch_size):
                             },
                         }
                     },
-                    "per_atom": True,
+                    "sample_kind": "atom",
                     "num_subtargets": 1,
                 },
             )

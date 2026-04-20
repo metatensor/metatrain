@@ -343,7 +343,7 @@ class ArchitectureTests:
                             }
                         },
                         "num_subtargets": 2,
-                        "per_atom": True,
+                        "sample_kind": "atom",
                     },
                 )
             },

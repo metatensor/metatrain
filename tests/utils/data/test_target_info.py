@@ -18,7 +18,7 @@ def energy_target_config() -> DictConfig:
             "quantity": "energy",
             "unit": "eV",
             "description": "Total potential energy of the system",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "type": "scalar",
         }
@@ -31,7 +31,7 @@ def scalar_target_config() -> DictConfig:
         {
             "quantity": "scalar",
             "unit": "",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 10,
             "type": "scalar",
         }
@@ -44,7 +44,7 @@ def cartesian_target_config() -> DictConfig:
         {
             "quantity": "dipole",
             "unit": "D",
-            "per_atom": True,
+            "sample_kind": "atom",
             "num_subtargets": 5,
             "type": {
                 "Cartesian": {
@@ -66,7 +66,7 @@ def spherical_target_config(spherical_product) -> DictConfig:
         {
             "quantity": "spherical",
             "unit": "",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "type": {
                 "spherical": {
@@ -88,7 +88,7 @@ def spherical_atomicbasis_target_config(spherical_product) -> DictConfig:
         {
             "quantity": "spherical_atomicbasis",
             "unit": "",
-            "per_atom": True,
+            "sample_kind": "atom",
             "num_subtargets": 1,
             "type": {
                 "spherical": {
@@ -111,7 +111,7 @@ def test_layout_energy(energy_target_config):
     target_info = get_energy_target_info("energy", energy_target_config)
     assert target_info.quantity == "energy"
     assert target_info.unit == "eV"
-    assert target_info.per_atom is False
+    assert target_info.sample_kind == "system"
     assert target_info.description == "Total potential energy of the system"
     assert target_info.gradients == []
     assert target_info.device == target_info.layout.device
@@ -121,7 +121,7 @@ def test_layout_energy(energy_target_config):
     )
     assert target_info.quantity == "energy"
     assert target_info.unit == "eV"
-    assert target_info.per_atom is False
+    assert target_info.sample_kind == "system"
     assert target_info.gradients == ["positions"]
     assert target_info.device == target_info.layout.device
 
@@ -133,7 +133,7 @@ def test_layout_energy(energy_target_config):
     )
     assert target_info.quantity == "energy"
     assert target_info.unit == "eV"
-    assert target_info.per_atom is False
+    assert target_info.sample_kind == "system"
     assert target_info.gradients == ["positions", "strain"]
     assert target_info.device == target_info.layout.device
 
@@ -155,7 +155,7 @@ def test_layout_scalar(scalar_target_config):
     target_info = get_generic_target_info("scalar", scalar_target_config)
     assert target_info.quantity == "scalar"
     assert target_info.unit == ""
-    assert target_info.per_atom is False
+    assert target_info.sample_kind == "system"
     assert target_info.gradients == []
     assert target_info.device == target_info.layout.device
 
@@ -170,7 +170,7 @@ def test_layout_cartesian(cartesian_target_config):
     target_info = get_generic_target_info("cartesian", cartesian_target_config)
     assert target_info.quantity == "dipole"
     assert target_info.unit == "D"
-    assert target_info.per_atom is True
+    assert target_info.sample_kind == "atom"
     assert target_info.gradients == []
     assert target_info.device == target_info.layout.device
 
@@ -185,7 +185,7 @@ def test_layout_spherical(spherical_target_config, spherical_product):
     target_info = get_generic_target_info("spherical", spherical_target_config)
     assert target_info.quantity == "spherical"
     assert target_info.unit == ""
-    assert target_info.per_atom is False
+    assert target_info.sample_kind == "system"
     assert target_info.gradients == []
     assert target_info.device == target_info.layout.device
 
@@ -209,7 +209,7 @@ def test_layout_spherical_atomicbasis(
     )
     assert target_info.quantity == "spherical_atomicbasis"
     assert target_info.unit == ""
-    assert target_info.per_atom is True
+    assert target_info.sample_kind == "atom"
     assert target_info.gradients == []
     assert target_info.device == target_info.layout.device
 
@@ -284,7 +284,7 @@ def test_invalid_unit():
             "quantity": "energy",
             "unit": "fooo",
             "description": "Total potential energy of the system",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "type": "scalar",
         }
@@ -300,7 +300,7 @@ def warn_unknown_quantity():
             "quantity": "fooo",
             "unit": "fooo",
             "description": "Some description",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "type": "scalar",
         }
@@ -324,7 +324,7 @@ def test_layout_scalar_with_variant(scalar_target_config, target_name):
     target_info = get_generic_target_info(target_name, scalar_target_config)
     assert target_info.quantity == "scalar"
     assert target_info.unit == ""
-    assert target_info.per_atom is False
+    assert target_info.sample_kind == "system"
     assert target_info.gradients == []
 
     # Check that the properties labels were created correctly without the variant part
@@ -341,7 +341,7 @@ def test_layout_cartesian_with_variant(cartesian_target_config, target_name):
     target_info = get_generic_target_info(target_name, cartesian_target_config)
     assert target_info.quantity == "dipole"
     assert target_info.unit == "D"
-    assert target_info.per_atom is True
+    assert target_info.sample_kind == "atom"
     assert target_info.gradients == []
 
     # Check that the properties labels were created correctly without the variant part
@@ -360,7 +360,7 @@ def test_layout_spherical_with_variant(
     target_info = get_generic_target_info(target_name, spherical_target_config)
     assert target_info.quantity == "spherical"
     assert target_info.unit == ""
-    assert target_info.per_atom is False
+    assert target_info.sample_kind == "system"
     assert target_info.gradients == []
 
     # Check that the properties labels were created correctly without the variant part
@@ -388,7 +388,7 @@ def test_layout_spherical_atomicbasis_with_variant(
     )
     assert target_info.quantity == "spherical_atomicbasis"
     assert target_info.unit == ""
-    assert target_info.per_atom is True
+    assert target_info.sample_kind == "atom"
     assert target_info.gradients == []
 
     # Check that the properties labels were created correctly without the variant part

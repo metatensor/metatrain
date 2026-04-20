@@ -245,7 +245,7 @@ def test_scaler_scalar_multiple_properties(batch_size):
                         "unit": "eV",
                         "num_subtargets": 2,
                         "type": "scalar",
-                        "per_atom": False,
+                        "sample_kind": "system",
                     },
                 )
             },
@@ -396,7 +396,7 @@ def test_scaler_cartesian_per_atom(batch_size, fixed_scaling_weights):
                         "quantity": "forces",
                         "unit": "eV/A",
                         "type": {"cartesian": {"rank": 1}},
-                        "per_atom": True,
+                        "sample_kind": "atom",
                         "num_subtargets": 1,
                     },
                 )
@@ -590,7 +590,7 @@ def test_scaler_spherical(batch_size):
                                 ]
                             }
                         },
-                        "per_atom": False,
+                        "sample_kind": "system",
                         "num_subtargets": 1,
                     },
                 )
@@ -1365,7 +1365,7 @@ def test_scaler_spherical_per_atom_atomic_basis(batch_size, missing_type):
                     "unit": "",
                     "type": {"spherical": {"irreps": irreps}},
                     "num_subtargets": 1,
-                    "per_atom": True,
+                    "sample_kind": "atom",
                 },
             )
         },
@@ -1486,7 +1486,7 @@ def test_scaler_rotation_invariance():
                             ]
                         }
                     },
-                    "per_atom": False,
+                    "sample_kind": "system",
                     "num_subtargets": 1,
                 },
             )
