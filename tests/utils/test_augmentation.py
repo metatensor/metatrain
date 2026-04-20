@@ -195,7 +195,7 @@ def test_rotation_per_atom_spherical(batch_size):
                             ]
                         }
                     },
-                    "per_atom": False,
+                    "per_atom": True,
                     "num_subtargets": 1,
                 },
             )
