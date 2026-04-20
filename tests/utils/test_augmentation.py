@@ -136,8 +136,8 @@ def test_rotation_per_structure_spherical(batch_size):
 
 @pytest.mark.parametrize("batch_size", [1, 2])
 def test_rotation_per_atom_spherical(batch_size):
-    """Tests that the rotational augmenter rotates a dipole moment consistent with
-    targets computed from DFT"""
+    """Tests that the rotational augmenter rotates electron density projections
+    consistent with targets computed from DFT"""
 
     target_name = "mtt::electron_density_basis_projs"
 
