@@ -13,6 +13,10 @@ from metatrain.utils.additive import (
     remove_additive,
 )
 from metatrain.utils.data import Dataset, DatasetInfo
+from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_dataset_info,
+    get_prepare_atomic_basis_targets_transform,
+)
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -906,7 +910,9 @@ def test_composition_many_subtargets():
 
 
 def test_composition_spherical():
-    """Test the calculation of composition weights for a per-structure scalar."""
+    """
+    Test the calculation of composition weights for a per-structure spherical target.
+    """
 
     # Here we use three synthetic structures, each with an invariant target and random
     # spherical targets with L=1:
@@ -1230,3 +1236,557 @@ def test_composition_spherical_atomic_basis(missing_type):
         torch.testing.assert_close(
             F_block.values, torch.tensor([0.0], dtype=torch.float64).reshape(-1, 1, 1)
         )
+
+
+def test_composition_spherical_atomic_basis_dense():
+    """
+    Test the composition weights for an atomic-basis spherical target in the
+    dense representation are correct.
+
+    With two H atoms (invariant values 2.0 and 4.0 on H's single basis function) and two
+    O atoms (invariant values (3.0, 5.0) and (7.0, 9.0) on O's two basis functions), the
+    expected composition weights are:
+
+        W[H, n=0] = mean(2.0, 4.0) = 3.0  (H data, H's single basis)
+        W[H, n=0] = NaN
+        W[O, n=0] = mean(3.0, 7.0) = 5.0  (O data, O's first basis)
+        W[O, n=1] = mean(5.0, 9.0) = 7.0  (O data, O's second basis)
+    """
+    atomic_types = [1, 8]
+
+    # Build targets in the sparse representation with ``atom_type`` as a key
+    # dimension.
+    components = [Labels(names=["o3_mu"], values=torch.tensor([[0]]))]
+
+    tensor_map_1 = TensorMap(
+        keys=Labels(
+            names=["o3_lambda", "o3_sigma", "atom_type"],
+            values=torch.tensor([[0, 1, 1]]),
+        ),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor(
+                    [[[2.0]], [[4.0]]], dtype=torch.float64
+                ),  # two H atoms, single invariant basis
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[0, 0], [0, 1]]),
+                ),
+                components=components,
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
+            ),
+        ],
+    )
+    tensor_map_2 = TensorMap(
+        keys=Labels(
+            names=["o3_lambda", "o3_sigma", "atom_type"],
+            values=torch.tensor([[0, 1, 8]]),
+        ),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor(
+                    [[[3.0, 5.0]], [[7.0, 9.0]]], dtype=torch.float64
+                ),  # two O atoms, two invariant bases each
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[1, 0], [1, 1]]),
+                ),
+                components=components,
+                properties=Labels(names=["n"], values=torch.tensor([[0], [1]])),
+            ),
+        ],
+    )
+
+    systems = [
+        System(
+            positions=torch.zeros((2, 3), dtype=torch.float64),
+            types=torch.tensor([1, 1]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.zeros((2, 3), dtype=torch.float64),
+            types=torch.tensor([8, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+
+    # ``mtt::aux::system_index`` is auto-added by DiskDataset but not by
+    # ``Dataset.from_dict``; the atomic-basis densification transform in the
+    # collate function asserts on its presence, so we add it explicitly here.
+    system_indices = [
+        TensorMap(
+            keys=Labels(names=["_"], values=torch.tensor([[0]])),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[i]], dtype=torch.float64),
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[],
+                    properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                )
+            ],
+        )
+        for i in range(len(systems))
+    ]
+    dataset = Dataset.from_dict(
+        {
+            "system": systems,
+            "spherical_atomic_basis": [tensor_map_1, tensor_map_2],
+            "mtt::aux::system_index": system_indices,
+        }
+    )
+
+    # H has 1 invariant basis function; O has 2 invariant basis functions.
+    irreps = {
+        1: [{"o3_lambda": 0, "o3_sigma": 1, "num": 1}],
+        8: [{"o3_lambda": 0, "o3_sigma": 1, "num": 2}],
+    }
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=atomic_types,
+        targets={
+            "spherical_atomic_basis": get_generic_target_info(
+                "spherical_atomic_basis",
+                {
+                    "quantity": "",
+                    "unit": "",
+                    "type": {"spherical": {"irreps": irreps}},
+                    "num_subtargets": 1,
+                    "per_atom": True,
+                },
+            )
+        },
+    )
+
+    # Densify targets to the dense representation
+    atomic_basis_transform, _ = get_prepare_atomic_basis_targets_transform(
+        dataset_info.targets, {}
+    )
+    dataset_info_dense = densify_atomic_basis_dataset_info(dataset_info)
+
+    composition_model = CompositionModel(
+        hypers={},
+        dataset_info=dataset_info_dense,
+    )
+    composition_model.train_model(
+        [dataset],
+        [],
+        batch_size=2,
+        is_distributed=False,
+        initial_transforms=[atomic_basis_transform],
+    )
+
+    # Check weights
+    weight_block = composition_model.model.weights["spherical_atomic_basis"].block(
+        {"o3_lambda": 0, "o3_sigma": 1}
+    )
+    W = weight_block.values
+    nan = float("nan")
+    expected = torch.tensor(
+        [
+            [[3.0, nan]],
+            [[5.0, 7.0]],
+        ],
+        dtype=torch.float64,
+    )
+    print("Composition weights:\n", W)
+    print("Expected weights:\n", expected)
+    torch.testing.assert_close(W, expected, rtol=1e-10, atol=1e-10, equal_nan=True)
+
+    # Check predictions
+    predictions = composition_model(
+        systems,
+        outputs={"spherical_atomic_basis": ModelOutput(per_atom=True)},
+    )
+    pred_values = (
+        predictions["spherical_atomic_basis"]
+        .block({"o3_lambda": 0, "o3_sigma": 1})
+        .values
+    )
+    expected_preds = torch.tensor(
+        [
+            [[3.0, nan]],
+            [[3.0, nan]],
+            [[5.0, 7.0]],
+            [[5.0, 7.0]],
+        ],
+        dtype=torch.float64,
+    )
+    print("Predicted values:\n", pred_values)
+    print("Expected values:\n", expected_preds)
+    torch.testing.assert_close(
+        pred_values, expected_preds, rtol=1e-10, atol=1e-10, equal_nan=True
+    )
+
+
+def test_composition_atomic_basis_sparse_dense_consistency():
+    """
+    Fit composition model in both the sparse and dense representations for an atomic
+    basis target, and check for consistency.
+    """
+    atomic_types = [1, 8]
+    n_atoms_per_type = 3
+
+    h_values = torch.tensor([[2.0], [4.0], [6.0]], dtype=torch.float64)
+    o_values = torch.tensor([[3.0, 5.0], [7.0, 9.0], [11.0, 13.0]], dtype=torch.float64)
+
+    systems = [
+        System(
+            positions=torch.zeros((2 * n_atoms_per_type, 3), dtype=torch.float64),
+            types=torch.tensor([1, 1, 1, 8, 8, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        )
+    ]
+    components = [Labels(names=["o3_mu"], values=torch.tensor([[0]]))]
+
+    sparse_keys = Labels(
+        names=["o3_lambda", "o3_sigma", "atom_type"],
+        values=torch.tensor([[0, 1, 1], [0, 1, 8]]),
+    )
+    target = TensorMap(
+        sparse_keys,
+        [
+            TensorBlock(
+                values=h_values.reshape(-1, 1, 1),
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[0, 0], [0, 1], [0, 2]]),
+                ),
+                components=components,
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
+            ),
+            TensorBlock(
+                values=o_values.reshape(-1, 1, 2),
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[0, 3], [0, 4], [0, 5]]),
+                ),
+                components=components,
+                properties=Labels(names=["n"], values=torch.tensor([[0], [1]])),
+            ),
+        ],
+    )
+    # ``mtt::aux::system_index`` is needed for densifying atomic basis targets.
+    system_indices = [
+        TensorMap(
+            keys=Labels(names=["_"], values=torch.tensor([[0]])),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[i]], dtype=torch.float64),
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[],
+                    properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                )
+            ],
+        )
+        for i in range(len(systems))
+    ]
+    dataset = Dataset.from_dict(
+        {
+            "system": systems,
+            "target": [target],
+            "mtt::aux::system_index": system_indices,
+        }
+    )
+
+    # Target-info: H with a single invariant basis, O with two invariant bases.
+    irreps = {
+        1: [{"o3_lambda": 0, "o3_sigma": 1, "num": 1}],
+        8: [{"o3_lambda": 0, "o3_sigma": 1, "num": 2}],
+    }
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=atomic_types,
+        targets={
+            "target": get_generic_target_info(
+                "target",
+                {
+                    "quantity": "",
+                    "unit": "",
+                    "type": {"spherical": {"irreps": irreps}},
+                    "num_subtargets": 1,
+                    "per_atom": True,
+                },
+            )
+        },
+    )
+
+    # Fit sparse and dense CompositionModels on the same dataset.
+    sparse_model = CompositionModel(
+        hypers={},
+        dataset_info=dataset_info,
+    )
+    sparse_model.train_model(
+        [dataset], [], batch_size=1, is_distributed=False, initial_transforms=[]
+    )
+
+    # Densify targets to the dense representation
+    atomic_basis_transform, _ = get_prepare_atomic_basis_targets_transform(
+        dataset_info.targets, {}
+    )
+    dataset_info_dense = densify_atomic_basis_dataset_info(dataset_info)
+
+    dense_model = CompositionModel(
+        hypers={},
+        dataset_info=dataset_info_dense,
+    )
+    dense_model.train_model(
+        [dataset],
+        [],
+        batch_size=1,
+        is_distributed=False,
+        initial_transforms=[atomic_basis_transform],
+    )
+
+    # Get the weights
+    w_sparse_H = (
+        sparse_model.model.weights["target"]
+        .block({"o3_lambda": 0, "o3_sigma": 1, "atom_type": 1})
+        .values
+    )
+    w_sparse_O = (
+        sparse_model.model.weights["target"]
+        .block({"o3_lambda": 0, "o3_sigma": 1, "atom_type": 8})
+        .values
+    )
+    w_dense = (
+        dense_model.model.weights["target"]
+        .block({"o3_lambda": 0, "o3_sigma": 1})
+        .values
+    )
+
+    h_index = 0
+    o_index = 1
+
+    # Consistency checks
+    torch.testing.assert_close(
+        w_dense[h_index, 0, 0],
+        w_sparse_H[h_index, 0, 0],
+        rtol=1e-10,
+        atol=1e-10,
+    )
+    torch.testing.assert_close(
+        w_dense[o_index, 0, :],
+        w_sparse_O[o_index, 0, :],
+        rtol=1e-10,
+        atol=1e-10,
+    )
+    assert torch.isnan(w_dense[h_index, 0, 1])
+
+    # Finally check the actual values of the sparse weights
+    torch.testing.assert_close(
+        w_sparse_H[h_index, 0, 0],
+        h_values.mean(),
+        rtol=1e-10,
+        atol=1e-10,
+    )
+    torch.testing.assert_close(
+        w_sparse_O[o_index, 0, :],
+        o_values.mean(dim=0),
+        rtol=1e-10,
+        atol=1e-10,
+    )
+
+
+def test_composition_spherical_atomic_basis_dense_nan_weights():
+    """
+    Test that when fitting an atomic-basis spherical target in the *dense*
+    representation, produces ``NaN`` composition weights for exactly the properties
+    whose target values were NaN-padded for the given atom types during densification.
+    """
+    atomic_types = [1, 8]
+    components = [Labels(names=["o3_mu"], values=torch.tensor([[0]]))]
+
+    # Structure 1: one O atom with its two-basis invariant values.
+    tensor_map_1 = TensorMap(
+        keys=Labels(
+            names=["o3_lambda", "o3_sigma", "atom_type"],
+            values=torch.tensor([[0, 1, 8]]),
+        ),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[[1.0, 2.0]]], dtype=torch.float64),
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[0, 0]])),
+                components=components,
+                properties=Labels(names=["n"], values=torch.tensor([[0], [1]])),
+            ),
+        ],
+    )
+
+    # Structure 2: H2O molecule — two H and one O, each on their own bases.
+    tensor_map_2 = TensorMap(
+        keys=Labels(
+            names=["o3_lambda", "o3_sigma", "atom_type"],
+            values=torch.tensor([[0, 1, 1], [0, 1, 8]]),
+        ),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor(
+                    [[[1.0]], [[1.5]]], dtype=torch.float64
+                ),  # two H atoms, single invariant basis
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[1, 0], [1, 1]]),
+                ),
+                components=components,
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
+            ),
+            TensorBlock(
+                values=torch.tensor(
+                    [[[3.0, 4.0]]], dtype=torch.float64
+                ),  # one O atom, two invariant bases
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[1, 2]])),
+                components=components,
+                properties=Labels(names=["n"], values=torch.tensor([[0], [1]])),
+            ),
+        ],
+    )
+
+    systems = [
+        System(
+            positions=torch.zeros((1, 3), dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.zeros((3, 3), dtype=torch.float64),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+    # ``mtt::aux::system_index`` is needed for densifying atomic basis targets.
+    system_indices = [
+        TensorMap(
+            keys=Labels(names=["_"], values=torch.tensor([[0]])),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[i]], dtype=torch.float64),
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[],
+                    properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                )
+            ],
+        )
+        for i in range(len(systems))
+    ]
+    dataset = Dataset.from_dict(
+        {
+            "system": systems,
+            "spherical_atomic_basis": [tensor_map_1, tensor_map_2],
+            "mtt::aux::system_index": system_indices,
+        }
+    )
+
+    # H has 1 invariant basis; O has 2 invariant bases.
+    irreps = {
+        1: [{"o3_lambda": 0, "o3_sigma": 1, "num": 1}],
+        8: [{"o3_lambda": 0, "o3_sigma": 1, "num": 2}],
+    }
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=atomic_types,
+        targets={
+            "spherical_atomic_basis": get_generic_target_info(
+                "spherical_atomic_basis",
+                {
+                    "quantity": "",
+                    "unit": "",
+                    "type": {"spherical": {"irreps": irreps}},
+                    "num_subtargets": 1,
+                    "per_atom": True,
+                },
+            )
+        },
+    )
+    # Densify targets to the dense representation
+    atomic_basis_transform, _ = get_prepare_atomic_basis_targets_transform(
+        dataset_info.targets, {}
+    )
+    dataset_info_dense = densify_atomic_basis_dataset_info(dataset_info)
+
+    composition_model = CompositionModel(
+        hypers={},
+        dataset_info=dataset_info_dense,
+    )
+    composition_model.train_model(
+        [dataset],
+        [],
+        batch_size=1,
+        is_distributed=False,
+        initial_transforms=[atomic_basis_transform],
+    )
+
+    # Get weights
+    W = (
+        composition_model.model.weights["spherical_atomic_basis"]
+        .block({"o3_lambda": 0, "o3_sigma": 1})
+        .values
+    )
+    h_index, o_index = 0, 1
+
+    nan_mask_expected = torch.tensor(
+        [
+            [[False, True]],  # H: n=0 is finite, n=1 is NaN
+            [[False, False]],  # O: both positions finite
+        ]
+    )
+    assert torch.equal(torch.isnan(W), nan_mask_expected)
+
+    # Check non-NaN weights
+    torch.testing.assert_close(
+        W[h_index, 0, 0],
+        torch.tensor((1.0 + 1.5) / 2, dtype=torch.float64),
+        rtol=1e-10,
+        atol=1e-10,
+    )
+    torch.testing.assert_close(
+        W[o_index, 0, :],
+        torch.tensor([(1.0 + 3.0) / 2, (2.0 + 4.0) / 2], dtype=torch.float64),
+        rtol=1e-10,
+        atol=1e-10,
+    )
+
+    # Get predictions
+    predictions = composition_model(
+        [systems[1]],
+        outputs={"spherical_atomic_basis": ModelOutput(per_atom=True)},
+    )
+    pred_values = (
+        predictions["spherical_atomic_basis"]
+        .block({"o3_lambda": 0, "o3_sigma": 1})
+        .values
+    )
+    pred_nan_mask_expected = torch.tensor(
+        [
+            [[False, True]],  # H atom 0
+            [[False, True]],  # H atom 1
+            [[False, False]],  # O atom
+        ]
+    )
+    assert torch.equal(torch.isnan(pred_values), pred_nan_mask_expected)
+
+    # Check predictions
+    torch.testing.assert_close(
+        pred_values[0, 0, 0],
+        torch.tensor(1.25, dtype=torch.float64),
+        rtol=1e-10,
+        atol=1e-10,
+    )
+    torch.testing.assert_close(
+        pred_values[1, 0, 0],
+        torch.tensor(1.25, dtype=torch.float64),
+        rtol=1e-10,
+        atol=1e-10,
+    )
+    torch.testing.assert_close(
+        pred_values[2, 0, :],
+        torch.tensor([2.0, 3.0], dtype=torch.float64),
+        rtol=1e-10,
+        atol=1e-10,
+    )

@@ -289,9 +289,19 @@ class BaseCompositionModel(torch.nn.Module):
                 self.XTX[target_name][key].values[:] += XTX
 
                 # Compute "XTY", i.e. X.T @ Y
-                self.XTY[target_name][key].values[:] += torch.tensordot(
-                    X, Y, dims=([0], [0])
-                )
+                if self.sample_kinds[target_name] == "per_structure":
+                    # For per-structure targets, we can directly compute X.T @ Y as
+                    # there is no NaN property padding.
+                    self.XTY[target_name][key].values[:] += torch.tensordot(
+                        X, Y, dims=([0], [0])
+                    )
+                else:
+                    # For per-atom targets, these *could* be atomic basis and have NaN
+                    # padding. Compute XTY separately for each atomic type.
+                    for i in range(X.shape[1]):
+                        self.XTY[target_name][key].values[i] += torch.sum(
+                            Y[X[:, i].bool()], dim=0
+                        )
 
     def _sanitize_fixed_weights(
         self,
@@ -407,7 +417,12 @@ class BaseCompositionModel(torch.nn.Module):
                         )
 
                     else:
-                        weight_vals = _solve_linear_system(XTX_values, XTY_values)
+                        if self.sample_kinds[target_name] == "per_structure":
+                            weight_vals = _solve_linear_system(XTX_values, XTY_values)
+                        else:
+                            weight_vals = XTY_values / torch.diag(XTX_values).unsqueeze(
+                                1
+                            )
                         weight_vals = weight_vals.reshape(*XTY_shape)
 
                 blocks.append(
@@ -493,9 +508,15 @@ class BaseCompositionModel(torch.nn.Module):
                     X_block = X_block[atom_type_mask]
 
                 # Compute X.T @ W
-                out_vals = torch.tensordot(
-                    X_block, weight_block.values, dims=([1], [0])
-                )
+                if self.sample_kinds[output_name] == "per_structure":
+                    out_vals = torch.tensordot(
+                        X_block, weight_block.values, dims=([1], [0])
+                    )
+                else:
+                    # No multiplication is needed for per-atom targets, we just need to
+                    # broadcast the weights according to the atom types in the samples.
+                    out_vals = weight_block.values[X_block.argmax(dim=1)]
+
                 prediction_blocks.append(
                     TensorBlock(
                         values=out_vals,

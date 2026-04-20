@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Union
+from typing import Callable, Dict, List, Optional, Union
 
 import metatensor.torch as mts
 import torch
@@ -6,14 +6,17 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 from torch.utils.data import DataLoader, DistributedSampler
 
+from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
 )
+from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_target,
+)
 from metatrain.utils.per_atom import average_by_num_atoms
 
-from ..additive import remove_additive
 from ..data import DatasetInfo, TargetInfo, unpack_batch
 from ..transfer import batch_to
 from ._base_scaler import BaseScaler, FixedScalerWeights
@@ -21,7 +24,9 @@ from ._base_scaler import BaseScaler, FixedScalerWeights
 
 class Scaler(torch.nn.Module):
     """
-    Placeholder docs.
+    Fits a scaler for a dict of targets. Scales are computed as the per-property (and
+    therefore per-block) standard deviations. By default, the scales are also computed
+    per atomic type for per-atom targets.
 
     :param hypers: Hyperparameters for the scaler. Should be an empty dictionary.
     :param dataset_info: Information about the dataset used to initialize the scaler.
@@ -65,11 +70,51 @@ class Scaler(torch.nn.Module):
             self.new_outputs.append(target_name)
             self._add_output(target_name, target_info)
 
+    def _get_collate_fn(
+        self,
+        additive_models: List[torch.nn.Module],
+        initial_transforms: List[Callable],
+    ) -> CollateFn:
+        """
+        Build a collate function for the dataloader that will be used to fit the
+        composition weights. This collate function will include the necessary callables:
+
+            - any initial transforms provided in `initial_transforms`
+            - adds additive model contributions (other than the composition model) that
+              are present in the model.
+
+        :param additive_models: A list of the additive models whose contributions should
+            be removed from the targets before fitting the composition weights. This is
+            used to build the collate function for the dataloader.
+        :param initial_transforms: A list of any additional callables to be included in
+            the collate function, which should be applied before the callable that
+            removes the additive contributions. This can be used to include the atomic
+            basis transform, for example, if needed.
+        :return: The created collate function.
+        """
+        callables = []
+        if len(initial_transforms) > 0:
+            callables += initial_transforms
+
+        if len(additive_models) > 0:
+            callables.append(
+                get_remove_additive_transform(
+                    additive_models, self.dataset_info.targets
+                ),
+            )
+
+        return CollateFn(
+            target_keys=list(self.dataset_info.targets.keys()),
+            callables=callables,
+        )
+
     def _get_dataloader(
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        additive_models: List[torch.nn.Module],
         batch_size: int,
         is_distributed: bool,
+        initial_transforms: List[Callable],
     ) -> DataLoader:
         """
         Create a DataLoader for the provided datasets. As the dataloader is only used to
@@ -79,13 +124,17 @@ class Scaler(torch.nn.Module):
         is enforced.
 
         :param datasets: List of datasets to create the dataloader from.
+        :param additive_models: A list of the additive models whose contributions should
+            be removed from the targets before fitting the scaler weights. This is used
+            to build the collate function for the dataloader.
         :param batch_size: Batch size to use for the dataloader.
         :param is_distributed: Whether to use distributed sampling or not.
+        :param initial_transforms: A list of any additional callables to be included in
+            the collate function, which should be applied before the callable that
+            removes the additive contributions. This can be used to include the atomic
+            basis transform, for example, if needed.
         :return: The created DataLoader.
         """
-        # Create the collate function
-        targets_keys = list(self.dataset_info.targets.keys())
-        collate_fn = CollateFn(target_keys=targets_keys)
 
         dtype = datasets[0][0]["system"].positions.dtype
         if dtype != torch.float64:
@@ -127,7 +176,9 @@ class Scaler(torch.nn.Module):
                     sampler=sampler,
                     shuffle=None if sampler else False,
                     drop_last=False,
-                    collate_fn=collate_fn,
+                    collate_fn=self._get_collate_fn(
+                        additive_models, initial_transforms
+                    ),
                 )
             )
 
@@ -140,9 +191,15 @@ class Scaler(torch.nn.Module):
         batch_size: int,
         is_distributed: bool,
         fixed_weights: Optional[FixedScalerWeights] = None,
+        initial_transforms: Optional[List[Callable]] = None,
     ) -> None:
         """
-        Placeholder docs.
+        Train the scaler model by accumulating the necessary quantities from the
+        provided datasets and fitting the scales. The scales are computed as the
+        per-property (and therefore per-block) standard deviations. By default, the
+        scales are also computed per atomic type for per-atom targets. If
+        `fixed_weights` is provided, these are used instead of the computed scales for
+        the specified targets.
 
         :param datasets: List of datasets to use for training the scaler.
         :param additive_models: List of additive models to remove from the targets
@@ -154,6 +211,10 @@ class Scaler(torch.nn.Module):
             are either a single float value to be applied to all atomic types, or a
             dict mapping atomic type (int) to weight (float). If not provided, all
             scales will be computed based on the accumulated quantities.
+        :param initial_transforms: A list of any additional callables to be included in
+            the collate function, which should be applied before the callable that
+            removes the additive contributions. This can be used to include the atomic
+            basis transform, for example, if needed.
         """
         if not isinstance(datasets, list):
             datasets = [datasets]
@@ -161,9 +222,16 @@ class Scaler(torch.nn.Module):
         if len(self.target_infos) == 0:  # no (new) targets to fit
             return
 
+        if initial_transforms is None:
+            initial_transforms = []
+
         # Create dataloader for the training datasets
         dataloader = self._get_dataloader(
-            datasets, batch_size, is_distributed=is_distributed
+            datasets,
+            additive_models,
+            batch_size,
+            is_distributed=is_distributed,
+            initial_transforms=initial_transforms,
         )
 
         device = self.dummy_buffer.device
@@ -177,17 +245,6 @@ class Scaler(torch.nn.Module):
             if len(targets) == 0:
                 break
 
-            # remove additive contributions from these targets
-            for additive_model in additive_models:
-                targets = remove_additive(
-                    systems,
-                    targets,
-                    additive_model,
-                    {
-                        target_name: self.target_infos[target_name]
-                        for target_name in targets
-                    },
-                )
             targets = average_by_num_atoms(targets, systems, [])
             self.model.accumulate(systems, targets, extra_data)
 
@@ -283,14 +340,16 @@ class Scaler(torch.nn.Module):
         return self.outputs
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
+        layout = target_info.layout
+        if target_info.is_atomic_basis:
+            layout = densify_atomic_basis_target(layout, layout)
+
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
             description=target_info.description,
         )
-
-        layout = target_info.layout
 
         valid_sample_names = [
             ["system"],

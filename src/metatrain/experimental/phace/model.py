@@ -26,6 +26,7 @@ from metatrain.experimental.phace.utils import systems_to_batch
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_dataset_info,
     densify_atomic_basis_target,
     sparsify_atomic_basis_target,
 )
@@ -120,6 +121,11 @@ class PhACE(ModelInterface[ModelHypers]):
 
         self.last_layer_feature_size = self.k_max_l[0]
 
+        # as PhACE handles atomic basis targets in the densified form, we modify the
+        # layouts of the atomic basis targets in dataset_info, specifically for passing
+        # to the composition model and scaler. This only modifies atomic basis targets.
+        dataset_info_dense = densify_atomic_basis_dataset_info(dataset_info)
+
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
         composition_model = CompositionModel(
@@ -129,7 +135,7 @@ class PhACE(ModelInterface[ModelHypers]):
                 atomic_types=self.atomic_types,
                 targets={
                     target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
+                    for target_name, target_info in dataset_info_dense.targets.items()
                     if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
@@ -153,7 +159,7 @@ class PhACE(ModelInterface[ModelHypers]):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
+        self.scaler = Scaler(hypers={}, dataset_info=dataset_info_dense)
 
         self.single_label = Labels.single()
 
@@ -462,16 +468,6 @@ class PhACE(ModelInterface[ModelHypers]):
             )
 
         if not self.training:
-            # For atomic basis targets, sparsify to create blocks with "atom_type"
-            # in the key dimensions, and ensure properties are unpadded.
-            targets = self.dataset_info.targets
-            for k, v in return_dict.items():
-                if k in targets and targets[k].is_atomic_basis:
-                    return_dict[k] = sparsify_atomic_basis_target(
-                        systems,
-                        v,
-                        targets[k].layout,
-                    )
             # at evaluation, we also introduce the scaler and additive contributions
             return_dict = self.scaler(systems, return_dict)
             for additive_model in self.additive_models:
@@ -510,6 +506,17 @@ class PhACE(ModelInterface[ModelHypers]):
                         else:
                             output_blocks.append(b)
                     return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
+
+            # For atomic basis targets, sparsify to create blocks with "atom_type"
+            # in the key dimensions, and ensure properties are unpadded.
+            targets = self.dataset_info.targets
+            for k, v in return_dict.items():
+                if k in targets and targets[k].is_atomic_basis:
+                    return_dict[k] = sparsify_atomic_basis_target(
+                        systems,
+                        v,
+                        targets[k].layout,
+                    )
 
         return return_dict
 

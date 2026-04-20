@@ -25,6 +25,7 @@ from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_dataset_info,
     densify_atomic_basis_target,
     sparsify_atomic_basis_target,
 )
@@ -270,6 +271,11 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # Data preprocessing modules
         # ---------------------------
 
+        # as MACE handles atomic basis targets in the densified form, we modify the
+        # layouts of the atomic basis targets in dataset_info, specifically for passing
+        # to the composition model and scaler. This only modifies atomic basis targets.
+        dataset_info_dense = densify_atomic_basis_dataset_info(dataset_info)
+
         # The composition model and scaler are handled by the trainer during training.
         # Their purpose is to adapt the data for optimal training.
         # At evaluation time, the model applies them on forward.
@@ -280,14 +286,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 atomic_types=self.atomic_types,
                 targets={
                     target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
+                    for target_name, target_info in dataset_info_dense.targets.items()
                     if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
         self.additive_models = torch.nn.ModuleList([composition_model])
 
-        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
+        self.scaler = Scaler(hypers={}, dataset_info=dataset_info_dense)
 
         self.finetune_config: Dict[str, Any] = {}
 
@@ -447,6 +453,10 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         # At evaluation, we also introduce the scaler and additive contributions
         if not self.training:
+            return_dict = self.scaler(systems, return_dict)
+            self.add_additive_contributions(
+                return_dict, systems, outputs, selected_atoms
+            )
             # For atomic basis targets, sparsify to create blocks with "atom_type"
             # in the key dimensions, and ensure properties are unpadded.
             targets = self.dataset_info.targets
@@ -457,10 +467,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
                         v,
                         targets[k].layout,
                     )
-            return_dict = self.scaler(systems, return_dict)
-            self.add_additive_contributions(
-                return_dict, systems, outputs, selected_atoms
-            )
 
         return return_dict
 
