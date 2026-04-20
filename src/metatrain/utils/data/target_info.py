@@ -721,7 +721,7 @@ def _get_spherical_irreps_iter(
     irreps_iter = [
         [
             (
-                irrep.get("num", 1) * target["num_subtargets"],
+                irrep.get("num", 1) * target["num_subtargets"], 
                 irrep["o3_lambda"],
                 irrep["o3_sigma"],
             )
