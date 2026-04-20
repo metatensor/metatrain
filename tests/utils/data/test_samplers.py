@@ -469,7 +469,7 @@ def test_max_atom_sampler_cross_validation_batch_contents(tmp_path):
         {
             "energy": {
                 "key": "e",
-                "per_atom": False,
+                "sample_kind": "system",
                 "num_subtargets": 1,
                 "type": "scalar",
                 "quantity": "energy",
