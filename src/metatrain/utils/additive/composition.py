@@ -128,7 +128,7 @@ class CompositionModel(torch.nn.Module):
                 # these neighbor lists might be required by the other additive models
                 # that need to be removed from the targets before fitting the
                 # composition weights
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists)
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
             ],
         )
 
