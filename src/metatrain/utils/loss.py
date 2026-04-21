@@ -494,7 +494,7 @@ class TensorMapRINormLoss(TensorMapMSELoss):
 
         # Remove NaNs from S_vec to avoid inf gradients
         S_vec = torch.nan_to_num(S_vec, nan=0.0)
-        system_idx = b.samples.values[:, 0]  # [samples]
+        system_idx = b.samples.values[:, 0].to(torch.int64)  # [samples]
 
         # Current charge per atom
         q_atom = torch.sum(c_pred.squeeze(1) * S_vec, dim=-1)  # [samples]
