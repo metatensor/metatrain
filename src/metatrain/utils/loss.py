@@ -205,6 +205,10 @@ class BaseTensorMapLoss(LossInterface):
         all_targets_flattened = all_targets_flattened[not_nan]
         all_predictions_flattened = all_predictions_flattened[not_nan]
 
+        assert ~torch.isnan(all_predictions_flattened).any(), (
+            "NaN values found in predictions"
+        )
+
         if len(all_targets_flattened) == 0:
             # No valid data points to compute the loss
             return torch.zeros(
@@ -441,6 +445,186 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
             reduction,
             loss_fn=torch.nn.HuberLoss(reduction=reduction, delta=delta),
         )
+
+
+class TensorMapRINormLoss(TensorMapMSELoss):
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+        )
+
+    def _apply_charge_normalization(
+        self,
+        tensor_map_pred: TensorMap,
+        n_electrons: TensorMap,
+        s_orbital_normalization: TensorMap,
+    ) -> None:
+        """
+        Apply RI charge normalization to the predicted coefficients in-place.
+
+        :param tensor_map_pred: TensorMap containing the predicted coefficients to be
+            normalized.
+        :param n_electrons: TensorMap containing the total number of electrons for each
+            system.
+        :param s_orbital_normalization: TensorMap containing the S-orbital normalization
+            factors for each atom.
+        :return: The input tensor_map_pred with normalized coefficients.
+        """
+        n_electrons = n_electrons.block().values.squeeze(-1)  # [B]
+        n_systems = n_electrons.shape[0]
+        device = n_electrons.device
+
+        scalar_blocks = tensor_map_pred.blocks({"o3_lambda": 0})
+        assert len(scalar_blocks) == 1
+        b = scalar_blocks[0]
+
+        c_pred = b.values  # [samples, 1, num_radial]
+        S_vec = s_orbital_normalization.blocks({"o3_lambda": 0})[0].values.squeeze(
+            1
+        )  # [samples, num_radial]
+
+        # Remove NaNs from S_vec to avoid inf gradients
+        S_vec = torch.nan_to_num(S_vec, nan=0.0)
+        system_idx = b.samples.values[:, 0]  # [samples]
+
+        # Current charge per atom
+        q_atom = torch.sum(c_pred.squeeze(1) * S_vec, dim=-1)  # [samples]
+
+        q_mol_pred = torch.zeros(n_systems, device=device).scatter_add_(
+            0, system_idx, q_atom
+        )
+        s_norm_sq_atom = torch.sum(S_vec * S_vec, dim=-1)  # [samples]
+        s_norm_sq_mol = torch.zeros(n_systems, device=device).scatter_add_(
+            0, system_idx, s_norm_sq_atom
+        )
+        s_norm_sq_mol = s_norm_sq_mol + 1e-8
+
+        # Correction factor (gamma) per molecule
+        delta_N = n_electrons - q_mol_pred
+        gamma_mol = delta_N / s_norm_sq_mol  # [B]
+
+        # broadcast Gamma back to the atoms
+        gamma_atom = gamma_mol[system_idx].view(-1, 1, 1)  # [samples, 1, 1]
+
+        # apply correction in place, avoiding NaNs in S_vec
+        correction = gamma_atom * S_vec.unsqueeze(1)  # [samples, 1, num_radial]
+        b.values[:] += correction
+
+    # def _apply_charge_normalization(
+    #     self,
+    #     tensor_map_pred: TensorMap,
+    #     n_electrons: TensorMap,
+    #     s_orbital_normalization: TensorMap,
+    # ) -> TensorMap:
+    #     n_electrons = n_electrons.block().values.squeeze(-1)  # [B]
+    #     n_systems = n_electrons.shape[0]
+    #     device = n_electrons.device
+
+    #     new_blocks = []
+
+    #     for k, b in tensor_map_pred.items():
+
+    #         if k["o3_lambda"] != 0:
+    #             new_blocks.append(b)
+    #             continue
+
+    #         c_pred = b.values  # [samples, 1, num_radial]
+    #         S_vec = s_orbital_normalization.block(k).values.squeeze(
+    #             1
+    #         )  # [samples, num_radial]
+    #         S_vec = torch.nan_to_num(S_vec, nan=0.0)
+    #         system_idx = b.samples.values[:, 0]  # [samples]
+
+    #         # Current charge per atom
+    #         q_atom = torch.sum(c_pred.squeeze(1) * S_vec, dim=-1)  # [samples]
+    #         q_mol_pred = torch.zeros(n_systems, device=device).scatter_add_(
+    #             0, system_idx, q_atom
+    #         )
+    #         s_norm_sq_atom = torch.sum(S_vec * S_vec, dim=-1)  # [samples]
+    #         s_norm_sq_mol = torch.zeros(n_systems, device=device).scatter_add_(
+    #             0, system_idx, s_norm_sq_atom
+    #         )
+    #         s_norm_sq_mol = s_norm_sq_mol + 1e-8
+
+    #         # Correction factor (gamma) per molecule
+    #         delta_N = n_electrons - q_mol_pred
+    #         gamma_mol = delta_N / s_norm_sq_mol  # [B]
+
+    #         # broadcast Gamma back to the atoms
+    #         gamma_atom = gamma_mol[system_idx].view(-1, 1, 1)  # [samples, 1, 1]
+    #         assert torch.isfinite(gamma_atom).all()
+
+    #         correction = gamma_atom * S_vec.unsqueeze(1)  # [samples, 1, num_radial]
+    #         new_values = b.values + correction
+    #         new_blocks.append(
+    #             TensorBlock(
+    #                 samples=b.samples,
+    #                 components=b.components,
+    #                 properties=b.properties,
+    #                 values=new_values,
+    #             )
+    #         )
+
+    #     return TensorMap(keys=tensor_map_pred.keys, blocks=new_blocks)
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        """
+        Compute the RI-normalized loss, which enforces charge normalization.
+
+        :param predictions: mapping of names to :py:class:`TensorMap`.
+        :param targets: mapping of names to :py:class:`TensorMap`.
+        :param extra_data: coefficients normalizations and total number of electrons
+        :return: scalar torch.Tensor loss.
+        """
+        tensor_map_pred = predictions[self.target]
+        tensor_map_targ = targets[self.target]
+        assert extra_data is not None, (
+            "RINormLoss requires extra_data for normalization"
+        )
+
+        target_name_clean = (
+            self.target.replace("mtt::", "")
+            .replace("_coulomb", "")
+            .replace("_overlap", "")
+        )
+        s_orb_name = f"mtt::s_orbital_normalization_{target_name_clean}"
+        assert s_orb_name in extra_data, (
+            f"RINormLoss requires '{s_orb_name}' in extra_data:"
+        )
+        assert "mtt::n_electrons" in extra_data, (
+            "RINormLoss requires 'mtt::n_electrons' in extra_data"
+        )
+        n_electrons = extra_data["mtt::n_electrons"]
+        s_orbital_normalization = extra_data[s_orb_name]
+
+        # Check gradients are present in the target TensorMap
+        if self.gradient is not None:
+            if self.gradient not in tensor_map_targ[0].gradients_list():
+                # Skip loss computation if block gradient is missing in the dataset
+                # Tensor gradients are not tracked
+                return torch.zeros(
+                    (), dtype=torch.float, device=tensor_map_targ[0].values.device
+                )
+        # Apply RI normalization to the predictions
+        self._apply_charge_normalization(
+            tensor_map_pred, n_electrons, s_orbital_normalization
+        )
+
+        return self.compute_flattened(tensor_map_pred, tensor_map_targ)
 
 
 class MaskedDOSLoss(LossInterface):
@@ -1184,6 +1368,7 @@ class LossType(Enum):
     GAUSSIAN_NLL = ("gaussian_nll_ensemble", TensorMapGaussianNLLLoss)
     GAUSSIAN_CRPS = ("gaussian_crps_ensemble", TensorMapGaussianCRPSLoss)
     EMPIRICAL_CRPS = ("empirical_crps_ensemble", TensorMapEmpiricalCRPSLoss)
+    RI_NORM = ("ri_norm", TensorMapRINormLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key
