@@ -205,9 +205,9 @@ class BaseTensorMapLoss(LossInterface):
         all_targets_flattened = all_targets_flattened[not_nan]
         all_predictions_flattened = all_predictions_flattened[not_nan]
 
-        assert ~torch.isnan(all_predictions_flattened).any(), (
-            "NaN values found in predictions"
-        )
+        assert ~torch.isnan(
+            all_predictions_flattened
+        ).any(), "NaN values found in predictions"
 
         if len(all_targets_flattened) == 0:
             # No valid data points to compute the loss
@@ -519,62 +519,23 @@ class TensorMapRINormLoss(TensorMapMSELoss):
         correction = gamma_atom * S_vec.unsqueeze(1)  # [samples, 1, num_radial]
         b.values[:] += correction
 
-    # def _apply_charge_normalization(
-    #     self,
-    #     tensor_map_pred: TensorMap,
-    #     n_electrons: TensorMap,
-    #     s_orbital_normalization: TensorMap,
-    # ) -> TensorMap:
-    #     n_electrons = n_electrons.block().values.squeeze(-1)  # [B]
-    #     n_systems = n_electrons.shape[0]
-    #     device = n_electrons.device
+    def _L1_penalty(tensor: TensorMap, factor: float) -> torch.Tensor:
+        """
+        Compute an L1 penalty to the predicted non-invariant coefficients.
 
-    #     new_blocks = []
+        :param tensor: TensorMap containing the predicted coefficients to be penalized.
+        :param factor: scaling factor for the L1 penalty.
+        :return: The input tensor with the L1 penalty applied in-place.
+        """
 
-    #     for k, b in tensor_map_pred.items():
-
-    #         if k["o3_lambda"] != 0:
-    #             new_blocks.append(b)
-    #             continue
-
-    #         c_pred = b.values  # [samples, 1, num_radial]
-    #         S_vec = s_orbital_normalization.block(k).values.squeeze(
-    #             1
-    #         )  # [samples, num_radial]
-    #         S_vec = torch.nan_to_num(S_vec, nan=0.0)
-    #         system_idx = b.samples.values[:, 0]  # [samples]
-
-    #         # Current charge per atom
-    #         q_atom = torch.sum(c_pred.squeeze(1) * S_vec, dim=-1)  # [samples]
-    #         q_mol_pred = torch.zeros(n_systems, device=device).scatter_add_(
-    #             0, system_idx, q_atom
-    #         )
-    #         s_norm_sq_atom = torch.sum(S_vec * S_vec, dim=-1)  # [samples]
-    #         s_norm_sq_mol = torch.zeros(n_systems, device=device).scatter_add_(
-    #             0, system_idx, s_norm_sq_atom
-    #         )
-    #         s_norm_sq_mol = s_norm_sq_mol + 1e-8
-
-    #         # Correction factor (gamma) per molecule
-    #         delta_N = n_electrons - q_mol_pred
-    #         gamma_mol = delta_N / s_norm_sq_mol  # [B]
-
-    #         # broadcast Gamma back to the atoms
-    #         gamma_atom = gamma_mol[system_idx].view(-1, 1, 1)  # [samples, 1, 1]
-    #         assert torch.isfinite(gamma_atom).all()
-
-    #         correction = gamma_atom * S_vec.unsqueeze(1)  # [samples, 1, num_radial]
-    #         new_values = b.values + correction
-    #         new_blocks.append(
-    #             TensorBlock(
-    #                 samples=b.samples,
-    #                 components=b.components,
-    #                 properties=b.properties,
-    #                 values=new_values,
-    #             )
-    #         )
-
-    #     return TensorMap(keys=tensor_map_pred.keys, blocks=new_blocks)
+        coeff_to_penalize: list[torch.Tensor] = []
+        for k, b in tensor.items():
+            if k["o3_lambda"] == 0:
+                # we don't penalize invariant blocks as they're going to be modified
+                # later
+                continue
+            coeff_to_penalize.append(b.values.flatten())
+        return factor * torch.cat(coeff_to_penalize).abs().mean()
 
     def compute(
         self,
@@ -592,9 +553,9 @@ class TensorMapRINormLoss(TensorMapMSELoss):
         """
         tensor_map_pred = predictions[self.target]
         tensor_map_targ = targets[self.target]
-        assert extra_data is not None, (
-            "RINormLoss requires extra_data for normalization"
-        )
+        assert (
+            extra_data is not None
+        ), "RINormLoss requires extra_data for normalization"
 
         target_name_clean = (
             self.target.replace("mtt::", "")
@@ -602,12 +563,12 @@ class TensorMapRINormLoss(TensorMapMSELoss):
             .replace("_overlap", "")
         )
         s_orb_name = f"mtt::s_orbital_normalization_{target_name_clean}"
-        assert s_orb_name in extra_data, (
-            f"RINormLoss requires '{s_orb_name}' in extra_data:"
-        )
-        assert "mtt::n_electrons" in extra_data, (
-            "RINormLoss requires 'mtt::n_electrons' in extra_data"
-        )
+        assert (
+            s_orb_name in extra_data
+        ), f"RINormLoss requires '{s_orb_name}' in extra_data:"
+        assert (
+            "mtt::n_electrons" in extra_data
+        ), "RINormLoss requires 'mtt::n_electrons' in extra_data"
         n_electrons = extra_data["mtt::n_electrons"]
         s_orbital_normalization = extra_data[s_orb_name]
 
@@ -623,8 +584,9 @@ class TensorMapRINormLoss(TensorMapMSELoss):
         self._apply_charge_normalization(
             tensor_map_pred, n_electrons, s_orbital_normalization
         )
+        L1_penalty = self._L1_penalty(tensor_map_pred, 1e-3)
 
-        return self.compute_flattened(tensor_map_pred, tensor_map_targ)
+        return self.compute_flattened(tensor_map_pred, tensor_map_targ) + L1_penalty
 
 
 class MaskedDOSLoss(LossInterface):
