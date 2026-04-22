@@ -271,6 +271,8 @@ class CompositionModel(torch.nn.Module):
             torch.distributed.barrier()
             # All-reduce the accumulated TensorMaps across all processes
             for target_name in self._new_outputs:
+                if target_name in fixed_weights:
+                    continue  # nothing was accumulated
                 for XTX_block, XTY_block in zip(
                     self.model.XTX[target_name],
                     self.model.XTY[target_name],
