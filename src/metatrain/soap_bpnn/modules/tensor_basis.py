@@ -1,7 +1,7 @@
 """Modules to allow SOAP-BPNN to fit arbitrary spherical tensor targets."""
 
 import copy
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import metatensor.torch as mts
 import numpy as np
@@ -513,6 +513,148 @@ class LambdaBasis(torch.nn.Module):
             return self.spex_contraction_for_tensors(lambda_tensor_map.block().values)
 
 
+class SpeciesDependentVectorBasis(torch.nn.Module):
+    """
+    Build one additional proper ``l=1`` vector with an explicit center-species-
+    dependent contraction.
+
+    This mirrors the standard ``VectorBasis`` construction, but produces a single
+    vector instead of three. In the modern path, center species enters both via the
+    usual embedding and via a species-resolved ``LinearMap`` contraction.
+    """
+
+    def __init__(
+        self,
+        atomic_types: List[int],
+        soap_hypers: SOAPConfig,
+        legacy: bool,
+    ) -> None:
+        super().__init__()
+
+        self.legacy = legacy
+        self.atomic_types = atomic_types
+
+        spex_soap_hypers = _build_spex_hypers(
+            soap_hypers=soap_hypers,
+            max_angular=1,
+            atomic_types=self.atomic_types,
+            legacy=self.legacy,
+        )
+        self.soap_calculator = SphericalExpansion(**spex_soap_hypers)
+
+        l1_n_radial = self.soap_calculator.radial.n_per_l[1]
+        l1_feature_count = l1_n_radial * (len(atomic_types) if legacy else 4)
+
+        self._o3_mu_labels = Labels(
+            names=["o3_mu"],
+            values=torch.arange(-1, 2, dtype=torch.long).unsqueeze(1),
+        )
+        self._property_labels = Labels(
+            names=["property"],
+            values=torch.arange(l1_feature_count).unsqueeze(1),
+        )
+
+        center_type_values = (
+            torch.tensor(self.atomic_types)
+            if legacy
+            else torch.arange(len(self.atomic_types), dtype=torch.long)
+        )
+        self._keys_labels = Labels(
+            names=["o3_lambda", "o3_sigma", "center_type"],
+            values=torch.stack(
+                [
+                    torch.tensor([1] * len(center_type_values)),
+                    torch.tensor([1] * len(center_type_values)),
+                    center_type_values,
+                ],
+                dim=1,
+            ),
+        )
+
+        if legacy:
+            self.center_encoding = torch.nn.Identity()
+        else:
+            self.center_encoding = torch.nn.Embedding(
+                num_embeddings=len(self.atomic_types),
+                embedding_dim=l1_feature_count,
+            )
+
+        self.contraction = LinearMap(
+            in_keys=Labels(
+                names=["o3_lambda", "o3_sigma", "center_type"],
+                values=torch.stack(
+                    [
+                        torch.tensor([1] * len(center_type_values)),
+                        torch.tensor([1] * len(center_type_values)),
+                        center_type_values,
+                    ],
+                    dim=1,
+                ),
+            ),
+            in_features=l1_feature_count,
+            out_features=1,
+            bias=False,
+            out_properties=[
+                Labels.range("basis", 1) for _ in range(len(center_type_values))
+            ],
+        )
+
+    def forward(
+        self,
+        interatomic_vectors: torch.Tensor,
+        centers: torch.Tensor,
+        neighbors: torch.Tensor,
+        species: torch.Tensor,
+        sample_values: torch.Tensor,
+        selected_atoms: Optional[Labels],
+    ) -> torch.Tensor:
+        device = interatomic_vectors.device
+
+        if self._o3_mu_labels.values.device != device:
+            self._o3_mu_labels = self._o3_mu_labels.to(device)
+            self._property_labels = self._property_labels.to(device)
+            self._keys_labels = self._keys_labels.to(device)
+
+        l1_spherical_expansion = self.soap_calculator(
+            interatomic_vectors,
+            centers,
+            neighbors,
+            species,
+        )[1]
+
+        l1_spherical_expansion = l1_spherical_expansion.reshape(
+            l1_spherical_expansion.shape[0],
+            l1_spherical_expansion.shape[1],
+            l1_spherical_expansion.shape[2] * l1_spherical_expansion.shape[3],
+        )
+
+        if not self.legacy:
+            l1_spherical_expansion = l1_spherical_expansion * (
+                self.center_encoding(species).unsqueeze(1)
+            )
+
+        l1_tensor_map = _build_spherical_basis_tensormap(
+            expansion=l1_spherical_expansion,
+            species=species,
+            sample_values=sample_values,
+            legacy=True,
+            o3_mu_labels=self._o3_mu_labels,
+            property_labels=self._property_labels,
+            keys_labels=self._keys_labels,
+        )
+
+        if selected_atoms is not None:
+            l1_tensor_map = mts.slice(l1_tensor_map, "samples", selected_atoms)
+
+        contracted = self.contraction(l1_tensor_map)
+        structures = (
+            selected_atoms.values[:, 0]
+            if selected_atoms is not None
+            else sample_values[:, 0]
+        )
+        return _sort_tensor_blocks_like_atoms(contracted, structures=structures)
+
+
 class FakeLambdaBasis(torch.nn.Module):
     """Dummy module for TorchScript compatibility when lambda basis is disabled."""
 
@@ -542,6 +684,14 @@ class TensorBasis(torch.nn.Module):
         lambda-basis to the spherical tensor basis. This is done by contracting a
         spherical expansion with the same o3_lambda as the target tensor.
         This usually improves the performance of the model.
+    :param extra_l1_vector_basis_soaps: optional list of SOAP hyperparameters for
+        additional proper ``l=1`` vector-basis branches. The original
+        ``VectorBasis`` always remains active. Each extra branch appends 3 more
+        vectors to the basis width.
+    :param add_l1_species_dependent_vector: if True for proper ``l=1`` targets,
+        append one additional center-species-dependent vector to the basis width.
+    :param l1_species_dependent_vector_soap: optional SOAP hyperparameters for the
+        extra species-dependent proper ``l=1`` vector branch.
     :param legacy: if True, uses the legacy implementation without chemical embedding.
     """
 
@@ -556,6 +706,11 @@ class TensorBasis(torch.nn.Module):
         o3_sigma: int,
         add_lambda_basis: bool,
         legacy: bool,
+        add_l1_species_dependent_vector: bool = False,
+        l1_species_dependent_vector_soap: Optional[SOAPConfig] = None,
+        add_l1_extra_vector_basis: bool = False,
+        l1_extra_vector_basis_soap: Optional[SOAPConfig] = None,
+        extra_l1_vector_basis_soaps: Optional[List[SOAPConfig]] = None,
     ) -> None:
         super().__init__()
 
@@ -569,6 +724,39 @@ class TensorBasis(torch.nn.Module):
             self.vector_basis = VectorBasis(atomic_types, soap_hypers, legacy)
         else:
             self.vector_basis = FakeVectorBasis()  # needed to make torchscript work
+
+        if extra_l1_vector_basis_soaps is None:
+            if add_l1_extra_vector_basis:
+                extra_l1_vector_basis_soaps = [
+                    copy.deepcopy(
+                        l1_extra_vector_basis_soap
+                        if l1_extra_vector_basis_soap is not None
+                        else soap_hypers
+                    )
+                ]
+            else:
+                extra_l1_vector_basis_soaps = []
+        self.extra_l1_vector_bases = torch.nn.ModuleList()
+        if self.o3_lambda == 1 and self.o3_sigma == 1:
+            for extra_soap_hypers in extra_l1_vector_basis_soaps:
+                self.extra_l1_vector_bases.append(
+                    VectorBasis(atomic_types, copy.deepcopy(extra_soap_hypers), legacy)
+                )
+
+        if l1_species_dependent_vector_soap is None:
+            if add_l1_species_dependent_vector:
+                l1_species_dependent_vector_soap = copy.deepcopy(soap_hypers)
+        self.add_l1_species_dependent_vector = (
+            add_l1_species_dependent_vector and self.o3_lambda == 1 and self.o3_sigma == 1
+        )
+        if self.add_l1_species_dependent_vector:
+            self.l1_species_dependent_vector_basis = SpeciesDependentVectorBasis(
+                atomic_types,
+                cast(SOAPConfig, l1_species_dependent_vector_soap),
+                legacy,
+            )
+        else:
+            self.l1_species_dependent_vector_basis = FakeVectorBasis()
 
         if self.o3_sigma == -1:
             self.vector_basis_pseudotensor = VectorBasis(
@@ -636,6 +824,11 @@ class TensorBasis(torch.nn.Module):
             to compute the basis for.
         :return: a tensor of shape (num_atoms, 2*o3_lambda+1, 2*o3_lambda+1) with the
             basis of spherical tensors for each atomic environment.
+        If extra proper ``l=1`` vector-basis branches are configured, the shape is
+        ``(num_atoms, 3, 3 * (1 + n_extra))`` and each extra group of 3 components
+        corresponds to one auxiliary vector basis.
+        If an extra species-dependent proper ``l=1`` vector is also configured, the
+        final basis width increases by 1 on top of that.
         If add_lambda_basis is True, the shape is
         (num_atoms, 2*o3_lambda+1, 2*o3_lambda+1 + 2*o3_lambda+1)
         and the last 2*o3_lambda+1 components correspond to the contracted
@@ -669,6 +862,26 @@ class TensorBasis(torch.nn.Module):
                 sample_values,
                 selected_atoms,
             )
+            for extra_vector_basis in self.extra_l1_vector_bases:
+                basis_aux = extra_vector_basis(
+                    interatomic_vectors,
+                    centers,
+                    neighbors,
+                    species,
+                    sample_values,
+                    selected_atoms,
+                )
+                basis = torch.cat((basis, basis_aux), dim=-1)
+            if self.add_l1_species_dependent_vector:
+                basis_aux = self.l1_species_dependent_vector_basis(
+                    interatomic_vectors,
+                    centers,
+                    neighbors,
+                    species,
+                    sample_values,
+                    selected_atoms,
+                )
+                basis = torch.cat((basis, basis_aux), dim=-1)
         elif self.o3_lambda == 2:
             basis = torch.empty(
                 (num_atoms, 5, 5),
