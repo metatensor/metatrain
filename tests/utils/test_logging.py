@@ -418,6 +418,55 @@ def test_metric_logger(caplog, monkeypatch, tmp_path):
     ]
 
 
+def test_metric_logger_handles_zero_and_nan_target_metrics(caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.INFO)
+    logger = logging.getLogger(__name__)
+
+    capabilities = ModelCapabilities(
+        length_unit="angstrom",
+        atomic_types=[1],
+        outputs={"energy": ModelOutput(unit="eV")},
+    )
+
+    with setup_logging(logger, log_file="logfile.log", level=logging.INFO):
+        metric_logger = MetricLogger(
+            log_obj=logger,
+            dataset_info=capabilities,
+            initial_metrics=[{"energy RMSE": 0.0}],
+            names=["validation"],
+        )
+        metric_logger.log(metrics=[{"energy RMSE": float("nan")}], epoch=0)
+
+    assert "validation energy RMSE:" in caplog.text
+    assert "nan meV" in caplog.text
+
+
+def test_metric_logger_handles_metrics_missing_from_initial_state(
+    caplog, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.INFO)
+    logger = logging.getLogger(__name__)
+
+    capabilities = ModelCapabilities(
+        length_unit="angstrom",
+        atomic_types=[1],
+        outputs={"energy": ModelOutput(unit="eV")},
+    )
+
+    with setup_logging(logger, log_file="logfile.log", level=logging.INFO):
+        metric_logger = MetricLogger(
+            log_obj=logger,
+            dataset_info=capabilities,
+            initial_metrics=[{}],
+            names=["validation"],
+        )
+        metric_logger.log(metrics=[{"energy RMSE": 1.0}], epoch=0)
+
+    assert "validation energy RMSE: 1000.0 meV" in caplog.text
+
+
 def get_argv():
     argv = ["mypgroam", "option1", "-o", "optional", "--long", "extra options"]
     argv_str = 'mypgroam option1 -o optional --long "extra options"'

@@ -304,6 +304,24 @@ def _extract_values_and_system_indices(
     return gradient_block.values, parent_system_indices[parent_sample_indices]
 
 
+def _extract_values_from_block(
+    tensor_block: TensorBlock,
+    gradient: Optional[str],
+) -> torch.Tensor:
+    if gradient is None:
+        return tensor_block.values
+    return tensor_block.gradient(gradient).values
+
+
+def _stable_zero_preserving_rms(
+    mean_square: torch.Tensor,
+) -> torch.Tensor:
+    """Return a smooth RMS norm with finite higher-order derivatives at zero."""
+    epsilon = max(1e-12, 10.0 * torch.finfo(mean_square.dtype).eps)
+    epsilon_tensor = mean_square.new_tensor(epsilon)
+    return (mean_square + epsilon_tensor.square()).sqrt() - epsilon_tensor
+
+
 def _structure_first_reduce(
     values: torch.Tensor,
     system_indices: torch.Tensor,
@@ -372,13 +390,16 @@ class BaseInvariantTensorMapLoss(LossInterface):
 
         :param predictions: mapping of names to :py:class:`TensorMap`.
         :param targets: mapping of names to :py:class:`TensorMap`.
-        :param extra_data: ignored for invariant losses.
+        :param extra_data: optional extra data, including masks named
+            ``<target>_mask`` with the same metadata as the target.
         :return: scalar torch.Tensor loss, or per-structure values for ``none``.
         """
-        del extra_data
 
         tensor_map_pred = predictions[self.target]
         tensor_map_targ = targets[self.target]
+        tensor_map_mask = None
+        if extra_data is not None:
+            tensor_map_mask = extra_data.get(f"{self.target}_mask")
 
         if self.gradient is not None:
             if self.gradient not in tensor_map_targ[0].gradients_list():
@@ -392,6 +413,9 @@ class BaseInvariantTensorMapLoss(LossInterface):
         for single_key in tensor_map_pred.keys:
             block_for_prediction = tensor_map_pred.block(single_key)
             block_for_target = tensor_map_targ.block(single_key)
+            block_for_mask = (
+                tensor_map_mask.block(single_key) if tensor_map_mask is not None else None
+            )
 
             prediction_values, system_indices = _extract_values_and_system_indices(
                 block_for_prediction, self.gradient
@@ -399,25 +423,38 @@ class BaseInvariantTensorMapLoss(LossInterface):
             target_values, _ = _extract_values_and_system_indices(
                 block_for_target, self.gradient
             )
+            mask_values = (
+                _extract_values_from_block(block_for_mask, self.gradient).bool()
+                if block_for_mask is not None
+                else torch.ones_like(target_values, dtype=torch.bool)
+            )
 
             flattened_prediction = prediction_values.reshape(
                 prediction_values.shape[0], -1
             )
             flattened_target = target_values.reshape(target_values.shape[0], -1)
+            flattened_mask = mask_values.reshape(mask_values.shape[0], -1)
 
-            valid_mask = torch.isfinite(flattened_prediction).all(
-                dim=1
-            ) & torch.isfinite(flattened_target).all(dim=1)
-            if not valid_mask.any():
+            row_has_support = flattened_mask.any(dim=1)
+            row_target_is_finite = (
+                torch.isfinite(flattened_target) | ~flattened_mask
+            ).all(dim=1)
+            valid_rows = row_has_support & row_target_is_finite
+
+            if not valid_rows.any():
                 continue
 
-            flattened_prediction = flattened_prediction[valid_mask]
-            flattened_target = flattened_target[valid_mask]
-            system_indices = system_indices[valid_mask]
+            flattened_prediction = flattened_prediction[valid_rows]
+            flattened_target = flattened_target[valid_rows]
+            flattened_mask = flattened_mask[valid_rows]
+            system_indices = system_indices[valid_rows]
 
-            residual_rms = (flattened_prediction - flattened_target).pow(2).mean(
-                dim=1
-            ).sqrt()
+            residual_sq = (flattened_prediction - flattened_target).pow(2).masked_fill(
+                ~flattened_mask, 0.0
+            )
+            support_counts = flattened_mask.sum(dim=1).clamp_min(1)
+            residual_mean_sq = residual_sq.sum(dim=1) / support_counts
+            residual_rms = _stable_zero_preserving_rms(residual_mean_sq)
             entity_losses.append(
                 self.torch_loss(residual_rms, torch.zeros_like(residual_rms))
             )

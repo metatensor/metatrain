@@ -19,6 +19,21 @@ def _vector_tensormap(values: torch.Tensor, systems: torch.Tensor) -> TensorMap:
     return TensorMap(keys=Labels.single(), blocks=[block])
 
 
+def _vector_mask_tensormap(mask: torch.Tensor, systems: torch.Tensor) -> TensorMap:
+    block = TensorBlock(
+        values=mask.reshape(mask.shape[0], mask.shape[1], 1),
+        samples=Labels(
+            names=["system", "atom"],
+            values=torch.stack(
+                [systems, torch.arange(mask.shape[0], dtype=torch.int64)], dim=1
+            ),
+        ),
+        components=[Labels.range("o3_mu", mask.shape[1])],
+        properties=Labels.range("property", 1),
+    )
+    return TensorMap(keys=Labels.single(), blocks=[block])
+
+
 def _energy_with_positions_gradient(
     energy_values: torch.Tensor,
     gradient_values: torch.Tensor,
@@ -138,3 +153,98 @@ def test_invariant_losses_support_gradient_rows() -> None:
     value = loss({"energy": prediction}, {"energy": target})
 
     assert torch.isclose(value, torch.tensor(12.5))
+
+
+def test_invariant_losses_skip_entities_with_missing_target_components() -> None:
+    prediction = _vector_tensormap(
+        torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]),
+        torch.tensor([0, 0], dtype=torch.int64),
+    )
+    target = _vector_tensormap(
+        torch.tensor([[0.0, 0.0, 0.0], [0.0, float("nan"), 0.0]]),
+        torch.tensor([0, 0], dtype=torch.int64),
+    )
+
+    loss = create_loss(
+        "invariant_mse",
+        name="forces",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+    )
+
+    value = loss({"forces": prediction}, {"forces": target})
+
+    assert torch.isclose(value, torch.tensor(14.0 / 3.0))
+
+
+def test_invariant_losses_respect_masks_for_supported_components() -> None:
+    systems = torch.tensor([0], dtype=torch.int64)
+    prediction = _vector_tensormap(torch.tensor([[3.0, 4.0, 10.0]]), systems)
+    target = _vector_tensormap(torch.tensor([[0.0, 0.0, float("nan")]]), systems)
+    mask = _vector_mask_tensormap(torch.tensor([[True, True, False]]), systems)
+
+    loss = create_loss(
+        "invariant_mse",
+        name="forces",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+    )
+
+    value = loss({"forces": prediction}, {"forces": target}, {"forces_mask": mask})
+
+    assert torch.isclose(value, torch.tensor(12.5))
+
+
+def test_invariant_losses_do_not_silently_drop_supported_nonfinite_predictions() -> None:
+    prediction = _vector_tensormap(
+        torch.tensor([[float("nan"), 2.0, 3.0]]),
+        torch.tensor([0], dtype=torch.int64),
+    )
+    target = _vector_tensormap(
+        torch.tensor([[0.0, 0.0, 0.0]]),
+        torch.tensor([0], dtype=torch.int64),
+    )
+
+    loss = create_loss(
+        "invariant_mse",
+        name="forces",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+    )
+
+    value = loss({"forces": prediction}, {"forces": target})
+
+    assert torch.isnan(value)
+
+
+def test_invariant_huber_has_finite_zero_residual_gradients() -> None:
+    parameter = torch.tensor(0.0, requires_grad=True)
+    prediction = _energy_with_positions_gradient(
+        energy_values=torch.tensor([0.0]),
+        gradient_values=parameter.reshape(1, 1).expand(1, 3),
+        gradient_samples=torch.tensor([[0, 0]], dtype=torch.int64),
+    )
+    target = _energy_with_positions_gradient(
+        energy_values=torch.tensor([0.0]),
+        gradient_values=torch.zeros((1, 3)),
+        gradient_samples=torch.tensor([[0, 0]], dtype=torch.int64),
+    )
+
+    loss = create_loss(
+        "invariant_huber",
+        name="energy",
+        gradient="positions",
+        weight=1.0,
+        reduction="mean",
+        delta=0.04,
+    )
+
+    value = loss({"energy": prediction}, {"energy": target})
+    value.backward()
+
+    assert torch.isfinite(value)
+    assert parameter.grad is not None
+    assert torch.isfinite(parameter.grad)

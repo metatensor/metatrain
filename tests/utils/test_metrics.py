@@ -279,3 +279,62 @@ def test_get_selected_metric():
 
     selected_metric = "loss"
     assert get_selected_metric(metrics, selected_metric) == 1
+
+
+@pytest.fixture
+def tensor_map_all_nan():
+    block = TensorBlock(
+        values=torch.tensor([[np.nan], [np.nan]]),
+        samples=Labels.range("samples", 2),
+        components=[],
+        properties=Labels("stress", torch.tensor([[0]])),
+    )
+    return TensorMap(keys=Labels.single(), blocks=[block])
+
+
+@pytest.mark.parametrize("accumulator_class", [RMSEAccumulator, MAEAccumulator])
+def test_finalize_omits_zero_support_metrics(accumulator_class, tensor_map_all_nan):
+    accumulator = accumulator_class()
+    accumulator.update(
+        {"totally_missing_target": tensor_map_all_nan},
+        {"totally_missing_target": tensor_map_all_nan},
+    )
+
+    with pytest.warns(
+        RuntimeWarning, match="Omitting metrics with zero valid support"
+    ):
+        metrics = accumulator.finalize(not_per_atom=[])
+
+    assert metrics == {}
+
+
+@pytest.mark.parametrize("accumulator_class", [RMSEAccumulator, MAEAccumulator])
+def test_metrics_raise_on_supported_nonfinite_predictions(accumulator_class):
+    prediction = TensorMap(
+        keys=Labels.single(),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[np.nan], [1.0]]),
+                samples=Labels.range("samples", 2),
+                components=[],
+                properties=Labels("energy", torch.tensor([[0]])),
+            )
+        ],
+    )
+    target = TensorMap(
+        keys=Labels.single(),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[0.0], [1.0]]),
+                samples=Labels.range("samples", 2),
+                components=[],
+                properties=Labels("energy", torch.tensor([[0]])),
+            )
+        ],
+    )
+
+    accumulator = accumulator_class()
+    with pytest.raises(
+        ValueError, match="non-finite metric contribution.*target 'energy'"
+    ):
+        accumulator.update({"energy": prediction}, {"energy": target})
