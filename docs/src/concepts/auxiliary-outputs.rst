@@ -10,6 +10,8 @@ representation of the model, uncertainty estimates, or non-trainable quantities.
 The following auxiliary outputs are currently supported by one or more
 architectures in ``metatrain``:
 
+- :ref:`mtt-features-path`: Opt-in diagnostic feature captures from selected
+  internal tensors of a model.
 - :ref:`mtt-aux-target-last-layer-features`: The representation of the model
   at the last layer, before the final linear transformation to produce
   target ``target``.
@@ -17,6 +19,53 @@ architectures in ``metatrain``:
   ``target``, as computed by the LLPR module.
 - :ref:`mtt-aux-target-ensemble`: An ensemble prediction for target
   ``target``, as computed by the LLPR module.
+
+
+.. _mtt-features-path:
+
+``mtt::features::{path}``
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This output contains an opt-in diagnostic feature capture from an internal
+model tensor. The exact ``path`` is architecture-dependent. For PET, this
+surface can expose both feature-construction inputs such as
+``mtt::features::edge_vectors`` and temporary forward-hook captures such as
+``mtt::features::gnn_layers.0_node`` or
+``mtt::features::gnn_layers.0.trans.layers.0_edge``.
+
+All ``mtt::features::{path}`` outputs are intended for post-processing,
+probing, and symmetry diagnostics. They are not trainable targets.
+
+.. list-table:: Metadata for diagnostic feature captures
+  :widths: 2 3 7
+  :header-rows: 1
+
+  * - Metadata
+    - Names
+    - Description
+
+  * - keys
+    - ``"_"``
+    - A single invariant key with value ``0``.
+
+  * - samples
+    - ``["system", "atom"]`` or off-site pair labels
+    - Node-like captures are emitted per atom. Edge-like captures are emitted
+      per pair with the corresponding neighbor-list labels.
+
+  * - components
+    - none
+    - Diagnostic captures are emitted as plain feature vectors.
+
+  * - properties
+    - ``"_"``
+    - The feature index within the captured tensor.
+
+Diagnostic feature captures are currently supported by:
+
++-----------------+
+| :ref:`arch-pet` |
++-----------------+
 
 
 .. _mtt-aux-target-last-layer-features:

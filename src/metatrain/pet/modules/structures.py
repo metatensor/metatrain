@@ -133,6 +133,8 @@ def systems_to_batch(
     Labels,
     torch.Tensor,
     torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
 ]:
     """
     Converts a list of systems to a batch required for the PET model.
@@ -168,6 +170,9 @@ def systems_to_batch(
             from the autograd graph). With adaptive cutoff active this is
             the per-atom adapted cutoff; otherwise every entry equals
             ``options.cutoff``. Always shape ``(num_nodes,)``.
+        - `centers`: The center-atom indices for each edge before NEF packing
+        - `nef_to_edges_neighbor`: The neighbor-position map from NEF space to edges
+        - `cutoff_mask`: The edge mask applied by the adaptive cutoff logic
 
     """
     (
@@ -229,7 +234,8 @@ def systems_to_batch(
             # due to its corresponding edge indexing ij -> ji)
             pair_cutoffs = (atomic_cutoffs[centers] + atomic_cutoffs[neighbors]) / 2.0
         with torch.profiler.record_function("PET::adaptive_cutoff_masking"):
-            keep = torch.nonzero(edge_distances <= pair_cutoffs).squeeze(-1)
+            cutoff_mask = edge_distances <= pair_cutoffs
+            keep = torch.nonzero(cutoff_mask).squeeze(-1)
             pair_cutoffs = pair_cutoffs.index_select(0, keep)
             centers = centers.index_select(0, keep)
             neighbors = neighbors.index_select(0, keep)
@@ -243,9 +249,9 @@ def systems_to_batch(
         atomic_cutoffs_stats = options.cutoff * torch.ones(
             num_nodes, device=positions.device, dtype=positions.dtype
         )
+        cutoff_mask = torch.ones_like(pair_cutoffs, dtype=torch.bool)
 
     num_neighbors = torch.bincount(centers, minlength=num_nodes)
-    # this logic shouldn't be needed thanks to `minlength` above, but just to be safe:
     max_edges_per_node = (
         int(torch.max(num_neighbors)) if num_neighbors.numel() > 0 else 0
     )
@@ -318,4 +324,57 @@ def systems_to_batch(
         sample_labels,
         species,
         atomic_cutoffs_stats,
+        centers,
+        nef_to_edges_neighbor,
+        cutoff_mask,
     )
+
+
+def get_pair_sample_labels(
+    systems: List[System],
+    sample_labels: Labels,
+    nl_options: NeighborListOptions,
+    cutoff_mask: torch.Tensor,
+    device: torch.device,
+) -> Labels:
+    """
+    Builds the pair samples labels for the input ``systems``, based on the pre-computed
+    neighbor list. These are 'off-site', i.e. not including self-interactions.
+
+    :param systems: List of systems to build the pair sample labels for.
+    :param sample_labels: The sample labels for per-atom quantities.
+    :param nl_options: The neighbor list options to use for building the offsite labels.
+    :param device: The device to put the labels on.
+    :return: A dictionary with the pair sample labels for the onsite and offsite blocks.
+    """
+    sample_names = [
+        "system",
+        "first_atom",
+        "second_atom",
+        "cell_shift_a",
+        "cell_shift_b",
+        "cell_shift_c",
+    ]
+
+    pair_sample_values = []
+    for system_idx, system in enumerate(systems):
+        neighbor_list = system.get_neighbor_list(nl_options)
+        nl_values = neighbor_list.samples.values
+
+        pair_sample_values.append(
+            torch.hstack(
+                [
+                    torch.full(
+                        (nl_values.shape[0], 1),
+                        system_idx,
+                        dtype=torch.int32,
+                        device=device,
+                    ),
+                    nl_values,
+                ],
+            )
+        )
+    pair_sample_values = torch.vstack(pair_sample_values)[cutoff_mask]
+    pair_sample_labels = Labels(sample_names, pair_sample_values).to(device=device)
+
+    return pair_sample_labels
