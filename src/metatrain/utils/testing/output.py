@@ -423,11 +423,13 @@ class OutputTests(ArchitectureTests):
         and values shape.
 
         This test is skipped if one of the following is False:
+
         - ``supports_spherical_outputs``
         - ``supports_spherical_atomic_basis_outputs``
         - ``supports_spherical_rank2_outputs``
 
         If this test is failing and
+
         - ``test_output_spherical``, ``test_output_spherical_atomic_basis`` and
           ``test_output_spherical_rank2`` are passing: your model is not handling
           the possibility that outputs can be spherical, in an atomic basis and
