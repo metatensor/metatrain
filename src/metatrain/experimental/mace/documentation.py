@@ -309,6 +309,28 @@ class TrainerHypers(TypedDict):
     """Learning rate factor"""
     lr_scheduler_patience: int = 50  # Named "scheduler_patience" in MACE
     """Scheduler patience."""
+    lr_params_factors: dict[str, float] = {}
+    """Learning rate factors to multiply on the original lr.
+    
+    Possible keys of the dictionary are:
+        - "embedding_lr_factor"
+        - "interactions_lr_factor"
+        - "products_lr_factor"
+        - "readouts_lr_factor"
+    
+    Any missing keys are set to 1.0.
+
+    Only used if the mace version is >= 0.3.15. Otherwise ignored.
+    """
+
+    freeze: int = 0
+    """Freeze layers from 1 to N (don't update their parameters during training).
+
+    Can be positive or negative, e.g. -1 means the last layer is frozen.
+    0 means all layers are active.
+
+    Only used if the mace version is >= 0.3.15. Otherwise ignored.
+    """
 
     # General training parameters that are shared across architectures
     distributed: bool = False
