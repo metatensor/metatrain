@@ -17,6 +17,7 @@ from .utilities import cutoff_func_bump, cutoff_func_cosine
 def concatenate_structures(
     systems: List[System],
     neighbor_list_options: NeighborListOptions,
+    selected_atoms: Optional[Labels] = None,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -32,6 +33,7 @@ def concatenate_structures(
 
     :param systems: List of systems to concatenate.
     :param neighbor_list_options: Options for the neighbor list.
+    :param selected_atoms: Optional labels of selected atoms to include in the batch.
     :return: A tuple containing the concatenated positions, centers, neighbors,
         species, cells, cell shifts, system indices, and sample labels.
     """
@@ -55,9 +57,39 @@ def concatenate_structures(
         neighbors_values = nl_values[:, 1]
         cell_shifts_values = nl_values[:, 2:]
 
-        system_size = len(system)
-        positions.append(system.positions)
-        species.append(system.types)
+        if selected_atoms is not None:
+            system_selected_atoms = selected_atoms.values[:, 1][
+                selected_atoms.values[:, 0] == i
+            ]
+            unique_centers = torch.unique(centers_values)
+            system_selected_atoms = torch.unique(
+                torch.cat([system_selected_atoms, unique_centers])
+            )
+            # calculate the mapping from the ghost atoms to the real atoms
+            if torch.numel(unique_centers) == 0:
+                max_center_index = -1
+            else:
+                max_center_index = int(unique_centers.max())
+            ghost_to_real_index = torch.full(
+                [
+                    max_center_index + 1,
+                ],
+                -1,
+                device=centers_values.device,
+                dtype=centers_values.dtype,
+            )
+            for j, unique_center_index in enumerate(unique_centers):
+                ghost_to_real_index[unique_center_index] = j
+
+            centers_values = ghost_to_real_index[centers_values]
+            neighbors_values = ghost_to_real_index[neighbors_values]
+        else:
+            system_selected_atoms = torch.arange(
+                len(system), device=system.positions.device
+            )
+
+        positions.append(system.positions[system_selected_atoms])
+        species.append(system.types[system_selected_atoms])
 
         centers.append(centers_values + node_counter)
         neighbors.append(neighbors_values + node_counter)
@@ -65,11 +97,13 @@ def concatenate_structures(
 
         cells.append(system.cell)
 
-        node_counter += system_size
+        node_counter += len(system_selected_atoms)
         system_indices.append(
-            torch.full((system_size,), i, device=system.positions.device)
+            torch.full((len(system_selected_atoms),), i, device=system.positions.device)
         )
-        atom_indices.append(torch.arange(system_size, device=system.positions.device))
+        atom_indices.append(
+            torch.arange(len(system_selected_atoms), device=system.positions.device)
+        )
 
     positions = torch.cat(positions)
     centers = torch.cat(centers)
@@ -110,6 +144,7 @@ def systems_to_batch(
     cutoff_function: str,
     cutoff_width: float,
     num_neighbors_adaptive: Optional[float] = None,
+    selected_atoms: Optional[Labels] = None,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -120,6 +155,9 @@ def systems_to_batch(
     torch.Tensor,
     torch.Tensor,
     Labels,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
     torch.Tensor,
 ]:
     """
@@ -134,6 +172,7 @@ def systems_to_batch(
     :param num_neighbors_adaptive: Optional maximum number of neighbors per atom.
         If provided, the adaptive cutoff scheme will be used for each atom to
         approximately select this number of neighbors.
+    :param selected_atoms: Optional labels of selected atoms to include in the batch.
     :return: A tuple containing the batch tensors.
         The batch consists of the following tensors:
         - `element_indices_nodes`: The atomic species of the central atoms
@@ -147,6 +186,10 @@ def systems_to_batch(
         - `cutoff_factors`: The cutoff function values for each edge
         - `system_indices`: The system index for each atom in the batch
         - `sample_labels`: Labels indicating the system and atom indices for each atom
+        - `species`: The original atomic species for each atom in the batch
+        - `centers`: The center-atom indices for each edge before NEF packing
+        - `nef_to_edges_neighbor`: The neighbor-position map from NEF space to edges
+        - `cutoff_mask`: The edge mask applied by the adaptive cutoff logic
 
     """
     (
@@ -158,7 +201,7 @@ def systems_to_batch(
         cell_shifts,
         system_indices,
         sample_labels,
-    ) = concatenate_structures(systems, options)
+    ) = concatenate_structures(systems, options, selected_atoms)
 
     # somehow the backward of this operation is very slow at evaluation,
     # where there is only one cell, therefore we simplify the calculation
@@ -174,7 +217,13 @@ def systems_to_batch(
     edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
     edge_distances = torch.norm(edge_vectors, dim=-1) + 1e-15
 
-    num_nodes = len(positions)
+    if selected_atoms is not None:
+        if torch.numel(centers) == 0:
+            num_nodes = 0
+        else:
+            num_nodes = int(centers.max()) + 1
+    else:
+        num_nodes = len(positions)
 
     if num_neighbors_adaptive is not None:
         with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
@@ -205,9 +254,10 @@ def systems_to_batch(
         pair_cutoffs = options.cutoff * torch.ones(
             len(centers), device=positions.device, dtype=positions.dtype
         )
+        # Create a dummy cutoff mask
+        cutoff_mask = torch.ones_like(pair_cutoffs, dtype=torch.bool)
 
     num_neighbors = torch.bincount(centers, minlength=num_nodes)
-    # this logic shouldn't be needed thanks to `minlength` above, but just to be safe:
     max_edges_per_node = (
         int(torch.max(num_neighbors)) if num_neighbors.numel() > 0 else 0
     )
@@ -284,4 +334,57 @@ def systems_to_batch(
         system_indices,
         sample_labels,
         species,
+        centers,
+        nef_to_edges_neighbor,
+        cutoff_mask,
     )
+
+
+def get_pair_sample_labels(
+    systems: List[System],
+    sample_labels: Labels,
+    nl_options: NeighborListOptions,
+    cutoff_mask: torch.Tensor,
+    device: torch.device,
+) -> Labels:
+    """
+    Builds the pair samples labels for the input ``systems``, based on the pre-computed
+    neighbor list. These are 'off-site', i.e. not including self-interactions.
+
+    :param systems: List of systems to build the pair sample labels for.
+    :param sample_labels: The sample labels for per-atom quantities.
+    :param nl_options: The neighbor list options to use for building the offsite labels.
+    :param device: The device to put the labels on.
+    :return: A dictionary with the pair sample labels for the onsite and offsite blocks.
+    """
+    sample_names = [
+        "system",
+        "first_atom",
+        "second_atom",
+        "cell_shift_a",
+        "cell_shift_b",
+        "cell_shift_c",
+    ]
+
+    pair_sample_values = []
+    for system_idx, system in enumerate(systems):
+        neighbor_list = system.get_neighbor_list(nl_options)
+        nl_values = neighbor_list.samples.values
+
+        pair_sample_values.append(
+            torch.hstack(
+                [
+                    torch.full(
+                        (nl_values.shape[0], 1),
+                        system_idx,
+                        dtype=torch.int32,
+                        device=device,
+                    ),
+                    nl_values,
+                ],
+            )
+        )
+    pair_sample_values = torch.vstack(pair_sample_values)[cutoff_mask]
+    pair_sample_labels = Labels(sample_names, pair_sample_values).to(device=device)
+
+    return pair_sample_labels

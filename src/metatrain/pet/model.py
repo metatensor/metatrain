@@ -1,3 +1,4 @@
+import copy
 import logging
 import typing
 import warnings
@@ -33,7 +34,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 from . import checkpoints
 from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
-from .modules.structures import systems_to_batch
+from .modules.structures import get_pair_sample_labels, systems_to_batch
 from .modules.transformer import CartesianTransformer
 
 
@@ -59,6 +60,11 @@ class PET(ModelInterface[ModelHypers]):
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
     component_labels: Dict[str, List[List[Labels]]]
+    volume_normalized_target_names: List[str]
+    target_head_keys: Dict[str, List[str]]
+    block_to_head_key: Dict[str, Dict[str, str]]
+    block_irrep_keys: Dict[str, Dict[str, str]]
+    shared_head_selectors: Dict[str, str]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
@@ -85,6 +91,12 @@ class PET(ModelInterface[ModelHypers]):
         self.attention_temperature = self.hypers["attention_temperature"]
         self.transformer_type = self.hypers["transformer_type"]
         self.featurizer_type = self.hypers["featurizer_type"]
+        self.volume_normalized_target_names = list(
+            self.hypers.get("volume_normalized_targets", [])
+        )
+        self.shared_head_groups_config = copy.deepcopy(
+            self.hypers.get("shared_head_groups", {})
+        )
 
         self.atomic_types = dataset_info.atomic_types
         self.requested_nl = NeighborListOptions(
@@ -165,6 +177,12 @@ class PET(ModelInterface[ModelHypers]):
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
         self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
+        self.target_head_keys = {}
+        self.block_to_head_key = {}
+        self.block_irrep_keys = {}
+        self.shared_head_selectors = self._validate_and_build_shared_head_groups(
+            dataset_info
+        )
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
@@ -236,10 +254,105 @@ class PET(ModelInterface[ModelHypers]):
 
         self.single_label = Labels.single()
 
+        unknown_volume_normalized_targets = set(self.volume_normalized_target_names) - set(
+            dataset_info.targets
+        )
+        if unknown_volume_normalized_targets:
+            raise ValueError(
+                "Unknown volume-normalized target names: "
+                f"{sorted(unknown_volume_normalized_targets)}. Known targets are: "
+                f"{sorted(dataset_info.targets)}."
+            )
+
         self.finetune_config: Dict[str, Any] = {}
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
+
+    @staticmethod
+    def _irrep_key(key: Labels) -> str:
+        return f"{int(key[0])},{int(key[1])}"
+
+    @staticmethod
+    def _shared_selector(target_name: str, irrep_key: Optional[str] = None) -> str:
+        if irrep_key is None:
+            return target_name
+        return f"{target_name}[{irrep_key}]"
+
+    @staticmethod
+    def _parse_shared_selector(selector: str) -> Tuple[str, Optional[str]]:
+        if "[" not in selector and "]" not in selector:
+            return selector, None
+        if selector.count("[") != 1 or not selector.endswith("]"):
+            raise ValueError(
+                f"Invalid shared_head_groups selector '{selector}'. Expected "
+                '"target" or "target[o3_lambda,o3_sigma]".'
+            )
+        target_name, irrep_key = selector[:-1].split("[", 1)
+        if target_name == "" or irrep_key == "":
+            raise ValueError(
+                f"Invalid shared_head_groups selector '{selector}'. Expected "
+                '"target" or "target[o3_lambda,o3_sigma]".'
+            )
+        return target_name, irrep_key
+
+    def _validate_and_build_shared_head_groups(
+        self, dataset_info: DatasetInfo
+    ) -> Dict[str, str]:
+        if not self.shared_head_groups_config:
+            return {}
+
+        known_targets = set(dataset_info.targets)
+        selector_to_head_key: Dict[str, str] = {}
+        for group_name, selectors in self.shared_head_groups_config.items():
+            head_key = f"shared__{group_name}"
+            for selector in selectors:
+                target_name, irrep_key = self._parse_shared_selector(selector)
+                if target_name not in known_targets:
+                    raise ValueError(
+                        "Unknown targets in shared_head_groups: "
+                        f"{sorted({target_name})}. Known targets are: "
+                        f"{sorted(known_targets)}."
+                    )
+
+                target_info = dataset_info.targets[target_name]
+                if target_info.is_scalar:
+                    if irrep_key is not None:
+                        raise ValueError(
+                            "Scalar selectors cannot include an irrep suffix in "
+                            f"shared_head_groups: {selector!r}."
+                        )
+                    canonical_selector = self._shared_selector(target_name)
+                elif target_info.is_spherical:
+                    if irrep_key is None:
+                        raise ValueError(
+                            "Spherical selectors in shared_head_groups must include "
+                            f"an explicit irrep suffix: {selector!r}."
+                        )
+                    known_irrep_keys = {
+                        self._irrep_key(key) for key, _ in target_info.layout.items()
+                    }
+                    if irrep_key not in known_irrep_keys:
+                        raise ValueError(
+                            f"Unknown irrep key '{irrep_key}' for target "
+                            f"'{target_name}' in shared_head_groups. Known irreps "
+                            f"are: {sorted(known_irrep_keys)}."
+                        )
+                    canonical_selector = self._shared_selector(target_name, irrep_key)
+                else:
+                    raise ValueError(
+                        "shared_head_groups supports only scalar and spherical "
+                        f"targets; target '{target_name}' is unsupported."
+                    )
+
+                if canonical_selector in selector_to_head_key:
+                    raise ValueError(
+                        "A selector may belong to only one shared_head_groups "
+                        f"entry: {canonical_selector!r}."
+                    )
+                selector_to_head_key[canonical_selector] = head_key
+
+        return selector_to_head_key
 
     def restart(self, dataset_info: DatasetInfo) -> "PET":
         # merge old and new dataset info
@@ -422,6 +535,9 @@ class PET(ModelInterface[ModelHypers]):
                 system_indices,
                 sample_labels,
                 species,
+                centers,
+                nef_to_edges_neighbor,
+                cutoff_mask,
             ) = systems_to_batch(
                 systems,
                 nl_options,
@@ -430,6 +546,22 @@ class PET(ModelInterface[ModelHypers]):
                 self.cutoff_function,
                 self.cutoff_width,
                 self.num_neighbors_adaptive,
+                selected_atoms,
+            )
+
+        pair_sample_labels = get_pair_sample_labels(
+            systems, sample_labels, nl_options, cutoff_mask, device
+        )
+
+        diagnostic_handles = torch.jit.annotate(List[Any], [])
+        if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
+            diagnostic_handles = self._prepare_diagnostic_handles(
+                outputs,
+                return_dict,
+                centers,
+                nef_to_edges_neighbor,
+                sample_labels,
+                pair_sample_labels,
             )
 
         # the scaled_dot_product_attention function from torch cannot do
@@ -447,6 +579,26 @@ class PET(ModelInterface[ModelHypers]):
                 padding_mask=padding_mask,
                 cutoff_factors=cutoff_factors,
             )
+            for featurizer_input_name, tensor in featurizer_inputs.items():
+                diagnostic_name = "mtt::features::" + featurizer_input_name
+                if diagnostic_name not in outputs:
+                    continue
+                prefer_edge_labels = featurizer_input_name in (
+                    "element_indices_neighbors",
+                    "edge_vectors",
+                    "edge_distances",
+                    "reverse_neighbor_index",
+                    "padding_mask",
+                    "cutoff_factors",
+                )
+                return_dict[diagnostic_name] = self._create_diagnostic_feature_tensormap(
+                    tensor,
+                    centers,
+                    nef_to_edges_neighbor,
+                    sample_labels,
+                    pair_sample_labels,
+                    prefer_edge_labels=prefer_edge_labels,
+                )
             node_features_list, edge_features_list = self._calculate_features(
                 featurizer_inputs,
                 use_manual_attention=use_manual_attention,
@@ -579,7 +731,169 @@ class PET(ModelInterface[ModelHypers]):
                             return_dict[name].keys, output_blocks
                         )
 
+        if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
+            for handle in diagnostic_handles:
+                handle.remove()
+
         return return_dict
+
+    def _create_diagnostic_feature_tensormap(
+        self,
+        tensor: torch.Tensor,
+        centers: torch.Tensor,
+        nef_to_edges_neighbor: torch.Tensor,
+        sample_labels: Labels,
+        pair_sample_labels: Labels,
+        prefer_edge_labels: Optional[bool] = None,
+    ) -> TensorMap:
+        """Convert a captured diagnostic tensor into a TensorMap."""
+        assert tensor.shape[0] == sample_labels.values.shape[0], (
+            "diagnostic feature tensor must be per-atom or per-pair like in shape."
+            f" Got tensor.shape = {tensor.shape}."
+        )
+
+        outp = tensor.detach().clone()
+
+        if prefer_edge_labels is None:
+            prefer_edge_labels = outp.ndim >= 3
+
+        if prefer_edge_labels:
+            outp = outp[centers, nef_to_edges_neighbor]
+            labels = pair_sample_labels.to(device=outp.device)
+        else:
+            if outp.ndim == 1:
+                outp = outp.unsqueeze(1)
+            labels = sample_labels.to(device=outp.device)
+
+        if outp.ndim == 1:
+            outp = outp.unsqueeze(1)
+
+        return TensorMap(
+            Labels(["_"], torch.tensor([[0]], device=outp.device)),
+            [
+                TensorBlock(
+                    values=outp,
+                    samples=labels,
+                    components=[],
+                    properties=Labels(
+                        ["_"],
+                        torch.arange(outp.shape[1], device=outp.device).reshape(-1, 1),
+                    ),
+                )
+            ],
+        )
+
+    @torch.jit.ignore
+    def _prepare_diagnostic_handles(
+        self,
+        outputs: Dict[str, ModelOutput],
+        return_dict: Dict[str, Any],
+        centers: torch.Tensor,
+        nef_to_edges_neighbor: torch.Tensor,
+        sample_labels: Labels,
+        pair_sample_labels: Labels,
+    ) -> List[Any]:
+        """Register temporary forward hooks for requested internal PET tokens."""
+
+        diagnostic_handles: List[Any] = []
+
+        def _resolve_module(path: str) -> Any:
+            obj: Any = self
+            for part in path.split("."):
+                if part.isdigit():
+                    obj = obj[int(part)]
+                else:
+                    if not hasattr(obj, part):
+                        raise AttributeError(
+                            f"Module path '{path}' not found at '{part}'"
+                        )
+                    obj = getattr(obj, part)
+            return obj
+
+        possible_capture_paths: List[str] = []
+
+        for i in range(self.num_readout_layers):
+            possible_capture_paths.append(f"node_embedders.{i}")
+        possible_capture_paths.append("edge_embedder")
+
+        for i in range(self.num_gnn_layers):
+            possible_capture_paths.append(f"gnn_layers.{i}_node")
+            possible_capture_paths.append(f"gnn_layers.{i}_edge")
+            possible_capture_paths.append(f"gnn_layers.{i}.edge_embedder")
+            if i > 0:
+                possible_capture_paths.append(f"gnn_layers.{i}.neighbor_embedder")
+            possible_capture_paths.append(f"gnn_layers.{i}.compress")
+
+            for j in range(self.num_attention_layers):
+                possible_capture_paths.append(f"gnn_layers.{i}.trans.layers.{j}_node")
+                possible_capture_paths.append(f"gnn_layers.{i}.trans.layers.{j}_edge")
+                possible_capture_paths.append(
+                    f"gnn_layers.{i}.trans.layers.{j}.norm_attention"
+                )
+                possible_capture_paths.append(
+                    f"gnn_layers.{i}.trans.layers.{j}.attention"
+                )
+                possible_capture_paths.append(
+                    f"gnn_layers.{i}.trans.layers.{j}.center_contraction"
+                )
+                possible_capture_paths.append(
+                    f"gnn_layers.{i}.trans.layers.{j}.center_mlp"
+                )
+                possible_capture_paths.append(
+                    f"gnn_layers.{i}.trans.layers.{j}.norm_mlp"
+                )
+                possible_capture_paths.append(f"gnn_layers.{i}.trans.layers.{j}.mlp")
+
+        for path in possible_capture_paths:
+            diagnostic_name = "mtt::features::" + path
+            if diagnostic_name not in outputs:
+                continue
+
+            if path.endswith("_node"):
+                suffix = "_node"
+                module_path = path[: -len(suffix)]
+            elif path.endswith("_edge"):
+                suffix = "_edge"
+                module_path = path[: -len(suffix)]
+            else:
+                suffix = ""
+                module_path = path
+
+            module = _resolve_module(module_path)
+
+            def make_hook(capture_path: str, capture_suffix: str) -> Any:
+                def _hook(module: torch.nn.Module, inp: Any, outp: Any) -> None:
+                    if isinstance(outp, tuple):
+                        assert capture_suffix in {"_node", "_edge"}
+                        tensor = outp[0] if capture_suffix == "_node" else outp[1]
+                        return_dict[f"mtt::features::{capture_path}{capture_suffix}"] = (
+                            self._create_diagnostic_feature_tensormap(
+                                tensor,
+                                centers,
+                                nef_to_edges_neighbor,
+                                sample_labels,
+                                pair_sample_labels,
+                                prefer_edge_labels=(capture_suffix == "_edge"),
+                            )
+                        )
+                    else:
+                        return_dict[f"mtt::features::{capture_path}"] = (
+                            self._create_diagnostic_feature_tensormap(
+                                outp,
+                                centers,
+                                nef_to_edges_neighbor,
+                                sample_labels,
+                                pair_sample_labels,
+                            )
+                        )
+
+                return _hook
+
+            diagnostic_handles.append(
+                module.register_forward_hook(make_hook(module_path, suffix))
+            )
+
+        return diagnostic_handles
 
     def _calculate_features(
         self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
@@ -899,9 +1213,27 @@ class PET(ModelInterface[ModelHypers]):
             # the corresponding output could be base_name or mtt::base_name
             if f"mtt::{base_name}" in last_layer_features_dict:
                 base_name = f"mtt::{base_name}"
-            last_layer_features_values = torch.cat(
-                last_layer_features_dict[base_name], dim=1
-            )
+            feature_keys = torch.jit.annotate(List[str], [])
+            if base_name in self.target_head_keys:
+                feature_keys = self.target_head_keys[base_name]
+            elif base_name in last_layer_features_dict:
+                feature_keys = [base_name]
+            if len(feature_keys) == 0:
+                continue
+
+            stacked_features: List[torch.Tensor] = []
+            for feature_key in feature_keys:
+                for i in range(len(node_last_layer_features_dict[feature_key])):
+                    stacked_features.append(
+                        node_last_layer_features_dict[feature_key][i]
+                    )
+                    stacked_features.append(
+                        (
+                            edge_last_layer_features_dict[feature_key][i]
+                            * cutoff_factors[:, :, None]
+                        ).sum(dim=1)
+                    )
+            last_layer_features_values = torch.cat(stacked_features, dim=1)
             last_layer_feature_tmap = TensorMap(
                 keys=self.single_label,
                 blocks=[
@@ -978,11 +1310,12 @@ class PET(ModelInterface[ModelHypers]):
                     List[List[torch.Tensor]], []
                 )
                 for i, node_last_layer in enumerate(node_last_layers):
-                    node_last_layer_features = node_last_layer_features_dict[
-                        output_name
-                    ][i]
                     node_atomic_predictions_by_block: List[torch.Tensor] = []
-                    for node_last_layer_by_block in node_last_layer.values():
+                    for block_key, node_last_layer_by_block in node_last_layer.items():
+                        head_key = self.block_to_head_key[output_name][block_key]
+                        node_last_layer_features = node_last_layer_features_dict[
+                            head_key
+                        ][i]
                         node_atomic_predictions_by_block.append(
                             node_last_layer_by_block(node_last_layer_features)
                         )
@@ -1000,11 +1333,12 @@ class PET(ModelInterface[ModelHypers]):
                     List[List[torch.Tensor]], []
                 )
                 for i, edge_last_layer in enumerate(edge_last_layers):
-                    edge_last_layer_features = edge_last_layer_features_dict[
-                        output_name
-                    ][i]
                     edge_atomic_predictions_by_block: List[torch.Tensor] = []
-                    for edge_last_layer_by_block in edge_last_layer.values():
+                    for block_key, edge_last_layer_by_block in edge_last_layer.items():
+                        head_key = self.block_to_head_key[output_name][block_key]
+                        edge_last_layer_features = edge_last_layer_features_dict[
+                            head_key
+                        ][i]
                         edge_atomic_predictions = edge_last_layer_by_block(
                             edge_last_layer_features
                         )
@@ -1137,6 +1471,16 @@ class PET(ModelInterface[ModelHypers]):
                     atomic_property
                 )
 
+        for output_name in self.volume_normalized_target_names:
+            if (
+                output_name in atomic_predictions_tmap_dict
+                and not outputs[output_name].per_atom
+                and output_name != "non_conservative_stress"
+            ):
+                atomic_predictions_tmap_dict[output_name] = normalize_by_volume(
+                    atomic_predictions_tmap_dict[output_name], systems
+                )
+
         return atomic_predictions_tmap_dict
 
     @classmethod
@@ -1224,6 +1568,9 @@ class PET(ModelInterface[ModelHypers]):
 
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}
+        self.block_to_head_key[target_name] = {}
+        self.block_irrep_keys[target_name] = {}
+        self.target_head_keys[target_name] = []
         for key, block in output_layout.items():
             dict_key = target_name
             for n, k in zip(key.names, key.values, strict=True):
@@ -1232,6 +1579,23 @@ class PET(ModelInterface[ModelHypers]):
                 len(comp.values) for comp in block.components
             ] + [len(block.properties.values)]
 
+            if target_info.is_scalar:
+                head_key = self.shared_head_selectors.get(
+                    self._shared_selector(target_name), target_name
+                )
+            elif target_info.is_spherical:
+                irrep_key = self._irrep_key(key)
+                self.block_irrep_keys[target_name][dict_key] = irrep_key
+                head_key = self.shared_head_selectors.get(
+                    self._shared_selector(target_name, irrep_key), target_name
+                )
+            else:
+                head_key = target_name
+
+            self.block_to_head_key[target_name][dict_key] = head_key
+            if head_key not in self.target_head_keys[target_name]:
+                self.target_head_keys[target_name].append(head_key)
+
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
@@ -1239,29 +1603,32 @@ class PET(ModelInterface[ModelHypers]):
             description=target_info.description,
         )
 
-        self.node_heads[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.Sequential(
-                    torch.nn.Linear(self.d_node, self.d_head),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(self.d_head, self.d_head),
-                    torch.nn.SiLU(),
+        for head_key in self.target_head_keys[target_name]:
+            if head_key not in self.node_heads:
+                self.node_heads[head_key] = torch.nn.ModuleList(
+                    [
+                        torch.nn.Sequential(
+                            torch.nn.Linear(self.d_node, self.d_head),
+                            torch.nn.SiLU(),
+                            torch.nn.Linear(self.d_head, self.d_head),
+                            torch.nn.SiLU(),
+                        )
+                        for _ in range(self.num_readout_layers)
+                    ]
                 )
-                for _ in range(self.num_readout_layers)
-            ]
-        )
 
-        self.edge_heads[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.Sequential(
-                    torch.nn.Linear(self.d_pet, self.d_head),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(self.d_head, self.d_head),
-                    torch.nn.SiLU(),
+            if head_key not in self.edge_heads:
+                self.edge_heads[head_key] = torch.nn.ModuleList(
+                    [
+                        torch.nn.Sequential(
+                            torch.nn.Linear(self.d_pet, self.d_head),
+                            torch.nn.SiLU(),
+                            torch.nn.Linear(self.d_head, self.d_head),
+                            torch.nn.SiLU(),
+                        )
+                        for _ in range(self.num_readout_layers)
+                    ]
                 )
-                for _ in range(self.num_readout_layers)
-            ]
-        )
 
         self.node_last_layers[target_name] = torch.nn.ModuleList(
             [
@@ -1407,6 +1774,31 @@ def process_non_conservative_stress(
     ) / 2.0
 
     return tensor_as_three_by_three
+
+
+def normalize_by_volume(tensor_map: TensorMap, systems: List[System]) -> TensorMap:
+    """Normalize structure-level outputs by the corresponding cell volume."""
+
+    volumes = torch.stack([torch.abs(torch.det(system.cell)) for system in systems])
+    volumes[volumes == 0.0] = torch.inf
+
+    blocks = torch.jit.annotate(List[TensorBlock], [])
+    for block in tensor_map.blocks():
+        block_system_indices = block.samples.column("system")
+        block_volumes = volumes.to(
+            device=block.values.device, dtype=block.values.dtype
+        )[block_system_indices]
+        view_shape = [block_volumes.shape[0]] + [1] * (block.values.ndim - 1)
+        blocks.append(
+            TensorBlock(
+                values=block.values / block_volumes.reshape(view_shape),
+                samples=block.samples,
+                components=block.components,
+                properties=block.properties,
+            )
+        )
+
+    return TensorMap(keys=tensor_map.keys, blocks=blocks)
 
 
 def get_last_layer_features_name(target_name: str) -> str:

@@ -18,6 +18,9 @@ In addition to the targets defined in the dataset, the PET architecture can also
 the following additional quantity:
 
 - ``features``: the internal PET features, before the different heads for each target.
+- ``mtt::features::{path}``: opt-in diagnostic captures from internal PET tensors.
+  Examples include ``mtt::features::edge_vectors`` and
+  ``mtt::features::gnn_layers.0_node``.
 - :ref:`mtt-aux-target-last-layer-features`: The features for a given target, taken
   before the last linear layer of the corresponding head.
 
@@ -137,6 +140,17 @@ class ModelHypers(TypedDict):
     """Layer normalization type."""
     activation: Literal["SiLU", "SwiGLU"] = "SwiGLU"
     """Activation function."""
+    volume_normalized_targets: list[str] = []
+    """Structure targets that should be divided by the cell volume after the
+    per-atom contributions are summed."""
+    shared_head_groups: dict[str, list[str]] = {}
+    """Optional PET head sharing across scalar targets and explicit spherical blocks.
+
+    Group entries must be either scalar target names such as ``mtt::stress_l0`` or
+    explicit spherical block selectors such as ``mtt::stress_l2[2,1]``. Targets within
+    the same group share the PET ``node_heads`` / ``edge_heads`` while keeping their
+    final linear projections separate.
+    """
     attention_temperature: float = 1.0
     """The temperature scaling factor for attention scores."""
     transformer_type: Literal["PreLN", "PostLN"] = "PreLN"
