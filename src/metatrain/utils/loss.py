@@ -278,6 +278,164 @@ class MaskedTensorMapLoss(BaseTensorMapLoss):
         return self.compute_flattened(tensor_map_pred, tensor_map_targ, tensor_map_mask)
 
 
+def _extract_values_and_system_indices(
+    tensor_block: TensorBlock,
+    gradient: Optional[str],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Extract block values and the owning system index for each leading sample."""
+    if "system" not in tensor_block.samples.names:
+        raise ValueError(
+            "Invariant TensorMap losses require block samples to contain a "
+            f"'system' column, got {tensor_block.samples.names}."
+        )
+
+    if gradient is None:
+        return tensor_block.values, tensor_block.samples.column("system").to(torch.long)
+
+    gradient_block = tensor_block.gradient(gradient)
+    if "sample" not in gradient_block.samples.names:
+        raise ValueError(
+            "Invariant TensorMap losses require gradient samples to contain a "
+            f"'sample' column, got {gradient_block.samples.names}."
+        )
+
+    parent_sample_indices = gradient_block.samples.column("sample").to(torch.long)
+    parent_system_indices = tensor_block.samples.column("system").to(torch.long)
+    return gradient_block.values, parent_system_indices[parent_sample_indices]
+
+
+def _structure_first_reduce(
+    values: torch.Tensor,
+    system_indices: torch.Tensor,
+    reduction: str,
+) -> torch.Tensor:
+    """Reduce per-entity losses by averaging inside each structure first."""
+    if values.numel() == 0:
+        return torch.zeros((), device=values.device, dtype=values.dtype)
+
+    unique_systems, inverse = torch.unique(
+        system_indices, sorted=True, return_inverse=True
+    )
+    per_structure_sum = torch.zeros(
+        unique_systems.shape[0], device=values.device, dtype=values.dtype
+    )
+    per_structure_count = torch.zeros_like(per_structure_sum)
+    per_structure_sum.scatter_add_(0, inverse, values)
+    per_structure_count.scatter_add_(0, inverse, torch.ones_like(values))
+    per_structure_mean = per_structure_sum / per_structure_count.clamp_min(1.0)
+
+    if reduction == "mean":
+        return per_structure_mean.mean()
+    if reduction == "sum":
+        return per_structure_mean.sum()
+    if reduction == "none":
+        return per_structure_mean
+    raise ValueError(f"Unsupported reduction for invariant TensorMap loss: {reduction}")
+
+
+class BaseInvariantTensorMapLoss(LossInterface):
+    """
+    Invariant block-aware loss on :py:class:`TensorMap` entries.
+
+    Residuals are first reduced to one RMS value per leading entity (for example, one
+    value per atom for vector targets or one value per structure for structure-level
+    tensor targets). These entity losses are then averaged within each structure before
+    the configured reduction is applied across structures.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode applied after structure-first aggregation.
+    :param loss_fn: elementwise torch loss used on the per-entity RMS residuals.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+        *,
+        loss_fn: _Loss,
+    ):
+        super().__init__(name, gradient, weight, reduction)
+        self.torch_loss = loss_fn
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        """
+        Compute the invariant block-aware loss.
+
+        :param predictions: mapping of names to :py:class:`TensorMap`.
+        :param targets: mapping of names to :py:class:`TensorMap`.
+        :param extra_data: ignored for invariant losses.
+        :return: scalar torch.Tensor loss, or per-structure values for ``none``.
+        """
+        del extra_data
+
+        tensor_map_pred = predictions[self.target]
+        tensor_map_targ = targets[self.target]
+
+        if self.gradient is not None:
+            if self.gradient not in tensor_map_targ[0].gradients_list():
+                return torch.zeros(
+                    (), dtype=torch.float, device=tensor_map_targ[0].values.device
+                )
+
+        entity_losses = []
+        entity_systems = []
+
+        for single_key in tensor_map_pred.keys:
+            block_for_prediction = tensor_map_pred.block(single_key)
+            block_for_target = tensor_map_targ.block(single_key)
+
+            prediction_values, system_indices = _extract_values_and_system_indices(
+                block_for_prediction, self.gradient
+            )
+            target_values, _ = _extract_values_and_system_indices(
+                block_for_target, self.gradient
+            )
+
+            flattened_prediction = prediction_values.reshape(
+                prediction_values.shape[0], -1
+            )
+            flattened_target = target_values.reshape(target_values.shape[0], -1)
+
+            valid_mask = torch.isfinite(flattened_prediction).all(
+                dim=1
+            ) & torch.isfinite(flattened_target).all(dim=1)
+            if not valid_mask.any():
+                continue
+
+            flattened_prediction = flattened_prediction[valid_mask]
+            flattened_target = flattened_target[valid_mask]
+            system_indices = system_indices[valid_mask]
+
+            residual_rms = (flattened_prediction - flattened_target).pow(2).mean(
+                dim=1
+            ).sqrt()
+            entity_losses.append(
+                self.torch_loss(residual_rms, torch.zeros_like(residual_rms))
+            )
+            entity_systems.append(system_indices)
+
+        if not entity_losses:
+            first_block = tensor_map_pred.block(tensor_map_pred.keys[0])
+            return torch.zeros(
+                (), dtype=first_block.values.dtype, device=first_block.values.device
+            )
+
+        return _structure_first_reduce(
+            torch.cat(entity_losses),
+            torch.cat(entity_systems),
+            self.reduction,
+        )
+
+
 # ------------------------------------------------------------------------
 # Simple explicit subclasses for common pointwise losses
 # ------------------------------------------------------------------------
@@ -440,6 +598,60 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
             weight,
             reduction,
             loss_fn=torch.nn.HuberLoss(reduction=reduction, delta=delta),
+        )
+
+
+class TensorMapInvariantMSELoss(BaseInvariantTensorMapLoss):
+    """
+    Invariant mean-squared error on :py:class:`TensorMap` entries.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode applied after structure-first aggregation.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_fn=torch.nn.MSELoss(reduction="none"),
+        )
+
+
+class TensorMapInvariantHuberLoss(BaseInvariantTensorMapLoss):
+    """
+    Invariant Huber loss on :py:class:`TensorMap` entries.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode applied after structure-first aggregation.
+    :param delta: threshold parameter for HuberLoss.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+        delta: float,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_fn=torch.nn.HuberLoss(reduction="none", delta=delta),
         )
 
 
@@ -1178,6 +1390,8 @@ class LossType(Enum):
     MASKED_MSE = ("masked_mse", TensorMapMaskedMSELoss)
     MASKED_MAE = ("masked_mae", TensorMapMaskedMAELoss)
     MASKED_HUBER = ("masked_huber", TensorMapMaskedHuberLoss)
+    INVARIANT_MSE = ("invariant_mse", TensorMapInvariantMSELoss)
+    INVARIANT_HUBER = ("invariant_huber", TensorMapInvariantHuberLoss)
     POINTWISE = ("pointwise", BaseTensorMapLoss)
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
     MASKED_DOS = ("masked_dos", MaskedDOSLoss)
