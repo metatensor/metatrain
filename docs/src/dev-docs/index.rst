@@ -12,6 +12,7 @@ module.
    getting-started
    architecture-life-cycle
    new-architecture
+   e-pet-alignment
    dataset-information
    new-loss
    cli/index
