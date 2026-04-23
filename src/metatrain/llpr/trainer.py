@@ -434,30 +434,38 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
-                targets = _drop_gradient_blocks(targets)
-                train_rmse_calculator.update(predictions, targets)
-                if self.hypers["log_mae"]:
-                    train_mae_calculator.update(predictions, targets)
-
-            finalized_train_info = train_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets,
-                is_distributed=is_distributed,
-                device=device,
-            )
-
-            if self.hypers["log_mae"]:
-                finalized_train_info.update(
-                    train_mae_calculator.finalize(
-                        not_per_atom=["positions_gradients"] + per_structure_targets,
-                        is_distributed=is_distributed,
-                        device=device,
+                # Accumulate quantities for computing train metrics,
+                # but only if this is an epoch to log
+                if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
                     )
+                    targets = average_by_num_atoms(
+                        targets, systems, per_structure_targets
+                    )
+
+                    targets = _drop_gradient_blocks(targets)
+                    train_rmse_calculator.update(predictions, targets)
+                    if self.hypers["log_mae"]:
+                        train_mae_calculator.update(predictions, targets)
+
+            # Compute train metrics if they are to be logged this epoch:
+            if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
+                finalized_train_info = train_rmse_calculator.finalize(
+                    not_per_atom=["positions_gradients"] + per_structure_targets,
+                    is_distributed=is_distributed,
+                    device=device,
                 )
+
+                if self.hypers["log_mae"]:
+                    finalized_train_info.update(
+                        train_mae_calculator.finalize(
+                            not_per_atom=["positions_gradients"]
+                            + per_structure_targets,
+                            is_distributed=is_distributed,
+                            device=device,
+                        )
+                    )
 
             with torch.set_grad_enabled(
                 any(target_info.gradients for target_info in train_targets.values())
@@ -488,6 +496,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         torch.distributed.all_reduce(val_loss_batch)
                     val_loss += val_loss_batch.item()
 
+                    # Accumulate quantities for computing val metrics. This is done for
+                    # every epoch as validation metrics are needed for model selection
                     predictions = average_by_num_atoms(
                         predictions, systems, per_structure_targets
                     )
@@ -500,6 +510,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     if self.hypers["log_mae"]:
                         val_mae_calculator.update(predictions, targets)
 
+                # Compute val metrics:
                 finalized_val_info = val_rmse_calculator.finalize(
                     not_per_atom=["positions_gradients"] + per_structure_targets,
                     is_distributed=is_distributed,
@@ -516,10 +527,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
 
             # Now we log the information:
-            finalized_train_info = {
-                "loss": train_loss,
-                **finalized_train_info,
-            }
+            if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
+                finalized_train_info = {
+                    "loss": train_loss,
+                    **finalized_train_info,
+                }
             finalized_val_info = {
                 "loss": val_loss,
                 **finalized_val_info,
