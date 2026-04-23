@@ -134,12 +134,13 @@ Generally, each loss-function term accepts the following parameters:
 
 :param type: This controls the type of loss to be used. The default value is ``mse``, and other standard options are ``mae`` and ``huber``, which implement the equivalent PyTorch loss functions `MSELoss <https://docs.pytorch.org/docs/stable/generated/torch.nn.MSELoss.html>`_, `L1Loss <https://docs.pytorch.org/docs/stable/generated/torch.nn.L1Loss.html>`_, and `HuberLoss <https://docs.pytorch.org/docs/stable/generated/torch.nn.HuberLoss.html>`_, respectively.
    There are also "masked" versions of these losses, which are useful when using padded targets with values that should be masked before computing the loss. The masked losses are named ``masked_mse``, ``masked_mae``, and ``masked_huber``.
+   For vector and tensor targets, ``metatrain`` also provides the invariant block-aware losses ``invariant_mse`` and ``invariant_huber``. These first compute one RMS residual per leading entity (for example one value per atom for forces or one value per structure for structure-level tensor targets), then average within each structure before applying the requested reduction across structures.
 :param ``weight``: This controls the weighting of different contributions to the loss (e.g., energy, forces, virial, etc.). The default value of 1.0 for all targets works well for most datasets, but can be adjusted if required.
 :param ``reduction``: This controls how the overall loss is computed across batches. The default for this is to use the ``mean`` of the batch losses. The ``sum`` function is also supported.
 
-Some losses, like ``huber``, require additional parameters to be specified:
+Some losses, like ``huber`` and ``invariant_huber``, require additional parameters to be specified:
 
-:param delta: This parameter is specific to the Huber loss functions (``huber`` and ``masked_huber``) and defines the threshold at which the loss function transitions from quadratic to linear behavior. The default value is 1.0.
+:param delta: This parameter is specific to the Huber loss functions (``huber``, ``masked_huber``, and ``invariant_huber``) and defines the threshold at which the loss function transitions from quadratic to linear behavior. The default value is 1.0.
 
 
 Masked loss functions
