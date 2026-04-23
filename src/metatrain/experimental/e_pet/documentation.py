@@ -1,0 +1,146 @@
+"""
+E-PET (Experimental)
+====================
+
+`experimental.e_pet` integrates PET with tensor-basis spherical readouts while keeping
+the PET trunk shared across all targets. Scalar targets use PET scalar heads. Spherical
+targets are split internally into irrep blocks, and each block can either keep its own
+PET head or share a PET head with selected irreps from the same target through
+``irrep_head_groups``. Scalar targets and spherical irrep blocks can also share the
+same PET head family across targets through ``shared_head_groups``.
+
+Atomic-basis targets are intentionally out of scope for this first integration.
+
+{{SECTION_INSTALLATION}}
+
+Additional outputs
+------------------
+
+- ``features``: the shared PET backbone features.
+- :ref:`mtt-aux-target-last-layer-features`: target-local head features before the
+  final block-specific linear projections.
+
+{{SECTION_DEFAULT_HYPERS}}
+
+{{SECTION_MODEL_HYPERS}}
+
+with the following definitions needed to fully understand some of the parameters:
+
+.. autoclass:: {{architecture_path}}.documentation.TensorBasisDefaults
+    :members:
+    :undoc-members:
+
+.. autoclass:: metatrain.soap_bpnn.documentation.SOAPConfig
+    :members:
+    :undoc-members:
+"""
+
+from typing import Optional
+
+from typing_extensions import TypedDict
+
+from metatrain.pet.documentation import (
+    ModelHypers as PETModelHypers,
+    TrainerHypers as PETTrainerHypers,
+)
+from metatrain.soap_bpnn.documentation import SOAPConfig
+from metatrain.utils.hypers import init_with_defaults
+
+
+class TensorBasisDefaults(TypedDict):
+    """Default tensor-basis settings used for spherical targets."""
+
+    soap: SOAPConfig = init_with_defaults(SOAPConfig)
+    """SOAP descriptor configuration for the tensor basis."""
+
+    add_lambda_basis: bool = True
+    """Whether to append a same-``lambda`` basis branch for tensorial targets."""
+
+    extra_l1_vector_basis_branches: list[SOAPConfig] = [
+        init_with_defaults(SOAPConfig)
+    ]
+    """Additional proper ``l=1`` vector-basis branches.
+
+    The original ``VectorBasis`` is always present, so the default of one extra branch
+    yields two ``VectorBasis`` branches in total.
+    """
+
+    add_l1_species_dependent_vector: bool = False
+    """Whether to append one species-dependent proper ``l=1`` vector branch."""
+
+    l1_species_dependent_vector_soap: SOAPConfig = init_with_defaults(SOAPConfig)
+    """SOAP configuration for the optional species-dependent ``l=1`` branch."""
+
+    legacy: bool = True
+    """Whether to use the legacy tensor-basis species handling."""
+
+
+class ModelHypers(TypedDict):
+    """Hyperparameters for the e-pet model."""
+
+    pet: PETModelHypers = init_with_defaults(PETModelHypers)
+    """Shared PET backbone hyperparameters."""
+
+    tensor_basis_defaults: TensorBasisDefaults = init_with_defaults(
+        TensorBasisDefaults
+    )
+    """Default tensor-basis settings for all spherical outputs."""
+
+    volume_normalized_targets: list[str] = []
+    """Targets that should be divided by structure volume after reconstruction."""
+
+    irrep_head_groups: dict[str, dict[str, str]] = {}
+    """Optional target-local mapping from ``\"<o3_lambda>,<o3_sigma>\"`` to a shared
+    PET head identifier.
+
+    Example:
+
+    .. code-block:: yaml
+
+        irrep_head_groups:
+          quadrupole:
+            "1,1": head_a
+            "2,1": head_a
+            "3,1": head_b
+
+    Blocks omitted from the mapping keep private PET heads.
+    """
+
+    shared_head_groups: dict[str, list[str]] = {}
+    """Optional cross-target PET-head sharing groups.
+
+    Each entry maps a user-defined group name to a list of selectors. Selectors are
+    either scalar target names or explicit spherical irrep blocks in the form
+    ``\"target[o3_lambda,o3_sigma]\"``.
+
+    Example:
+
+    .. code-block:: yaml
+
+        shared_head_groups:
+          stress_head:
+            - mtt::stress_l0
+            - mtt::stress_l2[2,1]
+
+    Selectors in the same group share the PET ``node_heads`` / ``edge_heads`` while
+    keeping separate final linear projections.
+    """
+
+
+class TrainerHypers(PETTrainerHypers):
+    """Hyperparameters for training e-pet models."""
+
+    coefficient_l2_weight: float = 0.0
+    """Weight for the invariant coefficient L2 regularization."""
+
+    basis_gram_weight: float = 0.0
+    """Weight for the tensor-basis Gram penalty."""
+
+    pet_trunk_learning_rate: Optional[float] = None
+    """Optional learning rate override for the shared PET backbone."""
+
+    tensor_basis_learning_rate: Optional[float] = None
+    """Optional learning rate override for tensor-basis modules."""
+
+    readout_learning_rate: Optional[float] = None
+    """Optional learning rate override for PET heads and final readout layers."""

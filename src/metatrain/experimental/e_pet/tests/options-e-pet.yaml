@@ -1,0 +1,43 @@
+seed: 42
+
+architecture:
+  name: experimental.e_pet
+  training:
+    num_epochs: 1
+    batch_size: 2
+  model:
+    pet:
+      d_pet: 8
+      d_head: 8
+      d_node: 8
+      d_feedforward: 16
+      num_heads: 1
+      num_attention_layers: 1
+      num_gnn_layers: 1
+      activation: SiLU
+      featurizer_type: residual
+    tensor_basis_defaults:
+      soap:
+        max_angular: 2
+        max_radial: 1
+        cutoff:
+          radius: 3.0
+          width: 0.5
+      extra_l1_vector_basis_branches:
+        - max_angular: 2
+          max_radial: 1
+          cutoff:
+            radius: 3.0
+            width: 0.5
+
+training_set:
+  systems:
+    read_from: tests/resources/qm9_reduced_100.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: U0
+      unit: eV
+
+validation_set: 0.1
+test_set: 0.1
