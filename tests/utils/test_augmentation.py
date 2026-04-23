@@ -311,6 +311,7 @@ def test_rotation_per_atom_spherical_atomicbasis(batch_size):
         # Check that the rotated target matches the reference
         mts.allclose_raise(RfX, fRX, atol=1e-5)
 
+
 @pytest.mark.parametrize("batch_size", [1, 2])
 def test_rotation_per_atom_spherical_rank2(batch_size):
     """Tests that the rotational augmenter rotates a Hamiltonian

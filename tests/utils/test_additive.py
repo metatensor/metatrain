@@ -18,6 +18,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
 )
 from metatrain.utils.data.readers import read_systems, read_targets
+from metatrain.utils.data.readers.metatensor import _empty_tensor_map_like
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
     get_generic_target_info,
@@ -26,8 +27,6 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from metatrain.utils.data.readers.metatensor import _empty_tensor_map_like
-
 
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
@@ -1794,7 +1793,6 @@ def test_composition_spherical_atomic_basis_dense_nan_weights():
     )
 
 
-
 def test_composition_spherical_per_atom_rank_2():
     """
     Test the calculation of composition weights for a spherical per-atom rank 2 target
@@ -1850,8 +1848,12 @@ def test_composition_spherical_per_atom_rank_2():
                 values=pp_full_sys1,
                 samples=Labels(names=["system", "atom"], values=torch.tensor([[0, 0]])),
                 components=[
-                    Labels(names=["o3_mu_1"], values=torch.arange(-1, 2).reshape(-1, 1)),
-                    Labels(names=["o3_mu_2"], values=torch.arange(-1, 2).reshape(-1, 1)),
+                    Labels(
+                        names=["o3_mu_1"], values=torch.arange(-1, 2).reshape(-1, 1)
+                    ),
+                    Labels(
+                        names=["o3_mu_2"], values=torch.arange(-1, 2).reshape(-1, 1)
+                    ),
                 ],
                 properties=Labels(names=["_"], values=torch.tensor([[0]])),
             ),
@@ -1884,8 +1886,12 @@ def test_composition_spherical_per_atom_rank_2():
                     values=torch.tensor([[1, 0], [1, 1], [1, 2]]),
                 ),
                 components=[
-                    Labels(names=["o3_mu_1"], values=torch.arange(-1, 2).reshape(-1, 1)),
-                    Labels(names=["o3_mu_2"], values=torch.arange(-1, 2).reshape(-1, 1)),
+                    Labels(
+                        names=["o3_mu_1"], values=torch.arange(-1, 2).reshape(-1, 1)
+                    ),
+                    Labels(
+                        names=["o3_mu_2"], values=torch.arange(-1, 2).reshape(-1, 1)
+                    ),
                 ],
                 properties=Labels(names=["_"], values=torch.tensor([[0]])),
             ),
@@ -1940,9 +1946,7 @@ def test_composition_spherical_per_atom_rank_2():
     ss_block = output["rank_2_target"].block(ss_key)
     torch.testing.assert_close(
         ss_block.values,
-        torch.tensor(
-            [1.25, 1.25, 1.5], dtype=torch.float64
-        ).reshape(-1, 1, 1, 1),
+        torch.tensor([1.25, 1.25, 1.5], dtype=torch.float64).reshape(-1, 1, 1, 1),
     )
 
     pp_block = output["rank_2_target"].block(pp_key)
@@ -1951,6 +1955,7 @@ def test_composition_spherical_per_atom_rank_2():
         [3.0, 3.0, 3.0], dtype=torch.float64
     )
     torch.testing.assert_close(pp_block.values, expected_pp)
+
 
 def test_composition_spherical_per_atom_rank_2_rotation_invariance():
     """
@@ -1990,15 +1995,13 @@ def test_composition_spherical_per_atom_rank_2_rotation_invariance():
     pp_full[torch.arange(3), torch.arange(3), torch.arange(3), 0] = torch.tensor(
         [1.0, 2.0, 3.0], dtype=torch.float64
     )
-    pp_vals = pp_full[..., 0]  
+    pp_vals = pp_full[..., 0]
     pp_vals_rotated = torch.einsum("ac,bd,icd->iab", R, R, pp_vals).unsqueeze(-1)
 
     def make_tensor_map(ss_values, pp_values, system_idx):
         samples_3 = Labels(
             names=["system", "atom"],
-            values=torch.tensor(
-                [[system_idx, 0], [system_idx, 1], [system_idx, 2]]
-            ),
+            values=torch.tensor([[system_idx, 0], [system_idx, 1], [system_idx, 2]]),
         )
         return TensorMap(
             keys=Labels(
@@ -2094,6 +2097,7 @@ def test_composition_spherical_per_atom_rank_2_rotation_invariance():
         weights_orig.block(pp_key).values,
         weights_rot.block(pp_key).values,
     )
+
 
 @pytest.mark.parametrize("missing_type", [False, True])
 def test_composition_spherical_atomic_basis_rank_2(missing_type):
@@ -2308,6 +2312,7 @@ def test_composition_spherical_atomic_basis_rank_2(missing_type):
             torch.tensor([0.0], dtype=torch.float64).reshape(-1, 1, 1, 1),
         )
 
+
 @pytest.mark.parametrize("missing_type", [False, True])
 def test_composition_spherical_atomic_basis_rank_2_rotation_invariance(missing_type):
     """
@@ -2345,9 +2350,7 @@ def test_composition_spherical_atomic_basis_rank_2_rotation_invariance(missing_t
     pp_O[0, torch.arange(3), torch.arange(3), 0] = torch.tensor(
         [1.0, 2.0, 3.0], dtype=torch.float64
     )
-    pp_O_rotated = torch.einsum(
-        "ac,bd,icd->iab", R, R, pp_O[..., 0]
-    ).unsqueeze(-1)
+    pp_O_rotated = torch.einsum("ac,bd,icd->iab", R, R, pp_O[..., 0]).unsqueeze(-1)
 
     def make_tensor_map(system_idx, pp_O_vals):
         return TensorMap(
@@ -2359,7 +2362,9 @@ def test_composition_spherical_atomic_basis_rank_2_rotation_invariance(missing_t
                     "o3_sigma_2",
                     "atom_type",
                 ],
-                values=torch.tensor([[0, 0, 1, 1, 1], [0, 0, 1, 1, 8], [1, 1, 1, 1, 8]]),
+                values=torch.tensor(
+                    [[0, 0, 1, 1, 1], [0, 0, 1, 1, 8], [1, 1, 1, 1, 8]]
+                ),
             ),
             blocks=[
                 TensorBlock(
@@ -2424,9 +2429,7 @@ def test_composition_spherical_atomic_basis_rank_2_rotation_invariance(missing_t
         {
             "quantity": "",
             "unit": "",
-            "type": {
-                "spherical": {"irreps": irreps, "product": "cartesian"}
-            },
+            "type": {"spherical": {"irreps": irreps, "product": "cartesian"}},
             "num_subtargets": 1,
             "per_atom": True,
         },

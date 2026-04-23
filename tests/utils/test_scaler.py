@@ -17,11 +17,6 @@ from metatrain.utils.data.target_info import (
     get_generic_target_info,
 )
 from metatrain.utils.scaler import Scaler, remove_scale
-from metatrain.utils.data.atomic_basis_helpers import(
-    densify_atomic_basis_target,
-    pad_samples_atomic_basis_target,
-    sparsify_atomic_basis_target,
-)
 
 from ..conftest import RESOURCES_PATH
 
@@ -1562,30 +1557,32 @@ SYSTEMS = [
     ),
 ]
 
- 
+
 @pytest.mark.parametrize("batch_size", [1, 2])
 def test_scaler_spherical_per_atom_rank_2(batch_size):
     """Test the calculation of scaling weights for a per-atom rank-2 spherical target
     (keys: o3_lambda_1, o3_sigma_1, o3_lambda_2, o3_sigma_2).
- 
+
     The expected scale for each (lambda_1, lambda_2, atomic_type) is the RMS of all
     component values for that atom type pooled over all atoms and systems, matching
     the convention used for rank-1 targets in test_scaler_spherical_per_atom.
     """
     target_name = "spherical_rank2"
- 
+
     keys = Labels(
         names=["o3_lambda_1", "o3_sigma_1", "o3_lambda_2", "o3_sigma_2"],
         values=torch.tensor([[0, 1, 0, 1], [1, 1, 1, 1]]),
     )
     prop_labels = Labels(names=["property"], values=torch.tensor([[0]]))
- 
-    L_00_sys0 = torch.tensor([[[[1.0]]]]).to(torch.float64)                        # O
-    L_00_sys1 = torch.tensor([[[[2.0]]], [[[3.0]]], [[[4.0]]]]).to(torch.float64)  # H, H, O
- 
+
+    L_00_sys0 = torch.tensor([[[[1.0]]]]).to(torch.float64)  # O
+    L_00_sys1 = torch.tensor([[[[2.0]]], [[[3.0]]], [[[4.0]]]]).to(
+        torch.float64
+    )  # H, H, O
+
     L_11_sys0 = torch.arange(1.0, 10.0).reshape(1, 3, 3, 1).to(torch.float64)
     L_11_sys1 = torch.arange(10.0, 37.0).reshape(3, 3, 3, 1).to(torch.float64)
- 
+
     def _make_tm(L_00, L_11, sys_idx, n_atoms):
         sample_vals = torch.tensor([[sys_idx, a] for a in range(n_atoms)])
         samples = Labels(names=["system", "atom"], values=sample_vals)
@@ -1618,7 +1615,7 @@ def test_scaler_spherical_per_atom_rank_2(batch_size):
                 ),
             ],
         )
- 
+
     dataset = Dataset.from_dict(
         {
             "system": SYSTEMS,
@@ -1628,7 +1625,7 @@ def test_scaler_spherical_per_atom_rank_2(batch_size):
             ],
         }
     )
- 
+
     dataset_info = DatasetInfo(
         length_unit="angstrom",
         atomic_types=[1, 8],
@@ -1653,25 +1650,27 @@ def test_scaler_spherical_per_atom_rank_2(batch_size):
             )
         },
     )
- 
+
     scaler = Scaler(hypers={}, dataset_info=dataset_info).to(torch.float64)
     scaler2 = copy.deepcopy(scaler)
     scaler3 = copy.deepcopy(scaler)
- 
+
     def _rms(vals):
         return (vals.flatten() ** 2).mean().sqrt()
- 
-    H_00 = L_00_sys1[:2].flatten()                                    # [2.0, 3.0]
+
+    H_00 = L_00_sys1[:2].flatten()  # [2.0, 3.0]
     O_00 = torch.cat([L_00_sys0.flatten(), L_00_sys1[2:].flatten()])  # [1.0, 4.0]
- 
-    H_11 = L_11_sys1[:2].flatten()                                    # arange(10, 28)
-    O_11 = torch.cat([L_11_sys0.flatten(), L_11_sys1[2:].flatten()])  # arange(1,10) + arange(28,37)
- 
+
+    H_11 = L_11_sys1[:2].flatten()  # arange(10, 28)
+    O_11 = torch.cat(
+        [L_11_sys0.flatten(), L_11_sys1[2:].flatten()]
+    )  # arange(1,10) + arange(28,37)
+
     expected = {
-        (0, 0, 1, 1): {0: _rms(H_00), 1: _rms(O_00)}, 
+        (0, 0, 1, 1): {0: _rms(H_00), 1: _rms(O_00)},
         (1, 1, 1, 1): {0: _rms(H_11), 1: _rms(O_11)},
     }
- 
+
     for sc, dset in [
         (scaler, dataset),
         (scaler2, [dataset, dataset]),
@@ -1683,7 +1682,7 @@ def test_scaler_spherical_per_atom_rank_2(batch_size):
             batch_size=batch_size,
             is_distributed=False,
         )
- 
+
     for sc in [scaler, scaler2, scaler3]:
         scales_tm = sc.model.scales[target_name]
         for key in scales_tm.keys:
@@ -1704,27 +1703,28 @@ def test_scaler_spherical_per_atom_rank_2(batch_size):
                     atol=1e-5,
                 )
 
+
 def test_scaler_spherical_per_atom_rank_2_rotation_invariance():
     """Test that scaling weights for a per-atom rank-2 spherical target are invariant
     under fitting on a randomly rotated version of the dataset.
- 
+
     The Frobenius norm (and hence the RMS) of a rank-2 tensor is preserved under
     rotation, so the scales must be identical regardless of orientation.
     """
     target_name = "spherical_rank2"
     num_checks = 5
- 
+
     keys = Labels(
         names=["o3_lambda_1", "o3_sigma_1", "o3_lambda_2", "o3_sigma_2"],
         values=torch.tensor([[0, 1, 0, 1], [1, 1, 1, 1]]),
     )
     prop_labels = Labels(names=["property"], values=torch.tensor([[0]]))
- 
+
     L_00_sys0 = torch.tensor([[[[1.0]]]]).to(torch.float64)
     L_00_sys1 = torch.tensor([[[[2.0]]], [[[3.0]]], [[[4.0]]]]).to(torch.float64)
     L_11_sys0 = torch.arange(1.0, 10.0).reshape(1, 3, 3, 1).to(torch.float64)
     L_11_sys1 = torch.arange(10.0, 37.0).reshape(3, 3, 3, 1).to(torch.float64)
- 
+
     def _make_tm(L_00, L_11, sys_idx, n_atoms):
         sample_vals = torch.tensor([[sys_idx, a] for a in range(n_atoms)])
         samples = Labels(names=["system", "atom"], values=sample_vals)
@@ -1757,12 +1757,12 @@ def test_scaler_spherical_per_atom_rank_2_rotation_invariance():
                 ),
             ],
         )
- 
+
     tensor_maps = [
         _make_tm(L_00_sys0, L_11_sys0, sys_idx=0, n_atoms=1),
         _make_tm(L_00_sys1, L_11_sys1, sys_idx=1, n_atoms=3),
     ]
- 
+
     dataset_info = DatasetInfo(
         length_unit="angstrom",
         atomic_types=[1, 8],
@@ -1787,17 +1787,15 @@ def test_scaler_spherical_per_atom_rank_2_rotation_invariance():
             )
         },
     )
- 
+
     dataset = Dataset.from_dict({"system": SYSTEMS, target_name: tensor_maps})
     scaler = Scaler(hypers={}, dataset_info=dataset_info).to(torch.float64)
-    scaler.train_model(
-        dataset, additive_models=[], batch_size=1, is_distributed=False
-    )
- 
+    scaler.train_model(dataset, additive_models=[], batch_size=1, is_distributed=False)
+
     rotational_augmenter = RotationalAugmenter(
         dataset_info.targets, extra_data_info_dict={}
     )
- 
+
     for _ in range(num_checks):
         systems_rot, targets_rot = [], []
         for system_, tm_ in zip(SYSTEMS, tensor_maps, strict=False):
@@ -1808,7 +1806,7 @@ def test_scaler_spherical_per_atom_rank_2_rotation_invariance():
             )
             systems_rot.append(sys_r[0])
             targets_rot.append(tgts_r[target_name])
- 
+
         dataset_rot = Dataset.from_dict(
             {"system": systems_rot, target_name: targets_rot}
         )
@@ -1816,7 +1814,7 @@ def test_scaler_spherical_per_atom_rank_2_rotation_invariance():
         scaler_rot.train_model(
             dataset_rot, additive_models=[], batch_size=1, is_distributed=False
         )
- 
+
         scales = scaler.model.scales[target_name]
         scales_rot = scaler_rot.model.scales[target_name]
         for key in scales.keys:
@@ -1826,6 +1824,7 @@ def test_scaler_spherical_per_atom_rank_2_rotation_invariance():
                 block.values, block_rot.values, rtol=1e-5, atol=1e-5
             )
 
+
 @pytest.mark.parametrize("missing_type", [False, True])
 def test_scaler_spherical_atomic_basis_rank_2(missing_type):
     """Test the calculation of scaling weights for a per-atom rank-2 atomic-basis
@@ -1833,20 +1832,20 @@ def test_scaler_spherical_atomic_basis_rank_2(missing_type):
     atom_type) is correct.
     """
     target_name = "spherical_atomic_basis_rank2"
- 
+
     key_names = ["o3_lambda_1", "o3_sigma_1", "o3_lambda_2", "o3_sigma_2", "atom_type"]
     prop = Labels(names=["_"], values=torch.tensor([[0]]))
     mu1_1 = Labels(names=["o3_mu_1"], values=torch.tensor([[0]]))
     mu2_1 = Labels(names=["o3_mu_2"], values=torch.tensor([[0]]))
     mu1_3 = Labels(names=["o3_mu_1"], values=torch.arange(-1, 2).reshape(-1, 1))
     mu2_3 = Labels(names=["o3_mu_2"], values=torch.arange(-1, 2).reshape(-1, 1))
- 
+
     sys0_vals_00_O = torch.tensor([[[[1.0]]]], dtype=torch.float64)  # (1,1,1,1)
     sys0_vals_11_O = torch.tensor(
         [1.5, 0.8, 3.2, 0.4, 2.1, 0.9, 1.2, 3.0, 0.6], dtype=torch.float64
     ).reshape(1, 3, 3, 1)
     samples_sys0 = Labels(names=["system", "atom"], values=torch.tensor([[0, 0]]))
- 
+
     tensor_map_1 = TensorMap(
         keys=Labels(
             names=key_names,
@@ -1867,13 +1866,13 @@ def test_scaler_spherical_atomic_basis_rank_2(missing_type):
             ),
         ],
     )
- 
+
     sys1_vals_00_H = torch.tensor([1.0, 1.5], dtype=torch.float64).reshape(2, 1, 1, 1)
     sys1_vals_00_O = torch.tensor([[[[2.0]]]], dtype=torch.float64)
     sys1_vals_11_O = torch.tensor(
         [0.2, 3.0, 1.1, 2.5, 0.7, 1.8, 0.3, 2.2, 1.0], dtype=torch.float64
     ).reshape(1, 3, 3, 1)
- 
+
     tensor_map_2 = TensorMap(
         keys=Labels(
             names=key_names,
@@ -1891,27 +1890,23 @@ def test_scaler_spherical_atomic_basis_rank_2(missing_type):
             ),
             TensorBlock(
                 values=sys1_vals_00_O,
-                samples=Labels(
-                    names=["system", "atom"], values=torch.tensor([[1, 2]])
-                ),
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[1, 2]])),
                 components=[mu1_1, mu2_1],
                 properties=prop,
             ),
             TensorBlock(
                 values=sys1_vals_11_O,
-                samples=Labels(
-                    names=["system", "atom"], values=torch.tensor([[1, 2]])
-                ),
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[1, 2]])),
                 components=[mu1_3, mu2_3],
                 properties=prop,
             ),
         ],
     )
- 
+
     dataset = Dataset.from_dict(
         {"system": SYSTEMS, target_name: [tensor_map_1, tensor_map_2]}
     )
- 
+
     atomic_types = [1, 8]
     irreps = {
         1: [{"o3_lambda": 0, "o3_sigma": 1}],
@@ -1923,7 +1918,7 @@ def test_scaler_spherical_atomic_basis_rank_2(missing_type):
     if missing_type:
         atomic_types.append(9)
         irreps[9] = [{"o3_lambda": 0, "o3_sigma": 1}]
- 
+
     dataset_info = DatasetInfo(
         length_unit="angstrom",
         atomic_types=atomic_types,
@@ -1945,22 +1940,18 @@ def test_scaler_spherical_atomic_basis_rank_2(missing_type):
             )
         },
     )
- 
+
     scaler = Scaler(hypers={}, dataset_info=dataset_info).to(torch.float64)
-    scaler.train_model(
-        dataset, additive_models=[], batch_size=1, is_distributed=False
-    )
- 
-    o_11_all = torch.cat(
-        [sys0_vals_11_O.flatten(), sys1_vals_11_O.flatten()]
-    )
+    scaler.train_model(dataset, additive_models=[], batch_size=1, is_distributed=False)
+
+    o_11_all = torch.cat([sys0_vals_11_O.flatten(), sys1_vals_11_O.flatten()])
     expected_scales = {
         (0, 0, 1, 1, 1): (torch.tensor([1.0, 1.5]) ** 2).mean().sqrt(),
         (0, 0, 1, 1, 8): (torch.tensor([1.0, 2.0]) ** 2).mean().sqrt(),
-        (1, 1, 1, 1, 8): (o_11_all ** 2).mean().sqrt(),
+        (1, 1, 1, 1, 8): (o_11_all**2).mean().sqrt(),
         (0, 0, 1, 1, 9): torch.tensor(1.0, dtype=torch.float64),
     }
- 
+
     scales_tm = scaler.model.scales[target_name]
     for key in scales_tm.keys:
         block = scales_tm.block(key)
@@ -1986,6 +1977,7 @@ def test_scaler_spherical_atomic_basis_rank_2(missing_type):
             torch.arange(len(atomic_types)) != atom_type_index, 0
         ]
         torch.testing.assert_close(other_scales, torch.ones_like(other_scales))
+
 
 @pytest.mark.parametrize("missing_type", [False, True])
 def test_scaler_spherical_atomic_basis_rank_2_rotation_invariance(missing_type):
@@ -2057,17 +2049,13 @@ def test_scaler_spherical_atomic_basis_rank_2_rotation_invariance(missing_type):
             ),
             TensorBlock(
                 values=sys1_vals_00_O,
-                samples=Labels(
-                    names=["system", "atom"], values=torch.tensor([[1, 2]])
-                ),
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[1, 2]])),
                 components=[mu1_1, mu2_1],
                 properties=prop,
             ),
             TensorBlock(
                 values=sys1_vals_11_O,
-                samples=Labels(
-                    names=["system", "atom"], values=torch.tensor([[1, 2]])
-                ),
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[1, 2]])),
                 components=[mu1_3, mu2_3],
                 properties=prop,
             ),
@@ -2112,9 +2100,7 @@ def test_scaler_spherical_atomic_basis_rank_2_rotation_invariance(missing_type):
 
     dataset = Dataset.from_dict({"system": SYSTEMS, target_name: tensor_maps})
     scaler = Scaler(hypers={}, dataset_info=dataset_info).to(torch.float64)
-    scaler.train_model(
-        dataset, additive_models=[], batch_size=1, is_distributed=False
-    )
+    scaler.train_model(dataset, additive_models=[], batch_size=1, is_distributed=False)
 
     for _ in range(num_checks):
         # Rotate only the atomic positions; keep target values unchanged since
@@ -2146,7 +2132,8 @@ def test_scaler_spherical_atomic_basis_rank_2_rotation_invariance(missing_type):
             torch.testing.assert_close(
                 block.values, block_rot.values, rtol=1e-5, atol=1e-5
             )
- 
+
+
 def test_scaler_torchscript(tmpdir):
     """Test the torchscripting, saving and loading of a scaler model."""
 
