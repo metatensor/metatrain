@@ -19,6 +19,10 @@ from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.loss import LossAggregator, LossSpecification
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator
 from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.training_diagnostics import (
+    assert_finite_loss,
+    assert_finite_metrics,
+)
 from metatrain.utils.transfer import batch_to
 
 from .documentation import TrainerHypers
@@ -327,6 +331,13 @@ class Trainer(PETTrainer):
                         train_loss_batch
                         + basis_gram_weight * model.get_basis_gram_loss()
                     )
+                assert_finite_loss(
+                    train_loss_batch,
+                    phase="training",
+                    predictions=predictions,
+                    targets=targets,
+                    extra_data=extra_data,
+                )
 
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
@@ -344,13 +355,23 @@ class Trainer(PETTrainer):
                 )
                 scaled_predictions = model.scaler(systems, predictions)
                 scaled_targets = model.scaler(systems, targets)
-                train_rmse_calculator.update(
-                    scaled_predictions, scaled_targets, extra_data
-                )
-                if self.hypers["log_mae"]:
-                    train_mae_calculator.update(
+                try:
+                    train_rmse_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )
+                except ValueError as err:
+                    raise ValueError(
+                        f"Non-finite scaled training metric inputs: {err}"
+                    ) from err
+                if self.hypers["log_mae"]:
+                    try:
+                        train_mae_calculator.update(
+                            scaled_predictions, scaled_targets, extra_data
+                        )
+                    except ValueError as err:
+                        raise ValueError(
+                            f"Non-finite scaled training metric inputs: {err}"
+                        ) from err
 
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -387,6 +408,13 @@ class Trainer(PETTrainer):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 val_loss_batch = loss_fn(predictions, targets, extra_data)
+                assert_finite_loss(
+                    val_loss_batch,
+                    phase="validation",
+                    predictions=predictions,
+                    targets=targets,
+                    extra_data=extra_data,
+                )
                 val_loss += val_loss_batch.item()
 
                 systems, targets, extra_data = atomic_basis_reverse_transform(
@@ -397,9 +425,23 @@ class Trainer(PETTrainer):
                 )
                 scaled_predictions = model.scaler(systems, predictions)
                 scaled_targets = model.scaler(systems, targets)
-                val_rmse_calculator.update(scaled_predictions, scaled_targets, extra_data)
+                try:
+                    val_rmse_calculator.update(
+                        scaled_predictions, scaled_targets, extra_data
+                    )
+                except ValueError as err:
+                    raise ValueError(
+                        f"Non-finite scaled validation metric inputs: {err}"
+                    ) from err
                 if self.hypers["log_mae"]:
-                    val_mae_calculator.update(scaled_predictions, scaled_targets, extra_data)
+                    try:
+                        val_mae_calculator.update(
+                            scaled_predictions, scaled_targets, extra_data
+                        )
+                    except ValueError as err:
+                        raise ValueError(
+                            f"Non-finite scaled validation metric inputs: {err}"
+                        ) from err
 
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -417,6 +459,8 @@ class Trainer(PETTrainer):
 
             finalized_train_info = {"loss": train_loss, **finalized_train_info}
             finalized_val_info = {"loss": val_loss, **finalized_val_info}
+            assert_finite_metrics(finalized_train_info, phase="training")
+            assert_finite_metrics(finalized_val_info, phase="validation")
 
             if epoch == start_epoch:
                 metric_logger = MetricLogger(

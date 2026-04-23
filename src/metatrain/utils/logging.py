@@ -292,9 +292,12 @@ class MetricLogger:
 
                     unit = self._get_units(target_name)
                     value, unit = ev_to_mev(value, unit)
+                    digits_key = f"{name}_{key}"
+                    if digits_key not in self.digits:
+                        self.digits[digits_key] = _get_digits(value)
 
                     values.append(
-                        f"{value:{self.digits[f'{name}_{key}'][0]}.{self.digits[f'{name}_{key}'][1]}f}"  # noqa: E501
+                        f"{value:{self.digits[digits_key][0]}.{self.digits[digits_key][1]}f}"  # noqa: E501
                     )
                     units.append(unit)
                 else:
@@ -346,6 +349,14 @@ def _get_digits(value: float) -> Tuple[int, int]:
     :return: A tuple with the total number of characters and the number of digits
         after the decimal point.
     """
+
+    value = abs(float(value))
+
+    if not np.isfinite(value):
+        return 7, 3
+
+    if value == 0.0:
+        return 6, 4
 
     # Get order of magnitude of the value:
     order = int(np.floor(np.log10(value)))

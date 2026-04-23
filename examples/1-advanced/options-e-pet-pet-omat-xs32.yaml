@@ -1,0 +1,220 @@
+# Stock suite-native E-PET configuration for the PET-OMat-style XS32 comparison.
+#
+# This file fixes the architecture, trainer regime, and loss surface used for the
+# authoritative E-PET side of the PET vs E-PET study. Before running, replace the
+# dataset paths below with the paths to your local joint_spherical train/test files.
+#
+# Example invocation:
+#   python -m metatrain train examples/1-advanced/options-e-pet-pet-omat-xs32.yaml
+
+seed: 1234
+base_precision: 32
+
+architecture:
+  name: experimental.e_pet
+  model:
+    volume_normalized_targets:
+      - mtt::stress_l0
+      - mtt::stress_l2
+    shared_head_groups:
+      stress_head:
+        - mtt::stress_l0
+        - mtt::stress_l2[2,1]
+    pet:
+      cutoff: 7.5
+      cutoff_function: Bump
+      cutoff_width: 0.5
+      num_neighbors_adaptive: 32
+      d_pet: 128
+      d_head: 128
+      d_node: 512
+      d_feedforward: 256
+      num_heads: 8
+      num_attention_layers: 1
+      num_gnn_layers: 2
+      normalization: RMSNorm
+      activation: SwiGLU
+      attention_temperature: 1.0
+      transformer_type: PreLN
+      featurizer_type: feedforward
+      zbl: false
+      long_range:
+        enable: false
+        use_ewald: false
+        smearing: 1.4
+        kspace_resolution: 1.33
+        interpolation_nodes: 5
+    tensor_basis_defaults:
+      add_lambda_basis: true
+      legacy: false
+      add_l1_species_dependent_vector: false
+      soap:
+        max_angular: 2
+        max_radial: 3
+        cutoff:
+          radius: 7.5
+          width: 0.5
+      extra_l1_vector_basis_branches:
+        - max_angular: 2
+          max_radial: 3
+          cutoff:
+            radius: 7.5
+            width: 0.5
+  training:
+    batch_size: 16
+    num_epochs: 100
+    learning_rate: 2.0e-4
+    warmup_fraction: 0.1
+    checkpoint_interval: 10
+    coefficient_l2_weight: 0.0
+    basis_gram_weight: 1.0e-3
+    log_interval: 1
+    scale_targets: true
+    best_model_metric: loss
+    num_workers: 4
+    per_structure_targets:
+      - energy
+      - mtt::stress_l0
+      - mtt::stress_l2
+    loss:
+      energy:
+        type: huber
+        weight: 1.0
+        reduction: mean
+        delta: 0.015
+        gradients:
+          positions:
+            type: invariant_huber
+            weight: 1.0
+            reduction: mean
+            delta: 0.04
+          strain:
+            type: invariant_huber
+            weight: 1.0
+            reduction: mean
+            delta: 0.03
+      "mtt::forces_l1":
+        type: invariant_huber
+        weight: 0.01
+        reduction: mean
+        delta: 0.01
+      "mtt::stress_l0":
+        type: huber
+        weight: 5.0e-4
+        reduction: mean
+        delta: 0.005
+      "mtt::stress_l2":
+        type: invariant_huber
+        weight: 5.0e-4
+        reduction: mean
+        delta: 0.005
+
+training_set:
+  systems:
+    read_from: /path/to/mad-subset-train-joint-spherical.xyz
+    reader: ase
+    length_unit: angstrom
+  targets:
+    energy:
+      quantity: energy
+      read_from: /path/to/mad-subset-train-joint-spherical.xyz
+      reader: ase
+      key: energy
+      unit: eV
+      type: scalar
+      per_atom: false
+      num_subtargets: 1
+      forces: true
+      stress: true
+      virial: false
+    "mtt::forces_l1":
+      quantity: forces_l1
+      read_from: /path/to/mad-subset-train-joint-spherical.xyz
+      reader: ase
+      key: forces_l1
+      unit: ""
+      type:
+        spherical:
+          irreps:
+            - o3_lambda: 1
+              o3_sigma: 1
+      per_atom: true
+      num_subtargets: 1
+    "mtt::stress_l0":
+      quantity: stress_l0
+      read_from: /path/to/mad-subset-train-joint-spherical.xyz
+      reader: ase
+      key: stress_l0
+      unit: ""
+      type: scalar
+      per_atom: false
+      num_subtargets: 1
+    "mtt::stress_l2":
+      quantity: stress_l2
+      read_from: /path/to/mad-subset-train-joint-spherical.xyz
+      reader: ase
+      key: stress_l2
+      unit: ""
+      type:
+        spherical:
+          irreps:
+            - o3_lambda: 2
+              o3_sigma: 1
+      per_atom: false
+      num_subtargets: 1
+
+validation_set: 0.1
+
+test_set:
+  systems:
+    read_from: /path/to/mad-subset-test-joint-spherical.xyz
+    reader: ase
+    length_unit: angstrom
+  targets:
+    energy:
+      quantity: energy
+      read_from: /path/to/mad-subset-test-joint-spherical.xyz
+      reader: ase
+      key: energy
+      unit: eV
+      type: scalar
+      per_atom: false
+      num_subtargets: 1
+      forces: true
+      stress: true
+      virial: false
+    "mtt::forces_l1":
+      quantity: forces_l1
+      read_from: /path/to/mad-subset-test-joint-spherical.xyz
+      reader: ase
+      key: forces_l1
+      unit: ""
+      type:
+        spherical:
+          irreps:
+            - o3_lambda: 1
+              o3_sigma: 1
+      per_atom: true
+      num_subtargets: 1
+    "mtt::stress_l0":
+      quantity: stress_l0
+      read_from: /path/to/mad-subset-test-joint-spherical.xyz
+      reader: ase
+      key: stress_l0
+      unit: ""
+      type: scalar
+      per_atom: false
+      num_subtargets: 1
+    "mtt::stress_l2":
+      quantity: stress_l2
+      read_from: /path/to/mad-subset-test-joint-spherical.xyz
+      reader: ase
+      key: stress_l2
+      unit: ""
+      type:
+        spherical:
+          irreps:
+            - o3_lambda: 2
+              o3_sigma: 1
+      per_atom: false
+      num_subtargets: 1

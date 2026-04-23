@@ -39,6 +39,10 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
+from metatrain.utils.training_diagnostics import (
+    assert_finite_loss,
+    assert_finite_metrics,
+)
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
@@ -459,6 +463,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
+                assert_finite_loss(
+                    train_loss_batch,
+                    phase="training",
+                    predictions=predictions,
+                    targets=targets,
+                    extra_data=extra_data,
+                )
 
                 if is_distributed:
                     # make sure all parameters contribute to the gradient calculation
@@ -501,13 +512,23 @@ class Trainer(TrainerInterface[TrainerHypers]):
                             systems, scaled_predictions, {}
                         )
 
-                    train_rmse_calculator.update(
-                        scaled_predictions, scaled_targets, extra_data
-                    )
-                    if self.hypers["log_mae"]:
-                        train_mae_calculator.update(
+                    try:
+                        train_rmse_calculator.update(
                             scaled_predictions, scaled_targets, extra_data
                         )
+                    except ValueError as err:
+                        raise ValueError(
+                            f"Non-finite scaled training metric inputs: {err}"
+                        ) from err
+                    if self.hypers["log_mae"]:
+                        try:
+                            train_mae_calculator.update(
+                                scaled_predictions, scaled_targets, extra_data
+                            )
+                        except ValueError as err:
+                            raise ValueError(
+                                f"Non-finite scaled training metric inputs: {err}"
+                            ) from err
 
             # Compute train metrics if they are to be logged this epoch:
             if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
@@ -554,6 +575,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         targets, systems, per_structure_targets
                     )
                     val_loss_batch = loss_fn(predictions, targets, extra_data)
+                    assert_finite_loss(
+                        val_loss_batch,
+                        phase="validation",
+                        predictions=predictions,
+                        targets=targets,
+                        extra_data=extra_data,
+                    )
 
                     if is_distributed:
                         # sum the loss over all processes
@@ -569,7 +597,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     scaled_targets = (model.module if is_distributed else model).scaler(
                         systems, targets
                     )
-
                     if self.hypers["log_separate_blocks"]:
                         # if any atomic basis outputs are present and metrics are to be
                         # reported per-block, reverse the transform (i.e. sparsify)
@@ -583,13 +610,23 @@ class Trainer(TrainerInterface[TrainerHypers]):
                             systems, scaled_predictions, {}
                         )
 
-                    val_rmse_calculator.update(
-                        scaled_predictions, scaled_targets, extra_data
-                    )
-                    if self.hypers["log_mae"]:
-                        val_mae_calculator.update(
+                    try:
+                        val_rmse_calculator.update(
                             scaled_predictions, scaled_targets, extra_data
                         )
+                    except ValueError as err:
+                        raise ValueError(
+                            f"Non-finite scaled validation metric inputs: {err}"
+                        ) from err
+                    if self.hypers["log_mae"]:
+                        try:
+                            val_mae_calculator.update(
+                                scaled_predictions, scaled_targets, extra_data
+                            )
+                        except ValueError as err:
+                            raise ValueError(
+                                f"Non-finite scaled validation metric inputs: {err}"
+                            ) from err
 
             # Compute val metrics:
             finalized_val_info = val_rmse_calculator.finalize(
@@ -616,6 +653,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 "loss": val_loss,
                 **finalized_val_info,
             }
+            assert_finite_metrics(finalized_train_info, phase="training")
+            assert_finite_metrics(finalized_val_info, phase="validation")
 
             if epoch == start_epoch:
                 metric_logger = MetricLogger(

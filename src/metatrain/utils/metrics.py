@@ -1,4 +1,6 @@
 import copy
+import math
+import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch.distributed
@@ -17,6 +19,49 @@ def _get_global_keys(keys: List[str]) -> List[str]:
         if keys_from_rank is not None:
             global_keys.update(keys_from_rank)
     return sorted(list(global_keys))
+
+
+_ZERO_SUPPORT_WARNED_METRICS: set[str] = set()
+
+
+def _format_block_key(block_key) -> str:
+    if len(block_key.names) == 0:
+        return "<default>"
+    return ", ".join(
+        f"{name}={int(value)}"
+        for name, value in zip(block_key.names, block_key.values, strict=True)
+    )
+
+
+def _warn_zero_support_metrics(omitted_metrics: List[str]) -> None:
+    new_metrics = [key for key in omitted_metrics if key not in _ZERO_SUPPORT_WARNED_METRICS]
+    if not new_metrics:
+        return
+
+    _ZERO_SUPPORT_WARNED_METRICS.update(new_metrics)
+    warnings.warn(
+        "Omitting metrics with zero valid support: " + ", ".join(sorted(new_metrics)),
+        RuntimeWarning,
+        stacklevel=2,
+    )
+
+
+def _raise_if_nonfinite_metric_contribution(
+    value: float,
+    *,
+    target_name: str,
+    block_key,
+    gradient_name: Optional[str],
+) -> None:
+    if math.isfinite(value):
+        return
+
+    channel = "values" if gradient_name is None else f"gradient '{gradient_name}'"
+    raise ValueError(
+        "Encountered a non-finite metric contribution on supported entries for "
+        f"target '{target_name}', block {_format_block_key(block_key)}, {channel}. "
+        "This usually indicates non-finite predictions on valid supervision."
+    )
 
 
 class RMSEAccumulator:
@@ -109,6 +154,14 @@ class RMSEAccumulator:
                         .item()
                     )
 
+                if mask_as_tensor.any():
+                    _raise_if_nonfinite_metric_contribution(
+                        rmse_value,
+                        target_name=key,
+                        block_key=block_key,
+                        gradient_name=None,
+                    )
+
                 self.information[key_to_write] = (
                     self.information[key_to_write][0] + rmse_value,
                     self.information[key_to_write][1] + mask_as_tensor.sum().item(),
@@ -152,6 +205,13 @@ class RMSEAccumulator:
                             )
                             .sum()
                             .item()
+                        )
+                    if mask_as_tensor.any():
+                        _raise_if_nonfinite_metric_contribution(
+                            gradient_rmse_value,
+                            target_name=key,
+                            block_key=block_key,
+                            gradient_name=gradient_name,
                         )
                     self.information[f"{key_to_write}_{gradient_name}_gradients"] = (
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][0]
@@ -199,12 +259,18 @@ class RMSEAccumulator:
                 self.information[key] = (sse.item(), n_elems.item())
 
         finalized_info = {}
+        omitted_metrics = []
         for key, value in self.information.items():
             if any([s in key for s in not_per_atom]):
                 out_key = f"{key} RMSE"
             else:
                 out_key = f"{key} RMSE (per atom)"
+            if value[1] == 0:
+                omitted_metrics.append(out_key)
+                continue
             finalized_info[out_key] = (value[0] / value[1]) ** 0.5
+
+        _warn_zero_support_metrics(omitted_metrics)
 
         return finalized_info
 
@@ -298,6 +364,14 @@ class MAEAccumulator:
                         .item()
                     )
 
+                if mask_as_tensor.any():
+                    _raise_if_nonfinite_metric_contribution(
+                        mae_value,
+                        target_name=key,
+                        block_key=block_key,
+                        gradient_name=None,
+                    )
+
                 self.information[key_to_write] = (
                     self.information[key_to_write][0] + mae_value,
                     self.information[key_to_write][1] + mask_as_tensor.sum().item(),
@@ -337,6 +411,14 @@ class MAEAccumulator:
                             .abs()
                             .sum()
                             .item()
+                        )
+
+                    if mask_as_tensor.any():
+                        _raise_if_nonfinite_metric_contribution(
+                            gradient_mae_value,
+                            target_name=key,
+                            block_key=block_key,
+                            gradient_name=gradient_name,
                         )
 
                     self.information[f"{key_to_write}_{gradient_name}_gradients"] = (
@@ -385,12 +467,18 @@ class MAEAccumulator:
                 self.information[key] = (sae.item(), n_elems.item())
 
         finalized_info = {}
+        omitted_metrics = []
         for key, value in self.information.items():
             if any([s in key for s in not_per_atom]):
                 out_key = f"{key} MAE"
             else:
                 out_key = f"{key} MAE (per atom)"
+            if value[1] == 0:
+                omitted_metrics.append(out_key)
+                continue
             finalized_info[out_key] = value[0] / value[1]
+
+        _warn_zero_support_metrics(omitted_metrics)
 
         return finalized_info
 
