@@ -120,6 +120,15 @@ def test_e_pet_option_files_validate_without_tensor_basis_max_angular() -> None:
     )
 
 
+def test_e_pet_training_defaults_use_split_learning_rates() -> None:
+    training = get_default_hypers("experimental.e_pet")["training"]
+
+    assert training["learning_rate"] == 2.0e-4
+    assert training["pet_trunk_learning_rate"] == 2.0e-4
+    assert training["tensor_basis_learning_rate"] == 1.0e-3
+    assert training["readout_learning_rate"] == 1.0e-3
+
+
 def test_e_pet_tensor_basis_rejects_max_angular() -> None:
     hypers = copy.deepcopy(get_default_hypers("experimental.e_pet"))
     hypers["model"]["tensor_basis_defaults"]["soap"]["max_angular"] = 2

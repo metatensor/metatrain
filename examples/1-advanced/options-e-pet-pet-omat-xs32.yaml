@@ -56,6 +56,9 @@ architecture:
     batch_size: 16
     num_epochs: 100
     learning_rate: 2.0e-4
+    pet_trunk_learning_rate: 2.0e-4
+    tensor_basis_learning_rate: 1.0e-3
+    readout_learning_rate: 1.0e-3
     warmup_fraction: 0.1
     checkpoint_interval: 10
     basis_gram_weight: 1.0e-3

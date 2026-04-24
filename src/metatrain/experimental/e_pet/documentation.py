@@ -149,7 +149,14 @@ class ModelHypers(TypedDict):
 
 
 class TrainerHypers(PETTrainerHypers):
-    """Hyperparameters for training e-pet models."""
+    """Hyperparameters for training e-pet models.
+
+    The default split learning rates use the E-PET custom trainer path. This path
+    does not currently support distributed training or finetuning.
+    """
+
+    learning_rate: float = 2.0e-4
+    """Base learning rate used by scheduler defaults and fallback parameter groups."""
 
     coefficient_l2_weight: float = 0.0
     """Weight for the invariant coefficient L2 regularization."""
@@ -157,11 +164,14 @@ class TrainerHypers(PETTrainerHypers):
     basis_gram_weight: float = 0.0
     """Weight for the tensor-basis Gram penalty."""
 
-    pet_trunk_learning_rate: Optional[float] = None
-    """Optional learning rate override for the shared PET backbone."""
+    pet_trunk_learning_rate: Optional[float] = 2.0e-4
+    """Learning rate for the shared PET backbone. Set to ``null`` to use
+    ``learning_rate``."""
 
-    tensor_basis_learning_rate: Optional[float] = None
-    """Optional learning rate override for tensor-basis modules."""
+    tensor_basis_learning_rate: Optional[float] = 1.0e-3
+    """Learning rate for tensor-basis modules. Set to ``null`` to use
+    ``learning_rate``."""
 
-    readout_learning_rate: Optional[float] = None
-    """Optional learning rate override for PET heads and final readout layers."""
+    readout_learning_rate: Optional[float] = 1.0e-3
+    """Learning rate for PET heads and final readout layers. Set to ``null`` to use
+    ``learning_rate``."""
