@@ -63,9 +63,8 @@ probing, and symmetry diagnostics. They are not trainable targets.
 
 Diagnostic feature captures are currently supported by:
 
-+-----------------+
-| :ref:`arch-pet` |
-+-----------------+
+- :ref:`arch-pet`
+- :ref:`arch-experimental.e_pet`
 
 
 .. _mtt-aux-target-last-layer-features:
@@ -115,9 +114,11 @@ produces multiple targets, the corresponding representations might be different.
 
 Last-layer features are supported by the following architectures:
 
-+-----------------+-----------------------+------------------+---------------------+
-| :ref:`arch-pet` | :ref:`arch-soap_bpnn` | :ref:`arch-mace` | :ref:`arch-flashmd` |
-+-----------------+-----------------------+------------------+---------------------+
+- :ref:`arch-pet`
+- :ref:`arch-experimental.e_pet`
+- :ref:`arch-soap_bpnn`
+- :ref:`arch-mace`
+- :ref:`arch-flashmd`
 
 .. _mtt-aux-target-uncertainty:
 

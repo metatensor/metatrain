@@ -10,7 +10,12 @@ from torch.nn import Linear, ModuleDict, ModuleList, Sequential, SiLU
 
 from metatrain.pet.model import (
     PET,
+    _irrep_key,
+    _parse_shared_selector,
+    _shared_selector,
+    _validate_shared_head_groups,
     get_last_layer_features_name,
+    normalize_by_volume,
     process_non_conservative_stress,
 )
 from metatrain.pet.modules.structures import concatenate_structures
@@ -69,45 +74,9 @@ def _l1_species_dependent_vector_soap(
 def _extra_l1_vector_basis_branches(
     tensor_basis_hypers: Dict[str, Any]
 ) -> list[dict[str, Any]]:
-    branches = copy.deepcopy(
+    return copy.deepcopy(
         tensor_basis_hypers.get("extra_l1_vector_basis_branches", [])
     )
-    if branches:
-        return branches
-    if tensor_basis_hypers.get("add_l1_extra_vector_basis", False):
-        return [
-            copy.deepcopy(
-                tensor_basis_hypers.get(
-                    "l1_extra_vector_basis_soap", tensor_basis_hypers["soap"]
-                )
-            )
-        ]
-    return []
-
-
-def normalize_by_volume(tensor_map: TensorMap, systems: List[System]) -> TensorMap:
-    """Normalize reconstructed outputs by per-system cell volume."""
-    volumes = torch.stack([torch.abs(torch.det(system.cell)) for system in systems])
-    volumes[volumes == 0.0] = torch.inf
-
-    new_blocks = torch.jit.annotate(List[TensorBlock], [])
-    for block in tensor_map.blocks():
-        system_samples = block.samples.column("system").to(torch.long)
-        block_volumes = volumes.to(
-            device=block.values.device, dtype=block.values.dtype
-        )[system_samples]
-        for _ in range(block.values.ndim - 1):
-            block_volumes = block_volumes.unsqueeze(-1)
-        new_blocks.append(
-            TensorBlock(
-                values=block.values / block_volumes,
-                samples=block.samples,
-                components=block.components,
-                properties=block.properties,
-            )
-        )
-
-    return TensorMap(keys=tensor_map.keys, blocks=new_blocks)
 
 
 class EPET(PET):
@@ -204,101 +173,27 @@ class EPET(PET):
 
     @staticmethod
     def _irrep_key(key: Labels) -> str:
-        return f"{int(key[0])},{int(key[1])}"
+        return _irrep_key(key)
 
     @staticmethod
     def _shared_selector(target_name: str, irrep_key: Optional[str] = None) -> str:
-        if irrep_key is None:
-            return target_name
-        return f"{target_name}[{irrep_key}]"
+        return _shared_selector(target_name, irrep_key)
 
     @staticmethod
     def _parse_shared_selector(selector: str) -> Tuple[str, Optional[str]]:
-        if "[" not in selector and "]" not in selector:
-            return selector, None
-        if selector.count("[") != 1 or not selector.endswith("]"):
-            raise ValueError(
-                f"Invalid shared_head_groups selector '{selector}'. Expected "
-                '"target" or "target[o3_lambda,o3_sigma]".'
-            )
-        target_name, irrep_key = selector[:-1].split("[", 1)
-        if target_name == "" or irrep_key == "":
-            raise ValueError(
-                f"Invalid shared_head_groups selector '{selector}'. Expected "
-                '"target" or "target[o3_lambda,o3_sigma]".'
-            )
-        return target_name, irrep_key
+        return _parse_shared_selector(selector)
 
     def _validate_and_build_shared_head_groups(
         self, dataset_info: DatasetInfo
     ) -> Dict[str, str]:
-        if not self.shared_head_groups_config:
-            return {}
-
-        known_targets = set(dataset_info.targets)
-        selector_to_head_key: Dict[str, str] = {}
-        for group_name, selectors in self.shared_head_groups_config.items():
-            head_key = f"shared__{group_name}"
-            for selector in selectors:
-                target_name, irrep_key = self._parse_shared_selector(selector)
-                if target_name not in known_targets:
-                    raise ValueError(
-                        "Unknown targets in shared_head_groups: "
-                        f"{sorted({target_name})}. Known targets are: "
-                        f"{sorted(known_targets)}."
-                    )
-
-                target_info = dataset_info.targets[target_name]
-                if target_info.is_scalar:
-                    if irrep_key is not None:
-                        raise ValueError(
-                            "Scalar selectors cannot include an irrep suffix in "
-                            f"shared_head_groups: {selector!r}."
-                        )
-                    canonical_selector = self._shared_selector(target_name)
-                elif target_info.is_spherical:
-                    if irrep_key is None:
-                        raise ValueError(
-                            "Spherical selectors in shared_head_groups must include "
-                            f"an explicit irrep suffix: {selector!r}."
-                        )
-                    known_irrep_keys = {
-                        self._irrep_key(key) for key, _ in target_info.layout.items()
-                    }
-                    if irrep_key not in known_irrep_keys:
-                        raise ValueError(
-                            f"Unknown irrep key '{irrep_key}' for target "
-                            f"'{target_name}' in shared_head_groups. Known irreps "
-                            f"are: {sorted(known_irrep_keys)}."
-                        )
-                    if (
-                        target_name in self.irrep_head_groups_config
-                        and irrep_key in self.irrep_head_groups_config[target_name]
-                    ):
-                        raise ValueError(
-                            "Spherical selectors cannot appear in both "
-                            "shared_head_groups and irrep_head_groups: "
-                            f"{selector!r}."
-                        )
-                    canonical_selector = self._shared_selector(target_name, irrep_key)
-                else:
-                    raise ValueError(
-                        "Only scalar and spherical targets can appear in "
-                        f"shared_head_groups; target '{target_name}' is unsupported."
-                    )
-
-                if canonical_selector in selector_to_head_key:
-                    existing_head_key = selector_to_head_key[canonical_selector]
-                    if existing_head_key != head_key:
-                        raise ValueError(
-                            "A selector may belong to only one shared_head_groups "
-                            f"entry: {canonical_selector!r}."
-                        )
-                    continue
-
-                selector_to_head_key[canonical_selector] = head_key
-
-        return selector_to_head_key
+        return _validate_shared_head_groups(
+            self.shared_head_groups_config,
+            dataset_info,
+            "Only scalar and spherical targets can appear in shared_head_groups; "
+            "target '{}' is unsupported.",
+            irrep_head_groups_config=self.irrep_head_groups_config,
+            allow_same_group_duplicates=True,
+        )
 
     def _validate_irrep_head_groups_against_dataset(
         self, dataset_info: DatasetInfo
@@ -449,13 +344,6 @@ class EPET(PET):
                 legacy=self.tensor_basis_hypers["legacy"],
                 add_l1_species_dependent_vector=add_l1_species_dependent_vector,
                 l1_species_dependent_vector_soap=l1_species_dependent_vector_soap,
-                add_l1_extra_vector_basis=self.tensor_basis_hypers.get(
-                    "add_l1_extra_vector_basis", False
-                ),
-                l1_extra_vector_basis_soap=self.tensor_basis_hypers.get(
-                    "l1_extra_vector_basis_soap",
-                    self.tensor_basis_hypers["soap"],
-                ),
                 extra_l1_vector_basis_soaps=extra_l1_vector_basis_branches,
             )
 

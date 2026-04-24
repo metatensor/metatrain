@@ -38,25 +38,17 @@ architecture:
       transformer_type: PreLN
       featurizer_type: feedforward
       zbl: false
-      long_range:
-        enable: false
-        use_ewald: false
-        smearing: 1.4
-        kspace_resolution: 1.33
-        interpolation_nodes: 5
     tensor_basis_defaults:
+      # Non-default PET-OMat E-PET basis settings.
       add_lambda_basis: true
       legacy: false
-      add_l1_species_dependent_vector: false
       soap:
-        max_angular: 2
         max_radial: 3
         cutoff:
           radius: 7.5
           width: 0.5
       extra_l1_vector_basis_branches:
-        - max_angular: 2
-          max_radial: 3
+        - max_radial: 3
           cutoff:
             radius: 7.5
             width: 0.5
@@ -66,7 +58,6 @@ architecture:
     learning_rate: 2.0e-4
     warmup_fraction: 0.1
     checkpoint_interval: 10
-    coefficient_l2_weight: 0.0
     basis_gram_weight: 1.0e-3
     log_interval: 1
     scale_targets: true

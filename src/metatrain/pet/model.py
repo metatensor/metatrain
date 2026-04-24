@@ -41,6 +41,107 @@ from .modules.transformer import CartesianTransformer
 AVAILABLE_FEATURIZERS = typing.get_args(ModelHypers.__annotations__["featurizer_type"])
 
 
+def _irrep_key(key: Labels) -> str:
+    return f"{int(key[0])},{int(key[1])}"
+
+
+def _shared_selector(target_name: str, irrep_key: Optional[str] = None) -> str:
+    if irrep_key is None:
+        return target_name
+    return f"{target_name}[{irrep_key}]"
+
+
+def _parse_shared_selector(selector: str) -> Tuple[str, Optional[str]]:
+    if "[" not in selector and "]" not in selector:
+        return selector, None
+    if selector.count("[") != 1 or not selector.endswith("]"):
+        raise ValueError(
+            f"Invalid shared_head_groups selector '{selector}'. Expected "
+            '"target" or "target[o3_lambda,o3_sigma]".'
+        )
+    target_name, irrep_key = selector[:-1].split("[", 1)
+    if target_name == "" or irrep_key == "":
+        raise ValueError(
+            f"Invalid shared_head_groups selector '{selector}'. Expected "
+            '"target" or "target[o3_lambda,o3_sigma]".'
+        )
+    return target_name, irrep_key
+
+
+def _validate_shared_head_groups(
+    shared_head_groups_config: Dict[str, List[str]],
+    dataset_info: DatasetInfo,
+    unsupported_target_message: str,
+    irrep_head_groups_config: Optional[Dict[str, Dict[str, str]]] = None,
+    allow_same_group_duplicates: bool = False,
+) -> Dict[str, str]:
+    if not shared_head_groups_config:
+        return {}
+
+    known_targets = set(dataset_info.targets)
+    selector_to_head_key: Dict[str, str] = {}
+    for group_name, selectors in shared_head_groups_config.items():
+        head_key = f"shared__{group_name}"
+        for selector in selectors:
+            target_name, irrep_key = _parse_shared_selector(selector)
+            if target_name not in known_targets:
+                raise ValueError(
+                    "Unknown targets in shared_head_groups: "
+                    f"{sorted({target_name})}. Known targets are: "
+                    f"{sorted(known_targets)}."
+                )
+
+            target_info = dataset_info.targets[target_name]
+            if target_info.is_scalar:
+                if irrep_key is not None:
+                    raise ValueError(
+                        "Scalar selectors cannot include an irrep suffix in "
+                        f"shared_head_groups: {selector!r}."
+                    )
+                canonical_selector = _shared_selector(target_name)
+            elif target_info.is_spherical:
+                if irrep_key is None:
+                    raise ValueError(
+                        "Spherical selectors in shared_head_groups must include "
+                        f"an explicit irrep suffix: {selector!r}."
+                    )
+                known_irrep_keys = {
+                    _irrep_key(key) for key, _ in target_info.layout.items()
+                }
+                if irrep_key not in known_irrep_keys:
+                    raise ValueError(
+                        f"Unknown irrep key '{irrep_key}' for target "
+                        f"'{target_name}' in shared_head_groups. Known irreps "
+                        f"are: {sorted(known_irrep_keys)}."
+                    )
+                if (
+                    irrep_head_groups_config is not None
+                    and target_name in irrep_head_groups_config
+                    and irrep_key in irrep_head_groups_config[target_name]
+                ):
+                    raise ValueError(
+                        "Spherical selectors cannot appear in both "
+                        "shared_head_groups and irrep_head_groups: "
+                        f"{selector!r}."
+                    )
+                canonical_selector = _shared_selector(target_name, irrep_key)
+            else:
+                raise ValueError(unsupported_target_message.format(target_name))
+
+            if canonical_selector in selector_to_head_key:
+                existing_head_key = selector_to_head_key[canonical_selector]
+                if allow_same_group_duplicates and existing_head_key == head_key:
+                    continue
+                raise ValueError(
+                    "A selector may belong to only one shared_head_groups "
+                    f"entry: {canonical_selector!r}."
+                )
+
+            selector_to_head_key[canonical_selector] = head_key
+
+    return selector_to_head_key
+
+
 class PET(ModelInterface[ModelHypers]):
     """
     Metatrain-native implementation of the PET architecture.
@@ -271,88 +372,25 @@ class PET(ModelInterface[ModelHypers]):
 
     @staticmethod
     def _irrep_key(key: Labels) -> str:
-        return f"{int(key[0])},{int(key[1])}"
+        return _irrep_key(key)
 
     @staticmethod
     def _shared_selector(target_name: str, irrep_key: Optional[str] = None) -> str:
-        if irrep_key is None:
-            return target_name
-        return f"{target_name}[{irrep_key}]"
+        return _shared_selector(target_name, irrep_key)
 
     @staticmethod
     def _parse_shared_selector(selector: str) -> Tuple[str, Optional[str]]:
-        if "[" not in selector and "]" not in selector:
-            return selector, None
-        if selector.count("[") != 1 or not selector.endswith("]"):
-            raise ValueError(
-                f"Invalid shared_head_groups selector '{selector}'. Expected "
-                '"target" or "target[o3_lambda,o3_sigma]".'
-            )
-        target_name, irrep_key = selector[:-1].split("[", 1)
-        if target_name == "" or irrep_key == "":
-            raise ValueError(
-                f"Invalid shared_head_groups selector '{selector}'. Expected "
-                '"target" or "target[o3_lambda,o3_sigma]".'
-            )
-        return target_name, irrep_key
+        return _parse_shared_selector(selector)
 
     def _validate_and_build_shared_head_groups(
         self, dataset_info: DatasetInfo
     ) -> Dict[str, str]:
-        if not self.shared_head_groups_config:
-            return {}
-
-        known_targets = set(dataset_info.targets)
-        selector_to_head_key: Dict[str, str] = {}
-        for group_name, selectors in self.shared_head_groups_config.items():
-            head_key = f"shared__{group_name}"
-            for selector in selectors:
-                target_name, irrep_key = self._parse_shared_selector(selector)
-                if target_name not in known_targets:
-                    raise ValueError(
-                        "Unknown targets in shared_head_groups: "
-                        f"{sorted({target_name})}. Known targets are: "
-                        f"{sorted(known_targets)}."
-                    )
-
-                target_info = dataset_info.targets[target_name]
-                if target_info.is_scalar:
-                    if irrep_key is not None:
-                        raise ValueError(
-                            "Scalar selectors cannot include an irrep suffix in "
-                            f"shared_head_groups: {selector!r}."
-                        )
-                    canonical_selector = self._shared_selector(target_name)
-                elif target_info.is_spherical:
-                    if irrep_key is None:
-                        raise ValueError(
-                            "Spherical selectors in shared_head_groups must include "
-                            f"an explicit irrep suffix: {selector!r}."
-                        )
-                    known_irrep_keys = {
-                        self._irrep_key(key) for key, _ in target_info.layout.items()
-                    }
-                    if irrep_key not in known_irrep_keys:
-                        raise ValueError(
-                            f"Unknown irrep key '{irrep_key}' for target "
-                            f"'{target_name}' in shared_head_groups. Known irreps "
-                            f"are: {sorted(known_irrep_keys)}."
-                        )
-                    canonical_selector = self._shared_selector(target_name, irrep_key)
-                else:
-                    raise ValueError(
-                        "shared_head_groups supports only scalar and spherical "
-                        f"targets; target '{target_name}' is unsupported."
-                    )
-
-                if canonical_selector in selector_to_head_key:
-                    raise ValueError(
-                        "A selector may belong to only one shared_head_groups "
-                        f"entry: {canonical_selector!r}."
-                    )
-                selector_to_head_key[canonical_selector] = head_key
-
-        return selector_to_head_key
+        return _validate_shared_head_groups(
+            self.shared_head_groups_config,
+            dataset_info,
+            "shared_head_groups supports only scalar and spherical "
+            "targets; target '{}' is unsupported.",
+        )
 
     def restart(self, dataset_info: DatasetInfo) -> "PET":
         # merge old and new dataset info

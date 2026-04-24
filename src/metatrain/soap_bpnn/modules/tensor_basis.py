@@ -1,7 +1,7 @@
 """Modules to allow SOAP-BPNN to fit arbitrary spherical tensor targets."""
 
 import copy
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, cast
 
 import metatensor.torch as mts
 import numpy as np
@@ -12,11 +12,18 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.learn.nn import Linear as LinearMap
 from spex import SphericalExpansion
 
-from ..documentation import SOAPConfig
+from ..documentation import SOAPCutoffConfig
+
+
+class TensorBasisExpansionConfig(TypedDict):
+    """Spherical-expansion settings used by tensor-basis modules."""
+
+    max_radial: int
+    cutoff: SOAPCutoffConfig
 
 
 def _build_spex_hypers(
-    soap_hypers: SOAPConfig,
+    soap_hypers: TensorBasisExpansionConfig,
     max_angular: int,
     atomic_types: List[int],
     legacy: bool,
@@ -183,7 +190,7 @@ class VectorBasis(torch.nn.Module):
     def __init__(
         self,
         atomic_types: List[int],
-        soap_hypers: SOAPConfig,
+        soap_hypers: TensorBasisExpansionConfig,
         legacy: bool,
     ) -> None:
         super().__init__()
@@ -362,7 +369,7 @@ class LambdaBasis(torch.nn.Module):
     def __init__(
         self,
         atomic_types: List[int],
-        soap_hypers: SOAPConfig,
+        soap_hypers: TensorBasisExpansionConfig,
         o3_lambda: int,
         legacy: bool,
     ) -> None:
@@ -526,7 +533,7 @@ class SpeciesDependentVectorBasis(torch.nn.Module):
     def __init__(
         self,
         atomic_types: List[int],
-        soap_hypers: SOAPConfig,
+        soap_hypers: TensorBasisExpansionConfig,
         legacy: bool,
     ) -> None:
         super().__init__()
@@ -701,16 +708,14 @@ class TensorBasis(torch.nn.Module):
     def __init__(
         self,
         atomic_types: List[int],
-        soap_hypers: SOAPConfig,
+        soap_hypers: TensorBasisExpansionConfig,
         o3_lambda: int,
         o3_sigma: int,
         add_lambda_basis: bool,
         legacy: bool,
         add_l1_species_dependent_vector: bool = False,
-        l1_species_dependent_vector_soap: Optional[SOAPConfig] = None,
-        add_l1_extra_vector_basis: bool = False,
-        l1_extra_vector_basis_soap: Optional[SOAPConfig] = None,
-        extra_l1_vector_basis_soaps: Optional[List[SOAPConfig]] = None,
+        l1_species_dependent_vector_soap: Optional[TensorBasisExpansionConfig] = None,
+        extra_l1_vector_basis_soaps: Optional[List[TensorBasisExpansionConfig]] = None,
     ) -> None:
         super().__init__()
 
@@ -726,16 +731,7 @@ class TensorBasis(torch.nn.Module):
             self.vector_basis = FakeVectorBasis()  # needed to make torchscript work
 
         if extra_l1_vector_basis_soaps is None:
-            if add_l1_extra_vector_basis:
-                extra_l1_vector_basis_soaps = [
-                    copy.deepcopy(
-                        l1_extra_vector_basis_soap
-                        if l1_extra_vector_basis_soap is not None
-                        else soap_hypers
-                    )
-                ]
-            else:
-                extra_l1_vector_basis_soaps = []
+            extra_l1_vector_basis_soaps = []
         self.extra_l1_vector_bases = torch.nn.ModuleList()
         if self.o3_lambda == 1 and self.o3_sigma == 1:
             for extra_soap_hypers in extra_l1_vector_basis_soaps:
@@ -752,7 +748,7 @@ class TensorBasis(torch.nn.Module):
         if self.add_l1_species_dependent_vector:
             self.l1_species_dependent_vector_basis = SpeciesDependentVectorBasis(
                 atomic_types,
-                cast(SOAPConfig, l1_species_dependent_vector_soap),
+                cast(TensorBasisExpansionConfig, l1_species_dependent_vector_soap),
                 legacy,
             )
         else:

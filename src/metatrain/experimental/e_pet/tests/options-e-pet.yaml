@@ -18,14 +18,12 @@ architecture:
       featurizer_type: residual
     tensor_basis_defaults:
       soap:
-        max_angular: 2
         max_radial: 1
         cutoff:
           radius: 3.0
           width: 0.5
       extra_l1_vector_basis_branches:
-        - max_angular: 2
-          max_radial: 1
+        - max_radial: 1
           cutoff:
             radius: 3.0
             width: 0.5
