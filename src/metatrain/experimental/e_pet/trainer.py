@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Literal, Optional, Union, cast
 import torch
 
 from metatrain.pet.trainer import Trainer as PETTrainer
-from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import Dataset
 from metatrain.utils.data import unpack_batch
 from metatrain.utils.data.atomic_basis_helpers import (
@@ -17,7 +16,6 @@ from metatrain.utils.data.atomic_basis_helpers import (
 from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.loss import LossAggregator, LossSpecification
-from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.training_diagnostics import (
     assert_finite_loss,
@@ -117,6 +115,19 @@ class Trainer(PETTrainer):
             )
         return torch.optim.Adam(param_groups, lr=base_lr)
 
+    def _load_restart_state(
+        self,
+        model: EPET,
+        optimizer: torch.optim.Optimizer,
+        lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
+    ) -> None:
+        if getattr(model, "has_new_targets", False):
+            return
+        if self.optimizer_state_dict is not None:
+            optimizer.load_state_dict(self.optimizer_state_dict)
+        if self.scheduler_state_dict is not None:
+            lr_scheduler.load_state_dict(self.scheduler_state_dict)
+
     def train(
         self,
         model: EPET,
@@ -163,7 +174,6 @@ class Trainer(PETTrainer):
             get_num_workers,
             validate_num_workers,
         )
-        from metatrain.utils.io import check_file_extension
         from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
         from metatrain.utils.metrics import (
             MAEAccumulator,
@@ -182,6 +192,7 @@ class Trainer(PETTrainer):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
+        logging.info("Calculating composition weights")
         model.additive_models[0].train_model(
             train_datasets,
             model.additive_models[1:],
@@ -190,6 +201,7 @@ class Trainer(PETTrainer):
             self.hypers["atomic_baseline"],
         )
         if self.hypers["scale_targets"]:
+            logging.info("Calculating scaling weights")
             model.scaler.train_model(
                 train_datasets,
                 model.additive_models,
@@ -245,12 +257,23 @@ class Trainer(PETTrainer):
 
         if self.hypers["num_workers"] is None:
             num_workers = get_num_workers()
+            logging.info(
+                "Number of workers for data-loading not provided and chosen "
+                f"automatically. Using {num_workers} workers."
+            )
         else:
             num_workers = self.hypers["num_workers"]
             validate_num_workers(num_workers)
 
         train_dataloaders = []
         for train_dataset in train_datasets:
+            if len(train_dataset) < self.hypers["batch_size"]:
+                raise ValueError(
+                    f"A training dataset has fewer samples "
+                    f"({len(train_dataset)}) than the batch size "
+                    f"({self.hypers['batch_size']}). "
+                    "Please reduce the batch size."
+                )
             train_dataloaders.append(
                 DataLoader(
                     dataset=train_dataset,
@@ -279,14 +302,28 @@ class Trainer(PETTrainer):
 
         loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])
         loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
+        logging.info("Using the following loss functions:")
+        for name, info in loss_fn.metadata.items():
+            logging.info(f"{name}:")
+            main = {k: v for k, v in info.items() if k != "gradients"}
+            logging.info(main)
+            if "gradients" not in info or len(info["gradients"]) == 0:
+                continue
+            logging.info("With gradients:")
+            for grad, ginfo in info["gradients"].items():
+                logging.info(f"\t{name}::{grad}: {ginfo}")
 
         optimizer = self._build_optimizer(model)
         lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
+        self._load_restart_state(model, optimizer, lr_scheduler)
 
         per_structure_targets = self.hypers["per_structure_targets"]
+        logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
         start_epoch = 0 if self.epoch is None else self.epoch + 1
         if self.best_metric is None:
             self.best_metric = float("inf")
+        logging.info("Starting training")
+        epoch = start_epoch
 
         metric_logger = None
         for epoch in range(start_epoch, self.hypers["num_epochs"]):

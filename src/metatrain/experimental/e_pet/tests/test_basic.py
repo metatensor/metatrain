@@ -1,11 +1,17 @@
 import copy
 import warnings
+from pathlib import Path
 
 import pytest
 import torch
+from omegaconf import OmegaConf
 
-from metatrain.utils.architectures import get_default_hypers
+from metatrain.utils.architectures import check_architecture_options, get_default_hypers
+from metatrain.utils.pydantic import MetatrainValidationError
 from metatrain.utils.testing import ExportedTests, InputTests, TrainingTests
+
+
+REPO_ROOT = Path(__file__).parents[5]
 
 
 def _minimal_model_hypers() -> dict:
@@ -21,7 +27,6 @@ def _minimal_model_hypers() -> dict:
     hypers["pet"]["num_gnn_layers"] = 1
     hypers["pet"]["activation"] = "SiLU"
     hypers["pet"]["featurizer_type"] = "residual"
-    hypers["tensor_basis_defaults"]["soap"]["max_angular"] = 2
     hypers["tensor_basis_defaults"]["soap"]["max_radial"] = 1
     hypers["tensor_basis_defaults"]["soap"]["cutoff"]["radius"] = 3.0
     hypers["tensor_basis_defaults"]["soap"]["cutoff"]["width"] = 0.5
@@ -80,3 +85,44 @@ class TestExported(EPETArchitectureTests, ExportedTests):
 
 class TestTraining(EPETArchitectureTests, TrainingTests):
     pass
+
+
+def _validate_architecture_options_file(path: Path) -> None:
+    options = OmegaConf.load(path)
+    architecture_name = options.architecture.name
+    merged = OmegaConf.merge(
+        {"architecture": get_default_hypers(architecture_name)}, options
+    )
+    architecture_options = OmegaConf.to_container(
+        merged["architecture"], resolve=True
+    )
+    check_architecture_options(architecture_name, architecture_options)
+
+
+def test_e_pet_tensor_basis_options_do_not_expose_max_angular() -> None:
+    hypers = get_default_hypers("experimental.e_pet")
+
+    assert "max_angular" not in hypers["model"]["tensor_basis_defaults"]["soap"]
+    assert (
+        "max_angular"
+        not in hypers["model"]["tensor_basis_defaults"][
+            "extra_l1_vector_basis_branches"
+        ][0]
+    )
+
+
+def test_e_pet_option_files_validate_without_tensor_basis_max_angular() -> None:
+    _validate_architecture_options_file(
+        REPO_ROOT / "examples/1-advanced/options-e-pet-pet-omat-xs32.yaml"
+    )
+    _validate_architecture_options_file(
+        REPO_ROOT / "src/metatrain/experimental/e_pet/tests/options-e-pet.yaml"
+    )
+
+
+def test_e_pet_tensor_basis_rejects_max_angular() -> None:
+    hypers = copy.deepcopy(get_default_hypers("experimental.e_pet"))
+    hypers["model"]["tensor_basis_defaults"]["soap"]["max_angular"] = 2
+
+    with pytest.raises(MetatrainValidationError, match="max_angular"):
+        check_architecture_options("experimental.e_pet", hypers)

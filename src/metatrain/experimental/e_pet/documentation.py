@@ -17,6 +17,7 @@ Additional outputs
 ------------------
 
 - ``features``: the shared PET backbone features.
+- ``mtt::features::{path}``: opt-in diagnostic captures from internal PET tensors.
 - :ref:`mtt-aux-target-last-layer-features`: target-local head features before the
   final block-specific linear projections.
 
@@ -30,7 +31,11 @@ with the following definitions needed to fully understand some of the parameters
     :members:
     :undoc-members:
 
-.. autoclass:: metatrain.soap_bpnn.documentation.SOAPConfig
+.. autoclass:: {{architecture_path}}.documentation.TensorBasisSOAPConfig
+    :members:
+    :undoc-members:
+
+.. autoclass:: metatrain.soap_bpnn.documentation.SOAPCutoffConfig
     :members:
     :undoc-members:
 """
@@ -43,21 +48,35 @@ from metatrain.pet.documentation import (
     ModelHypers as PETModelHypers,
     TrainerHypers as PETTrainerHypers,
 )
-from metatrain.soap_bpnn.documentation import SOAPConfig
+from metatrain.soap_bpnn.documentation import SOAPCutoffConfig
 from metatrain.utils.hypers import init_with_defaults
+
+
+class TensorBasisSOAPConfig(TypedDict):
+    """SOAP-like settings read by the E-PET tensor-basis calculators."""
+
+    max_radial: int = 7
+    """Maximum number of radial channels used by the spherical expansion."""
+
+    cutoff: SOAPCutoffConfig = init_with_defaults(SOAPCutoffConfig)
+    """Radial cutoff configuration for the tensor-basis spherical expansion."""
 
 
 class TensorBasisDefaults(TypedDict):
     """Default tensor-basis settings used for spherical targets."""
 
-    soap: SOAPConfig = init_with_defaults(SOAPConfig)
-    """SOAP descriptor configuration for the tensor basis."""
+    soap: TensorBasisSOAPConfig = init_with_defaults(TensorBasisSOAPConfig)
+    """Spherical-expansion configuration for the tensor basis.
+
+    The angular order is inferred from each target block's ``o3_lambda``. There is
+    no separate ``max_angular`` / ``max_lambda`` setting for the lambda basis.
+    """
 
     add_lambda_basis: bool = True
     """Whether to append a same-``lambda`` basis branch for tensorial targets."""
 
-    extra_l1_vector_basis_branches: list[SOAPConfig] = [
-        init_with_defaults(SOAPConfig)
+    extra_l1_vector_basis_branches: list[TensorBasisSOAPConfig] = [
+        init_with_defaults(TensorBasisSOAPConfig)
     ]
     """Additional proper ``l=1`` vector-basis branches.
 
@@ -68,7 +87,9 @@ class TensorBasisDefaults(TypedDict):
     add_l1_species_dependent_vector: bool = False
     """Whether to append one species-dependent proper ``l=1`` vector branch."""
 
-    l1_species_dependent_vector_soap: SOAPConfig = init_with_defaults(SOAPConfig)
+    l1_species_dependent_vector_soap: TensorBasisSOAPConfig = init_with_defaults(
+        TensorBasisSOAPConfig
+    )
     """SOAP configuration for the optional species-dependent ``l=1`` branch."""
 
     legacy: bool = True

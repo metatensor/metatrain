@@ -27,7 +27,6 @@ def _base_model_hypers() -> dict:
     hypers["pet"]["num_gnn_layers"] = 1
     hypers["pet"]["activation"] = "SiLU"
     hypers["pet"]["featurizer_type"] = "residual"
-    hypers["tensor_basis_defaults"]["soap"]["max_angular"] = 2
     hypers["tensor_basis_defaults"]["soap"]["max_radial"] = 1
     hypers["tensor_basis_defaults"]["soap"]["cutoff"]["radius"] = 3.0
     hypers["tensor_basis_defaults"]["soap"]["cutoff"]["width"] = 0.5

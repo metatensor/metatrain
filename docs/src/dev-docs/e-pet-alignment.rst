@@ -19,7 +19,9 @@ Retained suite surface
 - ``metatrain.experimental.e_pet``:
   the E-PET model, trainer, defaults, and tests.
 - ``metatrain.soap_bpnn.modules.tensor_basis``:
-  the tensor-basis extensions required by E-PET.
+  the tensor-basis extensions required by E-PET. E-PET tensor-basis angular
+  order is target-derived from each block's ``o3_lambda``; there is no
+  E-PET-specific ``max_angular`` or ``max_lambda`` option.
 - ``metatrain.pet`` diagnostic compatibility:
   opt-in ``mtt::features::{path}`` captures, plus the existing
   ``features`` and ``mtt::aux::{target}_last_layer_features`` outputs.
