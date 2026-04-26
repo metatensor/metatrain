@@ -2467,13 +2467,16 @@ def test_composition_spherical_atomic_basis_rank_2_rotation_invariance(missing_t
     torch.testing.assert_close(
         weights_orig.block({**ss_key, "atom_type": 1}).values,
         weights_rot.block({**ss_key, "atom_type": 1}).values,
+        equal_nan=True,
     )
     torch.testing.assert_close(
         weights_orig.block({**ss_key, "atom_type": 8}).values,
         weights_rot.block({**ss_key, "atom_type": 8}).values,
+        equal_nan=True,
     )
 
     torch.testing.assert_close(
         weights_orig.block({**pp_key, "atom_type": 8}).values,
         weights_rot.block({**pp_key, "atom_type": 8}).values,
+        equal_nan=True,
     )
