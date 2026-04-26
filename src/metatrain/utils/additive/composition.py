@@ -464,7 +464,7 @@ class CompositionModel(torch.nn.Module):
                 if len(target_info.layout.blocks({"o3_lambda": 0, "o3_sigma": 1})) == 0:
                     # No invariant blocks
                     logging.debug(
-                        "Composition model does not support spherical"
+                        "Composition model does not support spherical "
                         f"target {target_name} since it does not have "
                         "any invariant blocks."
                     )
