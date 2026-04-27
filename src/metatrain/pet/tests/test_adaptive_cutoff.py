@@ -239,6 +239,116 @@ def test_adaptive_cutoff_isolated_atom():
     _ = model([system], outputs)
 
 
+def _make_two_carbon_systems(model):
+    system_a = System(
+        types=torch.tensor([6, 6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.2, 0.0, 0.0], [0.0, 1.2, 0.0]]),
+        cell=torch.eye(3) * 8.0,
+        pbc=torch.tensor([True, True, True]),
+    )
+    system_b = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.4]]),
+        cell=torch.eye(3) * 8.0,
+        pbc=torch.tensor([True, True, True]),
+    )
+    nls = model.requested_neighbor_lists()
+    system_a = get_system_with_neighbor_lists(system_a, nls)
+    system_b = get_system_with_neighbor_lists(system_b, nls)
+    return [system_a, system_b]
+
+
+def test_get_last_adaptive_stats_adaptive():
+    """In adaptive mode, get_last_adaptive_stats should return per-atom arrays
+    of cutoffs (detached) and neighbor counts plus per-atom system indices."""
+    torch.manual_seed(0)
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = 8
+    hypers["cutoff"] = 5.0
+    model = PET(hypers, dataset_info)
+
+    systems = _make_two_carbon_systems(model)
+    n_atoms_total = sum(int(s.positions.shape[0]) for s in systems)
+
+    # Make positions require grad to confirm the cutoffs are detached.
+    for s in systems:
+        s.positions.requires_grad_(True)
+
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    _ = model(systems, outputs)
+
+    stats = model.get_last_adaptive_stats()
+    assert set(stats.keys()) == {"atomic_cutoffs", "num_neighbors", "system_indices"}
+
+    atomic_cutoffs = stats["atomic_cutoffs"]
+    num_neighbors = stats["num_neighbors"]
+    system_indices = stats["system_indices"]
+
+    assert atomic_cutoffs.shape == (n_atoms_total,)
+    assert num_neighbors.shape == (n_atoms_total,)
+    assert system_indices.shape == (n_atoms_total,)
+
+    assert num_neighbors.dtype == torch.long
+    assert system_indices.dtype == torch.long
+
+    assert torch.all(atomic_cutoffs >= 0.0)
+    assert torch.all(atomic_cutoffs <= float(hypers["cutoff"]) + 1e-6)
+    assert torch.all(num_neighbors >= 0)
+    assert int(num_neighbors.sum()) > 0
+
+    # Per-atom system indices should match the batch composition.
+    expected_system_indices = torch.cat(
+        [
+            torch.full((int(s.positions.shape[0]),), i, dtype=torch.long)
+            for i, s in enumerate(systems)
+        ]
+    )
+    assert torch.equal(system_indices, expected_system_indices)
+
+    # The cutoffs must be detached from the autograd graph.
+    assert not atomic_cutoffs.requires_grad
+
+
+def test_get_last_adaptive_stats_non_adaptive():
+    """In non-adaptive mode, atomic_cutoffs should be empty while neighbor
+    counts and system indices remain populated."""
+    torch.manual_seed(0)
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = None
+    hypers["cutoff"] = 5.0
+    model = PET(hypers, dataset_info)
+
+    systems = _make_two_carbon_systems(model)
+    n_atoms_total = sum(int(s.positions.shape[0]) for s in systems)
+
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    _ = model(systems, outputs)
+
+    stats = model.get_last_adaptive_stats()
+    assert stats["atomic_cutoffs"].numel() == 0
+    assert stats["num_neighbors"].shape == (n_atoms_total,)
+    assert stats["system_indices"].shape == (n_atoms_total,)
+    assert int(stats["num_neighbors"].sum()) > 0
+
+
 @pytest.mark.parametrize("cutoff", [10.0, 5.0])
 def test_adaptive_cutoff_dissociated_atoms(cutoff):
     """Tests that the model can predict energies for an isolated atom
