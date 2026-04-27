@@ -479,6 +479,11 @@ class PET(ModelInterface[ModelHypers]):
                 self.cutoff_function,
                 self.cutoff_width,
                 self.num_neighbors_adaptive,
+                # Pin the adaptive routine's probe-grid upper bound to the
+                # training cutoff. Decouples it from ``nl_options.cutoff`` so
+                # callers can shrink the requested neighbor list without
+                # changing the probe discretization.
+                self.cutoff,
             )
 
             # Stash diagnostics from the most recent batch (already detached

@@ -110,6 +110,7 @@ def systems_to_batch(
     cutoff_function: str,
     cutoff_width: float,
     num_neighbors_adaptive: Optional[float] = None,
+    max_cutoff: Optional[float] = None,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -136,6 +137,11 @@ def systems_to_batch(
     :param num_neighbors_adaptive: Optional maximum number of neighbors per atom.
         If provided, the adaptive cutoff scheme will be used for each atom to
         approximately select this number of neighbors.
+    :param max_cutoff: Optional upper bound for the adaptive routine's probe
+        grid. Decoupled from ``options.cutoff`` so callers can ask the host
+        engine for a smaller neighbor list (saving compute) without changing
+        the probe-grid discretization the network was trained against. If
+        ``None``, falls back to ``options.cutoff`` for backwards compatibility.
     :return: A tuple containing the batch tensors.
         The batch consists of the following tensors:
         - `element_indices_nodes`: The atomic species of the central atoms
@@ -183,6 +189,10 @@ def systems_to_batch(
     num_nodes = len(positions)
 
     if num_neighbors_adaptive is not None:
+        # The probe-grid upper bound is a model-internal hyperparameter (it
+        # determines the discretization the network was trained against) and
+        # is intentionally separate from the host neighbor-list cutoff.
+        adaptive_max_cutoff = options.cutoff if max_cutoff is None else max_cutoff
         with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
             # Adaptive cutoff scheme to approximately select `num_neighbors_adaptive`
             # neighbors for each atom
@@ -191,7 +201,7 @@ def systems_to_batch(
                 edge_distances,
                 num_neighbors_adaptive,
                 num_nodes,
-                options.cutoff,
+                adaptive_max_cutoff,
                 cutoff_width=cutoff_width,
             )
             atomic_cutoffs_stats = atomic_cutoffs.detach()
