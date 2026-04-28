@@ -25,6 +25,7 @@ def get_adaptive_cutoffs(
     cutoff_width: float = DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH,
     probe_spacing: Optional[float] = None,
     weight_width: Optional[float] = None,
+    nl_cutoff: Optional[float] = None,
 ) -> torch.Tensor:
     """
     Computes the adaptive cutoff values for each center atom.
@@ -40,6 +41,12 @@ def get_adaptive_cutoffs(
         automatically determined from the cutoff width.
     :param weight_width: Width of the cutoff selection weight function. If None, it
         will be automatically determined from the empirical neighbor counts.
+    :param nl_cutoff: Optional smooth-taper distance applied to each edge's
+        contribution to the probe-neighbor counts. Use this when the host
+        neighbor list is tighter than ``max_cutoff`` so that an edge whose
+        distance crosses ``nl_cutoff`` in MD has its contribution to every
+        probe go to zero continuously, removing the discontinuity that would
+        otherwise be caused by the edge appearing/disappearing from the NL.
     :return: Adapted cutoff distances for each center atom.
     """
 
@@ -61,6 +68,7 @@ def get_adaptive_cutoffs(
             centers,
             num_nodes,
             width=cutoff_width,
+            nl_cutoff=nl_cutoff,
         )
 
     with torch.profiler.record_function("PET::get_cutoff_weights"):
@@ -80,6 +88,7 @@ def get_effective_num_neighbors(
     centers: torch.Tensor,
     num_nodes: int,
     width: float = DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH,
+    nl_cutoff: Optional[float] = None,
 ) -> torch.Tensor:
     """
     Computes the effective number of neighbors for each probe cutoff.
@@ -89,12 +98,23 @@ def get_effective_num_neighbors(
     :param centers: Indices of the center atoms.
     :param num_nodes: Total number of center atoms.
     :param width: Width of the cutoff function.
+    :param nl_cutoff: Optional smooth-taper distance applied to each edge.
+        When provided, each edge's contribution to every probe is multiplied
+        by ``cutoff_func(d, nl_cutoff, width)`` so an edge whose distance
+        crosses ``nl_cutoff`` (e.g. enters/leaves the host neighbor list in
+        MD) has its contribution to every probe go to zero continuously.
     :return: Effective number of neighbors for each center atom and probe cutoff.
     """
 
     weights = cutoff_func(
         edge_distances.unsqueeze(0), probe_cutoffs.unsqueeze(1), width
     )
+
+    if nl_cutoff is not None:
+        # Scalar tensor matching edge_distances dtype/device.
+        nl_cutoff_t = edge_distances.new_full((), nl_cutoff)
+        nl_taper = cutoff_func(edge_distances, nl_cutoff_t, width)
+        weights = weights * nl_taper.unsqueeze(0)
 
     probe_num_neighbors = torch.zeros(
         (len(probe_cutoffs), num_nodes),

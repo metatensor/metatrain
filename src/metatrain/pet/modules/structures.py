@@ -193,6 +193,13 @@ def systems_to_batch(
         # determines the discretization the network was trained against) and
         # is intentionally separate from the host neighbor-list cutoff.
         adaptive_max_cutoff = options.cutoff if max_cutoff is None else max_cutoff
+        # When the host NL is tighter than the model's training cutoff, smooth
+        # each edge's contribution to the probe-neighbor counts at the NL
+        # boundary. Otherwise (default behavior), don't taper so the model
+        # matches its trained inputs bit-exact.
+        nl_cutoff_for_taper: Optional[float] = None
+        if max_cutoff is not None and options.cutoff + 1e-9 < max_cutoff:
+            nl_cutoff_for_taper = options.cutoff
         with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
             # Adaptive cutoff scheme to approximately select `num_neighbors_adaptive`
             # neighbors for each atom
@@ -203,6 +210,7 @@ def systems_to_batch(
                 num_nodes,
                 adaptive_max_cutoff,
                 cutoff_width=cutoff_width,
+                nl_cutoff=nl_cutoff_for_taper,
             )
             atomic_cutoffs_stats = atomic_cutoffs.detach()
             # Symmetrize the cutoffs between pairs of atoms (PET needs this symmetry
@@ -243,6 +251,25 @@ def systems_to_batch(
             f"Unknown cutoff function type: {cutoff_function}. "
             f"Supported types are 'Cosine' and 'Bump'."
         )
+
+    # When the host neighbor list is tighter than the model's training cutoff,
+    # also taper the per-edge cutoff factor at the NL boundary. Without this,
+    # an edge whose pair_cutoff exceeds R_nl contributes with factor ≈ 1 in
+    # the GNN at d ≈ R_nl from inside, then disappears entirely just outside —
+    # i.e. an O(1) discontinuity. The taper drives its GNN weight smoothly to
+    # zero as d → R_nl, so the edge appears/disappears continuously. At default
+    # (no override) this branch is skipped, leaving trained behavior bit-exact.
+    if (
+        num_neighbors_adaptive is not None
+        and max_cutoff is not None
+        and options.cutoff + 1e-9 < max_cutoff
+    ):
+        nl_cutoff_t = edge_distances.new_full((), options.cutoff)
+        if cutoff_function.lower() == "bump":
+            nl_factors = cutoff_func_bump(edge_distances, nl_cutoff_t, cutoff_width)
+        else:
+            nl_factors = cutoff_func_cosine(edge_distances, nl_cutoff_t, cutoff_width)
+        cutoff_factors = cutoff_factors * nl_factors
 
     # Convert to NEF (Node-Edge-Feature) format:
     nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
