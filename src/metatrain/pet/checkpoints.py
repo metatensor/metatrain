@@ -306,6 +306,34 @@ def model_update_v11_v12(checkpoint: dict) -> None:
             checkpoint[key] = new_state_dict
 
 
+def model_update_v12_v13(checkpoint: dict) -> None:
+    """
+    Update a v12 checkpoint to v13.
+
+    Renames the spin-related entries from the short ``spin`` form to the
+    canonical ``spin_multiplicity`` form to match the metatomic standard
+    quantity name. Affects both the model hyperparameters and the
+    state-dict tensor paths inside ``system_conditioning``.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    hypers = checkpoint["model_data"]["model_hypers"]
+    if "max_spin" in hypers and "max_spin_multiplicity" not in hypers:
+        hypers["max_spin_multiplicity"] = hypers.pop("max_spin")
+
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if k.startswith("system_conditioning.spin_embedding."):
+                    k = k.replace(
+                        "system_conditioning.spin_embedding.",
+                        "system_conditioning.spin_multiplicity_embedding.",
+                    )
+                new_state_dict[k] = v
+            checkpoint[key] = new_state_dict
+
+
 ###########################
 # TRAINER #################
 ###########################

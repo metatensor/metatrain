@@ -973,7 +973,9 @@ def test_memmap_extra_data_multiple_keys(tmp_path):
     """Multiple extra_data keys are all loaded and accessible."""
     target_options, _ = _write_minimal_memmap(tmp_path)
     np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
-    np.array([4.0, 5.0, 6.0], dtype="float32").tofile(tmp_path / "spin.bin")
+    np.array([4.0, 5.0, 6.0], dtype="float32").tofile(
+        tmp_path / "spin_multiplicity.bin"
+    )
 
     extra_data_options = {
         "charge": {
@@ -983,8 +985,8 @@ def test_memmap_extra_data_multiple_keys(tmp_path):
             "num_subtargets": 1,
             "quantity": "",
         },
-        "spin": {
-            "key": "spin",
+        "spin_multiplicity": {
+            "key": "spin_multiplicity",
             "type": "scalar",
             "per_atom": False,
             "num_subtargets": 1,
@@ -996,7 +998,7 @@ def test_memmap_extra_data_multiple_keys(tmp_path):
     sample = dataset[1]
     fields = sample._asdict()
     assert fields["charge"].block().values.item() == pytest.approx(2.0)
-    assert fields["spin"].block().values.item() == pytest.approx(5.0)
+    assert fields["spin_multiplicity"].block().values.item() == pytest.approx(5.0)
 
 
 def test_memmap_extra_data_overlapping_key_raises(tmp_path):

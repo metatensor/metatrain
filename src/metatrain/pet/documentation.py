@@ -163,9 +163,9 @@ class ModelHypers(TypedDict):
     max_charge: int = 10
     """Maximum absolute charge for the conditioning embedding table. Supports
     charges in the range ``[-max_charge, +max_charge]``."""
-    max_spin: int = 10
+    max_spin_multiplicity: int = 10
     """Maximum spin multiplicity (2S+1) for the conditioning embedding table.
-    Supports values in the range ``[1, max_spin]``."""
+    Supports values in the range ``[1, max_spin_multiplicity]``."""
 
 
 class TrainerHypers(TypedDict):

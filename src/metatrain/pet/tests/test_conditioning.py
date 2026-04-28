@@ -61,8 +61,8 @@ def _make_scalar_tmap(value: int, property_name: str = "value") -> TensorMap:
     )
 
 
-def _make_system(model, charge=None, spin=None):
-    """Create a simple 2-atom system with optional charge/spin."""
+def _make_system(model, charge=None, spin_multiplicity=None):
+    """Create a simple 2-atom system with optional charge/spin_multiplicity."""
     system = System(
         types=torch.tensor([6, 1]),
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
@@ -71,21 +71,26 @@ def _make_system(model, charge=None, spin=None):
     )
     if charge is not None:
         system.add_data("charge", _make_scalar_tmap(charge, "charge"))
-    if spin is not None:
-        system.add_data("spin", _make_scalar_tmap(spin, "spin"))
+    if spin_multiplicity is not None:
+        system.add_data(
+            "spin_multiplicity",
+            _make_scalar_tmap(spin_multiplicity, "spin_multiplicity"),
+        )
     return get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
 
 def test_conditioning_shapes():
     """SystemConditioningEmbedding produces [n_atoms, d_out]."""
     d_out = 16
-    module = SystemConditioningEmbedding(d_out=d_out, max_charge=5, max_spin=5)
+    module = SystemConditioningEmbedding(
+        d_out=d_out, max_charge=5, max_spin_multiplicity=5
+    )
 
     charge = torch.tensor([0, 2])  # 2 systems
-    spin = torch.tensor([1, 3])  # 2 systems
+    spin_multiplicity = torch.tensor([1, 3])  # 2 systems
     system_indices = torch.tensor([0, 0, 0, 1, 1])  # 5 atoms total
 
-    out = module(charge, spin, system_indices)
+    out = module(charge, spin_multiplicity, system_indices)
     assert out.shape == (5, d_out)
     assert out.dtype == torch.float32
 
@@ -96,7 +101,7 @@ def test_conditioning_different_d_node_d_pet():
     model = PET(hypers, _dataset_info())
     model.eval()
 
-    system = _make_system(model, charge=1, spin=2)
+    system = _make_system(model, charge=1, spin_multiplicity=2)
     outputs = {"energy": ModelOutput(per_atom=False)}
     with torch.no_grad():
         result = model([system], outputs)
@@ -108,7 +113,7 @@ def _train_steps(model, n_steps=20):
     torch.manual_seed(42)
     model.train()
     for _ in range(n_steps):
-        system = _make_system(model, charge=2, spin=3)
+        system = _make_system(model, charge=2, spin_multiplicity=3)
         outputs = {"energy": ModelOutput(per_atom=False)}
         result = model([system], outputs)
         loss = result["energy"].block().values.sum()
@@ -127,8 +132,8 @@ def test_conditioning_changes_output():
     model = PET(hypers, _dataset_info())
     _train_steps(model)
 
-    system_neutral = _make_system(model, charge=0, spin=1)
-    system_charged = _make_system(model, charge=2, spin=1)
+    system_neutral = _make_system(model, charge=0, spin_multiplicity=1)
+    system_charged = _make_system(model, charge=2, spin_multiplicity=1)
 
     outputs = {"energy": ModelOutput(per_atom=False)}
     with torch.no_grad():
@@ -160,18 +165,18 @@ def test_conditioning_disabled_unchanged():
 
 def test_conditioning_gradients_flow():
     """Gradients should flow through the conditioning embeddings."""
-    module = SystemConditioningEmbedding(d_out=8, max_charge=5, max_spin=5)
+    module = SystemConditioningEmbedding(d_out=8, max_charge=5, max_spin_multiplicity=5)
 
     charge = torch.tensor([1])
-    spin = torch.tensor([2])
+    spin_multiplicity = torch.tensor([2])
     system_indices = torch.tensor([0, 0])
 
-    out = module(charge, spin, system_indices)
+    out = module(charge, spin_multiplicity, system_indices)
     loss = out.sum()
     loss.backward()
 
     assert module.charge_embedding.weight.grad is not None
-    assert module.spin_embedding.weight.grad is not None
+    assert module.spin_multiplicity_embedding.weight.grad is not None
     assert module.project[0].weight.grad is not None
 
 
@@ -181,9 +186,9 @@ def test_conditioning_batch_independence():
     model = PET(hypers, _dataset_info())
     _train_steps(model)
 
-    system_a = _make_system(model, charge=0, spin=1)
-    system_b_v1 = _make_system(model, charge=1, spin=1)
-    system_b_v2 = _make_system(model, charge=3, spin=2)
+    system_a = _make_system(model, charge=0, spin_multiplicity=1)
+    system_b_v1 = _make_system(model, charge=1, spin_multiplicity=1)
+    system_b_v2 = _make_system(model, charge=3, spin_multiplicity=2)
 
     outputs = {"energy": ModelOutput(per_atom=False)}
     with torch.no_grad():
@@ -202,15 +207,16 @@ def test_conditioning_batch_independence():
 
 
 def test_conditioning_default_values():
-    """Systems without explicit charge/spin should use defaults (charge=0, spin=1)."""
+    """Systems without explicit charge/spin_multiplicity should use defaults
+    (charge=0, spin_multiplicity=1)."""
     hypers = _small_hypers()
     model = PET(hypers, _dataset_info())
     model.eval()
 
-    # System with no charge/spin data (should default to charge=0, spin=1)
+    # System with no charge/spin data (should default to charge=0, spin_multiplicity=1)
     system_default = _make_system(model)
-    # System with explicit charge=0, spin=1
-    system_explicit = _make_system(model, charge=0, spin=1)
+    # System with explicit charge=0, spin_multiplicity=1
+    system_explicit = _make_system(model, charge=0, spin_multiplicity=1)
 
     outputs = {"energy": ModelOutput(per_atom=False)}
     with torch.no_grad():
@@ -224,7 +230,7 @@ def test_conditioning_default_values():
 
 def test_conditioning_out_of_range():
     """Charges or spins outside the supported range raise ValueError."""
-    module = SystemConditioningEmbedding(d_out=8, max_charge=3, max_spin=4)
+    module = SystemConditioningEmbedding(d_out=8, max_charge=3, max_spin_multiplicity=4)
 
     # charge too positive
     with pytest.raises(ValueError, match=r"charge values must be in \[-3, 3\]"):
@@ -236,13 +242,13 @@ def test_conditioning_out_of_range():
 
     # spin too high
     with pytest.raises(
-        ValueError, match=r"spin multiplicity values must be in \[1, 4\]"
+        ValueError, match=r"spin_multiplicity values must be in \[1, 4\]"
     ):
         module.validate(torch.tensor([0]), torch.tensor([5]))
 
     # spin too low (0 is invalid, minimum is 1)
     with pytest.raises(
-        ValueError, match=r"spin multiplicity values must be in \[1, 4\]"
+        ValueError, match=r"spin_multiplicity values must be in \[1, 4\]"
     ):
         module.validate(torch.tensor([0]), torch.tensor([0]))
 
@@ -284,27 +290,28 @@ def test_eval_routes_extra_data_to_conditioning():
 
     This would silently fail if extra_data_keys were filtered to empty (e.g.
     by incorrectly gating on model.requested_inputs() which returns {} for
-    exported models), causing all systems to fall back to charge=0 / spin=1.
+    exported models), causing all systems to fall back to
+    charge=0 / spin_multiplicity=1.
     """
     hypers = _small_hypers()
     model = PET(hypers, _dataset_info())
     _train_steps(model)
     model.eval()
 
-    extra_data_keys = ["charge", "spin"]
+    extra_data_keys = ["charge", "spin_multiplicity"]
 
     dataset_neutral = Dataset.from_dict(
         {
             "system": [_make_raw_system()],
             "charge": [_make_extra_tmap(0.0, "charge")],
-            "spin": [_make_extra_tmap(1.0, "spin")],
+            "spin_multiplicity": [_make_extra_tmap(1.0, "spin_multiplicity")],
         }
     )
     dataset_charged = Dataset.from_dict(
         {
             "system": [_make_raw_system()],
             "charge": [_make_extra_tmap(2.0, "charge")],  # non-default
-            "spin": [_make_extra_tmap(1.0, "spin")],
+            "spin_multiplicity": [_make_extra_tmap(1.0, "spin_multiplicity")],
         }
     )
 

@@ -53,7 +53,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 12
+    __checkpoint_version__ = 13
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -152,7 +152,7 @@ class PET(ModelInterface[ModelHypers]):
                 SystemConditioningEmbedding(
                     d_out=self.d_node,
                     max_charge=self.hypers.get("max_charge", 10),
-                    max_spin=self.hypers.get("max_spin", 10),
+                    max_spin_multiplicity=self.hypers.get("max_spin_multiplicity", 10),
                 )
             )
         else:
@@ -477,11 +477,13 @@ class PET(ModelInterface[ModelHypers]):
                 cutoff_factors=cutoff_factors,
             )
 
-            # Extract per-system charge and spin for conditioning
+            # Extract per-system charge and spin_multiplicity for conditioning
             if self.system_conditioning is not None:
                 n_systems = len(systems)
                 charges = torch.zeros(n_systems, dtype=torch.long, device=device)
-                spins = torch.ones(n_systems, dtype=torch.long, device=device)
+                spin_multiplicities = torch.ones(
+                    n_systems, dtype=torch.long, device=device
+                )
                 for i, system in enumerate(systems):
                     if "charge" in system.known_data():
                         raw_charge = system.get_data("charge").block().values
@@ -493,19 +495,23 @@ class PET(ModelInterface[ModelHypers]):
                                 + str(i)
                             )
                         charges[i] = raw_charge.long().squeeze()
-                    if "spin" in system.known_data():
-                        raw_spin = system.get_data("spin").block().values
-                        if not torch.equal(raw_spin.round(), raw_spin):
+                    if "spin_multiplicity" in system.known_data():
+                        raw_spin_multiplicity = (
+                            system.get_data("spin_multiplicity").block().values
+                        )
+                        if not torch.equal(
+                            raw_spin_multiplicity.round(), raw_spin_multiplicity
+                        ):
                             raise ValueError(
-                                "spin must be an integer value, got "
-                                + str(raw_spin.item())
+                                "spin_multiplicity must be an integer value, got "
+                                + str(raw_spin_multiplicity.item())
                                 + " for system "
                                 + str(i)
                             )
-                        spins[i] = raw_spin.long().squeeze()
-                self.system_conditioning.validate(charges, spins)
+                        spin_multiplicities[i] = raw_spin_multiplicity.long().squeeze()
+                self.system_conditioning.validate(charges, spin_multiplicities)
                 featurizer_inputs["charge"] = charges
-                featurizer_inputs["spin"] = spins
+                featurizer_inputs["spin_multiplicity"] = spin_multiplicities
                 featurizer_inputs["system_indices"] = system_indices
             node_features_list, edge_features_list = self._calculate_features(
                 featurizer_inputs,
@@ -702,12 +708,12 @@ class PET(ModelInterface[ModelHypers]):
                 use_manual_attention,
             )
 
-            # Add system conditioning (charge/spin) to node features
+            # Add system conditioning (charge/spin_multiplicity) to node features
             if self.system_conditioning is not None:
                 output_node_embeddings = output_node_embeddings + (
                     self.system_conditioning(
                         inputs["charge"],
-                        inputs["spin"],
+                        inputs["spin_multiplicity"],
                         inputs["system_indices"],
                     )
                 )
@@ -771,12 +777,12 @@ class PET(ModelInterface[ModelHypers]):
                 inputs["cutoff_factors"],
                 use_manual_attention,
             )
-            # Add system conditioning (charge/spin) to node features
+            # Add system conditioning (charge/spin_multiplicity) to node features
             if self.system_conditioning is not None:
                 output_node_embeddings = output_node_embeddings + (
                     self.system_conditioning(
                         inputs["charge"],
-                        inputs["spin"],
+                        inputs["spin_multiplicity"],
                         inputs["system_indices"],
                     )
                 )
