@@ -688,6 +688,7 @@ class DiskDataset(torch.utils.data.Dataset):
 
     def __init__(self, path: Union[str, Path], fields: Optional[List[str]] = None):
         self.zip_file_path = path
+        self.extra_data_config: Dict[str, Any] = {}
         self._field_names = ["system"]
         # check that we have at least one sample:
         with zipfile.ZipFile(path, "r") as zip_file:
@@ -1420,7 +1421,7 @@ class MemmapDataset(TorchDataset):
         # the `extra` argument of CollateFn callables
         extra_data_dict = {}
         for key, arr in self.extra_data_arrays.items():
-            is_per_atom = arr.shape[0] == self.na[-1]
+            is_per_atom = bool(self.extra_data_config[key]["per_atom"])
             if is_per_atom:
                 extra_samples = Labels(
                     names=["system", "atom"],

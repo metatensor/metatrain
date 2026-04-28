@@ -1,3 +1,5 @@
+import logging
+
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -271,8 +273,6 @@ def model_update_v11_v12(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to update.
     """
-    import logging
-
     state_dict = (
         checkpoint.get("model_state_dict")
         or checkpoint.get("best_model_state_dict")

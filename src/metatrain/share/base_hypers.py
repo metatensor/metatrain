@@ -49,14 +49,6 @@ class ArchitectureBaseHypers(TypedDict):
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))
-class SystemDataKeyHypers(TypedDict):
-    """Reference to a per-system scalar stored in a memmap ``.bin`` file."""
-
-    key: str
-    """Filename stem of the ``.bin`` file (e.g. ``q`` reads ``q.bin``)."""
-
-
-@with_config(ConfigDict(extra="forbid", strict=True))
 class SystemsHypers(TypedDict):
     """Hyperparameters for the systems in the dataset."""
 

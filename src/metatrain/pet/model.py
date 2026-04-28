@@ -694,6 +694,14 @@ class PET(ModelInterface[ModelHypers]):
 
         input_node_embeddings = self.node_embedders[0](inputs["element_indices_nodes"])
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
+        # Compute conditioning embedding once: same inputs at every GNN layer.
+        cond_embedding: Optional[torch.Tensor] = None
+        if self.system_conditioning is not None:
+            cond_embedding = self.system_conditioning(
+                inputs["charge"],
+                inputs["spin_multiplicity"],
+                inputs["system_indices"],
+            )
         for combination_norm, combination_mlp, gnn_layer in zip(
             self.combination_norms, self.combination_mlps, self.gnn_layers, strict=True
         ):
@@ -708,15 +716,8 @@ class PET(ModelInterface[ModelHypers]):
                 use_manual_attention,
             )
 
-            # Add system conditioning (charge/spin_multiplicity) to node features
-            if self.system_conditioning is not None:
-                output_node_embeddings = output_node_embeddings + (
-                    self.system_conditioning(
-                        inputs["charge"],
-                        inputs["spin_multiplicity"],
-                        inputs["system_indices"],
-                    )
-                )
+            if cond_embedding is not None:
+                output_node_embeddings = output_node_embeddings + cond_embedding
 
             # The GNN contraction happens by reordering the messages,
             # using a reversed neighbor list, so the new input message
@@ -763,6 +764,14 @@ class PET(ModelInterface[ModelHypers]):
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
+        # Compute conditioning embedding once: same inputs at every GNN layer.
+        cond_embedding: Optional[torch.Tensor] = None
+        if self.system_conditioning is not None:
+            cond_embedding = self.system_conditioning(
+                inputs["charge"],
+                inputs["spin_multiplicity"],
+                inputs["system_indices"],
+            )
         for node_embedder, gnn_layer in zip(
             self.node_embedders, self.gnn_layers, strict=True
         ):
@@ -777,15 +786,8 @@ class PET(ModelInterface[ModelHypers]):
                 inputs["cutoff_factors"],
                 use_manual_attention,
             )
-            # Add system conditioning (charge/spin_multiplicity) to node features
-            if self.system_conditioning is not None:
-                output_node_embeddings = output_node_embeddings + (
-                    self.system_conditioning(
-                        inputs["charge"],
-                        inputs["spin_multiplicity"],
-                        inputs["system_indices"],
-                    )
-                )
+            if cond_embedding is not None:
+                output_node_embeddings = output_node_embeddings + cond_embedding
 
             node_features_list.append(output_node_embeddings)
             edge_features_list.append(output_edge_embeddings)
