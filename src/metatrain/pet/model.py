@@ -32,6 +32,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .documentation import ModelHypers
+from .modules.atomic_basis import ZConditionedReadout
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
@@ -85,6 +86,8 @@ class PET(ModelInterface[ModelHypers]):
         self.attention_temperature = self.hypers["attention_temperature"]
         self.transformer_type = self.hypers["transformer_type"]
         self.featurizer_type = self.hypers["featurizer_type"]
+        self.atomic_basis_z_readout = self.hypers["atomic_basis_z_readout"]
+        self.geometry_embedding_lmax = self.hypers["geometry_embedding_lmax"]
 
         self.atomic_types = dataset_info.atomic_types
         self.requested_nl = NeighborListOptions(
@@ -109,6 +112,7 @@ class PET(ModelInterface[ModelHypers]):
                     self.transformer_type,
                     num_atomic_species,
                     layer_index == 0,  # is first layer
+                    self.geometry_embedding_lmax,
                 )
                 for layer_index in range(self.num_gnn_layers)
             ]
@@ -161,6 +165,10 @@ class PET(ModelInterface[ModelHypers]):
 
         # Modified dataset_info with the targets as they will be seen by PET
         # during training.
+        self.is_atomic_basis_target: Dict[str, bool] = {
+            target_name: target_info.is_atomic_basis
+            for target_name, target_info in dataset_info.targets.items()
+        }
         train_dataset_info = self._train_dataset_info(dataset_info)
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
@@ -518,6 +526,7 @@ class PET(ModelInterface[ModelHypers]):
                     padding_mask,
                     cutoff_factors,
                     outputs,
+                    element_indices_nodes,
                 )
             )
             atomic_predictions_dict = self._get_output_atomic_predictions(
@@ -954,6 +963,7 @@ class PET(ModelInterface[ModelHypers]):
         padding_mask: torch.Tensor,
         cutoff_factors: torch.Tensor,
         outputs: Dict[str, ModelOutput],
+        element_indices_nodes: torch.Tensor,
     ) -> Tuple[
         Dict[str, List[List[torch.Tensor]]], Dict[str, List[List[torch.Tensor]]]
     ]:
@@ -971,6 +981,7 @@ class PET(ModelInterface[ModelHypers]):
         :param cutoff_factors: Tensor of cutoff factors for edge distances
             [n_atoms, max_num_neighbors].
         :param outputs: Dictionary of requested outputs.
+        :param element_indices_nodes: Tensor of node species indices [n_atoms].
         :return: Tuple of two dictionaries:
             - Dictionary mapping output names to lists of lists of node atomic
               prediction tensors (one list per GNN layer, one tensor per block)
@@ -996,7 +1007,10 @@ class PET(ModelInterface[ModelHypers]):
                     node_atomic_predictions_by_block: List[torch.Tensor] = []
                     for node_last_layer_by_block in node_last_layer.values():
                         node_atomic_predictions_by_block.append(
-                            node_last_layer_by_block(node_last_layer_features)
+                            node_last_layer_by_block(
+                                node_last_layer_features,
+                                element_indices_nodes,
+                            )
                         )
                     node_atomic_predictions_dict[output_name].append(
                         node_atomic_predictions_by_block
@@ -1018,7 +1032,8 @@ class PET(ModelInterface[ModelHypers]):
                     edge_atomic_predictions_by_block: List[torch.Tensor] = []
                     for edge_last_layer_by_block in edge_last_layer.values():
                         edge_atomic_predictions = edge_last_layer_by_block(
-                            edge_last_layer_features
+                            edge_last_layer_features,
+                            element_indices_nodes,
                         )
                         expanded_padding_mask = padding_mask[..., None].repeat(
                             1, 1, edge_atomic_predictions.shape[2]
@@ -1283,14 +1298,29 @@ class PET(ModelInterface[ModelHypers]):
             ]
         )
 
+        # Resolve whether to use Z-conditioned readout for this target.
+        # Only atomic-basis targets can use Z-conditioned readout; all other
+        # targets always fall back to the standard (shared) linear readout.
+        raw_z_readout = self.atomic_basis_z_readout
+        if isinstance(raw_z_readout, bool):
+            use_z_readout = raw_z_readout and self.is_atomic_basis_target[target_name]
+        else:
+            # dict mapping target name -> bool; absent keys default to False
+            use_z_readout = (
+                raw_z_readout.get(target_name, False)
+                and self.is_atomic_basis_target[target_name]
+            )
+
         self.node_last_layers[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.ModuleDict(
                     {
-                        key: torch.nn.Linear(
+                        key: ZConditionedReadout(
                             self.d_head,
                             prod(shape),
-                            bias=True,
+                            len(self.dataset_info.atomic_types),
+                            z_conditioned=use_z_readout,
+                            # hidden_layer_widths=[int(self.d_head / 2)],
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }
@@ -1303,10 +1333,12 @@ class PET(ModelInterface[ModelHypers]):
             [
                 torch.nn.ModuleDict(
                     {
-                        key: torch.nn.Linear(
+                        key: ZConditionedReadout(
                             self.d_head,
                             prod(shape),
-                            bias=True,
+                            len(self.dataset_info.atomic_types),
+                            z_conditioned=use_z_readout,
+                            # hidden_layer_widths=[int(self.d_head / 2)],
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }

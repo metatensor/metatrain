@@ -64,9 +64,15 @@ important** (in decreasing order of importance):
 
   .. autoattribute:: {{model_hypers_path}}.long_range
       :no-index:
+
+  .. autoattribute:: {{model_hypers_path}}.atomic_basis_z_readout
+      :no-index:
+
+  .. autoattribute:: {{model_hypers_path}}.geometry_embedding_lmax
+      :no-index:
 """
 
-from typing import Literal, Optional
+from typing import Dict, Literal, Optional, Union
 
 from typing_extensions import TypedDict
 
@@ -155,6 +161,22 @@ class ModelHypers(TypedDict):
     """Use ZBL potential for short-range repulsion"""
     long_range: LongRangeHypers = init_with_defaults(LongRangeHypers)
     """Long-range Coulomb interactions parameters."""
+    atomic_basis_z_readout: Union[bool, Dict[str, bool]] = False
+    """Whether to use Z-conditioned linear readout layers for atomic basis targets.
+
+    Can be set in two ways:
+
+    * A single ``bool`` — applies uniformly to every atomic basis target in
+      the model.  Non-atomic-basis targets are unaffected (they always use a
+      standard shared linear readout).
+    * A ``dict`` mapping target names to ``bool`` — enables per-target control.
+      Targets absent from the dict default to ``False``.  Again, non-atomic-
+      basis targets are never Z-conditioned regardless of the value provided.
+    """
+    geometry_embedding_lmax: Optional[int] = None
+    """
+    The L max of solid spherical harmonics to use for edge geometry embeddings
+    """
 
 
 class TrainerHypers(TypedDict):

@@ -1,8 +1,10 @@
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 import torch.nn.functional as F
 from torch import nn
+
+from sphericart.torch import SolidHarmonics
 
 from .utilities import DummyModule
 
@@ -372,6 +374,9 @@ class CartesianTransformer(torch.nn.Module):
     :param transformer_type: The type of transformer, either "PostLN" or "PreLN".
     :param n_atomic_species: The number of atomic species.
     :param is_first: Whether this is the first transformer in the model.
+    :param geometry_embedding_lmax: maximum angular order of the spherical harmonics
+        edge embeddings. If None, defaults to using standard embeddings of edge
+        distances and vectors.
     """
 
     def __init__(
@@ -389,6 +394,7 @@ class CartesianTransformer(torch.nn.Module):
         transformer_type: str,
         n_atomic_species: int,
         is_first: bool,
+        geometry_embedding_lmax: Optional[int] = None,
     ) -> None:
         super(CartesianTransformer, self).__init__()
         self.is_first = is_first
@@ -405,8 +411,16 @@ class CartesianTransformer(torch.nn.Module):
             transformer_type=transformer_type,
             attention_temperature=attention_temperature,
         )
+        self.geometry_embedding_lmax = geometry_embedding_lmax
+        if self.geometry_embedding_lmax is None:  # standard PET edge geometry embedding
+            self.edge_embedder = nn.Linear(4, d_model)
+            self.spherical_harmonics = torch.nn.Identity()
+            self.rmsnorm = torch.nn.Identity()
+        else:  # SSH embedding
+            self.spherical_harmonics = SolidHarmonics(l_max=geometry_embedding_lmax)
+            self.edge_embedder = nn.Linear((geometry_embedding_lmax + 1) ** 2, d_model)
+            self.rmsnorm = nn.LayerNorm(d_model)
 
-        self.edge_embedder = nn.Linear(4, d_model)
 
         if not is_first:
             n_merge = 3
@@ -460,13 +474,20 @@ class CartesianTransformer(torch.nn.Module):
             - The output edge embeddings, of shape (n_nodes, max_num_neighbors, d_model)
         """
         node_embeddings = input_node_embeddings
-        edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
+        if self.geometry_embedding_lmax is None:
+            edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
+            edge_embeddings = torch.cat(edge_embeddings, dim=2)
+        else:
+            edge_embeddings = self.spherical_harmonics(
+                edge_vectors.reshape(-1, 3)
+            ).reshape(edge_vectors.shape[0], edge_vectors.shape[1], -1)
+        edge_embeddings = self.edge_embedder(edge_embeddings)
+        if self.geometry_embedding_lmax is not None:
+            edge_embeddings = self.rmsnorm(edge_embeddings)
 
         # on some systems, on isolated atoms, a torchscript bug concatenates the two
         # (empty) float tensors into an int tensors, causing an error later on
-        edge_embeddings = torch.cat(edge_embeddings, dim=2).to(edge_vectors.dtype)
-
-        edge_embeddings = self.edge_embedder(edge_embeddings)
+        edge_embeddings = edge_embeddings.to(edge_vectors.dtype)
 
         if not self.is_first:
             neighbor_elements_embeddings = self.neighbor_embedder(
