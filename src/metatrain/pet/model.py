@@ -477,38 +477,10 @@ class PET(ModelInterface[ModelHypers]):
                 cutoff_factors=cutoff_factors,
             )
 
-            # Extract per-system charge and spin_multiplicity for conditioning
             if self.system_conditioning is not None:
-                n_systems = len(systems)
-                charges = torch.zeros(n_systems, dtype=torch.long, device=device)
-                spin_multiplicities = torch.ones(
-                    n_systems, dtype=torch.long, device=device
+                charges, spin_multiplicities = _extract_charge_spin_multiplicity(
+                    systems, device
                 )
-                for i, system in enumerate(systems):
-                    if "charge" in system.known_data():
-                        raw_charge = system.get_data("charge").block().values
-                        if not torch.equal(raw_charge.round(), raw_charge):
-                            raise ValueError(
-                                "charge must be an integer value, got "
-                                + str(raw_charge.item())
-                                + " for system "
-                                + str(i)
-                            )
-                        charges[i] = raw_charge.long().squeeze()
-                    if "spin_multiplicity" in system.known_data():
-                        raw_spin_multiplicity = (
-                            system.get_data("spin_multiplicity").block().values
-                        )
-                        if not torch.equal(
-                            raw_spin_multiplicity.round(), raw_spin_multiplicity
-                        ):
-                            raise ValueError(
-                                "spin_multiplicity must be an integer value, got "
-                                + str(raw_spin_multiplicity.item())
-                                + " for system "
-                                + str(i)
-                            )
-                        spin_multiplicities[i] = raw_spin_multiplicity.long().squeeze()
                 self.system_conditioning.validate(charges, spin_multiplicities)
                 featurizer_inputs["charge"] = charges
                 featurizer_inputs["spin_multiplicity"] = spin_multiplicities
@@ -1470,6 +1442,47 @@ class PET(ModelInterface[ModelHypers]):
             "best_model_state_dict": self.state_dict(),
         }
         return checkpoint
+
+
+def _extract_charge_spin_multiplicity(
+    systems: List[System], device: torch.device
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Pull per-system ``charge`` and ``spin_multiplicity`` off each ``System``.
+
+    Systems without the keys fall back to charge=0 / spin_multiplicity=1. Values
+    are validated to be integer-valued before the long() cast and a clear error
+    is raised otherwise.
+
+    :param systems: list of systems to extract charge/spin_multiplicity from.
+    :param device: device on which to allocate the returned tensors.
+    :return: ``(charges, spin_multiplicities)`` tensors of shape ``[n_systems]``,
+        ``dtype=torch.long``.
+    """
+    n_systems = len(systems)
+    charges = torch.zeros(n_systems, dtype=torch.long, device=device)
+    spin_multiplicities = torch.ones(n_systems, dtype=torch.long, device=device)
+    for i, system in enumerate(systems):
+        if "charge" in system.known_data():
+            raw_charge = system.get_data("charge").block().values
+            if not torch.equal(raw_charge.round(), raw_charge):
+                raise ValueError(
+                    "charge must be an integer value, got "
+                    + str(raw_charge.item())
+                    + " for system "
+                    + str(i)
+                )
+            charges[i] = raw_charge.long().squeeze()
+        if "spin_multiplicity" in system.known_data():
+            raw_spin_multiplicity = system.get_data("spin_multiplicity").block().values
+            if not torch.equal(raw_spin_multiplicity.round(), raw_spin_multiplicity):
+                raise ValueError(
+                    "spin_multiplicity must be an integer value, got "
+                    + str(raw_spin_multiplicity.item())
+                    + " for system "
+                    + str(i)
+                )
+            spin_multiplicities[i] = raw_spin_multiplicity.long().squeeze()
+    return charges, spin_multiplicities
 
 
 def process_non_conservative_stress(

@@ -353,3 +353,46 @@ def test_eval_routes_extra_data_to_conditioning():
         "charge=0 and charge=2 produce identical energies — "
         "conditioning is not being applied (extra_data not routed to systems)"
     )
+
+
+@pytest.mark.filterwarnings(
+    "ignore:the 'features' output name is deprecated:UserWarning",
+    "ignore:`per_atom` is deprecated:DeprecationWarning",
+    "ignore:ModelOutput.quantity is deprecated:UserWarning",
+    "ignore:Found metatomic.torch v.*vesin.metatomic was only tested:UserWarning",
+    "ignore:calling Model.requested_inputs.use_new_names=False. is deprecated"
+    ":UserWarning",
+)
+def test_export_with_conditioning_preserves_validate(tmp_path):
+    """Exporting (TorchScript) a PET model with system_conditioning must keep the
+    in-forward ``validate(...)`` call working: ``mtt export`` succeeds, valid
+    inputs run through, and an out-of-range value raises a clear error from the
+    scripted module (driven via ``MetatomicCalculator`` for end-to-end coverage).
+    """
+    import ase
+    from metatomic_ase import MetatomicCalculator
+
+    hypers = _small_hypers(max_charge=3, max_spin_multiplicity=4)
+    model = PET(hypers, _dataset_info())
+    model.eval()
+
+    path = str(tmp_path / "pet_conditioning.pt")
+    # If validate() did not survive scripting, this line raises during export.
+    model.export().save(path)
+
+    calculator = MetatomicCalculator(path)
+
+    # Valid inputs (spin_multiplicity within [1, max_spin_multiplicity]) work.
+    atoms = ase.Atoms("CH", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    atoms.info["charge"] = 2
+    atoms.info["spin"] = 3
+    atoms.calc = calculator
+    _ = atoms.get_potential_energy()
+
+    # Out-of-range spin_multiplicity must be rejected by the scripted validate().
+    atoms_bad = ase.Atoms("CH", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    atoms_bad.info["charge"] = 0
+    atoms_bad.info["spin"] = 99
+    atoms_bad.calc = MetatomicCalculator(path)
+    with pytest.raises(Exception, match="spin_multiplicity"):
+        atoms_bad.get_potential_energy()
