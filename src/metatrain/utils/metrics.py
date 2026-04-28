@@ -1,8 +1,22 @@
 import copy
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch.distributed
 from metatensor.torch import TensorMap
+
+
+def _get_global_keys(keys: List[str]) -> List[str]:
+    # Collect all keys across ranks, in case some ranks have seen different keys than
+    # others
+    local_keys = list(keys)
+    world_size = torch.distributed.get_world_size()
+    gathered_keys: List[Any] = [None for _ in range(world_size)]
+    torch.distributed.all_gather_object(gathered_keys, local_keys)
+    global_keys: set[str] = set()
+    for keys_from_rank in gathered_keys:
+        if keys_from_rank is not None:
+            global_keys.update(keys_from_rank)
+    return sorted(list(global_keys))
 
 
 class RMSEAccumulator:
@@ -68,15 +82,8 @@ class RMSEAccumulator:
                     self.information[key_to_write] = (0.0, 0)
 
                 if mask is None:
-                    if "non_conservative_stress" in key:
-                        # For stress targets, we allow users to use NaN entries for
-                        # systems without PBCs or with mixed PBCs. We filter them
-                        # out here.
-                        mask_as_tensor = ~torch.isnan(target_block.values)
-                    else:
-                        mask_as_tensor = torch.ones_like(
-                            target_block.values, dtype=torch.bool
-                        )
+                    # Get a mask that ignores NaN values in the target
+                    mask_as_tensor = ~torch.isnan(target_block.values)
                     rmse_value = (
                         (
                             (
@@ -118,15 +125,8 @@ class RMSEAccumulator:
                     prediction_gradient = prediction_block.gradient(gradient_name)
 
                     if mask is None:
-                        if gradient_name == "strain":
-                            # For stress targets, we allow users to use NaN entries for
-                            # systems without PBCs or with mixed PBCs. We filter them
-                            # out here.
-                            mask_as_tensor = ~torch.isnan(target_gradient.values)
-                        else:
-                            mask_as_tensor = torch.ones_like(
-                                target_gradient.values, dtype=torch.bool
-                            )
+                        # Get a mask that ignores NaN values in the target
+                        mask_as_tensor = ~torch.isnan(target_gradient.values)
                         gradient_rmse_value = (
                             (
                                 (
@@ -183,9 +183,17 @@ class RMSEAccumulator:
         """
 
         if is_distributed:
-            for key in sorted(self.information.keys()):
-                sse = torch.tensor(self.information[key][0], device=device)
-                n_elems = torch.tensor(self.information[key][1], device=device)
+            # Make sure to collect all keys across ranks, in case some ranks have seen
+            # different keys than others
+            sorted_global_keys = _get_global_keys(list(self.information.keys()))
+
+            for key in sorted_global_keys:
+                if key in self.information:
+                    sse = torch.tensor(self.information[key][0], device=device)
+                    n_elems = torch.tensor(self.information[key][1], device=device)
+                else:
+                    sse = torch.tensor(0.0, device=device)
+                    n_elems = torch.tensor(0, device=device)
                 torch.distributed.all_reduce(sse)
                 torch.distributed.all_reduce(n_elems)
                 self.information[key] = (sse.item(), n_elems.item())
@@ -267,15 +275,8 @@ class MAEAccumulator:
                     self.information[key_to_write] = (0.0, 0)
 
                 if mask is None:
-                    if "non_conservative_stress" in key:
-                        # For stress targets, we allow users to use NaN entries for
-                        # systems without PBCs or with mixed PBCs. We filter them
-                        # out here.
-                        mask_as_tensor = ~torch.isnan(target_block.values)
-                    else:
-                        mask_as_tensor = torch.ones_like(
-                            target_block.values, dtype=torch.bool
-                        )
+                    # Get a mask that ignores NaN values in the target
+                    mask_as_tensor = ~torch.isnan(target_block.values)
                     mae_value = (
                         (
                             prediction_block.values[mask_as_tensor]
@@ -313,15 +314,8 @@ class MAEAccumulator:
                     prediction_gradient = prediction_block.gradient(gradient_name)
 
                     if mask is None:
-                        if gradient_name == "strain":
-                            # For stress targets, we allow users to use NaN entries for
-                            # systems without PBCs or with mixed PBCs. We filter them
-                            # out here.
-                            mask_as_tensor = ~torch.isnan(target_gradient.values)
-                        else:
-                            mask_as_tensor = torch.ones_like(
-                                target_gradient.values, dtype=torch.bool
-                            )
+                        # Get a mask that ignores NaN values in the target
+                        mask_as_tensor = ~torch.isnan(target_gradient.values)
                         gradient_mae_value = (
                             (
                                 prediction_gradient.values[mask_as_tensor]
@@ -375,9 +369,17 @@ class MAEAccumulator:
         """
 
         if is_distributed:
-            for key in sorted(self.information.keys()):
-                sae = torch.tensor(self.information[key][0], device=device)
-                n_elems = torch.tensor(self.information[key][1], device=device)
+            # Make sure to collect all keys across ranks, in case some ranks have seen
+            # different keys than others
+            sorted_global_keys = _get_global_keys(list(self.information.keys()))
+
+            for key in sorted_global_keys:
+                if key in self.information:
+                    sae = torch.tensor(self.information[key][0], device=device)
+                    n_elems = torch.tensor(self.information[key][1], device=device)
+                else:
+                    sae = torch.tensor(0.0, device=device)
+                    n_elems = torch.tensor(0, device=device)
                 torch.distributed.all_reduce(sae)
                 torch.distributed.all_reduce(n_elems)
                 self.information[key] = (sae.item(), n_elems.item())

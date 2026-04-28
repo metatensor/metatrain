@@ -110,7 +110,7 @@ via the ``variants`` parameter. For example, if you fine-tuned with the variant
 
 .. code-block:: python
 
-  from metatomic.torch.ase_calculator import MetatomicCalculator
+  from metatomic_ase import MetatomicCalculator
 
   calc = MetatomicCalculator("model-ft.pt", variants={"energy": "finetune"})
   atoms.calc = calc
@@ -137,7 +137,7 @@ For more details on using variants in simulation engines, see the
 :ref:`tutorial <sphx_glr_generated_examples_0-beginner_02-fine-tuning.py>` and the
 `metatomic ASE documentation`_ and `metatomic LAMMPS documentation`_.
 
-.. _metatomic ASE documentation: https://docs.metatensor.org/metatomic/latest/torch/reference/ase.html#metatomic.torch.ase_calculator.MetatomicCalculator
+.. _metatomic ASE documentation: https://docs.metatensor.org/metatomic/latest/engines/ase.html#metatomic_ase.MetatomicCalculator
 .. _metatomic LAMMPS documentation: https://docs.metatensor.org/metatomic/latest/engines/lammps.html
 
 

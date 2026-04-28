@@ -20,6 +20,10 @@ from metatomic.torch import (
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_dataset_info,
+    sparsify_atomic_basis_target,
+)
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
@@ -167,13 +171,17 @@ class PET(ModelInterface[ModelHypers]):
             "features": ModelOutput(per_atom=True, description="internal features")
         }
 
+        # Modified dataset_info with the targets as they will be seen by PET
+        # during training.
+        train_dataset_info = self._train_dataset_info(dataset_info)
+
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
         self.key_labels: Dict[str, Labels] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
         self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
-        for target_name, target_info in dataset_info.targets.items():
+        for target_name, target_info in train_dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
 
@@ -210,11 +218,11 @@ class PET(ModelInterface[ModelHypers]):
         composition_model = CompositionModel(
             hypers={},
             dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
+                length_unit=train_dataset_info.length_unit,
                 atomic_types=self.atomic_types,
                 targets={
                     target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
+                    for target_name, target_info in train_dataset_info.targets.items()
                     if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
@@ -223,24 +231,25 @@ class PET(ModelInterface[ModelHypers]):
 
         # Adds the ZBL repulsion model if requested
         if self.hypers["zbl"]:
+            zbl_targets = {
+                target_name: target_info
+                for target_name, target_info in train_dataset_info.targets.items()
+                if ZBL.is_valid_target(target_name, target_info)
+            }
             additive_models.append(
                 ZBL(
                     {},
                     dataset_info=DatasetInfo(
-                        length_unit=dataset_info.length_unit,
+                        length_unit=train_dataset_info.length_unit,
                         atomic_types=self.atomic_types,
-                        targets={
-                            target_name: target_info
-                            for target_name, target_info in dataset_info.targets.items()
-                            if ZBL.is_valid_target(target_name, target_info)
-                        },
+                        targets=zbl_targets,
                     ),
                 )
             )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
+        self.scaler = Scaler(hypers={}, dataset_info=train_dataset_info)
 
         self.single_label = Labels.single()
 
@@ -268,26 +277,30 @@ class PET(ModelInterface[ModelHypers]):
                 "The PET model does not support adding new atomic types."
             )
 
+        # Modified dataset_info with the targets as they will be seen by PET
+        # during training.
+        train_dataset_info = self._train_dataset_info(dataset_info)
+
         # register new outputs as new last layers
-        for target_name, target in new_targets.items():
+        for target_name in new_targets:
             self.target_names.append(target_name)
-            self._add_output(target_name, target)
+            self._add_output(target_name, train_dataset_info.targets[target_name])
 
         self.dataset_info = merged_info
 
         # restart the composition and scaler models
         self.additive_models[0] = self.additive_models[0].restart(
             dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
+                length_unit=train_dataset_info.length_unit,
                 atomic_types=self.atomic_types,
                 targets={
                     target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
+                    for target_name, target_info in train_dataset_info.targets.items()
                     if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
-        self.scaler = self.scaler.restart(dataset_info)
+        self.scaler = self.scaler.restart(train_dataset_info)
 
         return self
 
@@ -437,6 +450,7 @@ class PET(ModelInterface[ModelHypers]):
                 cutoff_factors,
                 system_indices,
                 sample_labels,
+                species,
             ) = systems_to_batch(
                 systems,
                 nl_options,
@@ -572,7 +586,6 @@ class PET(ModelInterface[ModelHypers]):
                 return_dict[k] = v
 
         # **Post-processing (Evaluation Only)**
-
         with torch.profiler.record_function("PET::post-processing"):
             if not self.training:
                 # at evaluation, we also introduce the scaler and additive contributions
@@ -616,6 +629,17 @@ class PET(ModelInterface[ModelHypers]):
                                 output_blocks.append(b)
                         return_dict[name] = TensorMap(
                             return_dict[name].keys, output_blocks
+                        )
+
+                # For atomic basis targets, sparsify to create blocks with "atom_type"
+                # in the key dimensions, and ensure properties are unpadded.
+                for k in atomic_predictions_dict.keys():
+                    if self.dataset_info.targets[k].is_atomic_basis:
+                        return_dict[k] = sparsify_atomic_basis_target(
+                            systems,
+                            return_dict[k],
+                            self.dataset_info.targets[k].layout,
+                            species,
                         )
 
         return return_dict
@@ -1268,6 +1292,18 @@ class PET(ModelInterface[ModelHypers]):
         metadata = merge_metadata(self.metadata, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
+
+    def _train_dataset_info(self, dataset_info: DatasetInfo) -> DatasetInfo:
+        """Converts the original dataset info to one corresponding to what PET
+        will see during training, which depends on transforms applied to the
+        targets during data loading.
+
+        :param dataset_info: Original dataset info describing the targets as
+            they are in the raw data.
+        :return: Modified dataset info describing the targets as they will be
+            seen by PET during training.
+        """
+        return densify_atomic_basis_dataset_info(dataset_info)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         """

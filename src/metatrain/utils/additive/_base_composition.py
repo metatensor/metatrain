@@ -241,36 +241,66 @@ class BaseCompositionModel(torch.nn.Module):
                     f"found: {torch.unique(system.types)}"
                 )
 
+        # Compute the Xs that we will need.
+        Xs: dict[str | int, torch.Tensor] = {}
+        for target_name, sample_kind in self.sample_kinds.items():
+            if sample_kind in Xs:
+                continue
+            if sample_kind == "per_structure":
+                X = self._compute_X_per_structure(systems)
+            elif sample_kind == "per_atom":
+                X = self._compute_X_per_atom(systems, self.atomic_types)
+            else:
+                raise ValueError(
+                    f"unknown sample kind: {sample_kind} for target {target_name}"
+                )
+            X = X.to(device=device, dtype=dtype)
+            Xs[sample_kind] = (X, X.T @ X)
+
+        if any("atom_type" in target.keys.names for target in targets.values()):
+            # For atomic basis targets, blocks only contain the atoms of a
+            # given type, so we need to subsample X to get only the atoms
+            # of that type. Reminder: X has shape (n_atoms, n_atomic_types).
+            # We are assuming here that targets with "atom_type" are per-atom!
+            per_atom_X = Xs["per_atom"][0]
+            for atom_type in self.atomic_types:
+                type_index = self.type_to_index[atom_type]
+                atom_type_mask = per_atom_X[:, type_index].bool()
+                X = per_atom_X[atom_type_mask]
+                Xs[int(atom_type)] = (X, X.T @ X)
+
         # accumulate
         for target_name, target in targets.items():
             for key, block in target.items():
                 if not _include_key(key):
                     continue
 
+                # Get X and XTX for this block.
+                if "atom_type" in key.names:
+                    X, XTX = Xs[int(key["atom_type"])]
+                else:
+                    X, XTX = Xs[self.sample_kinds[target_name]]
+
                 # Get the target block values
                 Y = block.values
 
-                if self.sample_kinds[target_name] == "per_structure":
-                    X = self._compute_X_per_structure(systems)
-
-                elif self.sample_kinds[target_name] == "per_atom":
-                    X = self._compute_X_per_atom(systems, self.atomic_types)
-
-                else:
-                    raise ValueError(
-                        f"unknown sample kind: {self.sample_kinds[target_name]}"
-                        f" for target {target_name}"
-                    )
-                X = X.to(device=device, dtype=dtype)
-
-                # Compute "XTX", i.e. X.T @ X
+                # Accumulate "XTX", i.e. X.T @ X
                 # TODO: store XTX by sample kind instead, saving memory
-                self.XTX[target_name][key].values[:] += X.T @ X
+                self.XTX[target_name][key].values[:] += XTX
 
-                # Compute "XTY", i.e. X.T @ Y
-                self.XTY[target_name][key].values[:] += torch.tensordot(
-                    X, Y, dims=([0], [0])
-                )
+                # Compute and accummulate "XTY", i.e. X.T @ Y
+                XTY = self.XTY[target_name][key]
+                if self.sample_kinds[target_name] != "per_atom":
+                    # Explicitly compute X.T @ Y.
+                    XTY.values[:] += torch.tensordot(X, Y, dims=([0], [0]))
+                else:
+                    # X in this case is a one hot encoding of the atom types,
+                    # so we just need to sum Y over atoms of each type to get X.T @ Y.
+                    # This avoids NaNs getting leaked from one atom type to another.
+                    type_indices = X.argmax(dim=1)
+                    # scatter_add_ does not broadcast, so we have to expand type_indices
+                    idx = type_indices.reshape(-1, *[1] * len(Y.shape[1:])).expand_as(Y)
+                    XTY.values.scatter_add_(dim=0, index=idx, src=Y)
 
     def _sanitize_fixed_weights(
         self,
@@ -369,8 +399,34 @@ class BaseCompositionModel(torch.nn.Module):
                     XTY_shape = XTY_values.shape
                     if len(XTY_values.shape) != 2:
                         XTY_values = XTY_values.reshape(XTY_values.shape[0], -1)
-                    weight_vals = _solve_linear_system(XTX_values, XTY_values)
-                    weight_vals = weight_vals.reshape(*XTY_shape)
+
+                    if torch.all(XTX_values == 0):
+                        # If XTX is all zeros, it means that this key was not present in
+                        # the training data, so we set the weights to zero to avoid
+                        # numerical issues when solving the linear system.
+                        # This can happen when we are handling an atomic-basis target.
+                        logging.warning(
+                            f"The composition model has not seen any block for {key}."
+                            f" Setting composition weights to zero for this block."
+                        )
+                        weight_vals = torch.zeros(
+                            XTY_shape,
+                            dtype=XTY_values.dtype,
+                            device=XTY_values.device,
+                        )
+
+                    else:
+                        if self.sample_kinds[target_name] != "per_atom":
+                            # Solve linear system explicitly.
+                            weight_vals = _solve_linear_system(XTX_values, XTY_values)
+                        else:
+                            # XTX in this case is a diagonal matrix (the counts of atoms
+                            # of each type), so we can solve it faster. This also avoids
+                            # NaNs getting leaked from one atom type to another.
+                            weight_vals = XTY_values / torch.diag(XTX_values).unsqueeze(
+                                1
+                            )
+                        weight_vals = weight_vals.reshape(*XTY_shape)
 
                 blocks.append(
                     TensorBlock(
@@ -443,10 +499,28 @@ class BaseCompositionModel(torch.nn.Module):
                     ).to(device=device)
                     X_block = X[sample_indices]
 
+                # Handle the case of atomic basis targets where there is a subset of
+                # atoms in the samples of each block
+                if "atom_type" in key.names:
+                    type_index = self.type_to_index[int(key["atom_type"])]
+                    atom_type_mask = X_block[:, type_index].to(dtype=torch.bool)
+                    sample_labels_block = Labels(
+                        sample_labels_block.names,
+                        sample_labels_block.values[atom_type_mask],
+                    ).to(device=device)
+                    X_block = X_block[atom_type_mask]
+
                 # Compute X.T @ W
-                out_vals = torch.tensordot(
-                    X_block, weight_block.values, dims=([1], [0])
-                )
+                if self.sample_kinds[output_name] != "per_atom":
+                    out_vals = torch.tensordot(
+                        X_block, weight_block.values, dims=([1], [0])
+                    )
+                else:
+                    # No multiplication is needed for per-atom targets, we just need to
+                    # broadcast the weights according to the atom types in the samples.
+                    # This also avoids NaN getting leaked from one atom type to another.
+                    out_vals = weight_block.values[X_block.argmax(dim=1)]
+
                 prediction_blocks.append(
                     TensorBlock(
                         values=out_vals,
@@ -546,7 +620,9 @@ def _include_key(key: LabelsEntry) -> bool:
         - If the key has a single name "_" (indicating a scalar), it is included.
         - If the key has names ["o3_lambda", "o3_sigma"] it is included if values are 0
           and 1 respectively (indicating an invariant block of a spherical target).
-
+        - If the key has names ["o3_lambda", "o3_sigma", "atom_type"] it is included if
+          values are 0, 1, and any value respectively (indicating an invariant block of
+          an atomic-basis spherical target).
     :param key: The key to check.
 
     :return: Whether the key should be included in the composition model.
@@ -554,6 +630,7 @@ def _include_key(key: LabelsEntry) -> bool:
     valid_key_names = [
         ["_"],  # scalar
         ["o3_lambda", "o3_sigma"],  # spherical
+        ["o3_lambda", "o3_sigma", "atom_type"],  # spherical atomic basis
     ]
     include_key = False
 
@@ -561,6 +638,10 @@ def _include_key(key: LabelsEntry) -> bool:
         include_key = True
 
     elif key.names == valid_key_names[1]:
+        if key["o3_lambda"] == 0 and key["o3_sigma"] == 1:
+            include_key = True
+
+    elif key.names == valid_key_names[2]:
         if key["o3_lambda"] == 0 and key["o3_sigma"] == 1:
             include_key = True
 

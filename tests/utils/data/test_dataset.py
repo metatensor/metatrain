@@ -15,6 +15,7 @@ from metatrain.utils.data import (
     get_all_targets,
     get_atomic_types,
     get_stats,
+    load_indices,
     read_extra_data,
     read_systems,
     read_targets,
@@ -1137,3 +1138,66 @@ def test_memmap_extra_data_per_atom_heterogeneous(tmp_path):
     s2 = dataset[2]["mtt::feat"]
     assert s2.block().samples.column("atom").tolist() == [0, 1]
     assert s2.block().values.flatten().tolist() == pytest.approx([30.0, 31.0])
+
+
+# ============================================================================
+# Tests for load_indices
+# ============================================================================
+
+
+def test_load_indices_from_list():
+    """Load indices directly from a Python list."""
+    indices = load_indices([0, 5, 10, 15])
+    assert indices == [0, 5, 10, 15]
+
+
+def test_load_indices_from_file(tmp_path):
+    """Load indices from a text file with one index per line."""
+    idx_file = tmp_path / "indices.txt"
+    idx_file.write_text("0\n5\n10\n15\n")
+    indices = load_indices(str(idx_file))
+    assert indices == [0, 5, 10, 15]
+
+
+def test_load_indices_from_file_with_blanks(tmp_path):
+    """Blank lines in indices file should be ignored."""
+    idx_file = tmp_path / "indices.txt"
+    idx_file.write_text("0\n\n5\n  \n10\n")
+    indices = load_indices(str(idx_file))
+    assert indices == [0, 5, 10]
+
+
+def test_load_indices_relative_path(tmp_path, monkeypatch):
+    """Test that relative paths are resolved against the cwd"""
+    monkeypatch.chdir(tmp_path)
+    idx_file = tmp_path / "indices.txt"
+    idx_file.write_text("1\n2\n3\n")
+    indices = load_indices("indices.txt")
+    assert indices == [1, 2, 3]
+
+
+def test_load_indices_empty_list():
+    """Empty indices list"""
+    indices = load_indices([])
+    assert indices == []
+
+
+def test_load_indices_empty_file(tmp_path):
+    """Empty indices file raises numpy warning."""
+    idx_file = tmp_path / "indices.txt"
+    idx_file.write_text("")
+    with pytest.warns(UserWarning, match="loadtxt: input contained no data"):
+        indices = load_indices(str(idx_file))
+    assert indices == []
+
+
+def test_load_indices_negative_raises():
+    """Negative indices raise ValueError."""
+    with pytest.raises(ValueError, match="non-negative"):
+        load_indices([0, -1, 2])
+
+
+def test_load_indices_file_not_found(tmp_path):
+    """Missing file raises ValueError."""
+    with pytest.raises(ValueError, match="not found"):
+        load_indices("nonexistent.txt")

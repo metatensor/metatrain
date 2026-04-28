@@ -15,14 +15,16 @@ jobs:
         architecture-name:
           - classifier
           - flashmd
+          - flashmd-symplectic
           - gap
           - llpr
           - mace
           - pet
           - phace
-          - soap-bpnn        
+          - soap-bpnn
+          - dpa3       
 
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
     - uses: actions/checkout@v6
@@ -49,7 +51,7 @@ jobs:
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
 
     - name: upload to codecov.io
-      uses: codecov/codecov-action@v5
+      uses: codecov/codecov-action@v6
       with:
         fail_ci_if_error: false
         files: coverage.xml

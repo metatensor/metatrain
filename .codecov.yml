@@ -1,4 +1,5 @@
 coverage:
+  range: "60...80"
   status:
     project:
       default: false
@@ -44,6 +45,11 @@ component_management:
       paths:
         - "src/metatrain/experimental/flashmd/.*"
 
+    - component_id: flashmd_symplectic
+      name: FlashMD Symplectic
+      paths:
+        - "src/metatrain/experimental/flashmd_symplectic/.*"
+
     - component_id: classifier
       name: Classifier
       paths:
@@ -59,11 +65,18 @@ component_management:
       paths:
         - "src/metatrain/experimental/phace/.*"
 
+    - component_id: dpa3
+      name: DPA3
+      paths:
+        - "src/metatrain/experimental/dpa3/.*"
+
 ignore:
   # no need to report coverage of the test code themself
   - "src/metatrain/utils/testing/.*"
-  - "src/metatrain/**/tests/.*"
+  - "src/metatrain/.*/tests/.*"
   # we don't currently run distributed tests on CI
   - "src/metatrain/utils/distributed/.*"
+  # auto-generated
+  - "src/metatrain/_version.py"
 
 comment: false

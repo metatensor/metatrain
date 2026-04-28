@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Union
+from typing import Callable, Dict, List, Optional, Sequence, Union
 
 import metatensor.torch as mts
 import torch
@@ -21,7 +21,9 @@ from ._base_scaler import BaseScaler, FixedScalerWeights
 
 class Scaler(torch.nn.Module):
     """
-    Placeholder docs.
+    Fits a scaler for a dict of targets. Scales are computed as the per-property (and
+    therefore per-block) standard deviations. By default, the scales are also computed
+    per atomic type for per-atom targets.
 
     :param hypers: Hyperparameters for the scaler. Should be an empty dictionary.
     :param dataset_info: Information about the dataset used to initialize the scaler.
@@ -70,6 +72,7 @@ class Scaler(torch.nn.Module):
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
         batch_size: int,
         is_distributed: bool,
+        initial_transforms: Sequence[Callable],
     ) -> DataLoader:
         """
         Create a DataLoader for the provided datasets. As the dataloader is only used to
@@ -81,11 +84,16 @@ class Scaler(torch.nn.Module):
         :param datasets: List of datasets to create the dataloader from.
         :param batch_size: Batch size to use for the dataloader.
         :param is_distributed: Whether to use distributed sampling or not.
+        :param initial_transforms: A list of callables to be included in
+            the collate function. The callables passed here will be
+            applied before the other callables set by the scaler.
         :return: The created DataLoader.
         """
         # Create the collate function
         targets_keys = list(self.dataset_info.targets.keys())
-        collate_fn = CollateFn(target_keys=targets_keys)
+        collate_fn = CollateFn(
+            target_keys=targets_keys, callables=[*initial_transforms]
+        )
 
         dtype = datasets[0][0]["system"].positions.dtype
         if dtype != torch.float64:
@@ -140,9 +148,15 @@ class Scaler(torch.nn.Module):
         batch_size: int,
         is_distributed: bool,
         fixed_weights: Optional[FixedScalerWeights] = None,
+        initial_transforms: Sequence[Callable] = (),
     ) -> None:
         """
-        Placeholder docs.
+        Train the scaler model by accumulating the necessary quantities from the
+        provided datasets and fitting the scales. The scales are computed as the
+        per-property (and therefore per-block) standard deviations. By default, the
+        scales are also computed per atomic type for per-atom targets. If
+        `fixed_weights` is provided, these are used instead of the computed scales for
+        the specified targets.
 
         :param datasets: List of datasets to use for training the scaler.
         :param additive_models: List of additive models to remove from the targets
@@ -154,8 +168,10 @@ class Scaler(torch.nn.Module):
             are either a single float value to be applied to all atomic types, or a
             dict mapping atomic type (int) to weight (float). If not provided, all
             scales will be computed based on the accumulated quantities.
+        :param initial_transforms: A list of callables to be included in
+            the collate function of the dataloader. The callables passed here will be
+            applied before the other callables set by the scaler.
         """
-
         if not isinstance(datasets, list):
             datasets = [datasets]
 
@@ -164,7 +180,10 @@ class Scaler(torch.nn.Module):
 
         # Create dataloader for the training datasets
         dataloader = self._get_dataloader(
-            datasets, batch_size, is_distributed=is_distributed
+            datasets,
+            batch_size,
+            is_distributed=is_distributed,
+            initial_transforms=initial_transforms,
         )
 
         device = self.dummy_buffer.device

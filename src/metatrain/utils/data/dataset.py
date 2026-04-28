@@ -642,6 +642,32 @@ def _train_test_random_split(
     ]
 
 
+def load_indices(indices_spec: Union[List[int], str]) -> List[int]:
+    """Load indices from a list or a file path.
+
+    :param indices_spec: Either a list of integers or a path to a text file
+        containing one index per line.
+    :returns: List of integer indices (may be empty for empty val/test sets).
+    :raises ValueError: If indices contain invalid values.
+    """
+    # Check for list-like objects (including OmegaConf ListConfig)
+    if not isinstance(indices_spec, str):
+        indices = list(indices_spec)
+    else:
+        # It's a path string
+        path = Path(indices_spec)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        if not path.exists():
+            raise ValueError(f"Indices file not found: {path}")
+        indices = np.loadtxt(path, dtype=int).tolist()
+
+    if indices and any(i < 0 for i in indices):
+        raise ValueError("Indices must be non-negative integers")
+
+    return indices
+
+
 class DiskDataset(torch.utils.data.Dataset):
     """
     A class representing a dataset stored on disk.
@@ -692,6 +718,8 @@ class DiskDataset(torch.utils.data.Dataset):
                 )
             self._fields_to_read = fields
 
+        self._fields_to_read.append("mtt::aux::system_index")
+
         self._sample_class = namedtuple("Sample", self._fields_to_read)
 
         # Do not open file in the main process and start sub-processes with None
@@ -719,6 +747,23 @@ class DiskDataset(torch.utils.data.Dataset):
                 with self.zip_file.open(f"{index}/system.mta", "r") as file:
                     system = load_system(file)
                     system_and_targets.append(system)
+            elif field_name == "mtt::aux::system_index":
+                tensor_map = TensorMap(
+                    keys=Labels(["_"], torch.tensor([[0]])),
+                    blocks=[
+                        TensorBlock(
+                            # Integer values are not supported (coming soon)
+                            values=torch.tensor([[index]]).to(torch.float64),
+                            samples=Labels(
+                                names=["system"],
+                                values=torch.tensor([[index]]),
+                            ),
+                            components=[],
+                            properties=Labels(["_"], torch.tensor([[0]])),
+                        )
+                    ],
+                )
+                system_and_targets.append(tensor_map)
             else:
                 with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
                     numpy_buffer = np.load(file)
@@ -731,12 +776,16 @@ class DiskDataset(torch.utils.data.Dataset):
         for i in range(len(self)):
             yield self[i]
 
-    def get_target_info(self, target_config: DictConfig) -> Dict[str, TargetInfo]:
+    def get_target_info(
+        self, target_config: DictConfig, is_extra_data: bool = False
+    ) -> Dict[str, TargetInfo]:
         """
         Get information about the targets in the dataset.
 
         :param target_config: The user-provided (through the yaml file) target
             configuration.
+        :param is_extra_data: Whether the target information is for extra data or not.
+            If ``True``, auxiliary variables will be added here, e.g. the system index.
         :return: A dictionary mapping target names to :py:class:`TargetInfo` objects.
         """
         target_info_dict = {}
@@ -763,8 +812,22 @@ class DiskDataset(torch.utils.data.Dataset):
                 _check_tensor_map_metadata(tensor_map, target_info.layout)
                 # make sure that the properties of the target_info.layout also match the
                 # actual properties of the tensor maps
-                target_info.layout = _empty_tensor_map_like(tensor_map)
+                if not target_info.is_atomic_basis:
+                    target_info.layout = _empty_tensor_map_like(tensor_map)
                 target_info_dict[target_key] = target_info
+
+        if is_extra_data:
+            # Add the system indices as extra data
+            target_info_dict["mtt::aux::system_index"] = get_generic_target_info(
+                "system_index",
+                {
+                    "quantity": "",
+                    "unit": "",
+                    "type": "scalar",
+                    "per_atom": False,
+                    "num_subtargets": 1,
+                },
+            )
         return target_info_dict
 
     def get_extra_data_info(self) -> Dict[str, TargetInfo]:
@@ -837,7 +900,7 @@ def _save_indices(
 
     # case 3: there are multiple datasets
     else:
-        os.mkdir(os.path.join(checkpoint_dir, "indices/"))
+        os.makedirs(os.path.join(checkpoint_dir, "indices/"), exist_ok=True)
         for i, (train, val, test) in enumerate(
             zip(train_indices, val_indices, test_indices, strict=True)
         ):
@@ -1048,9 +1111,15 @@ class MemmapDataset(TorchDataset):
         self.a = MemmapArray(path / "a.bin", (self.na[-1],), "int32", mode="r")
         if os.path.exists(path / "c.bin"):
             self.c = MemmapArray(path / "c.bin", (self.ns, 3, 3), "float32", mode="r")
+        self.momenta = None
         if os.path.exists(path / "momenta.bin"):  # for FlashMD
             self.momenta = MemmapArray(
                 path / "momenta.bin", (self.na[-1], 3), "float32", mode="r"
+            )
+        self.masses = None
+        if os.path.exists(path / "masses.bin"):
+            self.masses = MemmapArray(
+                path / "masses.bin", (self.na[-1],), "float32", mode="r"
             )
 
         # Register per-system (or per-atom) scalar arrays for extra_data keys
@@ -1128,9 +1197,37 @@ class MemmapDataset(TorchDataset):
     def __len__(self) -> int:
         return self.ns
 
+    def get_num_atoms(self, i: int) -> int:
+        """Return the number of atoms in structure ``i`` without loading the full
+        sample.
+
+        :param i: The structure index.
+        :return: The number of atoms in structure ``i``.
+        """
+        return int(self.na[i + 1] - self.na[i])
+
+    def get_all_atom_counts(self) -> np.ndarray:
+        """Return atom counts for all structures as a numpy int64 array.
+
+        Much faster than calling ``get_num_atoms`` in a loop for large datasets.
+
+        :return: Array of atom counts, one per structure.
+        """
+        return np.diff(self.na).astype(np.int64)
+
     def __getitem__(self, i: int) -> Any:
         a = torch.tensor(self.a[self.na[i] : self.na[i + 1]], dtype=torch.int32)
         x = torch.tensor(self.x[self.na[i] : self.na[i + 1]], dtype=torch.float64)
+        momenta = None
+        if self.momenta is not None:
+            momenta = torch.tensor(
+                self.momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
+            )
+        masses = None
+        if self.masses is not None:
+            masses = torch.tensor(
+                self.masses[self.na[i] : self.na[i + 1]], dtype=torch.float64
+            )
         if hasattr(self, "c"):
             c = torch.tensor(self.c[i], dtype=torch.float64)
         else:
@@ -1142,6 +1239,50 @@ class MemmapDataset(TorchDataset):
             cell=c,
             pbc=torch.logical_not(torch.all(c == 0.0, dim=1)),
         )
+
+        # attach momenta to the system
+        if momenta is not None:
+            system.add_data(
+                "momenta",
+                TensorMap(
+                    keys=Labels.single(),
+                    blocks=[
+                        TensorBlock(
+                            values=momenta.unsqueeze(-1),
+                            samples=Labels(
+                                names=["system", "atom"],
+                                values=torch.tensor(
+                                    [[i, j] for j in range(self.na[i], self.na[i + 1])],
+                                    dtype=torch.int32,
+                                ),
+                            ),
+                            components=[Labels.range("xyz", 3)],
+                            properties=Labels.single(),
+                        )
+                    ],
+                ),
+            )
+        if masses is not None:
+            system.add_data(
+                "masses",
+                TensorMap(
+                    keys=Labels.single(),
+                    blocks=[
+                        TensorBlock(
+                            values=masses.unsqueeze(-1),
+                            samples=Labels(
+                                names=["system", "atom"],
+                                values=torch.tensor(
+                                    [[i, j] for j in range(self.na[i], self.na[i + 1])],
+                                    dtype=torch.int32,
+                                ),
+                            ),
+                            components=[],
+                            properties=Labels.single(),
+                        )
+                    ],
+                ),
+            )
 
         target_dict = {}
         for target_key, target_options in self.target_config.items():
@@ -1173,6 +1314,13 @@ class MemmapDataset(TorchDataset):
                 # Scalar
                 components = []
 
+            # Check if it is an energy target to set the correct property label name
+            is_energy = (
+                target_options["quantity"] == "energy"
+                and not target_options["per_atom"]
+                and target_options["num_subtargets"] == 1
+            )
+
             target_block = TensorBlock(
                 values=torch.tensor(
                     (
@@ -1190,11 +1338,7 @@ class MemmapDataset(TorchDataset):
             )
 
             # handle energy gradients
-            if (
-                target_options["quantity"] == "energy"
-                and not target_options["per_atom"]
-                and target_options["num_subtargets"] == 1
-            ):
+            if is_energy:
                 if target_options["forces"]:
                     f = torch.tensor(
                         self.target_arrays[f"{target_key}_forces"][
@@ -1243,9 +1387,10 @@ class MemmapDataset(TorchDataset):
             )
             target_dict[target_key] = target_tensormap
 
-        if hasattr(self, "momenta"):
+        momenta = getattr(self, "momenta", None)
+        if momenta is not None:
             momenta = torch.tensor(
-                self.momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
+                momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
             )
             system.add_data(
                 "momenta",

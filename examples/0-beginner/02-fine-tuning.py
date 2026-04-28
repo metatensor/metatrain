@@ -99,7 +99,7 @@ import subprocess
 import ase.io
 import matplotlib.pyplot as plt
 import numpy as np
-from metatomic.torch.ase_calculator import MetatomicCalculator
+from metatomic_ase import MetatomicCalculator
 
 
 # %%
@@ -223,7 +223,7 @@ plt.show()
 #   pair_style metatomic model-ft.pt [...other arguments...] variant finetune
 #
 # More details on using variants in simulation engines can be found in the
-# `metatomic ASE documentation <https://docs.metatensor.org/metatomic/latest/torch/reference/ase.html#metatomic.torch.ase_calculator.MetatomicCalculator>`_
+# `metatomic ASE documentation <https://docs.metatensor.org/metatomic/latest/engines/ase.html#metatomic_ase.MetatomicCalculator>`_
 # and `metatomic LAMMPS documentation <https://docs.metatensor.org/metatomic/latest/engines/lammps.html#how-to-use-the-code>`_.
 
 # %%

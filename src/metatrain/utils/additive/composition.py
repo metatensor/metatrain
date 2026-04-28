@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Optional, Union
+from typing import Callable, Dict, List, Optional, Sequence, Union
 
 import metatensor.torch as mts
 import torch
@@ -99,6 +99,7 @@ class CompositionModel(torch.nn.Module):
         requested_neighbor_lists: List[NeighborListOptions],
         batch_size: int,
         is_distributed: bool,
+        initial_transforms: Sequence[Callable],
     ) -> DataLoader:
         """
         Create a DataLoader for the provided datasets. As the dataloader is only used to
@@ -114,16 +115,20 @@ class CompositionModel(torch.nn.Module):
             the targets before fitting the composition weights.
         :param batch_size: The batch size to use for the dataloader.
         :param is_distributed: Whether to use distributed sampling for the dataloader.
+        :param initial_transforms: A list of callables to be included in
+            the collate function. The callables passed here will be applied before the
+            other callables set by the composition model.
         :return: A DataLoader for the CompositionModel fitting.
         """
         # Create the collate function
         collate_fn = CollateFn(
             target_keys=list(self.dataset_info.targets.keys()),
             callables=[
+                *initial_transforms,
                 # these neighbor lists might be required by the other additive models
                 # that need to be removed from the targets before fitting the
                 # composition weights
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists)
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
             ],
         )
 
@@ -180,6 +185,7 @@ class CompositionModel(torch.nn.Module):
         batch_size: int,
         is_distributed: bool,
         fixed_weights: Optional[FixedCompositionWeights] = None,
+        initial_transforms: Sequence[Callable] = (),
     ) -> None:
         """
         Train the composition model on the provided training data in the ``datasets``.
@@ -203,6 +209,9 @@ class CompositionModel(torch.nn.Module):
             If a dict of weights is provided for a target, all atomic types handled
             by the model must have a weight specified.
             If ``None``, all weights will be fitted normally.
+        :param initial_transforms: A list of callables to be included in
+            the collate function of the dataloader. The callables passed here will be
+            applied before the other callables set by the composition model.
         """
 
         if not isinstance(datasets, list):
@@ -217,11 +226,14 @@ class CompositionModel(torch.nn.Module):
         for additive_model in additive_models:
             if hasattr(additive_model, "requested_neighbor_lists"):
                 requested_neighbor_lists += additive_model.requested_neighbor_lists()
+
+        # Create dataloader for the training datasets
         dataloader = self._get_dataloader(
             datasets,
             requested_neighbor_lists,
             batch_size,
             is_distributed=is_distributed,
+            initial_transforms=initial_transforms,
         )
 
         if fixed_weights is None:
@@ -259,6 +271,8 @@ class CompositionModel(torch.nn.Module):
             torch.distributed.barrier()
             # All-reduce the accumulated TensorMaps across all processes
             for target_name in self._new_outputs:
+                if target_name in fixed_weights:
+                    continue  # nothing was accumulated
                 for XTX_block, XTY_block in zip(
                     self.model.XTX[target_name],
                     self.model.XTY[target_name],

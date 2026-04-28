@@ -11,9 +11,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-22.04
+          - os: ubuntu-24.04
             python-version: "3.10"
-          - os: ubuntu-22.04
+          - os: ubuntu-24.04
             python-version: "3.13"
           - os: macos-14
             python-version: "3.13"
@@ -58,7 +58,7 @@ jobs:
         HUGGINGFACE_TOKEN_METATRAIN: ${{ secrets.HUGGINGFACE_TOKEN }}
 
     - name: upload to codecov.io
-      uses: codecov/codecov-action@v5
+      uses: codecov/codecov-action@v6
       with:
         # https://github.com/codecov/codecov-action/issues/1842
         fail_ci_if_error: false

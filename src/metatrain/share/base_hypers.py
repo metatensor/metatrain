@@ -8,6 +8,23 @@ from pydantic import ConfigDict, NonNegativeInt, with_config
 from typing_extensions import NotRequired, TypedDict
 
 
+class BasePrecision:
+    """OmegaConf interpolation that resolves to ``base_precision``.
+
+    Use :attr:`value` as the default for architecture precision fields so they
+    automatically track the user's ``base_precision`` (16, 32, or 64)::
+
+        precision: int = BasePrecision.value
+
+    The value ``"${base_precision}"`` is a native OmegaConf interpolation.
+    After ``OmegaConf.merge``, accessing the field resolves it through the
+    root-level ``base_precision`` key (which itself may use the
+    ``${default_precision:}`` resolver).
+    """
+
+    value: str = "${base_precision}"
+
+
 @with_config(ConfigDict(extra="forbid", strict=True))
 class ArchitectureBaseHypers(TypedDict):
     name: str
@@ -100,13 +117,30 @@ class CartesianTargetTypeHypers(TypedDict):
 
 @with_config(ConfigDict(extra="forbid", strict=True))
 class SphericalTargetIrrepsConfig(TypedDict):
+    num: NotRequired[int]
+    """Number of irreps of this type.
+
+    Note that this will get multiplied by the number of subtargets
+    specified in ``TargetHypers``.
+    """
     o3_lambda: int
     o3_sigma: float
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))
 class SphericalTargetConfig(TypedDict):
-    irreps: list[SphericalTargetIrrepsConfig]
+    irreps: (
+        list[SphericalTargetIrrepsConfig] | dict[int, list[SphericalTargetIrrepsConfig]]
+    )
+    product: NotRequired[Literal[None, "coupled"]] = None
+    """Means of describing a higher rank target that is made of the base irreps.
+    If:
+
+    - ``product`` is ``None`` or not provided: the target is of rank 1.
+    - ``product`` is ``"coupled"``: the target is built by all the possible products
+      between irreps and coupling them to their irreducible representations.
+      The target is therefore still of rank 1.
+    """
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))
@@ -195,9 +229,32 @@ class DatasetDictHypers(TypedDict):
 
     extra_data: NotRequired[dict]
     """Additional data to include from the dataset."""
+    indices: NotRequired[list[int] | str]
+    """Explicit indices to select from the dataset.
+
+    Can be either a list of integers (e.g., ``[0, 1, 5, 10]``) or a path to a
+    text file containing one index per line. When specified, only the structures
+    at these indices will be used from the dataset.
+    """
 
 
 DatasetSpec = DatasetDictHypers | list[DatasetDictHypers] | str
+
+
+@with_config(ConfigDict(extra="forbid", strict=True))
+class IndicesOnlyHypers(TypedDict):
+    """
+    Config for validation/test sets that reference the training source via indices.
+    """
+
+    indices: list[int] | str
+    """Indices into the training set source file.
+
+    Can be either a list of integers (e.g., ``[0, 1, 5, 10]``) or a path to a
+    text file containing one index per line. The indices reference the same
+    source file as specified in ``training_set.systems.read_from``.
+    """
+
 
 WandbConfig = dict
 
@@ -233,9 +290,25 @@ class BaseHypers(TypedDict):
 
     training_set: DatasetSpec
     """Specification of the training dataset."""
-    validation_set: DatasetSpec | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
-    """Specification of the validation dataset."""
+    validation_set: (
+        IndicesOnlyHypers
+        | DatasetSpec
+        | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
+    )
+    """Specification of the validation dataset.
+
+    Can be a float fraction (e.g., ``0.1`` for 10% of training data),
+    a full dataset specification, or an ``indices`` dict referencing
+    the training source file.
+    """
     test_set: NotRequired[
-        DatasetSpec | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
+        IndicesOnlyHypers
+        | DatasetSpec
+        | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
     ]
-    """Specification of the test dataset."""
+    """Specification of the test dataset.
+
+    Can be a float fraction (e.g., ``0.1`` for 10% of training data),
+    a full dataset specification, or an ``indices`` dict referencing
+    the training source file.
+    """
