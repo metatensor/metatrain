@@ -205,9 +205,9 @@ class BaseTensorMapLoss(LossInterface):
         all_targets_flattened = all_targets_flattened[not_nan]
         all_predictions_flattened = all_predictions_flattened[not_nan]
 
-        assert ~torch.isnan(
-            all_predictions_flattened
-        ).any(), "NaN values found in predictions"
+        assert ~torch.isnan(all_predictions_flattened).any(), (
+            "NaN values found in predictions"
+        )
 
         if len(all_targets_flattened) == 0:
             # No valid data points to compute the loss
@@ -447,6 +447,300 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
         )
 
 
+########################################################################################
+
+
+def tensormap_to_pyscf_coefficients_padded(
+    padded_tensor: TensorMap,
+) -> list[torch.Tensor]:
+    """
+    Convert a padded TensorMap to a list of PyTorch tensors (one per system).
+    Automatically drops NaN padding and preserves the computation graph.
+
+    :param padded_tensor: TensorMap containing padded coefficients with NaN for invalid
+        entries.
+    :return: List of 1D torch.Tensors, each containing the valid coefficients for a
+        system.
+    """
+    sys_list, atm_list, ang_list = [], [], []
+    rad_list, m_list, val_list = [], [], []
+
+    for key, block in padded_tensor.items():
+        angular = int(key[0])
+
+        # Extract values
+        vals = block.values
+        device = vals.device
+        S, C, P = vals.shape
+
+        # Extract indices
+        sys_idx = block.samples.values[:, 0]
+        atm_idx = block.samples.values[:, 1]
+        rad_idx = block.properties.values[:, 0]
+        m_idx = block.components[0].values[:, 0]
+
+        # PySCF p-orbital reordering
+        if angular == 1:
+            vals = vals[:, [2, 0, 1], :]
+
+        # Reshape for broadcasting
+        sys_grid = sys_idx.view(S, 1, 1).expand(S, C, P)
+        atm_grid = atm_idx.view(S, 1, 1).expand(S, C, P)
+        m_grid = m_idx.view(1, C, 1).expand(S, C, P)
+        rad_grid = rad_idx.view(1, 1, P).expand(S, C, P)
+        ang_grid = torch.full((S, C, P), angular, dtype=torch.long, device=device)
+
+        mask = ~torch.isnan(vals)
+
+        sys_list.append(sys_grid[mask])
+        atm_list.append(atm_grid[mask])
+        ang_list.append(ang_grid[mask])
+        rad_list.append(rad_grid[mask])
+        m_list.append(m_grid[mask])
+        val_list.append(vals[mask])
+
+    if not val_list:
+        return []
+
+    # Concatenate flat tensors
+    sys_all = torch.cat(sys_list)
+    atm_all = torch.cat(atm_list)
+    ang_all = torch.cat(ang_list)
+    rad_all = torch.cat(rad_list)
+    m_all = torch.cat(m_list)
+    val_all = torch.cat(val_list)
+
+    # Global Stable Sort (Target: sys -> atm -> ang -> rad -> m)
+    idx = torch.arange(len(val_all), device=device)
+
+    idx = idx[torch.argsort(m_all[idx], stable=True)]
+    idx = idx[torch.argsort(rad_all[idx], stable=True)]
+    idx = idx[torch.argsort(ang_all[idx], stable=True)]
+    idx = idx[torch.argsort(atm_all[idx], stable=True)]
+    idx = idx[torch.argsort(sys_all[idx], stable=True)]
+
+    sys_sorted = sys_all[idx]
+    val_sorted = val_all[idx]
+
+    # Split into systems
+    changes = (sys_sorted[1:] != sys_sorted[:-1]).nonzero(as_tuple=True)[0] + 1
+    result_tuple = torch.tensor_split(
+        val_sorted, changes.cpu() if changes.is_cuda else changes
+    )
+
+    return list(result_tuple)
+
+
+def extract_sparse_integrals(
+    batched_integrals: TensorMap, c_list: list[torch.Tensor]
+) -> list[torch.Tensor]:
+    """
+    Unpacks the sparse 1D TensorMap into a list of dense 2D matrices.
+    Works with variable-length sparse data per system.
+
+    :param batched_integrals: TensorMap containing the sparse integrals for all systems.
+    :param c_list: list of coefficient tensors (one per system) to determine basis size.
+    :return: list of 2D torch.Tensors, each of shape (N_basis, N_grid) for a system.
+    """
+    block = batched_integrals.block()
+    vals = block.values.squeeze(1)  # The non-zero integral values
+    samples = block.samples.values  # [system, grid_idx, basis_idx]
+
+    device = vals.device
+
+    # Find system boundaries
+    sys_idx = samples[:, 0]
+    changes = (sys_idx[1:] != sys_idx[:-1]).nonzero(as_tuple=True)[0] + 1
+
+    # Split values and coordinate samples by system
+    vals_per_sys = torch.tensor_split(
+        vals, changes.cpu() if changes.is_cuda else changes
+    )
+    samples_per_sys = torch.tensor_split(
+        samples, changes.cpu() if changes.is_cuda else changes
+    )
+
+    v_Pp_list = []
+    for i, (v_sys, s_sys) in enumerate(zip(vals_per_sys, samples_per_sys, strict=True)):
+        # Get basis size from the ML coefficients
+        N_basis = c_list[i].shape[0]
+
+        # Get the actual number of grid points used for this specific system
+        N_grid = torch.max(s_sys[:, 1]) + 1
+
+        # Reconstruct the sparse matrix
+        # indices must be (2, N_nonzero) and (grid_idx, basis_idx)
+        sparse_indices = s_sys[:, 1:].T
+
+        # Use PyTorch's sparse-to-dense utility
+        # We build the (N_grid, N_basis) matrix and transpose to (N_basis, N_grid)
+        # to match the (dc_i @ v_Pp_i) requirement.
+        v_Pp_sparse = torch.sparse_coo_tensor(
+            sparse_indices, v_sys, size=(N_grid, N_basis), device=device
+        )
+
+        # We convert to dense for the final matmul.
+        # On GPU, .to_dense() is very fast.
+        v_Pp_list.append(v_Pp_sparse.to_dense().T)
+
+    return v_Pp_list
+
+
+class TensorMapESPLoss(BaseTensorMapLoss):
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+        *,
+        esp_factor: float = 1e-2,
+        conserve_charge: bool = False,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_fn=torch.nn.MSELoss(reduction=reduction),
+        )
+        self.esp_factor = esp_factor
+        self.conserve_charge = conserve_charge
+
+    def _get_charge_difference(
+        self,
+        tensor_map_pred: TensorMap,
+        n_electrons: TensorMap,
+        s_orbital_normalization: TensorMap,
+    ) -> torch.Tensor:
+        """
+        Apply RI charge normalization to the predicted coefficients in-place.
+
+        :param tensor_map_pred: TensorMap containing the predicted coefficients to be
+            normalized.
+        :param n_electrons: TensorMap containing the total number of electrons for each
+            system.
+        :param s_orbital_normalization: TensorMap containing the S-orbital normalization
+            factors for each atom.
+        :return: The input tensor_map_pred with normalized coefficients.
+        """
+        n_electrons = n_electrons.block().values.squeeze(-1)  # [B]
+        n_systems = n_electrons.shape[0]
+        device = n_electrons.device
+
+        scalar_blocks = tensor_map_pred.blocks({"o3_lambda": 0})
+        assert len(scalar_blocks) == 1
+        b = scalar_blocks[0]
+
+        c_pred = b.values  # [samples, 1, num_radial]
+        S_vec = s_orbital_normalization.blocks({"o3_lambda": 0})[0].values.squeeze(
+            1
+        )  # [samples, num_radial]
+
+        # Remove NaNs from S_vec to avoid inf gradients
+        S_vec = torch.nan_to_num(S_vec, nan=0.0)
+        system_idx = b.samples.values[:, 0].to(torch.int64)  # [samples]
+
+        # Current charge per atom
+        q_atom = torch.sum(c_pred.squeeze(1) * S_vec, dim=-1)  # [samples]
+
+        q_mol_pred = torch.zeros(n_systems, device=device).scatter_add_(
+            0, system_idx, q_atom
+        )
+        s_norm_sq_atom = torch.sum(S_vec * S_vec, dim=-1)  # [samples]
+        s_norm_sq_mol = torch.zeros(n_systems, device=device).scatter_add_(
+            0, system_idx, s_norm_sq_atom
+        )
+        s_norm_sq_mol = s_norm_sq_mol + 1e-8
+
+        return n_electrons - q_mol_pred
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+
+        assert extra_data is not None, "TensorMapESPLoss requires extra_data"
+
+        tensor_map_pred = predictions[self.target]
+        tensor_map_targ = targets[self.target]
+
+        # Check gradients are present in the target TensorMap
+        if self.gradient is not None:
+            if self.gradient not in tensor_map_targ[0].gradients_list():
+                # Skip loss computation if block gradient is missing in the dataset
+                # Tensor gradients are not tracked
+                return torch.zeros(
+                    (), dtype=torch.float, device=tensor_map_targ[0].values.device
+                )
+
+        if self.conserve_charge:
+            raise NotImplementedError(
+                "Charge conservation not implemented yet in TensorMapESPLoss"
+            )
+            # # TODO: implement charge normalization with CM and scaler
+
+            # target_name_clean = (
+            #     self.target.replace("mtt::", "")
+            #     .replace("_coulomb", "")
+            #     .replace("_overlap", "")
+            # )
+            # s_orb_name = f"mtt::s_orbital_normalization_{target_name_clean}"
+            # assert (
+            #     s_orb_name in extra_data
+            # ), f"TensorMapESPLoss requires '{s_orb_name}' in extra_data:"
+            # assert (
+            #     "mtt::n_electrons" in extra_data
+            # ), "TensorMapESPLoss requires 'mtt::n_electrons' in extra_data"
+            # n_electrons = extra_data["mtt::n_electrons"]
+            # s_orbital_normalization = extra_data[s_orb_name]
+
+        if self.esp_factor > 0:
+            delta_c = []
+            for k in tensor_map_pred.keys:
+                block_pred = tensor_map_pred.block(k)
+                block_targ = tensor_map_targ.block(k)
+
+                delta_c.append(
+                    TensorBlock(
+                        samples=block_pred.samples,
+                        components=block_pred.components,
+                        properties=block_pred.properties,
+                        values=block_pred.values - block_targ.values,
+                    )
+                )
+            delta_c = TensorMap(tensor_map_pred.keys, delta_c)
+            delta_c = tensormap_to_pyscf_coefficients_padded(delta_c)
+            integrals = extra_data[f"{self.target}_integrals"]
+            v_Pp_list = extract_sparse_integrals(integrals, delta_c)
+
+            esp_losses = []
+            c_losses = []
+
+            for dc_i, v_Pp_i in zip(delta_c, v_Pp_list, strict=True):
+                esp_error_i = torch.matmul(dc_i, v_Pp_i)
+
+                # Calculate MSE for this molecule
+                mol_mse = torch.mean(esp_error_i**2)
+                esp_losses.append(mol_mse)
+
+                # and for the coefficients
+                c_mse = torch.mean(dc_i**2)
+                c_losses.append(c_mse)
+
+            coeff_loss = torch.stack(c_losses).mean()
+            esp_loss = torch.stack(esp_losses).mean()
+            return coeff_loss + self.esp_factor * esp_loss
+
+        else:
+            return self.compute_flattened(tensor_map_pred, tensor_map_targ)
+
+
+########################################################################################
+
+
 class TensorMapRINormLoss(TensorMapMSELoss):
     def __init__(
         self,
@@ -519,7 +813,7 @@ class TensorMapRINormLoss(TensorMapMSELoss):
         correction = gamma_atom * S_vec.unsqueeze(1)  # [samples, 1, num_radial]
         b.values[:] += correction
 
-    def _L1_penalty(tensor: TensorMap, factor: float) -> torch.Tensor:
+    def _L1_penalty(self, tensor: TensorMap, factor: float) -> torch.Tensor:
         """
         Compute an L1 penalty to the predicted non-invariant coefficients.
 
@@ -553,9 +847,9 @@ class TensorMapRINormLoss(TensorMapMSELoss):
         """
         tensor_map_pred = predictions[self.target]
         tensor_map_targ = targets[self.target]
-        assert (
-            extra_data is not None
-        ), "RINormLoss requires extra_data for normalization"
+        assert extra_data is not None, (
+            "RINormLoss requires extra_data for normalization"
+        )
 
         target_name_clean = (
             self.target.replace("mtt::", "")
@@ -563,12 +857,12 @@ class TensorMapRINormLoss(TensorMapMSELoss):
             .replace("_overlap", "")
         )
         s_orb_name = f"mtt::s_orbital_normalization_{target_name_clean}"
-        assert (
-            s_orb_name in extra_data
-        ), f"RINormLoss requires '{s_orb_name}' in extra_data:"
-        assert (
-            "mtt::n_electrons" in extra_data
-        ), "RINormLoss requires 'mtt::n_electrons' in extra_data"
+        assert s_orb_name in extra_data, (
+            f"RINormLoss requires '{s_orb_name}' in extra_data:"
+        )
+        assert "mtt::n_electrons" in extra_data, (
+            "RINormLoss requires 'mtt::n_electrons' in extra_data"
+        )
         n_electrons = extra_data["mtt::n_electrons"]
         s_orbital_normalization = extra_data[s_orb_name]
 
@@ -580,13 +874,16 @@ class TensorMapRINormLoss(TensorMapMSELoss):
                 return torch.zeros(
                     (), dtype=torch.float, device=tensor_map_targ[0].values.device
                 )
+
         # Apply RI normalization to the predictions
         self._apply_charge_normalization(
             tensor_map_pred, n_electrons, s_orbital_normalization
         )
         L1_penalty = self._L1_penalty(tensor_map_pred, 1e-3)
-
         return self.compute_flattened(tensor_map_pred, tensor_map_targ) + L1_penalty
+
+
+########################################################################################
 
 
 class MaskedDOSLoss(LossInterface):
@@ -1331,6 +1628,7 @@ class LossType(Enum):
     GAUSSIAN_CRPS = ("gaussian_crps_ensemble", TensorMapGaussianCRPSLoss)
     EMPIRICAL_CRPS = ("empirical_crps_ensemble", TensorMapEmpiricalCRPSLoss)
     RI_NORM = ("ri_norm", TensorMapRINormLoss)
+    ESP = ("esp", TensorMapESPLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key

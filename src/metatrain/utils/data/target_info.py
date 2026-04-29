@@ -114,7 +114,7 @@ class TargetInfo:
         # examine basic properties of all blocks
         for block in layout.blocks():
             for sample_name in block.samples.names:
-                if sample_name not in ["system", "atom"]:
+                if sample_name not in ["system", "atom", "grid_idx", "basis_idx"]:
                     raise ValueError(
                         "The layout ``TensorMap`` of a target should only have samples "
                         "named 'system' or 'atom', but found "
@@ -441,6 +441,8 @@ def get_generic_target_info(target_name: str, target: DictConfig) -> TargetInfo:
         return _get_cartesian_target_info(target_name, target)
     elif len(target["type"]) == 1 and next(iter(target["type"])) == "spherical":
         return _get_spherical_target_info(target_name, target)
+    elif target["type"] == "esp":
+        return _get_esp_target_info(target_name, target)
     else:
         raise ValueError(
             f"Target type {target['type']} is not supported. "
@@ -452,6 +454,38 @@ def _get_scalar_target_info(target_name: str, target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
     if target["per_atom"]:
         sample_names.append("atom")
+
+    block = TensorBlock(
+        # float64: otherwise metatensor can't serialize
+        values=torch.empty(0, target["num_subtargets"], dtype=torch.float64),
+        samples=Labels(
+            names=sample_names,
+            values=torch.empty((0, len(sample_names)), dtype=torch.int32),
+        ),
+        components=[],
+        properties=Labels.range(
+            # remove variant and/or mtt:: prefix from target name
+            (target_name.split("/")[0] if "/" in target_name else target_name).replace(
+                "mtt::", ""
+            ),
+            target["num_subtargets"],
+        ),
+    )
+    layout = TensorMap(
+        keys=Labels.single(),
+        blocks=[block],
+    )
+
+    return TargetInfo(
+        layout=layout,
+        quantity=target["quantity"],
+        unit=target["unit"],
+        description=target.get("description", ""),
+    )
+
+
+def _get_esp_target_info(target_name: str, target: DictConfig) -> TargetInfo:
+    sample_names = ["system", "grid_idx", "basis_idx"]
 
     block = TensorBlock(
         # float64: otherwise metatensor can't serialize
