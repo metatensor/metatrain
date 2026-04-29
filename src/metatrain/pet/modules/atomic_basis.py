@@ -102,11 +102,11 @@ class ZConditionedReadout(torch.nn.Module):
             features = features.unsqueeze(1)  # (n_atoms, 1, in_features)
 
         x = features
-        n_layers = len(self.weights)
-        for i in range(n_layers):
-            W = self.weights[i][idx]  # (n_atoms, out_dim, in_dim)
-            b = self.biases[i][idx]   # (n_atoms, out_dim)
-            x = torch.matmul(x, W.transpose(-2, -1)) + b.unsqueeze(1)
+        n_layers = self.weights.__len__()  # type: ignore[attr-defined]
+        for i, (W, b) in enumerate(zip(self.weights, self.biases, strict=True)):
+            W_ = W[idx]  # (n_atoms, out_dim, in_dim)
+            b_ = b[idx]  # (n_atoms, out_dim)
+            x = torch.matmul(x, W_.transpose(-2, -1)) + b_.unsqueeze(1)
             if i < n_layers - 1:
                 x = torch.nn.functional.silu(x)
 

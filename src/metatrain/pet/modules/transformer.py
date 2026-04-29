@@ -2,9 +2,8 @@ from typing import Optional, Tuple
 
 import torch
 import torch.nn.functional as F
-from torch import nn
-
 from sphericart.torch import SolidHarmonics
+from torch import nn
 
 from .utilities import DummyModule
 
@@ -411,16 +410,17 @@ class CartesianTransformer(torch.nn.Module):
             transformer_type=transformer_type,
             attention_temperature=attention_temperature,
         )
-        self.geometry_embedding_lmax = geometry_embedding_lmax
-        if self.geometry_embedding_lmax is None:  # standard PET edge geometry embedding
+        self.geometry_embedding_lmax: Optional[int] = geometry_embedding_lmax
+        if self.geometry_embedding_lmax is None:  # standard PET edge geometry embedding
             self.edge_embedder = nn.Linear(4, d_model)
             self.spherical_harmonics = torch.nn.Identity()
             self.rmsnorm = torch.nn.Identity()
         else:  # SSH embedding
             self.spherical_harmonics = SolidHarmonics(l_max=geometry_embedding_lmax)
-            self.edge_embedder = nn.Linear((geometry_embedding_lmax + 1) ** 2, d_model)
+            self.edge_embedder = nn.Linear(
+                (self.geometry_embedding_lmax + 1) ** 2, d_model
+            )
             self.rmsnorm = nn.LayerNorm(d_model)
-
 
         if not is_first:
             n_merge = 3
