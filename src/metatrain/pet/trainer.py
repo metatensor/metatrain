@@ -120,6 +120,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             distr_env = DistributedEnvironment(self.hypers["distributed_port"])
             device_number = distr_env.local_rank % torch.cuda.device_count()
             device = torch.device("cuda", device_number)
+            torch.cuda.set_device(device)
             torch.distributed.init_process_group(backend="nccl", device_id=device)
             world_size = torch.distributed.get_world_size()
             rank = torch.distributed.get_rank()
