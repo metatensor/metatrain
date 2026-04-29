@@ -30,9 +30,6 @@ def _minimal_model_hypers() -> dict:
     hypers["tensor_basis_defaults"]["soap"]["max_radial"] = 1
     hypers["tensor_basis_defaults"]["soap"]["cutoff"]["radius"] = 3.0
     hypers["tensor_basis_defaults"]["soap"]["cutoff"]["width"] = 0.5
-    hypers["tensor_basis_defaults"]["l1_species_dependent_vector_soap"] = copy.deepcopy(
-        hypers["tensor_basis_defaults"]["soap"]
-    )
     hypers["tensor_basis_defaults"]["extra_l1_vector_basis_branches"] = [
         copy.deepcopy(hypers["tensor_basis_defaults"]["soap"])
     ]
@@ -134,4 +131,18 @@ def test_e_pet_tensor_basis_rejects_max_angular() -> None:
     hypers["model"]["tensor_basis_defaults"]["soap"]["max_angular"] = 2
 
     with pytest.raises(MetatrainValidationError, match="max_angular"):
+        check_architecture_options("experimental.e_pet", hypers)
+
+
+@pytest.mark.parametrize(
+    "option_name",
+    ("add_l1_species_dependent_vector", "l1_species_dependent_vector_soap"),
+)
+def test_e_pet_tensor_basis_rejects_removed_l1_species_options(
+    option_name: str,
+) -> None:
+    hypers = copy.deepcopy(get_default_hypers("experimental.e_pet"))
+    hypers["model"]["tensor_basis_defaults"][option_name] = {}
+
+    with pytest.raises(MetatrainValidationError, match=option_name):
         check_architecture_options("experimental.e_pet", hypers)

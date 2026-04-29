@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import copy
 
+import pytest
+import torch
+
 from metatrain.pet.trainer import get_scheduler
 from metatrain.utils.architectures import get_default_hypers
 
@@ -18,6 +21,21 @@ def _split_lr_training_hypers() -> dict:
     hypers["tensor_basis_learning_rate"] = 1.0e-3
     hypers["readout_learning_rate"] = 6.0e-4
     return hypers
+
+
+def _pet_trainer_training_hypers() -> dict:
+    hypers = copy.deepcopy(get_default_hypers("experimental.e_pet")["training"])
+    hypers["pet_trunk_learning_rate"] = None
+    hypers["tensor_basis_learning_rate"] = None
+    hypers["readout_learning_rate"] = None
+    hypers["coefficient_l2_weight"] = 0.0
+    hypers["basis_gram_weight"] = 0.0
+    return hypers
+
+
+def test_custom_training_path_predicate() -> None:
+    assert Trainer(_split_lr_training_hypers())._requires_custom_training_path()
+    assert not Trainer(_pet_trainer_training_hypers())._requires_custom_training_path()
 
 
 def test_split_learning_rate_optimizer_groups_are_disjoint() -> None:
@@ -67,3 +85,19 @@ def test_custom_trainer_restores_restart_optimizer_and_scheduler_state() -> None
 
     assert restored_optimizer.param_groups[0]["lr"] == 9.0e-4
     assert restored_scheduler.state_dict()["last_epoch"] == 5
+
+
+def test_custom_trainer_rejects_distributed_training() -> None:
+    hypers = _split_lr_training_hypers()
+    hypers["distributed"] = True
+
+    with pytest.raises(NotImplementedError, match="distributed training"):
+        Trainer(hypers)._validate_custom_training_path(torch.float32)
+
+
+def test_custom_trainer_rejects_finetuning() -> None:
+    hypers = _split_lr_training_hypers()
+    hypers["finetune"]["read_from"] = "model.ckpt"
+
+    with pytest.raises(NotImplementedError, match="finetuning"):
+        Trainer(hypers)._validate_custom_training_path(torch.float32)

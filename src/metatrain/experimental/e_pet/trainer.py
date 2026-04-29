@@ -30,9 +30,6 @@ from .model import EPET
 class Trainer(PETTrainer):
     __checkpoint_version__ = 1
 
-    def __init__(self, hypers: TrainerHypers) -> None:
-        super().__init__(hypers)
-
     def _has_split_learning_rates(self) -> bool:
         return any(
             self.hypers.get(key) is not None
@@ -42,6 +39,47 @@ class Trainer(PETTrainer):
                 "readout_learning_rate",
             )
         )
+
+    def _regularization_weights(self) -> tuple[float, float]:
+        return (
+            float(self.hypers.get("coefficient_l2_weight", 0.0)),
+            float(self.hypers.get("basis_gram_weight", 0.0)),
+        )
+
+    def _requires_custom_training_path(self) -> bool:
+        coefficient_l2_weight, basis_gram_weight = self._regularization_weights()
+        return (
+            coefficient_l2_weight != 0.0
+            or basis_gram_weight != 0.0
+            or self._has_split_learning_rates()
+        )
+
+    def _validate_custom_training_path(self, dtype: torch.dtype) -> None:
+        assert dtype in EPET.__supported_dtypes__
+
+        if self.hypers["finetune"]["read_from"] is not None:
+            raise NotImplementedError(
+                "Custom e-pet training with split learning rates or basis penalties "
+                "does not support finetuning yet."
+            )
+        if self.hypers["distributed"]:
+            raise NotImplementedError(
+                "Custom e-pet training with split learning rates or basis penalties "
+                "does not support distributed training yet."
+            )
+
+    def _add_regularization(
+        self,
+        model: EPET,
+        loss: torch.Tensor,
+        coefficient_l2_weight: float,
+        basis_gram_weight: float,
+    ) -> torch.Tensor:
+        if coefficient_l2_weight != 0.0:
+            loss = loss + coefficient_l2_weight * model.get_regularization_loss()
+        if basis_gram_weight != 0.0:
+            loss = loss + basis_gram_weight * model.get_basis_gram_loss()
+        return loss
 
     def _build_optimizer(self, model: EPET) -> torch.optim.Optimizer:
         base_lr = float(self.hypers["learning_rate"])
@@ -137,31 +175,17 @@ class Trainer(PETTrainer):
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ) -> None:
-        coefficient_l2_weight = float(self.hypers.get("coefficient_l2_weight", 0.0))
-        basis_gram_weight = float(self.hypers.get("basis_gram_weight", 0.0))
-        if (
-            coefficient_l2_weight == 0.0
-            and basis_gram_weight == 0.0
-            and not self._has_split_learning_rates()
-        ):
-            super().train(model, dtype, devices, train_datasets, val_datasets, checkpoint_dir)
+        coefficient_l2_weight, basis_gram_weight = self._regularization_weights()
+        if not self._requires_custom_training_path():
+            super().train(
+                model, dtype, devices, train_datasets, val_datasets, checkpoint_dir
+            )
             return
 
-        assert dtype in EPET.__supported_dtypes__
+        self._validate_custom_training_path(dtype)
 
-        is_distributed = self.hypers["distributed"]
-        is_finetune = self.hypers["finetune"]["read_from"] is not None
-        if is_finetune:
-            raise NotImplementedError(
-                "Custom e-pet training with split learning rates or basis penalties "
-                "does not support finetuning yet."
-            )
-        if is_distributed:
-            raise NotImplementedError(
-                "Custom e-pet training with split learning rates or basis penalties "
-                "does not support distributed training yet."
-            )
-
+        # This loop mirrors PET's single-process training path. Keep local
+        # differences limited to split optimizer groups and E-PET regularizers.
         device = devices[0]
         logging.info(f"Training on device {device} with dtype {dtype}")
 
@@ -357,17 +381,12 @@ class Trainer(PETTrainer):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
-
-                if coefficient_l2_weight != 0.0:
-                    train_loss_batch = (
-                        train_loss_batch
-                        + coefficient_l2_weight * model.get_regularization_loss()
-                    )
-                if basis_gram_weight != 0.0:
-                    train_loss_batch = (
-                        train_loss_batch
-                        + basis_gram_weight * model.get_basis_gram_loss()
-                    )
+                train_loss_batch = self._add_regularization(
+                    model,
+                    train_loss_batch,
+                    coefficient_l2_weight,
+                    basis_gram_weight,
+                )
                 assert_finite_loss(
                     train_loss_batch,
                     phase="training",
