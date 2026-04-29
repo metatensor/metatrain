@@ -84,14 +84,6 @@ class TensorBasisDefaults(TypedDict):
     yields two ``VectorBasis`` branches in total.
     """
 
-    add_l1_species_dependent_vector: bool = False
-    """Whether to append one species-dependent proper ``l=1`` vector branch."""
-
-    l1_species_dependent_vector_soap: TensorBasisSOAPConfig = init_with_defaults(
-        TensorBasisSOAPConfig
-    )
-    """SOAP configuration for the optional species-dependent ``l=1`` branch."""
-
     legacy: bool = True
     """Whether to use the legacy tensor-basis species handling."""
 

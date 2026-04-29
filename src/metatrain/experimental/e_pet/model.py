@@ -11,7 +11,6 @@ from torch.nn import Linear, ModuleDict, ModuleList, Sequential, SiLU
 from metatrain.pet.model import (
     PET,
     _irrep_key,
-    _parse_shared_selector,
     _shared_selector,
     _validate_shared_head_groups,
     get_last_layer_features_name,
@@ -57,20 +56,6 @@ def _basis_gram_chunk_penalty(tensor_basis: torch.Tensor) -> torch.Tensor:
     return torch.stack(penalties).mean()
 
 
-def _add_l1_species_dependent_vector(
-    tensor_basis_hypers: Dict[str, Any]
-) -> bool:
-    return bool(tensor_basis_hypers.get("add_l1_species_dependent_vector", False))
-
-
-def _l1_species_dependent_vector_soap(
-    tensor_basis_hypers: Dict[str, Any]
-) -> dict[str, Any]:
-    if "l1_species_dependent_vector_soap" in tensor_basis_hypers:
-        return copy.deepcopy(tensor_basis_hypers["l1_species_dependent_vector_soap"])
-    return copy.deepcopy(tensor_basis_hypers["soap"])
-
-
 def _extra_l1_vector_basis_branches(
     tensor_basis_hypers: Dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -103,7 +88,6 @@ class EPET(PET):
     target_head_keys: Dict[str, List[str]]
     block_to_head_key: Dict[str, Dict[str, str]]
     block_irrep_keys: Dict[str, Dict[str, str]]
-    latest_diagnostics: Dict[str, Dict[str, float]]
     shared_head_selectors: Dict[str, str]
     top_level_shared_head_selectors: Dict[str, str]
 
@@ -111,11 +95,6 @@ class EPET(PET):
         self.e_pet_hypers = copy.deepcopy(hypers)
         self.tensor_basis_hypers = copy.deepcopy(hypers["tensor_basis_defaults"])
         self.tensor_basis_hypers.setdefault("extra_l1_vector_basis_branches", [])
-        self.tensor_basis_hypers.setdefault("add_l1_species_dependent_vector", False)
-        self.tensor_basis_hypers.setdefault(
-            "l1_species_dependent_vector_soap",
-            copy.deepcopy(self.tensor_basis_hypers["soap"]),
-        )
         self.e_pet_hypers["tensor_basis_defaults"] = copy.deepcopy(
             self.tensor_basis_hypers
         )
@@ -144,7 +123,6 @@ class EPET(PET):
         )
         self._last_spherical_coefficient_penalty = torch.tensor(0.0)
         self._last_basis_gram_penalty = torch.tensor(0.0)
-        self.latest_diagnostics = {}
         super().__init__(copy.deepcopy(hypers["pet"]), dataset_info)
         self.shared_head_groups_config = copy.deepcopy(
             hypers.get("shared_head_groups", {})
@@ -170,18 +148,6 @@ class EPET(PET):
         for name, value in zip(key.names, key.values, strict=True):
             dict_key += f"_{name}_{int(value)}"
         return dict_key
-
-    @staticmethod
-    def _irrep_key(key: Labels) -> str:
-        return _irrep_key(key)
-
-    @staticmethod
-    def _shared_selector(target_name: str, irrep_key: Optional[str] = None) -> str:
-        return _shared_selector(target_name, irrep_key)
-
-    @staticmethod
-    def _parse_shared_selector(selector: str) -> Tuple[str, Optional[str]]:
-        return _parse_shared_selector(selector)
 
     def _validate_and_build_shared_head_groups(
         self, dataset_info: DatasetInfo
@@ -232,38 +198,62 @@ class EPET(PET):
             )
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-        extra_l1_vector_basis_branches = _extra_l1_vector_basis_branches(
-            self.tensor_basis_hypers
-        )
-        add_l1_species_dependent_vector = _add_l1_species_dependent_vector(
-            self.tensor_basis_hypers
-        )
-        l1_species_dependent_vector_soap = _l1_species_dependent_vector_soap(
-            self.tensor_basis_hypers
-        )
-
         if target_info.is_scalar:
-            self.scalar_target_names.append(target_name)
-            super()._add_output(target_name, target_info)
-            head_key = self.top_level_shared_head_selectors.get(
-                self._shared_selector(target_name), target_name
-            )
-            self.target_head_keys[target_name] = [head_key]
-            if head_key != target_name:
-                if head_key in self.node_heads:
-                    del self.node_heads[target_name]
-                    del self.edge_heads[target_name]
-                else:
-                    self.node_heads[head_key] = self.node_heads[target_name]
-                    del self.node_heads[target_name]
-                    self.edge_heads[head_key] = self.edge_heads[target_name]
-                    del self.edge_heads[target_name]
+            self._add_scalar_output(target_name, target_info)
             return
 
         if not target_info.is_spherical:
             raise ValueError(
                 "experimental.e_pet supports only scalar and spherical targets in v1."
             )
+
+        self._add_spherical_output(target_name, target_info)
+
+    def _add_scalar_output(self, target_name: str, target_info: TargetInfo) -> None:
+        self.scalar_target_names.append(target_name)
+        super()._add_output(target_name, target_info)
+        head_key = self.top_level_shared_head_selectors.get(
+            _shared_selector(target_name), target_name
+        )
+        self.target_head_keys[target_name] = [head_key]
+        if head_key == target_name:
+            return
+
+        if head_key in self.node_heads:
+            del self.node_heads[target_name]
+            del self.edge_heads[target_name]
+            return
+
+        self.node_heads[head_key] = self.node_heads[target_name]
+        del self.node_heads[target_name]
+        self.edge_heads[head_key] = self.edge_heads[target_name]
+        del self.edge_heads[target_name]
+
+    def _basis_size(
+        self,
+        key: Labels,
+        num_components: int,
+        extra_l1_vector_basis_branches: list[dict[str, Any]],
+    ) -> int:
+        if (
+            num_components == 3
+            and int(key[0]) == 1
+            and int(key[1]) == 1
+            and len(extra_l1_vector_basis_branches) > 0
+        ):
+            return (1 + len(extra_l1_vector_basis_branches)) * num_components
+        if num_components in (1, 3):
+            return num_components
+        if self.tensor_basis_hypers["add_lambda_basis"]:
+            return 2 * num_components
+        return num_components
+
+    def _add_spherical_output(
+        self, target_name: str, target_info: TargetInfo
+    ) -> None:
+        extra_l1_vector_basis_branches = _extra_l1_vector_basis_branches(
+            self.tensor_basis_hypers
+        )
 
         self.spherical_target_names.append(target_name)
         if self.basis_calculators is None:
@@ -284,11 +274,11 @@ class EPET(PET):
 
         for block_index, (key, block) in enumerate(output_layout.items()):
             dict_key = self._block_dict_key(target_name, key)
-            irrep_key = self._irrep_key(key)
+            irrep_key = _irrep_key(key)
             seen_irrep_keys.add(irrep_key)
             self.block_irrep_keys[target_name][dict_key] = irrep_key
 
-            shared_selector = self._shared_selector(target_name, irrep_key)
+            shared_selector = _shared_selector(target_name, irrep_key)
             if shared_selector in self.top_level_shared_head_selectors:
                 head_key = self.top_level_shared_head_selectors[shared_selector]
             elif irrep_key in configured_groups:
@@ -310,25 +300,9 @@ class EPET(PET):
             ] + [len(block.properties.values)]
 
             num_components = len(block.components[0])
-            if (
-                num_components == 3
-                and int(key[0]) == 1
-                and int(key[1]) == 1
-                and (
-                    len(extra_l1_vector_basis_branches) > 0
-                    or add_l1_species_dependent_vector
-                )
-            ):
-                basis_size = (
-                    (1 + len(extra_l1_vector_basis_branches)) * num_components
-                    + (1 if add_l1_species_dependent_vector else 0)
-                )
-            elif num_components in (1, 3):
-                basis_size = num_components
-            elif self.tensor_basis_hypers["add_lambda_basis"]:
-                basis_size = 2 * num_components
-            else:
-                basis_size = num_components
+            basis_size = self._basis_size(
+                key, num_components, extra_l1_vector_basis_branches
+            )
 
             self.coefficient_shapes[target_name][dict_key] = (
                 len(block.properties.values),
@@ -342,8 +316,6 @@ class EPET(PET):
                 int(key[1]),
                 add_lambda_basis=self.tensor_basis_hypers["add_lambda_basis"],
                 legacy=self.tensor_basis_hypers["legacy"],
-                add_l1_species_dependent_vector=add_l1_species_dependent_vector,
-                l1_species_dependent_vector_soap=l1_species_dependent_vector_soap,
                 extra_l1_vector_basis_soaps=extra_l1_vector_basis_branches,
             )
 
@@ -555,6 +527,62 @@ class EPET(PET):
 
         return last_layer_features_outputs
 
+    def _head_key_for_block(self, output_name: str, block_key: str) -> str:
+        if output_name in self.scalar_target_names:
+            return self.target_head_keys[output_name][0]
+        return self.block_to_head_key[output_name][block_key]
+
+    def _calculate_node_atomic_predictions_for_output(
+        self,
+        output_name: str,
+        node_last_layers: ModuleList,
+        node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+    ) -> List[List[torch.Tensor]]:
+        output_predictions = torch.jit.annotate(List[List[torch.Tensor]], [])
+        for readout_index, node_last_layer in enumerate(node_last_layers):
+            block_predictions: List[torch.Tensor] = []
+            for block_key, node_last_layer_by_block in node_last_layer.items():
+                head_key = self._head_key_for_block(output_name, block_key)
+                node_last_layer_features = node_last_layer_features_dict[head_key][
+                    readout_index
+                ]
+                block_predictions.append(
+                    node_last_layer_by_block(node_last_layer_features)
+                )
+            output_predictions.append(block_predictions)
+        return output_predictions
+
+    def _calculate_edge_atomic_predictions_for_output(
+        self,
+        output_name: str,
+        edge_last_layers: ModuleList,
+        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+        padding_mask: torch.Tensor,
+        cutoff_factors: torch.Tensor,
+    ) -> List[List[torch.Tensor]]:
+        output_predictions = torch.jit.annotate(List[List[torch.Tensor]], [])
+        for readout_index, edge_last_layer in enumerate(edge_last_layers):
+            block_predictions: List[torch.Tensor] = []
+            for block_key, edge_last_layer_by_block in edge_last_layer.items():
+                head_key = self._head_key_for_block(output_name, block_key)
+                edge_last_layer_features = edge_last_layer_features_dict[head_key][
+                    readout_index
+                ]
+                edge_atomic_predictions = edge_last_layer_by_block(
+                    edge_last_layer_features
+                )
+                expanded_padding_mask = padding_mask[..., None].repeat(
+                    1, 1, edge_atomic_predictions.shape[2]
+                )
+                edge_atomic_predictions = torch.where(
+                    ~expanded_padding_mask, 0.0, edge_atomic_predictions
+                )
+                block_predictions.append(
+                    (edge_atomic_predictions * cutoff_factors[:, :, None]).sum(dim=1)
+                )
+            output_predictions.append(block_predictions)
+        return output_predictions
+
     def _calculate_atomic_predictions(
         self,
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
@@ -570,315 +598,212 @@ class EPET(PET):
 
         for output_name, node_last_layers in self.node_last_layers.items():
             if output_name in outputs:
-                if output_name in self.scalar_target_names:
-                    node_atomic_predictions_dict[output_name] = torch.jit.annotate(
-                        List[List[torch.Tensor]], []
+                node_atomic_predictions_dict[output_name] = (
+                    self._calculate_node_atomic_predictions_for_output(
+                        output_name,
+                        node_last_layers,
+                        node_last_layer_features_dict,
                     )
-                    head_key = self.target_head_keys[output_name][0]
-                    for i, node_last_layer in enumerate(node_last_layers):
-                        node_last_layer_features = node_last_layer_features_dict[
-                            head_key
-                        ][i]
-                        node_atomic_predictions_by_block: List[torch.Tensor] = []
-                        for node_last_layer_by_block in node_last_layer.values():
-                            node_atomic_predictions_by_block.append(
-                                node_last_layer_by_block(node_last_layer_features)
-                            )
-                        node_atomic_predictions_dict[output_name].append(
-                            node_atomic_predictions_by_block
-                        )
-                else:
-                    node_atomic_predictions_dict[output_name] = torch.jit.annotate(
-                        List[List[torch.Tensor]], []
-                    )
-                    for i, node_last_layer in enumerate(node_last_layers):
-                        node_atomic_predictions_by_block: List[torch.Tensor] = []
-                        for block_key, node_last_layer_by_block in node_last_layer.items():
-                            head_key = self.block_to_head_key[output_name][block_key]
-                            node_last_layer_features = node_last_layer_features_dict[
-                                head_key
-                            ][i]
-                            node_atomic_predictions_by_block.append(
-                                node_last_layer_by_block(node_last_layer_features)
-                            )
-                        node_atomic_predictions_dict[output_name].append(
-                            node_atomic_predictions_by_block
-                        )
+                )
 
         for output_name, edge_last_layers in self.edge_last_layers.items():
             if output_name in outputs:
-                if output_name in self.scalar_target_names:
-                    edge_atomic_predictions_dict[output_name] = torch.jit.annotate(
-                        List[List[torch.Tensor]], []
+                edge_atomic_predictions_dict[output_name] = (
+                    self._calculate_edge_atomic_predictions_for_output(
+                        output_name,
+                        edge_last_layers,
+                        edge_last_layer_features_dict,
+                        padding_mask,
+                        cutoff_factors,
                     )
-                    head_key = self.target_head_keys[output_name][0]
-                    for i, edge_last_layer in enumerate(edge_last_layers):
-                        edge_last_layer_features = edge_last_layer_features_dict[
-                            head_key
-                        ][i]
-                        edge_atomic_predictions_by_block: List[torch.Tensor] = []
-                        for edge_last_layer_by_block in edge_last_layer.values():
-                            edge_atomic_predictions = edge_last_layer_by_block(
-                                edge_last_layer_features
-                            )
-                            expanded_padding_mask = padding_mask[..., None].repeat(
-                                1, 1, edge_atomic_predictions.shape[2]
-                            )
-                            edge_atomic_predictions = torch.where(
-                                ~expanded_padding_mask, 0.0, edge_atomic_predictions
-                            )
-                            edge_atomic_predictions_by_block.append(
-                                (
-                                    edge_atomic_predictions
-                                    * cutoff_factors[:, :, None]
-                                ).sum(dim=1)
-                            )
-                        edge_atomic_predictions_dict[output_name].append(
-                            edge_atomic_predictions_by_block
-                        )
-                else:
-                    edge_atomic_predictions_dict[output_name] = torch.jit.annotate(
-                        List[List[torch.Tensor]], []
-                    )
-                    for i, edge_last_layer in enumerate(edge_last_layers):
-                        edge_atomic_predictions_by_block: List[torch.Tensor] = []
-                        for block_key, edge_last_layer_by_block in edge_last_layer.items():
-                            head_key = self.block_to_head_key[output_name][block_key]
-                            edge_last_layer_features = edge_last_layer_features_dict[
-                                head_key
-                            ][i]
-                            edge_atomic_predictions = edge_last_layer_by_block(
-                                edge_last_layer_features
-                            )
-                            expanded_padding_mask = padding_mask[..., None].repeat(
-                                1, 1, edge_atomic_predictions.shape[2]
-                            )
-                            edge_atomic_predictions = torch.where(
-                                ~expanded_padding_mask, 0.0, edge_atomic_predictions
-                            )
-                            edge_atomic_predictions_by_block.append(
-                                (
-                                    edge_atomic_predictions
-                                    * cutoff_factors[:, :, None]
-                                ).sum(dim=1)
-                            )
-                        edge_atomic_predictions_dict[output_name].append(
-                            edge_atomic_predictions_by_block
-                        )
+                )
 
         return node_atomic_predictions_dict, edge_atomic_predictions_dict
 
-    def _get_output_atomic_predictions(
+    def _build_scalar_atomic_prediction(
         self,
+        output_name: str,
         systems: List[System],
         node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
         edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
         edge_vectors: torch.Tensor,
         system_indices: torch.Tensor,
         sample_labels: Labels,
-        outputs: Dict[str, ModelOutput],
-        selected_atoms: Optional[Labels],
-    ) -> Dict[str, TensorMap]:
-        atomic_predictions_tmap_dict: Dict[str, TensorMap] = {}
-        coefficient_penalties: List[torch.Tensor] = []
-        basis_gram_penalties: List[torch.Tensor] = []
-        diagnostics: Dict[str, Dict[str, float]] = {}
-
-        spherical_context: Optional[
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
-        ] = None
-
-        for output_name in self.target_names:
-            if output_name not in outputs:
-                continue
-
-            if output_name in self.scalar_target_names:
-                atomic_predictions_by_block = {
-                    key: torch.zeros(
-                        1, dtype=edge_vectors.dtype, device=edge_vectors.device
-                    )
-                    for key in self.output_shapes[output_name].keys()
-                }
-
-                node_atomic_predictions_by_block = node_atomic_predictions_dict[
-                    output_name
-                ]
-                edge_atomic_predictions_by_block = edge_atomic_predictions_dict[
-                    output_name
-                ]
-                for i in range(len(node_atomic_predictions_by_block)):
-                    node_atomic_prediction_block = node_atomic_predictions_by_block[i]
-                    edge_atomic_prediction_block = edge_atomic_predictions_by_block[i]
-                    for j, key in enumerate(atomic_predictions_by_block):
-                        node_atomic_predictions = node_atomic_prediction_block[j]
-                        edge_atomic_predictions = edge_atomic_prediction_block[j]
-                        atomic_predictions_by_block[key] = atomic_predictions_by_block[
-                            key
-                        ] + (node_atomic_predictions + edge_atomic_predictions)
-
-                if output_name == "non_conservative_stress":
-                    block_key = list(atomic_predictions_by_block.keys())[0]
-                    output_shapes_values = list(
-                        self.output_shapes[output_name].values()
-                    )
-                    num_properties = output_shapes_values[0][-1]
-                    atomic_predictions_by_block[block_key] = (
-                        process_non_conservative_stress(
-                            atomic_predictions_by_block[block_key],
-                            systems,
-                            system_indices,
-                            num_properties,
-                        )
-                    )
-
-                blocks = [
-                    TensorBlock(
-                        values=atomic_predictions_by_block[key].reshape([-1] + shape),
-                        samples=sample_labels,
-                        components=components,
-                        properties=properties,
-                    )
-                    for key, shape, components, properties in zip(
-                        self.output_shapes[output_name].keys(),
-                        self.output_shapes[output_name].values(),
-                        self.component_labels[output_name],
-                        self.property_labels[output_name],
-                        strict=True,
-                    )
-                ]
-                atomic_predictions_tmap_dict[output_name] = TensorMap(
-                    keys=self.key_labels[output_name],
-                    blocks=blocks,
-                )
-                continue
-
-            if spherical_context is None:
-                spherical_context = self._compute_interatomic_vectors(systems)
-            interatomic_vectors, centers, neighbors, species, _ = spherical_context
-            basis_species = self._tensor_basis_species(species)
-
-            blocks = torch.jit.annotate(List[TensorBlock], [])
-            coefficient_norms: List[torch.Tensor] = []
-            basis_norms: List[torch.Tensor] = []
-            gram_traces: List[torch.Tensor] = []
-            block_basis_gram_penalties: List[torch.Tensor] = []
-
-            assert self.basis_calculators is not None
-            found_basis_calculators = False
-            for candidate_output_name, candidate_basis_calculators in (
-                self.basis_calculators.items()
-            ):
-                if candidate_output_name == output_name:
-                    found_basis_calculators = True
-                    for block_index, (dict_key, tensor_basis_calculator) in enumerate(
-                        candidate_basis_calculators.items()
-                    ):
-                        accumulated = (
-                            node_atomic_predictions_dict[output_name][0][block_index]
-                            + edge_atomic_predictions_dict[output_name][0][block_index]
-                        )
-                        for readout_index in range(
-                            1, len(node_atomic_predictions_dict[output_name])
-                        ):
-                            node_atomic_predictions = node_atomic_predictions_dict[
-                                output_name
-                            ][readout_index][block_index]
-                            edge_atomic_predictions = edge_atomic_predictions_dict[
-                                output_name
-                            ][readout_index][block_index]
-                            accumulated = (
-                                accumulated
-                                + node_atomic_predictions
-                                + edge_atomic_predictions
-                            )
-                        num_properties, basis_size = self.coefficient_shapes[
-                            output_name
-                        ][dict_key]
-                        invariant_coefficients = accumulated.reshape(
-                            accumulated.shape[0], num_properties, basis_size
-                        )
-
-                        tensor_basis = tensor_basis_calculator(
-                            interatomic_vectors,
-                            centers,
-                            neighbors,
-                            basis_species,
-                            sample_labels.values,
-                            None,
-                        )
-
-                        atomic_property_tensor = torch.einsum(
-                            "spb, scb -> scp",
-                            invariant_coefficients,
-                            tensor_basis,
-                        )
-                        if len(self.component_labels[output_name][block_index]) == 0:
-                            atomic_property_tensor = atomic_property_tensor.squeeze(1)
-
-                        blocks.append(
-                            TensorBlock(
-                                values=atomic_property_tensor,
-                                samples=sample_labels,
-                                components=self.component_labels[output_name][
-                                    block_index
-                                ],
-                                properties=self.property_labels[output_name][
-                                    block_index
-                                ],
-                            )
-                        )
-
-                        coefficient_norms.append(
-                            invariant_coefficients.pow(2).mean(dim=(1, 2)).mean()
-                        )
-                        basis_norms.append(
-                            tensor_basis.pow(2).mean(dim=(1, 2)).mean()
-                        )
-                        gram = torch.einsum("scb,scd->sbd", tensor_basis, tensor_basis)
-                        gram_traces.append(
-                            torch.diagonal(gram, dim1=-2, dim2=-1).sum(dim=-1).mean()
-                        )
-                        block_basis_gram_penalties.append(
-                            _basis_gram_chunk_penalty(tensor_basis)
-                        )
-
-            if not found_basis_calculators:
-                raise RuntimeError(
-                    f"Missing tensor basis calculators for spherical target '{output_name}'."
-                )
-
-            atomic_predictions_tmap_dict[output_name] = TensorMap(
-                keys=self.key_labels[output_name], blocks=blocks
+    ) -> TensorMap:
+        atomic_predictions_by_block = {
+            key: torch.zeros(
+                1, dtype=edge_vectors.dtype, device=edge_vectors.device
             )
-            coefficient_penalties.extend(coefficient_norms)
-            basis_gram_penalties.extend(block_basis_gram_penalties)
-            diagnostics[output_name] = {
-                "coefficient_norm_mean": float(
-                    torch.stack(coefficient_norms).mean().detach()
-                ),
-                "basis_norm_mean": float(torch.stack(basis_norms).mean().detach()),
-                "gram_trace_mean": float(torch.stack(gram_traces).mean().detach()),
-                "basis_gram_penalty_mean": float(
-                    torch.stack(block_basis_gram_penalties).mean().detach()
-                ),
-            }
+            for key in self.output_shapes[output_name].keys()
+        }
 
+        node_atomic_predictions_by_block = node_atomic_predictions_dict[output_name]
+        edge_atomic_predictions_by_block = edge_atomic_predictions_dict[output_name]
+        for readout_index in range(len(node_atomic_predictions_by_block)):
+            node_atomic_prediction_block = node_atomic_predictions_by_block[
+                readout_index
+            ]
+            edge_atomic_prediction_block = edge_atomic_predictions_by_block[
+                readout_index
+            ]
+            for block_index, key in enumerate(atomic_predictions_by_block):
+                atomic_predictions_by_block[key] = atomic_predictions_by_block[
+                    key
+                ] + (
+                    node_atomic_prediction_block[block_index]
+                    + edge_atomic_prediction_block[block_index]
+                )
+
+        if output_name == "non_conservative_stress":
+            block_key = list(atomic_predictions_by_block.keys())[0]
+            output_shapes_values = list(self.output_shapes[output_name].values())
+            num_properties = output_shapes_values[0][-1]
+            atomic_predictions_by_block[block_key] = process_non_conservative_stress(
+                atomic_predictions_by_block[block_key],
+                systems,
+                system_indices,
+                num_properties,
+            )
+
+        blocks = [
+            TensorBlock(
+                values=atomic_predictions_by_block[key].reshape([-1] + shape),
+                samples=sample_labels,
+                components=components,
+                properties=properties,
+            )
+            for key, shape, components, properties in zip(
+                self.output_shapes[output_name].keys(),
+                self.output_shapes[output_name].values(),
+                self.component_labels[output_name],
+                self.property_labels[output_name],
+                strict=True,
+            )
+        ]
+        return TensorMap(keys=self.key_labels[output_name], blocks=blocks)
+
+    def _basis_calculators_for_output(self, output_name: str) -> ModuleDict:
+        if self.basis_calculators is None or output_name not in self.basis_calculators:
+            raise RuntimeError(
+                f"Missing tensor basis calculators for spherical target '{output_name}'."
+            )
+        return self.basis_calculators[output_name]
+
+    def _accumulate_spherical_coefficients(
+        self,
+        output_name: str,
+        block_index: int,
+        node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+        edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+    ) -> torch.Tensor:
+        accumulated = (
+            node_atomic_predictions_dict[output_name][0][block_index]
+            + edge_atomic_predictions_dict[output_name][0][block_index]
+        )
+        for readout_index in range(1, len(node_atomic_predictions_dict[output_name])):
+            accumulated = (
+                accumulated
+                + node_atomic_predictions_dict[output_name][readout_index][block_index]
+                + edge_atomic_predictions_dict[output_name][readout_index][block_index]
+            )
+        return accumulated
+
+    def _build_spherical_atomic_prediction(
+        self,
+        output_name: str,
+        node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+        edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+        sample_labels: Labels,
+        interatomic_vectors: torch.Tensor,
+        centers: torch.Tensor,
+        neighbors: torch.Tensor,
+        basis_species: torch.Tensor,
+    ) -> Tuple[TensorMap, List[torch.Tensor], List[torch.Tensor]]:
+        blocks = torch.jit.annotate(List[TensorBlock], [])
+        coefficient_norms: List[torch.Tensor] = []
+        block_basis_gram_penalties: List[torch.Tensor] = []
+
+        for block_index, (dict_key, tensor_basis_calculator) in enumerate(
+            self._basis_calculators_for_output(output_name).items()
+        ):
+            accumulated = self._accumulate_spherical_coefficients(
+                output_name,
+                block_index,
+                node_atomic_predictions_dict,
+                edge_atomic_predictions_dict,
+            )
+            num_properties, basis_size = self.coefficient_shapes[output_name][dict_key]
+            invariant_coefficients = accumulated.reshape(
+                accumulated.shape[0], num_properties, basis_size
+            )
+
+            tensor_basis = tensor_basis_calculator(
+                interatomic_vectors,
+                centers,
+                neighbors,
+                basis_species,
+                sample_labels.values,
+                None,
+            )
+
+            atomic_property_tensor = torch.einsum(
+                "spb, scb -> scp",
+                invariant_coefficients,
+                tensor_basis,
+            )
+            if len(self.component_labels[output_name][block_index]) == 0:
+                atomic_property_tensor = atomic_property_tensor.squeeze(1)
+
+            blocks.append(
+                TensorBlock(
+                    values=atomic_property_tensor,
+                    samples=sample_labels,
+                    components=self.component_labels[output_name][block_index],
+                    properties=self.property_labels[output_name][block_index],
+                )
+            )
+
+            coefficient_norms.append(
+                invariant_coefficients.pow(2).mean(dim=(1, 2)).mean()
+            )
+            block_basis_gram_penalties.append(_basis_gram_chunk_penalty(tensor_basis))
+
+        return (
+            TensorMap(keys=self.key_labels[output_name], blocks=blocks),
+            coefficient_norms,
+            block_basis_gram_penalties,
+        )
+
+    def _set_last_regularization_losses(
+        self,
+        coefficient_penalties: List[torch.Tensor],
+        basis_gram_penalties: List[torch.Tensor],
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> None:
         if coefficient_penalties:
             self._last_spherical_coefficient_penalty = torch.stack(
                 coefficient_penalties
             ).mean()
         else:
             self._last_spherical_coefficient_penalty = torch.tensor(
-                0.0, device=edge_vectors.device, dtype=edge_vectors.dtype
+                0.0, device=device, dtype=dtype
             )
+
         if basis_gram_penalties:
             self._last_basis_gram_penalty = torch.stack(basis_gram_penalties).mean()
         else:
             self._last_basis_gram_penalty = torch.tensor(
-                0.0, device=edge_vectors.device, dtype=edge_vectors.dtype
+                0.0, device=device, dtype=dtype
             )
-        self.latest_diagnostics = diagnostics
 
+    def _postprocess_atomic_predictions(
+        self,
+        atomic_predictions_tmap_dict: Dict[str, TensorMap],
+        systems: List[System],
+        outputs: Dict[str, ModelOutput],
+        selected_atoms: Optional[Labels],
+    ) -> Dict[str, TensorMap]:
         if selected_atoms is not None:
             for output_name, tmap in atomic_predictions_tmap_dict.items():
                 atomic_predictions_tmap_dict[output_name] = mts.slice(
@@ -900,6 +825,79 @@ class EPET(PET):
                 )
 
         return atomic_predictions_tmap_dict
+
+    def _get_output_atomic_predictions(
+        self,
+        systems: List[System],
+        node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+        edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+        edge_vectors: torch.Tensor,
+        system_indices: torch.Tensor,
+        sample_labels: Labels,
+        outputs: Dict[str, ModelOutput],
+        selected_atoms: Optional[Labels],
+    ) -> Dict[str, TensorMap]:
+        atomic_predictions_tmap_dict: Dict[str, TensorMap] = {}
+        coefficient_penalties: List[torch.Tensor] = []
+        basis_gram_penalties: List[torch.Tensor] = []
+
+        spherical_context: Optional[
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+        ] = None
+
+        for output_name in self.target_names:
+            if output_name not in outputs:
+                continue
+
+            if output_name in self.scalar_target_names:
+                atomic_predictions_tmap_dict[output_name] = (
+                    self._build_scalar_atomic_prediction(
+                        output_name,
+                        systems,
+                        node_atomic_predictions_dict,
+                        edge_atomic_predictions_dict,
+                        edge_vectors,
+                        system_indices,
+                        sample_labels,
+                    )
+                )
+                continue
+
+            if spherical_context is None:
+                spherical_context = self._compute_interatomic_vectors(systems)
+            interatomic_vectors, centers, neighbors, species, _ = spherical_context
+            basis_species = self._tensor_basis_species(species)
+
+            (
+                atomic_predictions_tmap_dict[output_name],
+                coefficient_norms,
+                block_basis_gram_penalties,
+            ) = self._build_spherical_atomic_prediction(
+                output_name,
+                node_atomic_predictions_dict,
+                edge_atomic_predictions_dict,
+                sample_labels,
+                interatomic_vectors,
+                centers,
+                neighbors,
+                basis_species,
+            )
+            coefficient_penalties.extend(coefficient_norms)
+            basis_gram_penalties.extend(block_basis_gram_penalties)
+
+        self._set_last_regularization_losses(
+            coefficient_penalties,
+            basis_gram_penalties,
+            edge_vectors.device,
+            edge_vectors.dtype,
+        )
+
+        return self._postprocess_atomic_predictions(
+            atomic_predictions_tmap_dict,
+            systems,
+            outputs,
+            selected_atoms,
+        )
 
     @classmethod
     def load_checkpoint(

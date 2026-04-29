@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 
+import pytest
 import torch
 from metatomic.torch import ModelOutput, System
 
@@ -30,9 +31,6 @@ def _base_model_hypers() -> dict:
     hypers["tensor_basis_defaults"]["soap"]["max_radial"] = 1
     hypers["tensor_basis_defaults"]["soap"]["cutoff"]["radius"] = 3.0
     hypers["tensor_basis_defaults"]["soap"]["cutoff"]["width"] = 0.5
-    hypers["tensor_basis_defaults"]["l1_species_dependent_vector_soap"] = copy.deepcopy(
-        hypers["tensor_basis_defaults"]["soap"]
-    )
     hypers["tensor_basis_defaults"]["extra_l1_vector_basis_branches"] = [
         copy.deepcopy(hypers["tensor_basis_defaults"]["soap"])
     ]
@@ -135,6 +133,10 @@ def _build_system(model, dtype: torch.dtype = torch.float32) -> System:
         pbc=torch.tensor([False, False, False]),
     )
     return get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+
+
+def test_e_pet_is_pet_extension() -> None:
+    assert issubclass(EPET, PET)
 
 
 def test_scalar_only_path_matches_pet_exactly() -> None:
@@ -257,27 +259,19 @@ def test_shared_head_groups_share_heads_across_scalar_and_spherical_targets() ->
 def test_shared_head_groups_reject_scalar_irrep_selector() -> None:
     hypers = _base_model_hypers()
     hypers["shared_head_groups"] = {"bad": ["scalar[0,1]"]}
-    try:
+
+    with pytest.raises(
+        ValueError, match="Scalar selectors cannot include an irrep suffix"
+    ):
         EPET(hypers, _mixed_dataset_info())
-    except ValueError as exc:
-        assert "Scalar selectors cannot include an irrep suffix" in str(exc)
-    else:
-        raise AssertionError(
-            "Expected ValueError for scalar selector with irrep suffix."
-        )
 
 
 def test_shared_head_groups_reject_missing_irrep_for_spherical_target() -> None:
     hypers = _base_model_hypers()
     hypers["shared_head_groups"] = {"bad": ["quadrupole"]}
-    try:
+
+    with pytest.raises(ValueError, match="must include an explicit irrep suffix"):
         EPET(hypers, _mixed_dataset_info())
-    except ValueError as exc:
-        assert "must include an explicit irrep suffix" in str(exc)
-    else:
-        raise AssertionError(
-            "Expected ValueError for spherical selector without irrep suffix."
-        )
 
 
 def test_shared_head_groups_reject_overlap_with_irrep_head_groups() -> None:
@@ -286,17 +280,12 @@ def test_shared_head_groups_reject_overlap_with_irrep_head_groups() -> None:
     hypers["shared_head_groups"] = {
         "stress_head": ["scalar", "quadrupole[2,1]"]
     }
-    try:
+
+    with pytest.raises(
+        ValueError,
+        match="cannot appear in both shared_head_groups and irrep_head_groups",
+    ):
         EPET(hypers, _mixed_dataset_info())
-    except ValueError as exc:
-        assert "cannot appear in both shared_head_groups and irrep_head_groups" in str(
-            exc
-        )
-    else:
-        raise AssertionError(
-            "Expected ValueError for overlap between shared_head_groups and "
-            "irrep_head_groups."
-        )
 
 
 def test_default_l1_path_uses_two_vector_basis_branches() -> None:
@@ -312,31 +301,24 @@ def test_default_l1_path_uses_two_vector_basis_branches() -> None:
 def test_irrep_head_groups_reject_unknown_target() -> None:
     hypers = _base_model_hypers()
     hypers["irrep_head_groups"] = {"ghost": {"1,1": "head_a"}}
-    try:
+
+    with pytest.raises(ValueError, match="Unknown targets in irrep_head_groups"):
         EPET(hypers, _mixed_dataset_info())
-    except ValueError as exc:
-        assert "Unknown targets in irrep_head_groups" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError for unknown target.")
 
 
 def test_irrep_head_groups_reject_unknown_irrep() -> None:
     hypers = _base_model_hypers()
     hypers["irrep_head_groups"] = {"quadrupole": {"1,1": "head_a"}}
-    try:
+
+    with pytest.raises(
+        ValueError, match="Unknown irrep keys for target 'quadrupole'"
+    ):
         EPET(hypers, _mixed_dataset_info())
-    except ValueError as exc:
-        assert "Unknown irrep keys for target 'quadrupole'" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError for unknown irrep.")
 
 
 def test_irrep_head_groups_reject_scalar_targets() -> None:
     hypers = _base_model_hypers()
     hypers["irrep_head_groups"] = {"scalar": {"0,1": "head_a"}}
-    try:
+
+    with pytest.raises(ValueError, match="Scalar targets cannot appear"):
         EPET(hypers, _mixed_dataset_info())
-    except ValueError as exc:
-        assert "Scalar targets cannot appear in irrep_head_groups" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError for scalar target in irrep groups.")

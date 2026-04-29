@@ -55,6 +55,8 @@ architecture:
   training:
     batch_size: 16
     num_epochs: 100
+    # Promoted balanced E-PET reference: keep the PET trunk at the PET baseline
+    # rate and train tensor-basis/readout parameters faster.
     learning_rate: 2.0e-4
     pet_trunk_learning_rate: 2.0e-4
     tensor_basis_learning_rate: 1.0e-3

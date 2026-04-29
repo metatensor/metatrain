@@ -17,7 +17,9 @@ Retained suite surface
 ----------------------
 
 - ``metatrain.experimental.e_pet``:
-  the E-PET model, trainer, defaults, and tests.
+  the E-PET model, trainer, defaults, and tests. The promoted PET-OMat
+  reference default uses split learning rates with PET trunk ``2e-4``,
+  tensor-basis ``1e-3``, and readout ``1e-3``.
 - ``metatrain.soap_bpnn.modules.tensor_basis``:
   the tensor-basis extensions required by E-PET. E-PET tensor-basis angular
   order is target-derived from each block's ``o3_lambda``; there is no
@@ -36,3 +38,5 @@ Intentionally dropped from the replay
 - Comparison-specific runtime wrappers from ``pet_tensorbasis_prototype``.
 - Benchmark-only metrics, reporting, and other branch-local experimentation
   unrelated to E-PET runtime or token-rotation compatibility.
+- Deprecated E-PET-only single species-dependent ``l=1`` vector-basis options;
+  E-PET keeps the explicit ``extra_l1_vector_basis_branches`` surface instead.
