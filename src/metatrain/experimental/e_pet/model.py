@@ -1,5 +1,6 @@
 import copy
 import logging
+import math
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import metatensor.torch as mts
@@ -11,6 +12,7 @@ from torch.nn import Linear, ModuleDict, ModuleList, Sequential, SiLU
 from metatrain.pet.model import (
     PET,
     _irrep_key,
+    _parse_shared_selector,
     _shared_selector,
     _validate_shared_head_groups,
     get_last_layer_features_name,
@@ -20,6 +22,8 @@ from metatrain.pet.model import (
 from metatrain.pet.modules.structures import concatenate_structures
 from metatrain.soap_bpnn.modules.tensor_basis import TensorBasis
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.data.atomic_basis_helpers import densify_atomic_basis_target
+from metatrain.utils.data.target_info import get_generic_target_info
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from .documentation import ModelHypers
@@ -64,6 +68,104 @@ def _extra_l1_vector_basis_branches(
     )
 
 
+# Cartesian rank-2 targets stay public Cartesian targets for losses/metrics. E-PET
+# only uses the hardcoded l=0/l=2 representation internally to drive tensor-basis
+# readouts, then reconstructs the symmetric Cartesian tensor before post-processing.
+def _is_cartesian_rank2_target(target_info: TargetInfo) -> bool:
+    if not target_info.is_cartesian:
+        return False
+    components = target_info.layout.block().components
+    return len(components) == 2 and all(len(component) == 3 for component in components)
+
+
+def _cartesian_rank2_spherical_target_info(
+    target_name: str, target_info: TargetInfo
+) -> TargetInfo:
+    return get_generic_target_info(
+        target_name,
+        {
+            "quantity": target_info.quantity,
+            "unit": target_info.unit,
+            "description": target_info.description,
+            "type": {
+                "spherical": {
+                    "irreps": [
+                        {"o3_lambda": 0, "o3_sigma": 1},
+                        {"o3_lambda": 2, "o3_sigma": 1},
+                    ],
+                }
+            },
+            "num_subtargets": len(target_info.layout.block().properties),
+            "per_atom": target_info.per_atom,
+        },
+    )
+
+
+def _cartesian_rank2_to_spherical_components(
+    cartesian: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    xx = cartesian[:, 0, 0]
+    yy = cartesian[:, 1, 1]
+    zz = cartesian[:, 2, 2]
+    xy = cartesian[:, 0, 1]
+    yz = cartesian[:, 1, 2]
+    xz = cartesian[:, 0, 2]
+
+    l0 = ((xx + yy + zz) / math.sqrt(3.0)).unsqueeze(1)
+    l2 = torch.stack(
+        [
+            math.sqrt(2.0) * xy,
+            math.sqrt(2.0) * yz,
+            (2.0 * zz - xx - yy) / math.sqrt(6.0),
+            math.sqrt(2.0) * xz,
+            (xx - yy) / math.sqrt(2.0),
+        ],
+        dim=1,
+    )
+    return l0, l2
+
+
+def _spherical_components_to_cartesian_rank2(
+    spherical_tensor_map: TensorMap,
+    public_layout: TensorMap,
+) -> TensorMap:
+    l0_block = spherical_tensor_map.block(0)
+    l2_block = spherical_tensor_map.block(1)
+    l0 = l0_block.values[:, 0]
+    l2 = l2_block.values
+
+    cartesian = torch.empty(
+        l0.shape[0],
+        3,
+        3,
+        l0.shape[1],
+        dtype=l0.dtype,
+        device=l0.device,
+    )
+    sqrt_2 = math.sqrt(2.0)
+    sqrt_3 = math.sqrt(3.0)
+    sqrt_6 = math.sqrt(6.0)
+
+    cartesian[:, 0, 0] = l0 / sqrt_3 - l2[:, 2] / sqrt_6 + l2[:, 4] / sqrt_2
+    cartesian[:, 1, 1] = l0 / sqrt_3 - l2[:, 2] / sqrt_6 - l2[:, 4] / sqrt_2
+    cartesian[:, 2, 2] = l0 / sqrt_3 + 2.0 * l2[:, 2] / sqrt_6
+    cartesian[:, 0, 1] = l2[:, 0] / sqrt_2
+    cartesian[:, 1, 0] = cartesian[:, 0, 1]
+    cartesian[:, 1, 2] = l2[:, 1] / sqrt_2
+    cartesian[:, 2, 1] = cartesian[:, 1, 2]
+    cartesian[:, 0, 2] = l2[:, 3] / sqrt_2
+    cartesian[:, 2, 0] = cartesian[:, 0, 2]
+
+    public_block = public_layout.block()
+    block = TensorBlock(
+        values=cartesian,
+        samples=l0_block.samples,
+        components=public_block.components,
+        properties=public_block.properties,
+    )
+    return TensorMap(keys=public_layout.keys, blocks=[block])
+
+
 class EPET(PET):
     __checkpoint_version__ = 1
     __default_metadata__ = ModelMetadata(
@@ -82,6 +184,8 @@ class EPET(PET):
     target_names: List[str]
     scalar_target_names: List[str]
     spherical_target_names: List[str]
+    cartesian_rank2_target_names: List[str]
+    cartesian_rank2_public_layouts: Dict[str, TensorMap]
     volume_normalized_target_names: List[str]
     tensor_basis_legacy: bool
     coefficient_shapes: Dict[str, Dict[str, Tuple[int, int]]]
@@ -110,6 +214,8 @@ class EPET(PET):
         )
         self.scalar_target_names = []
         self.spherical_target_names = []
+        self.cartesian_rank2_target_names = []
+        self.cartesian_rank2_public_layouts: Dict[str, TensorMap] = {}
         self.basis_calculators: Optional[ModuleDict] = None
         self.coefficient_shapes = {}
         self.target_head_keys = {}
@@ -124,6 +230,9 @@ class EPET(PET):
         self._last_spherical_coefficient_penalty = torch.tensor(0.0)
         self._last_basis_gram_penalty = torch.tensor(0.0)
         super().__init__(copy.deepcopy(hypers["pet"]), dataset_info)
+        self.volume_normalized_target_names = list(
+            hypers.get("volume_normalized_targets", [])
+        )
         self.shared_head_groups_config = copy.deepcopy(
             hypers.get("shared_head_groups", {})
         )
@@ -152,6 +261,18 @@ class EPET(PET):
     def _validate_and_build_shared_head_groups(
         self, dataset_info: DatasetInfo
     ) -> Dict[str, str]:
+        for selectors in self.shared_head_groups_config.values():
+            for selector in selectors:
+                target_name, _ = _parse_shared_selector(selector)
+                if (
+                    target_name in dataset_info.targets
+                    and dataset_info.targets[target_name].is_atomic_basis
+                ):
+                    raise ValueError(
+                        "Atomic-basis targets cannot appear in "
+                        f"shared_head_groups: {target_name!r}."
+                    )
+
         return _validate_shared_head_groups(
             self.shared_head_groups_config,
             dataset_info,
@@ -186,6 +307,17 @@ class EPET(PET):
                 f"{scalar_targets}."
             )
 
+        atomic_basis_targets = sorted(
+            target_name
+            for target_name in self.irrep_head_groups_config
+            if dataset_info.targets[target_name].is_atomic_basis
+        )
+        if atomic_basis_targets:
+            raise ValueError(
+                "Atomic-basis targets cannot appear in irrep_head_groups: "
+                f"{atomic_basis_targets}."
+            )
+
         non_spherical_targets = sorted(
             target_name
             for target_name in self.irrep_head_groups_config
@@ -202,12 +334,24 @@ class EPET(PET):
             self._add_scalar_output(target_name, target_info)
             return
 
-        if not target_info.is_spherical:
+        if target_info.is_spherical:
+            self._add_spherical_output(target_name, target_info)
+            return
+
+        if _is_cartesian_rank2_target(target_info):
+            self._add_cartesian_rank2_output(target_name, target_info)
+            return
+
+        if target_info.is_cartesian:
             raise ValueError(
-                "experimental.e_pet supports only scalar and spherical targets in v1."
+                "experimental.e_pet supports Cartesian direct targets only for "
+                "rank-2 tensors in v1."
             )
 
-        self._add_spherical_output(target_name, target_info)
+        raise ValueError(
+            "experimental.e_pet supports only scalar, spherical, and Cartesian "
+            "rank-2 targets in v1."
+        )
 
     def _add_scalar_output(self, target_name: str, target_info: TargetInfo) -> None:
         self.scalar_target_names.append(target_name)
@@ -251,6 +395,12 @@ class EPET(PET):
     def _add_spherical_output(
         self, target_name: str, target_info: TargetInfo
     ) -> None:
+        if target_info.is_atomic_basis and not target_info.per_atom:
+            raise ValueError(
+                "experimental.e_pet currently supports only per-atom spherical "
+                f"atomic-basis targets; target '{target_name}' is per-structure."
+            )
+
         extra_l1_vector_basis_branches = _extra_l1_vector_basis_branches(
             self.tensor_basis_hypers
         )
@@ -260,6 +410,8 @@ class EPET(PET):
             self.basis_calculators = ModuleDict({})
 
         output_layout = target_info.layout
+        if target_info.is_atomic_basis:
+            output_layout = densify_atomic_basis_target(output_layout, output_layout)
         configured_groups = self.irrep_head_groups_config.get(target_name, {})
 
         self.output_shapes[target_name] = {}
@@ -279,7 +431,9 @@ class EPET(PET):
             self.block_irrep_keys[target_name][dict_key] = irrep_key
 
             shared_selector = _shared_selector(target_name, irrep_key)
-            if shared_selector in self.top_level_shared_head_selectors:
+            if target_info.is_atomic_basis:
+                head_key = target_name
+            elif shared_selector in self.top_level_shared_head_selectors:
                 head_key = self.top_level_shared_head_selectors[shared_selector]
             elif irrep_key in configured_groups:
                 configured_group = configured_groups[irrep_key]
@@ -417,6 +571,16 @@ class EPET(PET):
             block.properties for block in output_layout.blocks()
         ]
 
+    def _add_cartesian_rank2_output(
+        self, target_name: str, target_info: TargetInfo
+    ) -> None:
+        self.cartesian_rank2_target_names.append(target_name)
+        self.cartesian_rank2_public_layouts[target_name] = target_info.layout
+        self._add_spherical_output(
+            target_name,
+            _cartesian_rank2_spherical_target_info(target_name, target_info),
+        )
+
     def get_regularization_loss(self) -> torch.Tensor:
         return self._last_spherical_coefficient_penalty
 
@@ -527,62 +691,6 @@ class EPET(PET):
 
         return last_layer_features_outputs
 
-    def _head_key_for_block(self, output_name: str, block_key: str) -> str:
-        if output_name in self.scalar_target_names:
-            return self.target_head_keys[output_name][0]
-        return self.block_to_head_key[output_name][block_key]
-
-    def _calculate_node_atomic_predictions_for_output(
-        self,
-        output_name: str,
-        node_last_layers: ModuleList,
-        node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
-    ) -> List[List[torch.Tensor]]:
-        output_predictions = torch.jit.annotate(List[List[torch.Tensor]], [])
-        for readout_index, node_last_layer in enumerate(node_last_layers):
-            block_predictions: List[torch.Tensor] = []
-            for block_key, node_last_layer_by_block in node_last_layer.items():
-                head_key = self._head_key_for_block(output_name, block_key)
-                node_last_layer_features = node_last_layer_features_dict[head_key][
-                    readout_index
-                ]
-                block_predictions.append(
-                    node_last_layer_by_block(node_last_layer_features)
-                )
-            output_predictions.append(block_predictions)
-        return output_predictions
-
-    def _calculate_edge_atomic_predictions_for_output(
-        self,
-        output_name: str,
-        edge_last_layers: ModuleList,
-        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]],
-        padding_mask: torch.Tensor,
-        cutoff_factors: torch.Tensor,
-    ) -> List[List[torch.Tensor]]:
-        output_predictions = torch.jit.annotate(List[List[torch.Tensor]], [])
-        for readout_index, edge_last_layer in enumerate(edge_last_layers):
-            block_predictions: List[torch.Tensor] = []
-            for block_key, edge_last_layer_by_block in edge_last_layer.items():
-                head_key = self._head_key_for_block(output_name, block_key)
-                edge_last_layer_features = edge_last_layer_features_dict[head_key][
-                    readout_index
-                ]
-                edge_atomic_predictions = edge_last_layer_by_block(
-                    edge_last_layer_features
-                )
-                expanded_padding_mask = padding_mask[..., None].repeat(
-                    1, 1, edge_atomic_predictions.shape[2]
-                )
-                edge_atomic_predictions = torch.where(
-                    ~expanded_padding_mask, 0.0, edge_atomic_predictions
-                )
-                block_predictions.append(
-                    (edge_atomic_predictions * cutoff_factors[:, :, None]).sum(dim=1)
-                )
-            output_predictions.append(block_predictions)
-        return output_predictions
-
     def _calculate_atomic_predictions(
         self,
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
@@ -598,25 +706,54 @@ class EPET(PET):
 
         for output_name, node_last_layers in self.node_last_layers.items():
             if output_name in outputs:
-                node_atomic_predictions_dict[output_name] = (
-                    self._calculate_node_atomic_predictions_for_output(
-                        output_name,
-                        node_last_layers,
-                        node_last_layer_features_dict,
-                    )
+                node_atomic_predictions_dict[output_name] = torch.jit.annotate(
+                    List[List[torch.Tensor]], []
                 )
+                for readout_index, node_last_layer in enumerate(node_last_layers):
+                    block_predictions: List[torch.Tensor] = []
+                    for block_key, node_last_layer_by_block in node_last_layer.items():
+                        if output_name in self.scalar_target_names:
+                            head_key = self.target_head_keys[output_name][0]
+                        else:
+                            head_key = self.block_to_head_key[output_name][block_key]
+                        node_last_layer_features = node_last_layer_features_dict[
+                            head_key
+                        ][readout_index]
+                        block_predictions.append(
+                            node_last_layer_by_block(node_last_layer_features)
+                        )
+                    node_atomic_predictions_dict[output_name].append(block_predictions)
 
         for output_name, edge_last_layers in self.edge_last_layers.items():
             if output_name in outputs:
-                edge_atomic_predictions_dict[output_name] = (
-                    self._calculate_edge_atomic_predictions_for_output(
-                        output_name,
-                        edge_last_layers,
-                        edge_last_layer_features_dict,
-                        padding_mask,
-                        cutoff_factors,
-                    )
+                edge_atomic_predictions_dict[output_name] = torch.jit.annotate(
+                    List[List[torch.Tensor]], []
                 )
+                for readout_index, edge_last_layer in enumerate(edge_last_layers):
+                    block_predictions: List[torch.Tensor] = []
+                    for block_key, edge_last_layer_by_block in edge_last_layer.items():
+                        if output_name in self.scalar_target_names:
+                            head_key = self.target_head_keys[output_name][0]
+                        else:
+                            head_key = self.block_to_head_key[output_name][block_key]
+                        edge_last_layer_features = edge_last_layer_features_dict[
+                            head_key
+                        ][readout_index]
+                        edge_atomic_predictions = edge_last_layer_by_block(
+                            edge_last_layer_features
+                        )
+                        expanded_padding_mask = padding_mask[..., None].repeat(
+                            1, 1, edge_atomic_predictions.shape[2]
+                        )
+                        edge_atomic_predictions = torch.where(
+                            ~expanded_padding_mask, 0.0, edge_atomic_predictions
+                        )
+                        block_predictions.append(
+                            (
+                                edge_atomic_predictions * cutoff_factors[:, :, None]
+                            ).sum(dim=1)
+                        )
+                    edge_atomic_predictions_dict[output_name].append(block_predictions)
 
         return node_atomic_predictions_dict, edge_atomic_predictions_dict
 
@@ -682,13 +819,6 @@ class EPET(PET):
         ]
         return TensorMap(keys=self.key_labels[output_name], blocks=blocks)
 
-    def _basis_calculators_for_output(self, output_name: str) -> ModuleDict:
-        if self.basis_calculators is None or output_name not in self.basis_calculators:
-            raise RuntimeError(
-                f"Missing tensor basis calculators for spherical target '{output_name}'."
-            )
-        return self.basis_calculators[output_name]
-
     def _accumulate_spherical_coefficients(
         self,
         output_name: str,
@@ -723,8 +853,13 @@ class EPET(PET):
         coefficient_norms: List[torch.Tensor] = []
         block_basis_gram_penalties: List[torch.Tensor] = []
 
-        for block_index, (dict_key, tensor_basis_calculator) in enumerate(
-            self._basis_calculators_for_output(output_name).items()
+        if self.basis_calculators is None:
+            raise RuntimeError(
+                f"Missing tensor basis calculators for spherical target '{output_name}'."
+            )
+
+        for block_index, (dict_key, coefficient_shape) in enumerate(
+            self.coefficient_shapes[output_name].items()
         ):
             accumulated = self._accumulate_spherical_coefficients(
                 output_name,
@@ -732,19 +867,38 @@ class EPET(PET):
                 node_atomic_predictions_dict,
                 edge_atomic_predictions_dict,
             )
-            num_properties, basis_size = self.coefficient_shapes[output_name][dict_key]
+            num_properties, basis_size = coefficient_shape
             invariant_coefficients = accumulated.reshape(
                 accumulated.shape[0], num_properties, basis_size
             )
 
-            tensor_basis = tensor_basis_calculator(
-                interatomic_vectors,
-                centers,
-                neighbors,
-                basis_species,
-                sample_labels.values,
-                None,
+            tensor_basis = torch.empty(
+                0, dtype=interatomic_vectors.dtype, device=interatomic_vectors.device
             )
+            for output_name_basis, basis_calculators_by_block in (
+                self.basis_calculators.items()
+            ):
+                # TorchScript can not compile direct nested ModuleDict lookup with
+                # target names such as "mtt::..."; follow the PET/SOAP-BPNN export
+                # pattern and select the module through static ModuleDict iteration.
+                if output_name_basis == output_name:
+                    for basis_calculator_key, basis_calculator in (
+                        basis_calculators_by_block.items()
+                    ):
+                        if basis_calculator_key == dict_key:
+                            tensor_basis = basis_calculator(
+                                interatomic_vectors,
+                                centers,
+                                neighbors,
+                                basis_species,
+                                sample_labels.values,
+                                None,
+                            )
+            if tensor_basis.numel() == 0:
+                raise RuntimeError(
+                    "Missing tensor basis calculator for spherical block "
+                    f"'{output_name}:{dict_key}'."
+                )
 
             atomic_property_tensor = torch.einsum(
                 "spb, scb -> scp",
@@ -772,6 +926,38 @@ class EPET(PET):
             TensorMap(keys=self.key_labels[output_name], blocks=blocks),
             coefficient_norms,
             block_basis_gram_penalties,
+        )
+
+    def _build_cartesian_rank2_atomic_prediction(
+        self,
+        output_name: str,
+        node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+        edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+        sample_labels: Labels,
+        interatomic_vectors: torch.Tensor,
+        centers: torch.Tensor,
+        neighbors: torch.Tensor,
+        basis_species: torch.Tensor,
+    ) -> Tuple[TensorMap, List[torch.Tensor], List[torch.Tensor]]:
+        spherical_tensor_map, coefficient_norms, basis_gram_penalties = (
+            self._build_spherical_atomic_prediction(
+                output_name,
+                node_atomic_predictions_dict,
+                edge_atomic_predictions_dict,
+                sample_labels,
+                interatomic_vectors,
+                centers,
+                neighbors,
+                basis_species,
+            )
+        )
+        return (
+            _spherical_components_to_cartesian_rank2(
+                spherical_tensor_map,
+                self.cartesian_rank2_public_layouts[output_name],
+            ),
+            coefficient_norms,
+            basis_gram_penalties,
         )
 
     def _set_last_regularization_losses(
@@ -810,18 +996,22 @@ class EPET(PET):
                     tmap, axis="samples", selection=selected_atoms
                 )
 
-        for output_name in self.volume_normalized_target_names:
-            if output_name in atomic_predictions_tmap_dict:
-                atomic_predictions_tmap_dict[output_name] = normalize_by_volume(
-                    atomic_predictions_tmap_dict[output_name], systems
-                )
-
         for output_name, atomic_property in list(atomic_predictions_tmap_dict.items()):
             if outputs[output_name].per_atom:
                 atomic_predictions_tmap_dict[output_name] = atomic_property
             else:
                 atomic_predictions_tmap_dict[output_name] = sum_over_atoms(
                     atomic_property
+                )
+
+        for output_name in self.volume_normalized_target_names:
+            if (
+                output_name in atomic_predictions_tmap_dict
+                and not outputs[output_name].per_atom
+                and output_name != "non_conservative_stress"
+            ):
+                atomic_predictions_tmap_dict[output_name] = normalize_by_volume(
+                    atomic_predictions_tmap_dict[output_name], systems
                 )
 
         return atomic_predictions_tmap_dict
@@ -868,20 +1058,36 @@ class EPET(PET):
             interatomic_vectors, centers, neighbors, species, _ = spherical_context
             basis_species = self._tensor_basis_species(species)
 
-            (
-                atomic_predictions_tmap_dict[output_name],
-                coefficient_norms,
-                block_basis_gram_penalties,
-            ) = self._build_spherical_atomic_prediction(
-                output_name,
-                node_atomic_predictions_dict,
-                edge_atomic_predictions_dict,
-                sample_labels,
-                interatomic_vectors,
-                centers,
-                neighbors,
-                basis_species,
-            )
+            if output_name in self.cartesian_rank2_target_names:
+                (
+                    atomic_predictions_tmap_dict[output_name],
+                    coefficient_norms,
+                    block_basis_gram_penalties,
+                ) = self._build_cartesian_rank2_atomic_prediction(
+                    output_name,
+                    node_atomic_predictions_dict,
+                    edge_atomic_predictions_dict,
+                    sample_labels,
+                    interatomic_vectors,
+                    centers,
+                    neighbors,
+                    basis_species,
+                )
+            else:
+                (
+                    atomic_predictions_tmap_dict[output_name],
+                    coefficient_norms,
+                    block_basis_gram_penalties,
+                ) = self._build_spherical_atomic_prediction(
+                    output_name,
+                    node_atomic_predictions_dict,
+                    edge_atomic_predictions_dict,
+                    sample_labels,
+                    interatomic_vectors,
+                    centers,
+                    neighbors,
+                    basis_species,
+                )
             coefficient_penalties.extend(coefficient_norms)
             basis_gram_penalties.extend(block_basis_gram_penalties)
 
