@@ -12,11 +12,9 @@ dependencies = [
     "ase",
     "huggingface_hub",
     "numpy",
-    "metatensor-learn >=0.4.0,<0.5",
-    "metatensor-operations >=0.4.0,<0.5",
-    "metatensor-torch >=0.8.2,<0.9",
-    "metatomic-torch >=0.1.8,<0.2",
-    "metatomic-ase >=0.1.0,<0.2",
+    "metatensor[torch] @ git+https://github.com/metatensor/metatensor.git@main",
+    "metatomic-torch @ git+https://github.com/sofiia-chorna/metatomic.git@loosen-metatensor-deps#subdirectory=python/metatomic_torch",
+    "metatomic-ase @ git+https://github.com/sofiia-chorna/metatomic.git@loosen-metatensor-deps#subdirectory=python/metatomic_ase",
     "jsonschema",
     "pydantic >= 2.12", # Because of passing arguments to validator functions
     "typing_extensions", # For python < 3.12 typing.TypedDict has limited functionality
@@ -196,7 +194,11 @@ filterwarnings = [
     # MACE warning with newer versions of pytorch (because they use e3nn==0.4.4)
     "ignore:Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed:UserWarning",
     # vesin.metatomic deprecation
-    "ignore:`compute_requested_neighbors_from_options` is deprecated and will be removed in a future version:UserWarning"
+    "ignore:`compute_requested_neighbors_from_options` is deprecated and will be removed in a future version:UserWarning",
+    # metatomic PR #210 (deprecate-plural-outputs): plural -> singular names
+    "ignore:the '.*' output name is deprecated:UserWarning",
+    "ignore:the '.*' quantity is deprecated:UserWarning",
+    "ignore:`per_atom` is deprecated, please use `sample_kind` instead:DeprecationWarning",
 ]
 addopts = ["-p", "mtt_plugin"]
 pythonpath = "src/metatrain/utils/testing"
