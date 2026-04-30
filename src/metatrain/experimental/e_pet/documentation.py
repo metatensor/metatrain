@@ -9,7 +9,10 @@ PET head or share a PET head with selected irreps from the same target through
 ``irrep_head_groups``. Scalar targets and spherical irrep blocks can also share the
 same PET head family across targets through ``shared_head_groups``.
 
-Atomic-basis targets are intentionally out of scope for this first integration.
+Per-atom spherical atomic-basis targets follow PET's densified training path:
+species-specific public blocks are densified internally, E-PET uses one target head
+and one tensor basis per irrep, and evaluation sparsifies predictions back to the
+public layout. True pair Hamiltonian targets are out of scope for this first pass.
 
 {{SECTION_INSTALLATION}}
 
@@ -116,7 +119,8 @@ class ModelHypers(TypedDict):
             "2,1": head_a
             "3,1": head_b
 
-    Blocks omitted from the mapping keep private PET heads.
+    Blocks omitted from the mapping keep private PET heads. Atomic-basis targets
+    cannot be listed here in this first pass.
     """
 
     shared_head_groups: dict[str, list[str]] = {}
@@ -136,7 +140,8 @@ class ModelHypers(TypedDict):
             - mtt::stress_l2[2,1]
 
     Selectors in the same group share the PET ``node_heads`` / ``edge_heads`` while
-    keeping separate final linear projections.
+    keeping separate final linear projections. Atomic-basis targets cannot be listed
+    here in this first pass.
     """
 
 
