@@ -582,10 +582,13 @@ class PET(ModelInterface[ModelHypers]):
 
                 # For atomic basis targets, sparsify to create blocks with "atom_type"
                 # in the key dimensions, and ensure properties are unpadded.
-                for k, v in atomic_predictions_dict.items():
+                for k in atomic_predictions_dict.keys():
                     if self.dataset_info.targets[k].is_atomic_basis:
                         return_dict[k] = sparsify_atomic_basis_target(
-                            systems, v, self.dataset_info.targets[k].layout, species
+                            systems,
+                            return_dict[k],
+                            self.dataset_info.targets[k].layout,
+                            species,
                         )
 
         return return_dict
