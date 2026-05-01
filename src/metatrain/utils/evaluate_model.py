@@ -62,7 +62,7 @@ def evaluate_model(
     energy_targets_that_require_strain_gradients = []
     for target_name in targets.keys():
         # Check if the target is an energy:
-        if model_outputs[target_name].quantity == "energy":
+        if targets[target_name].quantity == "energy":
             energy_targets.append(target_name)
             if isinstance(targets[target_name], TargetInfo):
                 # Check if the energy requires gradients:
