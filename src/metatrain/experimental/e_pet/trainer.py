@@ -5,7 +5,9 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
+import metatensor.torch as mts
 import torch
+from metatensor.torch import TensorBlock, TensorMap
 
 from metatrain.pet.trainer import Trainer as PETTrainer
 from metatrain.utils.data import Dataset
@@ -50,12 +52,22 @@ class Trainer(PETTrainer):
     def _exclude_spherical_l0_from_coefficient_l2(self) -> bool:
         return bool(self.hypers.get("coefficient_l2_exclude_spherical_l0", False))
 
+    def _scale_property_floor_ratio(self) -> Optional[float]:
+        value = self.hypers.get("scale_property_floor_ratio")
+        if value is None:
+            return None
+        value = float(value)
+        if value <= 0.0:
+            raise ValueError("scale_property_floor_ratio must be positive when set.")
+        return value
+
     def _requires_custom_training_path(self) -> bool:
         coefficient_l2_weight, basis_gram_weight = self._regularization_weights()
         return (
             coefficient_l2_weight != 0.0
             or basis_gram_weight != 0.0
             or self._has_split_learning_rates()
+            or self._scale_property_floor_ratio() is not None
         )
 
     def _validate_custom_training_path(self, dtype: torch.dtype) -> None:
@@ -86,6 +98,59 @@ class Trainer(PETTrainer):
         if basis_gram_weight != 0.0:
             loss = loss + basis_gram_weight * model.get_basis_gram_loss()
         return loss
+
+    def _apply_scale_property_floor(self, model: EPET) -> None:
+        floor_ratio = self._scale_property_floor_ratio()
+        if floor_ratio is None:
+            return
+        if not self.hypers["scale_targets"]:
+            raise ValueError(
+                "scale_property_floor_ratio requires scale_targets=true so fitted "
+                "scales exist before flooring."
+            )
+
+        for target_name, scales in model.scaler.model.scales.items():
+            scale_values = torch.cat(
+                [block.values.reshape(-1) for block in scales.blocks()]
+            )
+            positive_scales = scale_values[torch.isfinite(scale_values)]
+            positive_scales = positive_scales[positive_scales > 0]
+            if positive_scales.numel() == 0:
+                continue
+
+            floor = torch.median(positive_scales) * floor_ratio
+            new_blocks: List[TensorBlock] = []
+            clamped_count = 0
+            total_count = 0
+            for block in scales.blocks():
+                values = block.values
+                block_floor = floor.to(device=values.device, dtype=values.dtype)
+                floored_values = torch.maximum(values, block_floor)
+                clamped_count += int((floored_values != values).sum().item())
+                total_count += values.numel()
+                new_blocks.append(
+                    TensorBlock(
+                        values=floored_values,
+                        samples=block.samples,
+                        components=block.components,
+                        properties=block.properties,
+                    )
+                )
+
+            floored_scales = TensorMap(scales.keys, new_blocks)
+            model.scaler.model.scales[target_name] = floored_scales
+            buffer = mts.save_buffer(
+                mts.make_contiguous(floored_scales.to("cpu", torch.float64))
+            ).to(model.scaler.dummy_buffer.device)
+            setattr(model.scaler, target_name + "_scaler_buffer", buffer)
+            logging.info(
+                "Applied E-PET scale floor to %s: ratio=%s floor=%s clamped=%s/%s",
+                target_name,
+                floor_ratio,
+                float(floor.item()),
+                clamped_count,
+                total_count,
+            )
 
     @staticmethod
     def _spherical_l0_last_layer_parameter_names(model: EPET) -> set[str]:
@@ -280,6 +345,7 @@ class Trainer(PETTrainer):
                 False,
                 self.hypers["fixed_scaling_weights"],
             )
+        self._apply_scale_property_floor(model)
 
         model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
         additive_models = copy.deepcopy(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 
+from metatensor.torch import TensorBlock, TensorMap
 import pytest
 import torch
 
@@ -40,6 +41,10 @@ def _pet_trainer_training_hypers() -> dict:
 def test_custom_training_path_predicate() -> None:
     assert Trainer(_split_lr_training_hypers())._requires_custom_training_path()
     assert not Trainer(_pet_trainer_training_hypers())._requires_custom_training_path()
+
+    hypers = _pet_trainer_training_hypers()
+    hypers["scale_property_floor_ratio"] = 1.0e-2
+    assert Trainer(hypers)._requires_custom_training_path()
 
 
 def test_split_learning_rate_optimizer_groups_are_disjoint() -> None:
@@ -112,6 +117,61 @@ def test_spherical_l0_readout_optimizer_group_is_disjoint() -> None:
         for parameter in group["params"]
     ]
     assert len(parameter_ids) == len(set(parameter_ids))
+
+
+def test_scale_property_floor_clamps_fitted_scales_and_buffer() -> None:
+    hypers = _pet_trainer_training_hypers()
+    hypers["scale_property_floor_ratio"] = 1.0e-1
+    model = EPET(_base_model_hypers(), _atomic_basis_dataset_info())
+    model.scaler.sync_tensor_maps()
+
+    original_scales = model.scaler.model.scales["density"]
+    scale_values = iter(
+        [
+            torch.tensor(1.0e-9, dtype=torch.float64),
+            torch.tensor(1.0e-8, dtype=torch.float64),
+            torch.tensor(1.0e-7, dtype=torch.float64),
+            torch.tensor(1.0e-6, dtype=torch.float64),
+            torch.tensor(1.0e-5, dtype=torch.float64),
+            torch.tensor(1.0e-4, dtype=torch.float64),
+            torch.tensor(1.0e-3, dtype=torch.float64),
+        ]
+    )
+    blocks: list[TensorBlock] = []
+    flat_values_before: list[torch.Tensor] = []
+    for block in original_scales.blocks():
+        values = torch.full_like(block.values, next(scale_values))
+        flat_values_before.append(values.reshape(-1))
+        blocks.append(
+            TensorBlock(
+                values=values,
+                samples=block.samples,
+                components=block.components,
+                properties=block.properties,
+            )
+        )
+    model.scaler.model.scales["density"] = TensorMap(original_scales.keys, blocks)
+
+    median_scale = torch.median(torch.cat(flat_values_before))
+    expected_floor = median_scale * hypers["scale_property_floor_ratio"]
+
+    Trainer(hypers)._apply_scale_property_floor(model)
+
+    floored_scales = model.scaler.model.scales["density"]
+    floored_values = torch.cat(
+        [block.values.reshape(-1) for block in floored_scales.blocks()]
+    )
+    assert torch.all(floored_values >= expected_floor)
+    assert torch.any(floored_values == expected_floor)
+
+    model.scaler.sync_tensor_maps()
+    reloaded_values = torch.cat(
+        [
+            block.values.reshape(-1)
+            for block in model.scaler.model.scales["density"].blocks()
+        ]
+    )
+    torch.testing.assert_close(reloaded_values, floored_values)
 
 
 def test_custom_trainer_restores_restart_optimizer_and_scheduler_state() -> None:

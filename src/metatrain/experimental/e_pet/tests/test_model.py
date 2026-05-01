@@ -24,6 +24,7 @@ from metatrain.experimental.e_pet.model import (
     EPET,
     _cartesian_rank2_to_spherical_components,
     _spherical_components_to_cartesian_rank2,
+    _whiten_tensor_basis,
 )
 
 
@@ -463,6 +464,58 @@ def test_coefficient_l2_exclusion_keeps_nontrivial_spherical_blocks() -> None:
     model([system], {"density": ModelOutput(per_atom=True)})
 
     assert model.get_regularization_loss(exclude_spherical_l0=True) > 0
+
+
+def test_whiten_tensor_basis_bounds_used_basis_spectrum() -> None:
+    torch.manual_seed(0)
+    tensor_basis = torch.randn(4, 5, 10)
+    tensor_basis = tensor_basis * torch.logspace(-2, 2, 10).reshape(1, 1, -1)
+
+    whitened = _whiten_tensor_basis(tensor_basis, epsilon=1.0e-6)
+
+    gram = torch.einsum("scb,scd->sbd", whitened, whitened)
+    eigenvalues = torch.linalg.eigvalsh(gram)
+    assert torch.all(torch.isfinite(whitened))
+    assert torch.max(eigenvalues) <= 1.001
+
+
+def test_whiten_tensor_basis_is_nearly_scale_invariant_for_full_rank_basis() -> None:
+    torch.manual_seed(0)
+    tensor_basis = torch.randn(4, 8, 3)
+
+    whitened = _whiten_tensor_basis(tensor_basis, epsilon=1.0e-8)
+    whitened_scaled = _whiten_tensor_basis(10.0 * tensor_basis, epsilon=1.0e-8)
+
+    torch.testing.assert_close(whitened_scaled, whitened, rtol=1.0e-4, atol=1.0e-4)
+
+
+def test_basis_whitening_forward_path_is_opt_in_and_finite() -> None:
+    hypers = _base_model_hypers()
+    assert hypers["tensor_basis_defaults"]["basis_normalization"] == "none"
+    hypers["tensor_basis_defaults"]["basis_normalization"] = "whiten"
+    hypers["tensor_basis_defaults"]["basis_normalization_epsilon"] = 1.0e-6
+    model = EPET(hypers, _atomic_basis_dataset_info()).train()
+    system = _build_system(model)
+
+    output = model([system], {"density": ModelOutput(per_atom=True)})["density"]
+
+    assert torch.isfinite(model.get_basis_gram_loss())
+    for block in output.blocks():
+        assert torch.all(torch.isfinite(block.values))
+
+
+def test_basis_whitening_rejects_bad_options() -> None:
+    hypers = _base_model_hypers()
+    hypers["tensor_basis_defaults"]["basis_normalization"] = "bad"
+
+    with pytest.raises(ValueError, match="Unknown E-PET tensor-basis normalization"):
+        EPET(hypers, _atomic_basis_dataset_info())
+
+    hypers = _base_model_hypers()
+    hypers["tensor_basis_defaults"]["basis_normalization_epsilon"] = 0.0
+
+    with pytest.raises(ValueError, match="basis_normalization_epsilon"):
+        EPET(hypers, _atomic_basis_dataset_info())
 
 
 def test_atomic_basis_rejects_irrep_head_groups() -> None:
