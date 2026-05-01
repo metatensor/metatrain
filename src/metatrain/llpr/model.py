@@ -689,12 +689,12 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 # Try with an increasingly high regularization parameter until
                 # the matrix is invertible
                 is_not_pd = True
-                regularizer = 1e-20
-                while is_not_pd and regularizer < 1e16:
+                r = 1e-20
+                while is_not_pd and r < 1e16:
                     try:
                         cholesky[:] = torch.linalg.cholesky(
                             0.5 * (covariance + covariance.T)
-                            + regularizer
+                            + r
                             * torch.eye(
                                 self.ll_feat_size,
                                 device=covariance.device,
@@ -703,7 +703,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                         ).to(cholesky.dtype)
                         is_not_pd = False
                     except RuntimeError:
-                        regularizer *= 10.0
+                        r *= 10.0
                 if is_not_pd:
                     raise RuntimeError(
                         "Could not compute Cholesky decomposition. Something went "
@@ -711,8 +711,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     )
                 else:
                     logging.info(
-                        f"Used regularization parameter of {regularizer:.1e} to "
-                        "compute the Cholesky decomposition"
+                        f"Used regularization parameter of {r:.1e} to "
+                        f"compute the Cholesky decomposition for `{name}`"
                     )
 
     def calibrate(
