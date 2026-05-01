@@ -688,6 +688,7 @@ class DiskDataset(torch.utils.data.Dataset):
 
     def __init__(self, path: Union[str, Path], fields: Optional[List[str]] = None):
         self.zip_file_path = path
+        self.extra_data_config: Dict[str, Any] = {}
         self._field_names = ["system"]
         # check that we have at least one sample:
         with zipfile.ZipFile(path, "r") as zip_file:
@@ -829,6 +830,24 @@ class DiskDataset(torch.utils.data.Dataset):
                 },
             )
         return target_info_dict
+
+    def get_extra_data_info(self) -> Dict[str, TargetInfo]:
+        """
+        Get information about the extra_data entries in the dataset.
+
+        :return: A dictionary mapping extra_data keys to :py:class:`TargetInfo`
+            objects describing each per-system scalar array.
+        """
+        extra_data_info_dict: Dict[str, TargetInfo] = {}
+        if not self.extra_data_config:
+            return extra_data_info_dict
+        first_sample = self[0]
+        for key, opts in self.extra_data_config.items():
+            tensor_map = first_sample[key]
+            target_info = get_generic_target_info(key, opts)
+            target_info.layout = _empty_tensor_map_like(tensor_map)
+            extra_data_info_dict[key] = target_info
+        return extra_data_info_dict
 
     def __del__(self) -> None:
         if self.zip_file is not None:
@@ -1043,13 +1062,42 @@ class MemmapDataset(TorchDataset):
     :param path: Path to the directory containing the dataset.
     :param target_options: Dictionary containing the target configurations, in the
         format corresponding to metatrain yaml input files.
+    :param extra_data_options: Optional dictionary of extra per-system scalar arrays
+        to load alongside targets. Keys are the metatensor-style names (e.g.
+        ``"charge"``) and values are dicts with a ``"key"`` entry specifying
+        the ``.bin`` filename stem. The data is returned as :py:class:`TensorMap`
+        values in the sample namedtuple and forwarded to the ``extra`` argument of
+        :py:class:`CollateFn` callables.
     """
 
-    def __init__(self, path: Union[str, Path], target_options: Dict[str, Any]) -> None:
+    def __init__(
+        self,
+        path: Union[str, Path],
+        target_options: Dict[str, Any],
+        extra_data_options: Optional[Dict[str, Any]] = None,
+    ) -> None:
         path = Path(path)
         self.target_config = target_options
+        self.extra_data_config: Dict[str, Any] = (
+            extra_data_options if extra_data_options is not None else {}
+        )
+        overlapping = set(target_options.keys()) & set(self.extra_data_config.keys())
+        if overlapping:
+            raise ValueError(
+                f"Extra data keys {overlapping} overlap with target keys. "
+                "Please use unique keys for targets and extra data."
+            )
+        for key, opts in self.extra_data_config.items():
+            if opts.get("type") != "scalar":
+                raise ValueError(
+                    f"Extra data key '{key}' has type '{opts.get('type')}'; "
+                    "only 'scalar' is supported for MemmapDataset extra data."
+                )
         self.sample_class = namedtuple(
-            "Sample", ["system"] + list(self.target_config.keys())
+            "Sample",
+            ["system"]
+            + list(self.target_config.keys())
+            + list(self.extra_data_config.keys()),
         )
 
         # Information about the structures
@@ -1073,6 +1121,17 @@ class MemmapDataset(TorchDataset):
         if os.path.exists(path / "masses.bin"):
             self.masses = MemmapArray(
                 path / "masses.bin", (self.na[-1],), "float32", mode="r"
+            )
+
+        # Register per-system (or per-atom) scalar arrays for extra_data keys
+        self.extra_data_arrays: Dict[str, MemmapArray] = {}
+        for key, opts in self.extra_data_config.items():
+            n_samples = self.na[-1] if opts["per_atom"] else self.ns
+            self.extra_data_arrays[key] = MemmapArray(
+                path / f"{opts['key']}.bin",
+                (n_samples, opts["num_subtargets"]),
+                "float32",
+                mode="r",
             )
 
         # Register arrays pointing to the targets
@@ -1358,8 +1417,42 @@ class MemmapDataset(TorchDataset):
                 ),
             )
 
+        # Build extra_data TensorMaps returned in the sample and forwarded to
+        # the `extra` argument of CollateFn callables
+        extra_data_dict = {}
+        for key, arr in self.extra_data_arrays.items():
+            is_per_atom = bool(self.extra_data_config[key]["per_atom"])
+            if is_per_atom:
+                extra_samples = Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor(
+                        [[i, j] for j in range(self.na[i + 1] - self.na[i])],
+                        dtype=torch.int32,
+                    ),
+                )
+                extra_values = torch.tensor(
+                    arr[self.na[i] : self.na[i + 1]], dtype=torch.float64
+                )
+            else:
+                extra_samples = Labels("system", torch.tensor([[i]], dtype=torch.int32))
+                extra_values = torch.tensor(arr[None, i], dtype=torch.float64)
+            extra_data_dict[key] = TensorMap(
+                keys=Labels.single(),
+                blocks=[
+                    TensorBlock(
+                        values=extra_values,
+                        samples=extra_samples,
+                        components=[],
+                        properties=Labels.range(
+                            key.replace("mtt::", ""), arr.shape[-1]
+                        ),
+                    )
+                ],
+            )
+
         joint_dict = {"system": system}
         joint_dict.update(target_dict)
+        joint_dict.update(extra_data_dict)
         sample = self.sample_class._make(
             [joint_dict[name] for name in self.sample_class._fields]
         )
@@ -1398,3 +1491,21 @@ class MemmapDataset(TorchDataset):
                 target_info.layout = _empty_tensor_map_like(tensor_map)
                 target_info_dict[target_key] = target_info
         return target_info_dict
+
+    def get_extra_data_info(self) -> Dict[str, TargetInfo]:
+        """
+        Get information about the extra_data entries in the dataset.
+
+        :return: A dictionary mapping extra_data keys to :py:class:`TargetInfo`
+            objects describing each per-system scalar array.
+        """
+        extra_data_info_dict: Dict[str, TargetInfo] = {}
+        if not self.extra_data_config:
+            return extra_data_info_dict
+        first_sample = self[0]
+        for key, opts in self.extra_data_config.items():
+            tensor_map = first_sample[key]
+            target_info = get_generic_target_info(key, opts)
+            target_info.layout = _empty_tensor_map_like(tensor_map)
+            extra_data_info_dict[key] = target_info
+        return extra_data_info_dict

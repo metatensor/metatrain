@@ -32,6 +32,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .documentation import ModelHypers
+from .modules.conditioning import SystemConditioningEmbedding
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
@@ -52,7 +53,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 11
+    __checkpoint_version__ = 13
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -145,6 +146,17 @@ class PET(ModelInterface[ModelHypers]):
             ]
         )
         self.edge_embedder = torch.nn.Embedding(num_atomic_species, self.d_pet)
+
+        if self.hypers.get("system_conditioning", False):
+            self.system_conditioning: Optional[SystemConditioningEmbedding] = (
+                SystemConditioningEmbedding(
+                    d_out=self.d_node,
+                    max_charge=self.hypers.get("max_charge", 10),
+                    max_spin_multiplicity=self.hypers.get("max_spin_multiplicity", 10),
+                )
+            )
+        else:
+            self.system_conditioning = None
 
         self.node_heads = torch.nn.ModuleDict()
         self.edge_heads = torch.nn.ModuleDict()
@@ -294,6 +306,14 @@ class PET(ModelInterface[ModelHypers]):
 
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
+
+    def requested_inputs(self) -> Dict[str, ModelOutput]:
+        if self.system_conditioning is not None:
+            return {
+                key: ModelOutput(quantity="", unit="", per_atom=False)
+                for key in self.system_conditioning.required_data_keys
+            }
+        return {}
 
     def forward(
         self,
@@ -456,6 +476,15 @@ class PET(ModelInterface[ModelHypers]):
                 padding_mask=padding_mask,
                 cutoff_factors=cutoff_factors,
             )
+
+            if self.system_conditioning is not None:
+                charges, spin_multiplicities = _extract_charge_spin_multiplicity(
+                    systems, device
+                )
+                self.system_conditioning.validate(charges, spin_multiplicities)
+                featurizer_inputs["charge"] = charges
+                featurizer_inputs["spin_multiplicity"] = spin_multiplicities
+                featurizer_inputs["system_indices"] = system_indices
             node_features_list, edge_features_list = self._calculate_features(
                 featurizer_inputs,
                 use_manual_attention=use_manual_attention,
@@ -637,6 +666,14 @@ class PET(ModelInterface[ModelHypers]):
 
         input_node_embeddings = self.node_embedders[0](inputs["element_indices_nodes"])
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
+        # Compute conditioning embedding once: same inputs at every GNN layer.
+        cond_embedding: Optional[torch.Tensor] = None
+        if self.system_conditioning is not None:
+            cond_embedding = self.system_conditioning(
+                inputs["charge"],
+                inputs["spin_multiplicity"],
+                inputs["system_indices"],
+            )
         for combination_norm, combination_mlp, gnn_layer in zip(
             self.combination_norms, self.combination_mlps, self.gnn_layers, strict=True
         ):
@@ -650,6 +687,9 @@ class PET(ModelInterface[ModelHypers]):
                 inputs["cutoff_factors"],
                 use_manual_attention,
             )
+
+            if cond_embedding is not None:
+                output_node_embeddings = output_node_embeddings + cond_embedding
 
             # The GNN contraction happens by reordering the messages,
             # using a reversed neighbor list, so the new input message
@@ -696,6 +736,14 @@ class PET(ModelInterface[ModelHypers]):
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
+        # Compute conditioning embedding once: same inputs at every GNN layer.
+        cond_embedding: Optional[torch.Tensor] = None
+        if self.system_conditioning is not None:
+            cond_embedding = self.system_conditioning(
+                inputs["charge"],
+                inputs["spin_multiplicity"],
+                inputs["system_indices"],
+            )
         for node_embedder, gnn_layer in zip(
             self.node_embedders, self.gnn_layers, strict=True
         ):
@@ -710,6 +758,9 @@ class PET(ModelInterface[ModelHypers]):
                 inputs["cutoff_factors"],
                 use_manual_attention,
             )
+            if cond_embedding is not None:
+                output_node_embeddings = output_node_embeddings + cond_embedding
+
             node_features_list.append(output_node_embeddings)
             edge_features_list.append(output_edge_embeddings)
 
@@ -1391,6 +1442,47 @@ class PET(ModelInterface[ModelHypers]):
             "best_model_state_dict": self.state_dict(),
         }
         return checkpoint
+
+
+def _extract_charge_spin_multiplicity(
+    systems: List[System], device: torch.device
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Pull per-system ``charge`` and ``spin_multiplicity`` off each ``System``.
+
+    Systems without the keys fall back to charge=0 / spin_multiplicity=1. Values
+    are validated to be integer-valued before the long() cast and a clear error
+    is raised otherwise.
+
+    :param systems: list of systems to extract charge/spin_multiplicity from.
+    :param device: device on which to allocate the returned tensors.
+    :return: ``(charges, spin_multiplicities)`` tensors of shape ``[n_systems]``,
+        ``dtype=torch.long``.
+    """
+    n_systems = len(systems)
+    charges = torch.zeros(n_systems, dtype=torch.long, device=device)
+    spin_multiplicities = torch.ones(n_systems, dtype=torch.long, device=device)
+    for i, system in enumerate(systems):
+        if "charge" in system.known_data():
+            raw_charge = system.get_data("charge").block().values
+            if not torch.equal(raw_charge.round(), raw_charge):
+                raise ValueError(
+                    "charge must be an integer value, got "
+                    + str(raw_charge.item())
+                    + " for system "
+                    + str(i)
+                )
+            charges[i] = raw_charge.long().squeeze()
+        if "spin_multiplicity" in system.known_data():
+            raw_spin_multiplicity = system.get_data("spin_multiplicity").block().values
+            if not torch.equal(raw_spin_multiplicity.round(), raw_spin_multiplicity):
+                raise ValueError(
+                    "spin_multiplicity must be an integer value, got "
+                    + str(raw_spin_multiplicity.item())
+                    + " for system "
+                    + str(i)
+                )
+            spin_multiplicities[i] = raw_spin_multiplicity.long().squeeze()
+    return charges, spin_multiplicities
 
 
 def process_non_conservative_stress(

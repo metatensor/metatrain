@@ -1,3 +1,5 @@
+import logging
+
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -263,6 +265,73 @@ def model_update_v10_v11(checkpoint: dict) -> None:
     # Adding the attention_temperature hyperparameter if not present
     if "attention_temperature" not in checkpoint["model_data"]["model_hypers"]:
         checkpoint["model_data"]["model_hypers"]["attention_temperature"] = 1.0
+
+
+def model_update_v11_v12(checkpoint: dict) -> None:
+    """
+    Update a v11 checkpoint to v12.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    state_dict = (
+        checkpoint.get("model_state_dict")
+        or checkpoint.get("best_model_state_dict")
+        or {}
+    )
+    has_conditioning_weights = any(
+        k.startswith("system_conditioning.") for k in state_dict
+    )
+    logging.info(
+        "Checkpoint upgrade v11→v12: system_conditioning weights %s in checkpoint.",
+        "found" if has_conditioning_weights else "NOT found",
+    )
+    # Adding system conditioning hyperparameters — enabled if weights already present
+    # (muon2 branch trained with system conditioning), disabled otherwise.
+    if "system_conditioning" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["system_conditioning"] = (
+            has_conditioning_weights
+        )
+    if "max_charge" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["max_charge"] = 10
+    if "max_spin" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["max_spin"] = 10
+    # Rename edge_linear -> edge_embedder (muon2 branch used edge_linear)
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if "gnn_layers" in k and ".edge_linear." in k:
+                    k = k.replace(".edge_linear.", ".edge_embedder.")
+                new_state_dict[k] = v
+            checkpoint[key] = new_state_dict
+
+
+def model_update_v12_v13(checkpoint: dict) -> None:
+    """
+    Update a v12 checkpoint to v13.
+
+    Renames the spin-related entries from the short ``spin`` form to the
+    canonical ``spin_multiplicity`` form to match the metatomic standard
+    quantity name. Affects both the model hyperparameters and the
+    state-dict tensor paths inside ``system_conditioning``.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    hypers = checkpoint["model_data"]["model_hypers"]
+    if "max_spin" in hypers and "max_spin_multiplicity" not in hypers:
+        hypers["max_spin_multiplicity"] = hypers.pop("max_spin")
+
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if k.startswith("system_conditioning.spin_embedding."):
+                    k = k.replace(
+                        "system_conditioning.spin_embedding.",
+                        "system_conditioning.spin_multiplicity_embedding.",
+                    )
+                new_state_dict[k] = v
+            checkpoint[key] = new_state_dict
 
 
 ###########################

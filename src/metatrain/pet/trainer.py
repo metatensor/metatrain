@@ -2,7 +2,7 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
@@ -39,6 +39,7 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
+from metatrain.utils.system_data import get_system_data_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
@@ -243,24 +244,33 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.scaler.scales_to(device=device, dtype=torch.float64)
 
         # Create collate functions:
+        conditioning_keys = list(model.requested_inputs().keys())
+        conditioning_callables = (
+            [get_system_data_transform(conditioning_keys)] if conditioning_keys else []
+        )
+        target_keys = list(train_targets.keys())
+        # Shared callables that run after `atomic_basis_transform` (and after
+        # rotational augmentation in training).
+        base_callables: List[Callable[..., Any]] = [
+            get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+            *conditioning_callables,
+            get_remove_additive_transform(additive_models, train_targets),
+            get_remove_scale_transform(scaler),
+        ]
         collate_fn_train = CollateFn(
-            target_keys=list(train_targets.keys()),
+            target_keys=target_keys,
             callables=[
                 atomic_basis_transform,
                 rotational_augmenter.apply_random_augmentations,
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
+                *base_callables,
             ],
             batch_atom_bounds=batch_atom_bounds,
         )
         collate_fn_val = CollateFn(
-            target_keys=list(train_targets.keys()),
+            target_keys=target_keys,
             callables=[  # no augmentation for validation
                 atomic_basis_transform,
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
+                *base_callables,
             ],
             batch_atom_bounds=batch_atom_bounds,
         )
