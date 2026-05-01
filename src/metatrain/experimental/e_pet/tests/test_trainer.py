@@ -11,7 +11,11 @@ from metatrain.utils.architectures import get_default_hypers
 from metatrain.experimental.e_pet.model import EPET
 from metatrain.experimental.e_pet.trainer import Trainer
 
-from .test_model import _base_model_hypers, _mixed_dataset_info
+from .test_model import (
+    _atomic_basis_dataset_info,
+    _base_model_hypers,
+    _mixed_dataset_info,
+)
 
 
 def _split_lr_training_hypers() -> dict:
@@ -61,6 +65,53 @@ def test_split_learning_rate_optimizer_groups_are_disjoint() -> None:
         id(parameter) for parameter in model.parameters() if parameter.requires_grad
     }
     assert set(parameter_ids) == expected_trainable_ids
+
+
+def test_spherical_l0_readout_optimizer_group_is_disjoint() -> None:
+    hypers = _split_lr_training_hypers()
+    hypers["spherical_l0_readout_learning_rate"] = 3.0e-4
+    model = EPET(_base_model_hypers(), _atomic_basis_dataset_info())
+    optimizer = Trainer(hypers)._build_optimizer(model)
+
+    groups = {group["name"]: group for group in optimizer.param_groups}
+    assert set(groups) == {
+        "pet_trunk",
+        "tensor_basis",
+        "readout",
+        "spherical_l0_readout",
+    }
+    assert groups["readout"]["lr"] == 6.0e-4
+    assert groups["spherical_l0_readout"]["lr"] == 3.0e-4
+
+    l0_parameter_ids = {
+        id(parameter)
+        for name, parameter in model.named_parameters()
+        if (
+            ("node_last_layers." in name or "edge_last_layers." in name)
+            and "_o3_lambda_0_o3_sigma_" in name
+        )
+    }
+    grouped_l0_parameter_ids = {
+        id(parameter) for parameter in groups["spherical_l0_readout"]["params"]
+    }
+    assert grouped_l0_parameter_ids == l0_parameter_ids
+
+    readout_parameter_ids = {id(p) for p in groups["readout"]["params"]}
+    readout_parameter_names = {
+        name
+        for name, parameter in model.named_parameters()
+        if id(parameter) in readout_parameter_ids
+    }
+    assert any(name.startswith("node_heads.") for name in readout_parameter_names)
+    assert any("_o3_lambda_1_o3_sigma_" in name for name in readout_parameter_names)
+    assert not any("_o3_lambda_0_o3_sigma_" in name for name in readout_parameter_names)
+
+    parameter_ids = [
+        id(parameter)
+        for group in optimizer.param_groups
+        for parameter in group["params"]
+    ]
+    assert len(parameter_ids) == len(set(parameter_ids))
 
 
 def test_custom_trainer_restores_restart_optimizer_and_scheduler_state() -> None:

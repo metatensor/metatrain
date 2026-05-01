@@ -228,6 +228,7 @@ class EPET(PET):
             self.top_level_shared_head_selectors
         )
         self._last_spherical_coefficient_penalty = torch.tensor(0.0)
+        self._last_spherical_coefficient_penalty_without_l0 = torch.tensor(0.0)
         self._last_basis_gram_penalty = torch.tensor(0.0)
         super().__init__(copy.deepcopy(hypers["pet"]), dataset_info)
         self.volume_normalized_target_names = list(
@@ -581,7 +582,11 @@ class EPET(PET):
             _cartesian_rank2_spherical_target_info(target_name, target_info),
         )
 
-    def get_regularization_loss(self) -> torch.Tensor:
+    def get_regularization_loss(
+        self, exclude_spherical_l0: bool = False
+    ) -> torch.Tensor:
+        if exclude_spherical_l0:
+            return self._last_spherical_coefficient_penalty_without_l0
         return self._last_spherical_coefficient_penalty
 
     def get_basis_gram_loss(self) -> torch.Tensor:
@@ -848,9 +853,10 @@ class EPET(PET):
         centers: torch.Tensor,
         neighbors: torch.Tensor,
         basis_species: torch.Tensor,
-    ) -> Tuple[TensorMap, List[torch.Tensor], List[torch.Tensor]]:
+    ) -> Tuple[TensorMap, List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
         blocks = torch.jit.annotate(List[TensorBlock], [])
         coefficient_norms: List[torch.Tensor] = []
+        coefficient_norms_without_l0: List[torch.Tensor] = []
         block_basis_gram_penalties: List[torch.Tensor] = []
 
         if self.basis_calculators is None:
@@ -917,14 +923,16 @@ class EPET(PET):
                 )
             )
 
-            coefficient_norms.append(
-                invariant_coefficients.pow(2).mean(dim=(1, 2)).mean()
-            )
+            coefficient_norm = invariant_coefficients.pow(2).mean(dim=(1, 2)).mean()
+            coefficient_norms.append(coefficient_norm)
+            if self.block_irrep_keys[output_name][dict_key] != "0,1":
+                coefficient_norms_without_l0.append(coefficient_norm)
             block_basis_gram_penalties.append(_basis_gram_chunk_penalty(tensor_basis))
 
         return (
             TensorMap(keys=self.key_labels[output_name], blocks=blocks),
             coefficient_norms,
+            coefficient_norms_without_l0,
             block_basis_gram_penalties,
         )
 
@@ -938,18 +946,21 @@ class EPET(PET):
         centers: torch.Tensor,
         neighbors: torch.Tensor,
         basis_species: torch.Tensor,
-    ) -> Tuple[TensorMap, List[torch.Tensor], List[torch.Tensor]]:
-        spherical_tensor_map, coefficient_norms, basis_gram_penalties = (
-            self._build_spherical_atomic_prediction(
-                output_name,
-                node_atomic_predictions_dict,
-                edge_atomic_predictions_dict,
-                sample_labels,
-                interatomic_vectors,
-                centers,
-                neighbors,
-                basis_species,
-            )
+    ) -> Tuple[TensorMap, List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+        (
+            spherical_tensor_map,
+            coefficient_norms,
+            coefficient_norms_without_l0,
+            basis_gram_penalties,
+        ) = self._build_spherical_atomic_prediction(
+            output_name,
+            node_atomic_predictions_dict,
+            edge_atomic_predictions_dict,
+            sample_labels,
+            interatomic_vectors,
+            centers,
+            neighbors,
+            basis_species,
         )
         return (
             _spherical_components_to_cartesian_rank2(
@@ -957,12 +968,14 @@ class EPET(PET):
                 self.cartesian_rank2_public_layouts[output_name],
             ),
             coefficient_norms,
+            coefficient_norms_without_l0,
             basis_gram_penalties,
         )
 
     def _set_last_regularization_losses(
         self,
         coefficient_penalties: List[torch.Tensor],
+        coefficient_penalties_without_l0: List[torch.Tensor],
         basis_gram_penalties: List[torch.Tensor],
         device: torch.device,
         dtype: torch.dtype,
@@ -973,6 +986,15 @@ class EPET(PET):
             ).mean()
         else:
             self._last_spherical_coefficient_penalty = torch.tensor(
+                0.0, device=device, dtype=dtype
+            )
+
+        if coefficient_penalties_without_l0:
+            self._last_spherical_coefficient_penalty_without_l0 = torch.stack(
+                coefficient_penalties_without_l0
+            ).mean()
+        else:
+            self._last_spherical_coefficient_penalty_without_l0 = torch.tensor(
                 0.0, device=device, dtype=dtype
             )
 
@@ -1029,6 +1051,7 @@ class EPET(PET):
     ) -> Dict[str, TensorMap]:
         atomic_predictions_tmap_dict: Dict[str, TensorMap] = {}
         coefficient_penalties: List[torch.Tensor] = []
+        coefficient_penalties_without_l0: List[torch.Tensor] = []
         basis_gram_penalties: List[torch.Tensor] = []
 
         spherical_context: Optional[
@@ -1062,6 +1085,7 @@ class EPET(PET):
                 (
                     atomic_predictions_tmap_dict[output_name],
                     coefficient_norms,
+                    coefficient_norms_without_l0,
                     block_basis_gram_penalties,
                 ) = self._build_cartesian_rank2_atomic_prediction(
                     output_name,
@@ -1077,6 +1101,7 @@ class EPET(PET):
                 (
                     atomic_predictions_tmap_dict[output_name],
                     coefficient_norms,
+                    coefficient_norms_without_l0,
                     block_basis_gram_penalties,
                 ) = self._build_spherical_atomic_prediction(
                     output_name,
@@ -1089,10 +1114,12 @@ class EPET(PET):
                     basis_species,
                 )
             coefficient_penalties.extend(coefficient_norms)
+            coefficient_penalties_without_l0.extend(coefficient_norms_without_l0)
             basis_gram_penalties.extend(block_basis_gram_penalties)
 
         self._set_last_regularization_losses(
             coefficient_penalties,
+            coefficient_penalties_without_l0,
             basis_gram_penalties,
             edge_vectors.device,
             edge_vectors.dtype,

@@ -37,6 +37,7 @@ class Trainer(PETTrainer):
                 "pet_trunk_learning_rate",
                 "tensor_basis_learning_rate",
                 "readout_learning_rate",
+                "spherical_l0_readout_learning_rate",
             )
         )
 
@@ -45,6 +46,9 @@ class Trainer(PETTrainer):
             float(self.hypers.get("coefficient_l2_weight", 0.0)),
             float(self.hypers.get("basis_gram_weight", 0.0)),
         )
+
+    def _exclude_spherical_l0_from_coefficient_l2(self) -> bool:
+        return bool(self.hypers.get("coefficient_l2_exclude_spherical_l0", False))
 
     def _requires_custom_training_path(self) -> bool:
         coefficient_l2_weight, basis_gram_weight = self._regularization_weights()
@@ -76,16 +80,47 @@ class Trainer(PETTrainer):
         basis_gram_weight: float,
     ) -> torch.Tensor:
         if coefficient_l2_weight != 0.0:
-            loss = loss + coefficient_l2_weight * model.get_regularization_loss()
+            loss = loss + coefficient_l2_weight * model.get_regularization_loss(
+                exclude_spherical_l0=self._exclude_spherical_l0_from_coefficient_l2()
+            )
         if basis_gram_weight != 0.0:
             loss = loss + basis_gram_weight * model.get_basis_gram_loss()
         return loss
+
+    @staticmethod
+    def _spherical_l0_last_layer_parameter_names(model: EPET) -> set[str]:
+        parameter_names: set[str] = set()
+        for target_name, block_irrep_keys in model.block_irrep_keys.items():
+            for block_key, irrep_key in block_irrep_keys.items():
+                if irrep_key != "0,1":
+                    continue
+                for layer_index in range(model.num_readout_layers):
+                    parameter_names.add(
+                        f"node_last_layers.{target_name}.{layer_index}."
+                        f"{block_key}.weight"
+                    )
+                    parameter_names.add(
+                        f"node_last_layers.{target_name}.{layer_index}."
+                        f"{block_key}.bias"
+                    )
+                    parameter_names.add(
+                        f"edge_last_layers.{target_name}.{layer_index}."
+                        f"{block_key}.weight"
+                    )
+                    parameter_names.add(
+                        f"edge_last_layers.{target_name}.{layer_index}."
+                        f"{block_key}.bias"
+                    )
+        return parameter_names
 
     def _build_optimizer(self, model: EPET) -> torch.optim.Optimizer:
         base_lr = float(self.hypers["learning_rate"])
         trunk_lr = float(self.hypers.get("pet_trunk_learning_rate") or base_lr)
         basis_lr = float(self.hypers.get("tensor_basis_learning_rate") or base_lr)
         readout_lr = float(self.hypers.get("readout_learning_rate") or base_lr)
+        l0_readout_lr = self.hypers.get("spherical_l0_readout_learning_rate")
+        if l0_readout_lr is not None:
+            l0_readout_lr = float(l0_readout_lr)
 
         if not self._has_split_learning_rates():
             if self.hypers["weight_decay"] is not None:
@@ -106,6 +141,8 @@ class Trainer(PETTrainer):
         trunk_params: List[torch.nn.Parameter] = []
         basis_params: List[torch.nn.Parameter] = []
         readout_params: List[torch.nn.Parameter] = []
+        l0_readout_params: List[torch.nn.Parameter] = []
+        l0_readout_names = self._spherical_l0_last_layer_parameter_names(model)
         seen: set[int] = set()
 
         for name, param in model.named_parameters():
@@ -117,6 +154,8 @@ class Trainer(PETTrainer):
             seen.add(param_id)
             if name.startswith(basis_prefixes):
                 basis_params.append(param)
+            elif l0_readout_lr is not None and name in l0_readout_names:
+                l0_readout_params.append(param)
             elif name.startswith(readout_prefixes):
                 readout_params.append(param)
             else:
@@ -134,6 +173,14 @@ class Trainer(PETTrainer):
         if readout_params:
             param_groups.append(
                 {"params": readout_params, "lr": readout_lr, "name": "readout"}
+            )
+        if l0_readout_params:
+            param_groups.append(
+                {
+                    "params": l0_readout_params,
+                    "lr": l0_readout_lr,
+                    "name": "spherical_l0_readout",
+                }
             )
 
         for group in param_groups:
