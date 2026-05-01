@@ -60,6 +60,33 @@ def _basis_gram_chunk_penalty(tensor_basis: torch.Tensor) -> torch.Tensor:
     return torch.stack(penalties).mean()
 
 
+def _whiten_tensor_basis(
+    tensor_basis: torch.Tensor,
+    epsilon: float,
+) -> torch.Tensor:
+    """Canonicalize basis coordinates with a regularized Gram inverse square root."""
+    basis_width = tensor_basis.shape[2]
+    if basis_width == 0:
+        return tensor_basis
+
+    # This is equivalent to ``B @ (B^T B + eps I)^(-1/2)`` on the non-null
+    # subspace, but is more stable than explicitly diagonalizing ``B^T B`` in
+    # float32 when the raw basis is ill-conditioned or overcomplete.
+    left_vectors, singular_values, right_vectors_t = torch.linalg.svd(
+        tensor_basis,
+        full_matrices=False,
+    )
+    scaled_singular_values = singular_values / torch.sqrt(
+        singular_values.pow(2) + epsilon
+    )
+    return torch.einsum(
+        "sci,si,sib->scb",
+        left_vectors,
+        scaled_singular_values,
+        right_vectors_t,
+    )
+
+
 def _extra_l1_vector_basis_branches(
     tensor_basis_hypers: Dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -199,6 +226,19 @@ class EPET(PET):
         self.e_pet_hypers = copy.deepcopy(hypers)
         self.tensor_basis_hypers = copy.deepcopy(hypers["tensor_basis_defaults"])
         self.tensor_basis_hypers.setdefault("extra_l1_vector_basis_branches", [])
+        self.basis_normalization = str(
+            self.tensor_basis_hypers.get("basis_normalization", "none")
+        )
+        if self.basis_normalization not in ("none", "whiten"):
+            raise ValueError(
+                "Unknown E-PET tensor-basis normalization "
+                f"{self.basis_normalization!r}. Expected 'none' or 'whiten'."
+            )
+        self.basis_normalization_epsilon = float(
+            self.tensor_basis_hypers.get("basis_normalization_epsilon", 1.0e-6)
+        )
+        if self.basis_normalization_epsilon <= 0.0:
+            raise ValueError("basis_normalization_epsilon must be positive.")
         self.e_pet_hypers["tensor_basis_defaults"] = copy.deepcopy(
             self.tensor_basis_hypers
         )
@@ -624,6 +664,18 @@ class EPET(PET):
             return species
         return self.species_to_species_index[species]
 
+    def _normalize_tensor_basis(self, tensor_basis: torch.Tensor) -> torch.Tensor:
+        if self.basis_normalization == "none":
+            return tensor_basis
+        if self.basis_normalization == "whiten":
+            return _whiten_tensor_basis(
+                tensor_basis,
+                self.basis_normalization_epsilon,
+            )
+        raise RuntimeError(
+            f"Unsupported E-PET tensor-basis normalization {self.basis_normalization!r}."
+        )
+
     def _get_output_last_layer_features(
         self,
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
@@ -906,6 +958,7 @@ class EPET(PET):
                     f"'{output_name}:{dict_key}'."
                 )
 
+            tensor_basis = self._normalize_tensor_basis(tensor_basis)
             atomic_property_tensor = torch.einsum(
                 "spb, scb -> scp",
                 invariant_coefficients,

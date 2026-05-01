@@ -43,7 +43,7 @@ with the following definitions needed to fully understand some of the parameters
     :undoc-members:
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from typing_extensions import TypedDict
 
@@ -89,6 +89,19 @@ class TensorBasisDefaults(TypedDict):
 
     legacy: bool = True
     """Whether to use the legacy tensor-basis species handling."""
+
+    basis_normalization: Literal["none", "whiten"] = "none"
+    """Optional experimental normalization applied to each tensor-basis block before
+    coefficient contraction.
+
+    ``"none"`` keeps the current E-PET path. ``"whiten"`` uses a regularized
+    inverse-square-root Gram transform to contract coefficients in a canonicalized
+    local basis. This is intended as an opt-in diagnostic path and can be removed or
+    promoted without changing the public target contract.
+    """
+
+    basis_normalization_epsilon: float = 1.0e-6
+    """Diagonal regularization used by ``basis_normalization: "whiten"``."""
 
 
 class ModelHypers(TypedDict):
@@ -161,6 +174,11 @@ class TrainerHypers(PETTrainerHypers):
     coefficient_l2_exclude_spherical_l0: bool = False
     """Whether to exclude spherical ``o3_lambda=0`` coefficient blocks from the
     coefficient L2 regularization."""
+
+    scale_property_floor_ratio: Optional[float] = None
+    """Optional diagnostic floor for fitted per-property scales. If set, each target's
+    fitted scales are clamped to at least this ratio times that target's median
+    positive scale."""
 
     basis_gram_weight: float = 0.0
     """Weight for the tensor-basis Gram penalty."""
