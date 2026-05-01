@@ -1,4 +1,5 @@
 import ast
+import json
 import warnings
 from pathlib import Path
 from typing import TypedDict
@@ -13,6 +14,7 @@ from metatrain.utils.architectures import (
     write_hypers_yaml,
 )
 from metatrain.utils.hypers import get_hypers_list
+from metatrain.utils.pydantic import get_train_json_schema
 
 
 ARCHITECTURES_DIR = Path(__file__).parent
@@ -165,6 +167,11 @@ def setup_architectures_docs():
         write_hypers_yaml(architecture_name, yaml_path)
 
         generate_rst(architecture_name, yaml_path=yaml_path)
+
+    # Write JSON schema for the yaml options of mtt train
+    mtt_train_json_schema = get_train_json_schema(allow_missing_hypers=True)
+    with open(GENERATED_DIR / "mtt_train_schema.json", "w") as f:
+        json.dump(mtt_train_json_schema, f, indent=2)
 
 
 def generate_rst(
