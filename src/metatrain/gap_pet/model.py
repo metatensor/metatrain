@@ -5,6 +5,13 @@ replaces its summation readout with two heads (HOMO, LUMO) followed by an
 extremal log-sum-exp pool. The result is a per-system gap energy that does not
 scale with system size, suitable for excited-state surrogates in molecular
 dynamics.
+
+The HOMO and LUMO heads use PET's *standard* per-target readout machinery
+(``node_heads``, ``edge_heads``, ``node_last_layers``, ``edge_last_layers``):
+one MLP per GNN layer, separate node and edge MLPs, summed across layers with
+edge contributions weighted by the cutoff factor. Everything is identical to a
+standard PET energy head except for the final pool, which is replaced by the
+extremal smooth max / smooth min instead of summation.
 """
 
 import logging
@@ -20,10 +27,11 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.pet.model import PET
+from metatrain.pet.model import PET, get_last_layer_features_name
 from metatrain.pet.modules.structures import systems_to_batch
 from metatrain.utils.additive import CompositionModel
-from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
 
@@ -33,69 +41,12 @@ from .documentation import ModelHypers
 HOMO_PER_ATOM_OUTPUT_NAME = "mtt::aux::homo_per_atom"
 LUMO_PER_ATOM_OUTPUT_NAME = "mtt::aux::lumo_per_atom"
 
-
-class _ScalarMLP(torch.nn.Module):
-    """Two-layer MLP projecting a feature vector to a scalar.
-
-    ``Linear(in_dim, hidden) -> SiLU -> Linear(hidden, 1)``.
-
-    Applied identically to per-atom features ``(N, in_dim)`` or per-edge features
-    ``(N, M, in_dim)``; the output drops the trailing dimension of size 1.
-    """
-
-    def __init__(self, in_dim: int, hidden_dim: int) -> None:
-        super().__init__()
-        self.net = torch.nn.Sequential(
-            torch.nn.Linear(in_dim, hidden_dim),
-            torch.nn.SiLU(),
-            torch.nn.Linear(hidden_dim, 1),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x).squeeze(-1)
-
-
-class _HomoLumoHead(torch.nn.Module):
-    """One head (HOMO or LUMO): per-head node MLP and edge MLP, shared across
-    all GNN layers and summed.
-
-    For each atom ``i``::
-
-        h_i = sum_l [ MLP_node(g_i^l) + sum_{j in N(i)} cutoff_ij * MLP_edge(f_ij^l) ]
-
-    where the cutoff factor is the same one applied throughout PET, ensuring the
-    output is a smooth function of atomic positions even when neighbours enter
-    or leave the cutoff sphere.
-    """
-
-    def __init__(self, d_node: int, d_edge: int, d_head: int) -> None:
-        super().__init__()
-        self.node_mlp = _ScalarMLP(d_node, d_head)
-        self.edge_mlp = _ScalarMLP(d_edge, d_head)
-
-    def forward(
-        self,
-        node_features_list: List[torch.Tensor],
-        edge_features_list: List[torch.Tensor],
-        cutoff_factors: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        :param node_features_list: ``L`` tensors of shape ``(N, d_node)``.
-        :param edge_features_list: ``L`` tensors of shape ``(N, M, d_edge)``.
-        :param cutoff_factors: ``(N, M)`` smooth cutoff factor (already zeroed
-            at padded positions).
-        :return: per-atom scalar field, shape ``(N,)``.
-        """
-        h: Optional[torch.Tensor] = None
-        for g_l in node_features_list:
-            term = self.node_mlp(g_l)  # (N,)
-            h = term if h is None else h + term
-        for f_l in edge_features_list:
-            edge_scalar = self.edge_mlp(f_l)  # (N, M)
-            term = (edge_scalar * cutoff_factors).sum(dim=1)  # (N,)
-            h = term if h is None else h + term
-        assert h is not None  # at least one of the lists is non-empty
-        return h
+# Internal pseudo-target names used to register PET-style heads for the HOMO
+# and LUMO per-atom scalar fields. They are *not* exposed through
+# ``supported_outputs()``: users only see the gap target and the two per-atom
+# auxiliary outputs.
+_HOMO_INTERNAL_KEY = "__gap_pet_homo_internal__"
+_LUMO_INTERNAL_KEY = "__gap_pet_lumo_internal__"
 
 
 def _scatter_logsumexp(
@@ -125,10 +76,6 @@ def _scatter_logsumexp(
     sys_max = neg_inf.scatter_reduce(
         0, system_indices, scaled, reduce="amax", include_self=True
     )
-    # Defensive: if any system has no atoms (shouldn't happen for atomistic
-    # systems), the max stays at -inf and the subtraction below is undefined.
-    # Replace those with zero; the corresponding sum_exp will be zero too,
-    # leading to log(0) = -inf, which signals a malformed input clearly.
     sys_max = torch.where(
         torch.isinf(sys_max), torch.zeros_like(sys_max), sys_max
     )
@@ -158,10 +105,9 @@ class GapPET(PET):
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         # GapPET requires the residual featurizer (all GNN layers are read out
         # by the heads). We always override ``featurizer_type`` to ``residual``
-        # silently; the user-facing default ``feedforward`` is the right default
-        # for PET but never for GapPET.
+        # silently; PET's default ``feedforward`` only ever exposes the last
+        # layer, which is wrong for GapPET.
 
-        # GapPET expects exactly one target (the gap energy).
         if len(dataset_info.targets) != 1:
             raise ValueError(
                 f"GapPET expects exactly one target (the gap energy), got "
@@ -169,8 +115,7 @@ class GapPET(PET):
             )
         self._gap_target_name = next(iter(dataset_info.targets))
 
-        # We pass the same dict to the parent (PET reads only the keys it
-        # knows; the extra `head` and `pooling` keys are ignored).
+        # PET reads only the keys it knows; the extra ``pooling`` key is ignored.
         backbone_hypers = dict(hypers)
         backbone_hypers["featurizer_type"] = "residual"
         super().__init__(backbone_hypers, dataset_info)
@@ -178,16 +123,32 @@ class GapPET(PET):
         # Restore the gap hypers on self.hypers so that get_checkpoint round-trips.
         self.hypers = hypers
 
-        # Build the heads.
-        head_hypers = hypers["head"]
-        d_head = head_hypers["d_head"]
-        d_head_homo = head_hypers.get("d_head_homo") or d_head
-        d_head_lumo = head_hypers.get("d_head_lumo") or d_head
-        self.homo_head = _HomoLumoHead(self.d_node, self.d_pet, d_head_homo)
-        self.lumo_head = _HomoLumoHead(self.d_node, self.d_pet, d_head_lumo)
+        # PET's ``__init__`` registered standard energy heads + last layers for
+        # the gap target. We don't use them (the gap is read out by extremal
+        # pooling on the internal HOMO/LUMO heads instead), so remove them to
+        # avoid wasted compute and parameters.
+        self._unregister_pet_target(self._gap_target_name)
 
-        # Pooling alphas: fixed scalar buffers (so they move with .to(device)
-        # and round-trip through state_dict, but are not optimised).
+        # Register two *internal* pseudo-targets, one for HOMO and one for LUMO.
+        # Each gets the standard PET readout: per-layer node + edge MLPs and a
+        # per-layer linear projection to a scalar. The user-visible
+        # ``self.outputs`` entries that ``_add_output`` would create are
+        # immediately removed -- the heads are an implementation detail of the
+        # gap readout, not user outputs.
+        unit = dataset_info.targets[self._gap_target_name].unit or ""
+        synth_target_info = get_energy_target_info(
+            "__synth__",
+            {"quantity": "energy", "unit": unit},
+            add_position_gradients=False,
+        )
+        self._add_output(_HOMO_INTERNAL_KEY, synth_target_info)
+        self._add_output(_LUMO_INTERNAL_KEY, synth_target_info)
+        for key in (_HOMO_INTERNAL_KEY, _LUMO_INTERNAL_KEY):
+            self.outputs.pop(key, None)
+            self.outputs.pop(get_last_layer_features_name(key), None)
+
+        # Pooling alphas: fixed scalar buffers (move with .to(device) and
+        # round-trip through state_dict, but are not optimised).
         pooling_hypers = hypers["pooling"]
         self.register_buffer(
             "alpha_homo", torch.tensor(float(pooling_hypers["alpha_homo"]))
@@ -196,23 +157,25 @@ class GapPET(PET):
             "alpha_lumo", torch.tensor(float(pooling_hypers["alpha_lumo"]))
         )
 
-        # Register the per-atom auxiliary outputs.
+        # Per-atom auxiliary outputs (interpretability).
+        target_info = dataset_info.targets[self._gap_target_name]
         self.outputs[HOMO_PER_ATOM_OUTPUT_NAME] = ModelOutput(
             quantity="energy",
-            unit=dataset_info.targets[self._gap_target_name].unit,
+            unit=target_info.unit,
             per_atom=True,
             description="Per-atom HOMO contribution h_i^HOMO",
         )
         self.outputs[LUMO_PER_ATOM_OUTPUT_NAME] = ModelOutput(
             quantity="energy",
-            unit=dataset_info.targets[self._gap_target_name].unit,
+            unit=target_info.unit,
             per_atom=True,
             description="Per-atom LUMO contribution h_i^LUMO",
         )
 
-        # Override the gap target's ModelOutput: the gap is intrinsically per
-        # system (intensive), not summed-over-atoms.
-        target_info = dataset_info.targets[self._gap_target_name]
+        # The gap target itself is intrinsically per-system (intensive), so we
+        # register it as ``per_atom=False`` -- the trainer must not divide by
+        # ``N_atoms`` when computing the loss. (Also requires the user's YAML
+        # to list it under ``per_structure_targets``.)
         self.outputs[self._gap_target_name] = ModelOutput(
             quantity=target_info.quantity or "energy",
             unit=target_info.unit,
@@ -234,13 +197,33 @@ class GapPET(PET):
         self.additive_models = torch.nn.ModuleList(
             [CompositionModel(hypers={}, dataset_info=empty_dataset_info)]
         )
-        # ZBL was already added if hypers["zbl"]; for the gap target it is also
-        # not meaningful, so remove it. (Default is False, so this is usually
-        # a no-op.)
-        # (No-op: only the composition model remains in additive_models.)
 
-        # Pre-build sample labels prototypes. The per-system labels are built on
-        # the fly in forward() since the number of systems varies.
+    def _unregister_pet_target(self, target_name: str) -> None:
+        """Remove every trace of a target previously added via ``_add_output``.
+
+        Used in ``__init__`` to drop the gap target's PET-style energy heads
+        (which we replace with the internal HOMO/LUMO heads + pooling).
+
+        ``torch.nn.ModuleDict.pop`` does not accept a default argument, so we
+        guard each ``del`` with an ``in`` check.
+        """
+        for module_dict in (
+            self.node_heads,
+            self.edge_heads,
+            self.node_last_layers,
+            self.edge_last_layers,
+        ):
+            if target_name in module_dict:
+                del module_dict[target_name]
+        self.output_shapes.pop(target_name, None)
+        self.key_labels.pop(target_name, None)
+        self.property_labels.pop(target_name, None)
+        self.component_labels.pop(target_name, None)
+        self.last_layer_parameter_names.pop(target_name, None)
+        if target_name in self.target_names:
+            self.target_names.remove(target_name)
+        self.outputs.pop(target_name, None)
+        self.outputs.pop(get_last_layer_features_name(target_name), None)
 
     # --- forward ----------------------------------------------------------
 
@@ -251,7 +234,6 @@ class GapPET(PET):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         device = systems[0].device
-        dtype = systems[0].positions.dtype
         nl_options = self.requested_neighbor_lists()[0]
 
         if self.single_label.values.device != device:
@@ -303,12 +285,41 @@ class GapPET(PET):
                     node_features_list[i] + long_range_features
                 ) * 0.5**0.5
 
-        # Stage 2: HOMO/LUMO heads -> per-atom scalars.
-        h_homo = self.homo_head(node_features_list, edge_features_list, cutoff_factors)
-        h_lumo = self.lumo_head(node_features_list, edge_features_list, cutoff_factors)
+        # Stage 2: PET-standard last-layer features per readout layer, for
+        # both internal heads. ``_calculate_last_layer_features`` iterates
+        # ``self.node_heads`` and ``self.edge_heads`` -- both internal targets
+        # are registered there, so this gives us
+        #   node_ll_dict[KEY] = [Tensor(N, d_head)] * L
+        #   edge_ll_dict[KEY] = [Tensor(N, M, d_head)] * L
+        node_ll_dict, edge_ll_dict = self._calculate_last_layer_features(
+            node_features_list, edge_features_list
+        )
+
+        # Stage 3: PET-standard atomic predictions per readout layer per block.
+        # We pass our internal targets in ``internal_outputs`` so
+        # ``_calculate_atomic_predictions`` actually computes them. Each
+        # internal target has a single block (synthesised with a single scalar
+        # property), so the inner block list has length 1.
+        internal_outputs = {
+            _HOMO_INTERNAL_KEY: ModelOutput(per_atom=True),
+            _LUMO_INTERNAL_KEY: ModelOutput(per_atom=True),
+        }
+        node_apr_dict, edge_apr_dict = self._calculate_atomic_predictions(
+            node_ll_dict,
+            edge_ll_dict,
+            padding_mask,
+            cutoff_factors,
+            internal_outputs,
+        )
+
+        # Sum across GNN layers (and across the single block) to get per-atom
+        # scalars -- this is exactly what PET's ``_get_output_atomic_predictions``
+        # does for an energy-style scalar target.
+        h_homo = self._sum_per_atom_scalar(node_apr_dict, edge_apr_dict, _HOMO_INTERNAL_KEY)
+        h_lumo = self._sum_per_atom_scalar(node_apr_dict, edge_apr_dict, _LUMO_INTERNAL_KEY)
         # h_homo, h_lumo: (N,)
 
-        # Stage 3: extremal pooling -> per-system scalars.
+        # Stage 4: extremal pooling -> per-system scalars.
         num_systems = len(systems)
         e_homo = _scatter_logsumexp(h_homo, self.alpha_homo, system_indices, num_systems)
         e_lumo = _scatter_logsumexp(h_lumo, self.alpha_lumo, system_indices, num_systems)
@@ -316,7 +327,6 @@ class GapPET(PET):
 
         return_dict: Dict[str, TensorMap] = {}
 
-        # Gap output (per-system).
         if self._gap_target_name in outputs:
             gap_block = TensorBlock(
                 values=e_gap.reshape(-1, 1),
@@ -336,7 +346,6 @@ class GapPET(PET):
                 keys=self.single_label, blocks=[gap_block]
             )
 
-        # Per-atom auxiliary outputs.
         for aux_name, aux_values in (
             (HOMO_PER_ATOM_OUTPUT_NAME, h_homo),
             (LUMO_PER_ATOM_OUTPUT_NAME, h_lumo),
@@ -355,16 +364,13 @@ class GapPET(PET):
             )
             tmap = TensorMap(keys=self.single_label, blocks=[block])
             if not outputs[aux_name].per_atom:
-                # Sum over atoms to get a per-system value (rarely useful, but
-                # the framework allows it).
                 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
                 tmap = sum_over_atoms(tmap)
             return_dict[aux_name] = tmap
 
-        # Post-processing (eval only): reapply scaler. Composition is empty so
-        # has no effect, but iterating over it stays consistent with the PET
-        # convention.
+        # Post-processing (eval only): reapply scaler. Composition is empty, so
+        # the additive loop is a no-op for the gap target.
         if not self.training:
             return_dict = self.scaler(
                 systems, return_dict, selected_atoms=selected_atoms
@@ -380,22 +386,38 @@ class GapPET(PET):
                     systems, outputs_for_additive_model, selected_atoms
                 )
                 for name in additive_contributions:
-                    # Sparse add; gap_pet's composition is empty so this never
-                    # triggers in practice. Kept for parity with PET.
                     return_dict[name] = additive_contributions[name].to(
                         device=return_dict[name].device,
                         dtype=return_dict[name].dtype,
                     )
-        # (Note: dtype/device unification is handled by the scaler.)
-        _ = dtype  # silence linter
 
         return return_dict
+
+    @staticmethod
+    def _sum_per_atom_scalar(
+        node_apr_dict: Dict[str, List[List[torch.Tensor]]],
+        edge_apr_dict: Dict[str, List[List[torch.Tensor]]],
+        target_name: str,
+    ) -> torch.Tensor:
+        """Sum the per-layer, per-block atomic predictions for a scalar target
+        and return a flat ``(N,)`` per-atom tensor.
+
+        For our internal HOMO/LUMO targets each ``inner`` block list has length
+        one (single scalar block, single property), so we just unwrap and sum.
+        """
+        node_layers = node_apr_dict[target_name]  # List[List[Tensor]]: L x B
+        edge_layers = edge_apr_dict[target_name]
+        per_atom: Optional[torch.Tensor] = None
+        for node_blocks, edge_blocks in zip(node_layers, edge_layers, strict=True):
+            # Single-block scalar: sum the (only) block from node and edge.
+            layer_contrib = node_blocks[0] + edge_blocks[0]  # (N, 1)
+            per_atom = layer_contrib if per_atom is None else per_atom + layer_contrib
+        assert per_atom is not None, "GapPET requires at least one GNN layer."
+        return per_atom.squeeze(-1)
 
     # --- restart ----------------------------------------------------------
 
     def restart(self, dataset_info: DatasetInfo) -> "GapPET":
-        # GapPET only supports a single target by design; restarting with a
-        # different target list is not allowed. Otherwise defer to PET.
         if set(dataset_info.targets) != {self._gap_target_name}:
             raise ValueError(
                 "GapPET supports exactly one target (the gap), so restart() "
@@ -420,7 +442,6 @@ class GapPET(PET):
     # --- export -----------------------------------------------------------
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
-        # Same as PET.export, but using GapPET's class attributes.
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {dtype} for GapPET")

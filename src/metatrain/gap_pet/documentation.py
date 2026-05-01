@@ -11,7 +11,8 @@ typically composed externally with a separate ground-state MLIP to obtain the
 excited-state potential energy surface (``E_S1 = E_S0 + E_gap``).
 
 The architecture is identical to :ref:`PET <arch-pet>` except for the readout:
-two structurally identical heads (HOMO and LUMO) produce per-atom scalar fields
+two structurally identical heads (HOMO and LUMO) -- using PET's standard
+per-target node + edge readout machinery -- produce per-atom scalar fields
 ``h_i^HOMO`` and ``h_i^LUMO``, which are pooled into per-system ``E_HOMO`` and
 ``E_LUMO`` via an extremal log-sum-exp:
 
@@ -29,15 +30,23 @@ with ``alpha_homo > 0`` (a smooth maximum, default ``+20``) and
 extreme* atomic contributions, the gap remains size-intensive: replicating the
 simulation cell does not change the prediction.
 
-Each head consists of two MLPs (one acting on per-atom node features, one on
-per-edge features), shared across all GNN layers and summed across them:
+Per-atom contributions follow the standard PET energy readout: a per-readout-
+layer node MLP and edge MLP (each ``Linear -> SiLU -> Linear -> SiLU`` of width
+``d_head``), followed by a per-readout-layer linear projection to a scalar, and
+summed across all ``L`` GNN layers (with edge contributions weighted by the
+PET cutoff factor):
 
 .. math::
 
     h_i = \\sum_{l=1}^{L} \\Bigl[
-        \\text{MLP}_\\text{node}(g_i^l) +
-        \\sum_{j \\in \\mathcal{N}(i)} \\text{MLP}_\\text{edge}(f_{ij}^l)
-    \\Bigr].
+        W^l_\\text{node} \\, \\phi(g_i^l) +
+        \\sum_{j \\in \\mathcal{N}(i)} c_{ij} \\, W^l_\\text{edge} \\, \\phi(f_{ij}^l)
+    \\Bigr],
+
+where :math:`\\phi` is the two-layer MLP and :math:`W^l_\\bullet` is the
+per-layer linear last layer. This is identical to the readout used for an
+energy target in :ref:`PET <arch-pet>`; the only difference is the pooling
+step. Heads use PET's ``model.d_head`` for the hidden width.
 
 Forces are obtained by autograd through ``E_gap`` with respect to atomic
 positions; per-atom HOMO/LUMO fields ``h_i^HOMO``, ``h_i^LUMO`` are exposed as
@@ -56,36 +65,15 @@ In addition to the gap target defined in the dataset, GapPET also outputs:
 
 - ``mtt::aux::homo_per_atom``: the per-atom HOMO field ``h_i^HOMO``.
 - ``mtt::aux::lumo_per_atom``: the per-atom LUMO field ``h_i^LUMO``.
-- ``features``: the internal PET features (inherited from PET).
-- :ref:`mtt-aux-target-last-layer-features`: the features for a given target
-  (inherited from PET).
 
 {{SECTION_DEFAULT_HYPERS}}
 """
-
-from typing import Literal, Optional
 
 from typing_extensions import TypedDict
 
 from metatrain.pet.documentation import ModelHypers as PETModelHypers
 from metatrain.pet.documentation import TrainerHypers as PETTrainerHypers
 from metatrain.utils.hypers import init_with_defaults
-
-
-class HeadHypers(TypedDict):
-    """Hyperparameters for the HOMO/LUMO heads."""
-
-    d_head: int = 128
-    """Hidden width of the MLPs in each head. Both the node MLP and the edge MLP
-    have one hidden layer of this width before projecting to a scalar."""
-
-    d_head_homo: Optional[int] = None
-    """Optional override for the HOMO head's ``d_head``. If ``None``, falls back
-    to ``d_head``."""
-
-    d_head_lumo: Optional[int] = None
-    """Optional override for the LUMO head's ``d_head``. If ``None``, falls back
-    to ``d_head``."""
 
 
 class PoolingHypers(TypedDict):
@@ -105,14 +93,10 @@ class PoolingHypers(TypedDict):
 class ModelHypers(PETModelHypers):
     """Hyperparameters for the GapPET model.
 
-    Inherits all the PET backbone hyperparameters and adds two GapPET-specific
-    sections, ``head`` and ``pooling``. The PET hyperparameter
-    ``featurizer_type`` is forced to ``"residual"`` internally (all GNN layers
-    are read out), and any user-supplied value is overridden with a warning.
-    """
-
-    head: HeadHypers = init_with_defaults(HeadHypers)
-    """Hyperparameters for the HOMO and LUMO heads."""
+    Inherits all the PET backbone hyperparameters and adds the GapPET-specific
+    ``pooling`` section. The HOMO and LUMO heads share PET's ``d_head`` for the
+    readout MLP width. The PET hyperparameter ``featurizer_type`` is forced to
+    ``"residual"`` internally (all GNN layers are read out)."""
 
     pooling: PoolingHypers = init_with_defaults(PoolingHypers)
     """Hyperparameters for the extremal pooling."""

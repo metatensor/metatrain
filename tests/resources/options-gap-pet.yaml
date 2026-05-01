@@ -8,12 +8,7 @@ architecture:
     num_attention_layers: 2
     d_pet: 128
     d_node: 256
-    d_head: 128
-    head:
-      d_head: 128
-      # Per-head overrides (uncomment to use):
-      # d_head_homo: 64
-      # d_head_lumo: 64
+    d_head: 128            # also the readout MLP width inside HOMO/LUMO heads
     pooling:
       alpha_homo: 20.0
       alpha_lumo: -20.0

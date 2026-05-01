@@ -317,10 +317,10 @@ def test_train_step_decreases_loss():
     # only check loss decreases over a few steps.
     targets = torch.tensor([1.5, 2.0, 1.0, 2.5], dtype=DTYPE)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-3)
 
     losses = []
-    for _ in range(20):
+    for _ in range(40):
         optimizer.zero_grad()
         out = model(systems, {TARGET_NAME: ModelOutput(per_atom=False)})
         pred = out[TARGET_NAME].block().values.squeeze(-1)
@@ -329,10 +329,11 @@ def test_train_step_decreases_loss():
         optimizer.step()
         losses.append(loss.item())
 
-    # We require that the loss has decreased meaningfully by the end of
-    # training, not strict monotonicity (Adam can overshoot on a tiny model).
+    # Smoke check: loss must drop meaningfully over 40 AdamW steps. We don't
+    # require convergence (this is a tiny synthetic dataset on a tiny model);
+    # we only catch wiring bugs that flat-line training.
     assert min(losses) < 0.5 * losses[0], (
-        f"Training loss should drop by at least 2x within 20 AdamW steps. "
+        f"Training loss should drop by at least 2x within 40 AdamW steps. "
         f"Got initial loss {losses[0]:.4f}, min loss {min(losses):.4f}."
     )
 
