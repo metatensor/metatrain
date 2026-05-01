@@ -1,0 +1,51 @@
+seed: 42
+
+architecture:
+  name: gap_pet
+  model:
+    cutoff: 4.5
+    num_gnn_layers: 2
+    num_attention_layers: 2
+    d_pet: 128
+    d_node: 256
+    d_head: 128
+    head:
+      d_head: 128
+      # Per-head overrides (uncomment to use):
+      # d_head_homo: 64
+      # d_head_lumo: 64
+    pooling:
+      alpha_homo: 20.0
+      alpha_lumo: -20.0
+  training:
+    batch_size: 4
+    num_epochs: 1
+    learning_rate: 1.0e-4
+    # The gap is intensive: never let metatrain fit a per-atom-type baseline
+    # for it. GapPET enforces this by replacing the composition model with an
+    # empty one, so this hyperparameter has no effect for gap_pet, but is
+    # left here for clarity.
+    atomic_baseline:
+      "mtt::gap_energy": 0.0
+    # The gap target is per-structure; report metrics on the bare quantity
+    # rather than dividing by atom count.
+    per_structure_targets:
+      - "mtt::gap_energy"
+
+training_set:
+  systems:
+    read_from: gap_dataset.xyz  # replace with your dataset
+    length_unit: angstrom
+  targets:
+    "mtt::gap_energy":
+      key: gap_energy           # ASE info key holding the per-system gap (eV)
+      quantity: energy
+      unit: eV
+      per_atom: false
+      forces:
+        key: gap_forces         # ASE arrays key holding -d(E_gap)/d(R) (eV/A)
+      stress: false
+      virial: false
+
+test_set: 0.1
+validation_set: 0.1
