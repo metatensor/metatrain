@@ -194,6 +194,32 @@ def _atomic_basis_dataset_info() -> DatasetInfo:
     )
 
 
+def _atomic_basis_l0_only_dataset_info() -> DatasetInfo:
+    target_info = get_generic_target_info(
+        "density",
+        {
+            "quantity": "density",
+            "unit": "",
+            "type": {
+                "spherical": {
+                    "irreps": {
+                        1: [{"num": 2, "o3_lambda": 0, "o3_sigma": 1}],
+                        6: [{"num": 3, "o3_lambda": 0, "o3_sigma": 1}],
+                        8: [{"num": 1, "o3_lambda": 0, "o3_sigma": 1}],
+                    }
+                }
+            },
+            "num_subtargets": 1,
+            "per_atom": True,
+        },
+    )
+    return DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 8],
+        targets={"density": target_info},
+    )
+
+
 def _build_system(model, dtype: torch.dtype = torch.float32) -> System:
     system = System(
         types=torch.tensor([1, 6, 8, 1]),
@@ -418,6 +444,25 @@ def test_atomic_basis_loss_uses_pet_densified_targets() -> None:
     value = loss(predictions, dense_targets, dense_extra)
 
     assert torch.isfinite(value)
+
+
+def test_coefficient_l2_exclusion_skips_spherical_l0_only_blocks() -> None:
+    model = EPET(_base_model_hypers(), _atomic_basis_l0_only_dataset_info()).train()
+    system = _build_system(model)
+
+    model([system], {"density": ModelOutput(per_atom=True)})
+
+    assert model.get_regularization_loss() > 0
+    assert model.get_regularization_loss(exclude_spherical_l0=True).item() == 0.0
+
+
+def test_coefficient_l2_exclusion_keeps_nontrivial_spherical_blocks() -> None:
+    model = EPET(_base_model_hypers(), _atomic_basis_dataset_info()).train()
+    system = _build_system(model)
+
+    model([system], {"density": ModelOutput(per_atom=True)})
+
+    assert model.get_regularization_loss(exclude_spherical_l0=True) > 0
 
 
 def test_atomic_basis_rejects_irrep_head_groups() -> None:

@@ -158,6 +158,10 @@ class TrainerHypers(PETTrainerHypers):
     coefficient_l2_weight: float = 0.0
     """Weight for the invariant coefficient L2 regularization."""
 
+    coefficient_l2_exclude_spherical_l0: bool = False
+    """Whether to exclude spherical ``o3_lambda=0`` coefficient blocks from the
+    coefficient L2 regularization."""
+
     basis_gram_weight: float = 0.0
     """Weight for the tensor-basis Gram penalty."""
 
@@ -172,3 +176,7 @@ class TrainerHypers(PETTrainerHypers):
     readout_learning_rate: Optional[float] = 1.0e-3
     """Learning rate for PET heads and final readout layers. Set to ``null`` to use
     ``learning_rate``."""
+
+    spherical_l0_readout_learning_rate: Optional[float] = None
+    """Learning rate for final spherical ``o3_lambda=0`` readout layers. Set to
+    ``null`` to use ``readout_learning_rate``."""

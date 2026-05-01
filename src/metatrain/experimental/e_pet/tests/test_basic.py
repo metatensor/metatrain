@@ -124,6 +124,8 @@ def test_e_pet_training_defaults_use_split_learning_rates() -> None:
     assert training["pet_trunk_learning_rate"] == 2.0e-4
     assert training["tensor_basis_learning_rate"] == 1.0e-3
     assert training["readout_learning_rate"] == 1.0e-3
+    assert training["spherical_l0_readout_learning_rate"] is None
+    assert training["coefficient_l2_exclude_spherical_l0"] is False
 
 
 def test_e_pet_tensor_basis_rejects_max_angular() -> None:
