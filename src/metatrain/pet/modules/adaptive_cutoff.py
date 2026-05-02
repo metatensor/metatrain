@@ -256,10 +256,10 @@ def get_adaptive_cutoffs(
             below = f <= 0
             r_lo = torch.where(below, r, r_lo)
             r_hi = torch.where(below, r_hi, r)
-            # Newton trial step; clamp_min(1e-12) avoids 0/0 where dn
+            # Newton trial step; clamp_min(1e-6) avoids 0/0 where dn
             # is essentially zero (e.g., r below all active bumps with
             # x ~ 0 so baseline derivative is tiny).
-            r_newton = r - f / dn.clamp_min(1e-12)
+            r_newton = r - f / dn.clamp_min(1e-6)
             # use >= / <= so that, on a converged atom (f == 0 to float
             # precision => r_newton == updated r_lo or r_hi), we stay put
             # instead of bisecting away from the root.
@@ -298,7 +298,20 @@ def get_adaptive_cutoffs(
             )
             - num_neighbors_adaptive
         )
-        adapted_atomic_cutoffs = r - n_residual / dn_root.clamp_min(1e-12)
+        # Two safeguards. The inner ``clamp_min(1e-3)`` bounds the IFT
+        # correction in pathological geometries where ``dn_root`` is tiny
+        # (atom in a plateau between bumps with weak baseline slope) and
+        # ``n_residual`` is not yet at float noise (Newton hasn't fully
+        # converged in 10 iters); without this bound the ratio can hit
+        # 1e6+ and produce NaN gradients downstream that desync DDP ranks.
+        # The outer ``clamp(max_cutoff/16, max_cutoff)`` enforces a
+        # physical range — a small non-zero floor (rather than 0) keeps
+        # the cutoff from collapsing to zero in degenerate configurations.
+        # In the well-converged regime ``n_residual`` is at float noise
+        # so neither clamp is active, and IFT exactness is preserved.
+        adapted_atomic_cutoffs = (r - n_residual / dn_root.clamp_min(1e-6)).clamp(
+            max_cutoff / 16.0, max_cutoff
+        )
     return adapted_atomic_cutoffs
 
 
