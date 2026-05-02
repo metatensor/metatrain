@@ -11,7 +11,7 @@ from .nef import (
     get_corresponding_edges,
     get_nef_indices,
 )
-from .utilities import cutoff_func_bump, cutoff_func_cosine
+from .utilities import cutoff_func_bump, cutoff_func_cosine, cutoff_func_exponential
 
 
 def concatenate_structures(
@@ -243,13 +243,16 @@ def systems_to_batch(
     if cutoff_function.lower() == "bump":
         # use bump switching function for adaptive cutoff
         cutoff_factors = cutoff_func_bump(edge_distances, pair_cutoffs, cutoff_width)
+    elif cutoff_function.lower() == "adabump":
+        # use bump switching function for adaptive cutoff
+        cutoff_factors = cutoff_func_bump(edge_distances, pair_cutoffs, pair_cutoffs)
     elif cutoff_function.lower() == "cosine":
         # backward-compatible cosine swithcing for fixed cutoff
         cutoff_factors = cutoff_func_cosine(edge_distances, pair_cutoffs, cutoff_width)
     else:
         raise ValueError(
             f"Unknown cutoff function type: {cutoff_function}. "
-            f"Supported types are 'Cosine' and 'Bump'."
+            f"Supported types are 'Cosine', 'Bump' and 'AdaBump'."
         )
 
     # When the host neighbor list is tighter than the model's training cutoff,
@@ -267,6 +270,8 @@ def systems_to_batch(
         nl_cutoff_t = edge_distances.new_full((), options.cutoff)
         if cutoff_function.lower() == "bump":
             nl_factors = cutoff_func_bump(edge_distances, nl_cutoff_t, cutoff_width)
+        elif cutoff_function.lower() == "adabump":
+            nl_factors = cutoff_func_bump(edge_distances, nl_cutoff_t, nl_cutoff_t)
         else:
             nl_factors = cutoff_func_cosine(edge_distances, nl_cutoff_t, cutoff_width)
         cutoff_factors = cutoff_factors * nl_factors

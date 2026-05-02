@@ -15,17 +15,8 @@ def cutoff_func_bump(
     """
 
     scaled_values = (values - (cutoff - width)) / width
-
-    mask_smaller = scaled_values <= 0.0
-    mask_active = (scaled_values > 0.0) & (scaled_values < 1.0)
-
-    f = torch.zeros_like(scaled_values)
-    f[mask_active] = 0.5 * (
-        1 + torch.tanh(1 / torch.tan(torch.pi * scaled_values[mask_active]))
-    )
-    f[mask_smaller] = 1.0
-
-    return f
+    clamped = scaled_values.clamp(eps, 1.0 - eps)
+    return 0.5 * (1 + torch.tanh(1 / torch.tan(torch.pi * clamped)))
 
 
 def cutoff_func_cosine(
@@ -41,16 +32,8 @@ def cutoff_func_cosine(
     """
 
     scaled_values = (values - (cutoff - width)) / width
-
-    mask_smaller = scaled_values <= 0.0
-    mask_active = (scaled_values > 0.0) & (scaled_values < 1.0)
-
-    f = torch.zeros_like(scaled_values)
-
-    f[mask_active] = 0.5 + 0.5 * torch.cos(torch.pi * scaled_values[mask_active])
-    f[mask_smaller] = 1.0
-    return f
-
+    clamped = scaled_values.clamp(eps, 1.0)
+    return 0.5 * (1 + torch.cos(torch.pi * clamped))
 
 class DummyModule(torch.nn.Module):
     """Dummy torch module to make torchscript happy.
