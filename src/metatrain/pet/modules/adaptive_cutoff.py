@@ -92,10 +92,20 @@ def _n_total_and_dn_dr(
     active = (scaled > 0.0) & (scaled < 1.0)
     smaller = scaled <= 0.0
 
-    # Replace inactive entries with a safe interior value so the trig
-    # formula below never divides by zero or feeds infinities into tanh.
-    # The where-masking afterwards discards these placeholder values.
-    safe = torch.where(active, scaled, torch.full_like(scaled, 0.5))
+    # Clamp scaled into the open interval (0, 1) before evaluating the trig
+    # formula. This mirrors the eps-clamp inside ``cutoff_func_bump`` and is
+    # required for numerical safety: an *active* edge whose scaled value
+    # happens to fall extremely close to 0 or 1 can otherwise produce
+    # ``sin_s ** 2 → 0`` and ``sech_sq → 0`` simultaneously, which yields
+    # ``0 / 0 = NaN`` in the df_dr expression and propagates as NaN
+    # gradients downstream. With the clamp, the formula evaluates at
+    # ``eps`` / ``1 - eps`` for any extreme scaled value, where ``sech_sq``
+    # underflows to zero while ``sin_s ** 2`` stays well above float32's
+    # subnormal floor, so df_dr is exactly 0 (matching production's
+    # gradient-through-clamp behaviour). The 1e-6 default matches
+    # ``cutoff_func_bump``'s default eps so the value computation here
+    # numerically agrees with the forward pass.
+    safe = scaled.clamp(1e-6, 1.0 - 1e-6)
     s = math.pi * safe
     sin_s = torch.sin(s)
     cot_s = torch.cos(s) / sin_s
