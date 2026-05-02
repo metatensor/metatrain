@@ -13,6 +13,11 @@ DEFAULT_MIN_PROBE_CUTOFF = 0.5
 # numerically unstable. in practice this will be called with the
 # same cutoff as the main cutoff function
 DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH = 1.0
+# number of Illinois regula-falsi iterations used to bracket the root.
+# Illinois converges superlinearly (asymptotic order ~1.618) so 15 steps
+# tighten the bracket far below float32 precision while still leaving
+# (n_hi - n_lo) numerically meaningful for the final secant step.
+N_ROOT_ITERS = 15
 
 
 def get_adaptive_cutoffs(
@@ -28,7 +33,146 @@ def get_adaptive_cutoffs(
     nl_cutoff: Optional[float] = None,
 ) -> torch.Tensor:
     """
-    Computes the adaptive cutoff values for each center atom.
+    Computes the adaptive cutoff values for each center atom by solving
+    ``n_total(r) = num_neighbors_adaptive`` per atom via the Illinois
+    variant of regula falsi.
+
+    The smoothed neighbor count
+    ``n(r) = sum_j cutoff_func(d_j, r, cutoff_width) * nl_taper_j``
+    is monotonic non-decreasing in ``r``. We add a cubic baseline
+    ``num_neighbors_adaptive * x(r)**3`` with
+    ``x(r) = (r - min_cutoff) / (max_cutoff - min_cutoff)`` so that
+    ``n_total(min_cutoff) = 0`` and ``n_total(max_cutoff) >= num_neighbors_adaptive``,
+    guaranteeing a unique root in the interval. Illinois regula falsi
+    finds the root inside ``torch.no_grad`` (faster than bisection on
+    smooth monotonic functions, and avoids the stagnation pathology of
+    plain regula falsi by halving the residual at any endpoint that has
+    been "stuck" for two consecutive iterations); a final grad-enabled
+    secant step yields autograd-correct gradients (equivalent to the
+    implicit function theorem in the limit r_hi - r_lo -> 0).
+
+    :param centers: Indices of the center atoms.
+    :param edge_distances: Distances between centers and their neighbors.
+    :param num_neighbors_adaptive: Target number of neighbors per atom.
+    :param num_nodes: Total number of center atoms.
+    :param max_cutoff: Maximum cutoff distance to consider.
+    :param min_cutoff: Minimum cutoff distance to consider.
+    :param cutoff_width: Width of the smooth cutoff taper region.
+    :param probe_spacing: Accepted for API compatibility with the legacy
+        grid-based implementation; ignored by the bisection algorithm.
+    :param weight_width: Accepted for API compatibility with the legacy
+        grid-based implementation; ignored by the bisection algorithm.
+    :param nl_cutoff: Optional smooth-taper distance applied to each edge's
+        contribution to the neighbor count. Use this when the host
+        neighbor list is tighter than ``max_cutoff`` so that an edge whose
+        distance crosses ``nl_cutoff`` in MD has its contribution go to
+        zero continuously.
+    :return: Adapted cutoff distances for each center atom.
+    """
+    del probe_spacing, weight_width  # accepted for API compat, unused
+
+    # per-edge taper at host neighbor-list cutoff, independent of r
+    if nl_cutoff is not None:
+        nl_cutoff_t = edge_distances.new_full((), nl_cutoff)
+        edge_taper = cutoff_func(edge_distances, nl_cutoff_t, cutoff_width)
+    else:
+        edge_taper = None
+
+    inv_range = 1.0 / (max_cutoff - min_cutoff)
+
+    def n_total(r_per_atom: torch.Tensor) -> torch.Tensor:
+        per_edge = cutoff_func(edge_distances, r_per_atom[centers], cutoff_width)
+        if edge_taper is not None:
+            per_edge = per_edge * edge_taper
+        n = torch.zeros(
+            num_nodes, dtype=edge_distances.dtype, device=edge_distances.device
+        )
+        n.index_add_(0, centers, per_edge)
+        x = ((r_per_atom - min_cutoff) * inv_range).clamp(0.0, 1.0)
+        return n + num_neighbors_adaptive * x.pow(3)
+
+    with torch.profiler.record_function("PET::adaptive_cutoff_illinois"):
+        with torch.no_grad():
+            r_lo = torch.full(
+                (num_nodes,),
+                min_cutoff,
+                dtype=edge_distances.dtype,
+                device=edge_distances.device,
+            )
+            r_hi = torch.full(
+                (num_nodes,),
+                max_cutoff,
+                dtype=edge_distances.dtype,
+                device=edge_distances.device,
+            )
+            # residuals f(r) = n_total(r) - num_neighbors_adaptive.
+            # by construction f_lo <= 0 and f_hi >= 0 throughout the loop.
+            f_lo = n_total(r_lo) - num_neighbors_adaptive
+            f_hi = n_total(r_hi) - num_neighbors_adaptive
+            last_below = torch.zeros_like(r_lo, dtype=torch.bool)
+            last_above = torch.zeros_like(r_lo, dtype=torch.bool)
+            for _ in range(N_ROOT_ITERS):
+                # regula falsi step using current (possibly Illinois-halved) residuals
+                denom = (f_hi - f_lo).clamp_min(
+                    torch.finfo(edge_distances.dtype).tiny
+                )
+                r_new = r_lo - f_lo * (r_hi - r_lo) / denom
+                f_new = n_total(r_new) - num_neighbors_adaptive
+                below = f_new < 0  # if true, r_lo gets replaced; else r_hi
+
+                # Illinois: if the same endpoint is replaced two iters in a row,
+                # halve the residual at the OPPOSITE (stuck) endpoint to break
+                # stagnation. The halving applies BEFORE the bracket update,
+                # so it only affects the stuck side; the side that just moves
+                # gets its residual overwritten by f_new below.
+                same_below = below & last_below
+                same_above = (~below) & last_above
+                f_hi = torch.where(same_below, 0.5 * f_hi, f_hi)
+                f_lo = torch.where(same_above, 0.5 * f_lo, f_lo)
+
+                # update bracket
+                r_lo = torch.where(below, r_new, r_lo)
+                f_lo = torch.where(below, f_new, f_lo)
+                r_hi = torch.where(below, r_hi, r_new)
+                f_hi = torch.where(below, f_hi, f_new)
+
+                last_below = below
+                last_above = ~below
+            #for _ in range(N_BISECT_ITERS):
+            #    r_mid = 0.5 * (r_lo + r_hi)
+            #    below = n_total(r_mid) < num_neighbors_adaptive
+            #    r_lo = torch.where(below, r_mid, r_lo)
+            #    r_hi = torch.where(below, r_hi, r_mid)
+
+    with torch.profiler.record_function("PET::adaptive_cutoff_secant"):
+        n_lo = n_total(r_lo)
+        n_hi = n_total(r_hi)
+        adapted_atomic_cutoffs = r_lo + (num_neighbors_adaptive - n_lo) / (
+            n_hi - n_lo
+        ) * (r_hi - r_lo)
+    return adapted_atomic_cutoffs
+
+
+def get_adaptive_cutoffs_old(
+    centers: torch.Tensor,
+    edge_distances: torch.Tensor,
+    num_neighbors_adaptive: float,
+    num_nodes: int,
+    max_cutoff: float,
+    min_cutoff: float = DEFAULT_MIN_PROBE_CUTOFF,
+    cutoff_width: float = DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH,
+    probe_spacing: Optional[float] = None,
+    weight_width: Optional[float] = None,
+    nl_cutoff: Optional[float] = None,
+) -> torch.Tensor:
+    """
+    Reference (legacy) adaptive-cutoff implementation, preserved for comparison.
+
+    Builds a discrete probe-cutoff grid, evaluates the smoothed neighbor count
+    on it, and returns a Gaussian-weighted average of the probes whose neighbor
+    counts are closest to ``num_neighbors_adaptive``. Superseded by
+    :func:`get_adaptive_cutoffs`, which solves the same selection as a root-find
+    by bisection.
 
     :param centers: Indices of the center atoms.
     :param edge_distances: Distances between centers and their neighbors.
