@@ -11,7 +11,7 @@ from .nef import (
     get_corresponding_edges,
     get_nef_indices,
 )
-from .utilities import cutoff_func_bump, cutoff_func_cosine, cutoff_func_exponential
+from .utilities import cutoff_func_bump, cutoff_func_cosine
 
 
 def concatenate_structures(

@@ -32,8 +32,9 @@ def cutoff_func_cosine(
     """
 
     scaled_values = (values - (cutoff - width)) / width
-    clamped = scaled_values.clamp(eps, 1.0)
+    clamped = scaled_values.clamp(0.0, 1.0)
     return 0.5 * (1 + torch.cos(torch.pi * clamped))
+
 
 class DummyModule(torch.nn.Module):
     """Dummy torch module to make torchscript happy.

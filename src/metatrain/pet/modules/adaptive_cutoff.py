@@ -23,8 +23,7 @@ def _n_total(
     edge_taper: Optional[torch.Tensor],
     num_nodes: int,
     cutoff_width: float,
-    min_cutoff: float,
-    inv_range: float,
+    inv_max_cutoff: float,
     num_neighbors_adaptive: float,
 ) -> torch.Tensor:
     """Smoothed neighbor count plus cubic baseline used by the adaptive-cutoff
@@ -38,19 +37,18 @@ def _n_total(
         host neighbor-list cutoff). ``None`` to disable.
     :param num_nodes: Total number of center atoms.
     :param cutoff_width: Width of the smooth cutoff taper region.
-    :param min_cutoff: Lower bound used by the cubic baseline.
-    :param inv_range: ``1 / (max_cutoff - min_cutoff)``, precomputed.
+    :param inv_max_cutoff: ``1 / max_cutoff``, precomputed for the baseline.
     :param num_neighbors_adaptive: Target neighbor count; sets the baseline
         amplitude.
     :return: Per-atom ``n_total(r) = sum_j cutoff_func(d_j, r, w) *
-        nl_taper_j + num_neighbors_adaptive * x(r)**3``.
+        nl_taper_j + num_neighbors_adaptive * (r / max_cutoff)**3``.
     """
     per_edge = cutoff_func(edge_distances, r_per_atom[centers], cutoff_width)
     if edge_taper is not None:
         per_edge = per_edge * edge_taper
     n = torch.zeros(num_nodes, dtype=edge_distances.dtype, device=edge_distances.device)
     n.index_add_(0, centers, per_edge)
-    x = (r_per_atom - min_cutoff) * inv_range
+    x = r_per_atom * inv_max_cutoff
     return n + num_neighbors_adaptive * x.pow(3)
 
 
@@ -61,8 +59,7 @@ def _n_total_and_dn_dr(
     edge_taper: Optional[torch.Tensor],
     num_nodes: int,
     cutoff_width: float,
-    min_cutoff: float,
-    inv_range: float,
+    inv_max_cutoff: float,
     num_neighbors_adaptive: float,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Compute n_total and its analytical r-derivative in a single pass.
@@ -85,8 +82,7 @@ def _n_total_and_dn_dr(
         host neighbor-list cutoff). ``None`` to disable.
     :param num_nodes: Total number of center atoms.
     :param cutoff_width: Width of the smooth cutoff taper region.
-    :param min_cutoff: Lower bound used by the cubic baseline.
-    :param inv_range: ``1 / (max_cutoff - min_cutoff)``, precomputed.
+    :param inv_max_cutoff: ``1 / max_cutoff``, precomputed for the baseline.
     :param num_neighbors_adaptive: Target neighbor count; sets the baseline
         amplitude.
     :return: Tuple ``(n_total, dn_total/dr)``, both of shape ``(num_nodes,)``.
@@ -130,9 +126,9 @@ def _n_total_and_dn_dr(
     dn.index_add_(0, centers, df_dr)
 
     # cubic baseline and its derivative
-    x = (r_per_atom - min_cutoff) * inv_range
+    x = r_per_atom * inv_max_cutoff
     n = n + num_neighbors_adaptive * x.pow(3)
-    dn = dn + 3.0 * num_neighbors_adaptive * x.pow(2) * inv_range
+    dn = dn + 3.0 * num_neighbors_adaptive * x.pow(2) * inv_max_cutoff
 
     return n, dn
 
@@ -143,7 +139,6 @@ def get_adaptive_cutoffs(
     num_neighbors_adaptive: float,
     num_nodes: int,
     max_cutoff: float,
-    min_cutoff: float = DEFAULT_MIN_PROBE_CUTOFF,
     cutoff_width: float = DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH,
     probe_spacing: Optional[float] = None,
     weight_width: Optional[float] = None,
@@ -154,11 +149,10 @@ def get_adaptive_cutoffs(
 
     Defines
     ``n_total(r) = sum_j cutoff_func(d_j, r, cutoff_width) * nl_taper_j
-                   + num_neighbors_adaptive * x(r)**3``
-    where ``x(r) = (r - min_cutoff) / (max_cutoff - min_cutoff)``. The cubic
-    baseline goes from 0 at ``min_cutoff`` to ``num_neighbors_adaptive`` at
-    ``max_cutoff``, so ``n_total`` is monotonic non-decreasing on the
-    interval and crosses ``num_neighbors_adaptive`` exactly once.
+                   + num_neighbors_adaptive * (r / max_cutoff)**3``.
+    The cubic baseline goes from 0 at ``r = 0`` to ``num_neighbors_adaptive``
+    at ``r = max_cutoff``, so ``n_total`` is monotonic non-decreasing on
+    ``[0, max_cutoff]`` and crosses ``num_neighbors_adaptive`` exactly once.
 
     Algorithm:
       * **Forward (root finding).** Newton-bisection hybrid: each iteration
@@ -184,7 +178,6 @@ def get_adaptive_cutoffs(
     :param num_neighbors_adaptive: Target number of neighbors per atom.
     :param num_nodes: Total number of center atoms.
     :param max_cutoff: Maximum cutoff distance to consider.
-    :param min_cutoff: Minimum cutoff distance to consider.
     :param cutoff_width: Width of the smooth cutoff taper region.
     :param probe_spacing: Accepted for API compatibility with the legacy
         grid-based implementation; ignored by the root finder.
@@ -215,7 +208,7 @@ def get_adaptive_cutoffs(
         edge_taper = cutoff_func(edge_distances, nl_cutoff_t, cutoff_width)
         edge_taper_d = edge_taper.detach()
 
-    inv_range = 1.0 / (max_cutoff - min_cutoff)
+    inv_max_cutoff = 1.0 / max_cutoff
 
     with torch.profiler.record_function("PET::adaptive_cutoff_newton"):
         # Newton-bisection hybrid: maintain a bracket [r_lo, r_hi] with
@@ -225,9 +218,11 @@ def get_adaptive_cutoffs(
         # Newton would overshoot wildly), fall back to the bracket
         # midpoint. The bracket guarantees progress even on pathological
         # configurations where pure Newton oscillates between boundaries.
-        r_lo = torch.full(
-            (num_nodes,),
-            min_cutoff,
+        # ``r_lo`` starts at 0 (where n_total = 0 by construction) and
+        # ``r_hi`` at ``max_cutoff`` (where the baseline alone reaches
+        # ``num_neighbors_adaptive``), so the root is always bracketed.
+        r_lo = torch.zeros(
+            num_nodes,
             dtype=edge_distances.dtype,
             device=edge_distances.device,
         )
@@ -237,7 +232,7 @@ def get_adaptive_cutoffs(
             dtype=edge_distances.dtype,
             device=edge_distances.device,
         )
-        r = 0.5 * (r_lo + r_hi)
+        r = 0.5 * r_hi
         # iteration count hardcoded for torchscript. Pure bisection
         # converges at rate 1/2 per iter; Newton is quadratic in the
         # well-conditioned case but degrades to linear (~rate 1/4)
@@ -253,8 +248,7 @@ def get_adaptive_cutoffs(
                 edge_taper_d,
                 num_nodes,
                 cutoff_width,
-                min_cutoff,
-                inv_range,
+                inv_max_cutoff,
                 num_neighbors_adaptive,
             )
             f = n - num_neighbors_adaptive
@@ -282,8 +276,7 @@ def get_adaptive_cutoffs(
             edge_taper_d,
             num_nodes,
             cutoff_width,
-            min_cutoff,
-            inv_range,
+            inv_max_cutoff,
             num_neighbors_adaptive,
         )
 
@@ -300,8 +293,7 @@ def get_adaptive_cutoffs(
                 edge_taper,
                 num_nodes,
                 cutoff_width,
-                min_cutoff,
-                inv_range,
+                inv_max_cutoff,
                 num_neighbors_adaptive,
             )
             - num_neighbors_adaptive
