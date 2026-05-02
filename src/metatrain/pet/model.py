@@ -107,6 +107,11 @@ class PET(ModelInterface[ModelHypers]):
             torch.empty(0, dtype=torch.long),
             persistent=False,
         )
+        self._ddp_params_and_buffers_to_ignore = {
+            "_last_atomic_cutoffs",
+            "_last_num_neighbors",
+            "_last_system_indices",
+        }
         num_atomic_species = len(self.atomic_types)
         self.gnn_layers = torch.nn.ModuleList(
             [
