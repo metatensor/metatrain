@@ -216,17 +216,23 @@ def systems_to_batch(
     # print("adaptive_cutoffs", *pair_cutoffs.tolist())
     # print("num_neighbors", *num_neighbors.tolist())
 
-    if cutoff_function.lower() == "bump":
-        # use bump switching function for adaptive cutoff
-        cutoff_factors = cutoff_func_bump(edge_distances, pair_cutoffs, cutoff_width)
-    elif cutoff_function.lower() == "cosine":
-        # backward-compatible cosine swithcing for fixed cutoff
-        cutoff_factors = cutoff_func_cosine(edge_distances, pair_cutoffs, cutoff_width)
-    else:
-        raise ValueError(
-            f"Unknown cutoff function type: {cutoff_function}. "
-            f"Supported types are 'Cosine' and 'Bump'."
-        )
+    # if cutoff_function.lower() == "bump":
+    #     # use bump switching function for adaptive cutoff
+    #     cutoff_factors = cutoff_func_bump(edge_distances, pair_cutoffs, cutoff_width)
+    # elif cutoff_function.lower() == "cosine":
+    #     # backward-compatible cosine swithcing for fixed cutoff
+    #     cutoff_factors = cutoff_func_cosine(edge_distances, pair_cutoffs, cutoff_width)
+    # else:
+    #     raise ValueError(
+    #         f"Unknown cutoff function type: {cutoff_function}. "
+    #         f"Supported types are 'Cosine' and 'Bump'."
+    #     )
+    x = edge_distances / (pair_cutoffs + 1e-5)
+    log_cutoff_factors = torch.where(
+        x < 1.0 - 1e-5,
+        -x/(1.0-x),
+        -10000.0,  # float16-friendly
+    )
 
     # Convert to NEF (Node-Edge-Feature) format:
     nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
@@ -243,7 +249,7 @@ def systems_to_batch(
     element_indices_neighbors = edge_array_to_nef(
         element_indices_neighbors, nef_indices
     )
-    cutoff_factors = edge_array_to_nef(cutoff_factors, nef_indices, nef_mask, 0.0)
+    log_cutoff_factors = edge_array_to_nef(log_cutoff_factors, nef_indices, nef_mask, -10000.0)
 
     corresponding_edges = get_corresponding_edges(
         torch.concatenate(
@@ -280,7 +286,7 @@ def systems_to_batch(
         edge_distances,
         nef_mask,
         reverse_neighbor_index,
-        cutoff_factors,
+        log_cutoff_factors,
         system_indices,
         sample_labels,
         species,

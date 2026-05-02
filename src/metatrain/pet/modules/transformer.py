@@ -98,8 +98,7 @@ class AttentionBlock(nn.Module):
         x = x.permute(2, 0, 3, 1, 4)
 
         queries, keys, values = x[0], x[1], x[2]
-        attn_weights = torch.clamp(cutoff_factors[:, None, :, :], self.epsilon)
-        attn_weights = torch.log(attn_weights)
+        attn_weights = cutoff_factors[:, None, :, :]
         if use_manual_attention:
             x = manual_attention(queries, keys, values, attn_weights, self.temperature)
         else:
@@ -460,11 +459,13 @@ class CartesianTransformer(torch.nn.Module):
             - The output edge embeddings, of shape (n_nodes, max_num_neighbors, d_model)
         """
         node_embeddings = input_node_embeddings
-        edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
+        edge_embeddings = [edge_vectors, edge_distances[:, :, None]]  #
+        # edge_embeddings = [edge_vectors/(edge_distances[:, :, None] + 0.1), torch.ones_like(edge_distances[:, :, None])]
 
         # on some systems, on isolated atoms, a torchscript bug concatenates the two
         # (empty) float tensors into an int tensors, causing an error later on
         edge_embeddings = torch.cat(edge_embeddings, dim=2).to(edge_vectors.dtype)
+        # edge_embeddings = edge_embeddings * torch.exp(-edge_distances[:, :, None]/2.0)
 
         edge_embeddings = self.edge_embedder(edge_embeddings)
 
@@ -491,13 +492,13 @@ class CartesianTransformer(torch.nn.Module):
             [padding_mask_with_central_token[:, None], padding_mask], dim=1
         )
 
-        cutoff_subfactors = torch.ones(
+        cutoff_subfactors = torch.zeros(
             padding_mask.shape[0],
             dtype=cutoff_factors.dtype,
             device=padding_mask.device,
         )
         cutoff_factors = torch.cat([cutoff_subfactors[:, None], cutoff_factors], dim=1)
-        cutoff_factors[~total_padding_mask] = 0.0
+        cutoff_factors[~total_padding_mask] = -10000.0
 
         cutoff_factors = cutoff_factors[:, None, :]
         cutoff_factors = cutoff_factors.repeat(1, cutoff_factors.shape[2], 1)

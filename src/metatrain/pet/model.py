@@ -1027,7 +1027,7 @@ class PET(ModelInterface[ModelHypers]):
                             ~expanded_padding_mask, 0.0, edge_atomic_predictions
                         )
                         edge_atomic_predictions_by_block.append(
-                            (edge_atomic_predictions * cutoff_factors[:, :, None]).sum(
+                            (edge_atomic_predictions * torch.exp(cutoff_factors[:, :, None])).sum(
                                 dim=1
                             )
                         )
