@@ -47,9 +47,14 @@ def get_adaptive_cutoffs(
     finds the root inside ``torch.no_grad`` (faster than bisection on
     smooth monotonic functions, and avoids the stagnation pathology of
     plain regula falsi by halving the residual at any endpoint that has
-    been "stuck" for two consecutive iterations); a final grad-enabled
-    secant step yields autograd-correct gradients (equivalent to the
-    implicit function theorem in the limit r_hi - r_lo -> 0).
+    been "stuck" for two consecutive iterations). Because the bracket
+    converges to machine precision, a final secant step would have a
+    numerically degenerate slope; gradients are instead attached via a
+    Newton step in which ``dn_total/dr`` is evaluated once at the root
+    with ``edge_distances`` detached. This yields exactly the implicit
+    function theorem result
+    ``dr_bar/d edge_distances = -(d n_total/d edge_distances)|_{r_bar}
+                                 / (d n_total/d r)|_{r_bar}``.
 
     :param centers: Indices of the center atoms.
     :param edge_distances: Distances between centers and their neighbors.
@@ -88,7 +93,12 @@ def get_adaptive_cutoffs(
             num_nodes, dtype=edge_distances.dtype, device=edge_distances.device
         )
         n.index_add_(0, centers, per_edge)
-        x = ((r_per_atom - min_cutoff) * inv_range).clamp(0.0, 1.0)
+        # r_per_atom is bounded in [min_cutoff, max_cutoff] by Illinois
+        # construction, so x naturally lies in [0, 1] without an explicit
+        # clamp; avoiding clamp keeps the baseline gradient nonzero at the
+        # boundaries (matters for atoms whose adaptive cutoff lands at
+        # max_cutoff, e.g. when no neighbor contributes within nl_cutoff).
+        x = (r_per_atom - min_cutoff) * inv_range
         return n + num_neighbors_adaptive * x.pow(3)
 
     with torch.profiler.record_function("PET::adaptive_cutoff_illinois"):
@@ -118,7 +128,10 @@ def get_adaptive_cutoffs(
                 )
                 r_new = r_lo - f_lo * (r_hi - r_lo) / denom
                 f_new = n_total(r_new) - num_neighbors_adaptive
-                below = f_new < 0  # if true, r_lo gets replaced; else r_hi
+                # use <= so that an exact-zero residual collapses the bracket
+                # (e.g. the degenerate case where n_total(max_cutoff) is
+                # exactly num_neighbors_adaptive because no neighbor contributes)
+                below = f_new <= 0
 
                 # Illinois: if the same endpoint is replaced two iters in a row,
                 # halve the residual at the OPPOSITE (stuck) endpoint to break
@@ -144,12 +157,46 @@ def get_adaptive_cutoffs(
             #    r_lo = torch.where(below, r_mid, r_lo)
             #    r_hi = torch.where(below, r_hi, r_mid)
 
-    with torch.profiler.record_function("PET::adaptive_cutoff_secant"):
-        n_lo = n_total(r_lo)
-        n_hi = n_total(r_hi)
-        adapted_atomic_cutoffs = r_lo + (num_neighbors_adaptive - n_lo) / (
-            n_hi - n_lo
-        ) * (r_hi - r_lo)
+    with torch.profiler.record_function("PET::adaptive_cutoff_ift"):
+        # Implicit-function-theorem-based gradient. The bracket from Illinois
+        # has converged to machine precision so a final secant step can be
+        # numerically degenerate; instead we attach gradients via a Newton
+        # step in which the local slope dn_total/dr is treated as a constant
+        # (computed with edge_distances detached). Concretely we return
+        #
+        #     r_bar = r_root - (n_total(r_root) - n_bar) / dn_dr
+        #
+        # with ``r_root`` detached and ``dn_dr`` detached. The forward value
+        # is r_root (the residual is ~0 at convergence). The backward gives
+        # ``dr_bar/d edge_distances = -(d n_total / d edge_distances)|_{r_root}
+        #                              / (d n_total / d r)|_{r_root}``,
+        # which is the implicit function theorem result.
+        r_root = r_lo.detach()
+
+        # dn_total/dr at r_root, holding edge_distances constant
+        with torch.enable_grad():
+            r_for_dr = r_root.clone().requires_grad_(True)
+            ed_const = edge_distances.detach()
+            per_edge_const = cutoff_func(
+                ed_const, r_for_dr[centers], cutoff_width
+            )
+            if nl_cutoff is not None:
+                nl_cutoff_t_const = ed_const.new_full((), nl_cutoff)
+                per_edge_const = per_edge_const * cutoff_func(
+                    ed_const, nl_cutoff_t_const, cutoff_width
+                )
+            n_const = torch.zeros(
+                num_nodes, dtype=ed_const.dtype, device=ed_const.device
+            )
+            n_const.index_add_(0, centers, per_edge_const)
+            x_const = ((r_for_dr - min_cutoff) * inv_range).clamp(0.0, 1.0)
+            n_eval = n_const + num_neighbors_adaptive * x_const.pow(3)
+            (dn_dr,) = torch.autograd.grad(n_eval.sum(), r_for_dr)
+            dn_dr = dn_dr.detach()
+
+        # residual at r_root, with edge_distances carrying gradients
+        n_residual = n_total(r_root) - num_neighbors_adaptive
+        adapted_atomic_cutoffs = r_root - n_residual / dn_dr
     return adapted_atomic_cutoffs
 
 
