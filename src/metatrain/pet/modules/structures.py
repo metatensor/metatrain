@@ -185,7 +185,7 @@ def systems_to_batch(
         with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
             # Adaptive cutoff scheme to approximately select `num_neighbors_adaptive`
             # neighbors for each atom
-            if adaptive_cutoff_method == "solver":
+            if adaptive_cutoff_method.lower() == "solver":
                 atomic_cutoffs = get_adaptive_cutoffs_solver(
                     centers,
                     edge_distances,
@@ -194,7 +194,7 @@ def systems_to_batch(
                     options.cutoff,
                     cutoff_width=cutoff_width,
                 )
-            elif adaptive_cutoff_method == "grid":
+            elif adaptive_cutoff_method.lower() == "grid":
                 atomic_cutoffs = get_adaptive_cutoffs_grid(
                     centers,
                     edge_distances,

@@ -9,6 +9,8 @@ from .utilities import cutoff_func_bump as cutoff_func
 # minimum value for the probe cutoff. this avoids getting too close
 # to the central atom. in practice it could be also set to a larger value
 DEFAULT_MIN_PROBE_CUTOFF = 0.5
+# fraction of max_cutoff used as a lower bound in the solver path
+DEFAULT_MIN_CUTOFF_FACTOR = 1.0 / 16.0
 # recommended smooth cutoff width for effective neighbor number calculation
 # smaller values lead to a more "step-like" behavior, but can be
 # numerically unstable. in practice this will be called with the
@@ -224,7 +226,7 @@ def get_adaptive_cutoffs_solver(
         # enforces a physical range. In the well-converged regime
         # n_residual is at float noise so neither clamp is active.
         adapted_atomic_cutoffs = (r - n_residual / dn_root.clamp_min(1e-6)).clamp(
-            max_cutoff / 16.0, max_cutoff
+            max_cutoff * DEFAULT_MIN_CUTOFF_FACTOR, max_cutoff
         )
     return adapted_atomic_cutoffs
 
