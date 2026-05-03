@@ -224,9 +224,9 @@ def get_adaptive_cutoffs_solver(
         # geometries where dn_root is tiny; clamp(max_cutoff/16, max_cutoff)
         # enforces a physical range. In the well-converged regime
         # n_residual is at float noise so neither clamp is active.
-        # `min_cutoff_factor` is a fraction of max_cutoff used as a lower bound 
-        # for the adapted cutoffs values. 
-        
+        # `min_cutoff_factor` is a fraction of max_cutoff used as a lower bound
+        # for the adapted cutoffs values.
+
         min_cutoff_factor: float = 1.0 / 16.0
         adapted_atomic_cutoffs = (r - n_residual / dn_root.clamp_min(1e-6)).clamp(
             max_cutoff * min_cutoff_factor, max_cutoff
