@@ -9,8 +9,6 @@ from .utilities import cutoff_func_bump as cutoff_func
 # minimum value for the probe cutoff. this avoids getting too close
 # to the central atom. in practice it could be also set to a larger value
 DEFAULT_MIN_PROBE_CUTOFF = 0.5
-# fraction of max_cutoff used as a lower bound in the solver path
-DEFAULT_MIN_CUTOFF_FACTOR = 1.0 / 16.0
 # recommended smooth cutoff width for effective neighbor number calculation
 # smaller values lead to a more "step-like" behavior, but can be
 # numerically unstable. in practice this will be called with the
@@ -153,6 +151,7 @@ def get_adaptive_cutoffs_solver(
     :param cutoff_width: Width of the smooth cutoff taper region.
     :return: Adapted cutoff distances for each center atom.
     """
+
     # Detached view of edge_distances used for the Newton-bisection loop:
     # everything inside the loop is meant to be a "constant" from autograd's
     # point of view. Detaching means autograd never records the iteration
@@ -225,8 +224,12 @@ def get_adaptive_cutoffs_solver(
         # geometries where dn_root is tiny; clamp(max_cutoff/16, max_cutoff)
         # enforces a physical range. In the well-converged regime
         # n_residual is at float noise so neither clamp is active.
+        # `min_cutoff_factor` is a fraction of max_cutoff used as a lower bound 
+        # for the adapted cutoffs values. 
+        
+        min_cutoff_factor: float = 1.0 / 16.0
         adapted_atomic_cutoffs = (r - n_residual / dn_root.clamp_min(1e-6)).clamp(
-            max_cutoff * DEFAULT_MIN_CUTOFF_FACTOR, max_cutoff
+            max_cutoff * min_cutoff_factor, max_cutoff
         )
     return adapted_atomic_cutoffs
 
