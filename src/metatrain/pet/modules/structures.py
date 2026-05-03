@@ -4,7 +4,7 @@ import torch
 from metatensor.torch import Labels
 from metatomic.torch import NeighborListOptions, System
 
-from .adaptive_cutoff import get_adaptive_cutoffs
+from .adaptive_cutoff import get_adaptive_cutoffs_grid, get_adaptive_cutoffs_solver
 from .nef import (
     compute_reversed_neighbor_list,
     edge_array_to_nef,
@@ -110,6 +110,7 @@ def systems_to_batch(
     cutoff_function: str,
     cutoff_width: float,
     num_neighbors_adaptive: Optional[float] = None,
+    adaptive_cutoff_method: str = "solver",
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -134,6 +135,10 @@ def systems_to_batch(
     :param num_neighbors_adaptive: Optional maximum number of neighbors per atom.
         If provided, the adaptive cutoff scheme will be used for each atom to
         approximately select this number of neighbors.
+    :param adaptive_cutoff_method: Algorithm used to compute the per-atom adaptive
+        cutoffs when ``num_neighbors_adaptive`` is set. ``"grid"`` uses the legacy
+        probe-grid + Gaussian-weighted average; ``"solver"`` uses a Newton-bisection
+        root finder on the smoothed neighbor count.
     :return: A tuple containing the batch tensors.
         The batch consists of the following tensors:
         - `element_indices_nodes`: The atomic species of the central atoms
@@ -180,14 +185,29 @@ def systems_to_batch(
         with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
             # Adaptive cutoff scheme to approximately select `num_neighbors_adaptive`
             # neighbors for each atom
-            atomic_cutoffs = get_adaptive_cutoffs(
-                centers,
-                edge_distances,
-                num_neighbors_adaptive,
-                num_nodes,
-                options.cutoff,
-                cutoff_width=cutoff_width,
-            )
+            if adaptive_cutoff_method == "solver":
+                atomic_cutoffs = get_adaptive_cutoffs_solver(
+                    centers,
+                    edge_distances,
+                    num_neighbors_adaptive,
+                    num_nodes,
+                    options.cutoff,
+                    cutoff_width=cutoff_width,
+                )
+            elif adaptive_cutoff_method == "grid":
+                atomic_cutoffs = get_adaptive_cutoffs_grid(
+                    centers,
+                    edge_distances,
+                    num_neighbors_adaptive,
+                    num_nodes,
+                    options.cutoff,
+                    cutoff_width=cutoff_width,
+                )
+            else:
+                raise ValueError(
+                    "adaptive_cutoff_method must be 'grid' or 'solver', got "
+                    + adaptive_cutoff_method
+                )
             # Symmetrize the cutoffs between pairs of atoms (PET needs this symmetry
             # due to its corresponding edge indexing ij -> ji)
             pair_cutoffs = (atomic_cutoffs[centers] + atomic_cutoffs[neighbors]) / 2.0
