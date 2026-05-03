@@ -185,6 +185,53 @@ def test_adapted_cutoffs(num_neighbors_adaptive, get_adaptive_cutoffs):
     assert torch.all(diff <= 10)
 
 
+@pytest.mark.parametrize(
+    "get_adaptive_cutoffs",
+    [get_adaptive_cutoffs_solver, get_adaptive_cutoffs_grid],
+    ids=["solver", "grid"],
+)
+def test_adaptive_cutoff_gradients(get_adaptive_cutoffs):
+    """``d r_bar / d edge_distances`` is correct.
+
+    The solver bypasses the Newton iterations on the backward path via an
+    implicit-function-theorem step; this test verifies the resulting gradient
+    matches finite differences. The grid path's gradient (through the Gaussian
+    weighting) is checked too.
+    """
+    torch.manual_seed(0)
+
+    # Small handcrafted configuration so r_bar sits comfortably inside the
+    # solver's [max_cutoff/16, max_cutoff] clamp band: 4 neighbors with
+    # nbar=4 puts r_bar near the median neighbor distance, well away from
+    # the clamps.
+    centers = torch.tensor([0, 0, 0, 0, 1, 1])
+    edge_distances = torch.tensor(
+        [1.0, 1.7, 2.3, 2.9, 1.4, 2.1], dtype=torch.float64, requires_grad=True
+    )
+    num_nodes = 2
+    max_cutoff = 5.0
+    cutoff_width = 0.5
+    nbar = 3.0
+
+    def fn(d):
+        return get_adaptive_cutoffs(
+            centers, d, nbar, num_nodes, max_cutoff, cutoff_width=cutoff_width
+        )
+
+    # Sanity-check that r_bar is interior to the clamp band so the test is
+    # actually exercising the IFT branch (and not the .clamp boundaries).
+    with torch.no_grad():
+        r_bar = fn(edge_distances)
+        assert torch.all(r_bar > max_cutoff / 16.0 + 1e-3)
+        assert torch.all(r_bar < max_cutoff - 1e-3)
+
+    # gradcheck calls fn many times with perturbed inputs; eps is chosen to
+    # match the typical scale of the bump active band.
+    assert torch.autograd.gradcheck(
+        fn, (edge_distances,), eps=1e-5, atol=1e-4, rtol=1e-3, fast_mode=True
+    )
+
+
 @pytest.mark.parametrize("adaptive_cutoff_method", ["solver", "grid"])
 def test_adaptive_cutoff_empty_system(adaptive_cutoff_method):
     """Tests that the model can handle an empty system."""
