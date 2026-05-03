@@ -8,7 +8,8 @@ from metatomic.torch import ModelOutput, NeighborListOptions, System, systems_to
 
 from metatrain.pet import PET
 from metatrain.pet.modules.adaptive_cutoff import (
-    get_adaptive_cutoffs,
+    get_adaptive_cutoffs_grid,
+    get_adaptive_cutoffs_solver,
     get_effective_num_neighbors,
     get_gaussian_cutoff_weights,
 )
@@ -22,8 +23,9 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from . import MODEL_HYPERS
 
 
+@pytest.mark.parametrize("adaptive_cutoff_method", ["solver", "grid"])
 @pytest.mark.parametrize("num_neighbors_adaptive", [8, 16, 32, 64, None])
-def test_adaptive_cutoff_functionality(num_neighbors_adaptive):
+def test_adaptive_cutoff_functionality(num_neighbors_adaptive, adaptive_cutoff_method):
     """Tests that adaptive cutoff model evaluation runs without errors."""
     torch.manual_seed(0)
     dataset_info = DatasetInfo(
@@ -37,6 +39,7 @@ def test_adaptive_cutoff_functionality(num_neighbors_adaptive):
     )
     hypers = MODEL_HYPERS.copy()
     hypers["num_neighbors_adaptive"] = num_neighbors_adaptive
+    hypers["adaptive_cutoff_method"] = adaptive_cutoff_method
     hypers["cutoff"] = 10.0
 
     model = PET(hypers, dataset_info)
@@ -117,8 +120,13 @@ def test_gaussian_cutoff_weights():
     assert torch.allclose(cutoff_weights, cutoff_weights_expected)
 
 
+@pytest.mark.parametrize(
+    "get_adaptive_cutoffs",
+    [get_adaptive_cutoffs_solver, get_adaptive_cutoffs_grid],
+    ids=["solver", "grid"],
+)
 @pytest.mark.parametrize("num_neighbors_adaptive", [8, 16, 24, 32, 48])
-def test_adapted_cutoffs(num_neighbors_adaptive):
+def test_adapted_cutoffs(num_neighbors_adaptive, get_adaptive_cutoffs):
     """Tests that adaptive cutoff model evaluation runs without errors
     and produces reasonable cutoffs that approximately ensure the desired
     number of neighbors (within some tolerance of +/- 10 neighbors)."""
@@ -177,7 +185,55 @@ def test_adapted_cutoffs(num_neighbors_adaptive):
     assert torch.all(diff <= 10)
 
 
-def test_adaptive_cutoff_empty_system():
+@pytest.mark.parametrize(
+    "get_adaptive_cutoffs",
+    [get_adaptive_cutoffs_solver, get_adaptive_cutoffs_grid],
+    ids=["solver", "grid"],
+)
+def test_adaptive_cutoff_gradients(get_adaptive_cutoffs):
+    """``d r_bar / d edge_distances`` is correct.
+
+    The solver bypasses the Newton iterations on the backward path via an
+    implicit-function-theorem step; this test verifies the resulting gradient
+    matches finite differences. The grid path's gradient (through the Gaussian
+    weighting) is checked too.
+    """
+    torch.manual_seed(0)
+
+    # Small handcrafted configuration so r_bar sits comfortably inside the
+    # solver's [max_cutoff/16, max_cutoff] clamp band: 4 neighbors with
+    # nbar=4 puts r_bar near the median neighbor distance, well away from
+    # the clamps.
+    centers = torch.tensor([0, 0, 0, 0, 1, 1])
+    edge_distances = torch.tensor(
+        [1.0, 1.7, 2.3, 2.9, 1.4, 2.1], dtype=torch.float64, requires_grad=True
+    )
+    num_nodes = 2
+    max_cutoff = 5.0
+    cutoff_width = 0.5
+    nbar = 3.0
+
+    def fn(d):
+        return get_adaptive_cutoffs(
+            centers, d, nbar, num_nodes, max_cutoff, cutoff_width=cutoff_width
+        )
+
+    # Sanity-check that r_bar is interior to the clamp band so the test is
+    # actually exercising the IFT branch (and not the .clamp boundaries).
+    with torch.no_grad():
+        r_bar = fn(edge_distances)
+        assert torch.all(r_bar > max_cutoff / 16.0 + 1e-3)
+        assert torch.all(r_bar < max_cutoff - 1e-3)
+
+    # gradcheck calls fn many times with perturbed inputs; eps is chosen to
+    # match the typical scale of the bump active band.
+    assert torch.autograd.gradcheck(
+        fn, (edge_distances,), eps=1e-5, atol=1e-4, rtol=1e-3, fast_mode=True
+    )
+
+
+@pytest.mark.parametrize("adaptive_cutoff_method", ["solver", "grid"])
+def test_adaptive_cutoff_empty_system(adaptive_cutoff_method):
     """Tests that the model can handle an empty system."""
 
     dataset_info = DatasetInfo(
@@ -192,9 +248,10 @@ def test_adaptive_cutoff_empty_system():
 
     hypers = MODEL_HYPERS.copy()
     hypers["num_neighbors_adaptive"] = 8
+    hypers["adaptive_cutoff_method"] = adaptive_cutoff_method
     hypers["cutoff"] = 10.0
 
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = PET(hypers, dataset_info)
 
     system = System(
         types=torch.tensor([], dtype=torch.long),
@@ -208,7 +265,8 @@ def test_adaptive_cutoff_empty_system():
     assert torch.numel(energy) == 0
 
 
-def test_adaptive_cutoff_isolated_atom():
+@pytest.mark.parametrize("adaptive_cutoff_method", ["solver", "grid"])
+def test_adaptive_cutoff_isolated_atom(adaptive_cutoff_method):
     """Tests that the model can predict energies for an isolated atom
     with adaptive cutoff enabled."""
 
@@ -224,6 +282,7 @@ def test_adaptive_cutoff_isolated_atom():
 
     hypers = MODEL_HYPERS.copy()
     hypers["num_neighbors_adaptive"] = 8
+    hypers["adaptive_cutoff_method"] = adaptive_cutoff_method
     hypers["cutoff"] = 10.0
 
     model = PET(hypers, dataset_info)
@@ -239,8 +298,9 @@ def test_adaptive_cutoff_isolated_atom():
     _ = model([system], outputs)
 
 
+@pytest.mark.parametrize("adaptive_cutoff_method", ["solver", "grid"])
 @pytest.mark.parametrize("cutoff", [10.0, 5.0])
-def test_adaptive_cutoff_dissociated_atoms(cutoff):
+def test_adaptive_cutoff_dissociated_atoms(cutoff, adaptive_cutoff_method):
     """Tests that the model can predict energies for an isolated atom
     with adaptive cutoff enabled."""
 
@@ -256,6 +316,7 @@ def test_adaptive_cutoff_dissociated_atoms(cutoff):
 
     hypers = MODEL_HYPERS.copy()
     hypers["num_neighbors_adaptive"] = 8
+    hypers["adaptive_cutoff_method"] = adaptive_cutoff_method
     hypers["cutoff"] = cutoff
 
     model = PET(hypers, dataset_info)

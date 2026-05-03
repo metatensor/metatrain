@@ -52,7 +52,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 11
+    __checkpoint_version__ = 12
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -73,6 +73,7 @@ class PET(ModelInterface[ModelHypers]):
             if self.hypers["num_neighbors_adaptive"] is not None
             else None
         )
+        self.adaptive_cutoff_method = self.hypers["adaptive_cutoff_method"]
         self.d_pet = self.hypers["d_pet"]
         self.d_node = self.hypers["d_node"]
         self.d_head = self.hypers["d_head"]
@@ -439,6 +440,7 @@ class PET(ModelInterface[ModelHypers]):
                 self.cutoff_function,
                 self.cutoff_width,
                 self.num_neighbors_adaptive,
+                self.adaptive_cutoff_method,
             )
 
         # the scaled_dot_product_attention function from torch cannot do
