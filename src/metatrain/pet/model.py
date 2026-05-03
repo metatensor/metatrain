@@ -93,6 +93,26 @@ class PET(ModelInterface[ModelHypers]):
             full_list=True,
             strict=True,
         )
+        # Diagnostic buffers populated on every forward pass with the per-atom
+        # adaptive cutoffs (empty in non-adaptive mode), per-atom neighbor counts,
+        # and per-atom system indices from the most recent batch. persistent=False
+        # keeps them out of the state_dict so checkpoints are unaffected.
+        self.register_buffer("_last_atomic_cutoffs", torch.empty(0), persistent=False)
+        self.register_buffer(
+            "_last_num_neighbors",
+            torch.empty(0, dtype=torch.long),
+            persistent=False,
+        )
+        self.register_buffer(
+            "_last_system_indices",
+            torch.empty(0, dtype=torch.long),
+            persistent=False,
+        )
+        self._ddp_params_and_buffers_to_ignore = {
+            "_last_atomic_cutoffs",
+            "_last_num_neighbors",
+            "_last_system_indices",
+        }
         num_atomic_species = len(self.atomic_types)
         self.gnn_layers = torch.nn.ModuleList(
             [
@@ -296,6 +316,29 @@ class PET(ModelInterface[ModelHypers]):
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
 
+    @torch.jit.export
+    def get_last_adaptive_stats(self) -> Dict[str, torch.Tensor]:
+        """Diagnostics from the most recent forward call.
+
+        When the model is exported via ``export()`` and wrapped in a
+        ``metatomic.torch.AtomisticModel``, these diagnostics remain
+        accessible on the wrapped ``PET`` submodule.
+
+        :return: A dictionary with three entries:
+
+            - ``atomic_cutoffs``: per-center adaptive cutoff (empty tensor
+              if ``num_neighbors_adaptive`` is ``None``).
+            - ``num_neighbors``: per-center neighbor count after any
+              adaptive pruning.
+            - ``system_indices``: per-atom mapping to the originating system
+              in the batch.
+        """
+        return {
+            "atomic_cutoffs": self._last_atomic_cutoffs,
+            "num_neighbors": self._last_num_neighbors,
+            "system_indices": self._last_system_indices,
+        }
+
     def forward(
         self,
         systems: List[System],
@@ -432,6 +475,8 @@ class PET(ModelInterface[ModelHypers]):
                 system_indices,
                 sample_labels,
                 species,
+                atomic_cutoffs_stats,
+                num_neighbors_stats,
             ) = systems_to_batch(
                 systems,
                 nl_options,
@@ -442,6 +487,13 @@ class PET(ModelInterface[ModelHypers]):
                 self.num_neighbors_adaptive,
                 self.adaptive_cutoff_method,
             )
+
+            # Stash diagnostics from the most recent batch. The float tensor
+            # is detached in systems_to_batch; the integer tensors carry no
+            # autograd state.
+            self._last_atomic_cutoffs = atomic_cutoffs_stats
+            self._last_num_neighbors = num_neighbors_stats
+            self._last_system_indices = system_indices
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed

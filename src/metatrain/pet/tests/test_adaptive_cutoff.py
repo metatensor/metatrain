@@ -55,6 +55,66 @@ def test_adaptive_cutoff_functionality(num_neighbors_adaptive, adaptive_cutoff_m
     _ = model([system], outputs)
 
 
+@pytest.mark.parametrize("num_neighbors_adaptive", [8, None])
+def test_adaptive_stats_shapes(num_neighbors_adaptive):
+    """``get_last_adaptive_stats()`` returns the per-atom diagnostics from
+    the most recent forward pass. ``atomic_cutoffs`` is empty when adaptive
+    is disabled; ``num_neighbors`` and ``system_indices`` are always populated
+    and consistent across two batched systems."""
+    torch.manual_seed(0)
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = num_neighbors_adaptive
+    hypers["cutoff"] = 5.0
+    model = PET(hypers, dataset_info)
+
+    system_a = System(
+        types=torch.tensor([6, 6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.5, 0.0, 0.0], [3.0, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system_b = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.2, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    nl = model.requested_neighbor_lists()
+    system_a = get_system_with_neighbor_lists(system_a, nl)
+    system_b = get_system_with_neighbor_lists(system_b, nl)
+    _ = model([system_a, system_b], {"energy": ModelOutput(per_atom=False)})
+
+    stats = model.get_last_adaptive_stats()
+    n_atoms = 3 + 2
+
+    assert set(stats.keys()) == {"atomic_cutoffs", "num_neighbors", "system_indices"}
+    assert stats["num_neighbors"].shape == (n_atoms,)
+    assert stats["num_neighbors"].dtype == torch.long
+    assert torch.all(stats["num_neighbors"] >= 0)
+    assert stats["system_indices"].shape == (n_atoms,)
+    assert stats["system_indices"].tolist() == [0, 0, 0, 1, 1]
+
+    if num_neighbors_adaptive is None:
+        assert stats["atomic_cutoffs"].numel() == 0
+    else:
+        assert stats["atomic_cutoffs"].shape == (n_atoms,)
+        assert stats["atomic_cutoffs"].dtype == torch.float32
+        assert torch.all(stats["atomic_cutoffs"] > 0)
+        assert torch.all(stats["atomic_cutoffs"] <= hypers["cutoff"])
+        # detached: gradient requires_grad must not propagate from the model
+        # forward back through this tensor
+        assert not stats["atomic_cutoffs"].requires_grad
+
+
 def test_effective_num_neighbors():
     """Tests that the effective number of neighbors calculation is correct."""
     edge_distances = torch.tensor([1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0])
