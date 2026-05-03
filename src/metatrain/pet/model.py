@@ -328,8 +328,10 @@ class PET(ModelInterface[ModelHypers]):
 
             - ``atomic_cutoffs``: per-center adaptive cutoff (empty tensor
               if ``num_neighbors_adaptive`` is ``None``).
-            - ``num_neighbors``: per-center neighbor count after any
-              adaptive pruning.
+            - ``num_neighbors``: per-center neighbor count. With adaptive
+              cutoff active, this is the post-pruning count (neighbors
+              within each atom's adapted cutoff). Otherwise it is the raw
+              count of neighbor-list edges within the model cutoff.
             - ``system_indices``: per-atom mapping to the originating system
               in the batch.
         """

@@ -158,8 +158,10 @@ def systems_to_batch(
         - `atomic_cutoffs_stats`: Diagnostic per-atom adaptive cutoffs
             (detached from the autograd graph). Empty tensor if
             ``num_neighbors_adaptive`` is None.
-        - `num_neighbors_stats`: Diagnostic per-atom neighbor count after
-            any adaptive pruning.
+        - `num_neighbors_stats`: Diagnostic per-atom neighbor count.
+            With adaptive cutoff active, this is the post-pruning count
+            (neighbors within each atom's adapted cutoff). Otherwise it is
+            the raw count of neighbor-list edges within ``options.cutoff``.
 
     """
     (
