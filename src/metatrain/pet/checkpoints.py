@@ -273,20 +273,16 @@ def model_update_v11_v12(checkpoint: dict) -> None:
     pin them to "grid" so reload behaviour matches what they were trained
     with. New trainings default to "solver" via ``ModelHypers``.
 
+    Additionally, add the "edge_tokens_cutoff" hyperparameter with default
+    value False, since the old checkpoints were trained without it.
+
     :param checkpoint: The checkpoint to update.
     """
     if "adaptive_cutoff_method" not in checkpoint["model_data"]["model_hypers"]:
         checkpoint["model_data"]["model_hypers"]["adaptive_cutoff_method"] = "grid"
-
-
-def model_update_v12_v13(checkpoint: dict) -> None:
-    """
-    Update a v12 checkpoint to v13.
-
-    :param checkpoint: The checkpoint to update.
-    """
     if "edge_tokens_cutoff" not in checkpoint["model_data"]["model_hypers"]:
         checkpoint["model_data"]["model_hypers"]["edge_tokens_cutoff"] = False
+    
 
 
 ###########################
