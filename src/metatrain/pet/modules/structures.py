@@ -118,7 +118,7 @@ def systems_to_batch(
     all_species_list: List[int],
     species_to_species_index: torch.Tensor,
     cutoff_function: str,
-    cutoff_width: float,
+    cutoff_width: Optional[float] = None,
     num_neighbors_adaptive: Optional[float] = None,
     adaptive_cutoff_method: str = "solver",
 ) -> Tuple[
@@ -142,7 +142,7 @@ def systems_to_batch(
     :param all_species_list: List of all atomic species in the dataset.
     :param species_to_species_index: Mapping from atomic species to species indices.
     :param cutoff_function: Type of the smoothing function at the cutoff.
-    :param cutoff_width: Width of the cutoff function for a cutoff mask.
+    :param cutoff_width: Width of the cutoff function for a cutoff mask. If ``None``, defaults to ``cutoff`` (i.e. the function spans the entire range from 0 to cutoff).
     :param num_neighbors_adaptive: Optional maximum number of neighbors per atom.
         If provided, the adaptive cutoff scheme will be used for each atom to
         approximately select this number of neighbors.
@@ -196,6 +196,9 @@ def systems_to_batch(
     edge_distances = torch.norm(edge_vectors, dim=-1) + 1e-15
 
     num_nodes = len(positions)
+
+    if cutoff_width is None:
+        cutoff_width = options.cutoff
 
     if num_neighbors_adaptive is not None:
         with torch.profiler.record_function("PET::get_adaptive_cutoffs"):

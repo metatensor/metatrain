@@ -107,9 +107,14 @@ class ModelHypers(TypedDict):
     a Newton-bisection root finder (default; faster and more accurate). Only
     has effect when ``num_neighbors_adaptive`` is set.
     """
+    edge_tokens_cutoff: bool = True
+    """Whether to apply the cutoff function to the edge tokens before feeding them
+    into the transformer layers. This enforces a more physical prior to the model,
+    ensuring smooth decay of all edge tokens as they approach the cutoff radius.
+    """
     cutoff_function: Literal["Cosine", "Bump"] = "Bump"
     """Type of the smoothing function at the cutoff"""
-    cutoff_width: float = 0.5
+    cutoff_width: Optional[float] = 0.5
     """Width of the smoothing function at the cutoff"""
     d_pet: int = 128
     """Dimension of the edge features.
