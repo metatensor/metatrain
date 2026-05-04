@@ -45,6 +45,40 @@ HOMO_PER_ATOM_OUTPUT_NAME = "mtt::aux::homo_per_atom"
 LUMO_PER_ATOM_OUTPUT_NAME = "mtt::aux::lumo_per_atom"
 
 
+def _scatter_softmax_pool(
+    values: torch.Tensor,
+    scores: torch.Tensor,
+    beta: torch.Tensor,
+    system_indices: torch.Tensor,
+    num_systems: int,
+) -> torch.Tensor:
+    """Per-system attention pool: ``sum_i softmax(beta * s_i)_i * v_i``.
+
+    Numerically stable: shift ``beta * s`` by per-system max before exponentiating.
+    Strictly intensive (softmax weights sum to 1 within each system).
+    """
+    logits = beta * scores  # (N,)
+    neg_inf = torch.full(
+        (num_systems,), float("-inf"), dtype=values.dtype, device=values.device
+    )
+    sys_max = neg_inf.scatter_reduce(
+        0, system_indices, logits, reduce="amax", include_self=True
+    )
+    sys_max = torch.where(
+        torch.isinf(sys_max), torch.zeros_like(sys_max), sys_max
+    )
+    exps = torch.exp(logits - sys_max[system_indices])  # (N,)
+    denom = torch.zeros(
+        num_systems, dtype=values.dtype, device=values.device
+    ).scatter_add(0, system_indices, exps)
+    weights = exps / denom[system_indices]  # (N,) softmax across each system
+    weighted = weights * values
+    pooled = torch.zeros(
+        num_systems, dtype=values.dtype, device=values.device
+    ).scatter_add(0, system_indices, weighted)
+    return pooled
+
+
 def _scatter_logsumexp(
     values: torch.Tensor,
     alpha: torch.Tensor,
@@ -134,6 +168,9 @@ class GapPET(PET):
         # auxiliary outputs.
         self._HOMO_INTERNAL_KEY = "__gap_pet_homo_internal__"
         self._LUMO_INTERNAL_KEY = "__gap_pet_lumo_internal__"
+        # Score heads for attention pooling (registered only if needed).
+        self._HOMO_SCORE_INTERNAL_KEY = "__gap_pet_homo_score_internal__"
+        self._LUMO_SCORE_INTERNAL_KEY = "__gap_pet_lumo_score_internal__"
         
         
         # Register two *internal* pseudo-targets, one for HOMO and one for LUMO.
@@ -150,19 +187,42 @@ class GapPET(PET):
         )
         self._add_output(self._HOMO_INTERNAL_KEY, synth_target_info)
         self._add_output(self._LUMO_INTERNAL_KEY, synth_target_info)
-        for key in (self._HOMO_INTERNAL_KEY, self._LUMO_INTERNAL_KEY):
-            self.outputs.pop(key, None)
-            self.outputs.pop(get_last_layer_features_name(key), None)
+        internal_keys = [self._HOMO_INTERNAL_KEY, self._LUMO_INTERNAL_KEY]
 
-        # Pooling alphas: fixed scalar buffers (move with .to(device) and
-        # round-trip through state_dict, but are not optimised).
+        # Pooling configuration.
         pooling_hypers = hypers["pooling"]
+        self._pooling_type: str = str(pooling_hypers.get("type", "smooth_extremum"))
+        if self._pooling_type not in ("smooth_extremum", "attention"):
+            raise ValueError(
+                f"Unknown pooling type {self._pooling_type!r}; "
+                "expected 'smooth_extremum' or 'attention'."
+            )
         self.register_buffer(
             "alpha_homo", torch.tensor(float(pooling_hypers["alpha_homo"]))
         )
         self.register_buffer(
             "alpha_lumo", torch.tensor(float(pooling_hypers["alpha_lumo"]))
         )
+        self.register_buffer(
+            "beta_homo", torch.tensor(float(pooling_hypers.get("beta_homo", 1.0)))
+        )
+        self.register_buffer(
+            "beta_lumo", torch.tensor(float(pooling_hypers.get("beta_lumo", -1.0)))
+        )
+
+        # Attention pool: register two extra PET-style readouts that produce
+        # per-atom scalar *scores*, with weights independent from the value
+        # heads above.
+        if self._pooling_type == "attention":
+            self._add_output(self._HOMO_SCORE_INTERNAL_KEY, synth_target_info)
+            self._add_output(self._LUMO_SCORE_INTERNAL_KEY, synth_target_info)
+            internal_keys.extend(
+                [self._HOMO_SCORE_INTERNAL_KEY, self._LUMO_SCORE_INTERNAL_KEY]
+            )
+
+        for key in internal_keys:
+            self.outputs.pop(key, None)
+            self.outputs.pop(get_last_layer_features_name(key), None)
 
         # Per-atom auxiliary outputs (interpretability).
         target_info = dataset_info.targets[self._gap_target_name]
@@ -307,10 +367,13 @@ class GapPET(PET):
         # ``_calculate_atomic_predictions`` actually computes them. Each
         # internal target has a single block (synthesised with a single scalar
         # property), so the inner block list has length 1.
-        internal_outputs = {
+        internal_outputs: Dict[str, ModelOutput] = {
             self._HOMO_INTERNAL_KEY: ModelOutput(per_atom=True),
             self._LUMO_INTERNAL_KEY: ModelOutput(per_atom=True),
         }
+        if self._pooling_type == "attention":
+            internal_outputs[self._HOMO_SCORE_INTERNAL_KEY] = ModelOutput(per_atom=True)
+            internal_outputs[self._LUMO_SCORE_INTERNAL_KEY] = ModelOutput(per_atom=True)
         node_apr_dict, edge_apr_dict = self._calculate_atomic_predictions(
             node_ll_dict,
             edge_ll_dict,
@@ -326,10 +389,28 @@ class GapPET(PET):
         h_lumo = self._sum_per_atom_scalar(node_apr_dict, edge_apr_dict, self._LUMO_INTERNAL_KEY)
         # h_homo, h_lumo: (N,)
 
-        # Stage 4: extremal pooling -> per-system scalars.
+        # Stage 4: pool per-atom contributions -> per-system scalars.
         num_systems = len(systems)
-        e_homo = _scatter_logsumexp(h_homo, self.alpha_homo, system_indices, num_systems)
-        e_lumo = _scatter_logsumexp(h_lumo, self.alpha_lumo, system_indices, num_systems)
+        if self._pooling_type == "attention":
+            s_homo = self._sum_per_atom_scalar(
+                node_apr_dict, edge_apr_dict, self._HOMO_SCORE_INTERNAL_KEY
+            )
+            s_lumo = self._sum_per_atom_scalar(
+                node_apr_dict, edge_apr_dict, self._LUMO_SCORE_INTERNAL_KEY
+            )
+            e_homo = _scatter_softmax_pool(
+                h_homo, s_homo, self.beta_homo, system_indices, num_systems
+            )
+            e_lumo = _scatter_softmax_pool(
+                h_lumo, s_lumo, self.beta_lumo, system_indices, num_systems
+            )
+        else:
+            e_homo = _scatter_logsumexp(
+                h_homo, self.alpha_homo, system_indices, num_systems
+            )
+            e_lumo = _scatter_logsumexp(
+                h_lumo, self.alpha_lumo, system_indices, num_systems
+            )
         e_gap = e_lumo - e_homo  # (S,)
 
         return_dict: Dict[str, TensorMap] = {}
