@@ -96,6 +96,7 @@ class FlashMDSymplectic(ModelInterface):
                     self.transformer_type,
                     num_atomic_species,
                     layer_index == 0,  # is first layer
+                    False,  # edge_tokens_cutoff
                 )
                 for layer_index in range(self.num_gnn_layers)
             ]
