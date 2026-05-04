@@ -34,19 +34,11 @@ from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from .documentation import ModelHypers
 
 
-HOMO_PER_ATOM_OUTPUT_NAME = "mtt::aux::homo_per_atom"
-LUMO_PER_ATOM_OUTPUT_NAME = "mtt::aux::lumo_per_atom"
-
-# Internal pseudo-target names used to register PET-style heads for the HOMO
-# and LUMO per-atom scalar fields. They are *not* exposed through
-# ``supported_outputs()``: users only see the gap target and the two per-atom
-# auxiliary outputs.
-_HOMO_INTERNAL_KEY = "__gap_pet_homo_internal__"
-_LUMO_INTERNAL_KEY = "__gap_pet_lumo_internal__"
 
 
 def _scatter_logsumexp(
@@ -128,7 +120,18 @@ class GapPET(PET):
         # pooling on the internal HOMO/LUMO heads instead), so remove them to
         # avoid wasted compute and parameters.
         self._unregister_pet_target(self._gap_target_name)
+        
+        self.HOMO_PER_ATOM_OUTPUT_NAME = "mtt::aux::homo_per_atom"
+        self.LUMO_PER_ATOM_OUTPUT_NAME = "mtt::aux::lumo_per_atom"
 
+        # Internal pseudo-target names used to register PET-style heads for the HOMO
+        # and LUMO per-atom scalar fields. They are *not* exposed through
+        # ``supported_outputs()``: users only see the gap target and the two per-atom
+        # auxiliary outputs.
+        self._HOMO_INTERNAL_KEY = "__gap_pet_homo_internal__"
+        self._LUMO_INTERNAL_KEY = "__gap_pet_lumo_internal__"
+        
+        
         # Register two *internal* pseudo-targets, one for HOMO and one for LUMO.
         # Each gets the standard PET readout: per-layer node + edge MLPs and a
         # per-layer linear projection to a scalar. The user-visible
@@ -141,9 +144,9 @@ class GapPET(PET):
             {"quantity": "energy", "unit": unit},
             add_position_gradients=False,
         )
-        self._add_output(_HOMO_INTERNAL_KEY, synth_target_info)
-        self._add_output(_LUMO_INTERNAL_KEY, synth_target_info)
-        for key in (_HOMO_INTERNAL_KEY, _LUMO_INTERNAL_KEY):
+        self._add_output(self._HOMO_INTERNAL_KEY, synth_target_info)
+        self._add_output(self._LUMO_INTERNAL_KEY, synth_target_info)
+        for key in (self._HOMO_INTERNAL_KEY, self._LUMO_INTERNAL_KEY):
             self.outputs.pop(key, None)
             self.outputs.pop(get_last_layer_features_name(key), None)
 
@@ -159,13 +162,13 @@ class GapPET(PET):
 
         # Per-atom auxiliary outputs (interpretability).
         target_info = dataset_info.targets[self._gap_target_name]
-        self.outputs[HOMO_PER_ATOM_OUTPUT_NAME] = ModelOutput(
+        self.outputs[self.HOMO_PER_ATOM_OUTPUT_NAME] = ModelOutput(
             quantity="energy",
             unit=target_info.unit,
             per_atom=True,
             description="Per-atom HOMO contribution h_i^HOMO",
         )
-        self.outputs[LUMO_PER_ATOM_OUTPUT_NAME] = ModelOutput(
+        self.outputs[self.LUMO_PER_ATOM_OUTPUT_NAME] = ModelOutput(
             quantity="energy",
             unit=target_info.unit,
             per_atom=True,
@@ -301,8 +304,8 @@ class GapPET(PET):
         # internal target has a single block (synthesised with a single scalar
         # property), so the inner block list has length 1.
         internal_outputs = {
-            _HOMO_INTERNAL_KEY: ModelOutput(per_atom=True),
-            _LUMO_INTERNAL_KEY: ModelOutput(per_atom=True),
+            self._HOMO_INTERNAL_KEY: ModelOutput(per_atom=True),
+            self._LUMO_INTERNAL_KEY: ModelOutput(per_atom=True),
         }
         node_apr_dict, edge_apr_dict = self._calculate_atomic_predictions(
             node_ll_dict,
@@ -315,8 +318,8 @@ class GapPET(PET):
         # Sum across GNN layers (and across the single block) to get per-atom
         # scalars -- this is exactly what PET's ``_get_output_atomic_predictions``
         # does for an energy-style scalar target.
-        h_homo = self._sum_per_atom_scalar(node_apr_dict, edge_apr_dict, _HOMO_INTERNAL_KEY)
-        h_lumo = self._sum_per_atom_scalar(node_apr_dict, edge_apr_dict, _LUMO_INTERNAL_KEY)
+        h_homo = self._sum_per_atom_scalar(node_apr_dict, edge_apr_dict, self._HOMO_INTERNAL_KEY)
+        h_lumo = self._sum_per_atom_scalar(node_apr_dict, edge_apr_dict, self._LUMO_INTERNAL_KEY)
         # h_homo, h_lumo: (N,)
 
         # Stage 4: extremal pooling -> per-system scalars.
@@ -347,27 +350,24 @@ class GapPET(PET):
             )
 
         for aux_name, aux_values in (
-            (HOMO_PER_ATOM_OUTPUT_NAME, h_homo),
-            (LUMO_PER_ATOM_OUTPUT_NAME, h_lumo),
+            (self.HOMO_PER_ATOM_OUTPUT_NAME, h_homo),
+            (self.LUMO_PER_ATOM_OUTPUT_NAME, h_lumo),
         ):
-            if aux_name not in outputs:
-                continue
-            block = TensorBlock(
-                values=aux_values.reshape(-1, 1),
-                samples=sample_labels,
-                components=[],
-                properties=Labels(
-                    names=["energy"],
-                    values=torch.zeros((1, 1), dtype=torch.int64, device=device),
-                    assume_unique=True,
-                ),
-            )
-            tmap = TensorMap(keys=self.single_label, blocks=[block])
-            if not outputs[aux_name].per_atom:
-                from metatrain.utils.sum_over_atoms import sum_over_atoms
-
-                tmap = sum_over_atoms(tmap)
-            return_dict[aux_name] = tmap
+            if aux_name in outputs:
+                block = TensorBlock(
+                    values=aux_values.reshape(-1, 1),
+                    samples=sample_labels,
+                    components=[],
+                    properties=Labels(
+                        names=["energy"],
+                        values=torch.zeros((1, 1), dtype=torch.int64, device=device),
+                        assume_unique=True,
+                    ),
+                )
+                tmap = TensorMap(keys=self.single_label, blocks=[block])
+                if not outputs[aux_name].per_atom:
+                    tmap = sum_over_atoms(tmap)
+                return_dict[aux_name] = tmap
 
         # Post-processing (eval only): reapply scaler. Composition is empty, so
         # the additive loop is a no-op for the gap target.
@@ -380,16 +380,16 @@ class GapPET(PET):
                 for name, output in outputs.items():
                     if name in additive_model.outputs:
                         outputs_for_additive_model[name] = output
-                if not outputs_for_additive_model:
-                    continue
-                additive_contributions = additive_model(
-                    systems, outputs_for_additive_model, selected_atoms
-                )
-                for name in additive_contributions:
-                    return_dict[name] = additive_contributions[name].to(
-                        device=return_dict[name].device,
-                        dtype=return_dict[name].dtype,
+                if outputs_for_additive_model:
+                    
+                    additive_contributions = additive_model(
+                        systems, outputs_for_additive_model, selected_atoms
                     )
+                    for name in additive_contributions:
+                        return_dict[name] = additive_contributions[name].to(
+                            device=return_dict[name].device,
+                            dtype=return_dict[name].dtype,
+                        )
 
         return return_dict
 
