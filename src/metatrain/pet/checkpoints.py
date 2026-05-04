@@ -265,6 +265,20 @@ def model_update_v10_v11(checkpoint: dict) -> None:
         checkpoint["model_data"]["model_hypers"]["attention_temperature"] = 1.0
 
 
+def model_update_v11_v12(checkpoint: dict) -> None:
+    """
+    Update a v11 checkpoint to v12.
+
+    Old checkpoints were trained with the grid-based adaptive cutoff;
+    pin them to "grid" so reload behaviour matches what they were trained
+    with. New trainings default to "solver" via ``ModelHypers``.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    if "adaptive_cutoff_method" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["adaptive_cutoff_method"] = "grid"
+
+
 ###########################
 # TRAINER #################
 ###########################
