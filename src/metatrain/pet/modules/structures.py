@@ -155,9 +155,10 @@ def systems_to_batch(
         - `system_indices`: The system index for each atom in the batch
         - `sample_labels`: Labels indicating the system and atom indices for each atom
         - `species`: The atomic species of each atom in the batch
-        - `atomic_cutoffs_stats`: Diagnostic per-atom adaptive cutoffs
-            (detached from the autograd graph). Empty tensor if
-            ``num_neighbors_adaptive`` is None.
+        - `atomic_cutoffs_stats`: Diagnostic per-atom cutoff radius (detached
+            from the autograd graph). With adaptive cutoff active this is
+            the per-atom adapted cutoff; otherwise every entry equals
+            ``options.cutoff``. Always shape ``(num_nodes,)``.
         - `num_neighbors_stats`: Diagnostic per-atom neighbor count.
             With adaptive cutoff active, this is the post-pruning count
             (neighbors within each atom's adapted cutoff). Otherwise it is
@@ -236,8 +237,8 @@ def systems_to_batch(
         pair_cutoffs = options.cutoff * torch.ones(
             len(centers), device=positions.device, dtype=positions.dtype
         )
-        atomic_cutoffs_stats = torch.empty(
-            0, device=positions.device, dtype=positions.dtype
+        atomic_cutoffs_stats = options.cutoff * torch.ones(
+            num_nodes, device=positions.device, dtype=positions.dtype
         )
 
     num_neighbors = torch.bincount(centers, minlength=num_nodes)

@@ -93,26 +93,6 @@ class PET(ModelInterface[ModelHypers]):
             full_list=True,
             strict=True,
         )
-        # Diagnostic buffers populated on every forward pass with the per-atom
-        # adaptive cutoffs (empty in non-adaptive mode), per-atom neighbor counts,
-        # and per-atom system indices from the most recent batch. persistent=False
-        # keeps them out of the state_dict so checkpoints are unaffected.
-        self.register_buffer("_last_atomic_cutoffs", torch.empty(0), persistent=False)
-        self.register_buffer(
-            "_last_num_neighbors",
-            torch.empty(0, dtype=torch.long),
-            persistent=False,
-        )
-        self.register_buffer(
-            "_last_system_indices",
-            torch.empty(0, dtype=torch.long),
-            persistent=False,
-        )
-        self._ddp_params_and_buffers_to_ignore = {
-            "_last_atomic_cutoffs",
-            "_last_num_neighbors",
-            "_last_system_indices",
-        }
         num_atomic_species = len(self.atomic_types)
         self.gnn_layers = torch.nn.ModuleList(
             [
@@ -177,7 +157,14 @@ class PET(ModelInterface[ModelHypers]):
 
         # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(per_atom=True, description="internal features")
+            "features": ModelOutput(per_atom=True, description="internal features"),
+            "mtt::aux::cutoff_stats": ModelOutput(
+                per_atom=True,
+                description=(
+                    "Per-atom adaptive-cutoff diagnostics: column 0 = atomic_cutoff, "
+                    "column 1 = num_neighbors."
+                ),
+            ),
         }
 
         # Modified dataset_info with the targets as they will be seen by PET
@@ -315,31 +302,6 @@ class PET(ModelInterface[ModelHypers]):
 
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
-
-    @torch.jit.export
-    def get_last_adaptive_stats(self) -> Dict[str, torch.Tensor]:
-        """Diagnostics from the most recent forward call.
-
-        When the model is exported via ``export()`` and wrapped in a
-        ``metatomic.torch.AtomisticModel``, these diagnostics remain
-        accessible on the wrapped ``PET`` submodule.
-
-        :return: A dictionary with three entries:
-
-            - ``atomic_cutoffs``: per-center adaptive cutoff (empty tensor
-              if ``num_neighbors_adaptive`` is ``None``).
-            - ``num_neighbors``: per-center neighbor count. With adaptive
-              cutoff active, this is the post-pruning count (neighbors
-              within each atom's adapted cutoff). Otherwise it is the raw
-              count of neighbor-list edges within the model cutoff.
-            - ``system_indices``: per-atom mapping to the originating system
-              in the batch.
-        """
-        return {
-            "atomic_cutoffs": self._last_atomic_cutoffs,
-            "num_neighbors": self._last_num_neighbors,
-            "system_indices": self._last_system_indices,
-        }
 
     def forward(
         self,
@@ -490,12 +452,41 @@ class PET(ModelInterface[ModelHypers]):
                 self.adaptive_cutoff_method,
             )
 
-            # Stash diagnostics from the most recent batch. The float tensor
-            # is detached in systems_to_batch; the integer tensors carry no
-            # autograd state.
-            self._last_atomic_cutoffs = atomic_cutoffs_stats
-            self._last_num_neighbors = num_neighbors_stats
-            self._last_system_indices = system_indices
+        if "mtt::aux::cutoff_stats" in outputs:
+            with torch.profiler.record_function("PET::_get_output_cutoff_stats"):
+                cutoff_stats_values = torch.stack(
+                    [
+                        atomic_cutoffs_stats,
+                        num_neighbors_stats.to(atomic_cutoffs_stats.dtype),
+                    ],
+                    dim=-1,
+                )
+                cutoff_stats_tmap = TensorMap(
+                    keys=self.single_label,
+                    blocks=[
+                        TensorBlock(
+                            values=cutoff_stats_values,
+                            samples=sample_labels,
+                            components=[],
+                            properties=Labels(
+                                names=["property"],
+                                values=torch.tensor(
+                                    [[0], [1]], device=cutoff_stats_values.device
+                                ),
+                                assume_unique=True,
+                            ),
+                        )
+                    ],
+                )
+                if selected_atoms is not None:
+                    cutoff_stats_tmap = mts.slice(
+                        cutoff_stats_tmap,
+                        axis="samples",
+                        selection=selected_atoms,
+                    )
+                if not outputs["mtt::aux::cutoff_stats"].per_atom:
+                    cutoff_stats_tmap = sum_over_atoms(cutoff_stats_tmap)
+                return_dict["mtt::aux::cutoff_stats"] = cutoff_stats_tmap
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed

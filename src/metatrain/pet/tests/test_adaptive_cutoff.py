@@ -56,11 +56,11 @@ def test_adaptive_cutoff_functionality(num_neighbors_adaptive, adaptive_cutoff_m
 
 
 @pytest.mark.parametrize("num_neighbors_adaptive", [8, None])
-def test_adaptive_stats_shapes(num_neighbors_adaptive):
-    """``get_last_adaptive_stats()`` returns the per-atom diagnostics from
-    the most recent forward pass. ``atomic_cutoffs`` is empty when adaptive
-    is disabled; ``num_neighbors`` and ``system_indices`` are always populated
-    and consistent across two batched systems."""
+def test_cutoff_stats_output(num_neighbors_adaptive):
+    """``mtt::aux::cutoff_stats`` exposes per-atom (atomic_cutoff, num_neighbors)
+    via the standard metatomic output mechanism, both with and without adaptive
+    cutoff. Property index 0 is the atomic cutoff radius, index 1 is the
+    neighbor count cast to the cutoff dtype."""
     torch.manual_seed(0)
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
@@ -91,28 +91,84 @@ def test_adaptive_stats_shapes(num_neighbors_adaptive):
     nl = model.requested_neighbor_lists()
     system_a = get_system_with_neighbor_lists(system_a, nl)
     system_b = get_system_with_neighbor_lists(system_b, nl)
-    _ = model([system_a, system_b], {"energy": ModelOutput(per_atom=False)})
 
-    stats = model.get_last_adaptive_stats()
+    result = model(
+        [system_a, system_b],
+        {
+            "energy": ModelOutput(per_atom=False),
+            "mtt::aux::cutoff_stats": ModelOutput(per_atom=True),
+        },
+    )
     n_atoms = 3 + 2
 
-    assert set(stats.keys()) == {"atomic_cutoffs", "num_neighbors", "system_indices"}
-    assert stats["num_neighbors"].shape == (n_atoms,)
-    assert stats["num_neighbors"].dtype == torch.long
-    assert torch.all(stats["num_neighbors"] >= 0)
-    assert stats["system_indices"].shape == (n_atoms,)
-    assert stats["system_indices"].tolist() == [0, 0, 0, 1, 1]
+    assert "mtt::aux::cutoff_stats" in result
+    tmap = result["mtt::aux::cutoff_stats"]
+    assert len(tmap.blocks()) == 1
+    block = tmap.block()
+    assert block.values.shape == (n_atoms, 2)
+    assert block.samples.names == ["system", "atom"]
+    assert block.samples.values.tolist() == [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1]]
+    assert block.properties.names == ["property"]
+    assert block.properties.values.tolist() == [[0], [1]]
 
+    atomic_cutoff = block.values[:, 0]
+    num_neighbors = block.values[:, 1]
+    assert torch.all(atomic_cutoff > 0)
+    assert torch.all(atomic_cutoff <= hypers["cutoff"])
+    assert torch.all(num_neighbors >= 0)
+    assert torch.all(num_neighbors == num_neighbors.round())
     if num_neighbors_adaptive is None:
-        assert stats["atomic_cutoffs"].numel() == 0
-    else:
-        assert stats["atomic_cutoffs"].shape == (n_atoms,)
-        assert stats["atomic_cutoffs"].dtype == torch.float32
-        assert torch.all(stats["atomic_cutoffs"] > 0)
-        assert torch.all(stats["atomic_cutoffs"] <= hypers["cutoff"])
-        # detached: gradient requires_grad must not propagate from the model
-        # forward back through this tensor
-        assert not stats["atomic_cutoffs"].requires_grad
+        assert torch.allclose(
+            atomic_cutoff, torch.full_like(atomic_cutoff, hypers["cutoff"])
+        )
+
+
+def test_cutoff_stats_not_requested():
+    """When ``mtt::aux::cutoff_stats`` is not requested the output is absent
+    and the forward pass still works."""
+    torch.manual_seed(0)
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = 8
+    hypers["cutoff"] = 5.0
+    model = PET(hypers, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.5, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    result = model([system], {"energy": ModelOutput(per_atom=False)})
+    assert "mtt::aux::cutoff_stats" not in result
+
+
+def test_cutoff_stats_exported():
+    """The new output appears in the exported ``ModelCapabilities``."""
+    torch.manual_seed(0)
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["cutoff"] = 5.0
+    model = PET(hypers, dataset_info)
+    exported = model.export()
+    assert "mtt::aux::cutoff_stats" in exported.capabilities().outputs
 
 
 def test_effective_num_neighbors():
