@@ -142,7 +142,9 @@ def systems_to_batch(
     :param all_species_list: List of all atomic species in the dataset.
     :param species_to_species_index: Mapping from atomic species to species indices.
     :param cutoff_function: Type of the smoothing function at the cutoff.
-    :param cutoff_width: Width of the cutoff function for a cutoff mask. If ``None``, defaults to ``cutoff`` (i.e. the function spans the entire range from 0 to cutoff).
+    :param cutoff_width: Width of the cutoff function for a cutoff mask.
+        If ``None``, defaults to ``cutoff`` (i.e. the function spans the entire
+        range from 0 to cutoff).
     :param num_neighbors_adaptive: Optional maximum number of neighbors per atom.
         If provided, the adaptive cutoff scheme will be used for each atom to
         approximately select this number of neighbors.
