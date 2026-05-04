@@ -107,7 +107,7 @@ class ModelHypers(TypedDict):
     a Newton-bisection root finder (default; faster and more accurate). Only
     has effect when ``num_neighbors_adaptive`` is set.
     """
-    edge_tokens_cutoff: bool = True
+    edge_tokens_cutoff: bool = False
     """Whether to apply the cutoff function to the edge tokens before feeding them
     into the transformer layers. This enforces a more physical prior to the model,
     ensuring smooth decay of all edge tokens as they approach the cutoff radius.
