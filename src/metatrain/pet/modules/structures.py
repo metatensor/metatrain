@@ -122,6 +122,7 @@ def systems_to_batch(
     torch.Tensor,
     Labels,
     torch.Tensor,
+    torch.Tensor,
 ]:
     """
     Converts a list of systems to a batch required for the PET model.
@@ -152,6 +153,11 @@ def systems_to_batch(
         - `cutoff_factors`: The cutoff function values for each edge
         - `system_indices`: The system index for each atom in the batch
         - `sample_labels`: Labels indicating the system and atom indices for each atom
+        - `species`: The atomic species of each atom in the batch
+        - `atomic_cutoffs_stats`: Diagnostic per-atom cutoff radius (detached
+            from the autograd graph). With adaptive cutoff active this is
+            the per-atom adapted cutoff; otherwise every entry equals
+            ``options.cutoff``. Always shape ``(num_nodes,)``.
 
     """
     (
@@ -208,6 +214,7 @@ def systems_to_batch(
                     "adaptive_cutoff_method must be 'grid' or 'solver', got "
                     + adaptive_cutoff_method
                 )
+            atomic_cutoffs_stats = atomic_cutoffs.detach()
             # Symmetrize the cutoffs between pairs of atoms (PET needs this symmetry
             # due to its corresponding edge indexing ij -> ji)
             pair_cutoffs = (atomic_cutoffs[centers] + atomic_cutoffs[neighbors]) / 2.0
@@ -225,16 +232,15 @@ def systems_to_batch(
         pair_cutoffs = options.cutoff * torch.ones(
             len(centers), device=positions.device, dtype=positions.dtype
         )
+        atomic_cutoffs_stats = options.cutoff * torch.ones(
+            num_nodes, device=positions.device, dtype=positions.dtype
+        )
 
     num_neighbors = torch.bincount(centers, minlength=num_nodes)
     # this logic shouldn't be needed thanks to `minlength` above, but just to be safe:
     max_edges_per_node = (
         int(torch.max(num_neighbors)) if num_neighbors.numel() > 0 else 0
     )
-
-    # uncomment these to print out stats on the adaptive cutoff behavior
-    # print("adaptive_cutoffs", *pair_cutoffs.tolist())
-    # print("num_neighbors", *num_neighbors.tolist())
 
     if cutoff_function.lower() == "bump":
         # use bump switching function for adaptive cutoff
@@ -304,4 +310,5 @@ def systems_to_batch(
         system_indices,
         sample_labels,
         species,
+        atomic_cutoffs_stats,
     )
