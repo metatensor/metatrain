@@ -55,6 +55,177 @@ def test_adaptive_cutoff_functionality(num_neighbors_adaptive, adaptive_cutoff_m
     _ = model([system], outputs)
 
 
+@pytest.mark.parametrize("num_neighbors_adaptive", [8, None])
+def test_cutoff_stats_output(num_neighbors_adaptive):
+    """``mtt::aux::cutoff_stats`` exposes per-atom (atomic_cutoff, num_neighbors)
+    via the standard metatomic output mechanism, both with and without adaptive
+    cutoff. Property index 0 is the atomic cutoff radius, index 1 is the
+    neighbor count cast to the cutoff dtype."""
+    torch.manual_seed(0)
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = num_neighbors_adaptive
+    hypers["cutoff"] = 5.0
+    model = PET(hypers, dataset_info)
+
+    system_a = System(
+        types=torch.tensor([6, 6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.5, 0.0, 0.0], [3.0, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system_b = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.2, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    nl = model.requested_neighbor_lists()
+    system_a = get_system_with_neighbor_lists(system_a, nl)
+    system_b = get_system_with_neighbor_lists(system_b, nl)
+
+    result = model(
+        [system_a, system_b],
+        {
+            "energy": ModelOutput(per_atom=False),
+            "mtt::aux::cutoff_stats": ModelOutput(per_atom=True),
+        },
+    )
+    n_atoms = 3 + 2
+
+    assert "mtt::aux::cutoff_stats" in result
+    tmap = result["mtt::aux::cutoff_stats"]
+    assert len(tmap.blocks()) == 1
+    block = tmap.block()
+    assert block.values.shape == (n_atoms, 2)
+    assert block.samples.names == ["system", "atom"]
+    assert block.samples.values.tolist() == [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1]]
+    assert block.properties.names == ["property"]
+    assert block.properties.values.tolist() == [[0], [1]]
+
+    atomic_cutoff = block.values[:, 0]
+    num_neighbors = block.values[:, 1]
+    assert torch.all(atomic_cutoff > 0)
+    assert torch.all(atomic_cutoff <= hypers["cutoff"])
+    assert torch.all(num_neighbors >= 0)
+    assert torch.all(num_neighbors == num_neighbors.round())
+    if num_neighbors_adaptive is None:
+        assert torch.allclose(
+            atomic_cutoff, torch.full_like(atomic_cutoff, hypers["cutoff"])
+        )
+
+
+def test_cutoff_stats_mean_over_atoms():
+    """With ``per_atom=False`` the output is averaged across atoms in each
+    system (sum would mix two unrelated quantities — atomic cutoffs and
+    integer counts — into a meaningless total)."""
+    torch.manual_seed(0)
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = 8
+    hypers["cutoff"] = 5.0
+    model = PET(hypers, dataset_info)
+
+    system_a = System(
+        types=torch.tensor([6, 6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.5, 0.0, 0.0], [3.0, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system_b = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.2, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    nl = model.requested_neighbor_lists()
+    system_a = get_system_with_neighbor_lists(system_a, nl)
+    system_b = get_system_with_neighbor_lists(system_b, nl)
+
+    per_atom_result = model(
+        [system_a, system_b],
+        {"mtt::aux::cutoff_stats": ModelOutput(per_atom=True)},
+    )["mtt::aux::cutoff_stats"]
+    per_system_result = model(
+        [system_a, system_b],
+        {"mtt::aux::cutoff_stats": ModelOutput(per_atom=False)},
+    )["mtt::aux::cutoff_stats"]
+
+    per_system_block = per_system_result.block()
+    assert per_system_block.values.shape == (2, 2)
+    # Each per-system row equals the mean across that system's atoms.
+    per_atom_values = per_atom_result.block().values
+    per_atom_samples = per_atom_result.block().samples.values
+    for sys_idx in range(2):
+        mask = per_atom_samples[:, 0] == sys_idx
+        expected = per_atom_values[mask].mean(dim=0)
+        assert torch.allclose(per_system_block.values[sys_idx], expected)
+
+
+def test_cutoff_stats_not_requested():
+    """When ``mtt::aux::cutoff_stats`` is not requested the output is absent
+    and the forward pass still works."""
+    torch.manual_seed(0)
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = 8
+    hypers["cutoff"] = 5.0
+    model = PET(hypers, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.5, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    result = model([system], {"energy": ModelOutput(per_atom=False)})
+    assert "mtt::aux::cutoff_stats" not in result
+
+
+def test_cutoff_stats_exported():
+    """The new output appears in the exported ``ModelCapabilities``."""
+    torch.manual_seed(0)
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["cutoff"] = 5.0
+    model = PET(hypers, dataset_info)
+    exported = model.export()
+    assert "mtt::aux::cutoff_stats" in exported.capabilities().outputs
+
+
 def test_effective_num_neighbors():
     """Tests that the effective number of neighbors calculation is correct."""
     edge_distances = torch.tensor([1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0])
