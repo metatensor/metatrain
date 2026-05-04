@@ -39,6 +39,10 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 from .documentation import ModelHypers
 
 
+# Module-level aliases (also exposed on the instance for TorchScript-friendly
+# attribute access from inside ``forward``).
+HOMO_PER_ATOM_OUTPUT_NAME = "mtt::aux::homo_per_atom"
+LUMO_PER_ATOM_OUTPUT_NAME = "mtt::aux::lumo_per_atom"
 
 
 def _scatter_logsumexp(
@@ -121,8 +125,8 @@ class GapPET(PET):
         # avoid wasted compute and parameters.
         self._unregister_pet_target(self._gap_target_name)
         
-        self.HOMO_PER_ATOM_OUTPUT_NAME = "mtt::aux::homo_per_atom"
-        self.LUMO_PER_ATOM_OUTPUT_NAME = "mtt::aux::lumo_per_atom"
+        self.HOMO_PER_ATOM_OUTPUT_NAME = HOMO_PER_ATOM_OUTPUT_NAME
+        self.LUMO_PER_ATOM_OUTPUT_NAME = LUMO_PER_ATOM_OUTPUT_NAME
 
         # Internal pseudo-target names used to register PET-style heads for the HOMO
         # and LUMO per-atom scalar fields. They are *not* exposed through
