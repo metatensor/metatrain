@@ -67,7 +67,11 @@ class PET(ModelInterface[ModelHypers]):
         # Cache frequently accessed hyperparameters
         self.cutoff = float(self.hypers["cutoff"])
         self.cutoff_function = self.hypers["cutoff_function"]
-        self.cutoff_width = float(self.hypers["cutoff_width"]) if self.hypers["cutoff_width"] is not None else None
+        self.cutoff_width = (
+            float(self.hypers["cutoff_width"])
+            if self.hypers["cutoff_width"] is not None
+            else None
+        )
         self.num_neighbors_adaptive = (
             float(self.hypers["num_neighbors_adaptive"])
             if self.hypers["num_neighbors_adaptive"] is not None
@@ -111,7 +115,7 @@ class PET(ModelInterface[ModelHypers]):
                     self.transformer_type,
                     num_atomic_species,
                     layer_index == 0,  # is first layer
-                    self.edge_tokens_cutoff
+                    self.edge_tokens_cutoff,
                 )
                 for layer_index in range(self.num_gnn_layers)
             ]
