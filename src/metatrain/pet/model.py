@@ -162,7 +162,8 @@ class PET(ModelInterface[ModelHypers]):
                 per_atom=True,
                 description=(
                     "Per-atom adaptive-cutoff diagnostics: column 0 = atomic_cutoff, "
-                    "column 1 = num_neighbors."
+                    "column 1 = num_neighbors. If requested per structure, "
+                    "averages across all atoms are returned."
                 ),
             ),
         }
