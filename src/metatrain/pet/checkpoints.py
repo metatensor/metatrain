@@ -282,7 +282,6 @@ def model_update_v11_v12(checkpoint: dict) -> None:
         checkpoint["model_data"]["model_hypers"]["adaptive_cutoff_method"] = "grid"
     if "edge_tokens_cutoff" not in checkpoint["model_data"]["model_hypers"]:
         checkpoint["model_data"]["model_hypers"]["edge_tokens_cutoff"] = False
-    
 
 
 ###########################
