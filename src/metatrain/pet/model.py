@@ -440,7 +440,6 @@ class PET(ModelInterface[ModelHypers]):
                 sample_labels,
                 species,
                 atomic_cutoffs_stats,
-                num_neighbors_stats,
             ) = systems_to_batch(
                 systems,
                 nl_options,
@@ -453,40 +452,14 @@ class PET(ModelInterface[ModelHypers]):
             )
 
         if "mtt::aux::cutoff_stats" in outputs:
-            with torch.profiler.record_function("PET::_get_output_cutoff_stats"):
-                cutoff_stats_values = torch.stack(
-                    [
-                        atomic_cutoffs_stats,
-                        num_neighbors_stats.to(atomic_cutoffs_stats.dtype),
-                    ],
-                    dim=-1,
+            with torch.profiler.record_function("PET::_get_cutoff_stats"):
+                return_dict["mtt::aux::cutoff_stats"] = self._get_cutoff_stats(
+                    atomic_cutoffs_stats,
+                    padding_mask,
+                    sample_labels,
+                    selected_atoms,
+                    outputs["mtt::aux::cutoff_stats"].per_atom,
                 )
-                cutoff_stats_tmap = TensorMap(
-                    keys=self.single_label,
-                    blocks=[
-                        TensorBlock(
-                            values=cutoff_stats_values,
-                            samples=sample_labels,
-                            components=[],
-                            properties=Labels(
-                                names=["property"],
-                                values=torch.tensor(
-                                    [[0], [1]], device=cutoff_stats_values.device
-                                ),
-                                assume_unique=True,
-                            ),
-                        )
-                    ],
-                )
-                if selected_atoms is not None:
-                    cutoff_stats_tmap = mts.slice(
-                        cutoff_stats_tmap,
-                        axis="samples",
-                        selection=selected_atoms,
-                    )
-                if not outputs["mtt::aux::cutoff_stats"].per_atom:
-                    cutoff_stats_tmap = sum_over_atoms(cutoff_stats_tmap)
-                return_dict["mtt::aux::cutoff_stats"] = cutoff_stats_tmap
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
@@ -808,6 +781,39 @@ class PET(ModelInterface[ModelHypers]):
             systems, short_range_features, flattened_lengths
         )
         return long_range_features
+
+    def _get_cutoff_stats(
+        self,
+        atomic_cutoffs: torch.Tensor,
+        padding_mask: torch.Tensor,
+        sample_labels: Labels,
+        selected_atoms: Optional[Labels],
+        per_atom: bool,
+    ) -> TensorMap:
+        # padding_mask is True for real edges, False for padding, shape
+        # (num_nodes, max_edges_per_node).
+        num_neighbors = padding_mask.sum(dim=-1).to(atomic_cutoffs.dtype)
+        values = torch.stack([atomic_cutoffs, num_neighbors], dim=-1)
+        tmap = TensorMap(
+            keys=self.single_label,
+            blocks=[
+                TensorBlock(
+                    values=values,
+                    samples=sample_labels,
+                    components=[],
+                    properties=Labels(
+                        names=["property"],
+                        values=torch.tensor([[0], [1]], device=values.device),
+                        assume_unique=True,
+                    ),
+                )
+            ],
+        )
+        if selected_atoms is not None:
+            tmap = mts.slice(tmap, axis="samples", selection=selected_atoms)
+        if not per_atom:
+            tmap = mts.mean_over_samples(tmap, sample_names=["atom"])
+        return tmap
 
     def _get_output_features(
         self,

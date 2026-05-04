@@ -123,7 +123,6 @@ def systems_to_batch(
     Labels,
     torch.Tensor,
     torch.Tensor,
-    torch.Tensor,
 ]:
     """
     Converts a list of systems to a batch required for the PET model.
@@ -159,10 +158,6 @@ def systems_to_batch(
             from the autograd graph). With adaptive cutoff active this is
             the per-atom adapted cutoff; otherwise every entry equals
             ``options.cutoff``. Always shape ``(num_nodes,)``.
-        - `num_neighbors_stats`: Diagnostic per-atom neighbor count.
-            With adaptive cutoff active, this is the post-pruning count
-            (neighbors within each atom's adapted cutoff). Otherwise it is
-            the raw count of neighbor-list edges within ``options.cutoff``.
 
     """
     (
@@ -316,5 +311,4 @@ def systems_to_batch(
         sample_labels,
         species,
         atomic_cutoffs_stats,
-        num_neighbors,
     )

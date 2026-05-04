@@ -123,6 +123,61 @@ def test_cutoff_stats_output(num_neighbors_adaptive):
         )
 
 
+def test_cutoff_stats_mean_over_atoms():
+    """With ``per_atom=False`` the output is averaged across atoms in each
+    system (sum would mix two unrelated quantities — atomic cutoffs and
+    integer counts — into a meaningless total)."""
+    torch.manual_seed(0)
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = 8
+    hypers["cutoff"] = 5.0
+    model = PET(hypers, dataset_info)
+
+    system_a = System(
+        types=torch.tensor([6, 6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.5, 0.0, 0.0], [3.0, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system_b = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.2, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    nl = model.requested_neighbor_lists()
+    system_a = get_system_with_neighbor_lists(system_a, nl)
+    system_b = get_system_with_neighbor_lists(system_b, nl)
+
+    per_atom_result = model(
+        [system_a, system_b],
+        {"mtt::aux::cutoff_stats": ModelOutput(per_atom=True)},
+    )["mtt::aux::cutoff_stats"]
+    per_system_result = model(
+        [system_a, system_b],
+        {"mtt::aux::cutoff_stats": ModelOutput(per_atom=False)},
+    )["mtt::aux::cutoff_stats"]
+
+    per_system_block = per_system_result.block()
+    assert per_system_block.values.shape == (2, 2)
+    # Each per-system row equals the mean across that system's atoms.
+    per_atom_values = per_atom_result.block().values
+    per_atom_samples = per_atom_result.block().samples.values
+    for sys_idx in range(2):
+        mask = per_atom_samples[:, 0] == sys_idx
+        expected = per_atom_values[mask].mean(dim=0)
+        assert torch.allclose(per_system_block.values[sys_idx], expected)
+
+
 def test_cutoff_stats_not_requested():
     """When ``mtt::aux::cutoff_stats`` is not requested the output is absent
     and the forward pass still works."""
