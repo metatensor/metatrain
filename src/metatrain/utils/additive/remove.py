@@ -116,7 +116,7 @@ def remove_additive(
                 )
 
             else:
-                new_target_blocks.append(block)
+                new_target_blocks.append(block.copy())
 
         targets[target_key] = TensorMap(
             keys=targets[target_key].keys,

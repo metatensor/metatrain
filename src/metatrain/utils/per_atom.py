@@ -57,7 +57,7 @@ def divide_by_num_atoms(tensor_map: TensorMap, num_atoms: torch.Tensor) -> Tenso
     blocks = []
     for block in tensor_map.blocks():
         if "atom" in block.samples.names:
-            new_block = block
+            new_block = block.copy()
         else:
             values = block.values / num_atoms.view(
                 -1, *[1] * (len(block.values.shape) - 1)
@@ -70,7 +70,7 @@ def divide_by_num_atoms(tensor_map: TensorMap, num_atoms: torch.Tensor) -> Tenso
             )
             for gradient_name, gradient in block.gradients():
                 if "atom" in gradient.samples.names:
-                    new_gradient = gradient
+                    new_gradient = gradient.copy()
                 else:
                     values = gradient.values / num_atoms.view(
                         -1, *[1] * (len(gradient.values.shape) - 1)

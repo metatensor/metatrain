@@ -121,7 +121,7 @@ def _densify_per_atom_atomic_basis_target(
     blocks = []
     for key, layout_block in layout.items():
         if key in tensor.keys:
-            block = tensor.block(key)
+            block = tensor.block(key).copy()
         else:
             block = layout_block.copy()
             assert len(block.samples) == 0
