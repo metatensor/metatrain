@@ -40,6 +40,59 @@ from .modules.transformer import CartesianTransformer
 AVAILABLE_FEATURIZERS = typing.get_args(ModelHypers.__annotations__["featurizer_type"])
 
 
+def _parse_num_neighbors_adaptive_choices(value: Any) -> List[float]:
+    """Normalize the ``num_neighbors_adaptive`` hyperparameter to a list of
+    floats. ``None`` becomes an empty list; a scalar becomes a single-element
+    list; a list/tuple is validated and converted element-wise.
+    """
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        if len(value) == 0:
+            raise ValueError(
+                "num_neighbors_adaptive must not be an empty list. Use `null`/"
+                "`None` to disable the adaptive cutoff scheme."
+            )
+        choices: List[float] = []
+        for v in value:
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise ValueError(
+                    "num_neighbors_adaptive list entries must be numbers, got "
+                    f"{type(v).__name__}: {v!r}"
+                )
+            if v <= 0:
+                raise ValueError(
+                    "num_neighbors_adaptive entries must be positive, got "
+                    f"{v}"
+                )
+            choices.append(float(v))
+        return choices
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(
+            "num_neighbors_adaptive must be None, a number, or a list of "
+            f"numbers, got {type(value).__name__}: {value!r}"
+        )
+    if value <= 0:
+        raise ValueError(
+            f"num_neighbors_adaptive must be positive, got {value}"
+        )
+    return [float(value)]
+
+
+def _default_num_neighbors_adaptive(choices: List[float]) -> Optional[float]:
+    """Pick the inference-time default for the adaptive-cutoff target. With
+    a single choice (or none), the answer is unambiguous. With multiple
+    choices we use the median of the sorted list so the default sits in
+    the middle of the range the model was trained over.
+    """
+    if len(choices) == 0:
+        return None
+    if len(choices) == 1:
+        return choices[0]
+    sorted_choices = sorted(choices)
+    return sorted_choices[len(sorted_choices) // 2]
+
+
 class PET(ModelInterface[ModelHypers]):
     """
     Metatrain-native implementation of the PET architecture.
@@ -59,6 +112,8 @@ class PET(ModelInterface[ModelHypers]):
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
     component_labels: Dict[str, List[List[Labels]]]
+    num_neighbors_adaptive: Optional[float]
+    num_neighbors_adaptive_choices: List[float]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
@@ -68,10 +123,16 @@ class PET(ModelInterface[ModelHypers]):
         self.cutoff = float(self.hypers["cutoff"])
         self.cutoff_function = self.hypers["cutoff_function"]
         self.cutoff_width = float(self.hypers["cutoff_width"])
-        self.num_neighbors_adaptive = (
-            float(self.hypers["num_neighbors_adaptive"])
-            if self.hypers["num_neighbors_adaptive"] is not None
-            else None
+        # ``num_neighbors_adaptive`` may be ``None`` (disabled), a single int
+        # (fixed target), or a list of ints (per-batch random sampling during
+        # training, with a single fixed value used at evaluation).
+        self.num_neighbors_adaptive_choices: List[float] = (
+            _parse_num_neighbors_adaptive_choices(
+                self.hypers["num_neighbors_adaptive"]
+            )
+        )
+        self.num_neighbors_adaptive: Optional[float] = (
+            _default_num_neighbors_adaptive(self.num_neighbors_adaptive_choices)
         )
         self.adaptive_cutoff_method = self.hypers["adaptive_cutoff_method"]
         self.d_pet = self.hypers["d_pet"]
@@ -429,6 +490,19 @@ class PET(ModelInterface[ModelHypers]):
 
         with torch.profiler.record_function("PET::systems_to_batch"):
             # **Stage 0: Input Preparation**
+            # When training with multiple ``num_neighbors_adaptive`` choices,
+            # sample a fresh value per forward call so each batch sees a
+            # different target neighbor count. At eval, the cached scalar is
+            # used.
+            active_num_neighbors_adaptive: Optional[float] = (
+                self.num_neighbors_adaptive
+            )
+            num_choices = len(self.num_neighbors_adaptive_choices)
+            if self.training and num_choices > 1:
+                idx = int(torch.randint(0, num_choices, (1,)).item())
+                active_num_neighbors_adaptive = (
+                    self.num_neighbors_adaptive_choices[idx]
+                )
             (
                 element_indices_nodes,
                 element_indices_neighbors,
@@ -448,7 +522,7 @@ class PET(ModelInterface[ModelHypers]):
                 self.species_to_species_index,
                 self.cutoff_function,
                 self.cutoff_width,
-                self.num_neighbors_adaptive,
+                active_num_neighbors_adaptive,
                 self.adaptive_cutoff_method,
             )
 
@@ -1242,6 +1316,39 @@ class PET(ModelInterface[ModelHypers]):
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
 
         return model
+
+    def set_num_neighbors_adaptive(self, value: Optional[float]) -> None:
+        """Pin the target neighbor count used by the adaptive cutoff at
+        inference time.
+
+        Useful before exporting a model that was trained with a list of
+        ``num_neighbors_adaptive`` choices: the user can pick which value
+        the deployed model should use. When ``value`` is ``None``, the
+        adaptive cutoff is disabled at inference (a fixed cutoff is used).
+        Otherwise ``value`` should match (or at least lie in the range of)
+        the training choices, and a warning is emitted otherwise.
+        """
+        if value is None:
+            self.num_neighbors_adaptive = None
+            return
+        value_f = float(value)
+        if value_f <= 0:
+            raise ValueError(
+                f"num_neighbors_adaptive must be positive, got {value}"
+            )
+        if self.num_neighbors_adaptive_choices and (
+            value_f < min(self.num_neighbors_adaptive_choices)
+            or value_f > max(self.num_neighbors_adaptive_choices)
+        ):
+            warnings.warn(
+                f"Setting num_neighbors_adaptive to {value_f}, which is "
+                "outside the range the model was trained on "
+                f"({self.num_neighbors_adaptive_choices}). Predictions "
+                "may degrade.",
+                UserWarning,
+                stacklevel=2,
+            )
+        self.num_neighbors_adaptive = value_f
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype

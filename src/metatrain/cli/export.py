@@ -88,6 +88,19 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         help="Revision (branch, tag, or commit) to download from Hugging Face.",
     )
     parser.add_argument(
+        "--num-neighbors-adaptive",
+        dest="num_neighbors_adaptive",
+        type=float,
+        required=False,
+        default=None,
+        help=(
+            "For PET models trained with multiple ``num_neighbors_adaptive`` "
+            "choices, select which value to bake into the exported model. "
+            "Has no effect on models that do not implement "
+            "``set_num_neighbors_adaptive``."
+        ),
+    )
+    parser.add_argument(
         "--token",
         dest="hf_token",
         type=str,
@@ -144,6 +157,7 @@ def _prepare_export_model_args(args: argparse.Namespace) -> None:
         "hf_token",
         "metadata",
         "revision",
+        "num_neighbors_adaptive",
     ]
     original_keys = list(args.__dict__.keys())
 
@@ -169,6 +183,7 @@ def export_model(
     hf_token: Optional[str] = None,
     metadata: Optional[ModelMetadata] = None,
     revision: Optional[str] = None,
+    num_neighbors_adaptive: Optional[float] = None,
 ) -> None:
     """Export a trained model allowing it to make predictions.
 
@@ -204,6 +219,10 @@ def export_model(
         (optional)
     :param metadata: metadata to be appended to the model
     :param revision: Revision (branch, tag, or commit) to download from Hugging Face
+    :param num_neighbors_adaptive: optional override for the model's adaptive
+        cutoff target neighbor count, applied before export. Only effective
+        for models that implement ``set_num_neighbors_adaptive`` (e.g. PET
+        trained with a list of ``num_neighbors_adaptive`` choices).
     """
     # Resolve Hugging Face repository path if applicable
     if path_in_repo is not None:
@@ -243,6 +262,19 @@ def export_model(
             extensions_path = None
 
         if not is_atomistic_model(model):
+            if num_neighbors_adaptive is not None:
+                if hasattr(model, "set_num_neighbors_adaptive"):
+                    logging.info(
+                        "Setting num_neighbors_adaptive to "
+                        f"{num_neighbors_adaptive} on the model before export."
+                    )
+                    model.set_num_neighbors_adaptive(num_neighbors_adaptive)
+                else:
+                    logging.warning(
+                        "--num-neighbors-adaptive was passed but the model "
+                        f"({type(model).__name__}) does not implement "
+                        "set_num_neighbors_adaptive; ignoring."
+                    )
             model = model.export(metadata)
 
         model.save(path, collect_extensions=extensions_path)

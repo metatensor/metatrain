@@ -66,7 +66,7 @@ important** (in decreasing order of importance):
       :no-index:
 """
 
-from typing import Literal, Optional
+from typing import List, Literal, Optional, Union
 
 from typing_extensions import TypedDict
 
@@ -88,7 +88,7 @@ class ModelHypers(TypedDict):
     between atoms is expected to be negligible. A lower cutoff will lead
     to faster models.
     """
-    num_neighbors_adaptive: Optional[int] = None
+    num_neighbors_adaptive: Optional[Union[int, List[int]]] = None
     """Target number of neighbors for the adaptive cutoff scheme.
 
     This parameter activates the adaptive cutoff functionality.
@@ -97,6 +97,15 @@ class ModelHypers(TypedDict):
     value. This can be useful to have a more uniform number of neighbors
     per atom, especially in sparse systems. Setting it to None disables
     this feature and uses all neighbors within the fixed cutoff radius.
+
+    A list of values (e.g. ``[8, 16, 24, 32, 40]``) can also be provided.
+    In this case, a value is sampled uniformly at random from the list at
+    every training batch, so the model learns to be accurate across that
+    range of neighborhood sizes. At evaluation time, a single value is
+    used (the median of the list by default); the value can be overridden
+    via :py:meth:`PET.set_num_neighbors_adaptive
+    <metatrain.pet.PET.set_num_neighbors_adaptive>` or, when calling
+    ``mtt export``, via the ``--num-neighbors-adaptive`` CLI flag.
     """
     adaptive_cutoff_method: Literal["grid", "solver"] = "solver"
     """Algorithm used to compute the per-atom adaptive cutoffs.

@@ -501,3 +501,174 @@ def test_adaptive_cutoff_dissociated_atoms(cutoff, adaptive_cutoff_method):
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
     outputs = {"energy": ModelOutput(per_atom=False)}
     _ = model([system], outputs)
+
+
+def _make_diamond_system():
+    """A small periodic system with several neighbors per atom, useful for
+    exercising the adaptive cutoff machinery."""
+    atoms = bulk("C", "diamond", a=3.567, cubic=True)
+    system = systems_to_torch(atoms)
+    return system.to(dtype=torch.float64)
+
+
+def test_num_neighbors_adaptive_list_default_is_median():
+    """Passing a list selects the median as the inference-time default."""
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = [8, 16, 24, 32, 40]
+    hypers["cutoff"] = 6.0
+    model = PET(hypers, dataset_info)
+    assert model.num_neighbors_adaptive_choices == [8.0, 16.0, 24.0, 32.0, 40.0]
+    assert model.num_neighbors_adaptive == 24.0
+
+
+def test_num_neighbors_adaptive_list_samples_during_training():
+    """During ``model.train()`` the active target neighbor count is sampled
+    from the list per forward call. Spy on ``systems_to_batch`` to record
+    what gets passed and verify all choices are exercised."""
+    torch.manual_seed(0)
+    random.seed(0)
+    np.random.seed(0)
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    choices = [8, 16, 24, 32, 40]
+    hypers["num_neighbors_adaptive"] = choices
+    hypers["cutoff"] = 6.0
+    model = PET(hypers, dataset_info).to(torch.float64)
+    model.train()
+
+    system = _make_diamond_system()
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"energy": ModelOutput(per_atom=False)}
+
+    from metatrain.pet import model as pet_model
+
+    seen: list[float] = []
+    real_fn = pet_model.systems_to_batch
+
+    def spy(*args, **kwargs):
+        # ``num_neighbors_adaptive`` is the 7th positional argument of
+        # ``systems_to_batch`` (index 6) — see its signature.
+        seen.append(args[6])
+        return real_fn(*args, **kwargs)
+
+    pet_model.systems_to_batch = spy
+    try:
+        for _ in range(200):
+            _ = model([system], outputs)
+    finally:
+        pet_model.systems_to_batch = real_fn
+
+    seen_set = {float(v) for v in seen}
+    assert seen_set == {float(c) for c in choices}, (
+        f"Expected all of {choices} to be sampled at least once, got {seen_set}"
+    )
+
+
+def test_num_neighbors_adaptive_list_eval_uses_fixed_value():
+    """In eval mode the active value is the cached scalar regardless of
+    the list."""
+    torch.manual_seed(0)
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = [8, 16, 24, 32, 40]
+    hypers["cutoff"] = 6.0
+    model = PET(hypers, dataset_info).to(torch.float64)
+    model.eval()
+
+    system = _make_diamond_system()
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"energy": ModelOutput(per_atom=False)}
+
+    from metatrain.pet import model as pet_model
+
+    seen: list[float] = []
+    real_fn = pet_model.systems_to_batch
+
+    def spy(*args, **kwargs):
+        seen.append(args[6])
+        return real_fn(*args, **kwargs)
+
+    pet_model.systems_to_batch = spy
+    try:
+        for _ in range(20):
+            _ = model([system], outputs)
+    finally:
+        pet_model.systems_to_batch = real_fn
+
+    assert all(v == 24.0 for v in seen), seen
+
+
+def test_set_num_neighbors_adaptive_pins_inference_value():
+    """``set_num_neighbors_adaptive`` overrides the inference-time value;
+    out-of-range values warn but still apply."""
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = [8, 16, 24, 32, 40]
+    hypers["cutoff"] = 6.0
+    model = PET(hypers, dataset_info)
+
+    model.set_num_neighbors_adaptive(40)
+    assert model.num_neighbors_adaptive == 40.0
+
+    model.set_num_neighbors_adaptive(None)
+    assert model.num_neighbors_adaptive is None
+
+    with pytest.warns(UserWarning, match="outside the range"):
+        model.set_num_neighbors_adaptive(100.0)
+    assert model.num_neighbors_adaptive == 100.0
+
+    with pytest.raises(ValueError):
+        model.set_num_neighbors_adaptive(-1.0)
+
+
+@pytest.mark.parametrize("bad", [[], [0, 8], [-1], "8", [True], 0])
+def test_num_neighbors_adaptive_invalid_inputs(bad):
+    """Bad inputs are rejected up front with a clear error."""
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = bad
+    hypers["cutoff"] = 6.0
+    with pytest.raises(ValueError):
+        PET(hypers, dataset_info)
