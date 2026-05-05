@@ -91,6 +91,11 @@ dpa3 = [
     "deepmd-kit[torch]>=3.1.0",
     "torch>=2.7",
 ]
+graph2mat = [
+    "graph2mat[e3nn]",
+    "e3nn",
+    "sisl",
+]
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]
