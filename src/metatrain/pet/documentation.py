@@ -234,6 +234,14 @@ class TrainerHypers(TypedDict):
     :meth:`Scaler.train_model <metatrain.utils.scaler.scaler.Scaler.train_model>`,
     see its documentation to understand exactly what to pass here.
     """
+    ri_aux_basis: str | dict[str, str] | None = None
+    """Auxiliary basis used to build per-system Coulomb matrices for RI losses.
+
+    This can be a single PySCF auxiliary basis name shared across all RI-coefficient
+    targets, or a mapping from target name to basis name when different RI targets use
+    different auxiliary bases. Leave it as ``None`` when RI Coulomb losses are not used.
+    The current ``ri_coulomb`` implementation also requires ``scale_targets=False``.
+    """
     per_structure_targets: list[str] = []
     """Targets to calculate per-structure losses and errors on."""
     num_workers: Optional[int] = None

@@ -2,7 +2,7 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
@@ -38,6 +38,11 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists_transform,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.pyscf_loss import (
+    RIAuxBasis,
+    get_coulomb_matrices_transform,
+    resolve_ri_aux_basis,
+)
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
 
@@ -180,6 +185,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
         atomic_basis_transform, atomic_basis_reverse_transform = (
             get_prepare_atomic_basis_targets_transform(train_targets, extra_data_info)
         )
+        loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])
+        ri_coulomb_transforms = self._get_ri_coulomb_transforms(loss_hypers)
 
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
@@ -248,6 +255,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             callables=[
                 atomic_basis_transform,
                 rotational_augmenter.apply_random_augmentations,
+                *ri_coulomb_transforms,
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
@@ -258,6 +266,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             target_keys=list(train_targets.keys()),
             callables=[  # no augmentation for validation
                 atomic_basis_transform,
+                *ri_coulomb_transforms,
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
@@ -371,7 +380,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
         # Create a loss function:
-        loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
         loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
         logging.info("Using the following loss functions:")
         for name, info in loss_fn.metadata.items():
@@ -685,6 +693,40 @@ class Trainer(TrainerInterface[TrainerHypers]):
             checkpoint,
             check_file_extension(path, ".ckpt"),
         )
+
+    def _get_ri_coulomb_transforms(
+        self,
+        loss_hypers: Dict[str, LossSpecification],
+    ) -> list[Callable]:
+        ri_aux_basis = self.hypers["ri_aux_basis"]
+        if any(
+            target_loss["type"] == "ri_coulomb" for target_loss in loss_hypers.values()
+        ):
+            if ri_aux_basis is None:
+                raise ValueError(
+                    "PET training with 'ri_coulomb' loss requires 'ri_aux_basis' to be set."
+                )
+            if self.hypers["scale_targets"]:
+                raise ValueError(
+                    "PET training with 'ri_coulomb' loss currently requires "
+                    "'scale_targets' to be set to False."
+                )
+        if ri_aux_basis is None:
+            return []
+
+        target_to_aux_basis: dict[str, str] = {}
+        for target_name, target_loss in loss_hypers.items():
+            if target_loss["type"] != "ri_coulomb":
+                continue
+            target_to_aux_basis[target_name] = resolve_ri_aux_basis(
+                target_name,
+                cast(RIAuxBasis, ri_aux_basis),
+            )
+
+        if len(target_to_aux_basis) == 0:
+            return []
+
+        return [get_coulomb_matrices_transform(target_to_aux_basis)]
 
     @classmethod
     def load_checkpoint(

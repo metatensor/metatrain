@@ -14,6 +14,7 @@ from torch.nn.modules.loss import _Loss
 from typing_extensions import NotRequired, TypedDict
 
 from metatrain.utils.data import TargetInfo
+from metatrain.utils.pyscf_loss import coulomb_matrix_name, unpack_coulomb_matrices
 
 
 @with_config(ConfigDict(extra="allow"))
@@ -886,6 +887,86 @@ class TensorMapRINormLoss(TensorMapMSELoss):
 ########################################################################################
 
 
+class TensorMapRICoulombLoss(LossInterface):
+    """Quadratic Coulomb-metric loss for RI coefficients."""
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+    ):
+        super().__init__(name, gradient, weight, reduction)
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        if self.gradient is not None:
+            raise NotImplementedError(
+                "TensorMapRICoulombLoss does not support gradients of RI targets."
+            )
+
+        assert extra_data is not None, "TensorMapRICoulombLoss requires extra_data"
+
+        matrix_name = coulomb_matrix_name(self.target)
+        assert matrix_name in extra_data, (
+            f"TensorMapRICoulombLoss requires '{matrix_name}' in extra_data"
+        )
+
+        tensor_map_pred = predictions[self.target]
+        tensor_map_targ = targets[self.target]
+
+        delta_blocks = []
+        for key in tensor_map_pred.keys:
+            block_pred = tensor_map_pred.block(key)
+            block_targ = tensor_map_targ.block(key)
+            delta_blocks.append(
+                TensorBlock(
+                    samples=block_pred.samples,
+                    components=block_pred.components,
+                    properties=block_pred.properties,
+                    values=block_pred.values - block_targ.values,
+                )
+            )
+
+        delta_map = TensorMap(tensor_map_pred.keys, delta_blocks)
+        delta_coefficients = tensormap_to_pyscf_coefficients_padded(delta_map)
+
+        if len(delta_coefficients) == 0:
+            first_block = tensor_map_pred.block(tensor_map_pred.keys[0])
+            return torch.zeros(
+                (), dtype=first_block.values.dtype, device=first_block.values.device
+            )
+
+        coulomb_matrices = unpack_coulomb_matrices(
+            extra_data[matrix_name],
+            [len(coefficients) for coefficients in delta_coefficients],
+        )
+
+        losses = []
+        for delta, coulomb_matrix in zip(
+            delta_coefficients, coulomb_matrices, strict=True
+        ):
+            losses.append(torch.einsum("i,ij,j->", delta, coulomb_matrix, delta))
+
+        loss_values = torch.stack(losses)
+        if self.reduction == "mean":
+            return loss_values.mean()
+        elif self.reduction == "sum":
+            return loss_values.sum()
+        elif self.reduction == "none":
+            return loss_values
+        else:
+            raise ValueError(f"Unknown reduction '{self.reduction}'")
+
+
+########################################################################################
+
+
 class MaskedDOSLoss(LossInterface):
     """
     Masked DOS loss on :py:class:`TensorMap` entries.
@@ -1628,6 +1709,7 @@ class LossType(Enum):
     GAUSSIAN_CRPS = ("gaussian_crps_ensemble", TensorMapGaussianCRPSLoss)
     EMPIRICAL_CRPS = ("empirical_crps_ensemble", TensorMapEmpiricalCRPSLoss)
     RI_NORM = ("ri_norm", TensorMapRINormLoss)
+    RI_COULOMB = ("ri_coulomb", TensorMapRICoulombLoss)
     ESP = ("esp", TensorMapESPLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
