@@ -139,10 +139,7 @@ class TargetInfo:
             self.is_scalar = True
         elif components_first_block[0].names[0].startswith("xyz"):
             self.is_cartesian = True
-        elif (
-            len(components_first_block) == 1
-            and components_first_block[0].names[0] == "o3_mu"
-        ):
+        elif components_first_block[0].names[0].startswith("o3_mu"):
             self.is_spherical = True
         else:
             raise ValueError(
@@ -583,9 +580,12 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
     # Define the names of the keys in the tensormap
     if product in [None, "coupled"]:
         keys_names = ["o3_lambda", "o3_sigma"]
+    elif product == "cartesian":
+        keys_names = ["o3_lambda_1", "o3_lambda_2", "o3_sigma_1", "o3_sigma_2"]
     else:
         raise ValueError(
-            f"Unknown product {product!r}. Supported values are 'coupled', and None."
+            f"Unknown product {product!r}. Supported values are 'cartesian', "
+            "'coupled' and None."
         )
 
     if is_atomic_basis:
@@ -720,11 +720,12 @@ def _build_spherical_target_block(
 def _get_spherical_irreps_iter(
     irreps: list[dict],
     target: dict,
-    product: Optional[Literal["coupled"]] = None,
+    product: Optional[Literal["cartesian", "coupled"]] = None,
 ) -> tuple[list[list[tuple[int, int, int]]], list[Labels]]:
-    if product is not None and product not in ["coupled"]:
+    if product not in [None, "cartesian", "coupled"]:
         raise ValueError(
-            f"Product {product!r} is not supported. Supported products are ['coupled']."
+            f"Product '{product}' is not supported. Supported products are"
+            " 'cartesian' and 'coupled'."
         )
 
     irreps_iter = [
@@ -737,7 +738,7 @@ def _get_spherical_irreps_iter(
         ]
         for irrep in irreps
     ]
-    if product is not None:
+    if product in ["cartesian", "coupled"]:
         irreps_iter = [
             i_irrep + j_irrep
             for i_irrep, j_irrep in itertools.product(irreps_iter, repeat=2)

@@ -26,7 +26,7 @@ from metatrain.utils.data import (
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
 )
-from metatrain.utils.distributed.slurm import DistributedEnvironment
+from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator, LossSpecification
@@ -171,12 +171,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
             # the calculation of the device number works both when GPUs on different
             # processes are not visible to each other and when they are
-            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
-            device_number = distr_env.local_rank % torch.cuda.device_count()
-            device = torch.device("cuda", device_number)
-            torch.distributed.init_process_group(backend="nccl", device_id=device)
-            world_size = torch.distributed.get_world_size()
-            rank = torch.distributed.get_rank()
+            device, world_size, rank = initialize_slurm_nccl_process_group(
+                self.hypers["distributed_port"]
+            )
         else:
             rank = 0
             device = devices[0]

@@ -52,7 +52,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 11
+    __checkpoint_version__ = 12
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -73,6 +73,7 @@ class PET(ModelInterface[ModelHypers]):
             if self.hypers["num_neighbors_adaptive"] is not None
             else None
         )
+        self.adaptive_cutoff_method = self.hypers["adaptive_cutoff_method"]
         self.d_pet = self.hypers["d_pet"]
         self.d_node = self.hypers["d_node"]
         self.d_head = self.hypers["d_head"]
@@ -156,7 +157,15 @@ class PET(ModelInterface[ModelHypers]):
 
         # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(per_atom=True, description="internal features")
+            "features": ModelOutput(per_atom=True, description="internal features"),
+            "mtt::aux::cutoff_stats": ModelOutput(
+                per_atom=True,
+                description=(
+                    "Per-atom adaptive-cutoff diagnostics: column 0 = atomic_cutoff, "
+                    "column 1 = num_neighbors. If requested per structure, "
+                    "averages across all atoms are returned."
+                ),
+            ),
         }
 
         # Modified dataset_info with the targets as they will be seen by PET
@@ -431,6 +440,7 @@ class PET(ModelInterface[ModelHypers]):
                 system_indices,
                 sample_labels,
                 species,
+                atomic_cutoffs_stats,
             ) = systems_to_batch(
                 systems,
                 nl_options,
@@ -439,7 +449,18 @@ class PET(ModelInterface[ModelHypers]):
                 self.cutoff_function,
                 self.cutoff_width,
                 self.num_neighbors_adaptive,
+                self.adaptive_cutoff_method,
             )
+
+        if "mtt::aux::cutoff_stats" in outputs:
+            with torch.profiler.record_function("PET::_get_cutoff_stats"):
+                return_dict["mtt::aux::cutoff_stats"] = self._get_cutoff_stats(
+                    atomic_cutoffs_stats,
+                    padding_mask,
+                    sample_labels,
+                    selected_atoms,
+                    outputs["mtt::aux::cutoff_stats"].per_atom,
+                )
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
@@ -761,6 +782,39 @@ class PET(ModelInterface[ModelHypers]):
             systems, short_range_features, flattened_lengths
         )
         return long_range_features
+
+    def _get_cutoff_stats(
+        self,
+        atomic_cutoffs: torch.Tensor,
+        padding_mask: torch.Tensor,
+        sample_labels: Labels,
+        selected_atoms: Optional[Labels],
+        per_atom: bool,
+    ) -> TensorMap:
+        # padding_mask is True for real edges, False for padding, shape
+        # (num_nodes, max_edges_per_node).
+        num_neighbors = padding_mask.sum(dim=-1).to(atomic_cutoffs.dtype)
+        values = torch.stack([atomic_cutoffs, num_neighbors], dim=-1)
+        tmap = TensorMap(
+            keys=self.single_label,
+            blocks=[
+                TensorBlock(
+                    values=values,
+                    samples=sample_labels,
+                    components=[],
+                    properties=Labels(
+                        names=["property"],
+                        values=torch.tensor([[0], [1]], device=values.device),
+                        assume_unique=True,
+                    ),
+                )
+            ],
+        )
+        if selected_atoms is not None:
+            tmap = mts.slice(tmap, axis="samples", selection=selected_atoms)
+        if not per_atom:
+            tmap = mts.mean_over_samples(tmap, sample_names=["atom"])
+        return tmap
 
     def _get_output_features(
         self,

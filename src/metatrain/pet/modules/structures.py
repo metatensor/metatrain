@@ -4,7 +4,7 @@ import torch
 from metatensor.torch import Labels
 from metatomic.torch import NeighborListOptions, System
 
-from .adaptive_cutoff import get_adaptive_cutoffs
+from .adaptive_cutoff import get_adaptive_cutoffs_grid, get_adaptive_cutoffs_solver
 from .nef import (
     compute_reversed_neighbor_list,
     edge_array_to_nef,
@@ -36,54 +36,64 @@ def concatenate_structures(
         species, cells, cell shifts, system indices, and sample labels.
     """
 
-    positions: List[torch.Tensor] = []
-    centers: List[torch.Tensor] = []
-    neighbors: List[torch.Tensor] = []
-    species: List[torch.Tensor] = []
-    cell_shifts: List[torch.Tensor] = []
-    cells: List[torch.Tensor] = []
-    system_indices: List[torch.Tensor] = []
-    atom_indices: List[torch.Tensor] = []
-    node_counter = 0
+    device = systems[0].positions.device
 
-    for i, system in enumerate(systems):
+    positions_list: List[torch.Tensor] = []
+    species_list: List[torch.Tensor] = []
+    cells_list: List[torch.Tensor] = []
+    nl_values_list: List[torch.Tensor] = []
+    sizes: List[int] = []
+    num_edges: List[int] = []
+    node_offsets_list: List[int] = []
+
+    node_counter = 0
+    for system in systems:
         assert len(system.known_neighbor_lists()) >= 1, "no neighbor list found"
         neighbor_list = system.get_neighbor_list(neighbor_list_options)
         nl_values = neighbor_list.samples.values
 
-        centers_values = nl_values[:, 0]
-        neighbors_values = nl_values[:, 1]
-        cell_shifts_values = nl_values[:, 2:]
+        positions_list.append(system.positions)
+        species_list.append(system.types)
+        cells_list.append(system.cell)
+        nl_values_list.append(nl_values)
 
         system_size = len(system)
-        positions.append(system.positions)
-        species.append(system.types)
-
-        centers.append(centers_values + node_counter)
-        neighbors.append(neighbors_values + node_counter)
-        cell_shifts.append(cell_shifts_values)
-
-        cells.append(system.cell)
-
+        node_offsets_list.append(node_counter)
+        sizes.append(system_size)
+        num_edges.append(nl_values.shape[0])
         node_counter += system_size
-        system_indices.append(
-            torch.full((system_size,), i, device=system.positions.device)
-        )
-        atom_indices.append(torch.arange(system_size, device=system.positions.device))
 
-    positions = torch.cat(positions)
-    centers = torch.cat(centers)
-    neighbors = torch.cat(neighbors)
-    species = torch.cat(species)
-    cells = torch.stack(cells)
-    cell_shifts = torch.cat(cell_shifts)
-    system_indices = torch.cat(system_indices)
-    atom_indices = torch.cat(atom_indices)
+    positions = torch.cat(positions_list)
+    species = torch.cat(species_list)
+    cells = torch.stack(cells_list)
+    nl_values = torch.cat(nl_values_list)
 
-    sample_values = torch.stack(
-        [system_indices, atom_indices],
-        dim=1,
+    centers = nl_values[:, 0]
+    neighbors = nl_values[:, 1]
+    cell_shifts = nl_values[:, 2:]
+
+    num_systems = len(systems)
+    total_edges = sum(num_edges)
+    sizes_tensor = torch.tensor(sizes, device=device, dtype=torch.long)
+    num_edges_tensor = torch.tensor(num_edges, device=device, dtype=torch.long)
+    node_offsets = torch.tensor(node_offsets_list, device=device, dtype=torch.long)
+
+    edge_offsets = torch.repeat_interleave(
+        node_offsets, num_edges_tensor, output_size=total_edges
+    ).to(dtype=centers.dtype)
+    centers = centers + edge_offsets
+    neighbors = neighbors + edge_offsets
+
+    system_indices = torch.repeat_interleave(
+        torch.arange(num_systems, device=device),
+        sizes_tensor,
+        output_size=node_counter,
     )
+    atom_indices = torch.arange(
+        node_counter, device=device, dtype=torch.long
+    ) - torch.repeat_interleave(node_offsets, sizes_tensor, output_size=node_counter)
+
+    sample_values = torch.stack([system_indices, atom_indices], dim=1)
     sample_labels = Labels(
         names=["system", "atom"],
         values=sample_values,
@@ -110,6 +120,7 @@ def systems_to_batch(
     cutoff_function: str,
     cutoff_width: float,
     num_neighbors_adaptive: Optional[float] = None,
+    adaptive_cutoff_method: str = "solver",
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -120,6 +131,7 @@ def systems_to_batch(
     torch.Tensor,
     torch.Tensor,
     Labels,
+    torch.Tensor,
     torch.Tensor,
 ]:
     """
@@ -134,6 +146,10 @@ def systems_to_batch(
     :param num_neighbors_adaptive: Optional maximum number of neighbors per atom.
         If provided, the adaptive cutoff scheme will be used for each atom to
         approximately select this number of neighbors.
+    :param adaptive_cutoff_method: Algorithm used to compute the per-atom adaptive
+        cutoffs when ``num_neighbors_adaptive`` is set. ``"grid"`` uses the legacy
+        probe-grid + Gaussian-weighted average; ``"solver"`` uses a Newton-bisection
+        root finder on the smoothed neighbor count.
     :return: A tuple containing the batch tensors.
         The batch consists of the following tensors:
         - `element_indices_nodes`: The atomic species of the central atoms
@@ -147,6 +163,11 @@ def systems_to_batch(
         - `cutoff_factors`: The cutoff function values for each edge
         - `system_indices`: The system index for each atom in the batch
         - `sample_labels`: Labels indicating the system and atom indices for each atom
+        - `species`: The atomic species of each atom in the batch
+        - `atomic_cutoffs_stats`: Diagnostic per-atom cutoff radius (detached
+            from the autograd graph). With adaptive cutoff active this is
+            the per-atom adapted cutoff; otherwise every entry equals
+            ``options.cutoff``. Always shape ``(num_nodes,)``.
 
     """
     (
@@ -180,30 +201,47 @@ def systems_to_batch(
         with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
             # Adaptive cutoff scheme to approximately select `num_neighbors_adaptive`
             # neighbors for each atom
-            atomic_cutoffs = get_adaptive_cutoffs(
-                centers,
-                edge_distances,
-                num_neighbors_adaptive,
-                num_nodes,
-                options.cutoff,
-                cutoff_width=cutoff_width,
-            )
+            if adaptive_cutoff_method.lower() == "solver":
+                atomic_cutoffs = get_adaptive_cutoffs_solver(
+                    centers,
+                    edge_distances,
+                    num_neighbors_adaptive,
+                    num_nodes,
+                    options.cutoff,
+                    cutoff_width=cutoff_width,
+                )
+            elif adaptive_cutoff_method.lower() == "grid":
+                atomic_cutoffs = get_adaptive_cutoffs_grid(
+                    centers,
+                    edge_distances,
+                    num_neighbors_adaptive,
+                    num_nodes,
+                    options.cutoff,
+                    cutoff_width=cutoff_width,
+                )
+            else:
+                raise ValueError(
+                    "adaptive_cutoff_method must be 'grid' or 'solver', got "
+                    + adaptive_cutoff_method
+                )
+            atomic_cutoffs_stats = atomic_cutoffs.detach()
             # Symmetrize the cutoffs between pairs of atoms (PET needs this symmetry
             # due to its corresponding edge indexing ij -> ji)
             pair_cutoffs = (atomic_cutoffs[centers] + atomic_cutoffs[neighbors]) / 2.0
         with torch.profiler.record_function("PET::adaptive_cutoff_masking"):
-            # Apply cutoff mask
-            cutoff_mask = edge_distances <= pair_cutoffs
-
-            pair_cutoffs = pair_cutoffs[cutoff_mask]
-            centers = centers[cutoff_mask]
-            neighbors = neighbors[cutoff_mask]
-            edge_vectors = edge_vectors[cutoff_mask]
-            cell_shifts = cell_shifts[cutoff_mask]
-            edge_distances = edge_distances[cutoff_mask]
+            keep = torch.nonzero(edge_distances <= pair_cutoffs).squeeze(-1)
+            pair_cutoffs = pair_cutoffs.index_select(0, keep)
+            centers = centers.index_select(0, keep)
+            neighbors = neighbors.index_select(0, keep)
+            edge_vectors = edge_vectors.index_select(0, keep)
+            cell_shifts = cell_shifts.index_select(0, keep)
+            edge_distances = edge_distances.index_select(0, keep)
     else:
         pair_cutoffs = options.cutoff * torch.ones(
             len(centers), device=positions.device, dtype=positions.dtype
+        )
+        atomic_cutoffs_stats = options.cutoff * torch.ones(
+            num_nodes, device=positions.device, dtype=positions.dtype
         )
 
     num_neighbors = torch.bincount(centers, minlength=num_nodes)
@@ -211,10 +249,6 @@ def systems_to_batch(
     max_edges_per_node = (
         int(torch.max(num_neighbors)) if num_neighbors.numel() > 0 else 0
     )
-
-    # uncomment these to print out stats on the adaptive cutoff behavior
-    # print("adaptive_cutoffs", *pair_cutoffs.tolist())
-    # print("num_neighbors", *num_neighbors.tolist())
 
     if cutoff_function.lower() == "bump":
         # use bump switching function for adaptive cutoff
@@ -229,8 +263,9 @@ def systems_to_batch(
         )
 
     # Convert to NEF (Node-Edge-Feature) format:
+    # Pass `num_neighbors` in so `get_nef_indices` doesn't re-run bincount.
     nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
-        centers, num_nodes, max_edges_per_node
+        centers, num_neighbors, max_edges_per_node
     )
 
     # Element indices
@@ -245,18 +280,13 @@ def systems_to_batch(
     )
     cutoff_factors = edge_array_to_nef(cutoff_factors, nef_indices, nef_mask, 0.0)
 
-    corresponding_edges = get_corresponding_edges(
-        torch.concatenate(
-            [centers.unsqueeze(-1), neighbors.unsqueeze(-1), cell_shifts],
-            dim=-1,
-        )
-    )
+    corresponding_edges = get_corresponding_edges(centers, neighbors, cell_shifts)
 
     # These are the two arrays we need for message passing with edge reversals,
     # if indexing happens in a two-dimensional way:
     # edges_ji = edges_ij[reversed_neighbor_list, neighbors_index]
     reversed_neighbor_list = compute_reversed_neighbor_list(
-        nef_indices, corresponding_edges, nef_mask
+        nef_indices, corresponding_edges, nef_to_edges_neighbor, nef_mask
     )
     neighbors_index = edge_array_to_nef(neighbors, nef_indices).to(torch.int64)
 
@@ -269,8 +299,11 @@ def systems_to_batch(
     # creates too many of the same index which slows down backward enormously.
     # (See see https://github.com/pytorch/pytorch/issues/41162)
     # We therefore replace the padded indices with a sequence of unique indices.
+    # The count of padded slots equals total slots minus real edges — derive it
+    # from shapes to avoid a `torch.sum(...).item()` host sync every forward.
+    num_padded = reverse_neighbor_index.numel() - centers.shape[0]
     reverse_neighbor_index[~nef_mask] = torch.arange(
-        int(torch.sum(~nef_mask)), device=reverse_neighbor_index.device
+        num_padded, device=reverse_neighbor_index.device
     )
 
     return (
@@ -284,4 +317,5 @@ def systems_to_batch(
         system_indices,
         sample_labels,
         species,
+        atomic_cutoffs_stats,
     )
