@@ -151,7 +151,10 @@ class GapPET(PET):
         super().__init__(backbone_hypers, dataset_info)
 
         # Restore the gap hypers on self.hypers so that get_checkpoint round-trips.
-        self.hypers = hypers
+        # Also stamp the residual override so the saved checkpoint truthfully
+        # reflects what the model was actually built with.
+        self.hypers = dict(hypers)
+        self.hypers["featurizer_type"] = "residual"
 
         # PET's ``__init__`` registered standard energy heads + last layers for
         # the gap target. We don't use them (the gap is read out by extremal
