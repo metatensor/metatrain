@@ -263,18 +263,17 @@ def export_model(
 
         if not is_atomistic_model(model):
             if num_neighbors_adaptive is not None:
-                if hasattr(model, "set_num_neighbors_adaptive"):
-                    logging.info(
-                        "Setting num_neighbors_adaptive to "
-                        f"{num_neighbors_adaptive} on the model before export."
-                    )
-                    model.set_num_neighbors_adaptive(num_neighbors_adaptive)
-                else:
-                    logging.warning(
+                if not hasattr(model, "set_num_neighbors_adaptive"):
+                    raise ValueError(
                         "--num-neighbors-adaptive was passed but the model "
                         f"({type(model).__name__}) does not implement "
-                        "set_num_neighbors_adaptive; ignoring."
+                        "set_num_neighbors_adaptive."
                     )
+                logging.info(
+                    "Setting num_neighbors_adaptive to "
+                    f"{num_neighbors_adaptive} on the model before export."
+                )
+                model.set_num_neighbors_adaptive(num_neighbors_adaptive)
             model = model.export(metadata)
 
         model.save(path, collect_extensions=extensions_path)

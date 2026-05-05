@@ -949,6 +949,16 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         llpr_model.to(dtype).load_state_dict(model_state_dict, strict=False)
         return llpr_model
 
+    def set_num_neighbors_adaptive(self, value: Optional[float]) -> None:
+        """Delegate to the wrapped model so ``mtt export
+        --num-neighbors-adaptive`` works on LLPR-wrapped checkpoints."""
+        if not hasattr(self.model, "set_num_neighbors_adaptive"):
+            raise AttributeError(
+                f"The wrapped model ({type(self.model).__name__}) does not "
+                "implement set_num_neighbors_adaptive."
+            )
+        self.model.set_num_neighbors_adaptive(value)
+
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
 
