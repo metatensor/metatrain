@@ -1,10 +1,12 @@
-from typing import Optional
+from typing import Optional, Union
 
 import torch
 
 
 def cutoff_func_bump(
-    values: torch.Tensor, cutoff: torch.Tensor, width: Optional[float] = None
+    values: torch.Tensor,
+    cutoff: torch.Tensor,
+    width: Optional[Union[float, torch.Tensor]] = None,
 ) -> torch.Tensor:
     """
     Bump cutoff function.
@@ -15,13 +17,16 @@ def cutoff_func_bump(
 
     :param values: Distances at which to evaluate the cutoff function.
     :param cutoff: Cutoff radius for each node.
-    :param width: Width of the cutoff region. If ``None``, defaults to
-        ``cutoff`` (i.e. the function spans the entire range from 0 to cutoff).
+    :param width: Width of the cutoff region. Can be a scalar (broadcast to
+        every edge), a tensor broadcastable to ``cutoff``, or ``None`` (in
+        which case the width per edge equals the cutoff radius itself).
     :return: Values of the cutoff function at the specified distances.
     """
 
     if width is None:
         effective_width = cutoff
+    elif isinstance(width, torch.Tensor):
+        effective_width = width
     else:
         effective_width = torch.full_like(cutoff, width)
     scaled_values = (values - (cutoff - effective_width)) / effective_width
@@ -30,20 +35,25 @@ def cutoff_func_bump(
 
 
 def cutoff_func_cosine(
-    values: torch.Tensor, cutoff: torch.Tensor, width: Optional[float] = None
+    values: torch.Tensor,
+    cutoff: torch.Tensor,
+    width: Optional[Union[float, torch.Tensor]] = None,
 ) -> torch.Tensor:
     """
     Cosine cutoff function.
 
     :param values: Distances at which to evaluate the cutoff function.
     :param cutoff: Cutoff radius for each node.
-    :param width: Width of the cutoff region. If ``None``, defaults to
-        ``cutoff`` (i.e. the function spans the entire range from 0 to cutoff).
+    :param width: Width of the cutoff region. Can be a scalar (broadcast to
+        every edge), a tensor broadcastable to ``cutoff``, or ``None`` (in
+        which case the width per edge equals the cutoff radius itself).
     :return: Values of the cutoff function at the specified distances.
     """
 
     if width is None:
         effective_width = cutoff
+    elif isinstance(width, torch.Tensor):
+        effective_width = width
     else:
         effective_width = torch.full_like(cutoff, width)
     scaled_values = (values - (cutoff - effective_width)) / effective_width
