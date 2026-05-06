@@ -55,7 +55,7 @@ def test_forward_from_batch_matches_forward():
     # Standard forward
     out = model(
         systems,
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind="system")},
     )
     # Verify the standard forward works
     assert out["mtt::U0"].block().values.numel() > 0

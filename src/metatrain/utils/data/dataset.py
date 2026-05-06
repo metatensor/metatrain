@@ -792,7 +792,7 @@ class DiskDataset(torch.utils.data.Dataset):
         for target_key, target in target_config.items():
             is_energy = (
                 (target["quantity"] == "energy")
-                and (not target["per_atom"])
+                and target["sample_kind"] == "system"
                 and target["num_subtargets"] == 1
                 and target["type"] == "scalar"
             )
@@ -824,7 +824,7 @@ class DiskDataset(torch.utils.data.Dataset):
                     "quantity": "",
                     "unit": "",
                     "type": "scalar",
-                    "per_atom": False,
+                    "sample_kind": "system",
                     "num_subtargets": 1,
                 },
             )
@@ -1079,9 +1079,8 @@ class MemmapDataset(TorchDataset):
         self.target_arrays = {}
         for target_key, single_target_options in target_options.items():
             data_key = single_target_options["key"]
-            number_of_samples = (
-                self.na[-1] if single_target_options["per_atom"] else self.ns
-            )
+            per_atom = single_target_options["sample_kind"] == "atom"
+            number_of_samples = self.na[-1] if per_atom else self.ns
             number_of_properties = single_target_options["num_subtargets"]
             if single_target_options["type"] == "scalar":
                 self.target_arrays[target_key] = MemmapArray(
@@ -1092,7 +1091,7 @@ class MemmapDataset(TorchDataset):
                 )
                 if (
                     single_target_options["quantity"] == "energy"
-                    and not single_target_options["per_atom"]
+                    and not per_atom
                     and single_target_options["num_subtargets"] == 1
                 ):
                     # energy target: look into potential gradients
@@ -1259,7 +1258,7 @@ class MemmapDataset(TorchDataset):
             # Check if it is an energy target to set the correct property label name
             is_energy = (
                 target_options["quantity"] == "energy"
-                and not target_options["per_atom"]
+                and target_options["sample_kind"] == "system"
                 and target_options["num_subtargets"] == 1
             )
 
@@ -1375,7 +1374,7 @@ class MemmapDataset(TorchDataset):
         for target_key, target in self.target_config.items():
             is_energy = (
                 (target["quantity"] == "energy")
-                and (not target["per_atom"])
+                and target["sample_kind"] == "system"
                 and target["num_subtargets"] == 1
                 and target["type"] == "scalar"
             )

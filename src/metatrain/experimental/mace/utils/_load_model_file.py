@@ -75,7 +75,7 @@ def load_mace_model_file(
                     "unit": "",
                     "type": "scalar",
                     "num_subtargets": 1,
-                    "per_atom": False,
+                    "sample_kind": "system",
                 },
             )
         },

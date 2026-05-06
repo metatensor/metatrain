@@ -89,7 +89,9 @@ def test_with_old_llpr_checkpoint(monkeypatch, tmp_path):
     structure.calc = calculator
     dyn = VelocityVerlet(structure, 0.5 * ase.units.fs)
     dyn.run(10)
-    calculator.run_model(structure, {"energy_ensemble": ModelOutput(per_atom=True)})
+    calculator.run_model(
+        structure, {"energy_ensemble": ModelOutput(sample_kind="atom")}
+    )
 
     # 4. Fine-tune the PET-MAD model through the LLPR wrapper:
     command = ["mtt", "train", "options-pet-ft.yaml"]
@@ -102,20 +104,21 @@ def check_exported_model_predictions(
     per_atom: bool,
     check_uncertainty_and_ensemble_consistency: bool = True,
 ):
+    sample_kind = "atom" if per_atom else "system"
     calc = MetatomicCalculator(exported_model_path)
     structures = ase.io.read("qm9_reduced_100.xyz", ":")
     if individual_outputs:
         predictions = {}
         predictions_energy = calc.run_model(
-            structures, {"energy": ModelOutput(per_atom=per_atom)}
+            structures, {"energy": ModelOutput(sample_kind=sample_kind)}
         )
         predictions_uncertainty = calc.run_model(
-            structures, {"energy_uncertainty": ModelOutput(per_atom=per_atom)}
+            structures, {"energy_uncertainty": ModelOutput(sample_kind=sample_kind)}
         )
         predictions_ensemble = calc.run_model(
             structures,
             {
-                "energy_ensemble": ModelOutput(per_atom=per_atom),
+                "energy_ensemble": ModelOutput(sample_kind=sample_kind),
             },
         )
         predictions = {
@@ -125,9 +128,9 @@ def check_exported_model_predictions(
         }
     else:
         outputs = {
-            "energy": ModelOutput(per_atom=per_atom),
-            "energy_uncertainty": ModelOutput(per_atom=per_atom),
-            "energy_ensemble": ModelOutput(per_atom=per_atom),
+            "energy": ModelOutput(sample_kind=sample_kind),
+            "energy_uncertainty": ModelOutput(sample_kind=sample_kind),
+            "energy_ensemble": ModelOutput(sample_kind=sample_kind),
         }
         predictions = calc.run_model(structures, outputs)
 

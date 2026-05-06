@@ -142,7 +142,7 @@ class FlashMDSymplectic(ModelInterface):
         )
 
         self.outputs = {
-            "features": ModelOutput(unit="", per_atom=True)
+            "features": ModelOutput(unit="", sample_kind="atom")
         }  # the model is always capable of outputting the internal features
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
@@ -868,7 +868,7 @@ class FlashMDSymplectic(ModelInterface):
                 axis="samples",
                 selection=selected_atoms,
             )
-        if requested_outputs["features"].per_atom:
+        if requested_outputs["features"].sample_kind == "atom":
             features_dict["features"] = feature_tmap
         else:
             features_dict["features"] = sum_over_atoms(feature_tmap)
@@ -993,7 +993,7 @@ class FlashMDSymplectic(ModelInterface):
                     selection=selected_atoms,
                 )
             last_layer_features_options = requested_outputs[output_name]
-            if last_layer_features_options.per_atom:
+            if last_layer_features_options.sample_kind == "atom":
                 last_layer_features_outputs[output_name] = last_layer_feature_tmap
             else:
                 last_layer_features_outputs[output_name] = sum_over_atoms(
@@ -1182,7 +1182,7 @@ class FlashMDSymplectic(ModelInterface):
         # to get the final per-structure predictions for each requested output.
 
         for output_name, atomic_property in atomic_predictions_tmap_dict.items():
-            if outputs[output_name].per_atom:
+            if outputs[output_name].sample_kind == "atom":
                 atomic_predictions_tmap_dict[output_name] = atomic_property
             else:
                 atomic_predictions_tmap_dict[output_name] = sum_over_atoms(
@@ -1283,7 +1283,7 @@ class FlashMDSymplectic(ModelInterface):
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
-            per_atom=True,
+            sample_kind="atom",
         )
 
         self.node_heads[target_name] = torch.nn.ModuleList(
@@ -1343,7 +1343,7 @@ class FlashMDSymplectic(ModelInterface):
         )
 
         ll_features_name = get_last_layer_features_name(target_name)
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+        self.outputs[ll_features_name] = ModelOutput(sample_kind="atom")
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [
             block.components for block in target_info.layout.blocks()

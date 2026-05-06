@@ -57,7 +57,7 @@ class GAP(ModelInterface[ModelHypers]):
                     "GAP only supports total-energy-like outputs, "
                     f"but a {target.quantity} was provided"
                 )
-            if target.per_atom:
+            if target.sample_kind != "system":
                 raise ValueError(
                     "GAP only supports per-structure outputs, "
                     "but a per-atom output was provided"
@@ -65,14 +65,14 @@ class GAP(ModelInterface[ModelHypers]):
         target_name = next(iter(dataset_info.targets.keys()))
         if dataset_info.targets[target_name].quantity != "energy":
             raise ValueError("GAP only supports energies as target")
-        if dataset_info.targets[target_name].per_atom:
+        if dataset_info.targets[target_name].sample_kind == "atom":
             raise ValueError("GAP does not support per-atom energies")
 
         self.outputs = {
             key: ModelOutput(
                 quantity=value.quantity,
                 unit=value.unit,
-                per_atom=False,
+                sample_kind="system",
                 description=value.description,
             )
             for key, value in dataset_info.targets.items()
