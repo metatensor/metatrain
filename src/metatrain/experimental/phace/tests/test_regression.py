@@ -297,7 +297,7 @@ def test_regression_train_spherical(device):
         device=device,
     )
 
-    # # if you need to change the hardcoded values:
+    # if you need to change the hardcoded values:
     # torch.set_printoptions(precision=12)
     # print(output["mtt::electron_density_basis"][1].values[2])
 
