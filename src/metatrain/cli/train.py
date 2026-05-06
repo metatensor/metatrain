@@ -750,9 +750,13 @@ def train_model(
         logging.info(f"Extensions path: {extensions.absolute().resolve()}")
 
     if checkpoint_dir.absolute().resolve() != Path.cwd():
-        shutil.copy(output, checkpoint_dir / output)
+        checkpoint_output_path = checkpoint_dir / output
+        if checkpoint_output_path.resolve() != output.resolve():
+            shutil.copy(output, checkpoint_output_path)
         if checkpoint_output.exists():
-            shutil.copy(checkpoint_output, checkpoint_dir / checkpoint_output)
+            checkpoint_copy_path = checkpoint_dir / checkpoint_output
+            if checkpoint_copy_path.resolve() != checkpoint_output.resolve():
+                shutil.copy(checkpoint_output, checkpoint_copy_path)
 
     ###########################
     # EVALUATE FINAL MODEL ####
