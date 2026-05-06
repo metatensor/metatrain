@@ -1,4 +1,3 @@
-import copy
 import random
 
 import numpy as np
@@ -8,6 +7,7 @@ from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
 from metatrain.pet import PET, Trainer
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo, get_dataset
 from metatrain.utils.data.readers import (
     read_systems,
@@ -203,7 +203,7 @@ def test_regression_train_spherical(device):
 
     dataset, target_info_dict, extra_data_info = get_dataset(conf)
 
-    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    hypers = get_default_hypers("pet")
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["batch_size"] = 1
     loss_conf = {"mtt::electron_density_basis": init_with_defaults(LossSpecification)}
@@ -248,7 +248,6 @@ def test_regression_train_spherical(device):
         },
     )
 
-    # TODO: update these after running `tox -e pet-tests`
     expected_output = torch.tensor(
         [
             [
@@ -282,10 +281,9 @@ def test_regression_train_spherical(device):
         device=device,
     )
 
-    # TODO: comment this out again
-    # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["mtt::electron_density_basis"][1].values[2])
+    # # if you need to change the hardcoded values:
+    # torch.set_printoptions(precision=12)
+    # print(output["mtt::electron_density_basis"][1].values[2])
 
     torch.testing.assert_close(
         output["mtt::electron_density_basis"][1].values[2], expected_output
