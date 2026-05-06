@@ -281,6 +281,20 @@ def test_scaler_scalar_multiple_properties(batch_size):
         ],
         dtype=torch.float64,
     )
+    all_vals = torch.tensor(
+        [
+            3.0,
+            6.0,  # energies, first system
+            4.0,
+            8.0,  # energies, second system
+            12.0,
+            24.0,  # energies, third system
+        ]
+    )
+    expected_scales_per_target = ((all_vals**2) / len(all_vals)).sum() ** 0.5
+    expected_scales_per_target = (
+        torch.ones(3, 2, dtype=torch.float64) * expected_scales_per_target
+    )
 
     scaler.train_model(
         dataset, additive_models=[], batch_size=batch_size, is_distributed=False
@@ -322,8 +336,175 @@ def test_scaler_scalar_multiple_properties(batch_size):
     removed_output = remove_scale(systems, fake_output, scaler)
     torch.testing.assert_close(
         removed_output["energy"].block().values,
-        fake_output["energy"].block().values / expected_scales,
+        fake_output["energy"].block().values / expected_scales_per_target,
     )
+
+
+def test_scaler_respects_per_structure_targets_for_rank2_stress():
+    """
+    Test that the scaler calculates the scaling weights for rank-2 stress using the
+    per_structure_targets variable.
+    """
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([8, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+    stresses = [
+        torch.full((1, 3, 3, 1), 2.0, dtype=torch.float64),
+        torch.full((1, 3, 3, 1), 4.0, dtype=torch.float64),
+    ]
+    targets = [
+        TensorMap(
+            keys=Labels.single(),
+            blocks=[
+                TensorBlock(
+                    values=stress,
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[Labels.range("xyz_1", 3), Labels.range("xyz_2", 3)],
+                    properties=Labels.range("non_conservative_stress", 1),
+                )
+            ],
+        )
+        for i, stress in enumerate(stresses)
+    ]
+    dataset = Dataset.from_dict({"system": systems, "non_conservative_stress": targets})
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[8],
+        targets={
+            "non_conservative_stress": get_generic_target_info(
+                "non_conservative_stress",
+                {
+                    "quantity": "stress",
+                    "unit": "eV/A^3",
+                    "type": {"cartesian": {"rank": 2}},
+                    "per_atom": False,
+                    "num_subtargets": 1,
+                },
+            )
+        },
+    )
+
+    scaler_raw = Scaler(hypers={}, dataset_info=dataset_info).to(torch.float64)
+    scaler_per_atom = Scaler(hypers={}, dataset_info=dataset_info).to(torch.float64)
+
+    scaler_raw.train_model(
+        dataset,
+        additive_models=[],
+        batch_size=2,
+        is_distributed=False,
+        per_structure_targets=["non_conservative_stress"],
+    )
+    scaler_per_atom.train_model(
+        dataset,
+        additive_models=[],
+        batch_size=2,
+        is_distributed=False,
+        per_structure_targets=[],
+    )
+
+    raw_scale = scaler_raw.model.scales["non_conservative_stress"].block().values[0, 0]
+    per_atom_scale = (
+        scaler_per_atom.model.scales["non_conservative_stress"].block().values[0, 0]
+    )
+
+    stress = torch.cat(stresses, dim=0)
+    expected_raw = torch.sqrt(torch.mean(stress**2))
+
+    stress_per_atom = torch.cat(
+        [
+            stresses[0] / len(systems[0]),
+            stresses[1] / len(systems[1]),
+        ],
+        dim=0,
+    )
+    expected_per_atom = torch.sqrt(torch.mean(stress_per_atom**2))
+
+    torch.testing.assert_close(raw_scale, expected_raw)
+    torch.testing.assert_close(per_atom_scale, expected_per_atom)
+    assert not torch.isclose(raw_scale, per_atom_scale)
+
+
+def test_scaler_ignores_nan_rank2_stress_for_per_structure_targets():
+    """
+    Test that the scaler ignores NaN values when calculating the scaling weights for
+    per-structure rank-2 stress targets. This is important for mixed materials/molecules
+    datasets, where some structures might have stress values and others might not.
+    """
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.zeros(3, 3, dtype=torch.float64),
+            pbc=torch.tensor([False, False, False]),
+        ),
+    ]
+    valid_stress = torch.full((1, 3, 3, 1), 2.0, dtype=torch.float64)
+    nan_stress = torch.full((1, 3, 3, 1), torch.nan, dtype=torch.float64)
+    targets = [
+        TensorMap(
+            keys=Labels.single(),
+            blocks=[
+                TensorBlock(
+                    values=stress,
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[Labels.range("xyz_1", 3), Labels.range("xyz_2", 3)],
+                    properties=Labels.range("non_conservative_stress", 1),
+                )
+            ],
+        )
+        for i, stress in enumerate([valid_stress, nan_stress])
+    ]
+    dataset = Dataset.from_dict({"system": systems, "non_conservative_stress": targets})
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[8],
+        targets={
+            "non_conservative_stress": get_generic_target_info(
+                "non_conservative_stress",
+                {
+                    "quantity": "stress",
+                    "unit": "eV/A^3",
+                    "type": {"cartesian": {"rank": 2}},
+                    "per_atom": False,
+                    "num_subtargets": 1,
+                },
+            )
+        },
+    )
+
+    scaler = Scaler(hypers={}, dataset_info=dataset_info).to(torch.float64)
+    scaler.train_model(
+        dataset,
+        additive_models=[],
+        batch_size=2,
+        is_distributed=False,
+        per_structure_targets=["non_conservative_stress"],
+    )
+
+    scale = scaler.model.scales["non_conservative_stress"].block().values[0, 0]
+    expected = torch.sqrt(torch.mean(valid_stress**2))
+    torch.testing.assert_close(scale, expected)
 
 
 @pytest.mark.parametrize("batch_size", [1, 2])
@@ -563,7 +744,7 @@ def test_scaler_spherical(batch_size):
                     values=torch.tensor([sph], dtype=torch.float64).unsqueeze(-1),
                     samples=Labels(names=["system"], values=torch.tensor([[i]])),
                     components=[Labels.range("o3_mu", 5)],
-                    properties=Labels(names=["n"], values=torch.tensor([[1]])),
+                    properties=Labels(names=["n"], values=torch.tensor([[0]])),
                 ),
             ],
         )
@@ -635,28 +816,41 @@ def test_scaler_spherical(batch_size):
     )
     fake_output = {"spherical": fake_output}
 
-    expected_scales_scalar = torch.tensor(
-        [[3.0], [3.0]], dtype=torch.float64
-    ).unsqueeze(-1)
-    expected_scales_spherical = torch.tensor(
+    # Compuet the full scales, i.e. the uncentered standard deviations per property.
+    expected_scale_l0 = 3.0
+    expected_scale_l2 = (77.0 / 2) ** 0.5
+    expected_scales_scalar = (
+        torch.ones((2, 1, 1), dtype=torch.float64) * expected_scale_l0
+    )
+    expected_scales_spherical = (
+        torch.ones(2, 5, 1, dtype=torch.float64) * expected_scale_l2
+    )
+
+    # Also compute the per-target scales, i.e. the uncentered standard deviations across
+    # all properties
+    flat_values = torch.tensor(
         [
-            [
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-            ],
-            [
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-            ],
-        ],
-        dtype=torch.float64,
-    ).unsqueeze(-1)
+            3.0,  # scaler of first system
+            3.0,  # scaler of second system (/ 3 atoms)
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,  # rank 2 of first system
+            6.0,
+            7.0,
+            8.0,
+            9.0,
+            10.0,  # rank 2 of second system (/ 3 atoms)
+        ]
+    )
+    expected_scales_per_target = ((flat_values**2) / len(flat_values)).sum() ** 0.5
+    expected_scales_per_target_scalar = (
+        torch.ones((2, 1, 1), dtype=torch.float64) * expected_scales_per_target
+    )
+    expected_scales_per_target_spherical = (
+        torch.ones((2, 5, 1), dtype=torch.float64) * expected_scales_per_target
+    )
 
     scaler.train_model(
         dataset,
@@ -717,12 +911,12 @@ def test_scaler_spherical(batch_size):
     torch.testing.assert_close(
         removed_output["spherical"].block({"o3_lambda": 0}).values,
         fake_output["spherical"].block({"o3_lambda": 0}).values
-        / expected_scales_scalar,
+        / expected_scales_per_target_scalar,
     )
     torch.testing.assert_close(
         removed_output["spherical"].block({"o3_lambda": 2}).values,
         fake_output["spherical"].block({"o3_lambda": 2}).values
-        / expected_scales_spherical,
+        / expected_scales_per_target_spherical,
     )
 
 
@@ -1260,7 +1454,7 @@ def test_scaler_spherical_per_atom_atomic_basis(batch_size, missing_type):
                         values=torch.tensor([[0]]),
                     )
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
             ),
             TensorBlock(
                 values=torch.tensor([1.5, 0.8, 3.2], dtype=torch.float64).reshape(
@@ -1273,7 +1467,7 @@ def test_scaler_spherical_per_atom_atomic_basis(batch_size, missing_type):
                         values=torch.arange(-1, 2).reshape(-1, 1),
                     )
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
             ),
         ],
     )
@@ -1297,7 +1491,7 @@ def test_scaler_spherical_per_atom_atomic_basis(batch_size, missing_type):
                         values=torch.tensor([[0]]),
                     )
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
             ),
             TensorBlock(
                 values=torch.tensor([[2.0]], dtype=torch.float64).reshape(-1, 1, 1),
@@ -1311,7 +1505,7 @@ def test_scaler_spherical_per_atom_atomic_basis(batch_size, missing_type):
                         values=torch.tensor([[0]]),
                     )
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
             ),
             TensorBlock(
                 values=torch.tensor([0.2, 3, 1.1], dtype=torch.float64).reshape(
@@ -1327,7 +1521,7 @@ def test_scaler_spherical_per_atom_atomic_basis(batch_size, missing_type):
                         values=torch.arange(-1, 2).reshape(-1, 1),
                     )
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
             ),
         ],
     )
@@ -1456,13 +1650,13 @@ def test_scaler_rotation_invariance():
                     values=torch.tensor([sc], dtype=torch.float64).unsqueeze(-1),
                     samples=Labels(names=["system"], values=torch.tensor([[i]])),
                     components=[Labels(["o3_mu"], torch.arange(1).reshape(-1, 1))],
-                    properties=Labels(names=["spherical"], values=torch.tensor([[0]])),
+                    properties=Labels(names=["n"], values=torch.tensor([[0]])),
                 ),
                 TensorBlock(
                     values=torch.tensor([sph], dtype=torch.float64).unsqueeze(-1),
                     samples=Labels(names=["system"], values=torch.tensor([[i]])),
                     components=[Labels(["o3_mu"], torch.arange(-2, 3).reshape(-1, 1))],
-                    properties=Labels(names=["spherical"], values=torch.tensor([[1]])),
+                    properties=Labels(names=["n"], values=torch.tensor([[0]])),
                 ),
             ],
         )
@@ -1573,7 +1767,7 @@ def test_scaler_spherical_per_atom_rank_2(batch_size):
         names=["o3_lambda_1", "o3_sigma_1", "o3_lambda_2", "o3_sigma_2"],
         values=torch.tensor([[0, 1, 0, 1], [1, 1, 1, 1]]),
     )
-    prop_labels = Labels(names=["property"], values=torch.tensor([[0]]))
+    prop_labels = Labels(names=["n_1", "n_2"], values=torch.tensor([[0, 0]]))
 
     L_00_sys0 = torch.tensor([[[[1.0]]]]).to(torch.float64)  # O
     L_00_sys1 = torch.tensor([[[[2.0]]], [[[3.0]]], [[[4.0]]]]).to(
@@ -1718,7 +1912,7 @@ def test_scaler_spherical_per_atom_rank_2_rotation_invariance():
         names=["o3_lambda_1", "o3_sigma_1", "o3_lambda_2", "o3_sigma_2"],
         values=torch.tensor([[0, 1, 0, 1], [1, 1, 1, 1]]),
     )
-    prop_labels = Labels(names=["property"], values=torch.tensor([[0]]))
+    prop_labels = Labels(names=["n_1", "n_2"], values=torch.tensor([[0, 0]]))
 
     L_00_sys0 = torch.tensor([[[[1.0]]]]).to(torch.float64)
     L_00_sys1 = torch.tensor([[[[2.0]]], [[[3.0]]], [[[4.0]]]]).to(torch.float64)
@@ -1834,7 +2028,7 @@ def test_scaler_spherical_atomic_basis_rank_2(missing_type):
     target_name = "spherical_atomic_basis_rank2"
 
     key_names = ["o3_lambda_1", "o3_sigma_1", "o3_lambda_2", "o3_sigma_2", "atom_type"]
-    prop = Labels(names=["_"], values=torch.tensor([[0]]))
+    prop = Labels(names=["n_1", "n_2"], values=torch.tensor([[0, 0]]))
     mu1_1 = Labels(names=["o3_mu_1"], values=torch.tensor([[0]]))
     mu2_1 = Labels(names=["o3_mu_2"], values=torch.tensor([[0]]))
     mu1_3 = Labels(names=["o3_mu_1"], values=torch.arange(-1, 2).reshape(-1, 1))
@@ -1993,7 +2187,7 @@ def test_scaler_spherical_atomic_basis_rank_2_rotation_invariance(missing_type):
     num_checks = 5
 
     key_names = ["o3_lambda_1", "o3_sigma_1", "o3_lambda_2", "o3_sigma_2", "atom_type"]
-    prop = Labels(names=["_"], values=torch.tensor([[0]]))
+    prop = Labels(names=["n_1", "n_2"], values=torch.tensor([[0, 0]]))
     mu1_1 = Labels(names=["o3_mu_1"], values=torch.tensor([[0]]))
     mu2_1 = Labels(names=["o3_mu_2"], values=torch.tensor([[0]]))
     mu1_3 = Labels(names=["o3_mu_1"], values=torch.arange(-1, 2).reshape(-1, 1))

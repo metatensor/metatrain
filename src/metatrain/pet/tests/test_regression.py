@@ -7,7 +7,8 @@ from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
 from metatrain.pet import PET, Trainer
-from metatrain.utils.data import Dataset, DatasetInfo
+from metatrain.utils.architectures import get_default_hypers
+from metatrain.utils.data import Dataset, DatasetInfo, get_dataset
 from metatrain.utils.data.readers import (
     read_systems,
     read_targets,
@@ -16,9 +17,18 @@ from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 
-from . import DATASET_PATH, DATASET_WITH_FORCES_PATH, DEFAULT_HYPERS, MODEL_HYPERS
+from . import (
+    DATASET_PATH,
+    DATASET_WITH_FORCES_PATH,
+    DEFAULT_HYPERS,
+    MODEL_HYPERS,
+    SPHERICAL_DISK_DATASET_PATH,
+)
 
 
 def test_regression_init():
@@ -98,6 +108,7 @@ def test_regression_energies_forces_train(device):
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
+    hypers["training"]["num_workers"] = 0  # for reproducibility
     hypers["training"]["scheduler_patience"] = 1
     hypers["training"]["atomic_baseline"] = {}
     loss_conf = {"energy": init_with_defaults(LossSpecification)}
@@ -155,4 +166,125 @@ def test_regression_energies_forces_train(device):
     torch.testing.assert_close(
         output["energy"].block().gradient("positions").values[0, :, 0],
         expected_gradients_output,
+    )
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_regression_train_spherical(device):
+    """Regression test for the model when trained for 2 epoch on a small dataset"""
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
+
+    conf = {
+        "systems": {"read_from": SPHERICAL_DISK_DATASET_PATH},
+        "targets": {
+            "mtt::electron_density_basis": {
+                "quantity": "",
+                "unit": "",
+                "read_from": SPHERICAL_DISK_DATASET_PATH,
+                "type": {
+                    "spherical": {
+                        "irreps": [
+                            {"o3_lambda": 0, "o3_sigma": 1},
+                            {"o3_lambda": 1, "o3_sigma": 1},
+                            {"o3_lambda": 2, "o3_sigma": 1},
+                            {"o3_lambda": 3, "o3_sigma": 1},
+                        ]
+                    },
+                },
+                "per_atom": True,
+                "num_subtargets": 1,  # dummy value
+            },
+        },
+    }
+
+    dataset, target_info_dict, extra_data_info = get_dataset(conf)
+
+    hypers = get_default_hypers("pet")
+    hypers["training"]["num_epochs"] = 2
+    hypers["training"]["batch_size"] = 1
+    loss_conf = {"mtt::electron_density_basis": init_with_defaults(LossSpecification)}
+    loss_conf = OmegaConf.create(loss_conf)
+    OmegaConf.resolve(loss_conf)
+    hypers["training"]["loss"] = loss_conf
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets=target_info_dict,
+        extra_data=extra_data_info,
+    )
+    model = PET(MODEL_HYPERS, dataset_info)
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+
+    hypers["training"]["num_epochs"] = 1
+    hypers["training"]["num_workers"] = 0  # for reproducibility
+    trainer = Trainer(hypers["training"])
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device(device)],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
+
+    # Predict on the first five systems
+    systems = [sample["system"] for sample in dataset]
+    systems = [system.to(torch.float32, device) for system in systems]
+    systems = [
+        get_system_with_neighbor_lists(system, requested_neighbor_lists)
+        for system in systems
+    ]
+    output = model(
+        systems,
+        {
+            "mtt::electron_density_basis": ModelOutput(
+                quantity="", unit="", per_atom=True
+            )
+        },
+    )
+
+    expected_output = torch.tensor(
+        [
+            [
+                0.284123986959,
+                0.126270756125,
+                0.180575072765,
+                0.108671367168,
+                -0.110814586282,
+                0.319439798594,
+                -0.067747496068,
+            ],
+            [
+                -0.134731873870,
+                -0.264746725559,
+                0.012159131467,
+                0.079967394471,
+                -0.006167307496,
+                0.196592628956,
+                0.233094468713,
+            ],
+            [
+                0.221653103828,
+                -0.018727399409,
+                0.055212073028,
+                0.080021366477,
+                -0.074742250144,
+                -0.213714569807,
+                0.020445633680,
+            ],
+        ],
+        device=device,
+    )
+
+    # if you need to change the hardcoded values:
+    # torch.set_printoptions(precision=12)
+    # print(output["mtt::electron_density_basis"][1].values[2])
+
+    torch.testing.assert_close(
+        output["mtt::electron_density_basis"][1].values[2], expected_output
     )

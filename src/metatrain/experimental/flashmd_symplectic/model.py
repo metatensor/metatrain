@@ -45,7 +45,7 @@ class FlashMDSymplectic(ModelInterface):
     For more information, you can refer to https://arxiv.org/abs/2508.01068.
     """
 
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -602,7 +602,13 @@ class FlashMDSymplectic(ModelInterface):
         if not self.training:
             with record_function("FlashMD::post-processing"):
                 # at evaluation, we also introduce the scaler and additive contributions
-                return_dict = self.scaler(systems, return_dict)
+                return_dict = self.scaler(
+                    systems,
+                    return_dict,
+                    selected_atoms=selected_atoms,
+                    use_per_target_scales=True,
+                    use_per_property_scales=True,
+                )
                 for additive_model in self.additive_models:
                     outputs_for_additive_model: Dict[str, ModelOutput] = {}
                     for name, output in outputs.items():

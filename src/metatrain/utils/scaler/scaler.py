@@ -149,6 +149,7 @@ class Scaler(torch.nn.Module):
         is_distributed: bool,
         fixed_weights: Optional[FixedScalerWeights] = None,
         initial_transforms: Sequence[Callable] = (),
+        per_structure_targets: Optional[List[str]] = None,
     ) -> None:
         """
         Train the scaler model by accumulating the necessary quantities from the
@@ -171,9 +172,14 @@ class Scaler(torch.nn.Module):
         :param initial_transforms: A list of callables to be included in
             the collate function of the dataloader. The callables passed here will be
             applied before the other callables set by the scaler.
+        :param per_structure_targets: Target names that should be treated as
+            per-structure quantities and therefore not divided by the number of atoms.
         """
         if not isinstance(datasets, list):
             datasets = [datasets]
+
+        if per_structure_targets is None:
+            per_structure_targets = []
 
         if len(self.target_infos) == 0:  # no (new) targets to fit
             return
@@ -208,7 +214,7 @@ class Scaler(torch.nn.Module):
                         for target_name in targets
                     },
                 )
-            targets = average_by_num_atoms(targets, systems, [])
+            targets = average_by_num_atoms(targets, systems, per_structure_targets)
             self.model.accumulate(systems, targets, extra_data)
 
         if is_distributed:
@@ -236,6 +242,90 @@ class Scaler(torch.nn.Module):
                     )
                 ).to(device),
             )
+
+        # update the buffer scales now they are fitted
+        for target_name in self.model.scales.keys():
+            self.register_buffer(
+                target_name + "_per_target_scaler_buffer",
+                mts.save_buffer(
+                    mts.make_contiguous(
+                        self.model.per_target_scales[target_name].to(
+                            "cpu", torch.float64
+                        )
+                    )
+                ).to(device),
+            )
+
+        if any(
+            [
+                target_name in self.model.multi_property_target_names
+                for target_name in self.new_outputs
+            ]
+        ):
+            # Now accumulate quantities for computing per-property scales
+            for batch in dataloader:
+                systems, targets, extra_data = unpack_batch(batch)
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, device=device
+                )
+                if len(targets) == 0:
+                    break
+
+                # remove additive contributions from these targets
+                for additive_model in additive_models:
+                    targets = remove_additive(
+                        systems,
+                        targets,
+                        additive_model,
+                        {
+                            target_name: self.target_infos[target_name]
+                            for target_name in targets
+                        },
+                    )
+                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                self.model.accumulate_per_property(systems, targets, extra_data)
+
+            if is_distributed:
+                torch.distributed.barrier()
+                # All-reduce the accumulated TensorMaps across all processes
+                for target_name in self.new_outputs:
+                    if target_name not in self.model.multi_property_target_names:
+                        continue
+                    for N_block, Y2_block in zip(
+                        self.model.per_property_N[target_name],
+                        self.model.per_property_Y2[target_name],
+                        strict=True,
+                    ):
+                        torch.distributed.all_reduce(N_block.values)
+                        torch.distributed.all_reduce(Y2_block.values)
+
+            # Compute the scales on all ranks
+            self.model.fit_per_property(targets_to_fit=self.new_outputs)
+
+            # update the buffer scales now they have been updated with per-property
+            # scales
+            for target_name in self.model.scales.keys():
+                self.register_buffer(
+                    target_name + "_scaler_buffer",
+                    mts.save_buffer(
+                        mts.make_contiguous(
+                            self.model.scales[target_name].to("cpu", torch.float64)
+                        )
+                    ).to(device),
+                )
+
+            # update the buffer scales now they are fitted
+            for target_name in self.model.per_property_scales.keys():
+                self.register_buffer(
+                    target_name + "_per_property_scaler_buffer",
+                    mts.save_buffer(
+                        mts.make_contiguous(
+                            self.model.per_property_scales[target_name].to(
+                                "cpu", torch.float64
+                            )
+                        )
+                    ).to(device),
+                )
 
     def restart(self, dataset_info: DatasetInfo) -> "Scaler":
         """
@@ -274,6 +364,8 @@ class Scaler(torch.nn.Module):
         outputs: Dict[str, TensorMap],
         remove: bool = False,
         selected_atoms: Optional[Labels] = None,
+        use_per_target_scales: bool = True,
+        use_per_property_scales: bool = True,
     ) -> Dict[str, TensorMap]:
         """Scales the outputs based on the stored standard deviations.
 
@@ -282,6 +374,11 @@ class Scaler(torch.nn.Module):
         :param remove: If True, removes the scaling (i.e., divides by the scales). If
             False, applies the scaling (i.e., multiplies by the scales).
         :param selected_atoms: Optional labels for selected atoms.
+        :param use_per_target_scales: If True, applies/removes per-target scales. This
+            only applies to targets with multiple blocks.
+        :param use_per_property_scales: If True, applies/removes per-block, per-property
+            scales. This only applies to targets with multiple blocks or multiple
+            properties. If False, applies/removes the full scales.
         :returns: A dictionary with the scaled outputs.
 
         :raises ValueError: If no scales have been computed or if `outputs` keys
@@ -295,7 +392,14 @@ class Scaler(torch.nn.Module):
 
         self.scales_to(device, dtype)
 
-        scaled_outputs = self.model.forward(systems, outputs, remove, selected_atoms)
+        scaled_outputs = self.model.forward(
+            systems,
+            outputs,
+            remove,
+            selected_atoms,
+            use_per_target_scales,
+            use_per_property_scales,
+        )
 
         return scaled_outputs
 
@@ -353,6 +457,48 @@ class Scaler(torch.nn.Module):
             mts.save_buffer(mts.make_contiguous(fake_scales)),
         )
 
+        fake_scales_per_target = TensorMap(
+            keys=layout.keys,
+            blocks=[
+                TensorBlock(
+                    values=torch.ones(
+                        len(samples),
+                        len(block.properties),
+                        dtype=torch.float64,
+                    ),
+                    samples=samples,
+                    components=[],
+                    properties=block.properties,
+                )
+                for block in layout.blocks()
+            ],
+        )
+        self.register_buffer(
+            target_name + "_per_target_scaler_buffer",
+            mts.save_buffer(mts.make_contiguous(fake_scales_per_target)),
+        )
+
+        fake_scales_per_property = TensorMap(
+            keys=layout.keys,
+            blocks=[
+                TensorBlock(
+                    values=torch.ones(
+                        len(samples),
+                        len(block.properties),
+                        dtype=torch.float64,
+                    ),
+                    samples=samples,
+                    components=[],
+                    properties=block.properties,
+                )
+                for block in layout.blocks()
+            ],
+        )
+        self.register_buffer(
+            target_name + "_per_property_scaler_buffer",
+            mts.save_buffer(mts.make_contiguous(fake_scales_per_property)),
+        )
+
     def scales_to(self, device: torch.device, dtype: torch.dtype) -> None:
         if len(self.model.scales) != 0:
             if self.model.scales[list(self.model.scales.keys())[0]].device != device:
@@ -363,6 +509,44 @@ class Scaler(torch.nn.Module):
                 self.model.scales = {
                     k: v.to(dtype) for k, v in self.model.scales.items()
                 }
+        if len(self.model.per_target_scales) != 0:
+            if (
+                self.model.per_target_scales[
+                    list(self.model.per_target_scales.keys())[0]
+                ].device
+                != device
+            ):
+                self.model.per_target_scales = {
+                    k: v.to(device) for k, v in self.model.per_target_scales.items()
+                }
+            if (
+                self.model.per_target_scales[
+                    list(self.model.per_target_scales.keys())[0]
+                ].dtype
+                != dtype
+            ):
+                self.model.per_target_scales = {
+                    k: v.to(dtype) for k, v in self.model.per_target_scales.items()
+                }
+        if len(self.model.per_property_scales) != 0:
+            if (
+                self.model.per_property_scales[
+                    list(self.model.per_property_scales.keys())[0]
+                ].device
+                != device
+            ):
+                self.model.per_property_scales = {
+                    k: v.to(device) for k, v in self.model.per_property_scales.items()
+                }
+            if (
+                self.model.per_property_scales[
+                    list(self.model.per_property_scales.keys())[0]
+                ].dtype
+                != dtype
+            ):
+                self.model.per_property_scales = {
+                    k: v.to(dtype) for k, v in self.model.per_property_scales.items()
+                }
 
         self.model._sync_device_dtype(device, dtype)
 
@@ -372,4 +556,11 @@ class Scaler(torch.nn.Module):
         for k in self.dataset_info.targets:
             self.model.scales[k] = mts.load_buffer(
                 self.__getattr__(k + "_scaler_buffer")
+            )
+            self.model.per_target_scales[k] = mts.load_buffer(
+                self.__getattr__(k + "_per_target_scaler_buffer")
+            )
+
+            self.model.per_property_scales[k] = mts.load_buffer(
+                self.__getattr__(k + "_per_property_scaler_buffer")
             )

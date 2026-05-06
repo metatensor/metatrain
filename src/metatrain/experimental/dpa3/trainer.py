@@ -173,6 +173,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 self.hypers["batch_size"],
                 is_distributed,
                 model.get_fixed_scaling_weights(),
+                per_structure_targets=self.hypers["per_structure_targets"],
             )
 
         if is_distributed:
@@ -369,6 +370,19 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
+                # Apply per-property scales to the predictions before loss computation.
+                # The targets from the dataloader have only been scaled per-target, and
+                # not per-property. This transformation only applies to targets with
+                # per-property scales (i.e. multiple blocks or multiple properties), and
+                # leaves the others unchanged.
+                predictions = (model.module if is_distributed else model).scaler(
+                    systems,
+                    predictions,
+                    remove=False,
+                    use_per_target_scales=False,  # never before loss
+                    use_per_property_scales=True,
+                )
+
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 train_loss_batch.backward()
@@ -382,6 +396,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # Accumulate quantities for computing train metrics,
                 # but only if this is an epoch to log
                 if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
+                    # TODO: rescale predictions and targets here? Is there a reason this
+                    # isn't already done?
                     train_rmse_calculator.update(predictions, targets)
                     if self.hypers["log_mae"]:
                         train_mae_calculator.update(predictions, targets)
@@ -431,12 +447,47 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
+                # Apply per-property scales to the predictions before loss computation.
+                # The targets from the dataloader have only been scaled per-target, and
+                # not per-property. This transformation only applies to targets with
+                # per-property scales (i.e. multiple blocks or multiple properties), and
+                # leaves the others unchanged.
+                predictions = (model.module if is_distributed else model).scaler(
+                    systems,
+                    predictions,
+                    remove=False,
+                    use_per_target_scales=False,  # never before loss
+                    use_per_property_scales=True,
+                )
+
                 val_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
                     # sum the loss over all processes
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
+
+                # TODO: rescale predictions and targets here? Is there a reason this
+                # isn't already done?
+                # # Reapply scales and accumulate quantities for computing val
+                # # metrics. This is done for every epoch as validation metrics are
+                # # needed for model selection
+                # scaled_predictions = (
+                #     model.module if is_distributed else model
+                # ).scaler(
+                #     systems,
+                #     predictions,
+                #     remove=False,
+                #     use_per_target_scales=True,
+                #     use_per_property_scales=False,
+                # )
+                # scaled_targets = (model.module if is_distributed else model).scaler(
+                #     systems,
+                #     targets,
+                #     remove=False,
+                #     use_per_target_scales=True,
+                #     use_per_property_scales=False,
+                # )
 
                 # Accumulate quantities for computing val metrics. This is done for
                 # every epoch as validation metrics are needed for model selection

@@ -20,7 +20,13 @@ def remove_scale(
     :param scaler: The scaler used to scale the targets.
     :return: The scaled targets.
     """
-    return scaler(systems, targets, remove=True)
+    return scaler(
+        systems,
+        targets,
+        remove=True,
+        use_per_target_scales=True,
+        use_per_property_scales=False,
+    )
 
 
 def get_remove_scale_transform(scaler: Scaler) -> Callable:

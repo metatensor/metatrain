@@ -187,7 +187,7 @@ def concatenate_structures(
 
 
 class SoapBpnn(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 8
+    __checkpoint_version__ = 9
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -824,7 +824,11 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
             return_dict = self.scaler(
-                systems, return_dict, selected_atoms=selected_atoms
+                systems,
+                return_dict,
+                selected_atoms=selected_atoms,
+                use_per_target_scales=True,
+                use_per_property_scales=True,
             )
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
