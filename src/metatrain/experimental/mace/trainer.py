@@ -432,6 +432,20 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
+
+                # Apply per-property scales to the predictions before loss computation.
+                # The targets from the dataloader have only been scaled per-target, and
+                # not per-property. This transformation only applies to targets with
+                # per-property scales (i.e. multiple blocks or multiple properties), and
+                # leaves the others unchanged.
+                predictions = (model.module if is_distributed else model).scaler(
+                    systems,
+                    predictions,
+                    remove=False,
+                    use_per_target_scales=False,  # never before loss
+                    use_per_property_scales=True,
+                )
+
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
@@ -456,9 +470,19 @@ class Trainer(TrainerInterface):
                 if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
                     scaled_predictions = (
                         model.module if is_distributed else model
-                    ).scaler(systems, predictions)
+                    ).scaler(
+                        systems,
+                        predictions,
+                        remove=False,
+                        use_per_target_scales=True,
+                        use_per_property_scales=False,
+                    )
                     scaled_targets = (model.module if is_distributed else model).scaler(
-                        systems, targets
+                        systems,
+                        targets,
+                        remove=False,
+                        use_per_target_scales=True,
+                        use_per_property_scales=False,
                     )
 
                     if self.hypers["log_separate_blocks"]:
@@ -526,6 +550,20 @@ class Trainer(TrainerInterface):
                     targets = average_by_num_atoms(
                         targets, systems, per_structure_targets
                     )
+
+                    # Apply per-property scales to the predictions before loss
+                    # computation. The targets from the dataloader have only been scaled
+                    # per-target, and not per-property. This transformation only applies
+                    # to targets with per-property scales (i.e. multiple blocks or
+                    # multiple properties), and leaves the others unchanged.
+                    predictions = (model.module if is_distributed else model).scaler(
+                        systems,
+                        predictions,
+                        remove=False,
+                        use_per_target_scales=False,
+                        use_per_property_scales=True,
+                    )
+
                     val_loss_batch = loss_fn(predictions, targets, extra_data)
 
                     if is_distributed:
@@ -538,9 +576,19 @@ class Trainer(TrainerInterface):
                     # needed for model selection
                     scaled_predictions = (
                         model.module if is_distributed else model
-                    ).scaler(systems, predictions)
+                    ).scaler(
+                        systems,
+                        predictions,
+                        remove=False,
+                        use_per_target_scales=True,
+                        use_per_property_scales=False,
+                    )
                     scaled_targets = (model.module if is_distributed else model).scaler(
-                        systems, targets
+                        systems,
+                        targets,
+                        remove=False,
+                        use_per_target_scales=True,
+                        use_per_property_scales=False,
                     )
 
                     if self.hypers["log_separate_blocks"]:

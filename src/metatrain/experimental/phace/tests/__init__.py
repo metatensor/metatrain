@@ -10,3 +10,6 @@ DATASET_PATH_PERIODIC = str(
 
 DEFAULT_HYPERS = get_default_hypers("experimental.phace")
 MODEL_HYPERS = DEFAULT_HYPERS["model"]
+SPHERICAL_DISK_DATASET_PATH = str(
+    Path(__file__).parents[5] / "tests/resources/spherical_disk_dataset.zip"
+)

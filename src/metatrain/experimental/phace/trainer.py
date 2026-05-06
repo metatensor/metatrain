@@ -465,6 +465,19 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
+                # Apply per-property scales to the predictions before loss computation.
+                # The targets from the dataloader have only been scaled per-target, and
+                # not per-property. This transformation only applies to targets with
+                # per-property scales (i.e. multiple blocks or multiple properties), and
+                # leaves the others unchanged.
+                predictions = (model.module if is_distributed else model).scaler(
+                    systems,
+                    predictions,
+                    remove=False,
+                    use_per_target_scales=False,  # never before loss
+                    use_per_property_scales=True,
+                )
+
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
@@ -501,8 +514,20 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # Reapply scales and accumulate quantities for computing train metrics,
                 # but only if this is an epoch to log
                 if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
-                    scaled_predictions = model.scaler(systems, predictions)
-                    scaled_targets = model.scaler(systems, targets)
+                    scaled_predictions = model.scaler(
+                        systems,
+                        predictions,
+                        remove=False,
+                        use_per_target_scales=True,
+                        use_per_property_scales=False,
+                    )
+                    scaled_targets = model.scaler(
+                        systems,
+                        targets,
+                        remove=False,
+                        use_per_target_scales=True,
+                        use_per_property_scales=False,
+                    )
 
                     if self.hypers["log_separate_blocks"]:
                         # if any atomic basis outputs are present and metrics are to be
@@ -567,6 +592,19 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         targets, systems, per_structure_targets
                     )
 
+                    # Apply per-property scales to the predictions before loss
+                    # computation. The targets from the dataloader have only been scaled
+                    # per-target, and not per-property. This transformation only applies
+                    # to targets with per-property scales (i.e. multiple blocks or
+                    # multiple properties), and leaves the others unchanged.
+                    predictions = (model.module if is_distributed else model).scaler(
+                        systems,
+                        predictions,
+                        remove=False,
+                        use_per_target_scales=False,
+                        use_per_property_scales=True,
+                    )
+
                     val_loss_batch = loss_fn(predictions, targets, extra_data)
 
                     if is_distributed:
@@ -577,8 +615,20 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     # Reapply scales and accumulate quantities for computing val
                     # metrics. This is done for every epoch as validation metrics are
                     # needed for model selection
-                    scaled_predictions = model.scaler(systems, predictions)
-                    scaled_targets = model.scaler(systems, targets)
+                    scaled_predictions = model.scaler(
+                        systems,
+                        predictions,
+                        remove=False,
+                        use_per_target_scales=True,
+                        use_per_property_scales=False,
+                    )
+                    scaled_targets = model.scaler(
+                        systems,
+                        targets,
+                        remove=False,
+                        use_per_target_scales=True,
+                        use_per_property_scales=False,
+                    )
 
                     if self.hypers["log_separate_blocks"]:
                         # if any atomic basis outputs are present and metrics are to be

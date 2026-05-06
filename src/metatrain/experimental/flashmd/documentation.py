@@ -219,7 +219,16 @@ class TrainerHypers(TypedDict):
         structure.
     """
     scale_targets: bool = True
-    """Normalize targets to unit std during training."""
+    """
+    Normalize targets to unit std during training.
+
+    If true, a single scale is computed for each target, given by the uncentered
+    standard deviation across all values in the dataset for that target.
+
+    For targets with more than one property (i.e. > 1 block or >= 1 block with > 1
+    property), per-property scales are also computed, and used to re-scale model
+    predictions.
+    """
     fixed_scaling_weights: FixedScalerWeights = {}
     """Weights for target scaling.
 

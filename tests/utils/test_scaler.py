@@ -281,6 +281,20 @@ def test_scaler_scalar_multiple_properties(batch_size):
         ],
         dtype=torch.float64,
     )
+    all_vals = torch.tensor(
+        [
+            3.0,
+            6.0,  # energies, first system
+            4.0,
+            8.0,  # energies, second system
+            12.0,
+            24.0,  # energies, third system
+        ]
+    )
+    expected_scales_per_target = ((all_vals**2) / len(all_vals)).sum() ** 0.5
+    expected_scales_per_target = (
+        torch.ones(3, 2, dtype=torch.float64) * expected_scales_per_target
+    )
 
     scaler.train_model(
         dataset, additive_models=[], batch_size=batch_size, is_distributed=False
@@ -322,7 +336,7 @@ def test_scaler_scalar_multiple_properties(batch_size):
     removed_output = remove_scale(systems, fake_output, scaler)
     torch.testing.assert_close(
         removed_output["energy"].block().values,
-        fake_output["energy"].block().values / expected_scales,
+        fake_output["energy"].block().values / expected_scales_per_target,
     )
 
 
@@ -563,7 +577,7 @@ def test_scaler_spherical(batch_size):
                     values=torch.tensor([sph], dtype=torch.float64).unsqueeze(-1),
                     samples=Labels(names=["system"], values=torch.tensor([[i]])),
                     components=[Labels.range("o3_mu", 5)],
-                    properties=Labels(names=["n"], values=torch.tensor([[1]])),
+                    properties=Labels(names=["n"], values=torch.tensor([[0]])),
                 ),
             ],
         )
@@ -635,28 +649,41 @@ def test_scaler_spherical(batch_size):
     )
     fake_output = {"spherical": fake_output}
 
-    expected_scales_scalar = torch.tensor(
-        [[3.0], [3.0]], dtype=torch.float64
-    ).unsqueeze(-1)
-    expected_scales_spherical = torch.tensor(
+    # Compuet the full scales, i.e. the uncentered standard deviations per property.
+    expected_scale_l0 = 3.0
+    expected_scale_l2 = (77.0 / 2) ** 0.5
+    expected_scales_scalar = (
+        torch.ones((2, 1, 1), dtype=torch.float64) * expected_scale_l0
+    )
+    expected_scales_spherical = (
+        torch.ones(2, 5, 1, dtype=torch.float64) * expected_scale_l2
+    )
+
+    # Also compute the per-target scales, i.e. the uncentered standard deviations across
+    # all properties
+    flat_values = torch.tensor(
         [
-            [
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-            ],
-            [
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-                (77.0 / 2) ** 0.5,
-            ],
-        ],
-        dtype=torch.float64,
-    ).unsqueeze(-1)
+            3.0,  # scaler of first system
+            3.0,  # scaler of second system (/ 3 atoms)
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,  # rank 2 of first system
+            6.0,
+            7.0,
+            8.0,
+            9.0,
+            10.0,  # rank 2 of second system (/ 3 atoms)
+        ]
+    )
+    expected_scales_per_target = ((flat_values**2) / len(flat_values)).sum() ** 0.5
+    expected_scales_per_target_scalar = (
+        torch.ones((2, 1, 1), dtype=torch.float64) * expected_scales_per_target
+    )
+    expected_scales_per_target_spherical = (
+        torch.ones((2, 5, 1), dtype=torch.float64) * expected_scales_per_target
+    )
 
     scaler.train_model(
         dataset,
@@ -717,12 +744,12 @@ def test_scaler_spherical(batch_size):
     torch.testing.assert_close(
         removed_output["spherical"].block({"o3_lambda": 0}).values,
         fake_output["spherical"].block({"o3_lambda": 0}).values
-        / expected_scales_scalar,
+        / expected_scales_per_target_scalar,
     )
     torch.testing.assert_close(
         removed_output["spherical"].block({"o3_lambda": 2}).values,
         fake_output["spherical"].block({"o3_lambda": 2}).values
-        / expected_scales_spherical,
+        / expected_scales_per_target_spherical,
     )
 
 
@@ -1260,7 +1287,7 @@ def test_scaler_spherical_per_atom_atomic_basis(batch_size, missing_type):
                         values=torch.tensor([[0]]),
                     )
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
             ),
             TensorBlock(
                 values=torch.tensor([1.5, 0.8, 3.2], dtype=torch.float64).reshape(
@@ -1273,7 +1300,7 @@ def test_scaler_spherical_per_atom_atomic_basis(batch_size, missing_type):
                         values=torch.arange(-1, 2).reshape(-1, 1),
                     )
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
             ),
         ],
     )
@@ -1297,7 +1324,7 @@ def test_scaler_spherical_per_atom_atomic_basis(batch_size, missing_type):
                         values=torch.tensor([[0]]),
                     )
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
             ),
             TensorBlock(
                 values=torch.tensor([[2.0]], dtype=torch.float64).reshape(-1, 1, 1),
@@ -1311,7 +1338,7 @@ def test_scaler_spherical_per_atom_atomic_basis(batch_size, missing_type):
                         values=torch.tensor([[0]]),
                     )
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
             ),
             TensorBlock(
                 values=torch.tensor([0.2, 3, 1.1], dtype=torch.float64).reshape(
@@ -1327,7 +1354,7 @@ def test_scaler_spherical_per_atom_atomic_basis(batch_size, missing_type):
                         values=torch.arange(-1, 2).reshape(-1, 1),
                     )
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
             ),
         ],
     )
@@ -1456,13 +1483,13 @@ def test_scaler_rotation_invariance():
                     values=torch.tensor([sc], dtype=torch.float64).unsqueeze(-1),
                     samples=Labels(names=["system"], values=torch.tensor([[i]])),
                     components=[Labels(["o3_mu"], torch.arange(1).reshape(-1, 1))],
-                    properties=Labels(names=["spherical"], values=torch.tensor([[0]])),
+                    properties=Labels(names=["n"], values=torch.tensor([[0]])),
                 ),
                 TensorBlock(
                     values=torch.tensor([sph], dtype=torch.float64).unsqueeze(-1),
                     samples=Labels(names=["system"], values=torch.tensor([[i]])),
                     components=[Labels(["o3_mu"], torch.arange(-2, 3).reshape(-1, 1))],
-                    properties=Labels(names=["spherical"], values=torch.tensor([[1]])),
+                    properties=Labels(names=["n"], values=torch.tensor([[0]])),
                 ),
             ],
         )
