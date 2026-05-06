@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -372,12 +372,14 @@ class CartesianTransformer(torch.nn.Module):
     :param transformer_type: The type of transformer, either "PostLN" or "PreLN".
     :param n_atomic_species: The number of atomic species.
     :param is_first: Whether this is the first transformer in the model.
+    :param edge_tokens_cutoff: Whether to apply the cutoff function to the edge tokens
+         before feeding them into the transformer layers.
     """
 
     def __init__(
         self,
         cutoff: float,
-        cutoff_width: float,
+        cutoff_width: Optional[float],
         d_model: int,
         n_head: int,
         dim_node_features: int,
@@ -389,9 +391,11 @@ class CartesianTransformer(torch.nn.Module):
         transformer_type: str,
         n_atomic_species: int,
         is_first: bool,
+        edge_tokens_cutoff: bool,
     ) -> None:
         super(CartesianTransformer, self).__init__()
         self.is_first = is_first
+        self.edge_tokens_cutoff = edge_tokens_cutoff
         self.cutoff = cutoff
         self.cutoff_width = cutoff_width
         self.trans = Transformer(
@@ -482,7 +486,8 @@ class CartesianTransformer(torch.nn.Module):
             edge_tokens = torch.cat([edge_embeddings, input_messages], dim=2)
 
         edge_tokens = self.compress(edge_tokens)
-        # tokens = torch.cat([node_elements_embedding[:, None, :], tokens], dim=1)
+        if self.edge_tokens_cutoff:
+            edge_tokens = edge_tokens * cutoff_factors[:, :, None]
 
         padding_mask_with_central_token = torch.ones(
             padding_mask.shape[0], dtype=torch.bool, device=padding_mask.device
