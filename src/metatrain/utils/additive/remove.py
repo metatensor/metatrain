@@ -3,7 +3,7 @@ from typing import Callable, Dict, List, Tuple
 
 import metatensor.torch as mts
 import torch
-from metatensor.torch import Labels, TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.operations._add import _add_block_block
 from metatensor.torch.operations._multiply import _multiply_block_constant
 from metatomic.torch import System
@@ -116,7 +116,14 @@ def remove_additive(
                 )
 
             else:
-                new_target_blocks.append(block.copy())
+                new_target_blocks.append(
+                    TensorBlock(
+                        values=block.values,
+                        samples=block.samples,
+                        components=block.components,
+                        properties=block.properties,
+                    )
+                )
 
         targets[target_key] = TensorMap(
             keys=targets[target_key].keys,

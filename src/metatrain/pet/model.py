@@ -596,7 +596,14 @@ class PET(ModelInterface[ModelHypers]):
                                     )
                                 )
                             else:
-                                output_blocks.append(b.copy())
+                                output_blocks.append(
+                                    TensorBlock(
+                                        values=b.values,
+                                        samples=b.samples,
+                                        components=b.components,
+                                        properties=b.properties,
+                                    )
+                                )
                         return_dict[name] = TensorMap(
                             return_dict[name].keys, output_blocks
                         )

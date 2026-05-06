@@ -103,6 +103,16 @@ def evaluate_model(
         target_requires_strain_gradients = (
             energy_target in energy_targets_that_require_strain_gradients
         )
+
+        old_energy_tensor_map = model_outputs[energy_target]
+        old_energy_block = old_energy_tensor_map.block()
+        new_block = TensorBlock(
+            values=old_energy_block.values,
+            samples=old_energy_block.samples,
+            components=old_energy_block.components,
+            properties=old_energy_block.properties,
+        )
+
         if target_requires_pos_gradients and target_requires_strain_gradients:
             gradients = compute_gradient(
                 model_outputs[energy_target].block().values,
@@ -110,8 +120,6 @@ def evaluate_model(
                 is_training=is_training,
                 destroy_graph=(index == len(energy_targets_with_gradients) - 1),
             )
-            old_energy_tensor_map = model_outputs[energy_target]
-            new_block = old_energy_tensor_map.block().copy()
             new_block.add_gradient(
                 "positions", _position_gradients_to_block(gradients[: len(systems)])
             )
@@ -131,8 +139,6 @@ def evaluate_model(
                 is_training=is_training,
                 destroy_graph=(index == len(energy_targets_with_gradients) - 1),
             )
-            old_energy_tensor_map = model_outputs[energy_target]
-            new_block = old_energy_tensor_map.block().copy()
             new_block.add_gradient("positions", _position_gradients_to_block(gradients))
             new_energy_tensor_map = TensorMap(
                 keys=old_energy_tensor_map.keys,
@@ -146,8 +152,6 @@ def evaluate_model(
                 is_training=is_training,
                 destroy_graph=(index == len(energy_targets_with_gradients) - 1),
             )
-            old_energy_tensor_map = model_outputs[energy_target]
-            new_block = old_energy_tensor_map.block().copy()
             new_block.add_gradient("strain", _strain_gradients_to_block(gradients))
             new_energy_tensor_map = TensorMap(
                 keys=old_energy_tensor_map.keys,
