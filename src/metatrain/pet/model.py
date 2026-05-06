@@ -157,7 +157,9 @@ class PET(ModelInterface[ModelHypers]):
 
         # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(sample_kind="atom", description="internal features"),
+            "features": ModelOutput(
+                sample_kind="atom", description="internal features"
+            ),
             "mtt::aux::cutoff_stats": ModelOutput(
                 sample_kind="atom",
                 description=(

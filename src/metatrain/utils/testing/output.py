@@ -340,7 +340,7 @@ class OutputTests(ArchitectureTests):
         self,
         model_hypers: dict,
         dataset_info_spherical_rank2: DatasetInfo,
-        per_atom: bool,
+        sample_kind: Literal["atom", "system"],
     ) -> None:
         """Tests that forward pass works for spherical outputs of rank 2.
 
@@ -360,7 +360,7 @@ class OutputTests(ArchitectureTests):
         :param model_hypers: Hyperparameters to initialize the model.
         :param dataset_info_spherical_rank2: Dataset information with spherical
           outputs of rank 2.
-        :param per_atom: Whether the requested outputs are per-atom or not.
+        :param sample_kind: The sample kind of the requested spherical output.
         """
         if not self.supports_spherical_outputs:
             pytest.skip(f"{self.architecture} does not support spherical outputs.")
@@ -372,11 +372,11 @@ class OutputTests(ArchitectureTests):
         outputs = self._get_output(
             model_hypers,
             dataset_info_spherical_rank2,
-            per_atom,
+            sample_kind,
             ["spherical_tensor_rank2"],
         )
 
-        if per_atom:
+        if sample_kind == "atom":
             assert outputs["spherical_tensor_rank2"].block().values.shape[0] == 4
         else:
             assert outputs["spherical_tensor_rank2"].block().values.shape[0] == 1
@@ -464,7 +464,7 @@ class OutputTests(ArchitectureTests):
         self._get_output(
             model_hypers,
             dataset_info_spherical_atomic_basis_rank2,
-            per_atom=True,
+            sample_kind="atom",
             outputs=["spherical_tensor_atomic_basis_rank2"],
         )
 
