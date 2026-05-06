@@ -1600,7 +1600,7 @@ def test_scaler_spherical_per_atom_rank_2(batch_size):
         names=["o3_lambda_1", "o3_sigma_1", "o3_lambda_2", "o3_sigma_2"],
         values=torch.tensor([[0, 1, 0, 1], [1, 1, 1, 1]]),
     )
-    prop_labels = Labels(names=["property"], values=torch.tensor([[0]]))
+    prop_labels = Labels(names=["n_1", "n_2"], values=torch.tensor([[0, 0]]))
 
     L_00_sys0 = torch.tensor([[[[1.0]]]]).to(torch.float64)  # O
     L_00_sys1 = torch.tensor([[[[2.0]]], [[[3.0]]], [[[4.0]]]]).to(
@@ -1745,7 +1745,7 @@ def test_scaler_spherical_per_atom_rank_2_rotation_invariance():
         names=["o3_lambda_1", "o3_sigma_1", "o3_lambda_2", "o3_sigma_2"],
         values=torch.tensor([[0, 1, 0, 1], [1, 1, 1, 1]]),
     )
-    prop_labels = Labels(names=["property"], values=torch.tensor([[0]]))
+    prop_labels = Labels(names=["n_1", "n_2"], values=torch.tensor([[0, 0]]))
 
     L_00_sys0 = torch.tensor([[[[1.0]]]]).to(torch.float64)
     L_00_sys1 = torch.tensor([[[[2.0]]], [[[3.0]]], [[[4.0]]]]).to(torch.float64)
@@ -1861,7 +1861,7 @@ def test_scaler_spherical_atomic_basis_rank_2(missing_type):
     target_name = "spherical_atomic_basis_rank2"
 
     key_names = ["o3_lambda_1", "o3_sigma_1", "o3_lambda_2", "o3_sigma_2", "atom_type"]
-    prop = Labels(names=["_"], values=torch.tensor([[0]]))
+    prop = Labels(names=["n_1", "n_2"], values=torch.tensor([[0, 0]]))
     mu1_1 = Labels(names=["o3_mu_1"], values=torch.tensor([[0]]))
     mu2_1 = Labels(names=["o3_mu_2"], values=torch.tensor([[0]]))
     mu1_3 = Labels(names=["o3_mu_1"], values=torch.arange(-1, 2).reshape(-1, 1))
@@ -2020,7 +2020,7 @@ def test_scaler_spherical_atomic_basis_rank_2_rotation_invariance(missing_type):
     num_checks = 5
 
     key_names = ["o3_lambda_1", "o3_sigma_1", "o3_lambda_2", "o3_sigma_2", "atom_type"]
-    prop = Labels(names=["_"], values=torch.tensor([[0]]))
+    prop = Labels(names=["n_1", "n_2"], values=torch.tensor([[0, 0]]))
     mu1_1 = Labels(names=["o3_mu_1"], values=torch.tensor([[0]]))
     mu2_1 = Labels(names=["o3_mu_2"], values=torch.tensor([[0]]))
     mu1_3 = Labels(names=["o3_mu_1"], values=torch.arange(-1, 2).reshape(-1, 1))
