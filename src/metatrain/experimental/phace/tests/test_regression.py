@@ -20,6 +20,7 @@ from metatrain.utils.neighbor_lists import (
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS, SPHERICAL_DISK_DATASET_PATH
 
+
 # reproducibility
 random.seed(0)
 np.random.seed(0)
