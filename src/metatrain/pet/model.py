@@ -78,6 +78,12 @@ class PET(ModelInterface[ModelHypers]):
             else None
         )
         self.adaptive_cutoff_method = self.hypers["adaptive_cutoff_method"]
+        self.cutoff_max_adaptive = (
+            float(self.hypers["cutoff_max_adaptive"])
+            if self.hypers["cutoff_max_adaptive"] is not None
+            else self.cutoff
+        )
+        self.cutoff_width_adaptive = float(self.hypers["cutoff_width_adaptive"])
         self.edge_tokens_cutoff = self.hypers["edge_tokens_cutoff"]
         self.d_pet = self.hypers["d_pet"]
         self.d_node = self.hypers["d_node"]
@@ -456,6 +462,8 @@ class PET(ModelInterface[ModelHypers]):
                 self.cutoff_width,
                 self.num_neighbors_adaptive,
                 self.adaptive_cutoff_method,
+                self.cutoff_max_adaptive,
+                self.cutoff_width_adaptive,
             )
 
         if "mtt::aux::cutoff_stats" in outputs:

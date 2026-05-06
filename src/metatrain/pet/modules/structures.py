@@ -121,6 +121,8 @@ def systems_to_batch(
     cutoff_width: Optional[float] = None,
     num_neighbors_adaptive: Optional[float] = None,
     adaptive_cutoff_method: str = "solver",
+    cutoff_max_adaptive: Optional[float] = None,
+    cutoff_width_adaptive: Optional[float] = None,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -152,6 +154,10 @@ def systems_to_batch(
         cutoffs when ``num_neighbors_adaptive`` is set. ``"grid"`` uses the legacy
         probe-grid + Gaussian-weighted average; ``"solver"`` uses a Newton-bisection
         root finder on the smoothed neighbor count.
+    :param cutoff_max_adaptive: Upper bound of the probe grid used by the adaptive
+        solver. If ``None``, falls back to ``options.cutoff``.
+    :param cutoff_width_adaptive: Width of the smooth bump used to build ``n(r)``
+        in the adaptive solver. If ``None``, falls back to ``cutoff_width``.
     :return: A tuple containing the batch tensors.
         The batch consists of the following tensors:
         - `element_indices_nodes`: The atomic species of the central atoms
@@ -203,6 +209,12 @@ def systems_to_batch(
         cutoff_width = options.cutoff
 
     if num_neighbors_adaptive is not None:
+        max_cutoff = (
+            options.cutoff if cutoff_max_adaptive is None else cutoff_max_adaptive
+        )
+        n_smoothing_width = (
+            cutoff_width_adaptive if cutoff_width_adaptive is not None else cutoff_width
+        )
         with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
             # Adaptive cutoff scheme to approximately select `num_neighbors_adaptive`
             # neighbors for each atom
@@ -212,8 +224,8 @@ def systems_to_batch(
                     edge_distances,
                     num_neighbors_adaptive,
                     num_nodes,
-                    options.cutoff,
-                    cutoff_width=cutoff_width,
+                    max_cutoff,
+                    cutoff_width=n_smoothing_width,
                 )
             elif adaptive_cutoff_method.lower() == "grid":
                 atomic_cutoffs = get_adaptive_cutoffs_grid(
@@ -221,8 +233,8 @@ def systems_to_batch(
                     edge_distances,
                     num_neighbors_adaptive,
                     num_nodes,
-                    options.cutoff,
-                    cutoff_width=cutoff_width,
+                    max_cutoff,
+                    cutoff_width=n_smoothing_width,
                 )
             else:
                 raise ValueError(

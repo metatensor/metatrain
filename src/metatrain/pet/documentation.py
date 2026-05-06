@@ -107,6 +107,22 @@ class ModelHypers(TypedDict):
     a Newton-bisection root finder (default; faster and more accurate). Only
     has effect when ``num_neighbors_adaptive`` is set.
     """
+    cutoff_max_adaptive: Optional[float] = None
+    """Upper bound of the probe grid used by the adaptive cutoff solver.
+
+    When ``None`` (default), it is set to ``cutoff`` at construction time.
+    Setting it explicitly decouples the probe-grid upper bound from the
+    neighbor-list cutoff, so the host can request a tighter NL at inference
+    without changing the discretization the network was trained against. Only
+    has effect when ``num_neighbors_adaptive`` is set.
+    """
+    cutoff_width_adaptive: Optional[float] = 1.0
+    """Width of the smooth bump used to build ``n(r)`` in the adaptive cutoff
+    solver.
+
+    Does not affect the per-edge cutoff factor (controlled by ``cutoff_width``).
+    Only has effect when ``num_neighbors_adaptive`` is set.
+    """
     edge_tokens_cutoff: bool = False
     """Whether to apply the cutoff function to the edge tokens before feeding them
     into the transformer layers. This enforces a more physical prior to the model,
