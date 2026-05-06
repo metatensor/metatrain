@@ -20,7 +20,6 @@ from metatrain.utils.neighbor_lists import (
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS, SPHERICAL_DISK_DATASET_PATH
 
-
 # reproducibility
 random.seed(0)
 np.random.seed(0)
@@ -264,44 +263,42 @@ def test_regression_train_spherical(device):
         },
     )
 
-    # TODO: update these after running `tox -e phace-tests`
     expected_output = torch.tensor(
         [
             [
-                -12.553309440613,
-                3.217378377914,
-                5.746700763702,
-                15.610136032104,
-                -0.748006165028,
-                -12.364662170410,
-                -14.011922836304,
+                -12.553195953369,
+                3.217277050018,
+                5.746766567230,
+                15.610146522522,
+                -0.747889816761,
+                -12.364739418030,
+                -14.011876106262,
             ],
             [
-                0.325647443533,
-                -0.382812500000,
-                0.090030364692,
-                -0.202920719981,
-                -0.177631571889,
-                -0.194398209453,
-                -0.509815514088,
+                0.325646221638,
+                -0.382812023163,
+                0.090028271079,
+                -0.202921912074,
+                -0.177629277110,
+                -0.194395795465,
+                -0.509811341763,
             ],
             [
-                0.408634245396,
-                -1.066042661667,
-                -0.526021957397,
-                -3.874695539474,
-                -1.422430396080,
-                -0.656801342964,
-                -1.677628278732,
+                0.408660411835,
+                -1.066052556038,
+                -0.526026010513,
+                -3.874698638916,
+                -1.422418594360,
+                -0.656789183617,
+                -1.677640914917,
             ],
         ],
         device=device,
     )
 
-    # TODO: comment this out again
-    # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["mtt::electron_density_basis"][1].values[2])
+    # # if you need to change the hardcoded values:
+    # torch.set_printoptions(precision=12)
+    # print(output["mtt::electron_density_basis"][1].values[2])
 
     torch.testing.assert_close(
         output["mtt::electron_density_basis"][1].values[2], expected_output
