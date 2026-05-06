@@ -18,7 +18,6 @@ from metatrain.utils.neighbor_lists import (
 
 from . import DEFAULT_HYPERS, MODEL_HYPERS, SPHERICAL_DISK_DATASET_PATH
 
-
 # reproducibility
 random.seed(0)
 np.random.seed(0)
@@ -102,7 +101,6 @@ def test_regression_train_spherical(device):
         },
     )
 
-    # TODO: update these after running `tox -e phace-tests`
     expected_output = torch.tensor(
         [
             [
@@ -136,10 +134,9 @@ def test_regression_train_spherical(device):
         device=device,
     )
 
-    # TODO: comment this out again
-    # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["mtt::electron_density_basis"][1].values[2])
+    # # if you need to change the hardcoded values:
+    # torch.set_printoptions(precision=12)
+    # print(output["mtt::electron_density_basis"][1].values[2])
 
     torch.testing.assert_close(
         output["mtt::electron_density_basis"][1].values[2], expected_output
