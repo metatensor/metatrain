@@ -173,6 +173,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 self.hypers["batch_size"],
                 is_distributed,
                 model.get_fixed_scaling_weights(),
+                per_structure_targets=self.hypers["per_structure_targets"],
             )
 
         if is_distributed:

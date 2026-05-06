@@ -149,6 +149,7 @@ class Scaler(torch.nn.Module):
         is_distributed: bool,
         fixed_weights: Optional[FixedScalerWeights] = None,
         initial_transforms: Sequence[Callable] = (),
+        per_structure_targets: Optional[List[str]] = None,
     ) -> None:
         """
         Train the scaler model by accumulating the necessary quantities from the
@@ -171,9 +172,14 @@ class Scaler(torch.nn.Module):
         :param initial_transforms: A list of callables to be included in
             the collate function of the dataloader. The callables passed here will be
             applied before the other callables set by the scaler.
+        :param per_structure_targets: Target names that should be treated as
+            per-structure quantities and therefore not divided by the number of atoms.
         """
         if not isinstance(datasets, list):
             datasets = [datasets]
+
+        if per_structure_targets is None:
+            per_structure_targets = []
 
         if len(self.target_infos) == 0:  # no (new) targets to fit
             return
@@ -208,7 +214,7 @@ class Scaler(torch.nn.Module):
                         for target_name in targets
                     },
                 )
-            targets = average_by_num_atoms(targets, systems, [])
+            targets = average_by_num_atoms(targets, systems, per_structure_targets)
             self.model.accumulate(systems, targets, extra_data)
 
         if is_distributed:
@@ -276,7 +282,7 @@ class Scaler(torch.nn.Module):
                             for target_name in targets
                         },
                     )
-                targets = average_by_num_atoms(targets, systems, [])
+                targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 self.model.accumulate_per_property(systems, targets, extra_data)
 
             if is_distributed:

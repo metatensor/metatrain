@@ -340,6 +340,173 @@ def test_scaler_scalar_multiple_properties(batch_size):
     )
 
 
+def test_scaler_respects_per_structure_targets_for_rank2_stress():
+    """
+    Test that the scaler calculates the scaling weights for rank-2 stress using the
+    per_structure_targets variable.
+    """
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([8, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+    stresses = [
+        torch.full((1, 3, 3, 1), 2.0, dtype=torch.float64),
+        torch.full((1, 3, 3, 1), 4.0, dtype=torch.float64),
+    ]
+    targets = [
+        TensorMap(
+            keys=Labels.single(),
+            blocks=[
+                TensorBlock(
+                    values=stress,
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[Labels.range("xyz_1", 3), Labels.range("xyz_2", 3)],
+                    properties=Labels.range("non_conservative_stress", 1),
+                )
+            ],
+        )
+        for i, stress in enumerate(stresses)
+    ]
+    dataset = Dataset.from_dict({"system": systems, "non_conservative_stress": targets})
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[8],
+        targets={
+            "non_conservative_stress": get_generic_target_info(
+                "non_conservative_stress",
+                {
+                    "quantity": "stress",
+                    "unit": "eV/A^3",
+                    "type": {"cartesian": {"rank": 2}},
+                    "per_atom": False,
+                    "num_subtargets": 1,
+                },
+            )
+        },
+    )
+
+    scaler_raw = Scaler(hypers={}, dataset_info=dataset_info).to(torch.float64)
+    scaler_per_atom = Scaler(hypers={}, dataset_info=dataset_info).to(torch.float64)
+
+    scaler_raw.train_model(
+        dataset,
+        additive_models=[],
+        batch_size=2,
+        is_distributed=False,
+        per_structure_targets=["non_conservative_stress"],
+    )
+    scaler_per_atom.train_model(
+        dataset,
+        additive_models=[],
+        batch_size=2,
+        is_distributed=False,
+        per_structure_targets=[],
+    )
+
+    raw_scale = scaler_raw.model.scales["non_conservative_stress"].block().values[0, 0]
+    per_atom_scale = (
+        scaler_per_atom.model.scales["non_conservative_stress"].block().values[0, 0]
+    )
+
+    stress = torch.cat(stresses, dim=0)
+    expected_raw = torch.sqrt(torch.mean(stress**2))
+
+    stress_per_atom = torch.cat(
+        [
+            stresses[0] / len(systems[0]),
+            stresses[1] / len(systems[1]),
+        ],
+        dim=0,
+    )
+    expected_per_atom = torch.sqrt(torch.mean(stress_per_atom**2))
+
+    torch.testing.assert_close(raw_scale, expected_raw)
+    torch.testing.assert_close(per_atom_scale, expected_per_atom)
+    assert not torch.isclose(raw_scale, per_atom_scale)
+
+
+def test_scaler_ignores_nan_rank2_stress_for_per_structure_targets():
+    """
+    Test that the scaler ignores NaN values when calculating the scaling weights for
+    per-structure rank-2 stress targets. This is important for mixed materials/molecules
+    datasets, where some structures might have stress values and others might not.
+    """
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.zeros(3, 3, dtype=torch.float64),
+            pbc=torch.tensor([False, False, False]),
+        ),
+    ]
+    valid_stress = torch.full((1, 3, 3, 1), 2.0, dtype=torch.float64)
+    nan_stress = torch.full((1, 3, 3, 1), torch.nan, dtype=torch.float64)
+    targets = [
+        TensorMap(
+            keys=Labels.single(),
+            blocks=[
+                TensorBlock(
+                    values=stress,
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[Labels.range("xyz_1", 3), Labels.range("xyz_2", 3)],
+                    properties=Labels.range("non_conservative_stress", 1),
+                )
+            ],
+        )
+        for i, stress in enumerate([valid_stress, nan_stress])
+    ]
+    dataset = Dataset.from_dict({"system": systems, "non_conservative_stress": targets})
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[8],
+        targets={
+            "non_conservative_stress": get_generic_target_info(
+                "non_conservative_stress",
+                {
+                    "quantity": "stress",
+                    "unit": "eV/A^3",
+                    "type": {"cartesian": {"rank": 2}},
+                    "per_atom": False,
+                    "num_subtargets": 1,
+                },
+            )
+        },
+    )
+
+    scaler = Scaler(hypers={}, dataset_info=dataset_info).to(torch.float64)
+    scaler.train_model(
+        dataset,
+        additive_models=[],
+        batch_size=2,
+        is_distributed=False,
+        per_structure_targets=["non_conservative_stress"],
+    )
+
+    scale = scaler.model.scales["non_conservative_stress"].block().values[0, 0]
+    expected = torch.sqrt(torch.mean(valid_stress**2))
+    torch.testing.assert_close(scale, expected)
+
+
 @pytest.mark.parametrize("batch_size", [1, 2])
 @pytest.mark.parametrize("fixed_scaling_weights", [False, True])
 def test_scaler_cartesian_per_atom(batch_size, fixed_scaling_weights):
