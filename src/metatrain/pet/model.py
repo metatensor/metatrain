@@ -32,7 +32,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .documentation import ModelHypers
-from .modules.atomic_basis import ZConditionedReadout
+from .modules.atomic_basis import MoEReadout, ZConditionedReadout
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
@@ -88,6 +88,32 @@ class PET(ModelInterface[ModelHypers]):
         self.featurizer_type = self.hypers["featurizer_type"]
         self.atomic_basis_z_readout = self.hypers["atomic_basis_z_readout"]
         self.geometry_embedding_lmax = self.hypers["geometry_embedding_lmax"]
+        # MoE hypers
+        self.num_experts = self.hypers["num_experts"]
+        self.num_routed_experts = self.hypers["num_routed_experts"]
+        self.num_topk_experts = self.hypers["num_topk_experts"]
+        self.moe_embedding_dim = self.hypers["moe_embedding_dim"]
+        self.use_moe = self.num_experts is not None
+        if self.use_moe:
+            if self.num_routed_experts is None or self.num_topk_experts is None:
+                raise ValueError(
+                    "num_routed_experts and num_topk_experts must both be "
+                    "set when num_experts is set."
+                )
+            num_shared = self.num_experts - self.num_routed_experts
+            if (
+                self.num_routed_experts < 1
+                or num_shared < 0
+                or self.num_topk_experts < 1
+                or self.num_topk_experts > self.num_routed_experts
+            ):
+                raise ValueError(
+                    f"Inconsistent MoE hypers: num_experts={self.num_experts}, "
+                    f"num_routed_experts={self.num_routed_experts}, "
+                    f"num_topk_experts={self.num_topk_experts}. "
+                    "Need: 1 ≤ num_routed_experts ≤ num_experts, and "
+                    "1 ≤ num_topk_experts ≤ num_routed_experts."
+                )
 
         self.atomic_types = dataset_info.atomic_types
         self.requested_nl = NeighborListOptions(
@@ -1249,6 +1275,45 @@ class PET(ModelInterface[ModelHypers]):
         """
         return densify_atomic_basis_dataset_info(dataset_info)
 
+    def _make_readout(
+        self,
+        in_features: int,
+        out_features: int,
+        use_z_readout: bool,
+    ) -> torch.nn.Module:
+        """
+        Return the appropriate readout module for a single output block.
+
+        When ``self.use_moe`` is True the MoE-E architecture is used
+        (``ZConditionedReadout`` experts with Z-gated routing); otherwise a
+        plain ``ZConditionedReadout`` is returned.  Both have an identical
+        ``forward(features, species_idx)`` signature so they are
+        interchangeable inside the model's ``ModuleDict`` containers.
+
+        This method is only called during ``__init__`` / ``_add_output`` and
+        does not need to be TorchScript-compatible.
+        """
+        n_species = len(self.dataset_info.atomic_types)
+        if self.use_moe:
+            # num_experts / num_routed_experts / num_topk_experts are
+            # guaranteed non-None here (validated in __init__).
+            return MoEReadout(
+                in_features,
+                out_features,
+                n_species,
+                self.num_experts,        # type: ignore[arg-type]
+                self.num_routed_experts, # type: ignore[arg-type]
+                self.num_topk_experts,   # type: ignore[arg-type]
+                embedding_dim=self.moe_embedding_dim,
+            )
+        else:
+            return ZConditionedReadout(
+                in_features,
+                out_features,
+                n_species,
+                z_conditioned=use_z_readout,
+            )
+
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         """
         Register a new output target by creating corresponding heads and last layers.
@@ -1315,13 +1380,7 @@ class PET(ModelInterface[ModelHypers]):
             [
                 torch.nn.ModuleDict(
                     {
-                        key: ZConditionedReadout(
-                            self.d_head,
-                            prod(shape),
-                            len(self.dataset_info.atomic_types),
-                            z_conditioned=use_z_readout,
-                            # hidden_layer_widths=[int(self.d_head / 2)],
-                        )
+                        key: self._make_readout(self.d_head, prod(shape), use_z_readout)
                         for key, shape in self.output_shapes[target_name].items()
                     }
                 )
@@ -1333,13 +1392,7 @@ class PET(ModelInterface[ModelHypers]):
             [
                 torch.nn.ModuleDict(
                     {
-                        key: ZConditionedReadout(
-                            self.d_head,
-                            prod(shape),
-                            len(self.dataset_info.atomic_types),
-                            z_conditioned=use_z_readout,
-                            # hidden_layer_widths=[int(self.d_head / 2)],
-                        )
+                        key: self._make_readout(self.d_head, prod(shape), use_z_readout)
                         for key, shape in self.output_shapes[target_name].items()
                     }
                 )

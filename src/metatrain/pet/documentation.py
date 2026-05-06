@@ -173,6 +173,21 @@ class ModelHypers(TypedDict):
       Targets absent from the dict default to ``False``.  Again, non-atomic-
       basis targets are never Z-conditioned regardless of the value provided.
     """
+    num_experts: Optional[int] = None
+    """Total number of experts N for the MoE-E readout.  ``None`` (default)
+    disables MoE and falls back to ``ZConditionedReadout``.  When set,
+    ``num_routed_experts`` and ``num_topk_experts`` must also be set."""
+    num_routed_experts: Optional[int] = None
+    """Number of Z-gated routed experts I.  Must satisfy
+    1 ≤ I ≤ ``num_experts`` when MoE is enabled."""
+    num_topk_experts: Optional[int] = None
+    """Number of routed experts K' selected per atom via TopK
+    (must satisfy 1 ≤ K' ≤ ``num_routed_experts``).
+    Total experts activated per atom = K' + (``num_experts`` − ``num_routed_experts``) shared."""
+    moe_embedding_dim: int = 16
+    """Latent dimension M of the species embedding used by the MoE router.
+    16 is sufficient to distinguish all ~100 periodic-table elements while
+    leaving the model free to learn a continuous chemical manifold."""
     geometry_embedding_lmax: Optional[int] = None
     """
     The L max of solid spherical harmonics to use for edge geometry embeddings
