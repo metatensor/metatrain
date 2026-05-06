@@ -21,6 +21,11 @@ ALLOWED_NEW_KEYS_CONDITIONS = [
     lambda prefix, key: "scheduler" in f"{prefix}.{key}" and key == "_is_initial"
 ]
 
+# Wrapper architectures can embed a full checkpoint from another architecture.
+# That inner checkpoint has its own versioning and upgrade path, so we don't
+# recurse into it when checking the outer checkpoint structure.
+NONRECURSIVE_CHECKPOINT_KEYS = {"wrapped_model_checkpoint"}
+
 
 def check_same_checkpoint_structure(
     checkpoint: Dict[str, Any], reference: Dict[str, Any], prefix: str = ""
@@ -47,6 +52,8 @@ def check_same_checkpoint_structure(
 
     for key in reference:
         if isinstance(reference[key], dict):
+            if key in NONRECURSIVE_CHECKPOINT_KEYS:
+                continue
             check_same_checkpoint_structure(
                 checkpoint[key], reference[key], prefix=prefix + "." + str(key)
             )
