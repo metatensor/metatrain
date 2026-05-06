@@ -276,12 +276,19 @@ def model_update_v11_v12(checkpoint: dict) -> None:
     Additionally, add the "edge_tokens_cutoff" hyperparameter with default
     value False, since the old checkpoints were trained without it.
 
+    Also injects a default for ``cutoff_width_adaptive`` (set to the
+    checkpoint's ``cutoff_width`` so the n(r) smoothing matches what the
+    network was trained with).
+
     :param checkpoint: The checkpoint to update.
     """
-    if "adaptive_cutoff_method" not in checkpoint["model_data"]["model_hypers"]:
-        checkpoint["model_data"]["model_hypers"]["adaptive_cutoff_method"] = "grid"
-    if "edge_tokens_cutoff" not in checkpoint["model_data"]["model_hypers"]:
-        checkpoint["model_data"]["model_hypers"]["edge_tokens_cutoff"] = False
+    hypers = checkpoint["model_data"]["model_hypers"]
+    if "adaptive_cutoff_method" not in hypers:
+        hypers["adaptive_cutoff_method"] = "grid"
+    if "edge_tokens_cutoff" not in hypers:
+        hypers["edge_tokens_cutoff"] = False
+    if "cutoff_width_adaptive" not in hypers:
+        hypers["cutoff_width_adaptive"] = hypers.get("cutoff_width", 0.5)
 
 
 ###########################
