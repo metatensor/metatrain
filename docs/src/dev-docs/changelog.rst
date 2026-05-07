@@ -30,6 +30,10 @@ Fixed
 - Fixed memory leak in ``mtt eval`` where ``ASEWriter`` and ``MetatensorWriter``
   accumulated all systems and predictions in memory, causing OOM for large datasets.
   Both writers now stream output to disk per batch.
+- Fixed scaling of ``non_conservative_stress`` during training using
+  ``per_structure_targets`` when fitting scaler weights and correctly ignoring NaN
+  stress entries. This will produce different training runs when 
+  ``non_conservative_stress`` is a target.
 
 Changed
 #######
