@@ -13,7 +13,6 @@ from .nef import (
 )
 from .utilities import cutoff_func_bump, cutoff_func_cosine
 
-
 def concatenate_structures(
     systems: List[System],
     neighbor_list_options: NeighborListOptions,
@@ -121,7 +120,7 @@ def systems_to_batch(
     cutoff_width: Optional[float] = None,
     num_neighbors_adaptive: Optional[float] = None,
     adaptive_cutoff_method: str = "solver",
-    cutoff_width_adaptive: Optional[float] = None,
+    cutoff_width_adaptive: Optional[float] = 1.0,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -156,8 +155,7 @@ def systems_to_batch(
         probe-grid + Gaussian-weighted average; ``"solver"`` uses a Newton-bisection
         root finder on the smoothed neighbor count.
     :param cutoff_width_adaptive: Width of the smooth bump used to build ``n(r)``
-        in the adaptive solver. If ``None``, falls back to ``cutoff_width``;
-        if both are ``None``, defaults to 1.0.
+        in the adaptive solver. Defaults to 1.0.
     :return: A tuple containing the batch tensors.
         The batch consists of the following tensors:
         - `element_indices_nodes`: The atomic species of the central atoms
@@ -206,12 +204,6 @@ def systems_to_batch(
     num_nodes = len(positions)
 
     if num_neighbors_adaptive is not None:
-        if cutoff_width_adaptive is not None:
-            n_smoothing_width = cutoff_width_adaptive
-        elif cutoff_width is not None:
-            n_smoothing_width = cutoff_width
-        else:
-            n_smoothing_width = 1.0
         with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
             # Adaptive cutoff scheme to approximately select `num_neighbors_adaptive`
             # neighbors for each atom
@@ -222,7 +214,7 @@ def systems_to_batch(
                     num_neighbors_adaptive,
                     num_nodes,
                     options.cutoff,
-                    cutoff_width=n_smoothing_width,
+                    cutoff_width=cutoff_width_adaptive,
                 )
             elif adaptive_cutoff_method.lower() == "grid":
                 atomic_cutoffs = get_adaptive_cutoffs_grid(
@@ -231,7 +223,7 @@ def systems_to_batch(
                     num_neighbors_adaptive,
                     num_nodes,
                     options.cutoff,
-                    cutoff_width=n_smoothing_width,
+                    cutoff_width=cutoff_width_adaptive,
                 )
             else:
                 raise ValueError(
@@ -267,14 +259,16 @@ def systems_to_batch(
     # if cutoff_width is None, the cutoff function spans the entire range from 0 to
     # the cutoff radius, (either fixed or adaptive)
     if cutoff_function.lower() == "bump":
-        cutoff_factors = cutoff_func_bump(edge_distances, pair_cutoffs, cutoff_width)
+        cutoff_func = cutoff_func_bump
     elif cutoff_function.lower() == "cosine":
-        cutoff_factors = cutoff_func_cosine(edge_distances, pair_cutoffs, cutoff_width)
+        cutoff_func = cutoff_func_cosine
     else:
         raise ValueError(
             f"Unknown cutoff function type: {cutoff_function}. "
             f"Supported types are 'Cosine' and 'Bump'."
         )
+    
+    cutoff_factors = cutoff_func(edge_distances, pair_cutoffs, cutoff_width)
 
     # Convert to NEF (Node-Edge-Feature) format:
     # Pass `num_neighbors` in so `get_nef_indices` doesn't re-run bincount.
