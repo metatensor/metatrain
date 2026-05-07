@@ -361,9 +361,7 @@ def test_scaler_respects_per_structure_targets_for_rank2_stress():
         )
         for i, stress in enumerate(stresses)
     ]
-    dataset = Dataset.from_dict(
-        {"system": systems, "non_conservative_stress": targets}
-    )
+    dataset = Dataset.from_dict({"system": systems, "non_conservative_stress": targets})
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
@@ -401,9 +399,9 @@ def test_scaler_respects_per_structure_targets_for_rank2_stress():
     )
 
     raw_scale = scaler_raw.model.scales["non_conservative_stress"].block().values[0, 0]
-    per_atom_scale = scaler_per_atom.model.scales["non_conservative_stress"].block().values[
-        0, 0
-    ]
+    per_atom_scale = (
+        scaler_per_atom.model.scales["non_conservative_stress"].block().values[0, 0]
+    )
 
     stress = torch.cat(stresses, dim=0)
     expected_raw = torch.sqrt(torch.mean(stress**2))
@@ -463,9 +461,7 @@ def test_scaler_ignores_nan_rank2_stress(batch_size):
         )
         for i, stress in enumerate([*valid_stresses, nan_stress])
     ]
-    dataset = Dataset.from_dict(
-        {"system": systems, "non_conservative_stress": targets}
-    )
+    dataset = Dataset.from_dict({"system": systems, "non_conservative_stress": targets})
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
