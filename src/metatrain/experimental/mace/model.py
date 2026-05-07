@@ -663,11 +663,13 @@ class MetaMACE(ModelInterface[ModelHypers]):
         :param target_name: Name of the target to add.
         :param target_info: TargetInfo object containing details about the target.
         """
-        # We don't support Cartesian tensors with rank > 1
-        if target_info.is_cartesian:
-            if len(target_info.layout.block().components) > 1:
+        # We don't support targets with rank > 1
+        if target_info.is_cartesian or target_info.is_spherical:
+            if len(target_info.layout.block(0).components) > 1:
                 raise ValueError(
-                    "MetaMACE does not support Cartesian tensors with rank > 1."
+                    "MetaMACE does not support target tensors with rank > 1."
+                    f"{target_name} has rank "
+                    f"{len(target_info.layout.block(0).components)}."
                 )
 
         self.layouts[target_name] = target_info.layout

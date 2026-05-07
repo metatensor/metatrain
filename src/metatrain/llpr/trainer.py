@@ -23,7 +23,7 @@ from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
-from metatrain.utils.distributed.slurm import DistributedEnvironment
+from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension, model_from_checkpoint
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
@@ -126,12 +126,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     "set `device` to cuda."
                 )
             # Initialize distributed environment for calibration
-            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
-            device_number = distr_env.local_rank % torch.cuda.device_count()
-            device = torch.device("cuda", device_number)
-            torch.distributed.init_process_group(backend="nccl", device_id=device)
-            world_size = torch.distributed.get_world_size()
-            rank = torch.distributed.get_rank()
+            device, world_size, rank = initialize_slurm_nccl_process_group(
+                self.hypers["distributed_port"]
+            )
             logging.info(f"Initialized distributed training on {world_size} devices")
         else:
             device = devices[0]

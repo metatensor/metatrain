@@ -124,14 +124,16 @@ class SphericalTargetConfig(TypedDict):
     irreps: (
         list[SphericalTargetIrrepsConfig] | dict[int, list[SphericalTargetIrrepsConfig]]
     )
-    product: NotRequired[Literal[None, "coupled"]] = None
+    product: NotRequired[Literal[None, "coupled", "cartesian"]] = None
     """Means of describing a higher rank target that is made of the base irreps.
     If:
 
-    - ``product`` is ``None`` or not provided: the target is of rank 1.
+    - ``product`` is ``None`` or not provided: the target has simply the base irreps.
     - ``product`` is ``"coupled"``: the target is built by all the possible products
       between irreps and coupling them to their irreducible representations.
       The target is therefore still of rank 1.
+    - ``product`` is ``"cartesian"``: the target is built by all the possible products
+      between irreps, creating a target of rank 2.
     """
 
 

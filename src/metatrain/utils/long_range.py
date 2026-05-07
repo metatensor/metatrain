@@ -132,9 +132,13 @@ class LongRangeFeaturizer(torch.nn.Module):
             last_len_nodes += len(system)
 
             neighbor_list = system.get_neighbor_list(self.neighbor_list_options)
-            neighbor_indices_system = neighbor_list.samples.view(
-                ["first_atom", "second_atom"]
-            ).values
+            neighbor_indices_system = torch.stack(
+                [
+                    neighbor_list.samples.column("first_atom"),
+                    neighbor_list.samples.column("second_atom"),
+                ],
+                dim=-1,
+            )
 
             neighbor_distances_system = neighbor_distances[
                 last_len_edges : last_len_edges + len(neighbor_indices_system)

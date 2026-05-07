@@ -283,6 +283,13 @@ class BaseCompositionModel(torch.nn.Module):
 
                 # Get the target block values
                 Y = block.values
+                if "o3_lambda_1" in key.names:
+                    # For rank 2 tensors, we fit only their invariant part (the trace).
+                    # Get the trace for each (sample, property)
+                    traces = torch.diagonal(Y, dim1=1, dim2=2).mean(dim=-1)
+                    # Recreate the blocks with only the invariant contribution.
+                    Id = torch.eye(Y.shape[1], dtype=dtype, device=device)
+                    Y = torch.einsum("sp,ij->sijp", traces, Id)
 
                 # Accumulate "XTX", i.e. X.T @ X
                 # TODO: store XTX by sample kind instead, saving memory
@@ -617,20 +624,38 @@ def _include_key(key: LabelsEntry) -> bool:
     composition model.
 
     The rules are as follows:
+
         - If the key has a single name "_" (indicating a scalar), it is included.
         - If the key has names ["o3_lambda", "o3_sigma"] it is included if values are 0
           and 1 respectively (indicating an invariant block of a spherical target).
         - If the key has names ["o3_lambda", "o3_sigma", "atom_type"] it is included if
           values are 0, 1, and any value respectively (indicating an invariant block of
           an atomic-basis spherical target).
+        - If the key has names ["o3_lambda_1", "o3_lambda_2", "o3_sigma_1",
+          "o3_sigma_2"] it is included if values are equal for the two lambda,
+          and the sigma values are 1 (these are rank 2 tensors where the
+          trace is invariant).
+        - If the key has names ["o3_lambda_1", "o3_lambda_2", "o3_sigma_1",
+          "o3_sigma_2", "atom_type"] it is included if values are equal for the two
+          lambda, and the sigma values are 1 (these are rank 2 tensors where the
+          trace is invariant, and these tensors belong to an atomic basis target).
+
     :param key: The key to check.
 
     :return: Whether the key should be included in the composition model.
     """
     valid_key_names = [
         ["_"],  # scalar
-        ["o3_lambda", "o3_sigma"],  # spherical
-        ["o3_lambda", "o3_sigma", "atom_type"],  # spherical atomic basis
+        ["o3_lambda", "o3_sigma"],  # spherical rank 1
+        ["o3_lambda", "o3_sigma", "atom_type"],  # atomic basis rank 1
+        ["o3_lambda_1", "o3_lambda_2", "o3_sigma_1", "o3_sigma_2"],  # spherical rank 2
+        [
+            "o3_lambda_1",
+            "o3_lambda_2",
+            "o3_sigma_1",
+            "o3_sigma_2",
+            "atom_type",
+        ],  # atomic basis rank 2
     ]
     include_key = False
 
@@ -643,6 +668,13 @@ def _include_key(key: LabelsEntry) -> bool:
 
     elif key.names == valid_key_names[2]:
         if key["o3_lambda"] == 0 and key["o3_sigma"] == 1:
+            include_key = True
+
+    elif key.names == valid_key_names[3] or key.names == valid_key_names[4]:
+        if (
+            key["o3_lambda_1"] == key["o3_lambda_2"]
+            and key["o3_sigma_1"] == key["o3_sigma_2"]
+        ):
             include_key = True
 
     else:

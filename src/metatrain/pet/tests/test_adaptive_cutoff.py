@@ -8,7 +8,8 @@ from metatomic.torch import ModelOutput, NeighborListOptions, System, systems_to
 
 from metatrain.pet import PET
 from metatrain.pet.modules.adaptive_cutoff import (
-    get_adaptive_cutoffs,
+    get_adaptive_cutoffs_grid,
+    get_adaptive_cutoffs_solver,
     get_effective_num_neighbors,
     get_gaussian_cutoff_weights,
 )
@@ -22,8 +23,9 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from . import MODEL_HYPERS
 
 
+@pytest.mark.parametrize("adaptive_cutoff_method", ["solver", "grid"])
 @pytest.mark.parametrize("num_neighbors_adaptive", [8, 16, 32, 64, None])
-def test_adaptive_cutoff_functionality(num_neighbors_adaptive):
+def test_adaptive_cutoff_functionality(num_neighbors_adaptive, adaptive_cutoff_method):
     """Tests that adaptive cutoff model evaluation runs without errors."""
     torch.manual_seed(0)
     dataset_info = DatasetInfo(
@@ -37,6 +39,7 @@ def test_adaptive_cutoff_functionality(num_neighbors_adaptive):
     )
     hypers = MODEL_HYPERS.copy()
     hypers["num_neighbors_adaptive"] = num_neighbors_adaptive
+    hypers["adaptive_cutoff_method"] = adaptive_cutoff_method
     hypers["cutoff"] = 10.0
 
     model = PET(hypers, dataset_info)
@@ -50,6 +53,177 @@ def test_adaptive_cutoff_functionality(num_neighbors_adaptive):
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
     outputs = {"energy": ModelOutput(per_atom=False)}
     _ = model([system], outputs)
+
+
+@pytest.mark.parametrize("num_neighbors_adaptive", [8, None])
+def test_cutoff_stats_output(num_neighbors_adaptive):
+    """``mtt::aux::cutoff_stats`` exposes per-atom (atomic_cutoff, num_neighbors)
+    via the standard metatomic output mechanism, both with and without adaptive
+    cutoff. Property index 0 is the atomic cutoff radius, index 1 is the
+    neighbor count cast to the cutoff dtype."""
+    torch.manual_seed(0)
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = num_neighbors_adaptive
+    hypers["cutoff"] = 5.0
+    model = PET(hypers, dataset_info)
+
+    system_a = System(
+        types=torch.tensor([6, 6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.5, 0.0, 0.0], [3.0, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system_b = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.2, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    nl = model.requested_neighbor_lists()
+    system_a = get_system_with_neighbor_lists(system_a, nl)
+    system_b = get_system_with_neighbor_lists(system_b, nl)
+
+    result = model(
+        [system_a, system_b],
+        {
+            "energy": ModelOutput(per_atom=False),
+            "mtt::aux::cutoff_stats": ModelOutput(per_atom=True),
+        },
+    )
+    n_atoms = 3 + 2
+
+    assert "mtt::aux::cutoff_stats" in result
+    tmap = result["mtt::aux::cutoff_stats"]
+    assert len(tmap.blocks()) == 1
+    block = tmap.block()
+    assert block.values.shape == (n_atoms, 2)
+    assert block.samples.names == ["system", "atom"]
+    assert block.samples.values.tolist() == [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1]]
+    assert block.properties.names == ["property"]
+    assert block.properties.values.tolist() == [[0], [1]]
+
+    atomic_cutoff = block.values[:, 0]
+    num_neighbors = block.values[:, 1]
+    assert torch.all(atomic_cutoff > 0)
+    assert torch.all(atomic_cutoff <= hypers["cutoff"])
+    assert torch.all(num_neighbors >= 0)
+    assert torch.all(num_neighbors == num_neighbors.round())
+    if num_neighbors_adaptive is None:
+        assert torch.allclose(
+            atomic_cutoff, torch.full_like(atomic_cutoff, hypers["cutoff"])
+        )
+
+
+def test_cutoff_stats_mean_over_atoms():
+    """With ``per_atom=False`` the output is averaged across atoms in each
+    system (sum would mix two unrelated quantities — atomic cutoffs and
+    integer counts — into a meaningless total)."""
+    torch.manual_seed(0)
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = 8
+    hypers["cutoff"] = 5.0
+    model = PET(hypers, dataset_info)
+
+    system_a = System(
+        types=torch.tensor([6, 6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.5, 0.0, 0.0], [3.0, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system_b = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.2, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    nl = model.requested_neighbor_lists()
+    system_a = get_system_with_neighbor_lists(system_a, nl)
+    system_b = get_system_with_neighbor_lists(system_b, nl)
+
+    per_atom_result = model(
+        [system_a, system_b],
+        {"mtt::aux::cutoff_stats": ModelOutput(per_atom=True)},
+    )["mtt::aux::cutoff_stats"]
+    per_system_result = model(
+        [system_a, system_b],
+        {"mtt::aux::cutoff_stats": ModelOutput(per_atom=False)},
+    )["mtt::aux::cutoff_stats"]
+
+    per_system_block = per_system_result.block()
+    assert per_system_block.values.shape == (2, 2)
+    # Each per-system row equals the mean across that system's atoms.
+    per_atom_values = per_atom_result.block().values
+    per_atom_samples = per_atom_result.block().samples.values
+    for sys_idx in range(2):
+        mask = per_atom_samples[:, 0] == sys_idx
+        expected = per_atom_values[mask].mean(dim=0)
+        assert torch.allclose(per_system_block.values[sys_idx], expected)
+
+
+def test_cutoff_stats_not_requested():
+    """When ``mtt::aux::cutoff_stats`` is not requested the output is absent
+    and the forward pass still works."""
+    torch.manual_seed(0)
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = 8
+    hypers["cutoff"] = 5.0
+    model = PET(hypers, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.5, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    result = model([system], {"energy": ModelOutput(per_atom=False)})
+    assert "mtt::aux::cutoff_stats" not in result
+
+
+def test_cutoff_stats_exported():
+    """The new output appears in the exported ``ModelCapabilities``."""
+    torch.manual_seed(0)
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["cutoff"] = 5.0
+    model = PET(hypers, dataset_info)
+    exported = model.export()
+    assert "mtt::aux::cutoff_stats" in exported.capabilities().outputs
 
 
 def test_effective_num_neighbors():
@@ -117,8 +291,13 @@ def test_gaussian_cutoff_weights():
     assert torch.allclose(cutoff_weights, cutoff_weights_expected)
 
 
+@pytest.mark.parametrize(
+    "get_adaptive_cutoffs",
+    [get_adaptive_cutoffs_solver, get_adaptive_cutoffs_grid],
+    ids=["solver", "grid"],
+)
 @pytest.mark.parametrize("num_neighbors_adaptive", [8, 16, 24, 32, 48])
-def test_adapted_cutoffs(num_neighbors_adaptive):
+def test_adapted_cutoffs(num_neighbors_adaptive, get_adaptive_cutoffs):
     """Tests that adaptive cutoff model evaluation runs without errors
     and produces reasonable cutoffs that approximately ensure the desired
     number of neighbors (within some tolerance of +/- 10 neighbors)."""
@@ -177,7 +356,55 @@ def test_adapted_cutoffs(num_neighbors_adaptive):
     assert torch.all(diff <= 10)
 
 
-def test_adaptive_cutoff_empty_system():
+@pytest.mark.parametrize(
+    "get_adaptive_cutoffs",
+    [get_adaptive_cutoffs_solver, get_adaptive_cutoffs_grid],
+    ids=["solver", "grid"],
+)
+def test_adaptive_cutoff_gradients(get_adaptive_cutoffs):
+    """``d r_bar / d edge_distances`` is correct.
+
+    The solver bypasses the Newton iterations on the backward path via an
+    implicit-function-theorem step; this test verifies the resulting gradient
+    matches finite differences. The grid path's gradient (through the Gaussian
+    weighting) is checked too.
+    """
+    torch.manual_seed(0)
+
+    # Small handcrafted configuration so r_bar sits comfortably inside the
+    # solver's [max_cutoff/16, max_cutoff] clamp band: 4 neighbors with
+    # nbar=4 puts r_bar near the median neighbor distance, well away from
+    # the clamps.
+    centers = torch.tensor([0, 0, 0, 0, 1, 1])
+    edge_distances = torch.tensor(
+        [1.0, 1.7, 2.3, 2.9, 1.4, 2.1], dtype=torch.float64, requires_grad=True
+    )
+    num_nodes = 2
+    max_cutoff = 5.0
+    cutoff_width = 0.5
+    nbar = 3.0
+
+    def fn(d):
+        return get_adaptive_cutoffs(
+            centers, d, nbar, num_nodes, max_cutoff, cutoff_width=cutoff_width
+        )
+
+    # Sanity-check that r_bar is interior to the clamp band so the test is
+    # actually exercising the IFT branch (and not the .clamp boundaries).
+    with torch.no_grad():
+        r_bar = fn(edge_distances)
+        assert torch.all(r_bar > max_cutoff / 16.0 + 1e-3)
+        assert torch.all(r_bar < max_cutoff - 1e-3)
+
+    # gradcheck calls fn many times with perturbed inputs; eps is chosen to
+    # match the typical scale of the bump active band.
+    assert torch.autograd.gradcheck(
+        fn, (edge_distances,), eps=1e-5, atol=1e-4, rtol=1e-3, fast_mode=True
+    )
+
+
+@pytest.mark.parametrize("adaptive_cutoff_method", ["solver", "grid"])
+def test_adaptive_cutoff_empty_system(adaptive_cutoff_method):
     """Tests that the model can handle an empty system."""
 
     dataset_info = DatasetInfo(
@@ -192,9 +419,10 @@ def test_adaptive_cutoff_empty_system():
 
     hypers = MODEL_HYPERS.copy()
     hypers["num_neighbors_adaptive"] = 8
+    hypers["adaptive_cutoff_method"] = adaptive_cutoff_method
     hypers["cutoff"] = 10.0
 
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = PET(hypers, dataset_info)
 
     system = System(
         types=torch.tensor([], dtype=torch.long),
@@ -208,7 +436,8 @@ def test_adaptive_cutoff_empty_system():
     assert torch.numel(energy) == 0
 
 
-def test_adaptive_cutoff_isolated_atom():
+@pytest.mark.parametrize("adaptive_cutoff_method", ["solver", "grid"])
+def test_adaptive_cutoff_isolated_atom(adaptive_cutoff_method):
     """Tests that the model can predict energies for an isolated atom
     with adaptive cutoff enabled."""
 
@@ -224,6 +453,7 @@ def test_adaptive_cutoff_isolated_atom():
 
     hypers = MODEL_HYPERS.copy()
     hypers["num_neighbors_adaptive"] = 8
+    hypers["adaptive_cutoff_method"] = adaptive_cutoff_method
     hypers["cutoff"] = 10.0
 
     model = PET(hypers, dataset_info)
@@ -239,8 +469,9 @@ def test_adaptive_cutoff_isolated_atom():
     _ = model([system], outputs)
 
 
+@pytest.mark.parametrize("adaptive_cutoff_method", ["solver", "grid"])
 @pytest.mark.parametrize("cutoff", [10.0, 5.0])
-def test_adaptive_cutoff_dissociated_atoms(cutoff):
+def test_adaptive_cutoff_dissociated_atoms(cutoff, adaptive_cutoff_method):
     """Tests that the model can predict energies for an isolated atom
     with adaptive cutoff enabled."""
 
@@ -256,6 +487,7 @@ def test_adaptive_cutoff_dissociated_atoms(cutoff):
 
     hypers = MODEL_HYPERS.copy()
     hypers["num_neighbors_adaptive"] = 8
+    hypers["adaptive_cutoff_method"] = adaptive_cutoff_method
     hypers["cutoff"] = cutoff
 
     model = PET(hypers, dataset_info)

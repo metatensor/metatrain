@@ -618,6 +618,13 @@ class PhACE(ModelInterface[ModelHypers]):
             per_atom=True,
         )
 
+        if target_info.is_spherical and len(target_info.layout.block(0).components) > 1:
+            raise ValueError(
+                "PhACE does not support target spherical tensors with rank > 1."
+                f"'{target_name}' has rank "
+                f"{len(target_info.layout.block(0).components)}."
+            )
+
         if target_info.is_cartesian and len(target_info.layout.block().components) == 2:
             # rank-2 Cartesian: store internal spherical layout (l=0, l=1, l=2)
             # so that the forward pass constructs the spherical TensorMap, which

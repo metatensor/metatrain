@@ -458,15 +458,31 @@ class CompositionModel(torch.nn.Module):
                 "since it is not either scalar or spherical."
             )
             return False
-        if (
-            target_info.is_spherical
-            and len(target_info.layout.blocks({"o3_lambda": 0, "o3_sigma": 1})) == 0
-        ):
-            logging.debug(
-                f"Composition model does not support spherical target {target_name} "
-                "since it does not have any invariant blocks."
-            )
-            return False
+
+        if target_info.is_spherical:
+            if "o3_lambda" in target_info.layout.keys.names:  # rank 1
+                if len(target_info.layout.blocks({"o3_lambda": 0, "o3_sigma": 1})) == 0:
+                    # No invariant blocks
+                    logging.debug(
+                        "Composition model does not support spherical "
+                        f"target {target_name} since it does not have "
+                        "any invariant blocks."
+                    )
+                    return False
+            elif "o3_lambda_2" in target_info.layout.keys.names:  # rank 2
+                if not any(
+                    key["o3_lambda_1"] == key["o3_lambda_2"]
+                    and key["o3_sigma_1"] == key["o3_sigma_2"]
+                    for key in target_info.layout.keys
+                ):
+                    # No invariant contribution
+                    logging.debug(
+                        "Composition model does not support spherical "
+                        f"target {target_name} since it does not have "
+                        "any invariant contribution."
+                    )
+                    return False
+
         return True
 
     def sync_tensor_maps(self) -> None:

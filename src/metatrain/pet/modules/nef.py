@@ -13,13 +13,13 @@ edge arrays with shape (n_edges, ...) and NEF arrays with shape
 (n_nodes, n_edges_per_node, ...).
 """
 
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import torch
 
 
 def get_nef_indices(
-    centers: torch.Tensor, n_nodes: int, n_edges_per_node: int
+    centers: torch.Tensor, num_neighbors: torch.Tensor, n_edges_per_node: int
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Computes tensors of indices useful to convert between edge
@@ -30,7 +30,10 @@ def get_nef_indices(
     :param centers: A 1D tensor of shape (n_edges,) containing the
         indices of the center nodes for each edge, with the center nodes
         being the "i" node in an "i -> j" edge.
-    :param n_nodes: The number of nodes in the graph.
+    :param num_neighbors: A 1D tensor of shape (n_nodes,) containing
+        the number of neighbors for each node. Typically obtained from
+        ``torch.bincount(centers, minlength=n_nodes)`` at the caller,
+        where it is already needed to size the NEF grid.
     :param n_edges_per_node: The maximum number of edges per node.
 
     :return: A tuple with three tensors (nef_indices, nef_to_edges_neighbor, nef_mask).
@@ -42,99 +45,88 @@ def get_nef_indices(
         nodes will have, in general, different number of edges.
     """
 
-    bincount = torch.bincount(centers, minlength=n_nodes)
+    n_nodes = num_neighbors.shape[0]
 
     arange = torch.arange(n_edges_per_node, device=centers.device)
-    arange_expanded = arange.view(1, -1).expand(n_nodes, -1)
-    nef_mask = arange_expanded < bincount.view(-1, 1)
+    nef_mask = arange.view(1, -1).expand(n_nodes, -1) < num_neighbors.view(-1, 1)
 
     argsort = torch.argsort(centers, stable=True)
 
+    n_edges = centers.shape[0]
+    sorted_centers = centers.index_select(0, argsort)
+    starts = torch.cumsum(num_neighbors, dim=0) - num_neighbors
+    position_within = torch.arange(
+        n_edges, device=centers.device
+    ) - starts.index_select(0, sorted_centers)
+
     nef_indices = torch.zeros(
-        (n_nodes, n_edges_per_node), dtype=torch.long, device=centers.device
+        n_nodes * n_edges_per_node, dtype=torch.long, device=centers.device
     )
-    nef_indices[nef_mask] = argsort
+    flat_target = sorted_centers * n_edges_per_node + position_within
+    nef_indices[flat_target] = argsort
+    nef_indices = nef_indices.view(n_nodes, n_edges_per_node)
 
     nef_to_edges_neighbor = torch.empty_like(centers, dtype=torch.long)
-    nef_to_edges_neighbor[argsort] = arange_expanded[nef_mask]
+    nef_to_edges_neighbor[argsort] = position_within
 
     return nef_indices, nef_to_edges_neighbor, nef_mask
 
 
-def get_corresponding_edges(array: torch.Tensor) -> torch.Tensor:
+def get_corresponding_edges(
+    centers: torch.Tensor,
+    neighbors: torch.Tensor,
+    cell_shifts: torch.Tensor,
+) -> torch.Tensor:
     """
     Computes the corresponding edge (i.e., the edge that goes in the
     opposite direction) for each edge in the array; this is useful
     in the message-passing operation.
 
-    :param array: A 2D tensor of shape (n_edges, 5). For each i -> j
-        edge, the first column contains the index of the center node i,
-        the second column contains the index of the neighbor node j,
-        and the last three columns contain the cell shifts along x, y, and z
-        directions, respectively.
+    :param centers: A 1D tensor of shape (n_edges,) containing, for each
+        ``i -> j`` edge, the index of the center node ``i``.
+    :param neighbors: A 1D tensor of shape (n_edges,) containing, for each
+        ``i -> j`` edge, the index of the neighbor node ``j``.
+    :param cell_shifts: A 2D tensor of shape (n_edges, 3) with the cell shifts
+        along x, y, z for each edge.
 
     :return: A 1D tensor of shape (n_edges,) containing, for each edge,
         the index of the corresponding edge (i.e., the edge that goes
-        in the opposite direction). If the input array is empty, an
-        empty tensor is returned.
+        in the opposite direction). If the input is empty, an empty
+        tensor is returned.
     """
 
-    if array.numel() == 0:
-        return torch.empty((0,), dtype=array.dtype, device=array.device)
+    if centers.numel() == 0:
+        return torch.empty((0,), dtype=torch.int64, device=centers.device)
 
-    array = array.to(torch.int64)  # avoid overflow
+    centers = centers.to(torch.int64)
+    neighbors = neighbors.to(torch.int64)
+    cell_shifts = cell_shifts.to(torch.int64)
 
-    centers = array[:, 0]
-    neighbors = array[:, 1]
-    cell_shifts_x = array[:, 2]
-    cell_shifts_y = array[:, 3]
-    cell_shifts_z = array[:, 4]
+    min_per_axis = cell_shifts.amin(dim=0)
+    cs_norm = cell_shifts - min_per_axis
+    neg_cs_norm = -cell_shifts - min_per_axis
 
-    # will be useful later
-    negative_cell_shifts_x = -cell_shifts_x
-    negative_cell_shifts_y = -cell_shifts_y
-    negative_cell_shifts_z = -cell_shifts_z
+    max_per_axis = cs_norm.amax(dim=0) + 1
+    max_centers_neighbors = centers.amax() + 1
 
-    # create a unique identifier for each edge
-    # first, we shift the cell_shifts so that the minimum value is 0
-    min_cell_shift_x = cell_shifts_x.min()
-    cell_shifts_x = cell_shifts_x - min_cell_shift_x
-    negative_cell_shifts_x = negative_cell_shifts_x - min_cell_shift_x
-
-    min_cell_shift_y = cell_shifts_y.min()
-    cell_shifts_y = cell_shifts_y - min_cell_shift_y
-    negative_cell_shifts_y = negative_cell_shifts_y - min_cell_shift_y
-
-    min_cell_shift_z = cell_shifts_z.min()
-    cell_shifts_z = cell_shifts_z - min_cell_shift_z
-    negative_cell_shifts_z = negative_cell_shifts_z - min_cell_shift_z
-
-    max_centers_neigbors = centers.max() + 1  # same as neighbors.max() + 1
-    max_shift_x = cell_shifts_x.max() + 1
-    max_shift_y = cell_shifts_y.max() + 1
-    max_shift_z = cell_shifts_z.max() + 1
-
-    size_1 = max_shift_z
-    size_2 = max_shift_y * size_1
-    size_3 = max_shift_x * size_2
-    size_4 = max_centers_neigbors * size_3
+    size_z = max_per_axis[2]
+    size_yz = max_per_axis[1] * size_z
+    size_xyz = max_per_axis[0] * size_yz
+    size_total = max_centers_neighbors * size_xyz
 
     unique_id = (
-        centers * size_4
-        + neighbors * size_3
-        + cell_shifts_x * size_2
-        + cell_shifts_y * size_1
-        + cell_shifts_z
+        centers * size_total
+        + neighbors * size_xyz
+        + cs_norm[:, 0] * size_yz
+        + cs_norm[:, 1] * size_z
+        + cs_norm[:, 2]
     )
-
-    # the inverse is the same, but centers and neighbors are swapped
-    # and we use the negative values of the cell_shifts
     unique_id_inverse = (
-        neighbors * size_4
-        + centers * size_3
-        + negative_cell_shifts_x * size_2
-        + negative_cell_shifts_y * size_1
-        + negative_cell_shifts_z
+        neighbors * size_total
+        + centers * size_xyz
+        + neg_cs_norm[:, 0] * size_yz
+        + neg_cs_norm[:, 1] * size_z
+        + neg_cs_norm[:, 2]
     )
 
     unique_id_argsort = unique_id.argsort()
@@ -143,7 +135,7 @@ def get_corresponding_edges(array: torch.Tensor) -> torch.Tensor:
     corresponding_edges = torch.empty_like(centers)
     corresponding_edges[unique_id_argsort] = unique_id_inverse_argsort
 
-    return corresponding_edges.to(array.dtype)
+    return corresponding_edges
 
 
 def edge_array_to_nef(
@@ -201,6 +193,7 @@ def nef_array_to_edges(
 def compute_reversed_neighbor_list(
     nef_indices: torch.Tensor,
     corresponding_edges: torch.Tensor,
+    nef_to_edges_neighbor: torch.Tensor,
     nef_mask: torch.Tensor,
 ) -> torch.Tensor:
     """
@@ -213,36 +206,18 @@ def compute_reversed_neighbor_list(
         as returned by the ``get_nef_indices`` function.
     :param corresponding_edges: The indices of the corresponding edges,
         as returned by the ``get_corresponding_edges`` function.
+    :param nef_to_edges_neighbor: Per-edge within-row position in the NEF
+        grid, as returned by the ``get_nef_indices`` function. Acts directly
+        as the ``edge_index -> position`` lookup that the previous
+        implementation built on the fly.
     :param nef_mask: A boolean mask of shape (n_nodes, n_edges_per_node),
         as returned by the ``get_nef_indices`` function.
     :return: A tensor of the same shape as ``nef_indices``,
         where each entry contains the position of the center
         atom in the neighborlist of the corresponding neighbor atom.
     """
-    num_atoms, max_num_neighbors = nef_indices.shape
-
-    flat_edge_indices = nef_indices.reshape(-1)
-    flat_positions = torch.arange(max_num_neighbors, device=nef_indices.device).repeat(
-        num_atoms
-    )
-    flat_mask = nef_mask.reshape(-1)
-
-    if flat_edge_indices.numel() == 0:
-        max_edge_index = 0
-    else:
-        max_edge_index = int(flat_edge_indices.max().item()) + 1
-    size: List[int] = [max_edge_index]
-
-    edge_index_to_position = torch.full(
-        size,
-        0,
-        dtype=torch.long,
-        device=nef_indices.device,
-    )
-    edge_index_to_position[flat_edge_indices[flat_mask]] = flat_positions[flat_mask]
-
     reverse_edge_idx = corresponding_edges[nef_indices]
-    reversed_neighbor_list = edge_index_to_position[reverse_edge_idx]
+    reversed_neighbor_list = nef_to_edges_neighbor[reverse_edge_idx]
     reversed_neighbor_list = reversed_neighbor_list.masked_fill(~nef_mask, 0)
 
     return reversed_neighbor_list

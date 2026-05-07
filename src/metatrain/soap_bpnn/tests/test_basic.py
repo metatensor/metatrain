@@ -34,6 +34,7 @@ class TestInput(InputTests, SoapBPNNTests): ...
 
 class TestOutput(OutputTests, SoapBPNNTests):
     supports_vector_outputs = True
+    supports_spherical_rank2_outputs = False
 
     @pytest.fixture
     def n_features(self):

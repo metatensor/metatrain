@@ -156,7 +156,7 @@ def systems_to_batch(
 
     # Convert to NEF (Node-Edge-Feature) format:
     nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
-        centers, num_nodes, max_edges_per_node
+        centers, num_neighbors, max_edges_per_node
     )
 
     # Element indices
@@ -169,18 +169,13 @@ def systems_to_batch(
         element_indices_neighbors, nef_indices
     )
 
-    corresponding_edges = get_corresponding_edges(
-        torch.concatenate(
-            [centers.unsqueeze(-1), neighbors.unsqueeze(-1), cell_shifts],
-            dim=-1,
-        )
-    )
+    corresponding_edges = get_corresponding_edges(centers, neighbors, cell_shifts)
 
     # These are the two arrays we need for message passing with edge reversals,
     # if indexing happens in a two-dimensional way:
     # edges_ji = edges_ij[reversed_neighbor_list, neighbors_index]
     reversed_neighbor_list = compute_reversed_neighbor_list(
-        nef_indices, corresponding_edges, nef_mask
+        nef_indices, corresponding_edges, nef_to_edges_neighbor, nef_mask
     )
     neighbors_index = edge_array_to_nef(neighbors, nef_indices).to(torch.int64)
 
@@ -193,8 +188,9 @@ def systems_to_batch(
     # creates too many of the same index which slows down backward enormously.
     # (See see https://github.com/pytorch/pytorch/issues/41162)
     # We therefore replace the padded indices with a sequence of unique indices.
+    num_padded = reverse_neighbor_index.numel() - centers.shape[0]
     reverse_neighbor_index[~nef_mask] = torch.arange(
-        int(torch.sum(~nef_mask)), device=reverse_neighbor_index.device
+        num_padded, device=reverse_neighbor_index.device
     )
 
     return (

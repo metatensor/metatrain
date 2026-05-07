@@ -98,6 +98,15 @@ class ModelHypers(TypedDict):
     per atom, especially in sparse systems. Setting it to None disables
     this feature and uses all neighbors within the fixed cutoff radius.
     """
+    adaptive_cutoff_method: Literal["grid", "solver"] = "solver"
+    """Algorithm used to compute the per-atom adaptive cutoffs.
+
+    ``"grid"`` evaluates the smoothed neighbor count on a discrete probe-cutoff
+    grid and returns a Gaussian-weighted average of the probes (legacy
+    behaviour). ``"solver"`` solves ``n_total(r) = num_neighbors_adaptive`` via
+    a Newton-bisection root finder (default; faster and more accurate). Only
+    has effect when ``num_neighbors_adaptive`` is set.
+    """
     cutoff_function: Literal["Cosine", "Bump"] = "Bump"
     """Type of the smoothing function at the cutoff"""
     cutoff_width: float = 0.5

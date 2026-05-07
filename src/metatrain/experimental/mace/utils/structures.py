@@ -39,18 +39,25 @@ def create_batch(
         # TODO: make this faster?
         atom_types.append(atomic_types_to_species_index[system.types])
 
-        shifts = neighbors.samples.view(
-            ["cell_shift_a", "cell_shift_b", "cell_shift_c"]
-        ).values
-
+        shifts = torch.stack(
+            [
+                neighbors.samples.column("cell_shift_a"),
+                neighbors.samples.column("cell_shift_b"),
+                neighbors.samples.column("cell_shift_c"),
+            ],
+            dim=-1,
+        )
         unit_shifts.append(shifts)
         cell_shifts.append(shifts.to(dtype) @ system.cell)
-        edge_index.append(
-            neighbors.samples.view(["first_atom", "second_atom"]).values.T.to(
-                torch.int64
-            )
-            + start_index
-        )
+
+        neightbor_atoms = torch.stack(
+            [
+                neighbors.samples.column("first_atom"),
+                neighbors.samples.column("second_atom"),
+            ],
+            dim=0,
+        ).to(torch.int64)
+        edge_index.append(neightbor_atoms + start_index)
 
         n_atoms = len(system)
         batch.append(torch.full((n_atoms,), system_i))

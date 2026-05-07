@@ -1042,6 +1042,12 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                     legacy=self.legacy,
                 )
         elif target.is_spherical:
+            if len(target.layout.block(0).components) > 1:
+                raise ValueError(
+                    "SOAP-BPNN does not support target spherical tensors with rank > 1."
+                    f"'{target_name}' has rank "
+                    f"{len(target.layout.block(0).components)}."
+                )
             for key, block in target.layout.items():
                 dict_key = target_name
                 for n, k in zip(key.names, key.values, strict=True):

@@ -55,8 +55,8 @@ def cartesian_target_config() -> DictConfig:
     )
 
 
-@pytest.fixture(params=[None, "coupled"])
-def spherical_product(request) -> Literal[None, "coupled"]:
+@pytest.fixture(params=[None, "cartesian", "coupled"])
+def spherical_product(request) -> Literal[None, "cartesian", "coupled"]:
     return request.param
 
 
@@ -197,6 +197,8 @@ def test_layout_spherical(spherical_target_config, spherical_product):
 
     if spherical_product is None:
         assert len(target_info.layout.blocks()) == 3
+    elif spherical_product == "cartesian":
+        assert len(target_info.layout.blocks()) == 9
     elif spherical_product == "coupled":
         assert len(target_info.layout.blocks()) == 5
 
@@ -221,6 +223,8 @@ def test_layout_spherical_atomicbasis(
 
     if spherical_product is None:
         assert len(target_info.layout.blocks()) == 4
+    elif spherical_product == "cartesian":
+        assert len(target_info.layout.blocks()) == 10
     elif spherical_product == "coupled":
         assert len(target_info.layout.blocks()) == 6
 
@@ -366,7 +370,9 @@ def test_layout_spherical_with_variant(
     # Check that the properties labels were created correctly without the variant part
     # and mtt:: prefix. The properties label should be the same in all cases.
     for block in target_info.layout.blocks():
-        if spherical_product == "coupled":
+        if spherical_product == "cartesian":
+            assert block.properties.names == ["n_1", "n_2"]
+        elif spherical_product == "coupled":
             assert block.properties.names == ["l_1", "l_2", "n_1", "n_2"]
         else:
             assert block.properties.names == ["n"]
@@ -394,7 +400,9 @@ def test_layout_spherical_atomicbasis_with_variant(
     # Check that the properties labels were created correctly without the variant part
     # and mtt:: prefix. The properties label should be the same in all cases.
     for block in target_info.layout.blocks():
-        if spherical_product == "coupled":
+        if spherical_product == "cartesian":
+            assert block.properties.names == ["n_1", "n_2"]
+        elif spherical_product == "coupled":
             assert block.properties.names == ["l_1", "l_2", "n_1", "n_2"]
         else:
             assert block.properties.names == ["n"]

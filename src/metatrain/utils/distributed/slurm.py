@@ -2,6 +2,8 @@ import logging
 import os
 
 import hostlist
+import torch
+import torch.distributed
 
 
 def is_slurm() -> bool:
@@ -58,3 +60,26 @@ class DistributedEnvironment:
             f"WORLD_SIZE={os.environ['WORLD_SIZE']}, "
             f"RANK={os.environ['RANK']}, LOCAL_RANK={os.environ['LOCAL_RANK']}"
         )
+
+
+def initialize_slurm_nccl_process_group(port: int) -> tuple[torch.device, int, int]:
+    """
+    Initialize the default NCCL process group for a Slurm-launched run.
+
+    The device mapping follows the current metatrain convention: use the local rank
+    modulo the number of visible CUDA devices so the setup works both when ranks see
+    all GPUs on the node and when each rank only sees a single GPU.
+
+    :param port: The port to use for communication in the distributed environment.
+    :return: The local CUDA device, world size, and global rank.
+    """
+
+    distr_env = DistributedEnvironment(port)
+    device_number = distr_env.local_rank % torch.cuda.device_count()
+    device = torch.device("cuda", device_number)
+    torch.cuda.set_device(device)
+    torch.distributed.init_process_group(backend="nccl", device_id=device)
+    world_size = torch.distributed.get_world_size()
+    rank = torch.distributed.get_rank()
+
+    return device, world_size, rank

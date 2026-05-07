@@ -145,6 +145,7 @@ class TestInput(InputTests, MACETests): ...
 class TestOutput(OutputTests, MACETests):
     supports_features = False
     supports_spherical_atomic_basis_outputs = True
+    supports_spherical_rank2_outputs = False
 
     @pytest.fixture
     def n_features(self, model_hypers: dict) -> list[int]:
