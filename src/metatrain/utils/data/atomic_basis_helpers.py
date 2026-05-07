@@ -121,7 +121,9 @@ def _densify_per_atom_atomic_basis_target(
     blocks = []
     for key, layout_block in layout.items():
         if key in tensor.keys:
-            block = tensor.block(key)
+            # metatensor 0.9 forbids inserting a block that is still owned by
+            # another TensorMap, so copy.
+            block = tensor.block(key).copy()
         else:
             block = layout_block.copy()
             assert len(block.samples) == 0

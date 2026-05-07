@@ -295,6 +295,12 @@ def model_update_v12_v13(checkpoint: dict) -> None:
     """
     hypers = checkpoint["model_data"]["model_hypers"]
 
+    # The pre-merge muon2 v12 was defined before upstream introduced the
+    # adaptive_cutoff_method hyper in upstream's v11→v12. Ensure it is set
+    # so the upgrade is robust to either v12 lineage.
+    if "adaptive_cutoff_method" not in hypers:
+        hypers["adaptive_cutoff_method"] = "grid"
+
     state_dict = (
         checkpoint.get("model_state_dict")
         or checkpoint.get("best_model_state_dict")

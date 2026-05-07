@@ -12,11 +12,11 @@ dependencies = [
     "ase",
     "huggingface_hub",
     "numpy",
-    "metatensor-learn >=0.4.0,<0.5",
-    "metatensor-operations >=0.4.0,<0.5",
-    "metatensor-torch >=0.8.2,<0.9",
-    "metatomic-torch >=0.1.8,<0.2",
-    "metatomic-ase >=0.1.0,<0.2",
+    "metatensor-learn >=0.4.0rc1,<0.6",
+    "metatensor-operations >=0.4.0rc1,<0.6",
+    "metatensor-torch >=0.8.2rc1,<0.10",
+    "metatomic-torch >=0.1.12rc1,<0.2",
+    "metatomic-ase >=0.1.1rc1,<0.2",
     "jsonschema",
     "pydantic >= 2.12", # Because of passing arguments to validator functions
     "typing_extensions", # For python < 3.12 typing.TypedDict has limited functionality
@@ -180,6 +180,18 @@ filterwarnings = [
     "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`:DeprecationWarning",
     "ignore:`torch.jit.trace_method` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
     "ignore:`torch.jit.trace` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.interface` is deprecated. Please use `torch.compile` instead:DeprecationWarning",
+    # metatomic 0.1.12 deprecated `per_atom` in favor of `sample_kind`
+    "ignore:`per_atom` is deprecated, please use `sample_kind` instead:DeprecationWarning",
+    # metatomic 0.1.12 deprecated ModelOutput.quantity
+    "ignore:ModelOutput.quantity is deprecated:DeprecationWarning",
+    # metatomic 0.1.12 unified plural -> singular standard names
+    # (features -> feature, positions -> position, momenta -> momentum,
+    # masses -> mass, velocities -> velocity, charges -> charge,
+    # non_conservative_forces -> non_conservative_force)
+    "ignore:the '\\w+' (output|input|quantity) name is deprecated:UserWarning",
+    "ignore:the '\\w+' quantity is deprecated:UserWarning",
+    "ignore:calling Model.requested_inputs.use_new_names=False. is deprecated:DeprecationWarning",
     # PyTorch does not want these, but mypy requires them
     "ignore:The TorchScript type system doesn't support instance-level annotations on empty non-base types",
     # Sphericart double backward warning
