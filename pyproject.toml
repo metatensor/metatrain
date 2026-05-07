@@ -12,6 +12,7 @@ dependencies = [
     "ase",
     "huggingface_hub",
     "numpy",
+    "metatensor-core >=0.2.0rc3,<0.3",
     "metatensor-learn >=0.5.0rc2,<0.6",
     "metatensor-operations >=0.5.0rc2,<0.6",
     "metatensor-torch >=0.9.0rc5,<0.10",
