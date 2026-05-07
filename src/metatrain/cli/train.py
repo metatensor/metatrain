@@ -750,6 +750,9 @@ def train_model(
         logging.info(f"Extensions path: {extensions.absolute().resolve()}")
 
     if checkpoint_dir.absolute().resolve() != Path.cwd():
+        # Copy checkpoint and exported model to the requested path,
+        # with checks to make sure that the requested path is not the path
+        # where the files already are (copy would raise a SameFileError)
         checkpoint_output_path = checkpoint_dir / output
         if checkpoint_output_path.resolve() != output.resolve():
             shutil.copy(output, checkpoint_output_path)
