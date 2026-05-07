@@ -46,7 +46,7 @@ dyn = Langevin(
 dyn.run(1000)  # 2 ps equilibration (around 10 ps is better in practice)
 
 # Then, we run a production simulation in the NVE ensemble.
-trajectory = []
+trajectory: list[ase.Atoms] = []
 
 
 def store_trajectory():
