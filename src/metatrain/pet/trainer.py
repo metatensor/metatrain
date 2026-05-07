@@ -41,6 +41,7 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.pyscf_loss import (
     RIAuxBasis,
     get_coulomb_matrices_transform,
+    get_ri_coefficients_scale_transform,
     resolve_ri_aux_basis,
 )
 from metatrain.utils.scaler import get_remove_scale_transform
@@ -186,7 +187,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
             get_prepare_atomic_basis_targets_transform(train_targets, extra_data_info)
         )
         loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])
-        ri_coulomb_transforms = self._get_ri_coulomb_transforms(loss_hypers)
 
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
@@ -248,6 +248,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
         model.scaler.to(device)
         model.scaler.scales_to(device=device, dtype=torch.float64)
+        ri_coulomb_transforms = self._get_ri_coulomb_transforms(loss_hypers, scaler)
 
         # Create collate functions:
         collate_fn_train = CollateFn(
@@ -697,6 +698,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
     def _get_ri_coulomb_transforms(
         self,
         loss_hypers: Dict[str, LossSpecification],
+        scaler: torch.nn.Module,
     ) -> list[Callable]:
         ri_aux_basis = self.hypers["ri_aux_basis"]
         if any(
@@ -706,15 +708,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 raise ValueError(
                     "PET training with 'ri_coulomb' loss requires 'ri_aux_basis' to be set."
                 )
-            if self.hypers["scale_targets"]:
-                raise ValueError(
-                    "PET training with 'ri_coulomb' loss currently requires "
-                    "'scale_targets' to be set to False."
-                )
         if ri_aux_basis is None:
             return []
 
         target_to_aux_basis: dict[str, str] = {}
+        scaled_targets: list[str] = []
         for target_name, target_loss in loss_hypers.items():
             if target_loss["type"] != "ri_coulomb":
                 continue
@@ -722,11 +720,19 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 target_name,
                 cast(RIAuxBasis, ri_aux_basis),
             )
+            if self.hypers["scale_targets"]:
+                scaled_targets.append(target_name)
 
         if len(target_to_aux_basis) == 0:
             return []
 
-        return [get_coulomb_matrices_transform(target_to_aux_basis)]
+        transforms = [get_coulomb_matrices_transform(target_to_aux_basis)]
+        if len(scaled_targets) > 0:
+            transforms.append(
+                get_ri_coefficients_scale_transform(scaled_targets, scaler)
+            )
+
+        return transforms
 
     @classmethod
     def load_checkpoint(

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import copy
 import importlib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
+
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -17,6 +20,7 @@ if TYPE_CHECKING:
 RIAuxBasis = str | dict[str, str]
 
 
+@lru_cache(maxsize=1)
 def _import_pyscf_modules() -> tuple[ModuleType, ModuleType]:
     try:
         gto = importlib.import_module("pyscf.gto")
@@ -29,10 +33,32 @@ def _import_pyscf_modules() -> tuple[ModuleType, ModuleType]:
     return gto, elements
 
 
+@lru_cache(maxsize=None)
+def _load_auxiliary_basis(
+    aux_basis: str, atomic_numbers: tuple[int, ...]
+) -> dict[str, object]:
+    """Load and cache parsed auxiliary basis data for the requested elements."""
+
+    gto, elements = _import_pyscf_modules()
+
+    basis: dict[str, object] = {}
+    for atomic_number in atomic_numbers:
+        symbol = elements.ELEMENTS[atomic_number]
+        basis[symbol] = gto.basis.load(aux_basis, symbol)
+
+    return basis
+
+
 def coulomb_matrix_name(target_name: str) -> str:
     """Return the ``extra_data`` key used for a target's Coulomb matrix."""
 
     return f"{target_name}_coulomb_matrix"
+
+
+def ri_coefficients_scale_name(target_name: str) -> str:
+    """Return the ``extra_data`` key used for a target's RI coefficient scales."""
+
+    return f"{target_name}_ri_scale_factors"
 
 
 def resolve_ri_aux_basis(target_name: str, ri_aux_basis: RIAuxBasis) -> str:
@@ -78,10 +104,15 @@ def build_auxiliary_molecule(system: System, aux_basis: str) -> Mole:
     """
 
     gto, _ = _import_pyscf_modules()
+    atomic_numbers = tuple(
+        sorted({int(n) for n in system.types.detach().cpu().tolist()})
+    )
 
     mol = gto.Mole()
     mol.atom = _system_to_atom_string(system)
-    mol.basis = aux_basis
+    # Reuse parsed basis definitions across batches; only the molecular geometry is
+    # system-specific here.
+    mol.basis = copy.deepcopy(_load_auxiliary_basis(aux_basis, atomic_numbers))
     mol.unit = "Angstrom"
     mol.verbose = 0
     mol.spin = None
@@ -117,6 +148,9 @@ def pack_coulomb_matrices(matrices: list[torch.Tensor]) -> TensorMap:
     max_basis = max(matrix.shape[0] for matrix in matrices)
     dtype = matrices[0].dtype
     device = matrices[0].device
+    basis_sizes = torch.tensor(
+        [[matrix.shape[0]] for matrix in matrices], dtype=torch.int32, device=device
+    )
 
     values = torch.full(
         (len(matrices), max_basis, max_basis),
@@ -131,10 +165,15 @@ def pack_coulomb_matrices(matrices: list[torch.Tensor]) -> TensorMap:
     block = TensorBlock(
         values=values,
         samples=Labels(
-            names=["system"],
-            values=torch.arange(
-                len(matrices), dtype=torch.int32, device=device
-            ).reshape(-1, 1),
+            names=["system", "basis_size"],
+            values=torch.hstack(
+                [
+                    torch.arange(
+                        len(matrices), dtype=torch.int32, device=device
+                    ).reshape(-1, 1),
+                    basis_sizes,
+                ]
+            ),
         ),
         components=[
             Labels(
@@ -154,6 +193,12 @@ def pack_coulomb_matrices(matrices: list[torch.Tensor]) -> TensorMap:
     return TensorMap(Labels.single().to(device=device), [block])
 
 
+def packed_coulomb_basis_sizes(batched_matrices: TensorMap) -> torch.Tensor:
+    """Return the stored per-system basis sizes for packed Coulomb matrices."""
+
+    return batched_matrices.block().samples.values[:, 1].to(torch.int64)
+
+
 def unpack_coulomb_matrices(
     batched_matrices: TensorMap, basis_sizes: list[int]
 ) -> list[torch.Tensor]:
@@ -171,10 +216,9 @@ def unpack_coulomb_matrices(
             "The number of packed Coulomb matrices does not match the basis sizes."
         )
 
+    packed_basis_sizes = packed_coulomb_basis_sizes(batched_matrices).tolist()
     for i_system, n_basis in enumerate(basis_sizes):
-        matrix = block.values[i_system]
-        valid_rows = ~torch.isnan(matrix).all(dim=1)
-        actual_basis_size = int(valid_rows.sum().item())
+        actual_basis_size = packed_basis_sizes[i_system]
 
         if n_basis > actual_basis_size:
             raise ValueError(
@@ -207,6 +251,57 @@ def compute_batched_coulomb_matrices(
 
     matrices = [compute_coulomb_matrix(system, aux_basis) for system in systems]
     return pack_coulomb_matrices(matrices)
+
+
+def _make_scale_template(tensor: TensorMap) -> TensorMap:
+    """Create a TensorMap of ones on valid entries and NaNs on padding."""
+
+    blocks = []
+    for block in tensor:
+        values = torch.where(
+            torch.isnan(block.values),
+            block.values,
+            torch.ones_like(block.values),
+        )
+        blocks.append(
+            TensorBlock(
+                values=values,
+                samples=block.samples,
+                components=block.components,
+                properties=block.properties,
+            )
+        )
+
+    return TensorMap(tensor.keys, blocks)
+
+
+def get_ri_coefficients_scale_transform(
+    target_names: Sequence[str],
+    scaler: torch.nn.Module,
+) -> Callable:
+    """Create a collate transform that attaches per-target RI coefficient scales."""
+
+    def transform(
+        systems: list[System],
+        targets: dict[str, TensorMap],
+        extra: dict[str, TensorMap],
+    ) -> tuple[list[System], dict[str, TensorMap], dict[str, TensorMap]]:
+        scale_inputs = {}
+        for target_name in target_names:
+            if target_name not in targets:
+                continue
+            scale_inputs[target_name] = _make_scale_template(targets[target_name])
+
+        if len(scale_inputs) == 0:
+            return systems, targets, extra
+
+        scale_factors = scaler(systems, scale_inputs, remove=False)
+        for target_name, scales in scale_factors.items():
+            extra[ri_coefficients_scale_name(target_name)] = scales
+
+        return systems, targets, extra
+
+    return transform
 
 
 def get_coulomb_matrices_transform(

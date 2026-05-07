@@ -240,7 +240,6 @@ class TrainerHypers(TypedDict):
     This can be a single PySCF auxiliary basis name shared across all RI-coefficient
     targets, or a mapping from target name to basis name when different RI targets use
     different auxiliary bases. Leave it as ``None`` when RI Coulomb losses are not used.
-    The current ``ri_coulomb`` implementation also requires ``scale_targets=False``.
     """
     per_structure_targets: list[str] = []
     """Targets to calculate per-structure losses and errors on."""

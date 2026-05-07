@@ -14,7 +14,11 @@ from torch.nn.modules.loss import _Loss
 from typing_extensions import NotRequired, TypedDict
 
 from metatrain.utils.data import TargetInfo
-from metatrain.utils.pyscf_loss import coulomb_matrix_name, unpack_coulomb_matrices
+from metatrain.utils.pyscf_loss import (
+    coulomb_matrix_name,
+    packed_coulomb_basis_sizes,
+    ri_coefficients_scale_name,
+)
 
 
 @with_config(ConfigDict(extra="allow"))
@@ -532,6 +536,94 @@ def tensormap_to_pyscf_coefficients_padded(
     return list(result_tuple)
 
 
+def _ri_coefficients_pyscf_order_impl(
+    tensor_map: TensorMap,
+    other_tensor_map: Optional[TensorMap] = None,
+) -> list[torch.Tensor]:
+    """Flatten RI coefficients or deltas directly in the PySCF basis order."""
+
+    ordered_keys = sorted(tensor_map.keys, key=lambda key: int(key[0]))
+    if len(ordered_keys) == 0:
+        return []
+
+    first_block = tensor_map.block(ordered_keys[0])
+    if len(first_block.samples) == 0:
+        return []
+
+    system_indices = first_block.samples.values[:, 0]
+    _, sample_counts = torch.unique_consecutive(system_indices, return_counts=True)
+    sample_counts_list = sample_counts.tolist()
+
+    split_blocks: list[tuple[tuple[torch.Tensor, ...], tuple[torch.Tensor, ...]]] = []
+    for key in ordered_keys:
+        block = tensor_map.block(key)
+        values = block.values
+        if other_tensor_map is not None:
+            values = values - other_tensor_map.block(key).values
+
+        if int(key[0]) == 1:
+            values = values[:, [2, 0, 1], :]
+
+        # RI values are stored as [sample, m, n], but PySCF expects n-major ordering
+        # within each angular channel.
+        values = values.transpose(1, 2).reshape(values.shape[0], -1)
+        valid = ~torch.isnan(values)
+        split_blocks.append(
+            (
+                torch.split(values, sample_counts_list, dim=0),
+                torch.split(valid, sample_counts_list, dim=0),
+            )
+        )
+
+    coefficients_per_system = []
+    for i_system in range(len(sample_counts_list)):
+        system_parts = []
+        n_samples = split_blocks[0][0][i_system].shape[0]
+        for i_sample in range(n_samples):
+            for block_values_per_system, block_valid_per_system in split_blocks:
+                values = block_values_per_system[i_system][i_sample]
+                valid = block_valid_per_system[i_system][i_sample]
+                system_parts.append(values[valid])
+
+        if len(system_parts) == 0:
+            coefficients_per_system.append(
+                torch.empty(
+                    0,
+                    dtype=first_block.values.dtype,
+                    device=first_block.values.device,
+                )
+            )
+        else:
+            coefficients_per_system.append(torch.cat(system_parts))
+
+    return coefficients_per_system
+
+
+def _ri_coefficients_delta_pyscf_order(
+    tensor_map_pred: TensorMap,
+    tensor_map_targ: TensorMap,
+) -> list[torch.Tensor]:
+    """
+    Flatten RI coefficient deltas directly in the PySCF basis order.
+
+    This avoids building an intermediate ``delta`` TensorMap and the global metadata
+    sort used by :func:`tensormap_to_pyscf_coefficients_padded` while preserving the
+    same coefficient order: ``system -> atom -> o3_lambda -> n -> m``.
+
+    :param tensor_map_pred: Predicted RI coefficients.
+    :param tensor_map_targ: Target RI coefficients.
+    :return: One 1D tensor per system in PySCF coefficient order.
+    """
+
+    return _ri_coefficients_pyscf_order_impl(tensor_map_pred, tensor_map_targ)
+
+
+def _ri_coefficients_pyscf_order(tensor_map: TensorMap) -> list[torch.Tensor]:
+    """Flatten RI coefficients in the PySCF basis order."""
+
+    return _ri_coefficients_pyscf_order_impl(tensor_map)
+
+
 def extract_sparse_integrals(
     batched_integrals: TensorMap, c_list: list[torch.Tensor]
 ) -> list[torch.Tensor]:
@@ -919,22 +1011,13 @@ class TensorMapRICoulombLoss(LossInterface):
 
         tensor_map_pred = predictions[self.target]
         tensor_map_targ = targets[self.target]
-
-        delta_blocks = []
-        for key in tensor_map_pred.keys:
-            block_pred = tensor_map_pred.block(key)
-            block_targ = tensor_map_targ.block(key)
-            delta_blocks.append(
-                TensorBlock(
-                    samples=block_pred.samples,
-                    components=block_pred.components,
-                    properties=block_pred.properties,
-                    values=block_pred.values - block_targ.values,
-                )
-            )
-
-        delta_map = TensorMap(tensor_map_pred.keys, delta_blocks)
-        delta_coefficients = tensormap_to_pyscf_coefficients_padded(delta_map)
+        delta_coefficients = _ri_coefficients_delta_pyscf_order(
+            tensor_map_pred, tensor_map_targ
+        )
+        scale_name = ri_coefficients_scale_name(self.target)
+        scale_coefficients = None
+        if scale_name in extra_data:
+            scale_coefficients = _ri_coefficients_pyscf_order(extra_data[scale_name])
 
         if len(delta_coefficients) == 0:
             first_block = tensor_map_pred.block(tensor_map_pred.keys[0])
@@ -942,18 +1025,66 @@ class TensorMapRICoulombLoss(LossInterface):
                 (), dtype=first_block.values.dtype, device=first_block.values.device
             )
 
-        coulomb_matrices = unpack_coulomb_matrices(
-            extra_data[matrix_name],
-            [len(coefficients) for coefficients in delta_coefficients],
-        )
+        if scale_coefficients is not None:
+            if len(scale_coefficients) != len(delta_coefficients):
+                raise ValueError(
+                    "The number of RI scale-factor vectors does not match the number "
+                    "of coefficient vectors."
+                )
+            delta_coefficients = [
+                delta * scales
+                for delta, scales in zip(
+                    delta_coefficients, scale_coefficients, strict=True
+                )
+            ]
 
-        losses = []
-        for delta, coulomb_matrix in zip(
-            delta_coefficients, coulomb_matrices, strict=True
+        packed_coulomb = extra_data[matrix_name]
+        packed_block = packed_coulomb.block()
+        basis_sizes = packed_coulomb_basis_sizes(packed_coulomb).tolist()
+        coefficient_sizes = [len(coefficients) for coefficients in delta_coefficients]
+
+        if len(basis_sizes) != len(coefficient_sizes):
+            raise ValueError(
+                "The number of packed Coulomb matrices does not match the basis sizes."
+            )
+
+        for coefficient_size, basis_size in zip(
+            coefficient_sizes, basis_sizes, strict=True
         ):
-            losses.append(torch.einsum("i,ij,j->", delta, coulomb_matrix, delta))
+            if coefficient_size > basis_size:
+                raise ValueError(
+                    "At least one requested Coulomb matrix basis size exceeds the packed "
+                    "matrix size."
+                )
+            if coefficient_size != basis_size:
+                raise ValueError(
+                    "The RI target size does not match the configured auxiliary basis. "
+                    "Check that 'ri_aux_basis' matches the RI coefficients stored in the "
+                    "dataset."
+                )
 
-        loss_values = torch.stack(losses)
+        if scale_coefficients is not None:
+            scale_sizes = [len(coefficients) for coefficients in scale_coefficients]
+            for scale_size, coefficient_size in zip(
+                scale_sizes, coefficient_sizes, strict=True
+            ):
+                if scale_size != coefficient_size:
+                    raise ValueError(
+                        "The RI scale factors do not match the flattened coefficient "
+                        "size for at least one system."
+                    )
+
+        max_basis = packed_block.values.shape[-1]
+        delta_padded = packed_block.values.new_zeros(
+            (len(delta_coefficients), max_basis)
+        )
+        for i_system, delta in enumerate(delta_coefficients):
+            delta_padded[i_system, : delta.shape[0]] = delta
+
+        coulomb_values = torch.nan_to_num(packed_block.values, nan=0.0)
+        loss_values = torch.einsum(
+            "bi,bij,bj->b", delta_padded, coulomb_values, delta_padded
+        )
         if self.reduction == "mean":
             return loss_values.mean()
         elif self.reduction == "sum":
