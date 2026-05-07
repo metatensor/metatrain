@@ -125,7 +125,9 @@ def remove_additive(
                 )
 
             else:
-                new_target_blocks.append(block)
+                # metatensor 0.9 forbids inserting a block that is still owned
+                # by another TensorMap, so copy.
+                new_target_blocks.append(block.copy())
 
         targets[target_key] = TensorMap(
             keys=targets[target_key].keys,
