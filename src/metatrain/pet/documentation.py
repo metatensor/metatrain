@@ -107,7 +107,7 @@ class ModelHypers(TypedDict):
     a Newton-bisection root finder (default; faster and more accurate). Only
     has effect when ``num_neighbors_adaptive`` is set.
     """
-    cutoff_width_adaptive: Optional[float] = 1.0
+    cutoff_width_adaptive: float = 1.0
     """Width of the smooth bump used to build ``n(r)`` in the adaptive cutoff
     solver.
 

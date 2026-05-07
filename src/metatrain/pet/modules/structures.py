@@ -13,6 +13,7 @@ from .nef import (
 )
 from .utilities import cutoff_func_bump, cutoff_func_cosine
 
+
 def concatenate_structures(
     systems: List[System],
     neighbor_list_options: NeighborListOptions,
@@ -120,7 +121,7 @@ def systems_to_batch(
     cutoff_width: Optional[float] = None,
     num_neighbors_adaptive: Optional[float] = None,
     adaptive_cutoff_method: str = "solver",
-    cutoff_width_adaptive: Optional[float] = 1.0,
+    cutoff_width_adaptive: float = 1.0,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -259,16 +260,14 @@ def systems_to_batch(
     # if cutoff_width is None, the cutoff function spans the entire range from 0 to
     # the cutoff radius, (either fixed or adaptive)
     if cutoff_function.lower() == "bump":
-        cutoff_func = cutoff_func_bump
+        cutoff_factors = cutoff_func_bump(edge_distances, pair_cutoffs, cutoff_width)
     elif cutoff_function.lower() == "cosine":
-        cutoff_func = cutoff_func_cosine
+        cutoff_factors = cutoff_func_cosine(edge_distances, pair_cutoffs, cutoff_width)
     else:
         raise ValueError(
             f"Unknown cutoff function type: {cutoff_function}. "
             f"Supported types are 'Cosine' and 'Bump'."
         )
-    
-    cutoff_factors = cutoff_func(edge_distances, pair_cutoffs, cutoff_width)
 
     # Convert to NEF (Node-Edge-Feature) format:
     # Pass `num_neighbors` in so `get_nef_indices` doesn't re-run bincount.
