@@ -1,9 +1,11 @@
+import copy
 import random
 
 import numpy as np
 import pytest
 import torch
-from metatomic.torch import ModelOutput
+from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
 from metatrain.pet import PET, Trainer
@@ -12,7 +14,10 @@ from metatrain.utils.data.readers import (
     read_systems,
     read_targets,
 )
-from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.data.target_info import (
+    get_energy_target_info,
+    get_generic_target_info,
+)
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
@@ -156,3 +161,99 @@ def test_regression_energies_forces_train(device):
         output["energy"].block().gradient("positions").values[0, :, 0],
         expected_gradients_output,
     )
+
+
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_regression_non_conservative_stress_scale(batch_size):
+    """Regression test for fitted NC stress scales during PET trainer setup."""
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
+
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([8, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+    valid_stresses = [
+        torch.full((1, 3, 3, 1), 2.0, dtype=torch.float64),
+        torch.full((1, 3, 3, 1), 4.0, dtype=torch.float64),
+    ]
+    nan_stress = torch.full((1, 3, 3, 1), torch.nan, dtype=torch.float64)
+    stresses = [*valid_stresses, nan_stress]
+    targets = [
+        TensorMap(
+            keys=Labels.single(),
+            blocks=[
+                TensorBlock(
+                    values=stress,
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[Labels.range("xyz_1", 3), Labels.range("xyz_2", 3)],
+                    properties=Labels.range("non_conservative_stress", 1),
+                )
+            ],
+        )
+        for i, stress in enumerate(stresses)
+    ]
+    dataset = Dataset.from_dict({"system": systems, "non_conservative_stress": targets})
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[8],
+        targets={
+            "non_conservative_stress": get_generic_target_info(
+                "non_conservative_stress",
+                {
+                    "quantity": "stress",
+                    "unit": "eV/A^3",
+                    "type": {"cartesian": {"rank": 2}},
+                    "per_atom": False,
+                    "num_subtargets": 1,
+                },
+            )
+        },
+    )
+
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    hypers["training"]["batch_size"] = batch_size
+    hypers["training"]["num_epochs"] = 0
+    hypers["training"]["num_workers"] = 0
+    hypers["training"]["per_structure_targets"] = ["non_conservative_stress"]
+    loss_conf = OmegaConf.create(
+        {"non_conservative_stress": init_with_defaults(LossSpecification)}
+    )
+    OmegaConf.resolve(loss_conf)
+    hypers["training"]["loss"] = loss_conf
+
+    model = PET(copy.deepcopy(MODEL_HYPERS), dataset_info)
+    trainer = Trainer(hypers["training"])
+    # num_epochs=0 keeps this test focused on pre-training scaler fitting.
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
+
+    scale = model.scaler.model.scales["non_conservative_stress"].block().values[0, 0]
+    expected = torch.sqrt(torch.mean(torch.cat(valid_stresses, dim=0) ** 2))
+    torch.testing.assert_close(scale, expected)

@@ -326,7 +326,8 @@ def test_scaler_scalar_multiple_properties(batch_size):
     )
 
 
-def test_scaler_respects_per_structure_targets_for_rank2_stress():
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_scaler_respects_per_structure_targets_for_rank2_stress(batch_size):
     systems = [
         System(
             positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
@@ -386,14 +387,14 @@ def test_scaler_respects_per_structure_targets_for_rank2_stress():
     scaler_raw.train_model(
         dataset,
         additive_models=[],
-        batch_size=2,
+        batch_size=batch_size,
         is_distributed=False,
         per_structure_targets=["non_conservative_stress"],
     )
     scaler_per_atom.train_model(
         dataset,
         additive_models=[],
-        batch_size=2,
+        batch_size=batch_size,
         is_distributed=False,
         per_structure_targets=[],
     )
