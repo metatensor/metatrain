@@ -192,12 +192,15 @@ class BaseScaler(torch.nn.Module):
                         # For non-conservative stresses, we need to take into account
                         # the fact that we allow the user to define NaN stresses for
                         # non-fully-periodic systems.
-                        valid_mask = ~torch.isnan(Y)
-                        Y = Y[valid_mask]
-
-                    # Compute sum over all axes except the property axis
-                    N = Y.numel() // Y.shape[-1] if Y.numel() > 0 else 0
-                    Y2_values = torch.sum(Y**2, dim=list(range(0, Y.dim() - 1)))
+                        valid_mask = (~torch.isnan(Y)).to(Y.dtype)
+                        Y = torch.nan_to_num(Y, nan=0.0)
+                        dim = list(range(0, Y.dim() - 1))
+                        N = torch.sum(valid_mask, dim=dim)
+                        Y2_values = torch.sum((Y * valid_mask) ** 2, dim=dim)
+                    else:
+                        # Compute sum over all axes except the property axis
+                        N = Y.numel() // Y.shape[-1] if Y.numel() > 0 else 0
+                        Y2_values = torch.sum(Y**2, dim=list(range(0, Y.dim() - 1)))
 
                     self.N[target_name][key].values[0] += N
                     self.Y2[target_name][key].values[0] += Y2_values
