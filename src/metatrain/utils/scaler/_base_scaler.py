@@ -10,7 +10,6 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
-
 FixedScalerWeights = dict[str, Union[float, dict[int, float]]]
 
 
@@ -567,11 +566,10 @@ class BaseScaler(torch.nn.Module):
         """
         Applies/removes scales to/from the outputs.
 
-        If ``per_property`` is False, applies/removes the full scales. If
-        ``per_property`` is True, applies/removes the per-block, per-property scales
-        only. This only applies to targets with multiple blocks or multiple properties,
-        as these are the only targets for which per-block, per-property scales are
-        computed and stored.
+        If both ``use_per_target_scales`` and ``use_per_property_scales`` are True,
+        applies/removes the full scales. If either ``use_per_target_scales`` or
+        ``use_per_property_scales`` is True (but not both), applies/removes only the
+        corresponding scales.
 
         In both cases, if the target is per-atom, scales are applied/removed separately
         for each atomic type.
@@ -579,8 +577,10 @@ class BaseScaler(torch.nn.Module):
         :param systems: List of systems corresponding to the outputs.
         :param outputs: Dict of names outputs to which scales should be applied/removed.
             The names (keys) should be a subset of the target names used during fitting.
-            If ``per_property`` is True, only targets with multiple properties (i.e. > 1
-            block or >= 1 block with > 1 property) can be included in ``outputs``.
+            If ``use_per_property_scales`` is True and ``use_per_target_scales`` is
+            False, only targets with multiple properties (i.e. > 1 block or >= 1 block
+            with > 1 property) will be scaled, with sigle-property targets left
+            unchanged.
         :param remove: If True, removes the scaling (i.e., divides by the scales). If
             False, applies the scaling (i.e., multiplies by the scales).
         :param use_per_target_scales: If True, applies/removes per-target scales.
@@ -590,8 +590,8 @@ class BaseScaler(torch.nn.Module):
             will be applied/removed only to the selected atoms, and the appropriate
             scales will be selected based on the atomic types of the selected atoms.
         :returns: A dictionary with the scaled outputs for each system.
-        :raises ValueError: If no scales have been computed or if `outputs` keys
-            contain unsupported keys.
+        :raises ValueError: If no scales have been computed or if `outputs` keys contain
+            unsupported keys.
         """
         device = list(outputs.values())[0][0].values.device
         dtype = list(outputs.values())[0][0].values.dtype
