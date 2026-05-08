@@ -79,7 +79,7 @@ def init_with_defaults(hypers_cls: Type[HypersType]) -> dict:
 
 
 # Private global dictionary to store overwritten defaults
-_OVERWRITTEN_DEFAULTS = {}
+_OVERWRITTEN_DEFAULTS: dict[Type, dict] = {}
 
 
 def overwrite_defaults(
