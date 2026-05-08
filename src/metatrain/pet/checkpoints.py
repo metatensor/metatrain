@@ -288,7 +288,7 @@ def model_update_v11_v12(checkpoint: dict) -> None:
     if "edge_tokens_cutoff" not in hypers:
         hypers["edge_tokens_cutoff"] = False
     if "cutoff_width_adaptive" not in hypers:
-        hypers["cutoff_width_adaptive"] = hypers.get("cutoff_width", 0.5)
+        hypers["cutoff_width_adaptive"] = 1.0
 
 
 ###########################

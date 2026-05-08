@@ -155,8 +155,12 @@ def systems_to_batch(
         cutoffs when ``num_neighbors_adaptive`` is set. ``"grid"`` uses the legacy
         probe-grid + Gaussian-weighted average; ``"solver"`` uses a Newton-bisection
         root finder on the smoothed neighbor count.
-    :param cutoff_width_adaptive: Width of the smooth bump used to build ``n(r)``
-        in the adaptive solver. Defaults to 1.0.
+    :param cutoff_width_adaptive: Width of the smooth bump used to build the
+        smoothed neighbor count ``n(r)`` in the adaptive cutoff solver.
+        Smaller values make the counting more step-like (closer to a hard
+        neighbor count) but can be numerically unstable; larger values give
+        a smoother landscape that the root finder navigates more reliably.
+        Defaults to 1.0 Angstrom, which provides a good balance.
     :return: A tuple containing the batch tensors.
         The batch consists of the following tensors:
         - `element_indices_nodes`: The atomic species of the central atoms
