@@ -10,6 +10,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
+
 FixedScalerWeights = dict[str, Union[float, dict[int, float]]]
 
 
