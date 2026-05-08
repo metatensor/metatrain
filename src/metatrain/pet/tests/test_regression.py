@@ -251,7 +251,7 @@ def test_regression_energy_non_conservative_stress_scales(batch_size):
                     "per_atom": False,
                     "num_subtargets": 1,
                 },
-            )
+            ),
         },
     )
 
@@ -285,9 +285,9 @@ def test_regression_energy_non_conservative_stress_scales(batch_size):
     )
 
     energy_scale = model.scaler.model.scales["energy"].block().values[0, 0]
-    stress_scale = model.scaler.model.scales["non_conservative_stress"].block().values[
-        0, 0
-    ]
+    stress_scale = (
+        model.scaler.model.scales["non_conservative_stress"].block().values[0, 0]
+    )
 
     eval_systems = [system.to(torch.float32) for system in systems]
     for system in eval_systems:
