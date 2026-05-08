@@ -1,5 +1,5 @@
-from typing import Callable, Dict, List, Optional, Sequence, Union
 import logging
+from typing import Callable, Dict, List, Optional, Sequence, Union
 
 import metatensor.torch as mts
 import torch
@@ -229,7 +229,10 @@ class Scaler(torch.nn.Module):
                         torch.distributed.all_reduce(N_block.values)
                         torch.distributed.all_reduce(Y2_block.values)
         else:
-            logging.info("Skipping weight calculation: fixed_weights provided for all targets to fit.")
+            logging.info(
+                "Skipping weight calculation: fixed_weights provided for all targets "
+                "to fit."
+            )
 
         # Compute the scales on all ranks
         self.model.fit(fixed_weights=fixed_weights, targets_to_fit=self.new_outputs)
