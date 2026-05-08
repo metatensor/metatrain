@@ -2399,6 +2399,34 @@ def test_scaler_spherical_atomic_basis_rank_2_rotation_invariance(missing_type):
             )
 
 
+def test_scaler_skips_accumulation(caplog):
+    """Test that the scaler skips the dataset walk if all fixed weights are provided."""
+    import logging
+
+    scaler = Scaler(
+        hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 8],
+            targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
+        ),
+    )
+
+    with caplog.at_level(logging.INFO):
+        scaler.train_model(
+            datasets=[],
+            additive_models=[],
+            batch_size=1,
+            is_distributed=False,
+            fixed_weights={"energy": 0.1},
+        )
+
+    assert (
+        "Skipping weight calculation: fixed_weights provided for all targets to fit."
+        in caplog.text
+    )
+
+
 def test_scaler_torchscript(tmpdir):
     """Test the torchscripting, saving and loading of a scaler model."""
 

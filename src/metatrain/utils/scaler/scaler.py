@@ -1,3 +1,4 @@
+import logging
 from typing import Callable, Dict, List, Optional, Sequence, Union
 
 import metatensor.torch as mts
@@ -184,50 +185,60 @@ class Scaler(torch.nn.Module):
         if len(self.target_infos) == 0:  # no (new) targets to fit
             return
 
-        # Create dataloader for the training datasets
-        dataloader = self._get_dataloader(
-            datasets,
-            batch_size,
-            is_distributed=is_distributed,
-            initial_transforms=initial_transforms,
+        skip_accumulation = fixed_weights is not None and all(
+            t in fixed_weights for t in self.new_outputs
         )
 
         device = self.dummy_buffer.device
 
-        # accumulate
-        for batch in dataloader:
-            systems, targets, extra_data = unpack_batch(batch)
-            systems, targets, extra_data = batch_to(
-                systems, targets, extra_data, device=device
+        if not skip_accumulation:
+            # Create dataloader for the training datasets
+            dataloader = self._get_dataloader(
+                datasets,
+                batch_size,
+                is_distributed=is_distributed,
+                initial_transforms=initial_transforms,
             )
-            if len(targets) == 0:
-                break
 
-            # remove additive contributions from these targets
-            for additive_model in additive_models:
-                targets = remove_additive(
-                    systems,
-                    targets,
-                    additive_model,
-                    {
-                        target_name: self.target_infos[target_name]
-                        for target_name in targets
-                    },
+            # accumulate
+            for batch in dataloader:
+                systems, targets, extra_data = unpack_batch(batch)
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, device=device
                 )
-            targets = average_by_num_atoms(targets, systems, per_structure_targets)
-            self.model.accumulate(systems, targets, extra_data)
+                if len(targets) == 0:
+                    break
 
-        if is_distributed:
-            torch.distributed.barrier()
-            # All-reduce the accumulated TensorMaps across all processes
-            for target_name in self.new_outputs:
-                for N_block, Y2_block in zip(
-                    self.model.N[target_name],
-                    self.model.Y2[target_name],
-                    strict=True,
-                ):
-                    torch.distributed.all_reduce(N_block.values)
-                    torch.distributed.all_reduce(Y2_block.values)
+                # remove additive contributions from these targets
+                for additive_model in additive_models:
+                    targets = remove_additive(
+                        systems,
+                        targets,
+                        additive_model,
+                        {
+                            target_name: self.target_infos[target_name]
+                            for target_name in targets
+                        },
+                    )
+                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                self.model.accumulate(systems, targets, extra_data)
+
+            if is_distributed:
+                torch.distributed.barrier()
+                # All-reduce the accumulated TensorMaps across all processes
+                for target_name in self.new_outputs:
+                    for N_block, Y2_block in zip(
+                        self.model.N[target_name],
+                        self.model.Y2[target_name],
+                        strict=True,
+                    ):
+                        torch.distributed.all_reduce(N_block.values)
+                        torch.distributed.all_reduce(Y2_block.values)
+        else:
+            logging.info(
+                "Skipping weight calculation: fixed_weights provided for all targets "
+                "to fit."
+            )
 
         # Compute the scales on all ranks
         self.model.fit(fixed_weights=fixed_weights, targets_to_fit=self.new_outputs)
