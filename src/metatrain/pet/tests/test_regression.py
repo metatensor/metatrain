@@ -164,7 +164,7 @@ def test_regression_energies_forces_train(device):
 
 
 @pytest.mark.parametrize("batch_size", [1, 2])
-def test_regression_energy_non_conservative_stress_scales(batch_size):
+def test_regression_energy_non_conservative_stress(batch_size):
     """Regression test for PET setup with mixed energy and NC stress targets."""
     random.seed(0)
     np.random.seed(0)
