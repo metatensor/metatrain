@@ -330,6 +330,13 @@ def test_regression_energy_non_conservative_stress_scales(batch_size):
         dtype=torch.float32,
     )
 
+    # if you need to change the hardcoded values:
+    # torch.set_printoptions(precision=12)
+    # print(repr(energy_scale.detach().cpu()))
+    # print(repr(stress_scale.detach().cpu()))
+    # print(repr(energy_output.detach().cpu()))
+    # print(repr(stress_output.detach().cpu()))
+
     torch.testing.assert_close(energy_scale, expected_energy_scale)
     torch.testing.assert_close(stress_scale, expected_stress_scale)
     torch.testing.assert_close(energy_output, expected_energy_output)
