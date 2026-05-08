@@ -238,6 +238,7 @@ class Trainer(TrainerInterface):
                     **self.hypers["fixed_scaling_weights"],
                 },
                 initial_transforms=[atomic_basis_transform],
+                per_structure_targets=self.hypers["per_structure_targets"],
             )
 
         logging.info("Setting up data loaders")
