@@ -407,9 +407,9 @@ class Scaler(torch.nn.Module):
             systems,
             outputs,
             remove,
-            selected_atoms,
             use_per_target_scales,
             use_per_property_scales,
+            selected_atoms,
         )
 
         return scaled_outputs

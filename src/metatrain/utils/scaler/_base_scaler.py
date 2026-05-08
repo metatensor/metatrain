@@ -415,7 +415,7 @@ class BaseScaler(torch.nn.Module):
         # Remove the per-target scales from the targets before accumulating per-property
         # quantities, so that we only accumulate the pure per-property correction
         # factors.
-        targets = self._apply_scales(
+        targets = self.forward(
             systems,
             targets,
             remove=True,
@@ -495,7 +495,7 @@ class BaseScaler(torch.nn.Module):
         # Only fit and store per-property scales for targets with multiple properties
         targets_to_fit = [
             target_name
-            for target_name in self.target_names
+            for target_name in targets_to_fit
             if target_name in self.multi_property_target_names
         ]
 
@@ -555,13 +555,13 @@ class BaseScaler(torch.nn.Module):
                 blocks,
             )
 
-    def _apply_scales(
+    def forward(
         self,
         systems: List[System],
         outputs: Dict[str, TensorMap],
         remove: bool,
-        use_per_target_scales: bool,
-        use_per_property_scales: bool,
+        use_per_target_scales: bool = False,
+        use_per_property_scales: bool = False,
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         """
@@ -594,6 +594,7 @@ class BaseScaler(torch.nn.Module):
         :raises ValueError: If no scales have been computed or if `outputs` keys contain
             unsupported keys.
         """
+
         device = list(outputs.values())[0][0].values.device
         dtype = list(outputs.values())[0][0].values.dtype
         self._sync_device_dtype(device, dtype)
@@ -755,48 +756,6 @@ class BaseScaler(torch.nn.Module):
             )
 
         return predictions
-
-    def forward(
-        self,
-        systems: List[System],
-        outputs: Dict[str, TensorMap],
-        remove: bool,
-        selected_atoms: Optional[Labels] = None,
-        use_per_target_scales: bool = False,
-        use_per_property_scales: bool = False,
-    ) -> Dict[str, TensorMap]:
-        """
-        Scales the targets based on the stored standard deviations.
-
-        :param systems: List of systems corresponding to the for which the outputs were
-            computed.
-        :param outputs: Dict of names outputs to scale. The names (keys) should be a
-            subset of the target names used during fitting.
-        :param remove: If True, removes the scaling (i.e., divides by the scales). If
-            False, applies the scaling (i.e., multiplies by the scales).
-        :param selected_atoms: Optional labels for selected atoms.
-        :param use_per_target_scales: If True, applies/removes per-target scales.
-        :param use_per_property_scales: If True, applies/removes per-block, per-property
-            scales.
-        :returns: A dictionary with the scaled outputs for each system.
-
-        :raises ValueError: If no scales have been computed or if `outputs` keys contain
-            unsupported keys.
-        """
-
-        # If removing scales, first remove per-target scales, then per-property scales.
-        # Otherwise if applying scales, apply in the reverse order.
-        predictions: Dict[str, TensorMap] = {
-            output_name: outputs[output_name] for output_name in outputs
-        }
-        return self._apply_scales(
-            systems,
-            predictions,
-            remove=remove,
-            use_per_target_scales=use_per_target_scales,
-            use_per_property_scales=use_per_property_scales,
-            selected_atoms=selected_atoms,
-        )
 
     def _set_fixed_weights(
         self, target_name: str, weights: Union[float, Dict[int, float]]
