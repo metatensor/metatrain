@@ -93,6 +93,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
         self.best_metric: Optional[float] = None
         self.best_model_state_dict: Optional[Dict[str, Any]] = None
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
+        self.is_restart: bool = False
+        self.is_finetune: bool = hypers.get("finetune", {}).get("read_from") is not None
 
     def train(
         self,
@@ -106,7 +108,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         assert dtype in PET.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
-        is_finetune = self.hypers["finetune"]["read_from"] is not None
 
         if is_distributed:
             if len(devices) > 1:
@@ -131,28 +132,34 @@ class Trainer(TrainerInterface[TrainerHypers]):
         else:
             logging.info(f"Training on device {device} with dtype {dtype}")
 
-        # Apply fine-tuning strategy if provided
-        if is_finetune:
-            assert self.hypers["finetune"]["read_from"] is not None  # for mypy
-            model = apply_finetuning_strategy(model, self.hypers["finetune"])
-            method = self.hypers["finetune"]["method"]
+        # Apply fine-tuning strategy if provided.
+        # On restart, the strategy was already applied in Model.load_checkpoint(),
+        # so we must not re-apply it (inherit_heads would overwrite learned weights).
+        if self.is_finetune:
+            if not self.is_restart:
+                assert self.hypers["finetune"]["read_from"] is not None  # for mypy
+                model = apply_finetuning_strategy(model, self.hypers["finetune"])
+                method = self.hypers["finetune"]["method"]
+                logging.info(f"Applied finetuning strategy: {method}")
+                inherit_heads = self.hypers["finetune"]["inherit_heads"]
+                if inherit_heads:
+                    logging.info(
+                        "Inheriting initial weights for heads and last layers "
+                        f"for targets: from {list(inherit_heads.values())} to "
+                        f"{list(inherit_heads.keys())}"
+                    )
+            else:
+                method = model.finetune_config["method"]
+                logging.info(f"Restarting finetuned model (strategy: {method})")
+
             num_params = sum(p.numel() for p in model.parameters())
             num_trainable_params = sum(
                 p.numel() for p in model.parameters() if p.requires_grad
             )
-
-            logging.info(f"Applied finetuning strategy: {method}")
             logging.info(
                 f"Number of trainable parameters: {num_trainable_params} "
                 f"[{num_trainable_params / num_params:.2%} %]"
             )
-            inherit_heads = self.hypers["finetune"]["inherit_heads"]
-            if inherit_heads:
-                logging.info(
-                    "Inheriting initial weights for heads and last layers for targets: "
-                    f"from {list(inherit_heads.values())} to "
-                    f"{list(inherit_heads.keys())}"
-                )
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
@@ -699,6 +706,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         trainer.scheduler_state_dict = checkpoint["scheduler_state_dict"]
         if context == "restart":
             trainer.epoch = checkpoint["epoch"]
+            trainer.is_restart = True
         else:
             assert context == "finetune"
             trainer.epoch = None  # interpreted as zero in the training loop
