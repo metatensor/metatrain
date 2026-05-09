@@ -376,6 +376,10 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
 
 
 class CollateFn:
+    # TODO: ``batch_atom_bounds`` post-hoc filtering is redundant when training uses
+    # ``MaxAtomDistributedBatchSampler`` (which now enforces min/max atom bounds at
+    # packing time). Remove the parameter and the per-batch length check below in a
+    # follow-up PR once all architectures route through the sampler.
     def __init__(
         self,
         target_keys: List[str],

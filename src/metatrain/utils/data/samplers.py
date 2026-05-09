@@ -11,7 +11,7 @@ Licensed under the MIT License.
 
 import logging
 import math
-from typing import Iterator, List
+from typing import Iterator, List, Sequence, Union
 
 import numpy as np
 import torch
@@ -40,8 +40,8 @@ def _get_num_atoms(dataset: torch.utils.data.Dataset, i: int) -> int:
 
 
 def _greedy_pack(
-    indices: List[int],
-    atom_counts: List[int],
+    indices: Union[Sequence[int], np.ndarray],
+    atom_counts: Union[Sequence[int], np.ndarray],
     max_atoms: int,
     min_atoms: int = 0,
 ) -> List[List[int]]:
@@ -50,49 +50,76 @@ def _greedy_pack(
     Single structures that alone exceed ``max_atoms`` are skipped with a warning.
     Completed batches whose total atom count falls below ``min_atoms`` are dropped.
 
+    Implementation is vectorised: oversized structures are removed with a numpy
+    mask, and batch break points are found via ``np.cumsum`` + ``np.searchsorted``,
+    so the inner loop iterates once per *batch* (not once per structure).
+
     :param indices: Dataset indices to pack.
     :param atom_counts: Atom count for each index (parallel to ``indices``).
     :param max_atoms: Maximum total atoms allowed per batch.
     :param min_atoms: Minimum total atoms required to keep a batch.
     :return: List of batches, each batch being a list of dataset indices.
     """
+    indices_arr = np.asarray(indices, dtype=np.int64)
+    counts_arr = np.asarray(atom_counts, dtype=np.int64)
+    if indices_arr.shape != counts_arr.shape:
+        raise ValueError(
+            f"indices and atom_counts must have the same shape, got "
+            f"{indices_arr.shape} vs {counts_arr.shape}"
+        )
+
+    n_total = indices_arr.size
+    if n_total == 0:
+        return []
+
+    oversized_mask = counts_arr > max_atoms
+    n_oversized = int(oversized_mask.sum())
+    if n_oversized:
+        # Per-structure warning (preserves prior behaviour for callers grepping
+        # logs). The cost is bounded by the oversized count, not n_total.
+        over_indices = indices_arr[oversized_mask]
+        over_counts = counts_arr[oversized_mask]
+        for over_idx, over_n in zip(over_indices.tolist(), over_counts.tolist()):
+            logger.warning(
+                f"Structure {over_idx} has {over_n} atoms which exceeds "
+                f"max_atoms_per_batch ({max_atoms}). Skipping this structure."
+            )
+        keep = ~oversized_mask
+        indices_arr = indices_arr[keep]
+        counts_arr = counts_arr[keep]
+
+    n = indices_arr.size
+    if n == 0:
+        return []
+
+    cumsum = np.cumsum(counts_arr)
+
+    # Walk batch boundaries. Each iteration is a single ``searchsorted`` call,
+    # so the loop runs once per batch — typically orders of magnitude fewer
+    # iterations than the structure count.
     batches: List[List[int]] = []
-    current_batch: List[int] = []
-    current_atoms = 0
-    n_oversized = 0
     n_dropped_batches = 0
     n_dropped_structures = 0
-
-    for idx, n in zip(indices, atom_counts, strict=True):
-        if n > max_atoms:
-            logger.warning(
-                f"Structure {idx} has {n} atoms which exceeds max_atoms_per_batch "
-                f"({max_atoms}). Skipping this structure."
-            )
-            n_oversized += 1
-            continue
-        if current_atoms + n > max_atoms and current_batch:
-            if current_atoms >= min_atoms:
-                batches.append(current_batch)
-            else:
-                n_dropped_batches += 1
-                n_dropped_structures += len(current_batch)
-            current_batch = []
-            current_atoms = 0
-        current_batch.append(idx)
-        current_atoms += n
-
-    if current_batch:
-        if current_atoms >= min_atoms:
-            batches.append(current_batch)
+    start = 0
+    while start < n:
+        offset = int(cumsum[start - 1]) if start > 0 else 0
+        end = int(np.searchsorted(cumsum, offset + max_atoms, side="right"))
+        # Every remaining element has count <= max_atoms after filtering, so
+        # at least one element fits in the current batch.
+        if end <= start:
+            end = start + 1
+        batch_atoms = int(cumsum[end - 1]) - offset
+        if batch_atoms >= min_atoms:
+            batches.append(indices_arr[start:end].tolist())
         else:
             n_dropped_batches += 1
-            n_dropped_structures += len(current_batch)
+            n_dropped_structures += end - start
+        start = end
 
     n_skipped = n_oversized + n_dropped_structures
     if n_skipped > 0:
         logger.info(
-            f"Greedy packing: {n_skipped}/{len(indices)} structures will be skipped "
+            f"Greedy packing: {n_skipped}/{n_total} structures will be skipped "
             f"per epoch ({n_oversized} oversized, {n_dropped_structures} in "
             f"{n_dropped_batches} batches below min_atoms={min_atoms})."
         )
@@ -150,13 +177,18 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
             dataset.dataset if isinstance(dataset, torch.utils.data.Subset) else dataset
         )
         if hasattr(inner, "get_all_atom_counts"):
-            all_counts = inner.get_all_atom_counts()
+            all_counts = np.asarray(inner.get_all_atom_counts(), dtype=np.int64)
             if isinstance(dataset, torch.utils.data.Subset):
-                self._atom_counts = [int(all_counts[i]) for i in dataset.indices]
+                subset_idx = np.asarray(dataset.indices, dtype=np.int64)
+                self._atom_counts = all_counts[subset_idx]
             else:
-                self._atom_counts = all_counts.tolist()
+                self._atom_counts = all_counts
         else:
-            self._atom_counts = [_get_num_atoms(dataset, i) for i in range(n)]
+            self._atom_counts = np.fromiter(
+                (_get_num_atoms(dataset, i) for i in range(n)),
+                dtype=np.int64,
+                count=n,
+            )
 
         # Pack once at init; only batch *order* changes each epoch.
         self.all_batches: List[List[int]] = self._build_batches()
@@ -186,13 +218,15 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
 
         :return: List of batches, each batch being a list of dataset indices.
         """
-        indices = list(range(len(self.dataset)))
+        n = len(self.dataset)
         if self.shuffle:
             # Hardcoded seed so packing is identical across runs, ranks, and
             # restarts regardless of the global RNG state.
             rng = np.random.default_rng(0)
-            rng.shuffle(indices)
-        atom_counts = [self._atom_counts[i] for i in indices]
+            indices = rng.permutation(n)
+        else:
+            indices = np.arange(n, dtype=np.int64)
+        atom_counts = self._atom_counts[indices]
         return _greedy_pack(indices, atom_counts, self.max_atoms, self.min_atoms)
 
     def __iter__(self) -> Iterator[List[int]]:
