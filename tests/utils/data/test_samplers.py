@@ -59,7 +59,7 @@ def test_greedy_pack_basic():
     for batch in batches:
         assert sum(atom_counts[i] for i in batch) <= 9
     # All indices appear exactly once
-    assert sorted(np.concatenate(batches).tolist()) == list(range(10))
+    assert sorted(sum(batches, [])) == list(range(10))
 
 
 def test_greedy_pack_all_fit_one_batch():
@@ -67,7 +67,7 @@ def test_greedy_pack_all_fit_one_batch():
     atom_counts = [2, 2, 2, 2]
     batches = _greedy_pack(indices, atom_counts, max_atoms=8)
     assert len(batches) == 1
-    assert sorted(batches[0].tolist()) == [0, 1, 2, 3]
+    assert sorted(batches[0]) == [0, 1, 2, 3]
 
 
 def test_greedy_pack_min_atoms_drops_small_batches():
@@ -113,7 +113,7 @@ def test_greedy_pack_oversized_structure_skipped(caplog):
     with caplog.at_level(logging.WARNING, logger="metatrain.utils.data.samplers"):
         batches = _greedy_pack(indices, atom_counts, max_atoms=9)
     assert "Structure 1" in caplog.text
-    all_indices = sorted(np.concatenate(batches).tolist())
+    all_indices = sorted(sum(batches, []))
     assert all_indices == [0, 2]
 
 
@@ -124,7 +124,7 @@ def test_greedy_pack_variable_sizes():
     batches = _greedy_pack(indices, atom_counts, max_atoms=8)
     for batch in batches:
         assert sum(atom_counts[i] for i in batch) <= 8
-    assert sorted(np.concatenate(batches).tolist()) == [0, 1, 2, 3]
+    assert sorted(sum(batches, [])) == [0, 1, 2, 3]
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +137,7 @@ def test_single_process_all_samples_covered():
     atom_counts = [3] * 20
     ds = _FakeDataset(atom_counts)
     sampler = MaxAtomBatchSampler(ds, max_atoms=9, shuffle=False)
-    all_indices = sorted(np.concatenate(list(sampler)).tolist())
+    all_indices = sorted(sum(list(sampler), []))
     assert all_indices == list(range(20))
 
 
@@ -147,7 +147,7 @@ def test_single_process_no_shuffle_produces_sequential_batches():
     ds = _FakeDataset([n_atoms] * n)
     batch_size = 3  # max_atoms = 3*3 = 9
     sampler = MaxAtomBatchSampler(ds, max_atoms=n_atoms * batch_size, shuffle=False)
-    batches = [b.tolist() for b in sampler]
+    batches = list(sampler)
     expected = [list(range(i, i + batch_size)) for i in range(0, n, batch_size)]
     assert batches == expected
 
@@ -169,9 +169,9 @@ def test_set_epoch_changes_order():
     sampler = MaxAtomBatchSampler(ds, max_atoms=6, shuffle=True)
 
     sampler.set_epoch(0)
-    batches_e0 = [b.tolist() for b in sampler]
+    batches_e0 = list(sampler)
     sampler.set_epoch(1)
-    batches_e1 = [b.tolist() for b in sampler]
+    batches_e1 = list(sampler)
 
     # The first batches should differ (with high probability for 30 structures)
     assert batches_e0 != batches_e1
@@ -184,9 +184,9 @@ def test_same_epoch_same_order():
     sampler = MaxAtomBatchSampler(ds, max_atoms=6, shuffle=True)
 
     sampler.set_epoch(3)
-    run1 = [b.tolist() for b in sampler]
+    run1 = list(sampler)
     sampler.set_epoch(3)
-    run2 = [b.tolist() for b in sampler]
+    run2 = list(sampler)
     assert run1 == run2
 
 
@@ -203,7 +203,7 @@ def test_subset_compatibility():
     ds = _FakeDataset(atom_counts)
     subset = torch.utils.data.Subset(ds, [0, 2, 4])  # 2, 3, 5 atoms
     sampler = MaxAtomBatchSampler(subset, max_atoms=5, shuffle=False)
-    all_subset_indices = sorted(np.concatenate(list(sampler)).tolist())
+    all_subset_indices = sorted(sum(list(sampler), []))
     # The sampler iterates over subset indices 0,1,2 (pointing to ds[0], ds[2], ds[4])
     assert all_subset_indices == [0, 1, 2]
 
@@ -246,11 +246,8 @@ def test_distributed_disjoint_real_batches():
         per_rank.append(list(sampler))
 
     # 5 batches / 5 ranks → 1 batch per rank, no padding needed
-    flat: list = []
-    for batches in per_rank:
-        for batch in batches:
-            flat.extend(batch.tolist())
-    assert sorted(flat) == list(range(20))
+    all_flat = sorted(sum([sum(batches, []) for batches in per_rank], []))
+    assert all_flat == list(range(20))
 
 
 def test_distributed_len_consistent():
@@ -283,9 +280,9 @@ def test_distributed_set_epoch_sync():
     )
     sampler_r0_e1.set_epoch(1)
 
-    batches_r0_e0 = [b.tolist() for b in sampler_r0_e0]
-    batches_r1_e0 = [b.tolist() for b in sampler_r1_e0]
-    batches_r0_e1 = [b.tolist() for b in sampler_r0_e1]
+    batches_r0_e0 = list(sampler_r0_e0)
+    batches_r1_e0 = list(sampler_r1_e0)
+    batches_r0_e1 = list(sampler_r0_e1)
 
     # Union of ranks at epoch 0 covers all 12 samples
     union_e0 = sorted(sum(batches_r0_e0 + batches_r1_e0, []))
@@ -305,7 +302,7 @@ def test_equivalent_to_fixed_batch_size_uniform_atoms():
     n, n_atoms, batch_size = 15, 4, 3
     ds = _FakeDataset([n_atoms] * n)
     sampler = MaxAtomBatchSampler(ds, max_atoms=n_atoms * batch_size, shuffle=False)
-    batches = [b.tolist() for b in sampler]
+    batches = list(sampler)
 
     expected = [list(range(i, i + batch_size)) for i in range(0, n, batch_size)]
     assert batches == expected
@@ -327,9 +324,9 @@ def test_packing_stable_across_epochs():
     sampler = MaxAtomBatchSampler(ds, max_atoms=6, shuffle=True)
 
     sampler.set_epoch(0)
-    batches_e0 = [b.tolist() for b in sampler]
+    batches_e0 = list(sampler)
     sampler.set_epoch(1)
-    batches_e1 = [b.tolist() for b in sampler]
+    batches_e1 = list(sampler)
 
     # Contents are the same set of batches, just in a different order.
     assert sorted(map(sorted, batches_e0)) == sorted(map(sorted, batches_e1))
@@ -388,7 +385,7 @@ def test_drop_last_no_remainder_unchanged():
         ds, max_atoms=8, num_replicas=world_size, rank=0, shuffle=False, drop_last=True
     )
     assert len(s_pad) == len(s_drop) == 1
-    assert [b.tolist() for b in s_pad] == [b.tolist() for b in s_drop]
+    assert list(s_pad) == list(s_drop)
 
 
 def test_max_atom_batch_sampler_drop_last():
