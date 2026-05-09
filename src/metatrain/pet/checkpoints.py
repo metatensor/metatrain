@@ -442,9 +442,12 @@ def trainer_update_v11_v12(checkpoint: dict) -> None:
     """
     Update trainer checkpoint from version 11 to version 12.
 
+    Previously added a ``batch_atom_bounds`` default; the field has since been
+    removed from the trainer schema, so this migration is now a no-op kept only
+    to preserve checkpoint version numbering.
+
     :param checkpoint: The checkpoint to update.
     """
-    checkpoint["train_hypers"]["batch_atom_bounds"] = [None, None]
 
 
 def trainer_update_v12_v13(checkpoint: dict) -> None:

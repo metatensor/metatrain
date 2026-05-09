@@ -17,6 +17,12 @@ import numpy as np
 import torch
 import torch.utils.data
 
+# Each batch is an int64 numpy array. Storing ``np.ndarray`` instead of Python lists
+# of ints cuts the memory of ``MaxAtomDistributedBatchSampler.all_batches`` by
+# roughly 4x for large datasets (8 bytes per int64 vs ~28+ bytes for a boxed
+# Python int plus a list slot).
+Batch = np.ndarray
+
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +50,7 @@ def _greedy_pack(
     atom_counts: Union[Sequence[int], np.ndarray],
     max_atoms: int,
     min_atoms: int = 0,
-) -> List[List[int]]:
+) -> List[Batch]:
     """Greedily pack ``indices`` into batches where total atoms <= ``max_atoms``.
 
     Single structures that alone exceed ``max_atoms`` are skipped with a warning.
@@ -58,7 +64,8 @@ def _greedy_pack(
     :param atom_counts: Atom count for each index (parallel to ``indices``).
     :param max_atoms: Maximum total atoms allowed per batch.
     :param min_atoms: Minimum total atoms required to keep a batch.
-    :return: List of batches, each batch being a list of dataset indices.
+    :return: List of batches, each batch being an int64 numpy array of dataset
+        indices.
     """
     indices_arr = np.asarray(indices, dtype=np.int64)
     counts_arr = np.asarray(atom_counts, dtype=np.int64)
@@ -96,8 +103,10 @@ def _greedy_pack(
 
     # Walk batch boundaries. Each iteration is a single ``searchsorted`` call,
     # so the loop runs once per batch — typically orders of magnitude fewer
-    # iterations than the structure count.
-    batches: List[List[int]] = []
+    # iterations than the structure count. We slice (and copy) ``indices_arr``
+    # so each batch is a small standalone int64 array; this lets the (filtered)
+    # parent array be freed once packing is done.
+    batches: List[Batch] = []
     n_dropped_batches = 0
     n_dropped_structures = 0
     start = 0
@@ -110,7 +119,7 @@ def _greedy_pack(
             end = start + 1
         batch_atoms = int(cumsum[end - 1]) - offset
         if batch_atoms >= min_atoms:
-            batches.append(indices_arr[start:end].tolist())
+            batches.append(indices_arr[start:end].copy())
         else:
             n_dropped_batches += 1
             n_dropped_structures += end - start
@@ -191,7 +200,7 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
             )
 
         # Pack once at init; only batch *order* changes each epoch.
-        self.all_batches: List[List[int]] = self._build_batches()
+        self.all_batches: List[Batch] = self._build_batches()
 
         if len(self.all_batches) < self.num_replicas:
             raise ValueError(
@@ -213,10 +222,11 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
         """
         self.epoch = epoch
 
-    def _build_batches(self) -> List[List[int]]:
+    def _build_batches(self) -> List[Batch]:
         """Pack structures into batches (called once at init).
 
-        :return: List of batches, each batch being a list of dataset indices.
+        :return: List of batches, each batch being an int64 numpy array of
+            dataset indices.
         """
         n = len(self.dataset)
         if self.shuffle:
@@ -229,7 +239,7 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
         atom_counts = self._atom_counts[indices]
         return _greedy_pack(indices, atom_counts, self.max_atoms, self.min_atoms)
 
-    def __iter__(self) -> Iterator[List[int]]:
+    def __iter__(self) -> Iterator[Batch]:
         # Shuffle batch presentation order per epoch. We use a local generator keyed
         # solely on ``self.epoch`` so that all ranks agree on the order without
         # requiring the global RNG state to be synchronised across processes.
