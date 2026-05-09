@@ -150,7 +150,7 @@ def test_read_generic_scalar(tmpdir, scalar_tensor_map):
         "reader": "metatensor",
         "keys": ["scalar"],
         "per_atom": True,
-        "unit": "unit",
+        "unit": "",
         "type": "scalar",
         "num_subtargets": 10,
     }
@@ -170,7 +170,7 @@ def test_read_generic_spherical(tmpdir, spherical_tensor_map):
         "reader": "metatensor",
         "keys": ["o3_lambda", "o3_sigma"],
         "per_atom": False,
-        "unit": "unit",
+        "unit": "",
         "type": {
             "spherical": {
                 "irreps": [
@@ -197,7 +197,7 @@ def test_read_generic_cartesian(tmpdir, cartesian_tensor_map):
         "reader": "metatensor",
         "keys": ["cartesian"],
         "per_atom": False,
-        "unit": "unit",
+        "unit": "",
         "type": {
             "cartesian": {
                 "rank": 2,
