@@ -76,24 +76,48 @@ def remove_additive(
                 components=[c.to(device=device) for c in old_block.components],
                 properties=old_block.properties.to(device=device),
             )
+            additive_block = additive_contribution[target_key].block(block_key)
+            additive_gradients = additive_block.gradients_list()
             for gradient_name in targets[target_key].block(block_key).gradients_list():
-                gradient = (
-                    additive_contribution[target_key]
-                    .block(block_key)
-                    .gradient(gradient_name)
+                target_gradient = (
+                    targets[target_key].block(block_key).gradient(gradient_name)
                 )
-                block.add_gradient(
-                    gradient_name,
-                    mts.TensorBlock(
-                        values=gradient.values.detach(),
-                        samples=targets[target_key]
-                        .block(block_key)
-                        .gradient(gradient_name)
-                        .samples,
-                        components=gradient.components,
-                        properties=gradient.properties,
-                    ),
-                )
+                if gradient_name not in additive_gradients:
+                    # The additive model did not compute this gradient (e.g.
+                    # 'strain' is absent when mixing stress and no-stress
+                    # datasets). Its contribution is zero — add a zero-valued
+                    # placeholder so that _add_block_block sees matching
+                    # gradient structure on both sides.
+                    warnings.warn(
+                        f"Gradient '{gradient_name}' is missing in the additive "
+                        f"model's output for target '{target_key}'. Assuming zero "
+                        f"contribution and inserting a placeholder."
+                    )
+                    block.add_gradient(
+                        gradient_name,
+                        mts.TensorBlock(
+                            values=torch.zeros_like(target_gradient.values),
+                            samples=target_gradient.samples,
+                            components=target_gradient.components,
+                            properties=target_gradient.properties,
+                        ),
+                    )
+                else:
+                    # Use the additive gradient's components and properties (which
+                    # define its physical structure, e.g. 3×3 for strain), but
+                    # align to the target's samples — matching the original intent.
+                    additive_gradient = additive_block.gradient(gradient_name)
+                    block.add_gradient(
+                        gradient_name,
+                        mts.TensorBlock(
+                            values=additive_gradient.values.detach().to(
+                                device=device
+                            ),
+                            samples=target_gradient.samples,
+                            components=additive_gradient.components,
+                            properties=additive_gradient.properties,
+                        ),
+                    )
             blocks.append(block)
         additive_contribution[target_key] = TensorMap(
             keys=Labels(
