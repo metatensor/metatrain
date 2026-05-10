@@ -2513,7 +2513,6 @@ class _EnergyStubModel(torch.nn.Module):
         return {"energy": TensorMap(Labels(["_"], torch.tensor([[0]])), [block])}
 
 
-
 def test_remove_additive_missing_gradient():
     """Test that remove_additive handles the case where the additive model does
     not output a gradient (e.g. 'strain') that is present in the target block.

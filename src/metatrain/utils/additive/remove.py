@@ -110,9 +110,7 @@ def remove_additive(
                     block.add_gradient(
                         gradient_name,
                         mts.TensorBlock(
-                            values=additive_gradient.values.detach().to(
-                                device=device
-                            ),
+                            values=additive_gradient.values.detach().to(device=device),
                             samples=target_gradient.samples,
                             components=additive_gradient.components,
                             properties=additive_gradient.properties,
