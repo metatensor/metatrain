@@ -91,7 +91,8 @@ def remove_additive(
                     warnings.warn(
                         f"Gradient '{gradient_name}' is missing in the additive "
                         f"model's output for target '{target_key}'. Assuming zero "
-                        f"contribution and inserting a placeholder."
+                        f"contribution and inserting a placeholder.",
+                        stacklevel=2,
                     )
                     block.add_gradient(
                         gradient_name,
