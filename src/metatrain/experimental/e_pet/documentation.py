@@ -9,6 +9,11 @@ PET head or share a PET head with selected irreps from the same target through
 ``irrep_head_groups``. Scalar targets and spherical irrep blocks can also share the
 same PET head family across targets through ``shared_head_groups``.
 
+Cartesian rank-2 direct targets are accepted as public Cartesian tensors. E-PET
+internally predicts hidden spherical ``l=0`` and ``l=2`` blocks, reconstructs the
+Cartesian tensor, and applies loss, metrics, scaling, and optional volume
+normalization to the public Cartesian target.
+
 Per-atom spherical atomic-basis targets follow PET's densified training path:
 species-specific public blocks are densified internally, E-PET uses one target head
 by default and one tensor basis per irrep, and evaluation sparsifies predictions back
@@ -68,7 +73,7 @@ class TensorBasisSOAPConfig(TypedDict):
 
 
 class TensorBasisDefaults(TypedDict):
-    """Default tensor-basis settings used for spherical targets."""
+    """Default tensor-basis settings used for spherical and hidden spherical targets."""
 
     soap: TensorBasisSOAPConfig = init_with_defaults(TensorBasisSOAPConfig)
     """Spherical-expansion configuration for the tensor basis.
@@ -93,7 +98,7 @@ class TensorBasisDefaults(TypedDict):
     """Whether to use the legacy tensor-basis species handling."""
 
     basis_normalization: Literal["none", "rms", "whiten"] = "none"
-    """Normalization applied to each tensor-basis block before coefficient contraction.
+    """Default-off diagnostic normalization for tensor-basis blocks.
 
     ``"none"`` keeps the unnormalized path used by the current best reference runs.
     ``"rms"`` divides the whole local irrep basis by an invariant RMS scalar, which
@@ -103,10 +108,12 @@ class TensorBasisDefaults(TypedDict):
     """
 
     basis_normalization_detach: bool = True
-    """Whether RMS normalization should stop gradients through the RMS denominator."""
+    """Whether the default-off RMS diagnostic should stop gradients through the
+    RMS denominator."""
 
     basis_normalization_epsilon: float = 1.0e-6
-    """Positive regularization used by tensor-basis normalization."""
+    """Positive regularization used by default-off tensor-basis normalization
+    diagnostics."""
 
 
 class ModelHypers(TypedDict):
@@ -121,7 +128,11 @@ class ModelHypers(TypedDict):
     """Default tensor-basis settings for all spherical outputs."""
 
     volume_normalized_targets: list[str] = []
-    """Targets that should be divided by structure volume after reconstruction."""
+    """Structure targets divided by cell volume after E-PET reconstruction.
+
+    For Cartesian rank-2 stress targets, use the public Cartesian target name. Hidden
+    spherical stress blocks are internal and should not be listed here.
+    """
 
     irrep_head_groups: dict[str, dict[str, str]] = {}
     """Optional target-local mapping from ``\"<o3_lambda>,<o3_sigma>\"`` to a shared
@@ -166,7 +177,7 @@ class ModelHypers(TypedDict):
 
 
 class AtomicBasisIrrepBalancedLossHypers(TypedDict):
-    """Opt-in E-PET loss for per-atom spherical atomic-basis targets.
+    """Default-off diagnostic E-PET loss for per-atom spherical atomic-basis targets.
 
     The target is first compared in physical sparse coefficient space. Blocks are
     then grouped by ``(o3_lambda, o3_sigma)``, normalized by one fitted RMS scale per
@@ -194,26 +205,30 @@ class TrainerHypers(PETTrainerHypers):
     """Base learning rate used by scheduler defaults and fallback parameter groups."""
 
     coefficient_l2_weight: float = 0.0
-    """Weight for the invariant coefficient L2 regularization."""
+    """Weight for E-PET coefficient L2 regularization."""
 
     coefficient_l2_exclude_spherical_l0: bool = False
-    """Whether to exclude spherical ``o3_lambda=0`` coefficient blocks from the
-    coefficient L2 regularization."""
+    """Whether to exclude spherical ``o3_lambda=0`` coefficient blocks from
+    coefficient L2 regularization.
+
+    This is useful when hidden or public scalar spherical blocks should remain close
+    to PET-like scalar readouts while nontrivial tensor-basis blocks are regularized.
+    """
 
     scale_property_floor_ratio: Optional[float] = None
-    """Optional diagnostic floor for fitted per-property scales. If set, each target's
-    fitted scales are clamped to at least this ratio times that target's median
-    positive scale."""
+    """Default-off diagnostic floor for fitted per-property scales. If set, each
+    target's fitted scales are clamped to at least this ratio times that target's
+    median positive scale."""
 
     atomic_basis_irrep_balanced_loss: Dict[str, AtomicBasisIrrepBalancedLossHypers] = {}
-    """Experimental E-PET-only loss for listed per-atom spherical atomic-basis targets.
+    """Default-off E-PET-only loss for listed per-atom spherical atomic-basis targets.
 
     Listed targets are excluded from the standard componentwise ``loss`` aggregation
     to avoid double-counting. If absent, E-PET uses the normal ``loss`` setting.
     """
 
     basis_gram_weight: float = 0.0
-    """Weight for the tensor-basis Gram penalty."""
+    """Weight for the E-PET tensor-basis Gram penalty."""
 
     pet_trunk_learning_rate: Optional[float] = 2.0e-4
     """Learning rate for the shared PET backbone. Set to ``null`` to use

@@ -326,8 +326,9 @@ class Trainer(PETTrainer):
 
         self._validate_custom_training_path(dtype)
 
-        # This loop mirrors PET's single-process training path. Keep local
-        # differences limited to split optimizer groups and E-PET regularizers.
+        # This loop mirrors PET's single-process path. Local differences are limited
+        # to split optimizer groups, E-PET regularizers, and default-off diagnostics
+        # such as scaler flooring and atomic-basis irrep-balanced loss.
         device = devices[0]
         logging.info(f"Training on device {device} with dtype {dtype}")
 

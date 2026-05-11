@@ -7,6 +7,7 @@ import torch
 from omegaconf import OmegaConf
 
 from metatrain.utils.architectures import check_architecture_options, get_default_hypers
+from metatrain.utils.data.target_info import get_generic_target_info
 from metatrain.utils.pydantic import MetatrainValidationError
 from metatrain.utils.testing import ExportedTests, InputTests, TrainingTests
 
@@ -100,8 +101,15 @@ def test_e_pet_tensor_basis_options_do_not_expose_max_angular() -> None:
     hypers = get_default_hypers("experimental.e_pet")
 
     assert "max_angular" not in hypers["model"]["tensor_basis_defaults"]["soap"]
+    assert "max_lambda" not in hypers["model"]["tensor_basis_defaults"]["soap"]
     assert (
         "max_angular"
+        not in hypers["model"]["tensor_basis_defaults"][
+            "extra_l1_vector_basis_branches"
+        ][0]
+    )
+    assert (
+        "max_lambda"
         not in hypers["model"]["tensor_basis_defaults"][
             "extra_l1_vector_basis_branches"
         ][0]
@@ -117,6 +125,34 @@ def test_e_pet_option_files_validate_without_tensor_basis_max_angular() -> None:
     )
 
 
+def test_e_pet_omat_example_uses_public_cartesian_stress_target() -> None:
+    options = OmegaConf.load(
+        REPO_ROOT / "examples/1-advanced/options-e-pet-pet-omat-xs32.yaml"
+    )
+
+    model_options = options.architecture.model
+    assert model_options.volume_normalized_targets == ["mtt::stress"]
+    assert "shared_head_groups" not in model_options
+    assert "mtt::stress_l0" not in options.training_set.targets
+    assert "mtt::stress_l2" not in options.training_set.targets
+    assert "mtt::stress" in options.training_set.targets
+    assert options.architecture.training.per_structure_targets == [
+        "energy",
+        "mtt::stress",
+    ]
+
+    stress_info = get_generic_target_info(
+        "mtt::stress", options.training_set.targets["mtt::stress"]
+    )
+    assert stress_info.is_cartesian
+    assert not stress_info.per_atom
+
+    for target_name, target in options.training_set.targets.items():
+        get_generic_target_info(target_name, target)
+    for target_name, target in options.test_set.targets.items():
+        get_generic_target_info(target_name, target)
+
+
 def test_e_pet_training_defaults_use_split_learning_rates() -> None:
     training = get_default_hypers("experimental.e_pet")["training"]
 
@@ -129,11 +165,12 @@ def test_e_pet_training_defaults_use_split_learning_rates() -> None:
     assert training["atomic_basis_irrep_balanced_loss"] == {}
 
 
-def test_e_pet_tensor_basis_rejects_max_angular() -> None:
+@pytest.mark.parametrize("option_name", ("max_angular", "max_lambda"))
+def test_e_pet_tensor_basis_rejects_angular_order_options(option_name: str) -> None:
     hypers = copy.deepcopy(get_default_hypers("experimental.e_pet"))
-    hypers["model"]["tensor_basis_defaults"]["soap"]["max_angular"] = 2
+    hypers["model"]["tensor_basis_defaults"]["soap"][option_name] = 2
 
-    with pytest.raises(MetatrainValidationError, match="max_angular"):
+    with pytest.raises(MetatrainValidationError, match=option_name):
         check_architecture_options("experimental.e_pet", hypers)
 
 

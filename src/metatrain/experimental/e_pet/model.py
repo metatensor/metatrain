@@ -293,6 +293,9 @@ class EPET(PET):
         self._last_spherical_coefficient_penalty_without_l0 = torch.tensor(0.0)
         self._last_basis_gram_penalty = torch.tensor(0.0)
         super().__init__(copy.deepcopy(hypers["pet"]), dataset_info)
+        # PET initializes and may normalize its own model hypers during super().
+        # Restore E-PET top-level options afterwards so custom readout registration
+        # and restart validation keep using the public E-PET configuration.
         self.volume_normalized_target_names = list(
             hypers.get("volume_normalized_targets", [])
         )

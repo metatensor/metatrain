@@ -82,7 +82,11 @@ from metatrain.utils.scaler import FixedScalerWeights
 
 
 class EdgeHarmonicsHypers(TypedDict):
-    """Optional real harmonic edge features for the PET trunk."""
+    """Default-off real harmonic edge features for the PET trunk.
+
+    This is an experimental comparison control. Removing it should only require
+    deleting this option, the edge-harmonic expansion module hook, and its tests.
+    """
 
     mode: Literal["none", "spherical", "solid", "normalized_solid"] = "none"
     """How to expand edge vectors before the PET edge embedding.
@@ -174,10 +178,10 @@ class ModelHypers(TypedDict):
     activation: Literal["SiLU", "SwiGLU"] = "SwiGLU"
     """Activation function."""
     volume_normalized_targets: list[str] = []
-    """Structure targets that should be divided by the cell volume after the
-    per-atom contributions are summed."""
+    """Structure targets divided by the cell volume after per-atom contributions are
+    summed. The default empty list preserves standard PET behavior."""
     shared_head_groups: dict[str, list[str]] = {}
-    """Optional PET head sharing across scalar targets and explicit spherical blocks.
+    """Default-off PET head sharing across scalar targets and explicit spherical blocks.
 
     Group entries must be either scalar target names such as ``mtt::stress_l0`` or
     explicit spherical block selectors such as ``mtt::stress_l2[2,1]``. Targets within
@@ -187,7 +191,7 @@ class ModelHypers(TypedDict):
     attention_temperature: float = 1.0
     """The temperature scaling factor for attention scores."""
     edge_harmonics: EdgeHarmonicsHypers = init_with_defaults(EdgeHarmonicsHypers)
-    """Opt-in real harmonic expansion of PET edge inputs.
+    """Default-off real harmonic expansion of PET edge inputs.
 
     This changes only the geometric input to the PET trunk. It leaves losses,
     target scaling, readouts, and output semantics unchanged.
@@ -211,7 +215,7 @@ class ModelHypers(TypedDict):
 
 
 class AtomicBasisIrrepBalancedLossHypers(TypedDict):
-    """Experimental opt-in loss for per-atom spherical atomic-basis targets.
+    """Default-off fair-comparison loss for per-atom spherical atomic-basis targets.
 
     The target is compared in physical sparse coefficient space, then blocks are
     grouped by ``(o3_lambda, o3_sigma)``, normalized by one fitted RMS scale per
@@ -313,7 +317,7 @@ class TrainerHypers(TypedDict):
     """This section describes the loss function to be used. See the
     :ref:`loss-functions` for more details."""
     atomic_basis_irrep_balanced_loss: Dict[str, AtomicBasisIrrepBalancedLossHypers] = {}
-    """Experimental opt-in control loss for listed per-atom spherical atomic-basis
+    """Default-off fair-comparison loss for listed per-atom spherical atomic-basis
     targets.
 
     This exists to compare PET and E-PET under the same irrep-balanced objective.
