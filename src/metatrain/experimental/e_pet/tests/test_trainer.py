@@ -8,6 +8,9 @@ import torch
 
 from metatrain.pet.trainer import get_scheduler
 from metatrain.utils.architectures import get_default_hypers
+from metatrain.utils.data.atomic_basis_helpers import (
+    get_prepare_atomic_basis_targets_transform,
+)
 
 from metatrain.experimental.e_pet.model import EPET
 from metatrain.experimental.e_pet.trainer import (
@@ -21,6 +24,7 @@ from .test_model import (
     _base_model_hypers,
     _build_system,
     _mixed_dataset_info,
+    _system_index_extra,
 )
 
 
@@ -167,21 +171,11 @@ def test_scale_property_floor_clamps_fitted_scales_and_buffer() -> None:
     model.scaler.sync_tensor_maps()
 
     original_scales = model.scaler.model.scales["density"]
-    scale_values = iter(
-        [
-            torch.tensor(1.0e-9, dtype=torch.float64),
-            torch.tensor(1.0e-8, dtype=torch.float64),
-            torch.tensor(1.0e-7, dtype=torch.float64),
-            torch.tensor(1.0e-6, dtype=torch.float64),
-            torch.tensor(1.0e-5, dtype=torch.float64),
-            torch.tensor(1.0e-4, dtype=torch.float64),
-            torch.tensor(1.0e-3, dtype=torch.float64),
-        ]
-    )
     blocks: list[TensorBlock] = []
     flat_values_before: list[torch.Tensor] = []
     for block in original_scales.blocks():
-        values = torch.full_like(block.values, next(scale_values))
+        values = torch.full_like(block.values, 1.0e-3)
+        values.reshape(-1)[0] = 1.0e-9
         flat_values_before.append(values.reshape(-1))
         blocks.append(
             TensorBlock(
@@ -244,8 +238,20 @@ def _set_atomic_basis_scales(model: EPET, variable_by_species: bool = False) -> 
     model.scaler.model.scales["density"] = TensorMap(scales.keys, blocks)
 
 
-def _identity_atomic_basis_reverse_transform(systems, targets, extra):
-    return systems, targets, extra
+def _dense_scaled_atomic_basis_target(model: EPET, system):
+    sparse_target = _atomic_basis_sparse_target(
+        model.dataset_info.targets["density"], system
+    )
+    prepare_atomic_basis_targets, reverse_atomic_basis_transform = (
+        get_prepare_atomic_basis_targets_transform(model.dataset_info.targets, {})
+    )
+    _, dense_targets, _ = prepare_atomic_basis_targets(
+        [system],
+        {"density": sparse_target},
+        _system_index_extra(),
+    )
+    scaled_targets = model.scaler([system], dense_targets, remove=True)
+    return scaled_targets["density"], reverse_atomic_basis_transform
 
 
 def test_atomic_basis_irrep_balanced_loss_uses_one_scale_per_irrep() -> None:
@@ -261,17 +267,21 @@ def test_atomic_basis_irrep_balanced_loss_uses_one_scale_per_irrep() -> None:
 
     torch.testing.assert_close(
         loss.group_scales["density"][(0, 1)],
-        torch.tensor((2 * 2.0**2 + 3 * 20.0**2 + 200.0**2) / 6.0)
+        torch.tensor((3 * 2.0**2 + 3 * 20.0**2 + 3 * 200.0**2) / 9.0)
         .sqrt()
         .to(torch.float64),
     )
     torch.testing.assert_close(
         loss.group_scales["density"][(1, 1)],
-        torch.tensor((3.0**2 + 2 * 30.0**2) / 3.0).sqrt().to(torch.float64),
+        torch.tensor((2 * 3.0**2 + 2 * 30.0**2 + 2 * 300.0**2) / 6.0)
+        .sqrt()
+        .to(torch.float64),
     )
     torch.testing.assert_close(
         loss.group_scales["density"][(2, 1)],
-        torch.tensor((50.0**2 + 500.0**2) / 2.0).sqrt().to(torch.float64),
+        torch.tensor((5.0**2 + 50.0**2 + 500.0**2) / 3.0)
+        .sqrt()
+        .to(torch.float64),
     )
 
 
@@ -279,7 +289,9 @@ def test_atomic_basis_irrep_balanced_loss_weights_irreps_equally() -> None:
     model = EPET(_base_model_hypers(), _atomic_basis_dataset_info())
     _set_atomic_basis_scales(model)
     system = _build_system(model)
-    target = _atomic_basis_sparse_target(model.dataset_info.targets["density"], system)
+    target, reverse_atomic_basis_transform = _dense_scaled_atomic_basis_target(
+        model, system
+    )
 
     prediction_blocks = []
     for key, target_block in target.items():
@@ -306,7 +318,7 @@ def test_atomic_basis_irrep_balanced_loss_weights_irreps_equally() -> None:
         [system],
         {"density": prediction},
         {"density": target},
-        _identity_atomic_basis_reverse_transform,
+        reverse_atomic_basis_transform,
         model.scaler,
     )
 
@@ -320,7 +332,9 @@ def test_atomic_basis_irrep_balanced_loss_ignores_nan_targets() -> None:
     model = EPET(_base_model_hypers(), _atomic_basis_dataset_info())
     _set_atomic_basis_scales(model)
     system = _build_system(model)
-    target = _atomic_basis_sparse_target(model.dataset_info.targets["density"], system)
+    target, reverse_atomic_basis_transform = _dense_scaled_atomic_basis_target(
+        model, system
+    )
 
     target_blocks = []
     prediction_blocks = []
@@ -357,7 +371,7 @@ def test_atomic_basis_irrep_balanced_loss_ignores_nan_targets() -> None:
         [system],
         {"density": TensorMap(target.keys, prediction_blocks)},
         {"density": TensorMap(target.keys, target_blocks)},
-        _identity_atomic_basis_reverse_transform,
+        reverse_atomic_basis_transform,
         model.scaler,
     )
 

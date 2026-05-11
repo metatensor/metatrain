@@ -140,23 +140,23 @@ class _AtomicBasisIrrepBalancedLoss:
             return total_loss
         selected_targets = {name: targets[name] for name in selected_predictions}
 
+        dense_physical_predictions = scaler(systems, selected_predictions)
+        dense_physical_targets = scaler(systems, selected_targets)
         _, sparse_predictions, _ = reverse_atomic_basis_transform(
-            systems, dict(selected_predictions), {}
+            systems, dict(dense_physical_predictions), {}
         )
         _, sparse_targets, _ = reverse_atomic_basis_transform(
-            systems, dict(selected_targets), {}
+            systems, dict(dense_physical_targets), {}
         )
-        physical_predictions = scaler(systems, sparse_predictions)
-        physical_targets = scaler(systems, sparse_targets)
 
         for target_name, weight in self.target_weights.items():
-            if target_name not in physical_predictions:
+            if target_name not in sparse_predictions:
                 continue
             group_residuals: Dict[tuple[int, int], List[torch.Tensor]] = {}
-            for key in physical_predictions[target_name].keys:
+            for key in sparse_predictions[target_name].keys:
                 group = self._irrep_group_from_key(key)
-                prediction_block = physical_predictions[target_name].block(key)
-                target_block = physical_targets[target_name].block(key)
+                prediction_block = sparse_predictions[target_name].block(key)
+                target_block = sparse_targets[target_name].block(key)
                 valid_mask = torch.isfinite(target_block.values)
                 if not valid_mask.any():
                     continue

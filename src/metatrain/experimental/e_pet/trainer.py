@@ -358,6 +358,18 @@ class Trainer(PETTrainer):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
+        dataset_info = model.dataset_info
+        train_targets = dataset_info.targets
+        extra_data_info = dataset_info.extra_data
+        rotational_augmenter = RotationalAugmenter(
+            target_info_dict=train_targets,
+            extra_data_info_dict=extra_data_info,
+        )
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
+        atomic_basis_transform, atomic_basis_reverse_transform = (
+            get_prepare_atomic_basis_targets_transform(train_targets, extra_data_info)
+        )
+
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(
             train_datasets,
@@ -365,6 +377,7 @@ class Trainer(PETTrainer):
             self.hypers["batch_size"],
             False,
             self.hypers["atomic_baseline"],
+            initial_transforms=[atomic_basis_transform],
         )
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
@@ -374,6 +387,8 @@ class Trainer(PETTrainer):
                 self.hypers["batch_size"],
                 False,
                 self.hypers["fixed_scaling_weights"],
+                initial_transforms=[atomic_basis_transform],
+                per_structure_targets=self.hypers["per_structure_targets"],
             )
         self._apply_scale_property_floor(model)
 
@@ -388,36 +403,24 @@ class Trainer(PETTrainer):
         model.scaler.to(device)
         model.scaler.scales_to(device=device, dtype=torch.float64)
 
-        dataset_info = model.dataset_info
-        train_targets = dataset_info.targets
-        extra_data_info = dataset_info.extra_data
-        rotational_augmenter = RotationalAugmenter(
-            target_info_dict=train_targets,
-            extra_data_info_dict=extra_data_info,
-        )
-        requested_neighbor_lists = get_requested_neighbor_lists(model)
-        atomic_basis_transform, atomic_basis_reverse_transform = (
-            get_prepare_atomic_basis_targets_transform(train_targets, extra_data_info)
-        )
-
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
                 atomic_basis_transform,
                 rotational_augmenter.apply_random_augmentations,
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                get_remove_additive_transform(additive_models, train_targets),
+                get_remove_scale_transform(scaler),
             ],
             batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
+                atomic_basis_transform,
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
-                atomic_basis_transform,
             ],
             batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
@@ -608,14 +611,15 @@ class Trainer(PETTrainer):
                 lr_scheduler.step()
                 train_loss += train_loss_batch.item()
 
-                systems, targets, extra_data = atomic_basis_reverse_transform(
-                    systems, targets, extra_data
-                )
-                systems, predictions, _ = atomic_basis_reverse_transform(
-                    systems, predictions, {}
-                )
                 scaled_predictions = model.scaler(systems, predictions)
                 scaled_targets = model.scaler(systems, targets)
+                if self.hypers["log_separate_blocks"]:
+                    systems, scaled_targets, extra_data = atomic_basis_reverse_transform(
+                        systems, scaled_targets, extra_data
+                    )
+                    systems, scaled_predictions, _ = atomic_basis_reverse_transform(
+                        systems, scaled_predictions, {}
+                    )
                 try:
                     train_rmse_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
@@ -699,14 +703,15 @@ class Trainer(PETTrainer):
                 )
                 val_loss += val_loss_batch.item()
 
-                systems, targets, extra_data = atomic_basis_reverse_transform(
-                    systems, targets, extra_data
-                )
-                systems, predictions, _ = atomic_basis_reverse_transform(
-                    systems, predictions, {}
-                )
                 scaled_predictions = model.scaler(systems, predictions)
                 scaled_targets = model.scaler(systems, targets)
+                if self.hypers["log_separate_blocks"]:
+                    systems, scaled_targets, extra_data = atomic_basis_reverse_transform(
+                        systems, scaled_targets, extra_data
+                    )
+                    systems, scaled_predictions, _ = atomic_basis_reverse_transform(
+                        systems, scaled_predictions, {}
+                    )
                 try:
                     val_rmse_calculator.update(
                         scaled_predictions, scaled_targets, extra_data

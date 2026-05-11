@@ -22,7 +22,6 @@ from metatrain.pet.model import (
 from metatrain.pet.modules.structures import concatenate_structures
 from metatrain.soap_bpnn.modules.tensor_basis import TensorBasis
 from metatrain.utils.data import DatasetInfo, TargetInfo
-from metatrain.utils.data.atomic_basis_helpers import densify_atomic_basis_target
 from metatrain.utils.data.target_info import get_generic_target_info
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
@@ -227,6 +226,7 @@ class EPET(PET):
     spherical_target_names: List[str]
     cartesian_rank2_target_names: List[str]
     cartesian_rank2_public_layouts: Dict[str, TensorMap]
+    atomic_basis_target_names: List[str]
     volume_normalized_target_names: List[str]
     tensor_basis_legacy: bool
     coefficient_shapes: Dict[str, Dict[str, Tuple[int, int]]]
@@ -269,6 +269,11 @@ class EPET(PET):
         self.volume_normalized_target_names = list(
             hypers.get("volume_normalized_targets", [])
         )
+        self.atomic_basis_target_names = [
+            name
+            for name, target in dataset_info.targets.items()
+            if target.is_atomic_basis
+        ]
         self.scalar_target_names = []
         self.spherical_target_names = []
         self.cartesian_rank2_target_names = []
@@ -442,7 +447,8 @@ class EPET(PET):
     def _add_spherical_output(
         self, target_name: str, target_info: TargetInfo
     ) -> None:
-        if target_info.is_atomic_basis and not target_info.per_atom:
+        is_atomic_basis_target = target_name in self.atomic_basis_target_names
+        if is_atomic_basis_target and not target_info.per_atom:
             raise ValueError(
                 "experimental.e_pet currently supports only per-atom spherical "
                 f"atomic-basis targets; target '{target_name}' is per-structure."
@@ -457,8 +463,6 @@ class EPET(PET):
             self.basis_calculators = ModuleDict({})
 
         output_layout = target_info.layout
-        if target_info.is_atomic_basis:
-            output_layout = densify_atomic_basis_target(output_layout, output_layout)
         configured_groups = self.irrep_head_groups_config.get(target_name, {})
 
         self.output_shapes[target_name] = {}
@@ -487,7 +491,7 @@ class EPET(PET):
                         f"{target_name}__group__{len(group_name_to_internal_key)}"
                     )
                 head_key = group_name_to_internal_key[configured_group]
-            elif target_info.is_atomic_basis:
+            elif is_atomic_basis_target:
                 head_key = target_name
             else:
                 head_key = f"{target_name}__block__{block_index}"

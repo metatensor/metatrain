@@ -135,6 +135,7 @@ def systems_to_batch(
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
+    torch.Tensor,
 ]:
     """
     Converts a list of systems to a batch required for the PET model.

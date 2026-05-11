@@ -432,7 +432,9 @@ def test_atomic_basis_eval_forward_sparsifies_public_layout() -> None:
     output = model([system], {"density": ModelOutput(per_atom=True)})["density"]
 
     assert output.keys.names == ["o3_lambda", "o3_sigma", "atom_type"]
-    assert torch.equal(output.keys.values, target_info.layout.keys.values)
+    assert set(map(tuple, output.keys.values.tolist())) == set(
+        map(tuple, target_info.layout.keys.values.tolist())
+    )
     for key, block in output.items():
         atom_type = int(key["atom_type"])
         assert torch.all(system.types[block.samples["atom"]] == atom_type)
