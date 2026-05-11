@@ -588,7 +588,7 @@ class FlashMD(ModelInterface[ModelHypers]):
                                     )
                                 )
                             else:
-                                output_blocks.append(b)
+                                output_blocks.append(b.copy())
                         return_dict[name] = TensorMap(
                             return_dict[name].keys, output_blocks
                         )

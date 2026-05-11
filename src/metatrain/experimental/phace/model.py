@@ -513,7 +513,7 @@ class PhACE(ModelInterface[ModelHypers]):
                                 )
                             )
                         else:
-                            output_blocks.append(b)
+                            output_blocks.append(b.copy())
                     return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
 
             # For atomic basis targets, sparsify to create blocks with "atom_type"
