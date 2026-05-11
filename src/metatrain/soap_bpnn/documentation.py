@@ -200,6 +200,8 @@ class TrainerHypers(TypedDict):
     For targets with more than one property (i.e. > 1 block or >= 1 block with > 1
     property), per-property scales are also computed, and used to re-scale model
     predictions.
+
+    See also :ref:`scale-targets`.
     """
     fixed_scaling_weights: FixedScalerWeights = {}
     """Weights for target scaling.
