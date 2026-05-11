@@ -11,7 +11,7 @@ Licensed under the MIT License.
 
 import logging
 import math
-from typing import Iterator, List, Sequence, Tuple, Union
+from typing import Iterator, List, Tuple
 
 import numpy as np
 import torch
@@ -84,7 +84,7 @@ def _pack_batches_csr(
         # by the oversized count, not n_total.
         over_indices = indices_arr[oversized_mask].tolist()
         over_counts = counts_arr[oversized_mask].tolist()
-        for over_idx, over_n in zip(over_indices, over_counts):
+        for over_idx, over_n in zip(over_indices, over_counts, strict=True):
             logger.warning(
                 f"Structure {over_idx} has {over_n} atoms which exceeds "
                 f"max_atoms_per_batch ({max_atoms}). Skipping this structure."
@@ -151,7 +151,7 @@ def _pack_batches_csr(
         flat_indices = np.ascontiguousarray(indices_arr)
     else:
         flat_indices = np.concatenate(
-            [indices_arr[s:e] for s, e in zip(kept_starts, kept_ends)]
+            [indices_arr[s:e] for s, e in zip(kept_starts, kept_ends, strict=True)]
         )
 
     return flat_indices, offsets
@@ -231,9 +231,7 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
             )
 
         # Pack once at init; only batch *order* changes each epoch.
-        self._batch_indices, self._batch_offsets = self._build_batches_csr(
-            atom_counts
-        )
+        self._batch_indices, self._batch_offsets = self._build_batches_csr(atom_counts)
         # ``atom_counts`` is no longer needed; let GC reclaim it before workers
         # fork so we don't COW it into every worker.
         del atom_counts
@@ -301,6 +299,9 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
         The returned list is short-lived: it's built per ``__iter__`` call and
         passed straight into the ``DataLoader`` worker, so no long-lived list
         objects accumulate in the parent process for forks to COW.
+
+        :param i: Index of the batch to return.
+        :return: Dataset indices belonging to batch ``i``.
         """
         return self._batch_indices[
             self._batch_offsets[i] : self._batch_offsets[i + 1]
