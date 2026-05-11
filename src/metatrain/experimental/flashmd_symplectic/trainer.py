@@ -195,6 +195,7 @@ class Trainer(TrainerInterface):
                 self.hypers["batch_size"],
                 is_distributed,
                 self.hypers["fixed_scaling_weights"],
+                per_structure_targets=self.hypers["per_structure_targets"],
             )
 
         logging.info("Setting up data loaders")

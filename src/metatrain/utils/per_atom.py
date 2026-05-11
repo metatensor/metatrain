@@ -57,8 +57,6 @@ def divide_by_num_atoms(tensor_map: TensorMap, num_atoms: torch.Tensor) -> Tenso
     blocks = []
     for block in tensor_map.blocks():
         if "atom" in block.samples.names:
-            # metatensor 0.9 forbids inserting a block that is still owned by
-            # another TensorMap, so copy.
             new_block = block.copy()
         else:
             values = block.values / num_atoms.view(
@@ -72,14 +70,7 @@ def divide_by_num_atoms(tensor_map: TensorMap, num_atoms: torch.Tensor) -> Tenso
             )
             for gradient_name, gradient in block.gradients():
                 if "atom" in gradient.samples.names:
-                    # gradient is still owned by the input tensor_map's block;
-                    # build a fresh gradient block to transfer ownership.
-                    new_gradient = TensorBlock(
-                        values=gradient.values,
-                        samples=gradient.samples,
-                        components=gradient.components,
-                        properties=gradient.properties,
-                    )
+                    new_gradient = gradient.copy()
                 else:
                     values = gradient.values / num_atoms.view(
                         -1, *[1] * (len(gradient.values.shape) - 1)

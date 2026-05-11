@@ -625,9 +625,14 @@ class PET(ModelInterface[ModelHypers]):
                                     )
                                 )
                             else:
-                                # metatensor 0.9 forbids inserting a block that
-                                # is still owned by another TensorMap, so copy.
-                                output_blocks.append(b.copy())
+                                output_blocks.append(
+                                    TensorBlock(
+                                        values=b.values,
+                                        samples=b.samples,
+                                        components=b.components,
+                                        properties=b.properties,
+                                    )
+                                )
                         return_dict[name] = TensorMap(
                             return_dict[name].keys, output_blocks
                         )
