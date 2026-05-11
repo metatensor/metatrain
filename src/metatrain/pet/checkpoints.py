@@ -283,22 +283,14 @@ def model_update_v12_v13(checkpoint: dict) -> None:
     """
     Update a v12 checkpoint to v13.
 
-    v13 adds default-preserving PET trunk options for shared direct heads, direct
-    stress volume normalization, and optional real edge harmonics.
+    v13 adds default-preserving PET trunk options for shared direct heads and direct
+    stress volume normalization.
 
     :param checkpoint: The checkpoint to update.
     """
     model_hypers = checkpoint["model_data"]["model_hypers"]
     model_hypers.setdefault("shared_head_groups", {})
     model_hypers.setdefault("volume_normalized_targets", [])
-    model_hypers.setdefault(
-        "edge_harmonics",
-        {
-            "mode": "none",
-            "max_angular": None,
-            "epsilon": 1.0e-12,
-        },
-    )
 
 
 ###########################

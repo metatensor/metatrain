@@ -81,34 +81,6 @@ from metatrain.utils.loss import LossSpecification
 from metatrain.utils.scaler import FixedScalerWeights
 
 
-class EdgeHarmonicsHypers(TypedDict):
-    """Default-off real harmonic edge features for the PET trunk.
-
-    This is an experimental comparison control. Removing it should only require
-    deleting this option, the edge-harmonic expansion module hook, and its tests.
-    """
-
-    mode: Literal["none", "spherical", "solid", "normalized_solid"] = "none"
-    """How to expand edge vectors before the PET edge embedding.
-
-    ``"none"`` keeps the standard PET input ``[x, y, z, r]``. ``"spherical"``
-    appends real spherical harmonics for ``l >= 2``. ``"solid"`` appends real
-    solid harmonics. ``"normalized_solid"`` appends real solid harmonics divided
-    by ``r ** (l - 1)`` so all angular orders keep the same radial scale as the
-    existing Cartesian vector input.
-    """
-
-    max_angular: Optional[int] = None
-    """Maximum angular order appended to edge inputs.
-
-    If ``None``, PET infers this from the maximum spherical target ``o3_lambda``
-    or from rank-2 Cartesian targets when such targets are present.
-    """
-
-    epsilon: float = 1.0e-12
-    """Small distance floor used by ``normalized_solid``."""
-
-
 class ModelHypers(TypedDict):
     """Hyperparameters for the PET model."""
 
@@ -190,12 +162,6 @@ class ModelHypers(TypedDict):
     """
     attention_temperature: float = 1.0
     """The temperature scaling factor for attention scores."""
-    edge_harmonics: EdgeHarmonicsHypers = init_with_defaults(EdgeHarmonicsHypers)
-    """Default-off real harmonic expansion of PET edge inputs.
-
-    This changes only the geometric input to the PET trunk. It leaves losses,
-    target scaling, readouts, and output semantics unchanged.
-    """
     transformer_type: Literal["PreLN", "PostLN"] = "PreLN"
     """The order in which the layer normalization and attention
     are applied in a transformer block. Available options are ``PreLN``
@@ -215,13 +181,13 @@ class ModelHypers(TypedDict):
 
 
 class AtomicBasisIrrepBalancedLossHypers(TypedDict):
-    """Default-off fair-comparison loss for per-atom spherical atomic-basis targets.
+    """Default-off irrep-balanced loss for atomic-basis comparison runs.
 
     The target is compared in physical sparse coefficient space, then blocks are
     grouped by ``(o3_lambda, o3_sigma)``, normalized by one fitted RMS scale per
-    group, and averaged equally over irreps. This is intended as a fair-control
-    objective for PET/E-PET atomic-basis comparisons; physical RMSE/MAE metrics and
-    exported predictions are unchanged.
+    group, and averaged equally over irreps. This is intended for fair PET/E-PET
+    atomic-basis comparisons; physical RMSE/MAE metrics and exported predictions are
+    unchanged.
     """
 
     weight: float = 1.0
@@ -317,7 +283,7 @@ class TrainerHypers(TypedDict):
     """This section describes the loss function to be used. See the
     :ref:`loss-functions` for more details."""
     atomic_basis_irrep_balanced_loss: Dict[str, AtomicBasisIrrepBalancedLossHypers] = {}
-    """Default-off fair-comparison loss for listed per-atom spherical atomic-basis
+    """Default-off irrep-balanced loss for listed per-atom spherical atomic-basis
     targets.
 
     This exists to compare PET and E-PET under the same irrep-balanced objective.

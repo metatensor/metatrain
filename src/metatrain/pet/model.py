@@ -35,7 +35,7 @@ from . import checkpoints
 from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import get_pair_sample_labels, systems_to_batch
-from .modules.transformer import AVAILABLE_EDGE_HARMONIC_MODES, CartesianTransformer
+from .modules.transformer import CartesianTransformer
 
 
 AVAILABLE_FEATURIZERS = typing.get_args(ModelHypers.__annotations__["featurizer_type"])
@@ -66,23 +66,6 @@ def _parse_shared_selector(selector: str) -> Tuple[str, Optional[str]]:
             '"target" or "target[o3_lambda,o3_sigma]".'
         )
     return target_name, irrep_key
-
-
-def _is_cartesian_rank2_target(target_info: TargetInfo) -> bool:
-    return target_info.is_cartesian and len(target_info.layout.block().components) == 2
-
-
-def _infer_edge_harmonics_max_angular(dataset_info: DatasetInfo) -> int:
-    max_angular = 0
-    for target_info in dataset_info.targets.values():
-        if target_info.is_spherical:
-            for key, _ in target_info.layout.items():
-                for name, value in zip(key.names, key.values, strict=True):
-                    if name.startswith("o3_lambda"):
-                        max_angular = max(max_angular, int(value))
-        elif _is_cartesian_rank2_target(target_info):
-            max_angular = max(max_angular, 2)
-    return max_angular
 
 
 def _validate_shared_head_groups(
@@ -208,44 +191,6 @@ class PET(ModelInterface[ModelHypers]):
         self.normalization = self.hypers["normalization"]
         self.activation = self.hypers["activation"]
         self.attention_temperature = self.hypers["attention_temperature"]
-        edge_harmonics_config = copy.deepcopy(self.hypers.get("edge_harmonics", {}))
-        self.edge_harmonics_mode = str(edge_harmonics_config.get("mode", "none"))
-        if self.edge_harmonics_mode not in AVAILABLE_EDGE_HARMONIC_MODES:
-            raise ValueError(
-                f"Unknown edge_harmonics mode: {self.edge_harmonics_mode}. "
-                f"Available options are: {AVAILABLE_EDGE_HARMONIC_MODES}."
-            )
-        self.edge_harmonics_epsilon = float(
-            edge_harmonics_config.get("epsilon", 1.0e-12)
-        )
-        if self.edge_harmonics_epsilon <= 0.0:
-            raise ValueError("edge_harmonics.epsilon must be positive.")
-        edge_harmonics_max_angular = edge_harmonics_config.get("max_angular")
-        if self.edge_harmonics_mode == "none":
-            self.edge_harmonics_max_angular = (
-                0
-                if edge_harmonics_max_angular is None
-                else int(edge_harmonics_max_angular)
-            )
-        else:
-            if edge_harmonics_max_angular is None:
-                inferred_max_angular = _infer_edge_harmonics_max_angular(dataset_info)
-                if inferred_max_angular == 0:
-                    raise ValueError(
-                        "edge_harmonics.max_angular must be set when edge harmonics "
-                        "are enabled for a dataset without spherical or rank-2 "
-                        "Cartesian targets."
-                    )
-                self.edge_harmonics_max_angular = inferred_max_angular
-            else:
-                self.edge_harmonics_max_angular = int(edge_harmonics_max_angular)
-            if self.edge_harmonics_max_angular < 0:
-                raise ValueError("edge_harmonics.max_angular must be non-negative.")
-        self.hypers["edge_harmonics"] = {
-            "mode": self.edge_harmonics_mode,
-            "max_angular": self.edge_harmonics_max_angular,
-            "epsilon": self.edge_harmonics_epsilon,
-        }
         self.transformer_type = self.hypers["transformer_type"]
         self.featurizer_type = self.hypers["featurizer_type"]
         self.volume_normalized_target_names = list(
@@ -278,9 +223,6 @@ class PET(ModelInterface[ModelHypers]):
                     self.transformer_type,
                     num_atomic_species,
                     layer_index == 0,  # is first layer
-                    self.edge_harmonics_mode,
-                    self.edge_harmonics_max_angular,
-                    self.edge_harmonics_epsilon,
                 )
                 for layer_index in range(self.num_gnn_layers)
             ]
@@ -427,9 +369,9 @@ class PET(ModelInterface[ModelHypers]):
 
         self.single_label = Labels.single()
 
-        unknown_volume_normalized_targets = set(self.volume_normalized_target_names) - set(
-            dataset_info.targets
-        )
+        unknown_volume_normalized_targets = set(
+            self.volume_normalized_target_names
+        ) - set(dataset_info.targets)
         if unknown_volume_normalized_targets:
             raise ValueError(
                 "Unknown volume-normalized target names: "
@@ -716,13 +658,15 @@ class PET(ModelInterface[ModelHypers]):
                     "padding_mask",
                     "cutoff_factors",
                 )
-                return_dict[diagnostic_name] = self._create_diagnostic_feature_tensormap(
-                    tensor,
-                    centers,
-                    nef_to_edges_neighbor,
-                    sample_labels,
-                    pair_sample_labels,
-                    prefer_edge_labels=prefer_edge_labels,
+                return_dict[diagnostic_name] = (
+                    self._create_diagnostic_feature_tensormap(
+                        tensor,
+                        centers,
+                        nef_to_edges_neighbor,
+                        sample_labels,
+                        pair_sample_labels,
+                        prefer_edge_labels=prefer_edge_labels,
+                    )
                 )
             node_features_list, edge_features_list = self._calculate_features(
                 featurizer_inputs,
@@ -1001,7 +945,8 @@ class PET(ModelInterface[ModelHypers]):
                     if isinstance(outp, tuple):
                         assert capture_suffix in {"_node", "_edge"}
                         tensor = outp[0] if capture_suffix == "_node" else outp[1]
-                        return_dict[f"mtt::features::{capture_path}{capture_suffix}"] = (
+                        output_name = f"mtt::features::{capture_path}{capture_suffix}"
+                        return_dict[output_name] = (
                             self._create_diagnostic_feature_tensormap(
                                 tensor,
                                 centers,

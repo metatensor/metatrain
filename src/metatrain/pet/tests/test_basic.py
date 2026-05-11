@@ -21,16 +21,6 @@ def test_pet_training_defaults_include_irrep_balanced_loss_opt_in():
     assert training["atomic_basis_irrep_balanced_loss"] == {}
 
 
-def test_pet_model_defaults_keep_standard_edge_input():
-    model = get_default_hypers("pet")["model"]
-
-    assert model["edge_harmonics"] == {
-        "mode": "none",
-        "max_angular": None,
-        "epsilon": 1.0e-12,
-    }
-
-
 class PETTests(ArchitectureTests):
     architecture = "pet"
 

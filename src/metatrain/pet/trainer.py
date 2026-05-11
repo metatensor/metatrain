@@ -9,6 +9,9 @@ from metatensor.torch import TensorMap
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
+from metatrain.utils._atomic_basis_irrep_balanced_loss import (
+    _AtomicBasisIrrepBalancedLoss,
+)
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.augmentation import RotationalAugmenter
@@ -45,9 +48,6 @@ from metatrain.utils.training_diagnostics import (
     assert_finite_metrics,
 )
 from metatrain.utils.transfer import batch_to
-from metatrain.utils._atomic_basis_irrep_balanced_loss import (
-    _AtomicBasisIrrepBalancedLoss,
-)
 
 from . import checkpoints
 from .documentation import TrainerHypers
@@ -88,6 +88,173 @@ def get_scheduler(
     return scheduler
 
 
+def _apply_finetuning_if_requested(
+    model: Any,
+    train_hypers: TrainerHypers,
+) -> Any:
+    if train_hypers["finetune"]["read_from"] is None:
+        return model
+
+    model = apply_finetuning_strategy(model, train_hypers["finetune"])
+    method = train_hypers["finetune"]["method"]
+    num_params = sum(p.numel() for p in model.parameters())
+    num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    logging.info(f"Applied finetuning strategy: {method}")
+    logging.info(
+        f"Number of trainable parameters: {num_trainable_params} "
+        f"[{num_trainable_params / num_params:.2%} %]"
+    )
+    inherit_heads = train_hypers["finetune"]["inherit_heads"]
+    if inherit_heads:
+        logging.info(
+            "Inheriting initial weights for heads and last layers for targets: "
+            f"from {list(inherit_heads.values())} to {list(inherit_heads.keys())}"
+        )
+    return model
+
+
+def _move_model_to_training_device(
+    model: Any,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> None:
+    model.to(device=device, dtype=dtype)
+    # PET additive/scaler preprocessors stay in float64 to avoid numerical errors in
+    # composition weights and target scales.
+    for additive_model in model.additive_models:
+        additive_model.to(dtype=torch.float64)
+    model.scaler.to(dtype=torch.float64)
+
+
+def _fit_and_copy_preprocessors_for_training(
+    model: Any,
+    train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    train_hypers: TrainerHypers,
+    atomic_basis_transform: Any,
+    is_distributed: bool,
+    device: torch.device,
+) -> tuple[Any, Any]:
+    logging.info("Calculating composition weights")
+    model.additive_models[0].train_model(
+        train_datasets,
+        model.additive_models[1:],
+        train_hypers["batch_size"],
+        is_distributed,
+        train_hypers["atomic_baseline"],
+        initial_transforms=[atomic_basis_transform],
+    )
+
+    if train_hypers["scale_targets"]:
+        logging.info("Calculating scaling weights")
+        model.scaler.train_model(
+            train_datasets,
+            model.additive_models,
+            train_hypers["batch_size"],
+            is_distributed,
+            train_hypers["fixed_scaling_weights"],
+            initial_transforms=[atomic_basis_transform],
+            per_structure_targets=train_hypers["per_structure_targets"],
+        )
+
+    # The collate transforms run on CPU/float64 copies of the fitted preprocessors.
+    model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
+    additive_models = copy.deepcopy(
+        model.additive_models.to(dtype=torch.float64, device="cpu")
+    )
+    model.additive_models.to(device)
+    model.additive_models[0].weights_to(device=device, dtype=torch.float64)
+    model.scaler.scales_to(device="cpu", dtype=torch.float64)
+    scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
+    model.scaler.to(device)
+    model.scaler.scales_to(device=device, dtype=torch.float64)
+    return additive_models, scaler
+
+
+def _resolve_num_workers(train_hypers: TrainerHypers) -> int:
+    if train_hypers["num_workers"] is None:
+        num_workers = get_num_workers()
+        logging.info(
+            "Number of workers for data-loading not provided and chosen "
+            f"automatically. Using {num_workers} workers."
+        )
+        return num_workers
+
+    num_workers = train_hypers["num_workers"]
+    validate_num_workers(num_workers)
+    return num_workers
+
+
+def _build_loss_objects(
+    train_targets: Dict[str, Any],
+    loss_hypers: Dict[str, LossSpecification],
+    custom_loss_config: Dict[str, Dict[str, Any]],
+    scaler: Any,
+    scale_targets: bool,
+) -> tuple[
+    Optional[_AtomicBasisIrrepBalancedLoss],
+    Dict[str, Any],
+    Optional[LossAggregator],
+]:
+    custom_loss_fn = (
+        _AtomicBasisIrrepBalancedLoss(
+            target_infos=train_targets,
+            config=custom_loss_config,
+            scaler=scaler,
+            scale_targets=scale_targets,
+        )
+        if custom_loss_config
+        else None
+    )
+    custom_loss_targets = (
+        custom_loss_fn.target_names if custom_loss_fn is not None else set()
+    )
+    normal_train_targets = {
+        name: target_info
+        for name, target_info in train_targets.items()
+        if name not in custom_loss_targets
+    }
+    normal_loss_hypers = {
+        name: loss_spec
+        for name, loss_spec in loss_hypers.items()
+        if name in normal_train_targets
+    }
+    loss_fn = (
+        LossAggregator(targets=normal_train_targets, config=normal_loss_hypers)
+        if normal_train_targets
+        else None
+    )
+    return custom_loss_fn, normal_train_targets, loss_fn
+
+
+def _log_loss_metadata(
+    loss_fn: Optional[LossAggregator],
+    custom_loss_fn: Optional[_AtomicBasisIrrepBalancedLoss],
+    custom_loss_config: Dict[str, Dict[str, Any]],
+) -> None:
+    logging.info("Using the following loss functions:")
+    if loss_fn is not None:
+        for name, info in loss_fn.metadata.items():
+            logging.info(f"{name}:")
+            main = {k: v for k, v in info.items() if k != "gradients"}
+            logging.info(main)
+            if "gradients" not in info or len(info["gradients"]) == 0:
+                continue
+            logging.info("With gradients:")
+            for grad, ginfo in info["gradients"].items():
+                logging.info(f"\t{name}::{grad}: {ginfo}")
+    if custom_loss_fn is not None:
+        for name in sorted(custom_loss_fn.target_names):
+            logging.info(f"{name}:")
+            logging.info(
+                {
+                    "type": "atomic_basis_irrep_balanced_mse",
+                    "weight": custom_loss_fn.target_weights[name],
+                    "scale": custom_loss_config[name].get("scale", "per_irrep_rms"),
+                }
+            )
+
+
 class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 13
 
@@ -125,7 +292,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         assert dtype in PET.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
-        is_finetune = self.hypers["finetune"]["read_from"] is not None
 
         if is_distributed:
             if len(devices) > 1:
@@ -150,36 +316,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
         else:
             logging.info(f"Training on device {device} with dtype {dtype}")
 
-        # Apply fine-tuning strategy if provided
-        if is_finetune:
-            assert self.hypers["finetune"]["read_from"] is not None  # for mypy
-            model = apply_finetuning_strategy(model, self.hypers["finetune"])
-            method = self.hypers["finetune"]["method"]
-            num_params = sum(p.numel() for p in model.parameters())
-            num_trainable_params = sum(
-                p.numel() for p in model.parameters() if p.requires_grad
-            )
-
-            logging.info(f"Applied finetuning strategy: {method}")
-            logging.info(
-                f"Number of trainable parameters: {num_trainable_params} "
-                f"[{num_trainable_params / num_params:.2%} %]"
-            )
-            inherit_heads = self.hypers["finetune"]["inherit_heads"]
-            if inherit_heads:
-                logging.info(
-                    "Inheriting initial weights for heads and last layers for targets: "
-                    f"from {list(inherit_heads.values())} to "
-                    f"{list(inherit_heads.keys())}"
-                )
-
-        # Move the model to the device and dtype:
-        model.to(device=device, dtype=dtype)
-        # The additive models of PET are always in float64 (to avoid numerical errors in
-        # the composition weights, which can be very large).
-        for additive_model in model.additive_models:
-            additive_model.to(dtype=torch.float64)
-        model.scaler.to(dtype=torch.float64)
+        model = _apply_finetuning_if_requested(model, self.hypers)
+        _move_model_to_training_device(model, device, dtype)
 
         # Set up transformations
         dataset_info = model.dataset_info
@@ -200,27 +338,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
             get_prepare_atomic_basis_targets_transform(train_targets, extra_data_info)
         )
 
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
+        additive_models, scaler = _fit_and_copy_preprocessors_for_training(
+            model,
             train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
+            self.hypers,
+            atomic_basis_transform,
             is_distributed,
-            self.hypers["atomic_baseline"],
-            initial_transforms=[atomic_basis_transform],
+            device,
         )
-
-        if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets,
-                model.additive_models,
-                self.hypers["batch_size"],
-                is_distributed,
-                self.hypers["fixed_scaling_weights"],
-                initial_transforms=[atomic_basis_transform],
-                per_structure_targets=self.hypers["per_structure_targets"],
-            )
 
         logging.info("Setting up data loaders")
 
@@ -249,19 +374,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
 
-        # Extract additive models and scaler and move them to CPU/float64 so they
-        # can be used in the collate function
-        model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
-        additive_models = copy.deepcopy(
-            model.additive_models.to(dtype=torch.float64, device="cpu")
-        )
-        model.additive_models.to(device)
-        model.additive_models[0].weights_to(device=device, dtype=torch.float64)
-        model.scaler.scales_to(device="cpu", dtype=torch.float64)
-        scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
-        model.scaler.to(device)
-        model.scaler.scales_to(device=device, dtype=torch.float64)
-
         # Create collate functions:
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
@@ -286,15 +398,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
 
         # Create dataloader for the training datasets:
-        if self.hypers["num_workers"] is None:
-            num_workers = get_num_workers()
-            logging.info(
-                "Number of workers for data-loading not provided and chosen "
-                f"automatically. Using {num_workers} workers."
-            )
-        else:
-            num_workers = self.hypers["num_workers"]
-            validate_num_workers(num_workers)
+        num_workers = _resolve_num_workers(self.hypers)
 
         # Samplers that need set_epoch() called each epoch (may be DistributedSampler
         # or MaxAtomDistributedBatchSampler depending on which path is taken below).
@@ -393,61 +497,18 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Create a loss function:
         loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
-        # Experimental fair-control hook. Default PET behavior is unchanged when the
+        # Atomic-basis comparison hook. Default PET behavior is unchanged when the
         # option is absent; reverting this control only requires removing this block
         # and the matching train/validation additions below.
         custom_loss_config = self._atomic_basis_irrep_balanced_loss_config()
-        custom_loss_fn = (
-            _AtomicBasisIrrepBalancedLoss(
-                target_infos=train_targets,
-                config=custom_loss_config,
-                scaler=active_model.scaler,
-                scale_targets=self.hypers["scale_targets"],
-            )
-            if custom_loss_config
-            else None
+        custom_loss_fn, normal_train_targets, loss_fn = _build_loss_objects(
+            train_targets,
+            loss_hypers,
+            custom_loss_config,
+            active_model.scaler,
+            self.hypers["scale_targets"],
         )
-        custom_loss_targets = (
-            custom_loss_fn.target_names if custom_loss_fn is not None else set()
-        )
-        normal_train_targets = {
-            name: target_info
-            for name, target_info in train_targets.items()
-            if name not in custom_loss_targets
-        }
-        normal_loss_hypers = {
-            name: loss_spec
-            for name, loss_spec in loss_hypers.items()
-            if name in normal_train_targets
-        }
-        loss_fn = (
-            LossAggregator(targets=normal_train_targets, config=normal_loss_hypers)
-            if normal_train_targets
-            else None
-        )
-        logging.info("Using the following loss functions:")
-        if loss_fn is not None:
-            for name, info in loss_fn.metadata.items():
-                logging.info(f"{name}:")
-                main = {k: v for k, v in info.items() if k != "gradients"}
-                logging.info(main)
-                if "gradients" not in info or len(info["gradients"]) == 0:
-                    continue
-                logging.info("With gradients:")
-                for grad, ginfo in info["gradients"].items():
-                    logging.info(f"\t{name}::{grad}: {ginfo}")
-        if custom_loss_fn is not None:
-            for name in sorted(custom_loss_fn.target_names):
-                logging.info(f"{name}:")
-                logging.info(
-                    {
-                        "type": "atomic_basis_irrep_balanced_mse",
-                        "weight": custom_loss_fn.target_weights[name],
-                        "scale": custom_loss_config[name].get(
-                            "scale", "per_irrep_rms"
-                        ),
-                    }
-                )
+        _log_loss_metadata(loss_fn, custom_loss_fn, custom_loss_config)
 
         if self.hypers["weight_decay"] is not None:
             optimizer = torch.optim.AdamW(

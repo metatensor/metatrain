@@ -10,7 +10,7 @@ from metatrain.utils.scaler import Scaler
 
 
 class _AtomicBasisIrrepBalancedLoss:
-    """Private opt-in loss for spherical atomic-basis fair-control studies.
+    """Private opt-in loss for spherical atomic-basis comparison studies.
 
     Atomic-basis targets can have many sparse blocks for the same irrep, split by
     species/property metadata. This objective compares predictions and targets in
@@ -18,9 +18,9 @@ class _AtomicBasisIrrepBalancedLoss:
     normalizes each group by one RMS scale derived from the fitted scaler, and then
     averages groups equally. Metrics and model outputs remain unchanged.
 
-    This helper is deliberately isolated so the experimental PET/E-PET hook can be
+    This helper is deliberately isolated so the PET/E-PET comparison hook can be
     reverted cleanly: remove this file, the ``atomic_basis_irrep_balanced_loss``
-    trainer option, and the two call sites in PET/E-PET trainers.
+    trainer option, and the PET/E-PET trainer call sites.
     """
 
     def __init__(

@@ -7,7 +7,7 @@ from metatomic.torch import ModelOutput, System
 from metatomic_ase import MetatomicCalculator
 
 from metatrain.pet import PET
-from metatrain.pet.modules.transformer import AttentionBlock, RealEdgeHarmonicExpansion
+from metatrain.pet.modules.transformer import AttentionBlock
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -269,7 +269,9 @@ def test_volume_normalized_spherical_target_scales_with_inverse_volume():
                 {
                     "quantity": "quadrupole",
                     "unit": "",
-                    "type": {"spherical": {"irreps": [{"o3_lambda": 2, "o3_sigma": 1}]}},
+                    "type": {
+                        "spherical": {"irreps": [{"o3_lambda": 2, "o3_sigma": 1}]}
+                    },
                     "num_subtargets": 1,
                     "per_atom": False,
                 },
@@ -334,111 +336,10 @@ def _spherical_target_dataset_info(max_angular: int) -> DatasetInfo:
     )
 
 
-def test_edge_harmonics_default_uses_standard_edge_input():
+def test_pet_uses_standard_edge_input_width():
     model = PET(dict(MODEL_HYPERS), _spherical_target_dataset_info(3))
 
     assert model.gnn_layers[0].edge_embedder.in_features == 4
-
-
-def test_edge_harmonics_infers_spherical_target_order():
-    model_hypers = dict(MODEL_HYPERS)
-    model_hypers["edge_harmonics"] = {
-        "mode": "normalized_solid",
-        "max_angular": None,
-        "epsilon": 1.0e-12,
-    }
-
-    model = PET(model_hypers, _spherical_target_dataset_info(3))
-
-    assert model.edge_harmonics_max_angular == 3
-    assert model.gnn_layers[0].edge_embedder.in_features == 16
-
-
-def test_edge_harmonics_features_are_real_finite_and_zero_padded():
-    model_hypers = dict(MODEL_HYPERS)
-    model_hypers["edge_harmonics"] = {
-        "mode": "spherical",
-        "max_angular": 3,
-        "epsilon": 1.0e-12,
-    }
-    model = PET(model_hypers, _spherical_target_dataset_info(3))
-    expansion = model.gnn_layers[0].edge_harmonics
-    edge_vectors = torch.tensor(
-        [[[1.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 0.0]]]
-    )
-    edge_distances = torch.linalg.norm(edge_vectors, dim=-1)
-    padding_mask = torch.tensor([[True, True, False]])
-
-    expanded = expansion(edge_vectors, edge_distances, padding_mask)
-
-    assert expanded.shape == (1, 3, 12)
-    assert not torch.is_complex(expanded)
-    assert torch.isfinite(expanded).all()
-    assert torch.all(expanded[0, 2] == 0.0)
-
-
-def test_edge_harmonics_enabled_forward_is_finite():
-    model_hypers = dict(MODEL_HYPERS)
-    model_hypers["edge_harmonics"] = {
-        "mode": "normalized_solid",
-        "max_angular": 3,
-        "epsilon": 1.0e-12,
-    }
-    model = PET(model_hypers, _spherical_target_dataset_info(3)).eval()
-    system = System(
-        types=torch.tensor([6, 6]),
-        positions=torch.tensor([[0.0, 0.0, 0.0], [0.1, 0.2, 1.0]]),
-        cell=torch.zeros(3, 3),
-        pbc=torch.tensor([False, False, False]),
-    )
-    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-
-    output = model([system], {"spherical": ModelOutput(per_atom=True)})[
-        "spherical"
-    ].block()
-
-    assert torch.isfinite(output.values).all()
-
-
-def test_normalized_solid_harmonics_keep_linear_radial_scale():
-    edge_vectors = torch.tensor([[[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]])
-    edge_distances = torch.linalg.norm(edge_vectors, dim=-1)
-    padding_mask = torch.tensor([[True, True]])
-    solid = RealEdgeHarmonicExpansion("solid", max_angular=3, epsilon=1.0e-12)
-    normalized = RealEdgeHarmonicExpansion(
-        "normalized_solid", max_angular=3, epsilon=1.0e-12
-    )
-
-    solid_l3 = solid(edge_vectors, edge_distances, padding_mask)[:, :, 5:]
-    normalized_l3 = normalized(edge_vectors, edge_distances, padding_mask)[:, :, 5:]
-    solid_ratio = torch.linalg.norm(solid_l3[0, 1]) / torch.linalg.norm(solid_l3[0, 0])
-    normalized_ratio = torch.linalg.norm(normalized_l3[0, 1]) / torch.linalg.norm(
-        normalized_l3[0, 0]
-    )
-
-    assert torch.allclose(solid_ratio, torch.tensor(8.0), rtol=1.0e-5)
-    assert torch.allclose(normalized_ratio, torch.tensor(2.0), rtol=1.0e-5)
-
-
-def test_edge_harmonics_require_explicit_order_for_scalar_only_dataset():
-    dataset_info = DatasetInfo(
-        length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": get_energy_target_info(
-                "energy", {"quantity": "energy", "unit": "eV"}
-            )
-        },
-    )
-    model_hypers = dict(MODEL_HYPERS)
-    model_hypers["edge_harmonics"] = {
-        "mode": "solid",
-        "max_angular": None,
-        "epsilon": 1.0e-12,
-    }
-
-    with pytest.raises(ValueError, match="edge_harmonics.max_angular must be set"):
-        PET(model_hypers, dataset_info)
 
 
 def test_unknown_volume_normalized_target_is_rejected():
