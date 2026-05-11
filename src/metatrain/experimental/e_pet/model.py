@@ -87,6 +87,19 @@ def _whiten_tensor_basis(
     )
 
 
+def _rms_normalize_tensor_basis(
+    tensor_basis: torch.Tensor,
+    epsilon: float,
+    detach_norm: bool,
+) -> torch.Tensor:
+    """Normalize each local tensor-basis block by an equivariant scalar RMS."""
+    basis_rms = tensor_basis.pow(2).mean(dim=(1, 2), keepdim=True)
+    basis_rms = torch.sqrt(basis_rms + epsilon)
+    if detach_norm:
+        basis_rms = basis_rms.detach()
+    return tensor_basis / basis_rms
+
+
 def _extra_l1_vector_basis_branches(
     tensor_basis_hypers: Dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -184,13 +197,14 @@ def _spherical_components_to_cartesian_rank2(
     cartesian[:, 2, 0] = cartesian[:, 0, 2]
 
     public_block = public_layout.block()
+    device = cartesian.device
     block = TensorBlock(
         values=cartesian,
-        samples=l0_block.samples,
-        components=public_block.components,
-        properties=public_block.properties,
+        samples=l0_block.samples.to(device=device),
+        components=[component.to(device=device) for component in public_block.components],
+        properties=public_block.properties.to(device=device),
     )
-    return TensorMap(keys=public_layout.keys, blocks=[block])
+    return TensorMap(keys=public_layout.keys.to(device=device), blocks=[block])
 
 
 class EPET(PET):
@@ -229,11 +243,14 @@ class EPET(PET):
         self.basis_normalization = str(
             self.tensor_basis_hypers.get("basis_normalization", "none")
         )
-        if self.basis_normalization not in ("none", "whiten"):
+        if self.basis_normalization not in ("none", "rms", "whiten"):
             raise ValueError(
                 "Unknown E-PET tensor-basis normalization "
-                f"{self.basis_normalization!r}. Expected 'none' or 'whiten'."
+                f"{self.basis_normalization!r}. Expected 'none', 'rms', or 'whiten'."
             )
+        self.basis_normalization_detach = bool(
+            self.tensor_basis_hypers.get("basis_normalization_detach", True)
+        )
         self.basis_normalization_epsilon = float(
             self.tensor_basis_hypers.get("basis_normalization_epsilon", 1.0e-6)
         )
@@ -346,17 +363,6 @@ class EPET(PET):
             raise ValueError(
                 "Scalar targets cannot appear in irrep_head_groups: "
                 f"{scalar_targets}."
-            )
-
-        atomic_basis_targets = sorted(
-            target_name
-            for target_name in self.irrep_head_groups_config
-            if dataset_info.targets[target_name].is_atomic_basis
-        )
-        if atomic_basis_targets:
-            raise ValueError(
-                "Atomic-basis targets cannot appear in irrep_head_groups: "
-                f"{atomic_basis_targets}."
             )
 
         non_spherical_targets = sorted(
@@ -472,9 +478,7 @@ class EPET(PET):
             self.block_irrep_keys[target_name][dict_key] = irrep_key
 
             shared_selector = _shared_selector(target_name, irrep_key)
-            if target_info.is_atomic_basis:
-                head_key = target_name
-            elif shared_selector in self.top_level_shared_head_selectors:
+            if shared_selector in self.top_level_shared_head_selectors:
                 head_key = self.top_level_shared_head_selectors[shared_selector]
             elif irrep_key in configured_groups:
                 configured_group = configured_groups[irrep_key]
@@ -483,6 +487,8 @@ class EPET(PET):
                         f"{target_name}__group__{len(group_name_to_internal_key)}"
                     )
                 head_key = group_name_to_internal_key[configured_group]
+            elif target_info.is_atomic_basis:
+                head_key = target_name
             else:
                 head_key = f"{target_name}__block__{block_index}"
 
@@ -667,13 +673,21 @@ class EPET(PET):
     def _normalize_tensor_basis(self, tensor_basis: torch.Tensor) -> torch.Tensor:
         if self.basis_normalization == "none":
             return tensor_basis
+        if self.basis_normalization == "rms":
+            return _rms_normalize_tensor_basis(
+                tensor_basis,
+                self.basis_normalization_epsilon,
+                self.basis_normalization_detach,
+            )
         if self.basis_normalization == "whiten":
             return _whiten_tensor_basis(
                 tensor_basis,
                 self.basis_normalization_epsilon,
             )
         raise RuntimeError(
-            f"Unsupported E-PET tensor-basis normalization {self.basis_normalization!r}."
+            "Unsupported E-PET tensor-basis normalization "
+            + self.basis_normalization
+            + "."
         )
 
     def _get_output_last_layer_features(

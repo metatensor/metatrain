@@ -11,8 +11,10 @@ same PET head family across targets through ``shared_head_groups``.
 
 Per-atom spherical atomic-basis targets follow PET's densified training path:
 species-specific public blocks are densified internally, E-PET uses one target head
-and one tensor basis per irrep, and evaluation sparsifies predictions back to the
-public layout. True pair Hamiltonian targets are out of scope for this first pass.
+by default and one tensor basis per irrep, and evaluation sparsifies predictions back
+to the public layout. ``irrep_head_groups`` can opt selected atomic-basis irreps into
+separate target-local heads without creating species/property-specific tensor bases.
+True pair Hamiltonian targets are out of scope for this first pass.
 
 {{SECTION_INSTALLATION}}
 
@@ -43,7 +45,7 @@ with the following definitions needed to fully understand some of the parameters
     :undoc-members:
 """
 
-from typing import Literal, Optional
+from typing import Dict, Literal, Optional
 
 from typing_extensions import TypedDict
 
@@ -90,18 +92,21 @@ class TensorBasisDefaults(TypedDict):
     legacy: bool = True
     """Whether to use the legacy tensor-basis species handling."""
 
-    basis_normalization: Literal["none", "whiten"] = "none"
-    """Optional experimental normalization applied to each tensor-basis block before
-    coefficient contraction.
+    basis_normalization: Literal["none", "rms", "whiten"] = "none"
+    """Normalization applied to each tensor-basis block before coefficient contraction.
 
-    ``"none"`` keeps the current E-PET path. ``"whiten"`` uses a regularized
-    inverse-square-root Gram transform to contract coefficients in a canonicalized
-    local basis. This is intended as an opt-in diagnostic path and can be removed or
-    promoted without changing the public target contract.
+    ``"none"`` keeps the unnormalized path used by the current best reference runs.
+    ``"rms"`` divides the whole local irrep basis by an invariant RMS scalar, which
+    removes raw SOAP/spherical-harmonic/CG scale without changing equivariance.
+    ``"whiten"`` uses a regularized inverse-square-root Gram transform to contract
+    coefficients in a canonicalized local basis; it is intended as a diagnostic path.
     """
 
+    basis_normalization_detach: bool = True
+    """Whether RMS normalization should stop gradients through the RMS denominator."""
+
     basis_normalization_epsilon: float = 1.0e-6
-    """Diagonal regularization used by ``basis_normalization: "whiten"``."""
+    """Positive regularization used by tensor-basis normalization."""
 
 
 class ModelHypers(TypedDict):
@@ -132,8 +137,10 @@ class ModelHypers(TypedDict):
             "2,1": head_a
             "3,1": head_b
 
-    Blocks omitted from the mapping keep private PET heads. Atomic-basis targets
-    cannot be listed here in this first pass.
+    Blocks omitted from the mapping keep private PET heads for ordinary spherical
+    targets. For atomic-basis spherical targets, omitted blocks keep the default
+    target-level PET head; configured blocks are split into the named target-local
+    head groups.
     """
 
     shared_head_groups: dict[str, list[str]] = {}
@@ -158,6 +165,24 @@ class ModelHypers(TypedDict):
     """
 
 
+class AtomicBasisIrrepBalancedLossHypers(TypedDict):
+    """Opt-in E-PET loss for per-atom spherical atomic-basis targets.
+
+    The target is first compared in physical sparse coefficient space. Blocks are
+    then grouped by ``(o3_lambda, o3_sigma)``, normalized by one fitted RMS scale per
+    group, and averaged equally over irreps. This prevents species/property count or
+    very small per-property scales from dominating the optimization objective.
+    Physical RMSE/MAE metrics and exported predictions are unchanged.
+    """
+
+    weight: float = 1.0
+    """Overall weight multiplying the irrep-balanced target contribution."""
+
+    scale: Literal["per_irrep_rms"] = "per_irrep_rms"
+    """How to normalize each irrep group. ``"per_irrep_rms"`` uses one shared RMS
+    of fitted scaler values for each ``(o3_lambda, o3_sigma)`` group."""
+
+
 class TrainerHypers(PETTrainerHypers):
     """Hyperparameters for training e-pet models.
 
@@ -180,6 +205,13 @@ class TrainerHypers(PETTrainerHypers):
     fitted scales are clamped to at least this ratio times that target's median
     positive scale."""
 
+    atomic_basis_irrep_balanced_loss: Dict[str, AtomicBasisIrrepBalancedLossHypers] = {}
+    """Experimental E-PET-only loss for listed per-atom spherical atomic-basis targets.
+
+    Listed targets are excluded from the standard componentwise ``loss`` aggregation
+    to avoid double-counting. If absent, E-PET uses the normal ``loss`` setting.
+    """
+
     basis_gram_weight: float = 0.0
     """Weight for the tensor-basis Gram penalty."""
 
@@ -196,5 +228,7 @@ class TrainerHypers(PETTrainerHypers):
     ``learning_rate``."""
 
     spherical_l0_readout_learning_rate: Optional[float] = None
-    """Learning rate for final spherical ``o3_lambda=0`` readout layers. Set to
+    """Learning rate for spherical ``o3_lambda=0`` final readout layers. If an
+    atomic-basis ``o3_lambda=0`` block is split into a dedicated target-local head with
+    ``irrep_head_groups``, this also applies to that dedicated PET head. Set to
     ``null`` to use ``readout_learning_rate``."""

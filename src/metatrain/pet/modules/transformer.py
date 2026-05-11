@@ -1,5 +1,6 @@
 from typing import Tuple
 
+import sphericart.torch
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -10,6 +11,7 @@ from .utilities import DummyModule
 AVAILABLE_NORMALIZATIONS = ["LayerNorm", "RMSNorm"]
 AVAILABLE_TRANSFORMER_TYPES = ["PostLN", "PreLN"]
 AVAILABLE_ACTIVATIONS = ["SiLU", "SwiGLU"]
+AVAILABLE_EDGE_HARMONIC_MODES = ["none", "spherical", "solid", "normalized_solid"]
 
 
 class FeedForward(nn.Module):
@@ -42,6 +44,77 @@ class FeedForward(nn.Module):
             x = self.activation(x)
             x = self.w_out(x)
         return x
+
+
+class NoEdgeHarmonicExpansion(nn.Module):
+    """Default no-op edge harmonic expansion."""
+
+    num_channels: int = 0
+
+    def forward(
+        self,
+        edge_vectors: torch.Tensor,
+        edge_distances: torch.Tensor,
+        padding_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        return edge_vectors.new_empty(edge_vectors.shape[:-1] + (0,))
+
+
+class RealEdgeHarmonicExpansion(nn.Module):
+    """Append real spherical/solid harmonics to PET edge inputs."""
+
+    def __init__(self, mode: str, max_angular: int, epsilon: float) -> None:
+        super().__init__()
+        if mode not in AVAILABLE_EDGE_HARMONIC_MODES:
+            raise ValueError(
+                f"Unknown edge harmonics mode: {mode}. "
+                f"Available options are: {AVAILABLE_EDGE_HARMONIC_MODES}."
+            )
+        if max_angular < 0:
+            raise ValueError("edge_harmonics.max_angular must be non-negative.")
+        if epsilon <= 0.0:
+            raise ValueError("edge_harmonics.epsilon must be positive.")
+
+        self.mode = mode
+        self.max_angular = max_angular
+        self.epsilon = epsilon
+        self.num_channels = sum(2 * ell + 1 for ell in range(2, max_angular + 1))
+
+        if mode == "spherical":
+            self.calculator = sphericart.torch.SphericalHarmonics(max_angular)
+        elif mode in ("solid", "normalized_solid"):
+            self.calculator = sphericart.torch.SolidHarmonics(max_angular)
+        else:
+            raise ValueError("RealEdgeHarmonicExpansion requires an enabled mode.")
+
+    def forward(
+        self,
+        edge_vectors: torch.Tensor,
+        edge_distances: torch.Tensor,
+        padding_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        flat_vectors = edge_vectors.reshape(-1, 3)
+        flat_distances = edge_distances.reshape(-1)
+        flat_valid = padding_mask.reshape(-1)
+        safe_vectors = flat_vectors.clone()
+        invalid = (~flat_valid) | (flat_distances <= self.epsilon)
+        if torch.any(invalid):
+            safe_vectors[invalid] = 0.0
+            safe_vectors[invalid, 2] = 1.0
+
+        harmonics = self.calculator.compute(safe_vectors)
+        blocks = []
+        for ell in range(2, self.max_angular + 1):
+            block = harmonics[:, ell * ell : (ell + 1) * (ell + 1)]
+            if self.mode == "normalized_solid":
+                denominator = flat_distances.clamp_min(self.epsilon).pow(ell - 1)
+                block = block / denominator[:, None]
+            blocks.append(block)
+
+        expanded = torch.cat(blocks, dim=1)
+        if torch.any(invalid):
+            expanded[invalid] = 0.0
+        return expanded.reshape(edge_vectors.shape[:-1] + (self.num_channels,))
 
 
 class AttentionBlock(nn.Module):
@@ -389,6 +462,9 @@ class CartesianTransformer(torch.nn.Module):
         transformer_type: str,
         n_atomic_species: int,
         is_first: bool,
+        edge_harmonics_mode: str,
+        edge_harmonics_max_angular: int,
+        edge_harmonics_epsilon: float,
     ) -> None:
         super(CartesianTransformer, self).__init__()
         self.is_first = is_first
@@ -406,7 +482,15 @@ class CartesianTransformer(torch.nn.Module):
             attention_temperature=attention_temperature,
         )
 
-        self.edge_embedder = nn.Linear(4, d_model)
+        if edge_harmonics_mode == "none" or edge_harmonics_max_angular < 2:
+            self.edge_harmonics = NoEdgeHarmonicExpansion()
+        else:
+            self.edge_harmonics = RealEdgeHarmonicExpansion(
+                edge_harmonics_mode,
+                edge_harmonics_max_angular,
+                edge_harmonics_epsilon,
+            )
+        self.edge_embedder = nn.Linear(4 + self.edge_harmonics.num_channels, d_model)
 
         if not is_first:
             n_merge = 3
@@ -460,7 +544,11 @@ class CartesianTransformer(torch.nn.Module):
             - The output edge embeddings, of shape (n_nodes, max_num_neighbors, d_model)
         """
         node_embeddings = input_node_embeddings
-        edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
+        edge_embeddings = [
+            edge_vectors,
+            edge_distances[:, :, None],
+            self.edge_harmonics(edge_vectors, edge_distances, padding_mask),
+        ]
 
         # on some systems, on isolated atoms, a torchscript bug concatenates the two
         # (empty) float tensors into an int tensors, causing an error later on

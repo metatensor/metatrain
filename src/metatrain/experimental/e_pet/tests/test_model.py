@@ -23,6 +23,7 @@ from metatrain.experimental.e_pet import model as e_pet_model_module
 from metatrain.experimental.e_pet.model import (
     EPET,
     _cartesian_rank2_to_spherical_components,
+    _rms_normalize_tensor_basis,
     _spherical_components_to_cartesian_rank2,
     _whiten_tensor_basis,
 )
@@ -382,6 +383,28 @@ def test_atomic_basis_target_uses_pet_densified_layout_and_single_head() -> None
     )
 
 
+def test_atomic_basis_irrep_head_groups_can_detach_l0_head() -> None:
+    hypers = _base_model_hypers()
+    hypers["irrep_head_groups"] = {"density": {"0,1": "scalar"}}
+    model = EPET(hypers, _atomic_basis_dataset_info())
+
+    l0_heads = {
+        model.block_to_head_key["density"][block_key]
+        for block_key, irrep_key in model.block_irrep_keys["density"].items()
+        if irrep_key == "0,1"
+    }
+    nontrivial_heads = {
+        model.block_to_head_key["density"][block_key]
+        for block_key, irrep_key in model.block_irrep_keys["density"].items()
+        if irrep_key != "0,1"
+    }
+
+    assert len(l0_heads) == 1
+    assert l0_heads != {"density"}
+    assert nontrivial_heads == {"density"}
+    assert set(model.target_head_keys["density"]) == {*l0_heads, "density"}
+
+
 def test_atomic_basis_training_forward_returns_densified_blocks() -> None:
     dataset_info = _atomic_basis_dataset_info()
     target_info = dataset_info.targets["density"]
@@ -466,6 +489,36 @@ def test_coefficient_l2_exclusion_keeps_nontrivial_spherical_blocks() -> None:
     assert model.get_regularization_loss(exclude_spherical_l0=True) > 0
 
 
+def test_rms_tensor_basis_normalizes_block_scale_and_is_equivariant() -> None:
+    torch.manual_seed(0)
+    tensor_basis = torch.randn(4, 5, 3) * torch.tensor([0.1, 10.0, 2.0])
+
+    normalized = _rms_normalize_tensor_basis(
+        tensor_basis,
+        epsilon=1.0e-12,
+        detach_norm=True,
+    )
+
+    rms = normalized.pow(2).mean(dim=(1, 2)).sqrt()
+    torch.testing.assert_close(rms, torch.ones_like(rms))
+
+    orthogonal, _ = torch.linalg.qr(torch.randn(5, 5))
+    rotated = torch.einsum("cd,sdb->scb", orthogonal, tensor_basis)
+    normalized_rotated = _rms_normalize_tensor_basis(
+        rotated,
+        epsilon=1.0e-12,
+        detach_norm=True,
+    )
+    rotated_normalized = torch.einsum("cd,sdb->scb", orthogonal, normalized)
+
+    torch.testing.assert_close(
+        normalized_rotated,
+        rotated_normalized,
+        rtol=1.0e-6,
+        atol=1.0e-6,
+    )
+
+
 def test_whiten_tensor_basis_bounds_used_basis_spectrum() -> None:
     torch.manual_seed(0)
     tensor_basis = torch.randn(4, 5, 10)
@@ -489,22 +542,25 @@ def test_whiten_tensor_basis_is_nearly_scale_invariant_for_full_rank_basis() -> 
     torch.testing.assert_close(whitened_scaled, whitened, rtol=1.0e-4, atol=1.0e-4)
 
 
-def test_basis_whitening_forward_path_is_opt_in_and_finite() -> None:
+def test_basis_normalization_forward_paths_are_configurable_and_finite() -> None:
     hypers = _base_model_hypers()
     assert hypers["tensor_basis_defaults"]["basis_normalization"] == "none"
-    hypers["tensor_basis_defaults"]["basis_normalization"] = "whiten"
-    hypers["tensor_basis_defaults"]["basis_normalization_epsilon"] = 1.0e-6
-    model = EPET(hypers, _atomic_basis_dataset_info()).train()
-    system = _build_system(model)
 
-    output = model([system], {"density": ModelOutput(per_atom=True)})["density"]
+    for normalization in ("rms", "none", "whiten"):
+        hypers = _base_model_hypers()
+        hypers["tensor_basis_defaults"]["basis_normalization"] = normalization
+        hypers["tensor_basis_defaults"]["basis_normalization_epsilon"] = 1.0e-6
+        model = EPET(hypers, _atomic_basis_dataset_info()).train()
+        system = _build_system(model)
 
-    assert torch.isfinite(model.get_basis_gram_loss())
-    for block in output.blocks():
-        assert torch.all(torch.isfinite(block.values))
+        output = model([system], {"density": ModelOutput(per_atom=True)})["density"]
+
+        assert torch.isfinite(model.get_basis_gram_loss())
+        for block in output.blocks():
+            assert torch.all(torch.isfinite(block.values))
 
 
-def test_basis_whitening_rejects_bad_options() -> None:
+def test_basis_normalization_rejects_bad_options() -> None:
     hypers = _base_model_hypers()
     hypers["tensor_basis_defaults"]["basis_normalization"] = "bad"
 
@@ -518,12 +574,12 @@ def test_basis_whitening_rejects_bad_options() -> None:
         EPET(hypers, _atomic_basis_dataset_info())
 
 
-def test_atomic_basis_rejects_irrep_head_groups() -> None:
+def test_atomic_basis_rejects_unknown_irrep_head_groups() -> None:
     hypers = _base_model_hypers()
-    hypers["irrep_head_groups"] = {"density": {"0,1": "head_a"}}
+    hypers["irrep_head_groups"] = {"density": {"8,1": "head_a"}}
 
     with pytest.raises(
-        ValueError, match="Atomic-basis targets cannot appear in irrep_head_groups"
+        ValueError, match="Unknown irrep keys"
     ):
         EPET(hypers, _atomic_basis_dataset_info())
 
@@ -552,6 +608,20 @@ def test_cartesian_rank2_target_uses_hidden_spherical_readout() -> None:
     assert block.components[0].names == ["xyz_1"]
     assert block.components[1].names == ["xyz_2"]
     assert torch.allclose(block.values, block.values.transpose(1, 2))
+
+
+def test_cartesian_rank2_target_infers_pet_edge_harmonic_order() -> None:
+    hypers = _base_model_hypers()
+    hypers["pet"]["edge_harmonics"] = {
+        "mode": "normalized_solid",
+        "max_angular": None,
+        "epsilon": 1.0e-12,
+    }
+
+    model = EPET(hypers, _cartesian_rank2_dataset_info()).eval()
+
+    assert model.edge_harmonics_max_angular == 2
+    assert model.gnn_layers[0].edge_embedder.in_features == 9
 
 
 def test_cartesian_rank1_target_remains_unsupported() -> None:
@@ -614,6 +684,54 @@ def test_cartesian_rank2_hardcoded_spherical_round_trip() -> None:
 
     assert torch.allclose(reconstructed, cartesian, atol=1e-6)
     assert torch.allclose(reconstructed, reconstructed.transpose(1, 2))
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+def test_cartesian_rank2_reconstruction_moves_public_layout_to_prediction_device() -> None:
+    layout = _cartesian_rank2_target_info().layout
+    samples = Labels(["system"], torch.tensor([[0]], dtype=torch.int32)).to("cuda")
+    cartesian = torch.tensor(
+        [
+            [
+                [[1.0], [2.0], [3.0]],
+                [[2.0], [4.0], [5.0]],
+                [[3.0], [5.0], [6.0]],
+            ]
+        ],
+        device="cuda",
+    )
+    l0, l2 = _cartesian_rank2_to_spherical_components(cartesian)
+    spherical_tensor_map = TensorMap(
+        keys=_cartesian_rank2_to_spherical_components_target_keys().to("cuda"),
+        blocks=[
+            TensorBlock(
+                values=l0,
+                samples=samples,
+                components=[Labels("o3_mu", torch.tensor([[0]])).to("cuda")],
+                properties=layout.block().properties.to("cuda"),
+            ),
+            TensorBlock(
+                values=l2,
+                samples=samples,
+                components=[
+                    Labels("o3_mu", torch.arange(-2, 3).reshape(-1, 1)).to("cuda")
+                ],
+                properties=layout.block().properties.to("cuda"),
+            ),
+        ],
+    )
+
+    reconstructed = _spherical_components_to_cartesian_rank2(
+        spherical_tensor_map, layout
+    )
+
+    block = reconstructed.block()
+    assert block.values.device.type == "cuda"
+    assert block.samples.values.device.type == "cuda"
+    assert block.components[0].values.device.type == "cuda"
+    assert block.components[1].values.device.type == "cuda"
+    assert block.properties.values.device.type == "cuda"
+    assert reconstructed.keys.values.device.type == "cuda"
 
 
 def _cartesian_rank2_to_spherical_components_target_keys():

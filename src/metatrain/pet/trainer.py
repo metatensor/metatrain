@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
+from metatensor.torch import TensorMap
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
@@ -44,6 +45,9 @@ from metatrain.utils.training_diagnostics import (
     assert_finite_metrics,
 )
 from metatrain.utils.transfer import batch_to
+from metatrain.utils._atomic_basis_irrep_balanced_loss import (
+    _AtomicBasisIrrepBalancedLoss,
+)
 
 from . import checkpoints
 from .documentation import TrainerHypers
@@ -97,6 +101,17 @@ class Trainer(TrainerInterface[TrainerHypers]):
         self.best_metric: Optional[float] = None
         self.best_model_state_dict: Optional[Dict[str, Any]] = None
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
+
+    def _atomic_basis_irrep_balanced_loss_config(self) -> Dict[str, Dict[str, Any]]:
+        return dict(self.hypers.get("atomic_basis_irrep_balanced_loss") or {})
+
+    @staticmethod
+    def _zero_loss_like(predictions: Dict[str, TensorMap]) -> torch.Tensor:
+        first_tensor_map = next(iter(predictions.values()))
+        first_block = first_tensor_map.block(first_tensor_map.keys[0])
+        return torch.zeros(
+            (), dtype=first_block.values.dtype, device=first_block.values.device
+        )
 
     def train(
         self,
@@ -368,6 +383,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
+        active_model = model.module if is_distributed else model
 
         outputs_list = []
         for target_name, target_info in train_targets.items():
@@ -377,17 +393,61 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Create a loss function:
         loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
-        loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
+        # Experimental fair-control hook. Default PET behavior is unchanged when the
+        # option is absent; reverting this control only requires removing this block
+        # and the matching train/validation additions below.
+        custom_loss_config = self._atomic_basis_irrep_balanced_loss_config()
+        custom_loss_fn = (
+            _AtomicBasisIrrepBalancedLoss(
+                target_infos=train_targets,
+                config=custom_loss_config,
+                scaler=active_model.scaler,
+                scale_targets=self.hypers["scale_targets"],
+            )
+            if custom_loss_config
+            else None
+        )
+        custom_loss_targets = (
+            custom_loss_fn.target_names if custom_loss_fn is not None else set()
+        )
+        normal_train_targets = {
+            name: target_info
+            for name, target_info in train_targets.items()
+            if name not in custom_loss_targets
+        }
+        normal_loss_hypers = {
+            name: loss_spec
+            for name, loss_spec in loss_hypers.items()
+            if name in normal_train_targets
+        }
+        loss_fn = (
+            LossAggregator(targets=normal_train_targets, config=normal_loss_hypers)
+            if normal_train_targets
+            else None
+        )
         logging.info("Using the following loss functions:")
-        for name, info in loss_fn.metadata.items():
-            logging.info(f"{name}:")
-            main = {k: v for k, v in info.items() if k != "gradients"}
-            logging.info(main)
-            if "gradients" not in info or len(info["gradients"]) == 0:
-                continue
-            logging.info("With gradients:")
-            for grad, ginfo in info["gradients"].items():
-                logging.info(f"\t{name}::{grad}: {ginfo}")
+        if loss_fn is not None:
+            for name, info in loss_fn.metadata.items():
+                logging.info(f"{name}:")
+                main = {k: v for k, v in info.items() if k != "gradients"}
+                logging.info(main)
+                if "gradients" not in info or len(info["gradients"]) == 0:
+                    continue
+                logging.info("With gradients:")
+                for grad, ginfo in info["gradients"].items():
+                    logging.info(f"\t{name}::{grad}: {ginfo}")
+        if custom_loss_fn is not None:
+            for name in sorted(custom_loss_fn.target_names):
+                logging.info(f"{name}:")
+                logging.info(
+                    {
+                        "type": "atomic_basis_irrep_balanced_mse",
+                        "weight": custom_loss_fn.target_weights[name],
+                        "scale": custom_loss_config[name].get(
+                            "scale", "per_irrep_rms"
+                        ),
+                    }
+                )
 
         if self.hypers["weight_decay"] is not None:
             optimizer = torch.optim.AdamW(
@@ -462,7 +522,28 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = loss_fn(predictions, targets, extra_data)
+                train_loss_batch = self._zero_loss_like(predictions)
+                if loss_fn is not None:
+                    normal_predictions = {
+                        name: predictions[name]
+                        for name in normal_train_targets
+                        if name in predictions
+                    }
+                    if normal_predictions:
+                        normal_targets = {
+                            name: targets[name] for name in normal_predictions
+                        }
+                        train_loss_batch = train_loss_batch + loss_fn(
+                            normal_predictions, normal_targets, extra_data
+                        )
+                if custom_loss_fn is not None:
+                    train_loss_batch = train_loss_batch + custom_loss_fn.compute(
+                        systems,
+                        predictions,
+                        targets,
+                        atomic_basis_reverse_transform,
+                        active_model.scaler,
+                    )
                 assert_finite_loss(
                     train_loss_batch,
                     phase="training",
@@ -574,7 +655,28 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     targets = average_by_num_atoms(
                         targets, systems, per_structure_targets
                     )
-                    val_loss_batch = loss_fn(predictions, targets, extra_data)
+                    val_loss_batch = self._zero_loss_like(predictions)
+                    if loss_fn is not None:
+                        normal_predictions = {
+                            name: predictions[name]
+                            for name in normal_train_targets
+                            if name in predictions
+                        }
+                        if normal_predictions:
+                            normal_targets = {
+                                name: targets[name] for name in normal_predictions
+                            }
+                            val_loss_batch = val_loss_batch + loss_fn(
+                                normal_predictions, normal_targets, extra_data
+                            )
+                    if custom_loss_fn is not None:
+                        val_loss_batch = val_loss_batch + custom_loss_fn.compute(
+                            systems,
+                            predictions,
+                            targets,
+                            atomic_basis_reverse_transform,
+                            active_model.scaler,
+                        )
                     assert_finite_loss(
                         val_loss_batch,
                         phase="validation",
