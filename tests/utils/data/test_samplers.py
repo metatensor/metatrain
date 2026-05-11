@@ -12,8 +12,32 @@ from metatrain.utils.data.dataset import MemmapDataset
 from metatrain.utils.data.samplers import (
     MaxAtomBatchSampler,
     MaxAtomDistributedBatchSampler,
-    _greedy_pack,
+    _pack_batches_csr,
 )
+
+
+# ---------------------------------------------------------------------------
+# Test-only list-of-lists adapter
+# ---------------------------------------------------------------------------
+# The sampler stores batches as CSR arrays (a flat ``indices`` array plus an
+# ``offsets`` array) rather than a Python list-of-lists. The CSR layout avoids
+# the long-lived Python objects that would otherwise be refcount-touched by
+# fork-mode ``DataLoader`` workers and trigger copy-on-write of every batch
+# page (exhausting ``/dev/shm`` on large datasets). These tests were written
+# before that refactor and assert on list-of-list shapes (``sum(batches, [])``,
+# ``sorted(map(sorted, batches))``, ...), so this helper materialises the CSR
+# result into the historical format. Production code should call
+# ``_pack_batches_csr`` directly.
+
+
+def _greedy_pack(indices, atom_counts, max_atoms, min_atoms=0):
+    flat_indices, offsets = _pack_batches_csr(
+        indices, atom_counts, max_atoms, min_atoms
+    )
+    return [
+        flat_indices[offsets[i] : offsets[i + 1]].tolist()
+        for i in range(offsets.size - 1)
+    ]
 
 
 # ---------------------------------------------------------------------------

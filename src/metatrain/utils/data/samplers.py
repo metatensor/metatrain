@@ -40,8 +40,8 @@ def _get_num_atoms(dataset: torch.utils.data.Dataset, i: int) -> int:
 
 
 def _pack_batches_csr(
-    indices: Union[Sequence[int], np.ndarray],
-    atom_counts: Union[Sequence[int], np.ndarray],
+    indices: np.ndarray,
+    atom_counts: np.ndarray,
     max_atoms: int,
     min_atoms: int = 0,
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -155,26 +155,6 @@ def _pack_batches_csr(
         )
 
     return flat_indices, offsets
-
-
-def _greedy_pack(
-    indices: Union[Sequence[int], np.ndarray],
-    atom_counts: Union[Sequence[int], np.ndarray],
-    max_atoms: int,
-    min_atoms: int = 0,
-) -> List[List[int]]:
-    """List-of-lists wrapper around :func:`_pack_batches_csr` for tests.
-
-    Production code should call :func:`_pack_batches_csr` directly to avoid
-    rematerialising every batch as a Python list.
-    """
-    flat_indices, offsets = _pack_batches_csr(
-        indices, atom_counts, max_atoms, min_atoms
-    )
-    return [
-        flat_indices[offsets[i] : offsets[i + 1]].tolist()
-        for i in range(offsets.size - 1)
-    ]
 
 
 class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
