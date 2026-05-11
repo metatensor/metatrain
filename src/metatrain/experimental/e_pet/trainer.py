@@ -82,13 +82,18 @@ class Trainer(PETTrainer):
 
         if self.hypers["finetune"]["read_from"] is not None:
             raise NotImplementedError(
-                "Custom e-pet training with split learning rates or basis penalties "
-                "does not support finetuning yet."
+                "The custom e-pet training path does not support finetuning yet."
             )
         if self.hypers["distributed"]:
             raise NotImplementedError(
-                "Custom e-pet training with split learning rates or basis penalties "
-                "does not support distributed training yet."
+                "The custom e-pet training path does not support distributed "
+                "training yet."
+            )
+        if self.hypers["max_atoms_per_batch"] is not None:
+            raise NotImplementedError(
+                "The custom e-pet training path does not support "
+                "max_atoms_per_batch yet. Use fixed batch_size batching or disable "
+                "the E-PET options that require the custom trainer."
             )
 
     def _add_regularization(

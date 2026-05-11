@@ -101,7 +101,6 @@ class _AtomicBasisIrrepBalancedLoss:
                 values = values[type_index]
             flat_values = values.reshape(-1)
             valid_values = flat_values[torch.isfinite(flat_values)]
-            valid_values = valid_values[valid_values > 0]
             if valid_values.numel() == 0:
                 continue
             values_by_group.setdefault(group, []).append(valid_values)

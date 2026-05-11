@@ -68,8 +68,12 @@ class TensorBasisSOAPConfig(TypedDict):
     max_radial: int = 7
     """Maximum number of radial channels used by the spherical expansion."""
 
-    cutoff: SOAPCutoffConfig = init_with_defaults(SOAPCutoffConfig)
-    """Radial cutoff configuration for the tensor-basis spherical expansion."""
+    cutoff: SOAPCutoffConfig = {"radius": 4.5, "width": 0.5}
+    """Radial cutoff configuration for the tensor-basis spherical expansion.
+
+    The default radius matches the PET trunk cutoff default because E-PET evaluates
+    tensor bases on the PET neighbor-list edges.
+    """
 
 
 class TensorBasisDefaults(TypedDict):
@@ -198,7 +202,8 @@ class TrainerHypers(PETTrainerHypers):
     """Hyperparameters for training e-pet models.
 
     The default split learning rates use the E-PET custom trainer path. This path
-    does not currently support distributed training or finetuning.
+    does not currently support distributed training, finetuning, or PET's
+    ``max_atoms_per_batch`` variable-size batching.
     """
 
     learning_rate: float = 2.0e-4

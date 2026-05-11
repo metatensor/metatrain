@@ -285,6 +285,42 @@ def test_atomic_basis_irrep_balanced_loss_uses_one_scale_per_irrep() -> None:
     )
 
 
+def test_atomic_basis_irrep_balanced_loss_keeps_zero_scale_irrep() -> None:
+    model = EPET(_base_model_hypers(), _atomic_basis_dataset_info())
+    _set_atomic_basis_scales(model)
+
+    scales = model.scaler.model.scales["density"]
+    blocks = []
+    zero_scale_dtype = scales.block(0).values.dtype
+    for key, block in scales.items():
+        values = block.values.clone()
+        if int(key["o3_lambda"]) == 2:
+            values.zero_()
+            zero_scale_dtype = values.dtype
+        blocks.append(
+            TensorBlock(
+                values=values,
+                samples=block.samples,
+                components=block.components,
+                properties=block.properties,
+            )
+        )
+    model.scaler.model.scales["density"] = TensorMap(scales.keys, blocks)
+
+    loss = _AtomicBasisIrrepBalancedLoss(
+        target_infos=model.dataset_info.targets,
+        config={"density": {"weight": 1.0, "scale": "per_irrep_rms"}},
+        scaler=model.scaler,
+        scale_targets=True,
+    )
+
+    assert (2, 1) in loss.group_scales["density"]
+    torch.testing.assert_close(
+        loss.group_scales["density"][(2, 1)],
+        torch.tensor(torch.finfo(zero_scale_dtype).eps, dtype=zero_scale_dtype),
+    )
+
+
 def test_atomic_basis_irrep_balanced_loss_weights_irreps_equally() -> None:
     model = EPET(_base_model_hypers(), _atomic_basis_dataset_info())
     _set_atomic_basis_scales(model)
@@ -436,4 +472,12 @@ def test_custom_trainer_rejects_finetuning() -> None:
     hypers["finetune"]["read_from"] = "model.ckpt"
 
     with pytest.raises(NotImplementedError, match="finetuning"):
+        Trainer(hypers)._validate_custom_training_path(torch.float32)
+
+
+def test_custom_trainer_rejects_max_atoms_per_batch() -> None:
+    hypers = _split_lr_training_hypers()
+    hypers["max_atoms_per_batch"] = 128
+
+    with pytest.raises(NotImplementedError, match="max_atoms_per_batch"):
         Trainer(hypers)._validate_custom_training_path(torch.float32)

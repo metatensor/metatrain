@@ -116,6 +116,15 @@ def test_e_pet_tensor_basis_options_do_not_expose_max_angular() -> None:
     )
 
 
+def test_e_pet_tensor_basis_default_cutoff_matches_pet_cutoff() -> None:
+    hypers = get_default_hypers("experimental.e_pet")
+
+    assert (
+        hypers["model"]["tensor_basis_defaults"]["soap"]["cutoff"]["radius"]
+        == hypers["model"]["pet"]["cutoff"]
+    )
+
+
 def test_e_pet_option_files_validate_without_tensor_basis_max_angular() -> None:
     _validate_architecture_options_file(
         REPO_ROOT / "examples/1-advanced/options-e-pet-pet-omat-xs32.yaml"
