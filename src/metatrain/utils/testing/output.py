@@ -627,7 +627,7 @@ class OutputTests(ArchitectureTests):
 
         features_output_options = ModelOutput(
             quantity="",
-            unit="unitless",
+            unit="",
             per_atom=per_atom,
         )
         model = model.to(system.positions.dtype)
@@ -705,7 +705,7 @@ class OutputTests(ArchitectureTests):
         # last-layer features per atom:
         ll_output_options = ModelOutput(
             quantity="",
-            unit="unitless",
+            unit="",
             per_atom=per_atom,
         )
         model = model.to(system.positions.dtype)
