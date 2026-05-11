@@ -71,11 +71,12 @@ samples that correspond to the given atomic type are pooled when computing the s
             {\displaystyle\sum_{A c} \delta_{Z_i Z} \ 1}
    },
 
-For single-property targets, the per-target scale is equivalent to the per-target scale.
-In the relevant base class, computed scale(s) :math:`\sigma_{(Z)}` are stored in
-``BaseScaler.scales`` and equivalently in ``BaseScaler.per_target_scales``.
-``BaseScaler.per_property_scales``, which track the relative scales of different
-properties within each target, are all by definition set to ``1.0``.
+For single-property targets, the per-target scale is equivalent to the full
+scale. In the relevant base class, computed scale(s) :math:`\sigma_{(Z)}` are
+stored in ``BaseScaler.scales`` and equivalently in
+``BaseScaler.per_target_scales``. ``BaseScaler.per_property_scales``, which
+track the relative scales of different properties within each target, are all by
+definition set to ``1.0``.
 
 
 Multi-property targets
@@ -102,7 +103,7 @@ across all blocks, labelled by a composite index :math:`\alpha`, and all propert
 
    \sigma = \sqrt{
        \frac{\displaystyle \sum_{\alpha A c p}
-             y_{\alpha s c p}^{2}}
+             y_{\alpha A c p}^{2}}
             {\displaystyle\sum_{\alpha A c p} 1}
    },
 
@@ -133,7 +134,7 @@ per-property scale is:
                   \sqrt{
                       \frac{\displaystyle\sum_{A c}
                             y_{\alpha A c p}^{2}}
-                           {\displaystyle\sum_{\alpha A c p} 1}
+                           {\displaystyle\sum_{\alpha A c} 1}
                   },
 
 and for per-atom targets:

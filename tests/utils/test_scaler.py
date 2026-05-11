@@ -887,7 +887,7 @@ def test_scaler_spherical(batch_size):
     )
     fake_output = {"spherical": fake_output}
 
-    # Compuet the full scales, i.e. the uncentered standard deviations per property.
+    # Compute the full scales, i.e. the uncentered standard deviations per property.
     expected_scale_l0 = 3.0
     expected_scale_l2 = (77.0 / 2) ** 0.5
     expected_scales_scalar = (

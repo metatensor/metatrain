@@ -476,6 +476,17 @@ class BaseScaler(torch.nn.Module):
                     self.scales[target_name][key].values[:] = scales_vals
                     self.per_target_scales[target_name][key].values[:] = scales_vals
 
+        # NaNs can arise if a target has zero samples in the training data, so we set
+        # the scale to 1.0 to avoid issues during training.
+        for target_name in targets_to_fit:
+            for key in self.scales[target_name].keys:
+                self.scales[target_name][key].values[:] = torch.nan_to_num(
+                    self.scales[target_name][key].values, nan=1.0
+                )
+                self.per_target_scales[target_name][key].values[:] = torch.nan_to_num(
+                    self.per_target_scales[target_name][key].values, nan=1.0
+                )
+
     def fit_per_property(
         self,
         targets_to_fit: Optional[List[str]] = None,
@@ -580,7 +591,7 @@ class BaseScaler(torch.nn.Module):
             The names (keys) should be a subset of the target names used during fitting.
             If ``use_per_property_scales`` is True and ``use_per_target_scales`` is
             False, only targets with multiple properties (i.e. > 1 block or >= 1 block
-            with > 1 property) will be scaled, with sigle-property targets left
+            with > 1 property) will be scaled, with single-property targets left
             unchanged.
         :param remove: If True, removes the scaling (i.e., divides by the scales). If
             False, applies the scaling (i.e., multiplies by the scales).

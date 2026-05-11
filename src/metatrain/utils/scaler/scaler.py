@@ -189,6 +189,17 @@ class Scaler(torch.nn.Module):
             t in fixed_weights for t in self.new_outputs
         )
 
+        # if per-property scales are required for any of the new outputs, we need to
+        # accumulate even if fixed_weights are provided, as the per-property scales are
+        # needed to apply the fixed_weights correctly
+        require_per_property_scales = any(
+            [
+                target_name in self.model.multi_property_target_names
+                for target_name in self.new_outputs
+            ]
+        )
+        skip_accumulation = skip_accumulation and not require_per_property_scales
+
         device = self.dummy_buffer.device
 
         if not skip_accumulation:
@@ -389,7 +400,7 @@ class Scaler(torch.nn.Module):
             only applies to targets with multiple blocks.
         :param use_per_property_scales: If True, applies/removes per-block, per-property
             scales. This only applies to targets with multiple blocks or multiple
-            properties. If False, applies/removes the full scales.
+            properties. If False, applies/removes the per-property scales.
         :returns: A dictionary with the scaled outputs.
 
         :raises ValueError: If no scales have been computed or if `outputs` keys
