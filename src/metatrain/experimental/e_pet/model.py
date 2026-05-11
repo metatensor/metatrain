@@ -447,26 +447,10 @@ class EPET(PET):
             return 2 * num_components
         return num_components
 
-    def _add_spherical_output(
-        self, target_name: str, target_info: TargetInfo
-    ) -> None:
-        is_atomic_basis_target = target_name in self.atomic_basis_target_names
-        if is_atomic_basis_target and not target_info.per_atom:
-            raise ValueError(
-                "experimental.e_pet currently supports only per-atom spherical "
-                f"atomic-basis targets; target '{target_name}' is per-structure."
-            )
-
-        extra_l1_vector_basis_branches = _extra_l1_vector_basis_branches(
-            self.tensor_basis_hypers
-        )
-
+    def _initialize_spherical_output_storage(self, target_name: str) -> None:
         self.spherical_target_names.append(target_name)
         if self.basis_calculators is None:
             self.basis_calculators = ModuleDict({})
-
-        output_layout = target_info.layout
-        configured_groups = self.irrep_head_groups_config.get(target_name, {})
 
         self.output_shapes[target_name] = {}
         self.coefficient_shapes[target_name] = {}
@@ -475,58 +459,90 @@ class EPET(PET):
         self.block_irrep_keys[target_name] = {}
         self.target_head_keys[target_name] = []
 
-        seen_irrep_keys: set[str] = set()
-        group_name_to_internal_key: dict[str, str] = {}
+    def _spherical_head_key(
+        self,
+        target_name: str,
+        irrep_key: str,
+        block_index: int,
+        configured_groups: Dict[str, str],
+        group_name_to_internal_key: Dict[str, str],
+        is_atomic_basis_target: bool,
+    ) -> str:
+        shared_selector = _shared_selector(target_name, irrep_key)
+        if shared_selector in self.top_level_shared_head_selectors:
+            return self.top_level_shared_head_selectors[shared_selector]
 
-        for block_index, (key, block) in enumerate(output_layout.items()):
-            dict_key = self._block_dict_key(target_name, key)
-            irrep_key = _irrep_key(key)
-            seen_irrep_keys.add(irrep_key)
-            self.block_irrep_keys[target_name][dict_key] = irrep_key
+        if irrep_key in configured_groups:
+            configured_group = configured_groups[irrep_key]
+            if configured_group not in group_name_to_internal_key:
+                group_name_to_internal_key[configured_group] = (
+                    f"{target_name}__group__{len(group_name_to_internal_key)}"
+                )
+            return group_name_to_internal_key[configured_group]
 
-            shared_selector = _shared_selector(target_name, irrep_key)
-            if shared_selector in self.top_level_shared_head_selectors:
-                head_key = self.top_level_shared_head_selectors[shared_selector]
-            elif irrep_key in configured_groups:
-                configured_group = configured_groups[irrep_key]
-                if configured_group not in group_name_to_internal_key:
-                    group_name_to_internal_key[configured_group] = (
-                        f"{target_name}__group__{len(group_name_to_internal_key)}"
-                    )
-                head_key = group_name_to_internal_key[configured_group]
-            elif is_atomic_basis_target:
-                head_key = target_name
-            else:
-                head_key = f"{target_name}__block__{block_index}"
+        if is_atomic_basis_target:
+            return target_name
+        return f"{target_name}__block__{block_index}"
 
-            self.block_to_head_key[target_name][dict_key] = head_key
-            if head_key not in self.target_head_keys[target_name]:
-                self.target_head_keys[target_name].append(head_key)
+    def _register_spherical_block(
+        self,
+        target_name: str,
+        key: Labels,
+        block: TensorBlock,
+        block_index: int,
+        extra_l1_vector_basis_branches: list[dict[str, Any]],
+        configured_groups: Dict[str, str],
+        group_name_to_internal_key: Dict[str, str],
+        is_atomic_basis_target: bool,
+    ) -> str:
+        dict_key = self._block_dict_key(target_name, key)
+        irrep_key = _irrep_key(key)
+        self.block_irrep_keys[target_name][dict_key] = irrep_key
 
-            self.output_shapes[target_name][dict_key] = [
-                len(component.values) for component in block.components
-            ] + [len(block.properties.values)]
+        head_key = self._spherical_head_key(
+            target_name,
+            irrep_key,
+            block_index,
+            configured_groups,
+            group_name_to_internal_key,
+            is_atomic_basis_target,
+        )
+        self.block_to_head_key[target_name][dict_key] = head_key
+        if head_key not in self.target_head_keys[target_name]:
+            self.target_head_keys[target_name].append(head_key)
 
-            num_components = len(block.components[0])
-            basis_size = self._basis_size(
-                key, num_components, extra_l1_vector_basis_branches
-            )
+        self.output_shapes[target_name][dict_key] = [
+            len(component.values) for component in block.components
+        ] + [len(block.properties.values)]
 
-            self.coefficient_shapes[target_name][dict_key] = (
-                len(block.properties.values),
-                basis_size,
-            )
+        num_components = len(block.components[0])
+        basis_size = self._basis_size(
+            key, num_components, extra_l1_vector_basis_branches
+        )
+        self.coefficient_shapes[target_name][dict_key] = (
+            len(block.properties.values),
+            basis_size,
+        )
 
-            self.basis_calculators[target_name][dict_key] = TensorBasis(
-                self.atomic_types,
-                self.tensor_basis_hypers["soap"],
-                int(key[0]),
-                int(key[1]),
-                add_lambda_basis=self.tensor_basis_hypers["add_lambda_basis"],
-                legacy=self.tensor_basis_hypers["legacy"],
-                extra_l1_vector_basis_soaps=extra_l1_vector_basis_branches,
-            )
+        if self.basis_calculators is None:
+            raise RuntimeError("Tensor-basis calculators were not initialized.")
+        self.basis_calculators[target_name][dict_key] = TensorBasis(
+            self.atomic_types,
+            self.tensor_basis_hypers["soap"],
+            int(key[0]),
+            int(key[1]),
+            add_lambda_basis=self.tensor_basis_hypers["add_lambda_basis"],
+            legacy=self.tensor_basis_hypers["legacy"],
+            extra_l1_vector_basis_soaps=extra_l1_vector_basis_branches,
+        )
+        return irrep_key
 
+    def _validate_spherical_group_keys(
+        self,
+        target_name: str,
+        configured_groups: Dict[str, str],
+        seen_irrep_keys: set[str],
+    ) -> None:
         unknown_irrep_keys = set(configured_groups) - seen_irrep_keys
         if unknown_irrep_keys:
             raise ValueError(
@@ -535,13 +551,7 @@ class EPET(PET):
                 f"{sorted(seen_irrep_keys)}."
             )
 
-        self.outputs[target_name] = ModelOutput(
-            quantity=target_info.quantity,
-            unit=target_info.unit,
-            per_atom=True,
-            description=target_info.description,
-        )
-
+    def _add_spherical_head_modules(self, target_name: str) -> None:
         for head_key in self.target_head_keys[target_name]:
             if head_key not in self.node_heads:
                 self.node_heads[head_key] = ModuleList(
@@ -568,6 +578,7 @@ class EPET(PET):
                     ]
                 )
 
+    def _add_spherical_final_layers(self, target_name: str) -> None:
         self.node_last_layers[target_name] = ModuleList(
             [
                 ModuleDict(
@@ -613,6 +624,18 @@ class EPET(PET):
                     f"edge_last_layers.{target_name}.{layer_index}.{key}.weight"
                 )
 
+    def _register_spherical_metadata(
+        self,
+        target_name: str,
+        target_info: TargetInfo,
+        output_layout: TensorMap,
+    ) -> None:
+        self.outputs[target_name] = ModelOutput(
+            quantity=target_info.quantity,
+            unit=target_info.unit,
+            per_atom=True,
+            description=target_info.description,
+        )
         ll_features_name = get_last_layer_features_name(target_name)
         self.outputs[ll_features_name] = ModelOutput(
             per_atom=True, description=f"last layer features for {target_name}"
@@ -624,6 +647,46 @@ class EPET(PET):
         self.property_labels[target_name] = [
             block.properties for block in output_layout.blocks()
         ]
+
+    def _add_spherical_output(
+        self, target_name: str, target_info: TargetInfo
+    ) -> None:
+        is_atomic_basis_target = target_name in self.atomic_basis_target_names
+        if is_atomic_basis_target and not target_info.per_atom:
+            raise ValueError(
+                "experimental.e_pet currently supports only per-atom spherical "
+                f"atomic-basis targets; target '{target_name}' is per-structure."
+            )
+
+        extra_l1_vector_basis_branches = _extra_l1_vector_basis_branches(
+            self.tensor_basis_hypers
+        )
+        output_layout = target_info.layout
+        configured_groups = self.irrep_head_groups_config.get(target_name, {})
+        group_name_to_internal_key: Dict[str, str] = {}
+        seen_irrep_keys: set[str] = set()
+
+        self._initialize_spherical_output_storage(target_name)
+        for block_index, (key, block) in enumerate(output_layout.items()):
+            seen_irrep_keys.add(
+                self._register_spherical_block(
+                    target_name,
+                    key,
+                    block,
+                    block_index,
+                    extra_l1_vector_basis_branches,
+                    configured_groups,
+                    group_name_to_internal_key,
+                    is_atomic_basis_target,
+                )
+            )
+
+        self._validate_spherical_group_keys(
+            target_name, configured_groups, seen_irrep_keys
+        )
+        self._add_spherical_head_modules(target_name)
+        self._add_spherical_final_layers(target_name)
+        self._register_spherical_metadata(target_name, target_info, output_layout)
 
     def _add_cartesian_rank2_output(
         self, target_name: str, target_info: TargetInfo
