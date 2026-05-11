@@ -162,16 +162,31 @@ def test_e_pet_omat_example_uses_public_cartesian_stress_target() -> None:
         get_generic_target_info(target_name, target)
 
 
-def test_e_pet_training_defaults_use_split_learning_rates() -> None:
+def test_e_pet_training_defaults_use_tensor_basis_learning_rate() -> None:
     training = get_default_hypers("experimental.e_pet")["training"]
 
     assert training["learning_rate"] == 2.0e-4
-    assert training["pet_trunk_learning_rate"] == 2.0e-4
     assert training["tensor_basis_learning_rate"] == 1.0e-3
-    assert training["readout_learning_rate"] == 1.0e-3
-    assert training["spherical_l0_readout_learning_rate"] is None
     assert training["coefficient_l2_exclude_spherical_l0"] is False
     assert training["atomic_basis_irrep_balanced_loss"] == {}
+
+
+@pytest.mark.parametrize(
+    "option_name",
+    (
+        "pet_trunk_learning_rate",
+        "readout_learning_rate",
+        "spherical_l0_readout_learning_rate",
+    ),
+)
+def test_e_pet_training_rejects_removed_learning_rate_options(
+    option_name: str,
+) -> None:
+    hypers = copy.deepcopy(get_default_hypers("experimental.e_pet"))
+    hypers["training"][option_name] = 1.0e-3
+
+    with pytest.raises(MetatrainValidationError, match=option_name):
+        check_architecture_options("experimental.e_pet", hypers)
 
 
 @pytest.mark.parametrize("option_name", ("max_angular", "max_lambda"))

@@ -2,12 +2,13 @@
 E-PET (Experimental)
 ====================
 
-`experimental.e_pet` integrates PET with tensor-basis spherical readouts while keeping
-the PET trunk shared across all targets. Scalar targets use PET scalar heads. Spherical
-targets are split internally into irrep blocks, and each block can either keep its own
-PET head or share a PET head with selected irreps from the same target through
-``irrep_head_groups``. Scalar targets and spherical irrep blocks can also share the
-same PET head family across targets through ``shared_head_groups``.
+`experimental.e_pet` keeps the PET trunk and scalar-head behavior, and adds
+tensor-basis coefficient readouts for spherical targets. Scalar targets use the
+standard PET scalar path. Spherical targets are registered as irrep blocks; each block
+gets its own final coefficient projection and may either use a private PET head or
+share a PET head with selected irreps through ``irrep_head_groups``. Scalar targets
+and spherical irrep blocks can also share PET heads across targets through
+``shared_head_groups``.
 
 Cartesian rank-2 direct targets are accepted as public Cartesian tensors. E-PET
 internally predicts hidden spherical ``l=0`` and ``l=2`` blocks, reconstructs the
@@ -15,11 +16,12 @@ Cartesian tensor, and applies loss, metrics, scaling, and optional volume
 normalization to the public Cartesian target.
 
 Per-atom spherical atomic-basis targets follow PET's densified training path:
-species-specific public blocks are densified internally, E-PET uses one target head
-by default and one tensor basis per irrep, and evaluation sparsifies predictions back
-to the public layout. ``irrep_head_groups`` can opt selected atomic-basis irreps into
-separate target-local heads without creating species/property-specific tensor bases.
-True pair Hamiltonian targets are out of scope for this first pass.
+species-specific public blocks are densified internally, E-PET uses one target-level
+PET head by default and one tensor basis per irrep, and evaluation sparsifies
+predictions back to the public layout. ``irrep_head_groups`` can opt selected
+atomic-basis irreps into separate target-local heads without creating
+species/property-specific tensor bases. True pair Hamiltonian targets are out of
+scope.
 
 {{SECTION_INSTALLATION}}
 
@@ -56,6 +58,8 @@ from typing_extensions import TypedDict
 
 from metatrain.pet.documentation import (
     ModelHypers as PETModelHypers,
+)
+from metatrain.pet.documentation import (
     TrainerHypers as PETTrainerHypers,
 )
 from metatrain.soap_bpnn.documentation import SOAPCutoffConfig
@@ -72,7 +76,9 @@ class TensorBasisSOAPConfig(TypedDict):
     """Radial cutoff configuration for the tensor-basis spherical expansion.
 
     The default radius matches the PET trunk cutoff default because E-PET evaluates
-    tensor bases on the PET neighbor-list edges.
+    tensor bases on the PET neighbor-list edges. When changing ``pet.cutoff`` for a
+    production run, set this cutoff explicitly to the same radius unless a shorter
+    tensor-basis range is intentional.
     """
 
 
@@ -99,25 +105,11 @@ class TensorBasisDefaults(TypedDict):
     """
 
     legacy: bool = True
-    """Whether to use the legacy tensor-basis species handling."""
+    """Use the SOAP-BPNN tensor-basis species layout without chemical embedding.
 
-    basis_normalization: Literal["none", "rms", "whiten"] = "none"
-    """Default-off diagnostic normalization for tensor-basis blocks.
-
-    ``"none"`` keeps the unnormalized path used by the current best reference runs.
-    ``"rms"`` divides the whole local irrep basis by an invariant RMS scalar, which
-    removes raw SOAP/spherical-harmonic/CG scale without changing equivariance.
-    ``"whiten"`` uses a regularized inverse-square-root Gram transform to contract
-    coefficients in a canonicalized local basis; it is intended as a diagnostic path.
+    Set this to ``false`` to use the newer compact species embedding path. This
+    option is retained for compatibility with existing tensor-basis studies.
     """
-
-    basis_normalization_detach: bool = True
-    """Whether the default-off RMS diagnostic should stop gradients through the
-    RMS denominator."""
-
-    basis_normalization_epsilon: float = 1.0e-6
-    """Positive regularization used by default-off tensor-basis normalization
-    diagnostics."""
 
 
 class ModelHypers(TypedDict):
@@ -176,18 +168,18 @@ class ModelHypers(TypedDict):
 
     Selectors in the same group share the PET ``node_heads`` / ``edge_heads`` while
     keeping separate final linear projections. Atomic-basis targets cannot be listed
-    here in this first pass.
+    here.
     """
 
 
 class AtomicBasisIrrepBalancedLossHypers(TypedDict):
-    """Default-off diagnostic E-PET loss for per-atom spherical atomic-basis targets.
+    """Default-off E-PET loss for per-atom spherical atomic-basis targets.
 
     The target is first compared in physical sparse coefficient space. Blocks are
     then grouped by ``(o3_lambda, o3_sigma)``, normalized by one fitted RMS scale per
-    group, and averaged equally over irreps. This prevents species/property count or
-    very small per-property scales from dominating the optimization objective.
-    Physical RMSE/MAE metrics and exported predictions are unchanged.
+    group, and averaged equally over irreps. This avoids letting species/property
+    count or very small per-property scaler values dominate the optimization
+    objective. Physical RMSE/MAE metrics and exported predictions are unchanged.
     """
 
     weight: float = 1.0
@@ -201,9 +193,13 @@ class AtomicBasisIrrepBalancedLossHypers(TypedDict):
 class TrainerHypers(PETTrainerHypers):
     """Hyperparameters for training e-pet models.
 
-    The default split learning rates use the E-PET custom trainer path. This path
-    does not currently support distributed training, finetuning, or PET's
-    ``max_atoms_per_batch`` variable-size batching.
+    The default E-PET optimizer uses ``learning_rate`` for all PET-like/readout
+    parameters and ``tensor_basis_learning_rate`` for tensor-basis modules. If the
+    tensor-basis learning rate is ``null`` or equal to ``learning_rate`` -- or if the
+    model has no trainable tensor-basis parameters -- and no E-PET regularizer or
+    irrep-balanced objective is active, E-PET delegates to PET's standard trainer.
+    The custom E-PET path supports PET-style single-process finetuning, but not
+    distributed training or PET's ``max_atoms_per_batch`` variable-size batching.
     """
 
     learning_rate: float = 2.0e-4
@@ -220,11 +216,6 @@ class TrainerHypers(PETTrainerHypers):
     to PET-like scalar readouts while nontrivial tensor-basis blocks are regularized.
     """
 
-    scale_property_floor_ratio: Optional[float] = None
-    """Default-off diagnostic floor for fitted per-property scales. If set, each
-    target's fitted scales are clamped to at least this ratio times that target's
-    median positive scale."""
-
     atomic_basis_irrep_balanced_loss: Dict[str, AtomicBasisIrrepBalancedLossHypers] = {}
     """Default-off E-PET-only loss for listed per-atom spherical atomic-basis targets.
 
@@ -235,20 +226,11 @@ class TrainerHypers(PETTrainerHypers):
     basis_gram_weight: float = 0.0
     """Weight for the E-PET tensor-basis Gram penalty."""
 
-    pet_trunk_learning_rate: Optional[float] = 2.0e-4
-    """Learning rate for the shared PET backbone. Set to ``null`` to use
-    ``learning_rate``."""
-
     tensor_basis_learning_rate: Optional[float] = 1.0e-3
-    """Learning rate for tensor-basis modules. Set to ``null`` to use
-    ``learning_rate``."""
+    """Optional learning rate for tensor-basis modules.
 
-    readout_learning_rate: Optional[float] = 1.0e-3
-    """Learning rate for PET heads and final readout layers. Set to ``null`` to use
-    ``learning_rate``."""
-
-    spherical_l0_readout_learning_rate: Optional[float] = None
-    """Learning rate for spherical ``o3_lambda=0`` final readout layers. If an
-    atomic-basis ``o3_lambda=0`` block is split into a dedicated target-local head with
-    ``irrep_head_groups``, this also applies to that dedicated PET head. Set to
-    ``null`` to use ``readout_learning_rate``."""
+    The shared PET trunk, PET heads, scalar paths, and coefficient readouts all use
+    ``learning_rate``. Set this to ``null`` to train tensor-basis modules with the
+    same learning rate as the rest of E-PET and to keep the optimizer surface fully
+    PET-like when no E-PET-only losses or regularizers are enabled.
+    """

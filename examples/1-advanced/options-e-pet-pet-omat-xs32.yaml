@@ -36,7 +36,7 @@ architecture:
       featurizer_type: feedforward
       zbl: false
     tensor_basis_defaults:
-      # Non-default PET-OMat E-PET basis settings.
+      # PET-OMat E-PET basis settings. Angular order is target-derived.
       add_lambda_basis: true
       legacy: false
       soap:
@@ -52,13 +52,10 @@ architecture:
   training:
     batch_size: 16
     num_epochs: 100
-    # Keep the PET trunk at the PET baseline rate. Train nontrivial tensor-basis
-    # and readout parameters faster, while keeping hidden l=0 stress PET-like.
+    # Keep PET trunk, heads, and coefficient readouts at the PET baseline rate;
+    # only tensor-basis modules use the faster optional rate.
     learning_rate: 2.0e-4
-    pet_trunk_learning_rate: 2.0e-4
-    spherical_l0_readout_learning_rate: 2.0e-4
     tensor_basis_learning_rate: 1.0e-3
-    readout_learning_rate: 1.0e-3
     warmup_fraction: 0.1
     checkpoint_interval: 10
     basis_gram_weight: 1.0e-3
