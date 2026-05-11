@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
 from metatensor.torch import TensorMap
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.pet.trainer import (
     Trainer as PETTrainer,
@@ -36,6 +36,10 @@ from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
 )
 from metatrain.utils.distributed.batch_utils import should_skip_batch
+from metatrain.utils.distributed.distributed_data_parallel import (
+    DistributedDataParallel,
+)
+from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator, LossSpecification
@@ -104,11 +108,6 @@ class Trainer(PETTrainer):
                 f"are: {sorted(str(item) for item in EPET.__supported_dtypes__)}."
             )
 
-        if self.hypers["distributed"]:
-            raise NotImplementedError(
-                "The custom e-pet training path does not support distributed "
-                "training yet."
-            )
         if self.hypers["max_atoms_per_batch"] is not None:
             raise NotImplementedError(
                 "The custom e-pet training path does not support "
@@ -221,7 +220,15 @@ class Trainer(PETTrainer):
         device: torch.device,
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-    ) -> tuple[Any, CombinedDataLoader, CombinedDataLoader]:
+        is_distributed: bool,
+        world_size: int,
+        rank: int,
+    ) -> tuple[
+        Any,
+        CombinedDataLoader,
+        CombinedDataLoader,
+        List[DistributedSampler],
+    ]:
         train_targets = model.dataset_info.targets
         extra_data_info = model.dataset_info.extra_data
         rotational_augmenter = RotationalAugmenter(
@@ -238,7 +245,7 @@ class Trainer(PETTrainer):
             train_datasets,
             self.hypers,
             atomic_basis_transform,
-            False,
+            is_distributed,
             device,
         )
 
@@ -265,9 +272,39 @@ class Trainer(PETTrainer):
         )
 
         num_workers = _resolve_num_workers(self.hypers)
+        if is_distributed:
+            train_samplers: List[Optional[DistributedSampler]] = [
+                DistributedSampler(
+                    train_dataset,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=True,
+                    drop_last=True,
+                )
+                for train_dataset in train_datasets
+            ]
+            val_samplers: List[Optional[DistributedSampler]] = [
+                DistributedSampler(
+                    val_dataset,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=False,
+                    drop_last=False,
+                )
+                for val_dataset in val_datasets
+            ]
+        else:
+            train_samplers = [None] * len(train_datasets)
+            val_samplers = [None] * len(val_datasets)
+
+        epoch_samplers = [
+            sampler for sampler in train_samplers if sampler is not None
+        ]
 
         train_dataloaders = []
-        for train_dataset in train_datasets:
+        for train_dataset, train_sampler in zip(
+            train_datasets, train_samplers, strict=True
+        ):
             if len(train_dataset) < self.hypers["batch_size"]:
                 raise ValueError(
                     f"A training dataset has fewer samples "
@@ -279,8 +316,9 @@ class Trainer(PETTrainer):
                 DataLoader(
                     dataset=train_dataset,
                     batch_size=self.hypers["batch_size"],
-                    shuffle=True,
-                    drop_last=True,
+                    sampler=train_sampler,
+                    shuffle=(train_sampler is None),
+                    drop_last=(train_sampler is None),
                     collate_fn=collate_fn_train,
                     num_workers=num_workers,
                 )
@@ -288,11 +326,12 @@ class Trainer(PETTrainer):
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
         val_dataloaders = []
-        for val_dataset in val_datasets:
+        for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
             val_dataloaders.append(
                 DataLoader(
                     dataset=val_dataset,
                     batch_size=self.hypers["batch_size"],
+                    sampler=val_sampler,
                     shuffle=False,
                     drop_last=False,
                     collate_fn=collate_fn_val,
@@ -300,7 +339,12 @@ class Trainer(PETTrainer):
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
-        return atomic_basis_reverse_transform, train_dataloader, val_dataloader
+        return (
+            atomic_basis_reverse_transform,
+            train_dataloader,
+            val_dataloader,
+            epoch_samplers,
+        )
 
     def _build_custom_losses(
         self,
@@ -401,18 +445,19 @@ class Trainer(PETTrainer):
         rmse_calculator: RMSEAccumulator,
         mae_calculator: Optional[MAEAccumulator],
         per_structure_targets: List[str],
+        is_distributed: bool,
         device: torch.device,
     ) -> Dict[str, float]:
         info = rmse_calculator.finalize(
             not_per_atom=["positions_gradients"] + per_structure_targets,
-            is_distributed=False,
+            is_distributed=is_distributed,
             device=device,
         )
         if mae_calculator is not None:
             info.update(
                 mae_calculator.finalize(
                     not_per_atom=["positions_gradients"] + per_structure_targets,
-                    is_distributed=False,
+                    is_distributed=is_distributed,
                     device=device,
                 )
             )
@@ -460,7 +505,8 @@ class Trainer(PETTrainer):
 
     def _run_training_epoch(
         self,
-        model: EPET,
+        model: Any,
+        active_model: EPET,
         train_dataloader: CombinedDataLoader,
         train_targets: Dict[str, Any],
         normal_train_targets: Dict[str, Any],
@@ -473,13 +519,14 @@ class Trainer(PETTrainer):
         basis_gram_weight: float,
         per_structure_targets: List[str],
         dtype: torch.dtype,
+        is_distributed: bool,
         device: torch.device,
     ) -> Dict[str, float]:
         rmse_calculator, mae_calculator = self._new_metric_calculators()
         train_loss = 0.0
 
         for batch in train_dataloader:
-            if should_skip_batch(batch, False, device):
+            if should_skip_batch(batch, is_distributed, device):
                 continue
 
             optimizer.zero_grad()
@@ -507,10 +554,10 @@ class Trainer(PETTrainer):
                 loss_fn,
                 custom_loss_fn,
                 atomic_basis_reverse_transform,
-                model,
+                active_model,
             )
             train_loss_batch = self._add_regularization(
-                model,
+                active_model,
                 train_loss_batch,
                 coefficient_l2_weight,
                 basis_gram_weight,
@@ -522,6 +569,11 @@ class Trainer(PETTrainer):
                 targets=targets,
                 extra_data=extra_data,
             )
+            if is_distributed:
+                # Keep DDP's reducer satisfied even when a parameter is not used by
+                # the selected outputs in this batch.
+                for param in model.parameters():
+                    train_loss_batch = train_loss_batch + 0.0 * param.sum()
 
             train_loss_batch.backward()
             torch.nn.utils.clip_grad_norm_(
@@ -529,6 +581,8 @@ class Trainer(PETTrainer):
             )
             optimizer.step()
             lr_scheduler.step()
+            if is_distributed:
+                torch.distributed.all_reduce(train_loss_batch)
             train_loss += train_loss_batch.item()
 
             scaled_predictions, scaled_targets, metric_extra_data = (
@@ -538,7 +592,7 @@ class Trainer(PETTrainer):
                     targets,
                     extra_data,
                     atomic_basis_reverse_transform,
-                    model,
+                    active_model,
                 )
             )
             self._update_metric_calculators(
@@ -556,13 +610,15 @@ class Trainer(PETTrainer):
                 rmse_calculator,
                 mae_calculator,
                 per_structure_targets,
+                is_distributed,
                 device,
             ),
         }
 
     def _run_validation_epoch(
         self,
-        model: EPET,
+        model: Any,
+        active_model: EPET,
         val_dataloader: CombinedDataLoader,
         train_targets: Dict[str, Any],
         normal_train_targets: Dict[str, Any],
@@ -571,13 +627,14 @@ class Trainer(PETTrainer):
         atomic_basis_reverse_transform: Any,
         per_structure_targets: List[str],
         dtype: torch.dtype,
+        is_distributed: bool,
         device: torch.device,
     ) -> Dict[str, float]:
         rmse_calculator, mae_calculator = self._new_metric_calculators()
         val_loss = 0.0
 
         for batch in val_dataloader:
-            if should_skip_batch(batch, False, device):
+            if should_skip_batch(batch, is_distributed, device):
                 continue
 
             systems, targets, extra_data = unpack_batch(batch)
@@ -604,7 +661,7 @@ class Trainer(PETTrainer):
                 loss_fn,
                 custom_loss_fn,
                 atomic_basis_reverse_transform,
-                model,
+                active_model,
             )
             assert_finite_loss(
                 val_loss_batch,
@@ -613,6 +670,8 @@ class Trainer(PETTrainer):
                 targets=targets,
                 extra_data=extra_data,
             )
+            if is_distributed:
+                torch.distributed.all_reduce(val_loss_batch)
             val_loss += val_loss_batch.item()
 
             scaled_predictions, scaled_targets, metric_extra_data = (
@@ -622,7 +681,7 @@ class Trainer(PETTrainer):
                     targets,
                     extra_data,
                     atomic_basis_reverse_transform,
-                    model,
+                    active_model,
                 )
             )
             self._update_metric_calculators(
@@ -640,6 +699,7 @@ class Trainer(PETTrainer):
                 rmse_calculator,
                 mae_calculator,
                 per_structure_targets,
+                is_distributed,
                 device,
             ),
         }
@@ -662,11 +722,27 @@ class Trainer(PETTrainer):
 
         self._validate_custom_training_path(dtype)
 
-        # This loop mirrors PET's single-process path. Local differences are limited
+        is_distributed = self.hypers["distributed"]
+        if is_distributed:
+            if len(devices) > 1:
+                raise ValueError(
+                    "Requested distributed training with the `multi-gpu` device. "
+                    "If you want to run distributed training with E-PET, please "
+                    "set `device` to cuda."
+                )
+            device, world_size, rank = initialize_slurm_nccl_process_group(
+                self.hypers["distributed_port"]
+            )
+            logging.info(f"Training on {world_size} devices with dtype {dtype}")
+        else:
+            device = devices[0]
+            world_size = 1
+            rank = 0
+            logging.info(f"Training on device {device} with dtype {dtype}")
+
+        # This loop mirrors PET's fixed-batch path. Local differences are limited
         # to the optional tensor-basis optimizer group, E-PET regularizers, and the
         # default-off atomic-basis irrep-balanced loss.
-        device = devices[0]
-        logging.info(f"Training on device {device} with dtype {dtype}")
 
         model = cast(EPET, _apply_finetuning_if_requested(model, self.hypers))
         _move_model_to_training_device(model, device, dtype)
@@ -676,17 +752,32 @@ class Trainer(PETTrainer):
             atomic_basis_reverse_transform,
             train_dataloader,
             val_dataloader,
+            epoch_samplers,
         ) = self._build_custom_dataloaders(
-            model, device, train_datasets, val_datasets
+            model,
+            device,
+            train_datasets,
+            val_datasets,
+            is_distributed,
+            world_size,
+            rank,
         )
+        optimizer = self._build_optimizer(model)
+        if is_distributed:
+            ddp_model = DistributedDataParallel(model, device_ids=[device])
+            active_model = cast(EPET, ddp_model.module)
+            training_model: Any = ddp_model
+        else:
+            active_model = model
+            training_model = model
+
         custom_loss_config, custom_loss_fn, normal_train_targets, loss_fn = (
-            self._build_custom_losses(model)
+            self._build_custom_losses(active_model)
         )
         _log_loss_metadata(loss_fn, custom_loss_fn, custom_loss_config)
 
-        optimizer = self._build_optimizer(model)
         lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
-        self._load_restart_state(model, optimizer, lr_scheduler)
+        self._load_restart_state(active_model, optimizer, lr_scheduler)
 
         per_structure_targets = self.hypers["per_structure_targets"]
         logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
@@ -698,8 +789,11 @@ class Trainer(PETTrainer):
 
         metric_logger = None
         for epoch in range(start_epoch, self.hypers["num_epochs"]):
+            for sampler in epoch_samplers:
+                sampler.set_epoch(epoch)
             finalized_train_info = self._run_training_epoch(
-                model,
+                training_model,
+                active_model,
                 train_dataloader,
                 train_targets,
                 normal_train_targets,
@@ -712,10 +806,12 @@ class Trainer(PETTrainer):
                 basis_gram_weight,
                 per_structure_targets,
                 dtype,
+                is_distributed,
                 device,
             )
             finalized_val_info = self._run_validation_epoch(
-                model,
+                training_model,
+                active_model,
                 val_dataloader,
                 train_targets,
                 normal_train_targets,
@@ -724,6 +820,7 @@ class Trainer(PETTrainer):
                 atomic_basis_reverse_transform,
                 per_structure_targets,
                 dtype,
+                is_distributed,
                 device,
             )
 
@@ -741,18 +838,25 @@ class Trainer(PETTrainer):
                 metric_logger.log(
                     metrics=[finalized_train_info, finalized_val_info],
                     epoch=epoch,
-                    rank=0,
+                    rank=rank,
                     learning_rate=optimizer.param_groups[0]["lr"],
                 )
 
-            self._update_best_model(model, optimizer, finalized_val_info, epoch)
-            self._save_epoch_checkpoint(
-                model, optimizer, lr_scheduler, checkpoint_dir, epoch
-            )
+            self._update_best_model(active_model, optimizer, finalized_val_info, epoch)
+            if epoch % self.hypers["checkpoint_interval"] == 0:
+                if is_distributed:
+                    torch.distributed.barrier()
+                if rank == 0:
+                    self._save_epoch_checkpoint(
+                        active_model, optimizer, lr_scheduler, checkpoint_dir, epoch
+                    )
 
         self.epoch = epoch
         self.optimizer_state_dict = optimizer.state_dict()
         self.scheduler_state_dict = lr_scheduler.state_dict()
+
+        if is_distributed:
+            torch.distributed.destroy_process_group()
 
     @classmethod
     def load_checkpoint(

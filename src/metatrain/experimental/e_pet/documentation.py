@@ -198,8 +198,9 @@ class TrainerHypers(PETTrainerHypers):
     tensor-basis learning rate is ``null`` or equal to ``learning_rate`` -- or if the
     model has no trainable tensor-basis parameters -- and no E-PET regularizer or
     irrep-balanced objective is active, E-PET delegates to PET's standard trainer.
-    The custom E-PET path supports PET-style single-process finetuning, but not
-    distributed training or PET's ``max_atoms_per_batch`` variable-size batching.
+    The custom E-PET path supports PET-style finetuning and fixed-batch distributed
+    training. PET's ``max_atoms_per_batch`` variable-size batching is still deferred
+    for the custom path.
     """
 
     learning_rate: float = 2.0e-4

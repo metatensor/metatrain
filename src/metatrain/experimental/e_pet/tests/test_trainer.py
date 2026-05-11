@@ -385,12 +385,11 @@ def test_custom_trainer_restores_restart_optimizer_and_scheduler_state() -> None
     assert restored_scheduler.state_dict()["last_epoch"] == 5
 
 
-def test_custom_trainer_rejects_distributed_training() -> None:
+def test_custom_trainer_accepts_distributed_fixed_batch_training() -> None:
     hypers = _basis_lr_training_hypers()
     hypers["distributed"] = True
 
-    with pytest.raises(NotImplementedError, match="distributed training"):
-        Trainer(hypers)._validate_custom_training_path(torch.float32)
+    Trainer(hypers)._validate_custom_training_path(torch.float32)
 
 
 def test_custom_trainer_supports_heads_finetuning() -> None:
