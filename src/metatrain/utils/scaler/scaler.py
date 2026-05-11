@@ -396,11 +396,11 @@ class Scaler(torch.nn.Module):
         :param remove: If True, removes the scaling (i.e., divides by the scales). If
             False, applies the scaling (i.e., multiplies by the scales).
         :param selected_atoms: Optional labels for selected atoms.
-        :param use_per_target_scales: If True, applies/removes per-target scales. This
-            only applies to targets with multiple blocks.
+        :param use_per_target_scales: If True, applies/removes per-target scales.
         :param use_per_property_scales: If True, applies/removes per-block, per-property
             scales. This only applies to targets with multiple blocks or multiple
-            properties. If False, applies/removes the per-property scales.
+            properties. When combined with `use_per_target_scales`, this is equivalent
+            to applying/removing the full scales.
         :returns: A dictionary with the scaled outputs.
 
         :raises ValueError: If no scales have been computed or if `outputs` keys

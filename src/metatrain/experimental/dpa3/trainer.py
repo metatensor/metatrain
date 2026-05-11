@@ -396,8 +396,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # Accumulate quantities for computing train metrics,
                 # but only if this is an epoch to log
                 if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
-                    # TODO: rescale predictions and targets here? Is there a reason this
-                    # isn't already done?
                     train_rmse_calculator.update(predictions, targets)
                     if self.hypers["log_mae"]:
                         train_mae_calculator.update(predictions, targets)
@@ -466,28 +464,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     # sum the loss over all processes
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
-
-                # TODO: rescale predictions and targets here? Is there a reason this
-                # isn't already done?
-                # # Reapply scales and accumulate quantities for computing val
-                # # metrics. This is done for every epoch as validation metrics are
-                # # needed for model selection
-                # scaled_predictions = (
-                #     model.module if is_distributed else model
-                # ).scaler(
-                #     systems,
-                #     predictions,
-                #     remove=False,
-                #     use_per_target_scales=True,
-                #     use_per_property_scales=False,
-                # )
-                # scaled_targets = (model.module if is_distributed else model).scaler(
-                #     systems,
-                #     targets,
-                #     remove=False,
-                #     use_per_target_scales=True,
-                #     use_per_property_scales=False,
-                # )
 
                 # Accumulate quantities for computing val metrics. This is done for
                 # every epoch as validation metrics are needed for model selection
