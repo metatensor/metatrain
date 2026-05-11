@@ -458,3 +458,16 @@ def trainer_update_v12_v13(checkpoint: dict) -> None:
     """
     checkpoint["train_hypers"]["max_atoms_per_batch"] = None
     checkpoint["train_hypers"]["min_atoms_per_batch"] = 0
+
+
+def trainer_update_v13_v14(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 13 to version 14.
+
+    The ``batch_atom_bounds`` field has been removed from the PET trainer
+    schema (max-atom packing is now done by the sampler). Drop it from old
+    checkpoints if present.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"].pop("batch_atom_bounds", None)
