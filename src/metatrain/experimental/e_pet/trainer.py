@@ -8,17 +8,34 @@ from typing import Any, Dict, List, Literal, Optional, Union, cast
 import metatensor.torch as mts
 import torch
 from metatensor.torch import TensorBlock, TensorMap
+from torch.utils.data import DataLoader
 
 from metatrain.pet.trainer import Trainer as PETTrainer
-from metatrain.utils.data import Dataset
-from metatrain.utils.data import unpack_batch
+from metatrain.pet.trainer import get_scheduler
+from metatrain.utils.additive import get_remove_additive_transform
+from metatrain.utils.augmentation import RotationalAugmenter
+from metatrain.utils.data import (
+    CollateFn,
+    CombinedDataLoader,
+    Dataset,
+    get_num_workers,
+    unpack_batch,
+    validate_num_workers,
+)
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
 )
 from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator, LossSpecification
+from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists_transform,
+)
 from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.training_diagnostics import (
     assert_finite_loss,
     assert_finite_metrics,
@@ -313,69 +330,14 @@ class Trainer(PETTrainer):
         if self.scheduler_state_dict is not None:
             lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
-    def train(
+    def _fit_and_copy_preprocessors(
         self,
         model: EPET,
-        dtype: torch.dtype,
-        devices: List[torch.device],
+        device: torch.device,
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        checkpoint_dir: str,
-    ) -> None:
-        coefficient_l2_weight, basis_gram_weight = self._regularization_weights()
-        if not self._requires_custom_training_path():
-            super().train(
-                model, dtype, devices, train_datasets, val_datasets, checkpoint_dir
-            )
-            return
-
-        self._validate_custom_training_path(dtype)
-
-        # This loop mirrors PET's single-process path. Local differences are limited
-        # to split optimizer groups, E-PET regularizers, and default-off diagnostics
-        # such as scaler flooring and atomic-basis irrep-balanced loss.
-        device = devices[0]
-        logging.info(f"Training on device {device} with dtype {dtype}")
-
-        from metatrain.pet.trainer import get_scheduler
-        from metatrain.utils.additive import get_remove_additive_transform
-        from metatrain.utils.augmentation import RotationalAugmenter
-        from metatrain.utils.data import (
-            CollateFn,
-            CombinedDataLoader,
-            get_num_workers,
-            validate_num_workers,
-        )
-        from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-        from metatrain.utils.metrics import (
-            MAEAccumulator,
-            RMSEAccumulator,
-            get_selected_metric,
-        )
-        from metatrain.utils.neighbor_lists import (
-            get_requested_neighbor_lists,
-            get_system_with_neighbor_lists_transform,
-        )
-        from metatrain.utils.scaler import get_remove_scale_transform
-        from torch.utils.data import DataLoader
-
-        model.to(device=device, dtype=dtype)
-        for additive_model in model.additive_models:
-            additive_model.to(dtype=torch.float64)
-        model.scaler.to(dtype=torch.float64)
-
-        dataset_info = model.dataset_info
-        train_targets = dataset_info.targets
-        extra_data_info = dataset_info.extra_data
-        rotational_augmenter = RotationalAugmenter(
-            target_info_dict=train_targets,
-            extra_data_info_dict=extra_data_info,
-        )
-        requested_neighbor_lists = get_requested_neighbor_lists(model)
-        atomic_basis_transform, atomic_basis_reverse_transform = (
-            get_prepare_atomic_basis_targets_transform(train_targets, extra_data_info)
-        )
-
+        train_targets: Dict[str, Any],
+        atomic_basis_transform: Any,
+    ) -> tuple[Any, Any]:
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(
             train_datasets,
@@ -408,6 +370,29 @@ class Trainer(PETTrainer):
         scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
         model.scaler.to(device)
         model.scaler.scales_to(device=device, dtype=torch.float64)
+        return additive_models, scaler
+
+    def _build_custom_dataloaders(
+        self,
+        model: EPET,
+        device: torch.device,
+        train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    ) -> tuple[Any, CombinedDataLoader, CombinedDataLoader]:
+        train_targets = model.dataset_info.targets
+        extra_data_info = model.dataset_info.extra_data
+        rotational_augmenter = RotationalAugmenter(
+            target_info_dict=train_targets,
+            extra_data_info_dict=extra_data_info,
+        )
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
+        atomic_basis_transform, atomic_basis_reverse_transform = (
+            get_prepare_atomic_basis_targets_transform(train_targets, extra_data_info)
+        )
+
+        additive_models, scaler = self._fit_and_copy_preprocessors(
+            model, device, train_datasets, train_targets, atomic_basis_transform
+        )
 
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
@@ -475,7 +460,18 @@ class Trainer(PETTrainer):
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
+        return atomic_basis_reverse_transform, train_dataloader, val_dataloader
 
+    def _build_custom_losses(
+        self,
+        model: EPET,
+    ) -> tuple[
+        Dict[str, Dict[str, Any]],
+        Optional[_AtomicBasisIrrepBalancedLoss],
+        Dict[str, Any],
+        Optional[LossAggregator],
+    ]:
+        train_targets = model.dataset_info.targets
         custom_loss_config = self._atomic_basis_irrep_balanced_loss_config()
         custom_loss_fn = (
             _AtomicBasisIrrepBalancedLoss(
@@ -506,6 +502,14 @@ class Trainer(PETTrainer):
             if normal_train_targets
             else None
         )
+        return custom_loss_config, custom_loss_fn, normal_train_targets, loss_fn
+
+    @staticmethod
+    def _log_custom_loss_metadata(
+        loss_fn: Optional[LossAggregator],
+        custom_loss_fn: Optional[_AtomicBasisIrrepBalancedLoss],
+        custom_loss_config: Dict[str, Dict[str, Any]],
+    ) -> None:
         logging.info("Using the following loss functions:")
         if loss_fn is not None:
             for name, info in loss_fn.metadata.items():
@@ -530,6 +534,174 @@ class Trainer(PETTrainer):
                     }
                 )
 
+    def _compute_custom_loss_batch(
+        self,
+        systems: List[Any],
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Dict[str, TensorMap],
+        normal_train_targets: Dict[str, Any],
+        loss_fn: Optional[LossAggregator],
+        custom_loss_fn: Optional[_AtomicBasisIrrepBalancedLoss],
+        atomic_basis_reverse_transform: Any,
+        model: EPET,
+    ) -> torch.Tensor:
+        loss = self._zero_loss_like(predictions)
+        if loss_fn is not None:
+            normal_predictions = {
+                name: predictions[name]
+                for name in normal_train_targets
+                if name in predictions
+            }
+            if normal_predictions:
+                normal_targets = {name: targets[name] for name in normal_predictions}
+                loss = loss + loss_fn(normal_predictions, normal_targets, extra_data)
+        if custom_loss_fn is not None:
+            loss = loss + custom_loss_fn.compute(
+                systems,
+                predictions,
+                targets,
+                atomic_basis_reverse_transform,
+                model.scaler,
+            )
+        return loss
+
+    def _scaled_metric_inputs(
+        self,
+        systems: List[Any],
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Dict[str, TensorMap],
+        atomic_basis_reverse_transform: Any,
+        model: EPET,
+    ) -> tuple[Dict[str, TensorMap], Dict[str, TensorMap], Dict[str, TensorMap]]:
+        scaled_predictions = model.scaler(systems, predictions)
+        scaled_targets = model.scaler(systems, targets)
+        if self.hypers["log_separate_blocks"]:
+            systems, scaled_targets, extra_data = atomic_basis_reverse_transform(
+                systems, scaled_targets, extra_data
+            )
+            systems, scaled_predictions, _ = atomic_basis_reverse_transform(
+                systems, scaled_predictions, {}
+            )
+        return scaled_predictions, scaled_targets, extra_data
+
+    def _update_metric_calculators(
+        self,
+        rmse_calculator: RMSEAccumulator,
+        mae_calculator: Optional[MAEAccumulator],
+        scaled_predictions: Dict[str, TensorMap],
+        scaled_targets: Dict[str, TensorMap],
+        extra_data: Dict[str, TensorMap],
+        phase: str,
+    ) -> None:
+        try:
+            rmse_calculator.update(scaled_predictions, scaled_targets, extra_data)
+        except ValueError as err:
+            raise ValueError(f"Non-finite scaled {phase} metric inputs: {err}") from err
+        if mae_calculator is not None:
+            try:
+                mae_calculator.update(scaled_predictions, scaled_targets, extra_data)
+            except ValueError as err:
+                raise ValueError(
+                    f"Non-finite scaled {phase} metric inputs: {err}"
+                ) from err
+
+    @staticmethod
+    def _finalize_metric_info(
+        rmse_calculator: RMSEAccumulator,
+        mae_calculator: Optional[MAEAccumulator],
+        per_structure_targets: List[str],
+        device: torch.device,
+    ) -> Dict[str, float]:
+        info = rmse_calculator.finalize(
+            not_per_atom=["positions_gradients"] + per_structure_targets,
+            is_distributed=False,
+            device=device,
+        )
+        if mae_calculator is not None:
+            info.update(
+                mae_calculator.finalize(
+                    not_per_atom=["positions_gradients"] + per_structure_targets,
+                    is_distributed=False,
+                    device=device,
+                )
+            )
+        return info
+
+    def _update_best_model(
+        self,
+        model: EPET,
+        optimizer: torch.optim.Optimizer,
+        finalized_val_info: Dict[str, float],
+        epoch: int,
+    ) -> None:
+        val_metric = get_selected_metric(
+            finalized_val_info, self.hypers["best_model_metric"]
+        )
+        if self.best_metric is None or val_metric < self.best_metric:
+            self.best_metric = val_metric
+            self.best_model_state_dict = copy.deepcopy(model.state_dict())
+            self.best_epoch = epoch
+            self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
+
+    def _save_epoch_checkpoint(
+        self,
+        model: EPET,
+        optimizer: torch.optim.Optimizer,
+        lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
+        checkpoint_dir: str,
+        epoch: int,
+    ) -> None:
+        if epoch % self.hypers["checkpoint_interval"] != 0:
+            return
+        self.optimizer_state_dict = optimizer.state_dict()
+        self.scheduler_state_dict = lr_scheduler.state_dict()
+        self.epoch = epoch
+        self.save_checkpoint(model, Path(checkpoint_dir) / f"model_{epoch}.ckpt")
+
+    def train(
+        self,
+        model: EPET,
+        dtype: torch.dtype,
+        devices: List[torch.device],
+        train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        checkpoint_dir: str,
+    ) -> None:
+        coefficient_l2_weight, basis_gram_weight = self._regularization_weights()
+        if not self._requires_custom_training_path():
+            super().train(
+                model, dtype, devices, train_datasets, val_datasets, checkpoint_dir
+            )
+            return
+
+        self._validate_custom_training_path(dtype)
+
+        # This loop mirrors PET's single-process path. Local differences are limited
+        # to split optimizer groups, E-PET regularizers, and default-off diagnostics
+        # such as scaler flooring and atomic-basis irrep-balanced loss.
+        device = devices[0]
+        logging.info(f"Training on device {device} with dtype {dtype}")
+
+        model.to(device=device, dtype=dtype)
+        for additive_model in model.additive_models:
+            additive_model.to(dtype=torch.float64)
+        model.scaler.to(dtype=torch.float64)
+
+        train_targets = model.dataset_info.targets
+        (
+            atomic_basis_reverse_transform,
+            train_dataloader,
+            val_dataloader,
+        ) = self._build_custom_dataloaders(
+            model, device, train_datasets, val_datasets
+        )
+        custom_loss_config, custom_loss_fn, normal_train_targets, loss_fn = (
+            self._build_custom_losses(model)
+        )
+        self._log_custom_loss_metadata(loss_fn, custom_loss_fn, custom_loss_config)
+
         optimizer = self._build_optimizer(model)
         lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
         self._load_restart_state(model, optimizer, lr_scheduler)
@@ -546,6 +718,8 @@ class Trainer(PETTrainer):
         for epoch in range(start_epoch, self.hypers["num_epochs"]):
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
+            train_mae_calculator = None
+            val_mae_calculator = None
             if self.hypers["log_mae"]:
                 train_mae_calculator = MAEAccumulator(
                     self.hypers["log_separate_blocks"]
@@ -573,28 +747,17 @@ class Trainer(PETTrainer):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = self._zero_loss_like(predictions)
-                if loss_fn is not None:
-                    normal_predictions = {
-                        name: predictions[name]
-                        for name in normal_train_targets
-                        if name in predictions
-                    }
-                    if normal_predictions:
-                        normal_targets = {
-                            name: targets[name] for name in normal_predictions
-                        }
-                        train_loss_batch = train_loss_batch + loss_fn(
-                            normal_predictions, normal_targets, extra_data
-                        )
-                if custom_loss_fn is not None:
-                    train_loss_batch = train_loss_batch + custom_loss_fn.compute(
-                        systems,
-                        predictions,
-                        targets,
-                        atomic_basis_reverse_transform,
-                        model.scaler,
-                    )
+                train_loss_batch = self._compute_custom_loss_batch(
+                    systems,
+                    predictions,
+                    targets,
+                    extra_data,
+                    normal_train_targets,
+                    loss_fn,
+                    custom_loss_fn,
+                    atomic_basis_reverse_transform,
+                    model,
+                )
                 train_loss_batch = self._add_regularization(
                     model,
                     train_loss_batch,
@@ -617,46 +780,31 @@ class Trainer(PETTrainer):
                 lr_scheduler.step()
                 train_loss += train_loss_batch.item()
 
-                scaled_predictions = model.scaler(systems, predictions)
-                scaled_targets = model.scaler(systems, targets)
-                if self.hypers["log_separate_blocks"]:
-                    systems, scaled_targets, extra_data = atomic_basis_reverse_transform(
-                        systems, scaled_targets, extra_data
-                    )
-                    systems, scaled_predictions, _ = atomic_basis_reverse_transform(
-                        systems, scaled_predictions, {}
-                    )
-                try:
-                    train_rmse_calculator.update(
-                        scaled_predictions, scaled_targets, extra_data
-                    )
-                except ValueError as err:
-                    raise ValueError(
-                        f"Non-finite scaled training metric inputs: {err}"
-                    ) from err
-                if self.hypers["log_mae"]:
-                    try:
-                        train_mae_calculator.update(
-                            scaled_predictions, scaled_targets, extra_data
-                        )
-                    except ValueError as err:
-                        raise ValueError(
-                            f"Non-finite scaled training metric inputs: {err}"
-                        ) from err
-
-            finalized_train_info = train_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets,
-                is_distributed=False,
-                device=device,
-            )
-            if self.hypers["log_mae"]:
-                finalized_train_info.update(
-                    train_mae_calculator.finalize(
-                        not_per_atom=["positions_gradients"] + per_structure_targets,
-                        is_distributed=False,
-                        device=device,
+                scaled_predictions, scaled_targets, metric_extra_data = (
+                    self._scaled_metric_inputs(
+                        systems,
+                        predictions,
+                        targets,
+                        extra_data,
+                        atomic_basis_reverse_transform,
+                        model,
                     )
                 )
+                self._update_metric_calculators(
+                    train_rmse_calculator,
+                    train_mae_calculator,
+                    scaled_predictions,
+                    scaled_targets,
+                    metric_extra_data,
+                    "training",
+                )
+
+            finalized_train_info = self._finalize_metric_info(
+                train_rmse_calculator,
+                train_mae_calculator,
+                per_structure_targets,
+                device,
+            )
 
             val_loss = 0.0
             for batch in val_dataloader:
@@ -678,28 +826,17 @@ class Trainer(PETTrainer):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                val_loss_batch = self._zero_loss_like(predictions)
-                if loss_fn is not None:
-                    normal_predictions = {
-                        name: predictions[name]
-                        for name in normal_train_targets
-                        if name in predictions
-                    }
-                    if normal_predictions:
-                        normal_targets = {
-                            name: targets[name] for name in normal_predictions
-                        }
-                        val_loss_batch = val_loss_batch + loss_fn(
-                            normal_predictions, normal_targets, extra_data
-                        )
-                if custom_loss_fn is not None:
-                    val_loss_batch = val_loss_batch + custom_loss_fn.compute(
-                        systems,
-                        predictions,
-                        targets,
-                        atomic_basis_reverse_transform,
-                        model.scaler,
-                    )
+                val_loss_batch = self._compute_custom_loss_batch(
+                    systems,
+                    predictions,
+                    targets,
+                    extra_data,
+                    normal_train_targets,
+                    loss_fn,
+                    custom_loss_fn,
+                    atomic_basis_reverse_transform,
+                    model,
+                )
                 assert_finite_loss(
                     val_loss_batch,
                     phase="validation",
@@ -709,46 +846,31 @@ class Trainer(PETTrainer):
                 )
                 val_loss += val_loss_batch.item()
 
-                scaled_predictions = model.scaler(systems, predictions)
-                scaled_targets = model.scaler(systems, targets)
-                if self.hypers["log_separate_blocks"]:
-                    systems, scaled_targets, extra_data = atomic_basis_reverse_transform(
-                        systems, scaled_targets, extra_data
-                    )
-                    systems, scaled_predictions, _ = atomic_basis_reverse_transform(
-                        systems, scaled_predictions, {}
-                    )
-                try:
-                    val_rmse_calculator.update(
-                        scaled_predictions, scaled_targets, extra_data
-                    )
-                except ValueError as err:
-                    raise ValueError(
-                        f"Non-finite scaled validation metric inputs: {err}"
-                    ) from err
-                if self.hypers["log_mae"]:
-                    try:
-                        val_mae_calculator.update(
-                            scaled_predictions, scaled_targets, extra_data
-                        )
-                    except ValueError as err:
-                        raise ValueError(
-                            f"Non-finite scaled validation metric inputs: {err}"
-                        ) from err
-
-            finalized_val_info = val_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets,
-                is_distributed=False,
-                device=device,
-            )
-            if self.hypers["log_mae"]:
-                finalized_val_info.update(
-                    val_mae_calculator.finalize(
-                        not_per_atom=["positions_gradients"] + per_structure_targets,
-                        is_distributed=False,
-                        device=device,
+                scaled_predictions, scaled_targets, metric_extra_data = (
+                    self._scaled_metric_inputs(
+                        systems,
+                        predictions,
+                        targets,
+                        extra_data,
+                        atomic_basis_reverse_transform,
+                        model,
                     )
                 )
+                self._update_metric_calculators(
+                    val_rmse_calculator,
+                    val_mae_calculator,
+                    scaled_predictions,
+                    scaled_targets,
+                    metric_extra_data,
+                    "validation",
+                )
+
+            finalized_val_info = self._finalize_metric_info(
+                val_rmse_calculator,
+                val_mae_calculator,
+                per_structure_targets,
+                device,
+            )
 
             finalized_train_info = {"loss": train_loss, **finalized_train_info}
             finalized_val_info = {"loss": val_loss, **finalized_val_info}
@@ -770,20 +892,10 @@ class Trainer(PETTrainer):
                     learning_rate=optimizer.param_groups[0]["lr"],
                 )
 
-            val_metric = get_selected_metric(
-                finalized_val_info, self.hypers["best_model_metric"]
+            self._update_best_model(model, optimizer, finalized_val_info, epoch)
+            self._save_epoch_checkpoint(
+                model, optimizer, lr_scheduler, checkpoint_dir, epoch
             )
-            if val_metric < self.best_metric:
-                self.best_metric = val_metric
-                self.best_model_state_dict = copy.deepcopy(model.state_dict())
-                self.best_epoch = epoch
-                self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
-
-            if epoch % self.hypers["checkpoint_interval"] == 0:
-                self.optimizer_state_dict = optimizer.state_dict()
-                self.scheduler_state_dict = lr_scheduler.state_dict()
-                self.epoch = epoch
-                self.save_checkpoint(model, Path(checkpoint_dir) / f"model_{epoch}.ckpt")
 
         self.epoch = epoch
         self.optimizer_state_dict = optimizer.state_dict()
