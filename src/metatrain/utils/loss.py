@@ -16,7 +16,8 @@ from typing_extensions import NotRequired, TypedDict
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.pyscf_loss import (
     coulomb_matrix_name,
-    packed_coulomb_basis_sizes,
+    overlap_matrix_name,
+    packed_two_center_basis_sizes,
     ri_coefficients_scale_name,
 )
 
@@ -624,6 +625,83 @@ def _ri_coefficients_pyscf_order(tensor_map: TensorMap) -> list[torch.Tensor]:
     return _ri_coefficients_pyscf_order_impl(tensor_map)
 
 
+def _ri_coefficients_pyscf_order_aligned(
+    *tensor_maps: TensorMap,
+) -> list[tuple[torch.Tensor, ...]]:
+    """
+    Flatten several RI TensorMaps with a shared NaN mask (union across maps).
+
+    Returns one tuple per system with one flat tensor per input map, all of equal
+    length per system. Used when several aligned RI quantities (e.g. predicted
+    coefficients and target projections) must be processed together and may have
+    slightly mismatched NaN-padding patterns.
+    """
+
+    if len(tensor_maps) == 0:
+        return []
+
+    first_map = tensor_maps[0]
+    ordered_keys = sorted(first_map.keys, key=lambda key: int(key[0]))
+    if len(ordered_keys) == 0:
+        return []
+
+    first_block = first_map.block(ordered_keys[0])
+    if len(first_block.samples) == 0:
+        return []
+
+    system_indices = first_block.samples.values[:, 0]
+    _, sample_counts = torch.unique_consecutive(system_indices, return_counts=True)
+    sample_counts_list = sample_counts.tolist()
+
+    split_blocks: list[tuple[list[tuple[torch.Tensor, ...]], tuple[torch.Tensor, ...]]]
+    split_blocks = []
+    for key in ordered_keys:
+        per_map_values = []
+        union_invalid: Optional[torch.Tensor] = None
+        for tensor_map in tensor_maps:
+            block = tensor_map.block(key)
+            values = block.values
+            if int(key[0]) == 1:
+                values = values[:, [2, 0, 1], :]
+            values = values.transpose(1, 2).reshape(values.shape[0], -1)
+            per_map_values.append(values)
+            invalid = torch.isnan(values)
+            union_invalid = (
+                invalid if union_invalid is None else (union_invalid | invalid)
+            )
+        assert union_invalid is not None
+        valid = ~union_invalid
+        split_blocks.append(
+            (
+                [torch.split(v, sample_counts_list, dim=0) for v in per_map_values],
+                torch.split(valid, sample_counts_list, dim=0),
+            )
+        )
+
+    result_per_system: list[tuple[torch.Tensor, ...]] = []
+    for i_system in range(len(sample_counts_list)):
+        per_map_parts: list[list[torch.Tensor]] = [[] for _ in tensor_maps]
+        n_samples = split_blocks[0][0][0][i_system].shape[0]
+        for i_sample in range(n_samples):
+            for per_map_splits, valid_splits in split_blocks:
+                valid_v = valid_splits[i_system][i_sample]
+                for i_map, splits in enumerate(per_map_splits):
+                    values_v = splits[i_system][i_sample]
+                    per_map_parts[i_map].append(values_v[valid_v])
+
+        if not per_map_parts[0]:
+            empty = torch.empty(
+                0,
+                dtype=first_block.values.dtype,
+                device=first_block.values.device,
+            )
+            result_per_system.append(tuple(empty for _ in tensor_maps))
+        else:
+            result_per_system.append(tuple(torch.cat(parts) for parts in per_map_parts))
+
+    return result_per_system
+
+
 def extract_sparse_integrals(
     batched_integrals: TensorMap, c_list: list[torch.Tensor]
 ) -> list[torch.Tensor]:
@@ -979,8 +1057,20 @@ class TensorMapRINormLoss(TensorMapMSELoss):
 ########################################################################################
 
 
-class TensorMapRICoulombLoss(LossInterface):
-    """Quadratic Coulomb-metric loss for RI coefficients."""
+class _TensorMapRIQuadraticLoss(LossInterface):
+    """
+    Quadratic two-center-metric loss for RI coefficients.
+
+    Subclasses pick the metric matrix by setting :attr:`_matrix_kind` (used in error
+    messages) and overriding :meth:`_matrix_name` to map the target name to the
+    ``extra_data`` key that holds the packed metric matrix.
+    """
+
+    _matrix_kind: str = "two-center"
+
+    @staticmethod
+    def _matrix_name(target_name: str) -> str:
+        raise NotImplementedError
 
     def __init__(
         self,
@@ -997,16 +1087,17 @@ class TensorMapRICoulombLoss(LossInterface):
         targets: Dict[str, TensorMap],
         extra_data: Optional[Any] = None,
     ) -> torch.Tensor:
+        cls_name = type(self).__name__
         if self.gradient is not None:
             raise NotImplementedError(
-                "TensorMapRICoulombLoss does not support gradients of RI targets."
+                f"{cls_name} does not support gradients of RI targets."
             )
 
-        assert extra_data is not None, "TensorMapRICoulombLoss requires extra_data"
+        assert extra_data is not None, f"{cls_name} requires extra_data"
 
-        matrix_name = coulomb_matrix_name(self.target)
+        matrix_name = self._matrix_name(self.target)
         assert matrix_name in extra_data, (
-            f"TensorMapRICoulombLoss requires '{matrix_name}' in extra_data"
+            f"{cls_name} requires '{matrix_name}' in extra_data"
         )
 
         tensor_map_pred = predictions[self.target]
@@ -1038,14 +1129,15 @@ class TensorMapRICoulombLoss(LossInterface):
                 )
             ]
 
-        packed_coulomb = extra_data[matrix_name]
-        packed_block = packed_coulomb.block()
-        basis_sizes = packed_coulomb_basis_sizes(packed_coulomb).tolist()
+        packed_matrix = extra_data[matrix_name]
+        packed_block = packed_matrix.block()
+        basis_sizes = packed_two_center_basis_sizes(packed_matrix).tolist()
         coefficient_sizes = [len(coefficients) for coefficients in delta_coefficients]
 
         if len(basis_sizes) != len(coefficient_sizes):
             raise ValueError(
-                "The number of packed Coulomb matrices does not match the basis sizes."
+                f"The number of packed {self._matrix_kind} matrices does not match "
+                "the basis sizes."
             )
 
         for coefficient_size, basis_size in zip(
@@ -1053,14 +1145,14 @@ class TensorMapRICoulombLoss(LossInterface):
         ):
             if coefficient_size > basis_size:
                 raise ValueError(
-                    "At least one requested Coulomb matrix basis size exceeds the packed "
-                    "matrix size."
+                    f"At least one requested {self._matrix_kind} matrix basis size "
+                    "exceeds the packed matrix size."
                 )
             if coefficient_size != basis_size:
                 raise ValueError(
                     "The RI target size does not match the configured auxiliary basis. "
-                    "Check that 'ri_aux_basis' matches the RI coefficients stored in the "
-                    "dataset."
+                    "Check that 'ri_aux_basis' matches the RI coefficients stored in "
+                    "the dataset."
                 )
 
         if scale_coefficients is not None:
@@ -1081,9 +1173,9 @@ class TensorMapRICoulombLoss(LossInterface):
         for i_system, delta in enumerate(delta_coefficients):
             delta_padded[i_system, : delta.shape[0]] = delta
 
-        coulomb_values = torch.nan_to_num(packed_block.values, nan=0.0)
+        matrix_values = torch.nan_to_num(packed_block.values, nan=0.0)
         loss_values = torch.einsum(
-            "bi,bij,bj->b", delta_padded, coulomb_values, delta_padded
+            "bi,bij,bj->b", delta_padded, matrix_values, delta_padded
         )
         if self.reduction == "mean":
             return loss_values.mean()
@@ -1093,6 +1185,187 @@ class TensorMapRICoulombLoss(LossInterface):
             return loss_values
         else:
             raise ValueError(f"Unknown reduction '{self.reduction}'")
+
+
+class TensorMapRICoulombLoss(_TensorMapRIQuadraticLoss):
+    """Quadratic Coulomb-metric loss for RI coefficients."""
+
+    _matrix_kind = "Coulomb"
+
+    @staticmethod
+    def _matrix_name(target_name: str) -> str:
+        return coulomb_matrix_name(target_name)
+
+
+class TensorMapRIOverlapLoss(_TensorMapRIQuadraticLoss):
+    """Quadratic overlap-metric loss for RI coefficients."""
+
+    _matrix_kind = "overlap"
+
+    @staticmethod
+    def _matrix_name(target_name: str) -> str:
+        return overlap_matrix_name(target_name)
+
+
+class _TensorMapRIDensityFitLoss(LossInterface):
+    """
+    Density-fit loss for RI coefficients with projection targets.
+
+    Implements ``L = c_ML^T M c_ML - 2 c_ML^T p`` per system, where ``c_ML`` is
+    the predicted RI coefficient vector and ``p`` is the target projection
+    vector. The loss differs from
+    ``(c_ML - c_true)^T M (c_ML - c_true)`` only by a constant ``c_true^T M
+    c_true`` (since ``M c_true = p``), so the optimum and gradients w.r.t.
+    ``c_ML`` are identical, but the target now stores ``p`` instead of
+    ``c_true = M^{-1} p``. This bypasses the ``M`` inversion needed to obtain
+    reference coefficients.
+
+    Subclasses pick the metric matrix by setting :attr:`_matrix_kind` (used in
+    error messages) and overriding :meth:`_matrix_name`.
+    """
+
+    _matrix_kind: str = "two-center"
+
+    @staticmethod
+    def _matrix_name(target_name: str) -> str:
+        raise NotImplementedError
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+    ):
+        super().__init__(name, gradient, weight, reduction)
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        cls_name = type(self).__name__
+        if self.gradient is not None:
+            raise NotImplementedError(
+                f"{cls_name} does not support gradients of RI targets."
+            )
+
+        assert extra_data is not None, f"{cls_name} requires extra_data"
+
+        matrix_name = self._matrix_name(self.target)
+        assert matrix_name in extra_data, (
+            f"{cls_name} requires '{matrix_name}' in extra_data"
+        )
+
+        tensor_map_pred = predictions[self.target]
+        tensor_map_targ = targets[self.target]
+        scale_name = ri_coefficients_scale_name(self.target)
+        scale_map: Optional[TensorMap] = extra_data.get(scale_name)
+
+        # Flatten pred, target projection (and scale if present) with a shared
+        # NaN mask so all aligned vectors have equal length per system.
+        if scale_map is not None:
+            aligned = _ri_coefficients_pyscf_order_aligned(
+                tensor_map_pred, tensor_map_targ, scale_map
+            )
+            coefficients = [item[0] for item in aligned]
+            projections = [item[1] for item in aligned]
+            scale_coefficients: Optional[list[torch.Tensor]] = [
+                item[2] for item in aligned
+            ]
+        else:
+            aligned = _ri_coefficients_pyscf_order_aligned(
+                tensor_map_pred, tensor_map_targ
+            )
+            coefficients = [item[0] for item in aligned]
+            projections = [item[1] for item in aligned]
+            scale_coefficients = None
+
+        if len(coefficients) == 0:
+            first_block = tensor_map_pred.block(tensor_map_pred.keys[0])
+            return torch.zeros(
+                (), dtype=first_block.values.dtype, device=first_block.values.device
+            )
+
+        if scale_coefficients is not None:
+            # Apply the same scaling to predictions and projections so the loss
+            # corresponds to fitting in the scaled basis.
+            coefficients = [
+                c * scales
+                for c, scales in zip(coefficients, scale_coefficients, strict=True)
+            ]
+            projections = [
+                p * scales
+                for p, scales in zip(projections, scale_coefficients, strict=True)
+            ]
+
+        packed_matrix = extra_data[matrix_name]
+        packed_block = packed_matrix.block()
+        basis_sizes = packed_two_center_basis_sizes(packed_matrix).tolist()
+        coefficient_sizes = [len(c) for c in coefficients]
+
+        if len(basis_sizes) != len(coefficient_sizes):
+            raise ValueError(
+                f"The number of packed {self._matrix_kind} matrices does not match "
+                "the basis sizes."
+            )
+
+        for coeff_size, basis_size in zip(coefficient_sizes, basis_sizes, strict=True):
+            if coeff_size > basis_size:
+                raise ValueError(
+                    f"At least one requested {self._matrix_kind} matrix basis size "
+                    "exceeds the packed matrix size."
+                )
+            if coeff_size != basis_size:
+                raise ValueError(
+                    "The RI target size does not match the configured auxiliary basis. "
+                    "Check that 'ri_aux_basis' matches the RI coefficients stored in "
+                    "the dataset."
+                )
+
+        max_basis = packed_block.values.shape[-1]
+        coeff_padded = packed_block.values.new_zeros((len(coefficients), max_basis))
+        proj_padded = packed_block.values.new_zeros((len(projections), max_basis))
+        for i_system, (c, p) in enumerate(zip(coefficients, projections, strict=True)):
+            coeff_padded[i_system, : c.shape[0]] = c
+            proj_padded[i_system, : p.shape[0]] = p
+
+        matrix_values = torch.nan_to_num(packed_block.values, nan=0.0)
+        quadratic = torch.einsum(
+            "bi,bij,bj->b", coeff_padded, matrix_values, coeff_padded
+        )
+        linear = torch.einsum("bi,bi->b", coeff_padded, proj_padded)
+        loss_values = quadratic - 2.0 * linear
+
+        if self.reduction == "mean":
+            return loss_values.mean()
+        elif self.reduction == "sum":
+            return loss_values.sum()
+        elif self.reduction == "none":
+            return loss_values
+        else:
+            raise ValueError(f"Unknown reduction '{self.reduction}'")
+
+
+class TensorMapRIDensityFitCoulombLoss(_TensorMapRIDensityFitLoss):
+    """Density-fit Coulomb-metric loss for RI coefficients with target projections."""
+
+    _matrix_kind = "Coulomb"
+
+    @staticmethod
+    def _matrix_name(target_name: str) -> str:
+        return coulomb_matrix_name(target_name)
+
+
+class TensorMapRIDensityFitOverlapLoss(_TensorMapRIDensityFitLoss):
+    """Density-fit overlap-metric loss for RI coefficients with target projections."""
+
+    _matrix_kind = "overlap"
+
+    @staticmethod
+    def _matrix_name(target_name: str) -> str:
+        return overlap_matrix_name(target_name)
 
 
 ########################################################################################
@@ -1841,6 +2114,15 @@ class LossType(Enum):
     EMPIRICAL_CRPS = ("empirical_crps_ensemble", TensorMapEmpiricalCRPSLoss)
     RI_NORM = ("ri_norm", TensorMapRINormLoss)
     RI_COULOMB = ("ri_coulomb", TensorMapRICoulombLoss)
+    RI_OVERLAP = ("ri_overlap", TensorMapRIOverlapLoss)
+    RI_DENSITY_FIT_COULOMB = (
+        "ri_density_fit_coulomb",
+        TensorMapRIDensityFitCoulombLoss,
+    )
+    RI_DENSITY_FIT_OVERLAP = (
+        "ri_density_fit_overlap",
+        TensorMapRIDensityFitOverlapLoss,
+    )
     ESP = ("esp", TensorMapESPLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:

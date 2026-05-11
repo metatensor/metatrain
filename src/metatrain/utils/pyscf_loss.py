@@ -55,6 +55,12 @@ def coulomb_matrix_name(target_name: str) -> str:
     return f"{target_name}_coulomb_matrix"
 
 
+def overlap_matrix_name(target_name: str) -> str:
+    """Return the ``extra_data`` key used for a target's overlap matrix."""
+
+    return f"{target_name}_overlap_matrix"
+
+
 def ri_coefficients_scale_name(target_name: str) -> str:
     """Return the ``extra_data`` key used for a target's RI coefficient scales."""
 
@@ -134,16 +140,32 @@ def compute_coulomb_matrix(system: System, aux_basis: str) -> torch.Tensor:
     return torch.from_numpy(auxmol.intor("int2c2e")).to(torch.float64)
 
 
-def pack_coulomb_matrices(matrices: list[torch.Tensor]) -> TensorMap:
+def compute_overlap_matrix(system: System, aux_basis: str) -> torch.Tensor:
     """
-    Pack variable-size per-system Coulomb matrices into one padded ``TensorMap``.
+    Compute the two-center overlap matrix for one system and auxiliary basis.
+
+    :param system: Atomistic system with positions in Angstrom.
+    :param aux_basis: PySCF auxiliary basis name.
+    :return: Dense overlap matrix ``S`` in PySCF AO order.
+    """
+
+    auxmol = build_auxiliary_molecule(system, aux_basis)
+    return torch.from_numpy(auxmol.intor("int1e_ovlp")).to(torch.float64)
+
+
+def pack_two_center_matrices(matrices: list[torch.Tensor]) -> TensorMap:
+    """
+    Pack variable-size per-system two-center matrices into one padded ``TensorMap``.
+
+    Used to batch both Coulomb and overlap matrices, which share the same
+    ``(n_basis, n_basis)`` layout.
 
     :param matrices: Dense square matrices, one per system.
     :return: Single-block ``TensorMap`` with samples ``system``.
     """
 
     if len(matrices) == 0:
-        raise ValueError("Expected at least one Coulomb matrix to pack.")
+        raise ValueError("Expected at least one two-center matrix to pack.")
 
     max_basis = max(matrix.shape[0] for matrix in matrices)
     dtype = matrices[0].dtype
@@ -193,37 +215,37 @@ def pack_coulomb_matrices(matrices: list[torch.Tensor]) -> TensorMap:
     return TensorMap(Labels.single().to(device=device), [block])
 
 
-def packed_coulomb_basis_sizes(batched_matrices: TensorMap) -> torch.Tensor:
-    """Return the stored per-system basis sizes for packed Coulomb matrices."""
+def packed_two_center_basis_sizes(batched_matrices: TensorMap) -> torch.Tensor:
+    """Return the stored per-system basis sizes for packed two-center matrices."""
 
     return batched_matrices.block().samples.values[:, 1].to(torch.int64)
 
 
-def unpack_coulomb_matrices(
+def unpack_two_center_matrices(
     batched_matrices: TensorMap, basis_sizes: list[int]
 ) -> list[torch.Tensor]:
     """
-    Unpack a padded batch of Coulomb matrices back to dense per-system matrices.
+    Unpack a padded batch of two-center matrices back to dense per-system matrices.
 
-    :param batched_matrices: Padded batched Coulomb matrices.
+    :param batched_matrices: Padded batched two-center matrices.
     :param basis_sizes: Physical basis size for each system.
-    :return: Dense Coulomb matrices cropped to each system size.
+    :return: Dense matrices cropped to each system size.
     """
 
     block = batched_matrices.block()
     if len(block.samples) != len(basis_sizes):
         raise ValueError(
-            "The number of packed Coulomb matrices does not match the basis sizes."
+            "The number of packed two-center matrices does not match the basis sizes."
         )
 
-    packed_basis_sizes = packed_coulomb_basis_sizes(batched_matrices).tolist()
+    packed_basis_sizes = packed_two_center_basis_sizes(batched_matrices).tolist()
     for i_system, n_basis in enumerate(basis_sizes):
         actual_basis_size = packed_basis_sizes[i_system]
 
         if n_basis > actual_basis_size:
             raise ValueError(
-                "At least one requested Coulomb matrix basis size exceeds the packed "
-                "matrix size."
+                "At least one requested two-center matrix basis size exceeds the "
+                "packed matrix size."
             )
         if n_basis != actual_basis_size:
             raise ValueError(
@@ -250,7 +272,22 @@ def compute_batched_coulomb_matrices(
     """
 
     matrices = [compute_coulomb_matrix(system, aux_basis) for system in systems]
-    return pack_coulomb_matrices(matrices)
+    return pack_two_center_matrices(matrices)
+
+
+def compute_batched_overlap_matrices(
+    systems: list[System], aux_basis: str
+) -> TensorMap:
+    """
+    Compute padded per-system overlap matrices for a batch of systems.
+
+    :param systems: Systems in one batch.
+    :param aux_basis: PySCF auxiliary basis name.
+    :return: Padded batch of overlap matrices.
+    """
+
+    matrices = [compute_overlap_matrix(system, aux_basis) for system in systems]
+    return pack_two_center_matrices(matrices)
 
 
 def _make_scale_template(tensor: TensorMap) -> TensorMap:
@@ -320,6 +357,28 @@ def get_coulomb_matrices_transform(
             if aux_basis not in cache:
                 cache[aux_basis] = compute_batched_coulomb_matrices(systems, aux_basis)
             extra[coulomb_matrix_name(target_name)] = cache[aux_basis]
+
+        return systems, targets, extra
+
+    return transform
+
+
+def get_overlap_matrices_transform(
+    target_to_aux_basis: Mapping[str, str],
+) -> Callable:
+    """Create a collate transform that attaches per-target overlap matrices."""
+
+    def transform(
+        systems: list[System],
+        targets: dict[str, TensorMap],
+        extra: dict[str, TensorMap],
+    ) -> tuple[list[System], dict[str, TensorMap], dict[str, TensorMap]]:
+        cache: dict[str, TensorMap] = {}
+
+        for target_name, aux_basis in target_to_aux_basis.items():
+            if aux_basis not in cache:
+                cache[aux_basis] = compute_batched_overlap_matrices(systems, aux_basis)
+            extra[overlap_matrix_name(target_name)] = cache[aux_basis]
 
         return systems, targets, extra
 

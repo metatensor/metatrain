@@ -41,6 +41,7 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.pyscf_loss import (
     RIAuxBasis,
     get_coulomb_matrices_transform,
+    get_overlap_matrices_transform,
     get_ri_coefficients_scale_transform,
     resolve_ri_aux_basis,
 )
@@ -248,7 +249,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
         model.scaler.to(device)
         model.scaler.scales_to(device=device, dtype=torch.float64)
-        ri_coulomb_transforms = self._get_ri_coulomb_transforms(loss_hypers, scaler)
+        ri_quadratic_transforms = self._get_ri_quadratic_transforms(loss_hypers, scaler)
 
         # Create collate functions:
         collate_fn_train = CollateFn(
@@ -256,7 +257,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             callables=[
                 atomic_basis_transform,
                 rotational_augmenter.apply_random_augmentations,
-                *ri_coulomb_transforms,
+                *ri_quadratic_transforms,
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
@@ -267,7 +268,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             target_keys=list(train_targets.keys()),
             callables=[  # no augmentation for validation
                 atomic_basis_transform,
-                *ri_coulomb_transforms,
+                *ri_quadratic_transforms,
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
@@ -695,39 +696,60 @@ class Trainer(TrainerInterface[TrainerHypers]):
             check_file_extension(path, ".ckpt"),
         )
 
-    def _get_ri_coulomb_transforms(
+    def _get_ri_quadratic_transforms(
         self,
         loss_hypers: Dict[str, LossSpecification],
         scaler: torch.nn.Module,
     ) -> list[Callable]:
+        # Map each RI quadratic-style loss to the metric matrix it requires.
+        ri_loss_metric = {
+            "ri_coulomb": "coulomb",
+            "ri_overlap": "overlap",
+            "ri_density_fit_coulomb": "coulomb",
+            "ri_density_fit_overlap": "overlap",
+        }
         ri_aux_basis = self.hypers["ri_aux_basis"]
         if any(
-            target_loss["type"] == "ri_coulomb" for target_loss in loss_hypers.values()
+            target_loss["type"] in ri_loss_metric
+            for target_loss in loss_hypers.values()
         ):
             if ri_aux_basis is None:
                 raise ValueError(
-                    "PET training with 'ri_coulomb' loss requires 'ri_aux_basis' to be set."
+                    "PET training with an RI loss "
+                    f"({', '.join(sorted(ri_loss_metric))}) requires 'ri_aux_basis' "
+                    "to be set."
                 )
         if ri_aux_basis is None:
             return []
 
-        target_to_aux_basis: dict[str, str] = {}
+        coulomb_targets: dict[str, str] = {}
+        overlap_targets: dict[str, str] = {}
         scaled_targets: list[str] = []
         for target_name, target_loss in loss_hypers.items():
-            if target_loss["type"] != "ri_coulomb":
+            loss_type = target_loss["type"]
+            metric = ri_loss_metric.get(loss_type)
+            if metric is None:
                 continue
-            target_to_aux_basis[target_name] = resolve_ri_aux_basis(
+            aux_basis = resolve_ri_aux_basis(
                 target_name,
                 cast(RIAuxBasis, ri_aux_basis),
             )
+            if metric == "coulomb":
+                coulomb_targets[target_name] = aux_basis
+            else:
+                overlap_targets[target_name] = aux_basis
             if self.hypers["scale_targets"]:
                 scaled_targets.append(target_name)
 
-        if len(target_to_aux_basis) == 0:
+        if not coulomb_targets and not overlap_targets:
             return []
 
-        transforms = [get_coulomb_matrices_transform(target_to_aux_basis)]
-        if len(scaled_targets) > 0:
+        transforms: list[Callable] = []
+        if coulomb_targets:
+            transforms.append(get_coulomb_matrices_transform(coulomb_targets))
+        if overlap_targets:
+            transforms.append(get_overlap_matrices_transform(overlap_targets))
+        if scaled_targets:
             transforms.append(
                 get_ri_coefficients_scale_transform(scaled_targets, scaler)
             )
