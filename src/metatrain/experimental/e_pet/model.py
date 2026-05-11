@@ -19,6 +19,7 @@ from metatrain.pet.model import (
     normalize_by_volume,
     process_non_conservative_stress,
 )
+from metatrain.pet.modules.finetuning import apply_finetuning_strategy
 from metatrain.pet.modules.structures import concatenate_structures
 from metatrain.soap_bpnn.modules.tensor_basis import TensorBasis
 from metatrain.utils.data import DatasetInfo, TargetInfo
@@ -57,46 +58,6 @@ def _basis_gram_chunk_penalty(tensor_basis: torch.Tensor) -> torch.Tensor:
         penalties.append((gram - eye).pow(2).mean())
 
     return torch.stack(penalties).mean()
-
-
-def _whiten_tensor_basis(
-    tensor_basis: torch.Tensor,
-    epsilon: float,
-) -> torch.Tensor:
-    """Canonicalize basis coordinates with a regularized Gram inverse square root."""
-    basis_width = tensor_basis.shape[2]
-    if basis_width == 0:
-        return tensor_basis
-
-    # This is equivalent to ``B @ (B^T B + eps I)^(-1/2)`` on the non-null
-    # subspace, but is more stable than explicitly diagonalizing ``B^T B`` in
-    # float32 when the raw basis is ill-conditioned or overcomplete.
-    left_vectors, singular_values, right_vectors_t = torch.linalg.svd(
-        tensor_basis,
-        full_matrices=False,
-    )
-    scaled_singular_values = singular_values / torch.sqrt(
-        singular_values.pow(2) + epsilon
-    )
-    return torch.einsum(
-        "sci,si,sib->scb",
-        left_vectors,
-        scaled_singular_values,
-        right_vectors_t,
-    )
-
-
-def _rms_normalize_tensor_basis(
-    tensor_basis: torch.Tensor,
-    epsilon: float,
-    detach_norm: bool,
-) -> torch.Tensor:
-    """Normalize each local tensor-basis block by an equivariant scalar RMS."""
-    basis_rms = tensor_basis.pow(2).mean(dim=(1, 2), keepdim=True)
-    basis_rms = torch.sqrt(basis_rms + epsilon)
-    if detach_norm:
-        basis_rms = basis_rms.detach()
-    return tensor_basis / basis_rms
 
 
 def _extra_l1_vector_basis_branches(
@@ -200,7 +161,9 @@ def _spherical_components_to_cartesian_rank2(
     block = TensorBlock(
         values=cartesian,
         samples=l0_block.samples.to(device=device),
-        components=[component.to(device=device) for component in public_block.components],
+        components=[
+            component.to(device=device) for component in public_block.components
+        ],
         properties=public_block.properties.to(device=device),
     )
     return TensorMap(keys=public_layout.keys.to(device=device), blocks=[block])
@@ -240,22 +203,6 @@ class EPET(PET):
         self.e_pet_hypers = copy.deepcopy(hypers)
         self.tensor_basis_hypers = copy.deepcopy(hypers["tensor_basis_defaults"])
         self.tensor_basis_hypers.setdefault("extra_l1_vector_basis_branches", [])
-        self.basis_normalization = str(
-            self.tensor_basis_hypers.get("basis_normalization", "none")
-        )
-        if self.basis_normalization not in ("none", "rms", "whiten"):
-            raise ValueError(
-                "Unknown E-PET tensor-basis normalization "
-                f"{self.basis_normalization!r}. Expected 'none', 'rms', or 'whiten'."
-            )
-        self.basis_normalization_detach = bool(
-            self.tensor_basis_hypers.get("basis_normalization_detach", True)
-        )
-        self.basis_normalization_epsilon = float(
-            self.tensor_basis_hypers.get("basis_normalization_epsilon", 1.0e-6)
-        )
-        if self.basis_normalization_epsilon <= 0.0:
-            raise ValueError("basis_normalization_epsilon must be positive.")
         self.e_pet_hypers["tensor_basis_defaults"] = copy.deepcopy(
             self.tensor_basis_hypers
         )
@@ -307,9 +254,9 @@ class EPET(PET):
         )
         self._validate_irrep_head_groups_against_dataset(dataset_info)
 
-        unknown_volume_normalized_targets = set(self.volume_normalized_target_names) - set(
-            self.target_names
-        )
+        unknown_volume_normalized_targets = set(
+            self.volume_normalized_target_names
+        ) - set(self.target_names)
         if unknown_volume_normalized_targets:
             raise ValueError(
                 "Unknown volume-normalized target names: "
@@ -359,7 +306,8 @@ class EPET(PET):
         if unknown_targets:
             raise ValueError(
                 "Unknown targets in irrep_head_groups: "
-                f"{sorted(unknown_targets)}. Known targets are: {sorted(known_targets)}."
+                f"{sorted(unknown_targets)}. Known targets are: "
+                f"{sorted(known_targets)}."
             )
 
         scalar_targets = sorted(
@@ -400,12 +348,12 @@ class EPET(PET):
         if target_info.is_cartesian:
             raise ValueError(
                 "experimental.e_pet supports Cartesian direct targets only for "
-                "rank-2 tensors in v1."
+                "rank-2 tensors."
             )
 
         raise ValueError(
             "experimental.e_pet supports only scalar, spherical, and Cartesian "
-            "rank-2 targets in v1."
+            "rank-2 targets."
         )
 
     def _add_scalar_output(self, target_name: str, target_info: TargetInfo) -> None:
@@ -579,6 +527,7 @@ class EPET(PET):
                 )
 
     def _add_spherical_final_layers(self, target_name: str) -> None:
+        coefficient_shapes = self.coefficient_shapes[target_name]
         self.node_last_layers[target_name] = ModuleList(
             [
                 ModuleDict(
@@ -588,9 +537,9 @@ class EPET(PET):
                             num_properties * basis_size,
                             bias=True,
                         )
-                        for key, (num_properties, basis_size) in self.coefficient_shapes[
-                            target_name
-                        ].items()
+                        for key, (num_properties, basis_size) in (
+                            coefficient_shapes.items()
+                        )
                     }
                 )
                 for _ in range(self.num_readout_layers)
@@ -605,9 +554,9 @@ class EPET(PET):
                             num_properties * basis_size,
                             bias=True,
                         )
-                        for key, (num_properties, basis_size) in self.coefficient_shapes[
-                            target_name
-                        ].items()
+                        for key, (num_properties, basis_size) in (
+                            coefficient_shapes.items()
+                        )
                     }
                 )
                 for _ in range(self.num_readout_layers)
@@ -740,26 +689,6 @@ class EPET(PET):
             return species
         return self.species_to_species_index[species]
 
-    def _normalize_tensor_basis(self, tensor_basis: torch.Tensor) -> torch.Tensor:
-        if self.basis_normalization == "none":
-            return tensor_basis
-        if self.basis_normalization == "rms":
-            return _rms_normalize_tensor_basis(
-                tensor_basis,
-                self.basis_normalization_epsilon,
-                self.basis_normalization_detach,
-            )
-        if self.basis_normalization == "whiten":
-            return _whiten_tensor_basis(
-                tensor_basis,
-                self.basis_normalization_epsilon,
-            )
-        raise RuntimeError(
-            "Unsupported E-PET tensor-basis normalization "
-            + self.basis_normalization
-            + "."
-        )
-
     def _get_output_last_layer_features(
         self,
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
@@ -792,14 +721,15 @@ class EPET(PET):
 
             stacked_features: List[torch.Tensor] = []
             for feature_key in feature_keys:
-                for readout_index in range(len(node_last_layer_features_dict[feature_key])):
+                node_features = node_last_layer_features_dict[feature_key]
+                edge_features = edge_last_layer_features_dict[feature_key]
+                for readout_index in range(len(node_features)):
                     stacked_features.append(
-                        node_last_layer_features_dict[feature_key][readout_index]
+                        node_features[readout_index]
                     )
                     stacked_features.append(
                         (
-                            edge_last_layer_features_dict[feature_key][readout_index]
-                            * cutoff_factors[:, :, None]
+                            edge_features[readout_index] * cutoff_factors[:, :, None]
                         ).sum(dim=1)
                     )
 
@@ -997,7 +927,8 @@ class EPET(PET):
 
         if self.basis_calculators is None:
             raise RuntimeError(
-                f"Missing tensor basis calculators for spherical target '{output_name}'."
+                "Missing tensor basis calculators for spherical target "
+                f"'{output_name}'."
             )
 
         for block_index, (dict_key, coefficient_shape) in enumerate(
@@ -1042,7 +973,6 @@ class EPET(PET):
                     f"'{output_name}:{dict_key}'."
                 )
 
-            tensor_basis = self._normalize_tensor_basis(tensor_basis)
             atomic_property_tensor = torch.einsum(
                 "spb, scb -> scp",
                 invariant_coefficients,
@@ -1290,7 +1220,9 @@ class EPET(PET):
             dataset_info=model_data["dataset_info"],
         )
         model_state_dict = dict(model_state_dict)
-        model.finetune_config = model_state_dict.pop("finetune_config", {})
+        finetune_config = model_state_dict.pop("finetune_config", {})
+        if finetune_config:
+            model = apply_finetuning_strategy(model, finetune_config)
         try:
             dtype = next(
                 value.dtype

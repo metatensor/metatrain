@@ -5,22 +5,32 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
-import metatensor.torch as mts
 import torch
-from metatensor.torch import TensorBlock, TensorMap
+from metatensor.torch import TensorMap
 from torch.utils.data import DataLoader
 
-from metatrain.pet.trainer import Trainer as PETTrainer
-from metatrain.pet.trainer import get_scheduler
+from metatrain.pet.trainer import (
+    Trainer as PETTrainer,
+)
+from metatrain.pet.trainer import (
+    _apply_finetuning_if_requested,
+    _build_loss_objects,
+    _fit_and_copy_preprocessors_for_training,
+    _log_loss_metadata,
+    _move_model_to_training_device,
+    _resolve_num_workers,
+    get_scheduler,
+)
+from metatrain.utils._atomic_basis_irrep_balanced_loss import (
+    _AtomicBasisIrrepBalancedLoss,
+)
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
-    get_num_workers,
     unpack_batch,
-    validate_num_workers,
 )
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
@@ -41,9 +51,6 @@ from metatrain.utils.training_diagnostics import (
     assert_finite_metrics,
 )
 from metatrain.utils.transfer import batch_to
-from metatrain.utils._atomic_basis_irrep_balanced_loss import (
-    _AtomicBasisIrrepBalancedLoss,
-)
 
 from .documentation import TrainerHypers
 from .model import EPET
@@ -52,16 +59,22 @@ from .model import EPET
 class Trainer(PETTrainer):
     __checkpoint_version__ = 1
 
-    def _has_split_learning_rates(self) -> bool:
+    @staticmethod
+    def _has_trainable_tensor_basis_parameters(model: EPET) -> bool:
         return any(
-            self.hypers.get(key) is not None
-            for key in (
-                "pet_trunk_learning_rate",
-                "tensor_basis_learning_rate",
-                "readout_learning_rate",
-                "spherical_l0_readout_learning_rate",
-            )
+            name.startswith("basis_calculators.") and parameter.requires_grad
+            for name, parameter in model.named_parameters()
         )
+
+    def _has_tensor_basis_learning_rate_override(
+        self, model: Optional[EPET] = None
+    ) -> bool:
+        basis_lr = self.hypers.get("tensor_basis_learning_rate")
+        if basis_lr is None or float(basis_lr) == float(self.hypers["learning_rate"]):
+            return False
+        if model is None:
+            return True
+        return self._has_trainable_tensor_basis_parameters(model)
 
     def _regularization_weights(self) -> tuple[float, float]:
         return (
@@ -72,35 +85,25 @@ class Trainer(PETTrainer):
     def _exclude_spherical_l0_from_coefficient_l2(self) -> bool:
         return bool(self.hypers.get("coefficient_l2_exclude_spherical_l0", False))
 
-    def _scale_property_floor_ratio(self) -> Optional[float]:
-        value = self.hypers.get("scale_property_floor_ratio")
-        if value is None:
-            return None
-        value = float(value)
-        if value <= 0.0:
-            raise ValueError("scale_property_floor_ratio must be positive when set.")
-        return value
-
     def _atomic_basis_irrep_balanced_loss_config(self) -> Dict[str, Dict[str, Any]]:
         return dict(self.hypers.get("atomic_basis_irrep_balanced_loss") or {})
 
-    def _requires_custom_training_path(self) -> bool:
+    def _requires_custom_training_path(self, model: Optional[EPET] = None) -> bool:
         coefficient_l2_weight, basis_gram_weight = self._regularization_weights()
         return (
             coefficient_l2_weight != 0.0
             or basis_gram_weight != 0.0
-            or self._has_split_learning_rates()
-            or self._scale_property_floor_ratio() is not None
+            or self._has_tensor_basis_learning_rate_override(model)
             or bool(self._atomic_basis_irrep_balanced_loss_config())
         )
 
     def _validate_custom_training_path(self, dtype: torch.dtype) -> None:
-        assert dtype in EPET.__supported_dtypes__
-
-        if self.hypers["finetune"]["read_from"] is not None:
-            raise NotImplementedError(
-                "The custom e-pet training path does not support finetuning yet."
+        if dtype not in EPET.__supported_dtypes__:
+            raise ValueError(
+                f"Unsupported dtype for e-pet training: {dtype}. Supported dtypes "
+                f"are: {sorted(str(item) for item in EPET.__supported_dtypes__)}."
             )
+
         if self.hypers["distributed"]:
             raise NotImplementedError(
                 "The custom e-pet training path does not support distributed "
@@ -128,110 +131,13 @@ class Trainer(PETTrainer):
             loss = loss + basis_gram_weight * model.get_basis_gram_loss()
         return loss
 
-    def _apply_scale_property_floor(self, model: EPET) -> None:
-        floor_ratio = self._scale_property_floor_ratio()
-        if floor_ratio is None:
-            return
-        if not self.hypers["scale_targets"]:
-            raise ValueError(
-                "scale_property_floor_ratio requires scale_targets=true so fitted "
-                "scales exist before flooring."
-            )
-
-        for target_name, scales in model.scaler.model.scales.items():
-            scale_values = torch.cat(
-                [block.values.reshape(-1) for block in scales.blocks()]
-            )
-            positive_scales = scale_values[torch.isfinite(scale_values)]
-            positive_scales = positive_scales[positive_scales > 0]
-            if positive_scales.numel() == 0:
-                continue
-
-            floor = torch.median(positive_scales) * floor_ratio
-            new_blocks: List[TensorBlock] = []
-            clamped_count = 0
-            total_count = 0
-            for block in scales.blocks():
-                values = block.values
-                block_floor = floor.to(device=values.device, dtype=values.dtype)
-                floored_values = torch.maximum(values, block_floor)
-                clamped_count += int((floored_values != values).sum().item())
-                total_count += values.numel()
-                new_blocks.append(
-                    TensorBlock(
-                        values=floored_values,
-                        samples=block.samples,
-                        components=block.components,
-                        properties=block.properties,
-                    )
-                )
-
-            floored_scales = TensorMap(scales.keys, new_blocks)
-            model.scaler.model.scales[target_name] = floored_scales
-            buffer = mts.save_buffer(
-                mts.make_contiguous(floored_scales.to("cpu", torch.float64))
-            ).to(model.scaler.dummy_buffer.device)
-            setattr(model.scaler, target_name + "_scaler_buffer", buffer)
-            logging.info(
-                "Applied E-PET scale floor to %s: ratio=%s floor=%s clamped=%s/%s",
-                target_name,
-                floor_ratio,
-                float(floor.item()),
-                clamped_count,
-                total_count,
-            )
-
-    @staticmethod
-    def _spherical_l0_readout_parameter_names(model: EPET) -> set[str]:
-        parameter_names: set[str] = set()
-        head_irreps: dict[str, set[str]] = {}
-        for target_name, block_irrep_keys in model.block_irrep_keys.items():
-            for block_key, irrep_key in block_irrep_keys.items():
-                head_key = model.block_to_head_key[target_name][block_key]
-                head_irreps.setdefault(head_key, set()).add(irrep_key)
-                if irrep_key != "0,1":
-                    continue
-                for layer_index in range(model.num_readout_layers):
-                    parameter_names.add(
-                        f"node_last_layers.{target_name}.{layer_index}."
-                        f"{block_key}.weight"
-                    )
-                    parameter_names.add(
-                        f"node_last_layers.{target_name}.{layer_index}."
-                        f"{block_key}.bias"
-                    )
-                    parameter_names.add(
-                        f"edge_last_layers.{target_name}.{layer_index}."
-                        f"{block_key}.weight"
-                    )
-                    parameter_names.add(
-                        f"edge_last_layers.{target_name}.{layer_index}."
-                        f"{block_key}.bias"
-                    )
-        l0_only_heads = [
-            head_key for head_key, irrep_keys in head_irreps.items() if irrep_keys == {"0,1"}
-        ]
-        if l0_only_heads:
-            l0_head_prefixes = tuple(
-                prefix
-                for head_key in l0_only_heads
-                for prefix in (f"node_heads.{head_key}.", f"edge_heads.{head_key}.")
-            )
-            for name, _ in model.named_parameters():
-                if name.startswith(l0_head_prefixes):
-                    parameter_names.add(name)
-        return parameter_names
-
     def _build_optimizer(self, model: EPET) -> torch.optim.Optimizer:
         base_lr = float(self.hypers["learning_rate"])
-        trunk_lr = float(self.hypers.get("pet_trunk_learning_rate") or base_lr)
-        basis_lr = float(self.hypers.get("tensor_basis_learning_rate") or base_lr)
-        readout_lr = float(self.hypers.get("readout_learning_rate") or base_lr)
-        l0_readout_lr = self.hypers.get("spherical_l0_readout_learning_rate")
-        if l0_readout_lr is not None:
-            l0_readout_lr = float(l0_readout_lr)
+        basis_lr = self.hypers.get("tensor_basis_learning_rate")
+        if basis_lr is not None:
+            basis_lr = float(basis_lr)
 
-        if not self._has_split_learning_rates():
+        if not self._has_tensor_basis_learning_rate_override(model):
             if self.hypers["weight_decay"] is not None:
                 return torch.optim.AdamW(
                     model.parameters(),
@@ -241,17 +147,8 @@ class Trainer(PETTrainer):
             return torch.optim.Adam(model.parameters(), lr=base_lr)
 
         basis_prefixes = ("basis_calculators.",)
-        readout_prefixes = (
-            "node_heads.",
-            "edge_heads.",
-            "node_last_layers.",
-            "edge_last_layers.",
-        )
-        trunk_params: List[torch.nn.Parameter] = []
+        pet_and_readout_params: List[torch.nn.Parameter] = []
         basis_params: List[torch.nn.Parameter] = []
-        readout_params: List[torch.nn.Parameter] = []
-        l0_readout_params: List[torch.nn.Parameter] = []
-        l0_readout_names = self._spherical_l0_readout_parameter_names(model)
         seen: set[int] = set()
 
         for name, param in model.named_parameters():
@@ -263,33 +160,21 @@ class Trainer(PETTrainer):
             seen.add(param_id)
             if name.startswith(basis_prefixes):
                 basis_params.append(param)
-            elif l0_readout_lr is not None and name in l0_readout_names:
-                l0_readout_params.append(param)
-            elif name.startswith(readout_prefixes):
-                readout_params.append(param)
             else:
-                trunk_params.append(param)
+                pet_and_readout_params.append(param)
 
         param_groups: List[Dict[str, Any]] = []
-        if trunk_params:
+        if pet_and_readout_params:
             param_groups.append(
-                {"params": trunk_params, "lr": trunk_lr, "name": "pet_trunk"}
+                {
+                    "params": pet_and_readout_params,
+                    "lr": base_lr,
+                    "name": "pet_and_readout",
+                }
             )
         if basis_params:
             param_groups.append(
                 {"params": basis_params, "lr": basis_lr, "name": "tensor_basis"}
-            )
-        if readout_params:
-            param_groups.append(
-                {"params": readout_params, "lr": readout_lr, "name": "readout"}
-            )
-        if l0_readout_params:
-            param_groups.append(
-                {
-                    "params": l0_readout_params,
-                    "lr": l0_readout_lr,
-                    "name": "spherical_l0_readout",
-                }
             )
 
         for group in param_groups:
@@ -330,48 +215,6 @@ class Trainer(PETTrainer):
         if self.scheduler_state_dict is not None:
             lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
-    def _fit_and_copy_preprocessors(
-        self,
-        model: EPET,
-        device: torch.device,
-        train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        train_targets: Dict[str, Any],
-        atomic_basis_transform: Any,
-    ) -> tuple[Any, Any]:
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
-            False,
-            self.hypers["atomic_baseline"],
-            initial_transforms=[atomic_basis_transform],
-        )
-        if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets,
-                model.additive_models,
-                self.hypers["batch_size"],
-                False,
-                self.hypers["fixed_scaling_weights"],
-                initial_transforms=[atomic_basis_transform],
-                per_structure_targets=self.hypers["per_structure_targets"],
-            )
-        self._apply_scale_property_floor(model)
-
-        model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
-        additive_models = copy.deepcopy(
-            model.additive_models.to(dtype=torch.float64, device="cpu")
-        )
-        model.additive_models.to(device)
-        model.additive_models[0].weights_to(device=device, dtype=torch.float64)
-        model.scaler.scales_to(device="cpu", dtype=torch.float64)
-        scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
-        model.scaler.to(device)
-        model.scaler.scales_to(device=device, dtype=torch.float64)
-        return additive_models, scaler
-
     def _build_custom_dataloaders(
         self,
         model: EPET,
@@ -390,8 +233,13 @@ class Trainer(PETTrainer):
             get_prepare_atomic_basis_targets_transform(train_targets, extra_data_info)
         )
 
-        additive_models, scaler = self._fit_and_copy_preprocessors(
-            model, device, train_datasets, train_targets, atomic_basis_transform
+        additive_models, scaler = _fit_and_copy_preprocessors_for_training(
+            model,
+            train_datasets,
+            self.hypers,
+            atomic_basis_transform,
+            False,
+            device,
         )
 
         collate_fn_train = CollateFn(
@@ -416,15 +264,7 @@ class Trainer(PETTrainer):
             batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
 
-        if self.hypers["num_workers"] is None:
-            num_workers = get_num_workers()
-            logging.info(
-                "Number of workers for data-loading not provided and chosen "
-                f"automatically. Using {num_workers} workers."
-            )
-        else:
-            num_workers = self.hypers["num_workers"]
-            validate_num_workers(num_workers)
+        num_workers = _resolve_num_workers(self.hypers)
 
         train_dataloaders = []
         for train_dataset in train_datasets:
@@ -473,66 +313,15 @@ class Trainer(PETTrainer):
     ]:
         train_targets = model.dataset_info.targets
         custom_loss_config = self._atomic_basis_irrep_balanced_loss_config()
-        custom_loss_fn = (
-            _AtomicBasisIrrepBalancedLoss(
-                target_infos=train_targets,
-                config=custom_loss_config,
-                scaler=model.scaler,
-                scale_targets=self.hypers["scale_targets"],
-            )
-            if custom_loss_config
-            else None
-        )
-        custom_loss_targets = (
-            custom_loss_fn.target_names if custom_loss_fn is not None else set()
-        )
-        normal_train_targets = {
-            name: target_info
-            for name, target_info in train_targets.items()
-            if name not in custom_loss_targets
-        }
         loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])
-        normal_loss_hypers = {
-            name: loss_spec
-            for name, loss_spec in loss_hypers.items()
-            if name in normal_train_targets
-        }
-        loss_fn = (
-            LossAggregator(targets=normal_train_targets, config=normal_loss_hypers)
-            if normal_train_targets
-            else None
+        custom_loss_fn, normal_train_targets, loss_fn = _build_loss_objects(
+            train_targets,
+            loss_hypers,
+            custom_loss_config,
+            model.scaler,
+            self.hypers["scale_targets"],
         )
         return custom_loss_config, custom_loss_fn, normal_train_targets, loss_fn
-
-    @staticmethod
-    def _log_custom_loss_metadata(
-        loss_fn: Optional[LossAggregator],
-        custom_loss_fn: Optional[_AtomicBasisIrrepBalancedLoss],
-        custom_loss_config: Dict[str, Dict[str, Any]],
-    ) -> None:
-        logging.info("Using the following loss functions:")
-        if loss_fn is not None:
-            for name, info in loss_fn.metadata.items():
-                logging.info(f"{name}:")
-                main = {k: v for k, v in info.items() if k != "gradients"}
-                logging.info(main)
-                if "gradients" not in info or len(info["gradients"]) == 0:
-                    continue
-                logging.info("With gradients:")
-                for grad, ginfo in info["gradients"].items():
-                    logging.info(f"\t{name}::{grad}: {ginfo}")
-        if custom_loss_fn is not None:
-            for name in sorted(custom_loss_fn.target_names):
-                logging.info(f"{name}:")
-                logging.info(
-                    {
-                        "type": "atomic_basis_irrep_balanced_mse",
-                        "weight": custom_loss_fn.target_weights[name],
-                        "scale": custom_loss_config[name].get(
-                            "scale", "per_irrep_rms"
-                        ),
-                    }
-                )
 
     def _compute_custom_loss_batch(
         self,
@@ -660,6 +449,201 @@ class Trainer(PETTrainer):
         self.epoch = epoch
         self.save_checkpoint(model, Path(checkpoint_dir) / f"model_{epoch}.ckpt")
 
+    def _new_metric_calculators(
+        self,
+    ) -> tuple[RMSEAccumulator, Optional[MAEAccumulator]]:
+        rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
+        mae_calculator = None
+        if self.hypers["log_mae"]:
+            mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
+        return rmse_calculator, mae_calculator
+
+    def _run_training_epoch(
+        self,
+        model: EPET,
+        train_dataloader: CombinedDataLoader,
+        train_targets: Dict[str, Any],
+        normal_train_targets: Dict[str, Any],
+        loss_fn: Optional[LossAggregator],
+        custom_loss_fn: Optional[_AtomicBasisIrrepBalancedLoss],
+        atomic_basis_reverse_transform: Any,
+        optimizer: torch.optim.Optimizer,
+        lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
+        coefficient_l2_weight: float,
+        basis_gram_weight: float,
+        per_structure_targets: List[str],
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> Dict[str, float]:
+        rmse_calculator, mae_calculator = self._new_metric_calculators()
+        train_loss = 0.0
+
+        for batch in train_dataloader:
+            if should_skip_batch(batch, False, device):
+                continue
+
+            optimizer.zero_grad()
+            systems, targets, extra_data = unpack_batch(batch)
+            systems, targets, extra_data = batch_to(
+                systems, targets, extra_data, dtype=dtype, device=device
+            )
+            predictions = evaluate_model(
+                model,
+                systems,
+                {key: train_targets[key] for key in targets.keys()},
+                is_training=True,
+            )
+
+            predictions = average_by_num_atoms(
+                predictions, systems, per_structure_targets
+            )
+            targets = average_by_num_atoms(targets, systems, per_structure_targets)
+            train_loss_batch = self._compute_custom_loss_batch(
+                systems,
+                predictions,
+                targets,
+                extra_data,
+                normal_train_targets,
+                loss_fn,
+                custom_loss_fn,
+                atomic_basis_reverse_transform,
+                model,
+            )
+            train_loss_batch = self._add_regularization(
+                model,
+                train_loss_batch,
+                coefficient_l2_weight,
+                basis_gram_weight,
+            )
+            assert_finite_loss(
+                train_loss_batch,
+                phase="training",
+                predictions=predictions,
+                targets=targets,
+                extra_data=extra_data,
+            )
+
+            train_loss_batch.backward()
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(), self.hypers["grad_clip_norm"]
+            )
+            optimizer.step()
+            lr_scheduler.step()
+            train_loss += train_loss_batch.item()
+
+            scaled_predictions, scaled_targets, metric_extra_data = (
+                self._scaled_metric_inputs(
+                    systems,
+                    predictions,
+                    targets,
+                    extra_data,
+                    atomic_basis_reverse_transform,
+                    model,
+                )
+            )
+            self._update_metric_calculators(
+                rmse_calculator,
+                mae_calculator,
+                scaled_predictions,
+                scaled_targets,
+                metric_extra_data,
+                "training",
+            )
+
+        return {
+            "loss": train_loss,
+            **self._finalize_metric_info(
+                rmse_calculator,
+                mae_calculator,
+                per_structure_targets,
+                device,
+            ),
+        }
+
+    def _run_validation_epoch(
+        self,
+        model: EPET,
+        val_dataloader: CombinedDataLoader,
+        train_targets: Dict[str, Any],
+        normal_train_targets: Dict[str, Any],
+        loss_fn: Optional[LossAggregator],
+        custom_loss_fn: Optional[_AtomicBasisIrrepBalancedLoss],
+        atomic_basis_reverse_transform: Any,
+        per_structure_targets: List[str],
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> Dict[str, float]:
+        rmse_calculator, mae_calculator = self._new_metric_calculators()
+        val_loss = 0.0
+
+        for batch in val_dataloader:
+            if should_skip_batch(batch, False, device):
+                continue
+
+            systems, targets, extra_data = unpack_batch(batch)
+            systems, targets, extra_data = batch_to(
+                systems, targets, extra_data, dtype=dtype, device=device
+            )
+            predictions = evaluate_model(
+                model,
+                systems,
+                {key: train_targets[key] for key in targets.keys()},
+                is_training=False,
+            )
+
+            predictions = average_by_num_atoms(
+                predictions, systems, per_structure_targets
+            )
+            targets = average_by_num_atoms(targets, systems, per_structure_targets)
+            val_loss_batch = self._compute_custom_loss_batch(
+                systems,
+                predictions,
+                targets,
+                extra_data,
+                normal_train_targets,
+                loss_fn,
+                custom_loss_fn,
+                atomic_basis_reverse_transform,
+                model,
+            )
+            assert_finite_loss(
+                val_loss_batch,
+                phase="validation",
+                predictions=predictions,
+                targets=targets,
+                extra_data=extra_data,
+            )
+            val_loss += val_loss_batch.item()
+
+            scaled_predictions, scaled_targets, metric_extra_data = (
+                self._scaled_metric_inputs(
+                    systems,
+                    predictions,
+                    targets,
+                    extra_data,
+                    atomic_basis_reverse_transform,
+                    model,
+                )
+            )
+            self._update_metric_calculators(
+                rmse_calculator,
+                mae_calculator,
+                scaled_predictions,
+                scaled_targets,
+                metric_extra_data,
+                "validation",
+            )
+
+        return {
+            "loss": val_loss,
+            **self._finalize_metric_info(
+                rmse_calculator,
+                mae_calculator,
+                per_structure_targets,
+                device,
+            ),
+        }
+
     def train(
         self,
         model: EPET,
@@ -670,7 +654,7 @@ class Trainer(PETTrainer):
         checkpoint_dir: str,
     ) -> None:
         coefficient_l2_weight, basis_gram_weight = self._regularization_weights()
-        if not self._requires_custom_training_path():
+        if not self._requires_custom_training_path(model):
             super().train(
                 model, dtype, devices, train_datasets, val_datasets, checkpoint_dir
             )
@@ -679,15 +663,13 @@ class Trainer(PETTrainer):
         self._validate_custom_training_path(dtype)
 
         # This loop mirrors PET's single-process path. Local differences are limited
-        # to split optimizer groups, E-PET regularizers, and default-off diagnostics
-        # such as scaler flooring and atomic-basis irrep-balanced loss.
+        # to the optional tensor-basis optimizer group, E-PET regularizers, and the
+        # default-off atomic-basis irrep-balanced loss.
         device = devices[0]
         logging.info(f"Training on device {device} with dtype {dtype}")
 
-        model.to(device=device, dtype=dtype)
-        for additive_model in model.additive_models:
-            additive_model.to(dtype=torch.float64)
-        model.scaler.to(dtype=torch.float64)
+        model = cast(EPET, _apply_finetuning_if_requested(model, self.hypers))
+        _move_model_to_training_device(model, device, dtype)
 
         train_targets = model.dataset_info.targets
         (
@@ -700,7 +682,7 @@ class Trainer(PETTrainer):
         custom_loss_config, custom_loss_fn, normal_train_targets, loss_fn = (
             self._build_custom_losses(model)
         )
-        self._log_custom_loss_metadata(loss_fn, custom_loss_fn, custom_loss_config)
+        _log_loss_metadata(loss_fn, custom_loss_fn, custom_loss_config)
 
         optimizer = self._build_optimizer(model)
         lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
@@ -716,164 +698,35 @@ class Trainer(PETTrainer):
 
         metric_logger = None
         for epoch in range(start_epoch, self.hypers["num_epochs"]):
-            train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
-            val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
-            train_mae_calculator = None
-            val_mae_calculator = None
-            if self.hypers["log_mae"]:
-                train_mae_calculator = MAEAccumulator(
-                    self.hypers["log_separate_blocks"]
-                )
-                val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
-
-            train_loss = 0.0
-            for batch in train_dataloader:
-                if should_skip_batch(batch, False, device):
-                    continue
-
-                optimizer.zero_grad()
-                systems, targets, extra_data = unpack_batch(batch)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype, device=device
-                )
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    {key: train_targets[key] for key in targets.keys()},
-                    is_training=True,
-                )
-
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = self._compute_custom_loss_batch(
-                    systems,
-                    predictions,
-                    targets,
-                    extra_data,
-                    normal_train_targets,
-                    loss_fn,
-                    custom_loss_fn,
-                    atomic_basis_reverse_transform,
-                    model,
-                )
-                train_loss_batch = self._add_regularization(
-                    model,
-                    train_loss_batch,
-                    coefficient_l2_weight,
-                    basis_gram_weight,
-                )
-                assert_finite_loss(
-                    train_loss_batch,
-                    phase="training",
-                    predictions=predictions,
-                    targets=targets,
-                    extra_data=extra_data,
-                )
-
-                train_loss_batch.backward()
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), self.hypers["grad_clip_norm"]
-                )
-                optimizer.step()
-                lr_scheduler.step()
-                train_loss += train_loss_batch.item()
-
-                scaled_predictions, scaled_targets, metric_extra_data = (
-                    self._scaled_metric_inputs(
-                        systems,
-                        predictions,
-                        targets,
-                        extra_data,
-                        atomic_basis_reverse_transform,
-                        model,
-                    )
-                )
-                self._update_metric_calculators(
-                    train_rmse_calculator,
-                    train_mae_calculator,
-                    scaled_predictions,
-                    scaled_targets,
-                    metric_extra_data,
-                    "training",
-                )
-
-            finalized_train_info = self._finalize_metric_info(
-                train_rmse_calculator,
-                train_mae_calculator,
+            finalized_train_info = self._run_training_epoch(
+                model,
+                train_dataloader,
+                train_targets,
+                normal_train_targets,
+                loss_fn,
+                custom_loss_fn,
+                atomic_basis_reverse_transform,
+                optimizer,
+                lr_scheduler,
+                coefficient_l2_weight,
+                basis_gram_weight,
                 per_structure_targets,
+                dtype,
+                device,
+            )
+            finalized_val_info = self._run_validation_epoch(
+                model,
+                val_dataloader,
+                train_targets,
+                normal_train_targets,
+                loss_fn,
+                custom_loss_fn,
+                atomic_basis_reverse_transform,
+                per_structure_targets,
+                dtype,
                 device,
             )
 
-            val_loss = 0.0
-            for batch in val_dataloader:
-                if should_skip_batch(batch, False, device):
-                    continue
-
-                systems, targets, extra_data = unpack_batch(batch)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype, device=device
-                )
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    {key: train_targets[key] for key in targets.keys()},
-                    is_training=False,
-                )
-
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                val_loss_batch = self._compute_custom_loss_batch(
-                    systems,
-                    predictions,
-                    targets,
-                    extra_data,
-                    normal_train_targets,
-                    loss_fn,
-                    custom_loss_fn,
-                    atomic_basis_reverse_transform,
-                    model,
-                )
-                assert_finite_loss(
-                    val_loss_batch,
-                    phase="validation",
-                    predictions=predictions,
-                    targets=targets,
-                    extra_data=extra_data,
-                )
-                val_loss += val_loss_batch.item()
-
-                scaled_predictions, scaled_targets, metric_extra_data = (
-                    self._scaled_metric_inputs(
-                        systems,
-                        predictions,
-                        targets,
-                        extra_data,
-                        atomic_basis_reverse_transform,
-                        model,
-                    )
-                )
-                self._update_metric_calculators(
-                    val_rmse_calculator,
-                    val_mae_calculator,
-                    scaled_predictions,
-                    scaled_targets,
-                    metric_extra_data,
-                    "validation",
-                )
-
-            finalized_val_info = self._finalize_metric_info(
-                val_rmse_calculator,
-                val_mae_calculator,
-                per_structure_targets,
-                device,
-            )
-
-            finalized_train_info = {"loss": train_loss, **finalized_train_info}
-            finalized_val_info = {"loss": val_loss, **finalized_val_info}
             assert_finite_metrics(finalized_train_info, phase="training")
             assert_finite_metrics(finalized_val_info, phase="validation")
 

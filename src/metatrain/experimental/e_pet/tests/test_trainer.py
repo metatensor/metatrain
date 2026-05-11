@@ -2,58 +2,54 @@ from __future__ import annotations
 
 import copy
 
-from metatensor.torch import TensorBlock, TensorMap
 import pytest
 import torch
-
-from metatrain.pet.trainer import get_scheduler
-from metatrain.utils.architectures import get_default_hypers
-from metatrain.utils.data.atomic_basis_helpers import (
-    get_prepare_atomic_basis_targets_transform,
-)
+from metatensor.torch import TensorBlock, TensorMap
 
 from metatrain.experimental.e_pet.model import EPET
 from metatrain.experimental.e_pet.trainer import (
     Trainer,
     _AtomicBasisIrrepBalancedLoss,
 )
+from metatrain.pet.trainer import _apply_finetuning_if_requested, get_scheduler
+from metatrain.utils.architectures import get_default_hypers
+from metatrain.utils.data.atomic_basis_helpers import (
+    get_prepare_atomic_basis_targets_transform,
+)
 
 from .test_model import (
-    _atomic_basis_sparse_target,
     _atomic_basis_dataset_info,
+    _atomic_basis_sparse_target,
     _base_model_hypers,
     _build_system,
     _mixed_dataset_info,
+    _scalar_dataset_info,
     _system_index_extra,
 )
 
 
-def _split_lr_training_hypers() -> dict:
+def _basis_lr_training_hypers() -> dict:
     hypers = copy.deepcopy(get_default_hypers("experimental.e_pet")["training"])
     hypers["learning_rate"] = 1.0e-4
-    hypers["pet_trunk_learning_rate"] = 2.0e-4
     hypers["tensor_basis_learning_rate"] = 1.0e-3
-    hypers["readout_learning_rate"] = 6.0e-4
     return hypers
 
 
 def _pet_trainer_training_hypers() -> dict:
     hypers = copy.deepcopy(get_default_hypers("experimental.e_pet")["training"])
-    hypers["pet_trunk_learning_rate"] = None
     hypers["tensor_basis_learning_rate"] = None
-    hypers["readout_learning_rate"] = None
     hypers["coefficient_l2_weight"] = 0.0
     hypers["basis_gram_weight"] = 0.0
     return hypers
 
 
 def test_custom_training_path_predicate() -> None:
-    assert Trainer(_split_lr_training_hypers())._requires_custom_training_path()
+    assert Trainer(_basis_lr_training_hypers())._requires_custom_training_path()
     assert not Trainer(_pet_trainer_training_hypers())._requires_custom_training_path()
 
     hypers = _pet_trainer_training_hypers()
-    hypers["scale_property_floor_ratio"] = 1.0e-2
-    assert Trainer(hypers)._requires_custom_training_path()
+    hypers["tensor_basis_learning_rate"] = hypers["learning_rate"]
+    assert not Trainer(hypers)._requires_custom_training_path()
 
     hypers = _pet_trainer_training_hypers()
     hypers["atomic_basis_irrep_balanced_loss"] = {
@@ -61,16 +57,25 @@ def test_custom_training_path_predicate() -> None:
     }
     assert Trainer(hypers)._requires_custom_training_path()
 
+    scalar_only_model = EPET(_base_model_hypers(), _scalar_dataset_info())
+    assert not Trainer(_basis_lr_training_hypers())._requires_custom_training_path(
+        scalar_only_model
+    )
 
-def test_split_learning_rate_optimizer_groups_are_disjoint() -> None:
-    model = EPET(_base_model_hypers(), _mixed_dataset_info())
-    optimizer = Trainer(_split_lr_training_hypers())._build_optimizer(model)
+    spherical_model = EPET(_base_model_hypers(), _mixed_dataset_info())
+    assert Trainer(_basis_lr_training_hypers())._requires_custom_training_path(
+        spherical_model
+    )
+
+
+def test_tensor_basis_learning_rate_optimizer_groups_are_disjoint() -> None:
+    model = EPET(_base_model_hypers(), _atomic_basis_dataset_info())
+    optimizer = Trainer(_basis_lr_training_hypers())._build_optimizer(model)
 
     groups = {group["name"]: group for group in optimizer.param_groups}
-    assert set(groups) == {"pet_trunk", "tensor_basis", "readout"}
-    assert groups["pet_trunk"]["lr"] == 2.0e-4
+    assert set(groups) == {"pet_and_readout", "tensor_basis"}
+    assert groups["pet_and_readout"]["lr"] == 1.0e-4
     assert groups["tensor_basis"]["lr"] == 1.0e-3
-    assert groups["readout"]["lr"] == 6.0e-4
 
     parameter_ids = [
         id(parameter)
@@ -86,127 +91,48 @@ def test_split_learning_rate_optimizer_groups_are_disjoint() -> None:
     }
     assert set(parameter_ids) == expected_trainable_ids
 
-
-def test_spherical_l0_readout_optimizer_group_is_disjoint() -> None:
-    hypers = _split_lr_training_hypers()
-    hypers["spherical_l0_readout_learning_rate"] = 3.0e-4
-    model = EPET(_base_model_hypers(), _atomic_basis_dataset_info())
-    optimizer = Trainer(hypers)._build_optimizer(model)
-
-    groups = {group["name"]: group for group in optimizer.param_groups}
-    assert set(groups) == {
-        "pet_trunk",
-        "tensor_basis",
-        "readout",
-        "spherical_l0_readout",
+    pet_and_readout_parameter_ids = {
+        id(parameter) for parameter in groups["pet_and_readout"]["params"]
     }
-    assert groups["readout"]["lr"] == 6.0e-4
-    assert groups["spherical_l0_readout"]["lr"] == 3.0e-4
-
-    l0_parameter_ids = {
-        id(parameter)
-        for name, parameter in model.named_parameters()
-        if (
-            ("node_last_layers." in name or "edge_last_layers." in name)
-            and "_o3_lambda_0_o3_sigma_" in name
-        )
-    }
-    grouped_l0_parameter_ids = {
-        id(parameter) for parameter in groups["spherical_l0_readout"]["params"]
-    }
-    assert grouped_l0_parameter_ids == l0_parameter_ids
-
-    readout_parameter_ids = {id(p) for p in groups["readout"]["params"]}
-    readout_parameter_names = {
+    pet_and_readout_parameter_names = {
         name
         for name, parameter in model.named_parameters()
-        if id(parameter) in readout_parameter_ids
+        if id(parameter) in pet_and_readout_parameter_ids
     }
-    assert any(name.startswith("node_heads.") for name in readout_parameter_names)
-    assert any("_o3_lambda_1_o3_sigma_" in name for name in readout_parameter_names)
-    assert not any("_o3_lambda_0_o3_sigma_" in name for name in readout_parameter_names)
-
-    parameter_ids = [
-        id(parameter)
-        for group in optimizer.param_groups
-        for parameter in group["params"]
-    ]
-    assert len(parameter_ids) == len(set(parameter_ids))
-
-
-def test_spherical_l0_dedicated_head_uses_l0_optimizer_group() -> None:
-    hypers = _split_lr_training_hypers()
-    hypers["spherical_l0_readout_learning_rate"] = 3.0e-4
-    model_hypers = _base_model_hypers()
-    model_hypers["irrep_head_groups"] = {"density": {"0,1": "scalar"}}
-    model = EPET(model_hypers, _atomic_basis_dataset_info())
-    optimizer = Trainer(hypers)._build_optimizer(model)
-
-    groups = {group["name"]: group for group in optimizer.param_groups}
-    grouped_l0_parameter_ids = {
-        id(parameter) for parameter in groups["spherical_l0_readout"]["params"]
-    }
-    l0_parameter_names = {
-        name
-        for name, parameter in model.named_parameters()
-        if id(parameter) in grouped_l0_parameter_ids
-    }
-
-    assert any(name.startswith("node_heads.") for name in l0_parameter_names)
-    assert any(name.startswith("edge_heads.") for name in l0_parameter_names)
-    assert any("node_last_layers." in name for name in l0_parameter_names)
-    assert any("edge_last_layers." in name for name in l0_parameter_names)
-    assert all("density_o3_lambda_1_o3_sigma_" not in name for name in l0_parameter_names)
-    assert all("density_o3_lambda_2_o3_sigma_" not in name for name in l0_parameter_names)
-    assert groups["spherical_l0_readout"]["lr"] == 3.0e-4
-
-    readout_parameter_ids = {id(parameter) for parameter in groups["readout"]["params"]}
-    assert grouped_l0_parameter_ids.isdisjoint(readout_parameter_ids)
+    assert any(
+        name.startswith("node_heads.") for name in pet_and_readout_parameter_names
+    )
+    assert any(
+        name.startswith("edge_heads.") for name in pet_and_readout_parameter_names
+    )
+    assert any(
+        "_o3_lambda_0_o3_sigma_" in name
+        for name in pet_and_readout_parameter_names
+    )
+    assert any(
+        "_o3_lambda_1_o3_sigma_" in name
+        for name in pet_and_readout_parameter_names
+    )
+    assert all(
+        not name.startswith("basis_calculators.")
+        for name in pet_and_readout_parameter_names
+    )
 
 
-def test_scale_property_floor_clamps_fitted_scales_and_buffer() -> None:
+def test_equal_tensor_basis_learning_rate_uses_single_optimizer_group() -> None:
     hypers = _pet_trainer_training_hypers()
-    hypers["scale_property_floor_ratio"] = 1.0e-1
-    model = EPET(_base_model_hypers(), _atomic_basis_dataset_info())
-    model.scaler.sync_tensor_maps()
+    hypers["tensor_basis_learning_rate"] = hypers["learning_rate"]
+    model = EPET(_base_model_hypers(), _mixed_dataset_info())
 
-    original_scales = model.scaler.model.scales["density"]
-    blocks: list[TensorBlock] = []
-    flat_values_before: list[torch.Tensor] = []
-    for block in original_scales.blocks():
-        values = torch.full_like(block.values, 1.0e-3)
-        values.reshape(-1)[0] = 1.0e-9
-        flat_values_before.append(values.reshape(-1))
-        blocks.append(
-            TensorBlock(
-                values=values,
-                samples=block.samples,
-                components=block.components,
-                properties=block.properties,
-            )
-        )
-    model.scaler.model.scales["density"] = TensorMap(original_scales.keys, blocks)
+    optimizer = Trainer(hypers)._build_optimizer(model)
 
-    median_scale = torch.median(torch.cat(flat_values_before))
-    expected_floor = median_scale * hypers["scale_property_floor_ratio"]
-
-    Trainer(hypers)._apply_scale_property_floor(model)
-
-    floored_scales = model.scaler.model.scales["density"]
-    floored_values = torch.cat(
-        [block.values.reshape(-1) for block in floored_scales.blocks()]
-    )
-    assert torch.all(floored_values >= expected_floor)
-    assert torch.any(floored_values == expected_floor)
-
-    model.scaler.sync_tensor_maps()
-    reloaded_values = torch.cat(
-        [
-            block.values.reshape(-1)
-            for block in model.scaler.model.scales["density"].blocks()
-        ]
-    )
-    torch.testing.assert_close(reloaded_values, floored_values)
+    assert len(optimizer.param_groups) == 1
+    assert optimizer.param_groups[0]["lr"] == hypers["learning_rate"]
+    parameter_ids = {id(parameter) for parameter in optimizer.param_groups[0]["params"]}
+    expected_parameter_ids = {
+        id(parameter) for parameter in model.parameters() if parameter.requires_grad
+    }
+    assert parameter_ids == expected_parameter_ids
 
 
 def _set_atomic_basis_scales(model: EPET, variable_by_species: bool = False) -> None:
@@ -436,7 +362,7 @@ def test_atomic_basis_irrep_balanced_loss_rejects_invalid_targets() -> None:
 
 
 def test_custom_trainer_restores_restart_optimizer_and_scheduler_state() -> None:
-    hypers = _split_lr_training_hypers()
+    hypers = _basis_lr_training_hypers()
     model = EPET(_base_model_hypers(), _mixed_dataset_info())
     trainer = Trainer(hypers)
 
@@ -460,23 +386,56 @@ def test_custom_trainer_restores_restart_optimizer_and_scheduler_state() -> None
 
 
 def test_custom_trainer_rejects_distributed_training() -> None:
-    hypers = _split_lr_training_hypers()
+    hypers = _basis_lr_training_hypers()
     hypers["distributed"] = True
 
     with pytest.raises(NotImplementedError, match="distributed training"):
         Trainer(hypers)._validate_custom_training_path(torch.float32)
 
 
-def test_custom_trainer_rejects_finetuning() -> None:
-    hypers = _split_lr_training_hypers()
-    hypers["finetune"]["read_from"] = "model.ckpt"
+def test_custom_trainer_supports_heads_finetuning() -> None:
+    hypers = _basis_lr_training_hypers()
+    hypers["finetune"] = {
+        "read_from": "model.ckpt",
+        "method": "heads",
+        "config": {
+            "head_modules": ["node_heads", "edge_heads"],
+            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+        },
+        "inherit_heads": {},
+    }
+    trainer = Trainer(hypers)
+    trainer._validate_custom_training_path(torch.float32)
 
-    with pytest.raises(NotImplementedError, match="finetuning"):
-        Trainer(hypers)._validate_custom_training_path(torch.float32)
+    model = _apply_finetuning_if_requested(
+        EPET(_base_model_hypers(), _mixed_dataset_info()),
+        hypers,
+    )
+    trainable_names = {
+        name for name, parameter in model.named_parameters() if parameter.requires_grad
+    }
+
+    assert model.finetune_config == hypers["finetune"]
+    assert trainable_names
+    assert all(
+        name.startswith(
+            (
+                "node_heads.",
+                "edge_heads.",
+                "node_last_layers.",
+                "edge_last_layers.",
+            )
+        )
+        for name in trainable_names
+    )
+
+    optimizer = trainer._build_optimizer(model)
+    assert len(optimizer.param_groups) == 1
+    assert optimizer.param_groups[0]["lr"] == hypers["learning_rate"]
 
 
 def test_custom_trainer_rejects_max_atoms_per_batch() -> None:
-    hypers = _split_lr_training_hypers()
+    hypers = _basis_lr_training_hypers()
     hypers["max_atoms_per_batch"] = 128
 
     with pytest.raises(NotImplementedError, match="max_atoms_per_batch"):

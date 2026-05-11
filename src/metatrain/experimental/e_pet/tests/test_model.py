@@ -7,6 +7,12 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 
+from metatrain.experimental.e_pet import model as e_pet_model_module
+from metatrain.experimental.e_pet.model import (
+    EPET,
+    _cartesian_rank2_to_spherical_components,
+    _spherical_components_to_cartesian_rank2,
+)
 from metatrain.pet import model as pet_model_module
 from metatrain.pet.model import PET
 from metatrain.utils.architectures import get_default_hypers
@@ -18,15 +24,6 @@ from metatrain.utils.data.atomic_basis_helpers import (
 from metatrain.utils.data.target_info import get_generic_target_info
 from metatrain.utils.loss import LossAggregator
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
-
-from metatrain.experimental.e_pet import model as e_pet_model_module
-from metatrain.experimental.e_pet.model import (
-    EPET,
-    _cartesian_rank2_to_spherical_components,
-    _rms_normalize_tensor_basis,
-    _spherical_components_to_cartesian_rank2,
-    _whiten_tensor_basis,
-)
 
 
 def _base_model_hypers() -> dict:
@@ -343,7 +340,9 @@ def test_scalar_only_path_matches_pet_exactly() -> None:
     requested_outputs = {"scalar": ModelOutput(per_atom=True)}
 
     pet_output = pet_model([pet_system], requested_outputs)["scalar"].block().values
-    e_pet_output = e_pet_model([e_pet_system], requested_outputs)["scalar"].block().values
+    e_pet_output = (
+        e_pet_model([e_pet_system], requested_outputs)["scalar"].block().values
+    )
     assert torch.allclose(pet_output, e_pet_output)
 
 
@@ -491,91 +490,6 @@ def test_coefficient_l2_exclusion_keeps_nontrivial_spherical_blocks() -> None:
     assert model.get_regularization_loss(exclude_spherical_l0=True) > 0
 
 
-def test_rms_tensor_basis_normalizes_block_scale_and_is_equivariant() -> None:
-    torch.manual_seed(0)
-    tensor_basis = torch.randn(4, 5, 3) * torch.tensor([0.1, 10.0, 2.0])
-
-    normalized = _rms_normalize_tensor_basis(
-        tensor_basis,
-        epsilon=1.0e-12,
-        detach_norm=True,
-    )
-
-    rms = normalized.pow(2).mean(dim=(1, 2)).sqrt()
-    torch.testing.assert_close(rms, torch.ones_like(rms))
-
-    orthogonal, _ = torch.linalg.qr(torch.randn(5, 5))
-    rotated = torch.einsum("cd,sdb->scb", orthogonal, tensor_basis)
-    normalized_rotated = _rms_normalize_tensor_basis(
-        rotated,
-        epsilon=1.0e-12,
-        detach_norm=True,
-    )
-    rotated_normalized = torch.einsum("cd,sdb->scb", orthogonal, normalized)
-
-    torch.testing.assert_close(
-        normalized_rotated,
-        rotated_normalized,
-        rtol=1.0e-6,
-        atol=1.0e-6,
-    )
-
-
-def test_whiten_tensor_basis_bounds_used_basis_spectrum() -> None:
-    torch.manual_seed(0)
-    tensor_basis = torch.randn(4, 5, 10)
-    tensor_basis = tensor_basis * torch.logspace(-2, 2, 10).reshape(1, 1, -1)
-
-    whitened = _whiten_tensor_basis(tensor_basis, epsilon=1.0e-6)
-
-    gram = torch.einsum("scb,scd->sbd", whitened, whitened)
-    eigenvalues = torch.linalg.eigvalsh(gram)
-    assert torch.all(torch.isfinite(whitened))
-    assert torch.max(eigenvalues) <= 1.001
-
-
-def test_whiten_tensor_basis_is_nearly_scale_invariant_for_full_rank_basis() -> None:
-    torch.manual_seed(0)
-    tensor_basis = torch.randn(4, 8, 3)
-
-    whitened = _whiten_tensor_basis(tensor_basis, epsilon=1.0e-8)
-    whitened_scaled = _whiten_tensor_basis(10.0 * tensor_basis, epsilon=1.0e-8)
-
-    torch.testing.assert_close(whitened_scaled, whitened, rtol=1.0e-4, atol=1.0e-4)
-
-
-def test_basis_normalization_forward_paths_are_configurable_and_finite() -> None:
-    hypers = _base_model_hypers()
-    assert hypers["tensor_basis_defaults"]["basis_normalization"] == "none"
-
-    for normalization in ("rms", "none", "whiten"):
-        hypers = _base_model_hypers()
-        hypers["tensor_basis_defaults"]["basis_normalization"] = normalization
-        hypers["tensor_basis_defaults"]["basis_normalization_epsilon"] = 1.0e-6
-        model = EPET(hypers, _atomic_basis_dataset_info()).train()
-        system = _build_system(model)
-
-        output = model([system], {"density": ModelOutput(per_atom=True)})["density"]
-
-        assert torch.isfinite(model.get_basis_gram_loss())
-        for block in output.blocks():
-            assert torch.all(torch.isfinite(block.values))
-
-
-def test_basis_normalization_rejects_bad_options() -> None:
-    hypers = _base_model_hypers()
-    hypers["tensor_basis_defaults"]["basis_normalization"] = "bad"
-
-    with pytest.raises(ValueError, match="Unknown E-PET tensor-basis normalization"):
-        EPET(hypers, _atomic_basis_dataset_info())
-
-    hypers = _base_model_hypers()
-    hypers["tensor_basis_defaults"]["basis_normalization_epsilon"] = 0.0
-
-    with pytest.raises(ValueError, match="basis_normalization_epsilon"):
-        EPET(hypers, _atomic_basis_dataset_info())
-
-
 def test_atomic_basis_rejects_unknown_irrep_head_groups() -> None:
     hypers = _base_model_hypers()
     hypers["irrep_head_groups"] = {"density": {"8,1": "head_a"}}
@@ -610,20 +524,6 @@ def test_cartesian_rank2_target_uses_hidden_spherical_readout() -> None:
     assert block.components[0].names == ["xyz_1"]
     assert block.components[1].names == ["xyz_2"]
     assert torch.allclose(block.values, block.values.transpose(1, 2))
-
-
-def test_cartesian_rank2_target_infers_pet_edge_harmonic_order() -> None:
-    hypers = _base_model_hypers()
-    hypers["pet"]["edge_harmonics"] = {
-        "mode": "normalized_solid",
-        "max_angular": None,
-        "epsilon": 1.0e-12,
-    }
-
-    model = EPET(hypers, _cartesian_rank2_dataset_info()).eval()
-
-    assert model.edge_harmonics_max_angular == 2
-    assert model.gnn_layers[0].edge_embedder.in_features == 9
 
 
 def test_cartesian_rank1_target_remains_unsupported() -> None:
@@ -689,7 +589,7 @@ def test_cartesian_rank2_hardcoded_spherical_round_trip() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
-def test_cartesian_rank2_reconstruction_moves_public_layout_to_prediction_device() -> None:
+def test_cartesian_rank2_reconstruction_moves_layout_to_prediction_device() -> None:
     layout = _cartesian_rank2_target_info().layout
     samples = Labels(["system"], torch.tensor([[0]], dtype=torch.int32)).to("cuda")
     cartesian = torch.tensor(
@@ -770,7 +670,10 @@ def test_cartesian_rank2_loss_uses_public_cartesian_tensor() -> None:
 
 
 def test_cartesian_rank2_volume_normalization_matches_pet_helper() -> None:
-    assert e_pet_model_module.normalize_by_volume is pet_model_module.normalize_by_volume
+    assert (
+        e_pet_model_module.normalize_by_volume
+        is pet_model_module.normalize_by_volume
+    )
 
     raw_hypers = _base_model_hypers()
     normalized_hypers = _base_model_hypers()
