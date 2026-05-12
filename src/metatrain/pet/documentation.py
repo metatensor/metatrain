@@ -64,9 +64,15 @@ important** (in decreasing order of importance):
 
   .. autoattribute:: {{model_hypers_path}}.long_range
       :no-index:
+
+  .. autoattribute:: {{model_hypers_path}}.atomic_basis_z_readout
+      :no-index:
+
+  .. autoattribute:: {{model_hypers_path}}.geometry_embedding_lmax
+      :no-index:
 """
 
-from typing import Literal, Optional
+from typing import Dict, Literal, Optional, Union
 
 from typing_extensions import TypedDict
 
@@ -164,6 +170,37 @@ class ModelHypers(TypedDict):
     """Use ZBL potential for short-range repulsion"""
     long_range: LongRangeHypers = init_with_defaults(LongRangeHypers)
     """Long-range Coulomb interactions parameters."""
+    atomic_basis_z_readout: Union[bool, Dict[str, bool]] = False
+    """Whether to use Z-conditioned linear readout layers for atomic basis targets.
+
+    Can be set in two ways:
+
+    * A single ``bool`` — applies uniformly to every atomic basis target in
+      the model.  Non-atomic-basis targets are unaffected (they always use a
+      standard shared linear readout).
+    * A ``dict`` mapping target names to ``bool`` — enables per-target control.
+      Targets absent from the dict default to ``False``.  Again, non-atomic-
+      basis targets are never Z-conditioned regardless of the value provided.
+    """
+    num_experts: Optional[int] = None
+    """Total number of experts N for the MoE-E readout.  ``None`` (default)
+    disables MoE and falls back to ``ZConditionedReadout``.  When set,
+    ``num_routed_experts`` and ``num_topk_experts`` must also be set."""
+    num_routed_experts: Optional[int] = None
+    """Number of Z-gated routed experts I.  Must satisfy
+    1 ≤ I ≤ ``num_experts`` when MoE is enabled."""
+    num_topk_experts: Optional[int] = None
+    """Number of routed experts K' selected per atom via TopK
+    (must satisfy 1 ≤ K' ≤ ``num_routed_experts``).
+    Total experts activated per atom = K' + (``num_experts`` − ``num_routed_experts``) shared."""
+    moe_embedding_dim: int = 16
+    """Latent dimension M of the species embedding used by the MoE router.
+    16 is sufficient to distinguish all ~100 periodic-table elements while
+    leaving the model free to learn a continuous chemical manifold."""
+    geometry_embedding_lmax: Optional[int] = None
+    """
+    The L max of solid spherical harmonics to use for edge geometry embeddings
+    """
 
 
 class TrainerHypers(TypedDict):
