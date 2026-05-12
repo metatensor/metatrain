@@ -189,6 +189,20 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
         loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])
 
+        indirect_ri_losses = {
+            "ri_density_fit_coulomb",
+            "ri_density_fit_overlap",
+        }
+        if self.hypers["scale_targets"] and any(
+            target_loss["type"] in indirect_ri_losses
+            for target_loss in loss_hypers.values()
+        ):
+            raise ValueError(
+                "PET training with indirect RI density-fit losses "
+                "('ri_density_fit_coulomb', 'ri_density_fit_overlap') requires "
+                "'scale_targets' to be set to False."
+            )
+
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
             train_datasets,

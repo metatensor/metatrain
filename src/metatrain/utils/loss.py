@@ -1209,16 +1209,15 @@ class TensorMapRIOverlapLoss(_TensorMapRIQuadraticLoss):
 
 class _TensorMapRIDensityFitLoss(LossInterface):
     """
-    Density-fit loss for RI coefficients with projection targets.
+    Density-fit loss for RI coefficients with projection extra data.
 
     Implements ``L = c_ML^T M c_ML - 2 c_ML^T p`` per system, where ``c_ML`` is
-    the predicted RI coefficient vector and ``p`` is the target projection
-    vector. The loss differs from
-    ``(c_ML - c_true)^T M (c_ML - c_true)`` only by a constant ``c_true^T M
-    c_true`` (since ``M c_true = p``), so the optimum and gradients w.r.t.
-    ``c_ML`` are identical, but the target now stores ``p`` instead of
-    ``c_true = M^{-1} p``. This bypasses the ``M`` inversion needed to obtain
-    reference coefficients.
+    the predicted RI coefficient vector, ``c_true`` is the target RI coefficient
+    vector stored in ``targets[self.target]``, and ``p`` is the matching target
+    projection vector stored in ``extra_data[self.projection_key]``. When
+    ``include_reference_constant`` is enabled, the missing constant
+    ``c_true^T M c_true`` is added back so the loss is bounded below by zero when
+    ``p = M c_true``.
 
     Subclasses pick the metric matrix by setting :attr:`_matrix_kind` (used in
     error messages) and overriding :meth:`_matrix_name`.
@@ -1236,8 +1235,12 @@ class _TensorMapRIDensityFitLoss(LossInterface):
         gradient: Optional[str],
         weight: float,
         reduction: str,
+        projection_key: str,
+        include_reference_constant: bool = False,
     ):
         super().__init__(name, gradient, weight, reduction)
+        self.projection_key = projection_key
+        self.include_reference_constant = include_reference_constant
 
     def compute(
         self,
@@ -1257,30 +1260,20 @@ class _TensorMapRIDensityFitLoss(LossInterface):
         assert matrix_name in extra_data, (
             f"{cls_name} requires '{matrix_name}' in extra_data"
         )
+        assert self.projection_key in extra_data, (
+            f"{cls_name} requires projection TensorMap '{self.projection_key}' in "
+            "extra_data"
+        )
 
         tensor_map_pred = predictions[self.target]
         tensor_map_targ = targets[self.target]
-        scale_name = ri_coefficients_scale_name(self.target)
-        scale_map: Optional[TensorMap] = extra_data.get(scale_name)
-
-        # Flatten pred, target projection (and scale if present) with a shared
-        # NaN mask so all aligned vectors have equal length per system.
-        if scale_map is not None:
-            aligned = _ri_coefficients_pyscf_order_aligned(
-                tensor_map_pred, tensor_map_targ, scale_map
-            )
-            coefficients = [item[0] for item in aligned]
-            projections = [item[1] for item in aligned]
-            scale_coefficients: Optional[list[torch.Tensor]] = [
-                item[2] for item in aligned
-            ]
-        else:
-            aligned = _ri_coefficients_pyscf_order_aligned(
-                tensor_map_pred, tensor_map_targ
-            )
-            coefficients = [item[0] for item in aligned]
-            projections = [item[1] for item in aligned]
-            scale_coefficients = None
+        projection_map = extra_data[self.projection_key]
+        aligned = _ri_coefficients_pyscf_order_aligned(
+            tensor_map_pred, tensor_map_targ, projection_map
+        )
+        coefficients = [item[0] for item in aligned]
+        target_coefficients = [item[1] for item in aligned]
+        projections = [item[2] for item in aligned]
 
         if len(coefficients) == 0:
             first_block = tensor_map_pred.block(tensor_map_pred.keys[0])
@@ -1288,17 +1281,13 @@ class _TensorMapRIDensityFitLoss(LossInterface):
                 (), dtype=first_block.values.dtype, device=first_block.values.device
             )
 
-        if scale_coefficients is not None:
-            # Apply the same scaling to predictions and projections so the loss
-            # corresponds to fitting in the scaled basis.
-            coefficients = [
-                c * scales
-                for c, scales in zip(coefficients, scale_coefficients, strict=True)
-            ]
-            projections = [
-                p * scales
-                for p, scales in zip(projections, scale_coefficients, strict=True)
-            ]
+        scale_name = ri_coefficients_scale_name(self.target)
+        if scale_name in extra_data:
+            raise ValueError(
+                f"{cls_name} does not support scaled targets. Set 'scale_targets' "
+                f"to False when using '{type(self)._matrix_name(self.target)}' "
+                "density-fit losses."
+            )
 
         packed_matrix = extra_data[matrix_name]
         packed_block = packed_matrix.block()
@@ -1326,9 +1315,15 @@ class _TensorMapRIDensityFitLoss(LossInterface):
 
         max_basis = packed_block.values.shape[-1]
         coeff_padded = packed_block.values.new_zeros((len(coefficients), max_basis))
+        targ_padded = packed_block.values.new_zeros(
+            (len(target_coefficients), max_basis)
+        )
         proj_padded = packed_block.values.new_zeros((len(projections), max_basis))
-        for i_system, (c, p) in enumerate(zip(coefficients, projections, strict=True)):
+        for i_system, (c, c_true, p) in enumerate(
+            zip(coefficients, target_coefficients, projections, strict=True)
+        ):
             coeff_padded[i_system, : c.shape[0]] = c
+            targ_padded[i_system, : c_true.shape[0]] = c_true
             proj_padded[i_system, : p.shape[0]] = p
 
         matrix_values = torch.nan_to_num(packed_block.values, nan=0.0)
@@ -1337,6 +1332,11 @@ class _TensorMapRIDensityFitLoss(LossInterface):
         )
         linear = torch.einsum("bi,bi->b", coeff_padded, proj_padded)
         loss_values = quadratic - 2.0 * linear
+        if self.include_reference_constant:
+            reference = torch.einsum(
+                "bi,bij,bj->b", targ_padded, matrix_values, targ_padded
+            )
+            loss_values = loss_values + reference
 
         if self.reduction == "mean":
             return loss_values.mean()
