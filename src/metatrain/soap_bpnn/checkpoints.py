@@ -4,6 +4,8 @@ import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
+from metatrain.utils.scaler.checkpoints import update_per_property_scales
+
 
 ###########################
 # MODEL ###################
@@ -236,6 +238,15 @@ def model_update_v7_v8(checkpoint: dict) -> None:
                             continue
                 new_state_dict[name] = value
             checkpoint[sd_key] = new_state_dict
+
+
+def model_update_v8_v9(checkpoint: dict) -> None:
+    """
+    Update a v8 checkpoint to v9.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    update_per_property_scales(checkpoint)
 
 
 ###########################

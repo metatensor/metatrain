@@ -173,6 +173,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 self.hypers["batch_size"],
                 is_distributed,
                 model.get_fixed_scaling_weights(),
+                per_structure_targets=self.hypers["per_structure_targets"],
             )
 
         if is_distributed:
@@ -369,6 +370,19 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
+                # Apply per-property scales to the predictions before loss computation.
+                # The targets from the dataloader have only been scaled per-target, and
+                # not per-property. This transformation only applies to targets with
+                # per-property scales (i.e. multiple blocks or multiple properties), and
+                # leaves the others unchanged.
+                predictions = (model.module if is_distributed else model).scaler(
+                    systems,
+                    predictions,
+                    remove=False,
+                    use_per_target_scales=False,  # never before loss
+                    use_per_property_scales=True,
+                )
+
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 train_loss_batch.backward()
@@ -430,6 +444,19 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
+
+                # Apply per-property scales to the predictions before loss computation.
+                # The targets from the dataloader have only been scaled per-target, and
+                # not per-property. This transformation only applies to targets with
+                # per-property scales (i.e. multiple blocks or multiple properties), and
+                # leaves the others unchanged.
+                predictions = (model.module if is_distributed else model).scaler(
+                    systems,
+                    predictions,
+                    remove=False,
+                    use_per_target_scales=False,  # never before loss
+                    use_per_property_scales=True,
+                )
 
                 val_loss_batch = loss_fn(predictions, targets, extra_data)
 

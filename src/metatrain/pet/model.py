@@ -52,7 +52,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 12
+    __checkpoint_version__ = 13
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -560,7 +560,11 @@ class PET(ModelInterface[ModelHypers]):
             if not self.training:
                 # at evaluation, we also introduce the scaler and additive contributions
                 return_dict = self.scaler(
-                    systems, return_dict, selected_atoms=selected_atoms
+                    systems,
+                    return_dict,
+                    selected_atoms=selected_atoms,
+                    use_per_target_scales=True,
+                    use_per_property_scales=True,
                 )
                 for additive_model in self.additive_models:
                     outputs_for_additive_model: Dict[str, ModelOutput] = {}
@@ -596,7 +600,14 @@ class PET(ModelInterface[ModelHypers]):
                                     )
                                 )
                             else:
-                                output_blocks.append(b)
+                                output_blocks.append(
+                                    TensorBlock(
+                                        values=b.values,
+                                        samples=b.samples,
+                                        components=b.components,
+                                        properties=b.properties,
+                                    )
+                                )
                         return_dict[name] = TensorMap(
                             return_dict[name].keys, output_blocks
                         )

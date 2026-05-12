@@ -1,3 +1,11 @@
+from metatrain.utils.scaler.checkpoints import update_per_property_scales
+
+
+###########################
+# MODEL ###################
+###########################
+
+
 def model_update_v1_v2(checkpoint: dict) -> None:
     """
     Update model checkpoint from version 1 to version 2.
@@ -20,6 +28,20 @@ def model_update_v2_v3(checkpoint: dict) -> None:
     # Adding the attention_temperature hyperparameter if not present
     if "attention_temperature" not in checkpoint["model_data"]["model_hypers"]:
         checkpoint["model_data"]["model_hypers"]["attention_temperature"] = 1.0
+
+
+def model_update_v3_v4(checkpoint: dict) -> None:
+    """
+    Update a v3 checkpoint to v4.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    update_per_property_scales(checkpoint)
+
+
+###########################
+# TRAINER #################
+###########################
 
 
 def trainer_update_v1_v2(checkpoint: dict) -> None:
