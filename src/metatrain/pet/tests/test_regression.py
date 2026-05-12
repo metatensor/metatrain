@@ -22,10 +22,15 @@ from metatrain.utils.data.target_info import (
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
+<<<<<<< Updated upstream
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+=======
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.pyscf_loss import build_auxiliary_molecule
+>>>>>>> Stashed changes
 
 from . import (
     DATASET_PATH,
@@ -34,6 +39,170 @@ from . import (
     MODEL_HYPERS,
     SPHERICAL_DISK_DATASET_PATH,
 )
+
+
+def _make_single_atom_system(atom_type: int) -> System:
+    return System(
+        positions=torch.zeros((1, 3), dtype=torch.float64),
+        types=torch.tensor([atom_type], dtype=torch.int32),
+        cell=torch.zeros((3, 3), dtype=torch.float64),
+        pbc=torch.zeros(3, dtype=torch.bool),
+    )
+
+
+def _get_aux_basis_irreps(
+    atomic_types: list[int],
+    aux_basis: str,
+) -> dict[int, list[dict[str, int]]]:
+    irreps: dict[int, list[dict[str, int]]] = {}
+
+    for atomic_type in atomic_types:
+        auxmol = build_auxiliary_molecule(
+            _make_single_atom_system(atomic_type), aux_basis
+        )
+
+        counts_by_lambda: dict[int, int] = {}
+        for i_shell in range(auxmol.nbas):
+            o3_lambda = auxmol.bas_angular(i_shell)
+            counts_by_lambda[o3_lambda] = counts_by_lambda.get(
+                o3_lambda, 0
+            ) + auxmol.bas_nctr(i_shell)
+
+        irreps[atomic_type] = [
+            {"o3_lambda": o3_lambda, "o3_sigma": 1, "num": num_radial}
+            for o3_lambda, num_radial in sorted(counts_by_lambda.items())
+        ]
+
+    return irreps
+
+
+def _make_zero_ri_target(
+    system,
+    system_index: int,
+    layout: TensorMap,
+) -> TensorMap:
+    blocks = []
+
+    for key, layout_block in layout.items():
+        atom_type = key["atom_type"]
+        atom_indices = torch.nonzero(system.types == atom_type, as_tuple=False).reshape(
+            -1
+        )
+        if len(atom_indices) == 0:
+            sample_values = torch.empty((0, 2), dtype=torch.int32)
+        else:
+            sample_values = torch.stack(
+                [
+                    torch.full((len(atom_indices),), system_index, dtype=torch.int32),
+                    atom_indices.to(torch.int32),
+                ],
+                dim=1,
+            )
+
+        blocks.append(
+            TensorBlock(
+                values=torch.zeros(
+                    (
+                        len(atom_indices),
+                        *[len(component) for component in layout_block.components],
+                        len(layout_block.properties),
+                    ),
+                    dtype=torch.float64,
+                ),
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=sample_values,
+                ),
+                components=layout_block.components,
+                properties=layout_block.properties,
+            )
+        )
+
+    return TensorMap(keys=layout.keys, blocks=blocks)
+
+
+def _make_ri_coulomb_dataset_and_target_info() -> tuple[Dataset, str, DatasetInfo]:
+    aux_basis = "def2-svp-jkfit"
+    systems = [system.to(torch.float64) for system in read_systems(DATASET_PATH)[:2]]
+    target_name = "mtt::ri_coeffs"
+    projection_key = "mtt::ri_projections"
+    atomic_types = [1, 6, 7, 8]
+    system_indices = [
+        TensorMap(
+            keys=Labels(names=["_"], values=torch.tensor([[0]], dtype=torch.int32)),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[i_system]], dtype=torch.float64),
+                    samples=Labels(
+                        names=["system"],
+                        values=torch.tensor([[i_system]], dtype=torch.int32),
+                    ),
+                    components=[],
+                    properties=Labels(
+                        names=["_"], values=torch.tensor([[0]], dtype=torch.int32)
+                    ),
+                )
+            ],
+        )
+        for i_system in range(len(systems))
+    ]
+
+    target_info = get_generic_target_info(
+        target_name,
+        OmegaConf.create(
+            {
+                "quantity": "",
+                "unit": "",
+                "per_atom": True,
+                "num_subtargets": 1,
+                "type": {
+                    "spherical": {
+                        "irreps": _get_aux_basis_irreps(atomic_types, aux_basis)
+                    }
+                },
+            }
+        ),
+    )
+
+    targets = [
+        _make_zero_ri_target(system, i_system, target_info.layout)
+        for i_system, system in enumerate(systems)
+    ]
+    projections = [
+        _make_zero_ri_target(system, i_system, target_info.layout)
+        for i_system, system in enumerate(systems)
+    ]
+
+    dataset = Dataset.from_dict(
+        {
+            "system": systems,
+            target_name: targets,
+            projection_key: projections,
+            "mtt::aux::system_index": system_indices,
+        }
+    )
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=atomic_types,
+        targets={target_name: target_info},
+        extra_data={
+            projection_key: target_info,
+            "mtt::aux::system_index": get_generic_target_info(
+                "system_index",
+                OmegaConf.create(
+                    {
+                        "quantity": "",
+                        "unit": "",
+                        "type": "scalar",
+                        "per_atom": False,
+                        "num_subtargets": 1,
+                    }
+                ),
+            ),
+        },
+    )
+    return dataset, target_name, dataset_info
 
 
 def test_regression_init():
@@ -174,6 +343,7 @@ def test_regression_energies_forces_train(device):
     )
 
 
+<<<<<<< Updated upstream
 @pytest.mark.parametrize("batch_size", [1, 2])
 def test_regression_energy_non_conservative_stress(batch_size):
     """Regression test for PET setup with mixed energy and NC stress targets."""
@@ -286,12 +456,41 @@ def test_regression_energy_non_conservative_stress(batch_size):
     model = PET(model_hypers, dataset_info)
     trainer = Trainer(hypers["training"])
     # num_epochs=0 keeps this test focused on pre-training scaler fitting.
+=======
+def test_regression_ri_coulomb_train_runs(tmp_path):
+    pytest.importorskip("pyscf")
+
+    dataset, target_name, dataset_info = _make_ri_coulomb_dataset_and_target_info()
+    systems = [sample.system for sample in dataset]
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    hypers["training"]["num_epochs"] = 1
+    hypers["training"]["batch_size"] = 1
+    hypers["training"]["log_interval"] = 1
+    hypers["training"]["atomic_baseline"] = {}
+    hypers["training"]["scale_targets"] = False
+    hypers["training"]["ri_aux_basis"] = "def2-svp-jkfit"
+    hypers["training"]["loss"] = OmegaConf.create(
+        {
+            target_name: {
+                "type": "ri_coulomb",
+                "weight": 1.0,
+                "reduction": "mean",
+                "gradients": {},
+            }
+        }
+    )
+
+    trainer = Trainer(hypers["training"])
+>>>>>>> Stashed changes
     trainer.train(
         model=model,
         dtype=torch.float32,
         devices=[torch.device("cpu")],
         train_datasets=[dataset],
         val_datasets=[dataset],
+<<<<<<< Updated upstream
         checkpoint_dir=".",
     )
 
@@ -407,10 +606,50 @@ def test_regression_train_spherical(device):
 
     hypers["training"]["num_epochs"] = 1
     hypers["training"]["num_workers"] = 0  # for reproducibility
+=======
+        checkpoint_dir=tmp_path,
+    )
+
+    output = evaluate_model(
+        model,
+        [systems[0].to(torch.float32)],
+        targets={target_name: ModelOutput(quantity="", unit="", per_atom=True)},
+        is_training=False,
+    )
+    assert target_name in output
+
+
+def test_regression_ri_overlap_train_runs(tmp_path):
+    pytest.importorskip("pyscf")
+
+    dataset, target_name, dataset_info = _make_ri_coulomb_dataset_and_target_info()
+    systems = [sample.system for sample in dataset]
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    hypers["training"]["num_epochs"] = 1
+    hypers["training"]["batch_size"] = 1
+    hypers["training"]["log_interval"] = 1
+    hypers["training"]["atomic_baseline"] = {}
+    hypers["training"]["scale_targets"] = False
+    hypers["training"]["ri_aux_basis"] = "def2-svp-jkfit"
+    hypers["training"]["loss"] = OmegaConf.create(
+        {
+            target_name: {
+                "type": "ri_overlap",
+                "weight": 1.0,
+                "reduction": "mean",
+                "gradients": {},
+            }
+        }
+    )
+
+>>>>>>> Stashed changes
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model,
         dtype=torch.float32,
+<<<<<<< Updated upstream
         devices=[torch.device(device)],
         train_datasets=[dataset],
         val_datasets=[dataset],
@@ -473,3 +712,145 @@ def test_regression_train_spherical(device):
     torch.testing.assert_close(
         output["mtt::electron_density_basis"][1].values[2], expected_output
     )
+=======
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=tmp_path,
+    )
+
+    output = evaluate_model(
+        model,
+        [systems[0].to(torch.float32)],
+        targets={target_name: ModelOutput(quantity="", unit="", per_atom=True)},
+        is_training=False,
+    )
+    assert target_name in output
+
+
+def test_regression_ri_density_fit_overlap_train_runs(tmp_path):
+    pytest.importorskip("pyscf")
+
+    dataset, target_name, dataset_info = _make_ri_coulomb_dataset_and_target_info()
+    projection_key = "mtt::ri_projections"
+    systems = [sample.system for sample in dataset]
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    hypers["training"]["num_epochs"] = 1
+    hypers["training"]["batch_size"] = 1
+    hypers["training"]["log_interval"] = 1
+    hypers["training"]["atomic_baseline"] = {}
+    hypers["training"]["scale_targets"] = False
+    hypers["training"]["ri_aux_basis"] = "def2-svp-jkfit"
+    hypers["training"]["loss"] = OmegaConf.create(
+        {
+            target_name: {
+                "type": "ri_density_fit_overlap",
+                "projection_key": projection_key,
+                "weight": 1.0,
+                "reduction": "mean",
+                "gradients": {},
+            }
+        }
+    )
+
+    trainer = Trainer(hypers["training"])
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=tmp_path,
+    )
+
+    output = evaluate_model(
+        model,
+        [systems[0].to(torch.float32)],
+        targets={target_name: ModelOutput(quantity="", unit="", per_atom=True)},
+        is_training=False,
+    )
+    assert target_name in output
+
+
+def test_regression_ri_density_fit_overlap_rejects_scaled_targets(tmp_path):
+    pytest.importorskip("pyscf")
+
+    dataset, target_name, dataset_info = _make_ri_coulomb_dataset_and_target_info()
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    hypers["training"]["num_epochs"] = 1
+    hypers["training"]["batch_size"] = 1
+    hypers["training"]["log_interval"] = 1
+    hypers["training"]["atomic_baseline"] = {}
+    hypers["training"]["scale_targets"] = True
+    hypers["training"]["ri_aux_basis"] = "def2-svp-jkfit"
+    hypers["training"]["loss"] = OmegaConf.create(
+        {
+            target_name: {
+                "type": "ri_density_fit_overlap",
+                "projection_key": "mtt::ri_projections",
+                "weight": 1.0,
+                "reduction": "mean",
+                "gradients": {},
+            }
+        }
+    )
+
+    trainer = Trainer(hypers["training"])
+    with pytest.raises(ValueError, match="requires 'scale_targets' to be set to False"):
+        trainer.train(
+            model=model,
+            dtype=torch.float32,
+            devices=[torch.device("cpu")],
+            train_datasets=[dataset],
+            val_datasets=[dataset],
+            checkpoint_dir=tmp_path,
+        )
+
+
+def test_regression_ri_coulomb_train_runs_with_scaled_targets(tmp_path):
+    pytest.importorskip("pyscf")
+
+    dataset, target_name, dataset_info = _make_ri_coulomb_dataset_and_target_info()
+    systems = [sample.system for sample in dataset]
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    hypers["training"]["num_epochs"] = 1
+    hypers["training"]["batch_size"] = 1
+    hypers["training"]["log_interval"] = 1
+    hypers["training"]["atomic_baseline"] = {}
+    hypers["training"]["scale_targets"] = True
+    hypers["training"]["ri_aux_basis"] = "def2-svp-jkfit"
+    hypers["training"]["loss"] = OmegaConf.create(
+        {
+            target_name: {
+                "type": "ri_coulomb",
+                "weight": 1.0,
+                "reduction": "mean",
+                "gradients": {},
+            }
+        }
+    )
+
+    trainer = Trainer(hypers["training"])
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=tmp_path,
+    )
+
+    output = evaluate_model(
+        model,
+        [systems[0].to(torch.float32)],
+        targets={target_name: ModelOutput(quantity="", unit="", per_atom=True)},
+        is_training=False,
+    )
+    assert target_name in output
+>>>>>>> Stashed changes

@@ -142,6 +142,42 @@ Some losses, like ``huber``, require additional parameters to be specified:
 :param delta: This parameter is specific to the Huber loss functions (``huber`` and ``masked_huber``) and defines the threshold at which the loss function transitions from quadratic to linear behavior. The default value is 1.0.
 
 
+RI Quadratic Losses
+-------------------
+
+``metatrain`` also provides quadratic loss functions for RI coefficient targets.
+
+- ``ri_coulomb`` and ``ri_overlap`` use the corresponding two-center metric on the RI coefficient residual ``c_{ML} - c_{true}``.
+- ``ri_density_fit_coulomb`` and ``ri_density_fit_overlap`` expect the true RI coefficients as the target, while the corresponding projection vector must be passed through ``extra_data``.
+
+For the indirect density-fit losses, the loss configuration must provide the extra-data key containing the projections:
+
+.. code-block:: yaml
+
+  loss:
+    mtt::ri_coeffs:
+      type: ri_density_fit_coulomb
+      projection_key: mtt::ri_projections
+
+This computes
+
+.. math::
+
+   c_{ML}^T M c_{ML} - 2 c_{ML}^T p
+
+where ``p`` is read from ``extra_data[projection_key]``. If a non-negative form is desired, the optional flag ``include_reference_constant: true`` adds the missing constant term ``c_{true}^T M c_{true}``.
+
+.. code-block:: yaml
+
+  loss:
+    mtt::ri_coeffs:
+      type: ri_density_fit_coulomb
+      projection_key: mtt::ri_projections
+      include_reference_constant: true
+
+Indirect RI density-fit losses currently require ``scale_targets: false``.
+
+
 Masked loss functions
 ---------------------
 

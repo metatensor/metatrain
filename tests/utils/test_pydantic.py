@@ -5,6 +5,8 @@ import pytest
 from pydantic import BaseModel
 from typing_extensions import TypedDict
 
+from metatrain.pet.documentation import ModelHypers, TrainerHypers
+from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.pydantic import (
     MetatrainValidationError,
     validate,
@@ -99,6 +101,30 @@ def test_validate_architecture_options_warning(caplog):
     validate_architecture_options(options, model_hypers=Hypers, trainer_hypers=Hypers)
 
     assert "Architecture does not provide validation of hyperparameters" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "ri_aux_basis",
+    [
+        "def2-svp-jkfit",
+        {"mtt::ri_coefficients": "def2-svp-jkfit"},
+    ],
+)
+def test_validate_pet_architecture_options_with_ri_aux_basis(ri_aux_basis):
+    """PET trainer options accept the RI auxiliary basis setting."""
+
+    options = {
+        "name": "pet",
+        "model": init_with_defaults(ModelHypers),
+        "training": init_with_defaults(TrainerHypers),
+    }
+    options["training"]["ri_aux_basis"] = ri_aux_basis
+
+    validate_architecture_options(
+        options,
+        model_hypers=ModelHypers,
+        trainer_hypers=TrainerHypers,
+    )
 
 
 # ============================================================================
