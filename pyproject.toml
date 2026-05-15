@@ -12,11 +12,11 @@ dependencies = [
     "ase",
     "huggingface_hub",
     "numpy",
-    "metatensor-learn >=0.4.0,<0.5",
-    "metatensor-operations >=0.4.0,<0.5",
-    "metatensor-torch >=0.8.2,<0.9",
-    "metatomic-torch >=0.1.8,<0.2",
-    "metatomic-ase >=0.1.0,<0.2",
+    "metatensor-learn >=0.5.0,<0.6",
+    "metatensor-operations >=0.5.0,<0.6",
+    "metatensor-torch >=0.9.0,<0.10",
+    "metatomic-torch >=0.1.12,<0.2",
+    "metatomic-ase >=0.1.1,<0.2",
     "jsonschema",
     "pydantic >= 2.12", # Because of passing arguments to validator functions
     "typing_extensions", # For python < 3.12 typing.TypedDict has limited functionality
@@ -70,7 +70,7 @@ soap-bpnn = [
 ]
 pet = []
 gap = [
-    "featomic-torch >=0.7,<0.8",
+    "featomic-torch >=0.7.4rc2,<0.8",
     "skmatter",
     "scipy",
 ]
@@ -180,6 +180,8 @@ filterwarnings = [
     "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`:DeprecationWarning",
     "ignore:`torch.jit.trace_method` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
     "ignore:`torch.jit.trace` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.interface` is deprecated. Please use `torch.compile` instead.:DeprecationWarning",
+    "ignore:`torch.jit.set_fusion_strategy` is deprecated. Please use `torch.compile` instead.:DeprecationWarning",
     # PyTorch does not want these, but mypy requires them
     "ignore:The TorchScript type system doesn't support instance-level annotations on empty non-base types",
     # Sphericart double backward warning
@@ -196,7 +198,19 @@ filterwarnings = [
     # MACE warning with newer versions of pytorch (because they use e3nn==0.4.4)
     "ignore:Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed:UserWarning",
     # vesin.metatomic deprecation
-    "ignore:`compute_requested_neighbors_from_options` is deprecated and will be removed in a future version:UserWarning"
+    "ignore:`compute_requested_neighbors_from_options` is deprecated and will be removed in a future version:UserWarning",
+    # metatomic 0.1.12 deprecations
+    "ignore:the 'features' output name is deprecated:UserWarning",
+    "ignore:the 'features' quantity is deprecated:UserWarning",
+    "ignore:the 'features' quantity is deprecated:DeprecationWarning",
+    "ignore:the 'non_conservative_forces' output name is deprecated:UserWarning",
+    "ignore:the 'momenta' quantity is deprecated:DeprecationWarning",
+    "ignore:the 'positions' quantity is deprecated:DeprecationWarning",
+    "ignore:the 'masses' quantity is deprecated:DeprecationWarning",
+    "ignore:the 'velocities' quantity is deprecated:DeprecationWarning",
+    "ignore:the 'charges' quantity is deprecated:DeprecationWarning",
+    "ignore:`per_atom` is deprecated:DeprecationWarning",
+    "ignore:ModelOutput.quantity is deprecated:DeprecationWarning"
 ]
 addopts = ["-p", "mtt_plugin"]
 pythonpath = "src/metatrain/utils/testing"
