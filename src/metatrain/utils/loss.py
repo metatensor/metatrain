@@ -1027,24 +1027,40 @@ class LossAggregator(LossInterface):
     """
 
     def __init__(
-        self, targets: Dict[str, TargetInfo], config: Dict[str, LossSpecification]
+        self,
+        targets: Dict[str, TargetInfo],
+        config: "str | Dict[str, LossSpecification | str]",
     ):
         super().__init__(name="", gradient=None, weight=0.0, reduction="mean")
         self.losses: Dict[str, LossInterface] = {}
         self.metadata: Dict[str, Dict[str, Any]] = {}
 
-        for target_name, target_info in targets.items():
-            target_config = config.get(
-                target_name,
-                LossSpecification(
-                    {
-                        "type": "mse",
-                        "weight": 1.0,
-                        "reduction": "mean",
-                        "gradients": {},
-                    }
-                ),
+        # Normalize the shorthand forms documented for the ``loss`` hyper
+        # (``loss: str | dict[str, LossSpecification | str]``). A bare string is
+        # the loss type applied to every target; a per-target string is the
+        # type for that target. This mirrors
+        # :func:`metatrain.utils.omegaconf.expand_loss_config` for callers that
+        # construct the trainer directly without going through that expansion.
+        def _full_spec(loss_type: str) -> LossSpecification:
+            return LossSpecification(
+                {
+                    "type": loss_type,
+                    "weight": 1.0,
+                    "reduction": "mean",
+                    "gradients": {},
+                }
             )
+
+        if isinstance(config, str):
+            config = {target_name: _full_spec(config) for target_name in targets}
+        else:
+            config = {
+                name: _full_spec(spec) if isinstance(spec, str) else spec
+                for name, spec in config.items()
+            }
+
+        for target_name, target_info in targets.items():
+            target_config = config.get(target_name, _full_spec("mse"))
 
             # Create main loss and its scheduler
             base_loss = create_loss(
