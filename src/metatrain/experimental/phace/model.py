@@ -53,7 +53,7 @@ class PhACE(ModelInterface[ModelHypers]):
     """PhACE model: metatensor-based wrapper around ``BaseModel``
     and/or ``GradientModel``."""
 
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(references={})
@@ -472,7 +472,13 @@ class PhACE(ModelInterface[ModelHypers]):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(systems, return_dict)
+            return_dict = self.scaler(
+                systems,
+                return_dict,
+                selected_atoms=selected_atoms,
+                use_per_target_scales=True,
+                use_per_property_scales=True,
+            )
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
                 for name, output in outputs.items():

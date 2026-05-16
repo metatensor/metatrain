@@ -50,7 +50,7 @@ from .utils.structures import create_batch
 class MetaMACE(ModelInterface[ModelHypers]):
     """Interface of MACE for metatrain."""
 
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -454,7 +454,13 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         # At evaluation, we also introduce the scaler and additive contributions
         if not self.training:
-            return_dict = self.scaler(systems, return_dict)
+            return_dict = self.scaler(
+                systems,
+                return_dict,
+                selected_atoms=selected_atoms,
+                use_per_target_scales=True,
+                use_per_property_scales=True,
+            )
             self.add_additive_contributions(
                 return_dict, systems, outputs, selected_atoms
             )

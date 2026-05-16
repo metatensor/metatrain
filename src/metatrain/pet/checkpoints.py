@@ -4,6 +4,8 @@ import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
+from metatrain.utils.scaler.checkpoints import update_per_property_scales
+
 
 ###########################
 # MODEL ###################
@@ -285,6 +287,18 @@ def model_update_v12_v13(checkpoint: dict) -> None:
     """
     Update a v12 checkpoint to v13.
 
+    Adds per-property scales to comply with the scaler changes introduced in
+    https://github.com/metatensor/metatrain/pull/1107.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    update_per_property_scales(checkpoint)
+
+
+def model_update_v13_v14(checkpoint: dict) -> None:
+    """
+    Update a v13 checkpoint to v14.
+
     Adds system-conditioning hyperparameters, renames the muon2-era
     ``edge_linear`` submodule to ``edge_embedder``, and migrates the short
     ``spin`` form to the canonical ``spin_multiplicity`` form to match the
@@ -310,7 +324,7 @@ def model_update_v12_v13(checkpoint: dict) -> None:
         k.startswith("system_conditioning.") for k in state_dict
     )
     logging.info(
-        "Checkpoint upgrade v12→v13: system_conditioning weights %s in checkpoint.",
+        "Checkpoint upgrade v13→v14: system_conditioning weights %s in checkpoint.",
         "found" if has_conditioning_weights else "NOT found",
     )
     # Adding system conditioning hyperparameters — enabled if weights already present
