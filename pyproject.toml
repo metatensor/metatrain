@@ -70,8 +70,8 @@ soap-bpnn = [
 ]
 pet = []
 gap = [
-    "featomic >=0.6.6rc1,<0.7",
-    "featomic-torch >=0.7.4rc2,<0.8",
+    "featomic >=0.6.6,<0.7",
+    "featomic-torch >=0.7.4,<0.8",
     "skmatter",
     "scipy",
 ]
