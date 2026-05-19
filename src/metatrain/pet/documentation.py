@@ -47,7 +47,10 @@ important** (in decreasing order of importance):
   .. autoattribute:: {{trainer_hypers_path}}.batch_size
       :no-index:
 
-  .. autoattribute:: {{model_hypers_path}}.d_pet
+  .. autoattribute:: {{model_hypers_path}}.d_triplet
+      :no-index:
+
+  .. autoattribute:: {{model_hypers_path}}.d_edge
       :no-index:
 
   .. autoattribute:: {{model_hypers_path}}.d_node
@@ -111,7 +114,14 @@ class ModelHypers(TypedDict):
     """Type of the smoothing function at the cutoff"""
     cutoff_width: float = 0.5
     """Width of the smoothing function at the cutoff"""
-    d_pet: int = 128
+    d_triplet: int = 32
+    """Dimension of the triplet features.
+
+    This hyperparameters controls width of the neural network. In general,
+    increasing it might lead to better accuracy, especially on larger datasets, at the
+    cost of increased training and evaluation time.
+    """
+    d_edge: int = 128
     """Dimension of the edge features.
 
     This hyperparameters controls width of the neural network. In general,

@@ -37,7 +37,146 @@ from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
 
 
-AVAILABLE_FEATURIZERS = typing.get_args(ModelHypers.__annotations__["featurizer_type"])
+class TripletFeaturizer(torch.nn.Module):
+    def __init__(
+        self,
+        max_num_elements: int,
+        d_triplet: int,
+    ) -> None:
+        super().__init__()
+        self.d_triplet = d_triplet
+        self.cutoff = 5.0
+
+        self.center_embedder = torch.nn.Embedding(max_num_elements, d_triplet)
+        self.first_embedder = torch.nn.Embedding(max_num_elements, d_triplet)
+        self.second_embedder = torch.nn.Embedding(max_num_elements, d_triplet)
+        self.directional1_embedder = torch.nn.Linear(4, d_triplet)
+        self.directional2_embedder = torch.nn.Linear(4, d_triplet)
+        self.compressor = torch.nn.Sequential(
+            torch.nn.Linear(5 * d_triplet, d_triplet),
+            torch.nn.SiLU(),
+            torch.nn.Linear(d_triplet, d_triplet),
+            torch.nn.SiLU(),
+            torch.nn.Linear(d_triplet, d_triplet),
+        )
+
+    def forward(
+        self,
+        atomic_numbers: torch.Tensor,
+        element_indices_neighbors: torch.Tensor,
+        edge_vectors: torch.Tensor,
+        edge_distances: torch.Tensor,
+        nef_mask: torch.Tensor,
+        log_cutoff_factors: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int]:
+        max_neighbors = edge_vectors.shape[1]
+        if max_neighbors == 0:
+            return (
+                edge_vectors.new_zeros((edge_vectors.shape[0], 0, self.d_triplet)),
+                torch.zeros(
+                    (edge_vectors.shape[0], 0),
+                    dtype=torch.bool,
+                    device=edge_vectors.device,
+                ),
+                edge_vectors.new_zeros((edge_vectors.shape[0], 0)),
+                edge_vectors.new_zeros((edge_vectors.shape[0], 0)),
+                0,
+            )
+
+        triplet_mask = nef_mask[:, :, None] & nef_mask[:, None, :]
+        triplet_log_cutoff_factors = log_cutoff_factors[:, :, None] + log_cutoff_factors[:, None, :]
+
+        center_features = self.center_embedder(atomic_numbers)[:, None, None, :]
+        center_features = center_features.expand(-1, max_neighbors, max_neighbors, -1)
+
+        first_features = self.first_embedder(element_indices_neighbors)
+        first_features = first_features[:, :, None, :].expand(
+            -1, -1, max_neighbors, -1
+        )
+
+        second_features = self.second_embedder(element_indices_neighbors)
+        second_features = second_features[:, None, :, :].expand(
+            -1, max_neighbors, -1, -1
+        )
+
+        normalizer = 0.5 * self.cutoff
+        first_geometry = torch.cat(
+            [edge_vectors, edge_distances.unsqueeze(-1)], dim=-1
+        ) / normalizer
+        second_geometry = first_geometry
+        first_geometry = first_geometry[:, :, None, :].expand(
+            -1, -1, max_neighbors, -1
+        )
+        second_geometry = second_geometry[:, None, :, :].expand(
+            -1, max_neighbors, -1, -1
+        )
+
+        triplet_features = torch.cat(
+            [
+                center_features,
+                first_features,
+                second_features,
+                self.directional1_embedder(first_geometry),
+                self.directional2_embedder(second_geometry),
+            ],
+            dim=-1,
+        )
+        triplet_features = self.compressor(triplet_features)
+
+        return (
+            triplet_features.reshape(
+                triplet_features.shape[0], max_neighbors * max_neighbors, -1
+            ),
+            triplet_mask.reshape(triplet_mask.shape[0], max_neighbors * max_neighbors),
+            triplet_log_cutoff_factors.reshape(
+                triplet_log_cutoff_factors.shape[0], max_neighbors * max_neighbors
+            ),
+            log_cutoff_factors,
+            max_neighbors,
+        )
+
+
+
+class EdgeFeaturizer(torch.nn.Module):
+    def __init__(
+        self,
+        max_num_elements: int,
+        d_edge: int,
+    ) -> None:
+        super().__init__()
+        self.cutoff = 5.0  # just ballpark for now
+        self.center_embedder = torch.nn.Embedding(max_num_elements, d_edge)
+        self.neighbor_embedder = torch.nn.Embedding(max_num_elements, d_edge)
+        self.directional_embedder = torch.nn.Linear(4, d_edge)
+        self.compressor = torch.nn.Sequential(
+            torch.nn.Linear(3 * d_edge, d_edge),
+            torch.nn.SiLU(),
+            torch.nn.Linear(d_edge, d_edge),
+            torch.nn.SiLU(),
+            torch.nn.Linear(d_edge, d_edge),
+            torch.nn.SiLU(),
+            torch.nn.Linear(d_edge, d_edge),
+        )
+
+    def forward(
+        self,
+        element_indices_centers: torch.Tensor,
+        element_indices_neighbors: torch.Tensor,
+        edge_vectors: torch.Tensor,
+        edge_distances: torch.Tensor,
+    ) -> torch.Tensor:
+        geometry = torch.cat(
+            [edge_vectors, edge_distances.unsqueeze(-1)], dim=-1
+        ) / (0.5 * self.cutoff)
+        edge_features = torch.concatenate(
+            [
+                self.center_embedder(element_indices_centers),
+                self.neighbor_embedder(element_indices_neighbors),
+                self.directional_embedder(geometry),
+            ],
+            dim=-1,
+        )
+        return self.compressor(edge_features)
 
 
 class PET(ModelInterface[ModelHypers]):
@@ -74,7 +213,8 @@ class PET(ModelInterface[ModelHypers]):
             else None
         )
         self.adaptive_cutoff_method = self.hypers["adaptive_cutoff_method"]
-        self.d_pet = self.hypers["d_pet"]
+        self.d_triplet = self.hypers["d_triplet"]
+        self.d_edge = self.hypers["d_edge"]
         self.d_node = self.hypers["d_node"]
         self.d_head = self.hypers["d_head"]
         self.d_feedforward = self.hypers["d_feedforward"]
@@ -97,60 +237,45 @@ class PET(ModelInterface[ModelHypers]):
         self.gnn_layers = torch.nn.ModuleList(
             [
                 CartesianTransformer(
-                    self.cutoff,
-                    self.cutoff_width,
-                    self.d_pet,
-                    self.num_heads,
+                    self.d_triplet,
+                    self.d_edge,
                     self.d_node,
-                    self.d_feedforward,
+                    self.num_heads,
                     self.num_attention_layers,
-                    self.normalization,
-                    self.activation,
                     self.attention_temperature,
-                    self.transformer_type,
-                    num_atomic_species,
-                    layer_index == 0,  # is first layer
                 )
-                for layer_index in range(self.num_gnn_layers)
+                for _ in range(self.num_gnn_layers)
             ]
         )
-        if self.featurizer_type not in AVAILABLE_FEATURIZERS:
-            raise ValueError(
-                f"Unknown featurizer type: {self.featurizer_type}. "
-                f"Available options are: {AVAILABLE_FEATURIZERS}"
-            )
-        if self.featurizer_type == "feedforward":
-            self.num_readout_layers = 1
-            self.combination_norms = torch.nn.ModuleList(
-                [torch.nn.LayerNorm(2 * self.d_pet) for _ in range(self.num_gnn_layers)]
-            )
-            self.combination_mlps = torch.nn.ModuleList(
-                [
-                    torch.nn.Sequential(
-                        torch.nn.Linear(2 * self.d_pet, 2 * self.d_pet),
-                        torch.nn.SiLU(),
-                        torch.nn.Linear(2 * self.d_pet, self.d_pet),
-                    )
-                    for _ in range(self.num_gnn_layers)
-                ]
-            )
-        else:
-            self.num_readout_layers = self.num_gnn_layers
-            self.combination_norms = torch.nn.ModuleList()
-            self.combination_mlps = torch.nn.ModuleList()
 
-        self.node_embedders = torch.nn.ModuleList(
+        self.num_readout_layers = 1
+        self.combination_norms = torch.nn.ModuleList(
+            [torch.nn.LayerNorm(2 * self.d_edge) for _ in range(self.num_gnn_layers)]
+        )
+        self.combination_mlps = torch.nn.ModuleList(
             [
-                torch.nn.Embedding(num_atomic_species, self.d_node)
-                for _ in range(self.num_readout_layers)
+                torch.nn.Sequential(
+                    torch.nn.Linear(2 * self.d_edge, 2 * self.d_edge),
+                    torch.nn.SiLU(),
+                    torch.nn.Linear(2 * self.d_edge, self.d_edge),
+                )
+                for _ in range(self.num_gnn_layers)
             ]
         )
-        self.edge_embedder = torch.nn.Embedding(num_atomic_species, self.d_pet)
+
+        self.node_embedder = torch.nn.Embedding(num_atomic_species, self.d_node)
+        self.edge_embedder = EdgeFeaturizer(num_atomic_species, self.d_edge)
+        self.triplet_embedder = TripletFeaturizer(num_atomic_species, self.d_triplet)
+
+        self.edge_expander = torch.nn.Linear(self.d_edge, self.d_node)
+        self.edge_expander.weight.data.zero_()
+        self.edge_expander.bias.data.zero_()
+        self.triplet_expander = torch.nn.Linear(self.d_triplet, self.d_edge)
+        self.triplet_expander.weight.data.zero_()
+        self.triplet_expander.bias.data.zero_()
 
         self.node_heads = torch.nn.ModuleDict()
-        self.edge_heads = torch.nn.ModuleDict()
         self.node_last_layers = torch.nn.ModuleDict()
-        self.edge_last_layers = torch.nn.ModuleDict()
         self.last_layer_feature_size = (
             self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
         )  # for LLPR
@@ -188,27 +313,6 @@ class PET(ModelInterface[ModelHypers]):
         )
         for i, species in enumerate(self.atomic_types):
             self.species_to_species_index[species] = i
-
-        # long-range module
-        if self.hypers["long_range"]["enable"]:
-            self.long_range = True
-            if not self.hypers["long_range"]["use_ewald"]:
-                warnings.warn(
-                    "Training PET with the LongRangeFeaturizer initialized "
-                    "with `use_ewald=False` causes instabilities during training. "
-                    "The `use_ewald` variable will be force-switched to `True`. "
-                    "during training.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-            self.long_range_featurizer = LongRangeFeaturizer(
-                hypers=self.hypers["long_range"],
-                feature_dim=self.d_node,
-                neighbor_list_options=self.requested_nl,
-            )
-        else:
-            self.long_range = False
-            self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
@@ -436,7 +540,7 @@ class PET(ModelInterface[ModelHypers]):
                 edge_distances,
                 padding_mask,
                 reverse_neighbor_index,
-                cutoff_factors,
+                log_cutoff_factors,
                 system_indices,
                 sample_labels,
                 species,
@@ -462,6 +566,30 @@ class PET(ModelInterface[ModelHypers]):
                     outputs["mtt::aux::cutoff_stats"].per_atom,
                 )
 
+        element_indices_centers = element_indices_nodes.reshape(-1, 1).expand(-1, element_indices_neighbors.shape[1])
+
+        node_features = self.node_embedder(element_indices_nodes)
+        edge_features = self.edge_embedder(
+            element_indices_centers,
+            element_indices_neighbors,
+            edge_vectors,
+            edge_distances,
+        )
+        (
+            triplet_features,
+            triplet_mask,
+            triplet_log_cutoff_factors,
+            triplet_second_log_cutoff_factors,
+            num_second_triplet_slots,
+        ) = self.triplet_embedder(
+            element_indices_nodes,
+            element_indices_neighbors,
+            edge_vectors,
+            edge_distances,
+            padding_mask,
+            log_cutoff_factors,
+        )
+
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
         use_manual_attention = edge_vectors.requires_grad and self.training
@@ -469,38 +597,32 @@ class PET(ModelInterface[ModelHypers]):
         with torch.profiler.record_function("PET::_calculate_features"):
             # **Stage 1: Feature Computation via GNN Layers**
             featurizer_inputs: Dict[str, torch.Tensor] = dict(
-                element_indices_nodes=element_indices_nodes,
-                element_indices_neighbors=element_indices_neighbors,
-                edge_vectors=edge_vectors,
-                edge_distances=edge_distances,
-                reverse_neighbor_index=reverse_neighbor_index,
-                padding_mask=padding_mask,
-                cutoff_factors=cutoff_factors,
+                node_features=node_features,
+                edge_features=edge_features,
+                triplet_features=triplet_features,
+                log_cutoff_factors_edges=log_cutoff_factors,
+                log_cutoff_factors_triplets=triplet_log_cutoff_factors,
+                reverse_neighbor_index=reverse_neighbor_index,  
             )
-            node_features_list, edge_features_list = self._calculate_features(
+            node_features, edge_features, triplet_features = self._calculate_features(
                 featurizer_inputs,
                 use_manual_attention=use_manual_attention,
             )
 
-            # If the long-range module is activated, we add the long-range features
-            # on top of the node features
-
-            if self.long_range:
-                long_range_features = self._calculate_long_range_features(
-                    systems, node_features_list, edge_distances, padding_mask
-                )
-                for i in range(self.num_readout_layers):
-                    node_features_list[i] = (
-                        node_features_list[i] + long_range_features
-                    ) * 0.5**0.5
+            # exit(0)  # FIX SHAPES
+            triplet_features = triplet_features.reshape(triplet_features.shape[0], edge_features.shape[1], num_second_triplet_slots, triplet_features.shape[-1])
+            edge_features = edge_features + self.triplet_expander(
+                torch.sum(triplet_features * torch.exp(triplet_second_log_cutoff_factors[:, None, :, None]), dim=2)
+            )
+            node_features = node_features + self.edge_expander(torch.sum(edge_features * log_cutoff_factors.unsqueeze(-1), dim=1))
+            
+            node_features_list = [node_features]
 
         # **Stage 2: Intermediate Feature Output (Optional)**
         with torch.profiler.record_function("PET::_get_output_features"):
             if "features" in outputs:
                 features_dict = self._get_output_features(
                     node_features_list,
-                    edge_features_list,
-                    cutoff_factors,
                     selected_atoms,
                     sample_labels,
                     outputs,
@@ -512,16 +634,11 @@ class PET(ModelInterface[ModelHypers]):
 
         # **Stage 3: Last Layer Feature Computation**
         with torch.profiler.record_function("PET::_calculate_last_layer_features"):
-            node_last_layer_features_dict, edge_last_layer_features_dict = (
-                self._calculate_last_layer_features(
-                    node_features_list,
-                    edge_features_list,
-                )
+            node_last_layer_features_dict = self._calculate_last_layer_features(
+                node_features_list,
             )
             last_layer_features_dict = self._get_output_last_layer_features(
                 node_last_layer_features_dict,
-                edge_last_layer_features_dict,
-                cutoff_factors,
                 selected_atoms,
                 sample_labels,
                 outputs,
@@ -532,19 +649,13 @@ class PET(ModelInterface[ModelHypers]):
 
         # **Stage 4: Atomic Predictions**
         with torch.profiler.record_function("PET::_calculate_atomic_predictions"):
-            node_atomic_predictions_dict, edge_atomic_predictions_dict = (
-                self._calculate_atomic_predictions(
-                    node_last_layer_features_dict,
-                    edge_last_layer_features_dict,
-                    padding_mask,
-                    cutoff_factors,
-                    outputs,
-                )
+            node_atomic_predictions_dict = self._calculate_atomic_predictions(
+                node_last_layer_features_dict,
+                outputs,
             )
             atomic_predictions_dict = self._get_output_atomic_predictions(
                 systems,
                 node_atomic_predictions_dict,
-                edge_atomic_predictions_dict,
                 edge_vectors,
                 system_indices,
                 sample_labels,
@@ -643,14 +754,11 @@ class PET(ModelInterface[ModelHypers]):
             from the final GNN layer. In the case of residual featurization, each list
             contains tensors from all GNN layers.
         """
-        if self.featurizer_type == "feedforward":
-            return self._feedforward_featurization_impl(inputs, use_manual_attention)
-        else:
-            return self._residual_featurization_impl(inputs, use_manual_attention)
+        return self._feedforward_featurization_impl(inputs, use_manual_attention)
 
     def _feedforward_featurization_impl(
         self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
-    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
         """
         Feedforward featurization: iterates features through all GNN layers,
         returning only the final layer outputs. Uses combination MLPs to mix
@@ -664,30 +772,28 @@ class PET(ModelInterface[ModelHypers]):
             - List of node feature tensors from the final GNN layer
             - List of edge feature tensors from the final GNN layer
         """
-        node_features_list: List[torch.Tensor] = []
-        edge_features_list: List[torch.Tensor] = []
-
-        input_node_embeddings = self.node_embedders[0](inputs["element_indices_nodes"])
-        input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
+        input_node_embeddings = inputs["node_features"]
+        input_edge_embeddings = inputs["edge_features"]
+        input_triplet_embeddings = inputs["triplet_features"]
         for combination_norm, combination_mlp, gnn_layer in zip(
             self.combination_norms, self.combination_mlps, self.gnn_layers, strict=True
         ):
-            output_node_embeddings, output_edge_embeddings = gnn_layer(
+            output_node_embeddings, output_edge_embeddings, output_triplet_embeddings = gnn_layer(
                 input_node_embeddings,
                 input_edge_embeddings,
-                inputs["element_indices_neighbors"],
-                inputs["edge_vectors"],
-                inputs["padding_mask"],
-                inputs["edge_distances"],
-                inputs["cutoff_factors"],
+                input_triplet_embeddings,
+                inputs["log_cutoff_factors_edges"],
+                inputs["log_cutoff_factors_triplets"],
                 use_manual_attention,
             )
+
+            input_node_embeddings = output_node_embeddings
+            input_triplet_embeddings = output_triplet_embeddings
 
             # The GNN contraction happens by reordering the messages,
             # using a reversed neighbor list, so the new input message
             # from atom `j` to atom `i` in on the GNN layer N+1 is a
             # reversed message from atom `i` to atom `j` on the GNN layer N.
-            input_node_embeddings = output_node_embeddings
             new_input_edge_embeddings = output_edge_embeddings.reshape(
                 output_edge_embeddings.shape[0] * output_edge_embeddings.shape[1],
                 output_edge_embeddings.shape[2],
@@ -706,93 +812,8 @@ class PET(ModelInterface[ModelHypers]):
                 + combination_mlp(combination_norm(concatenated))
             )
 
-        node_features_list.append(input_node_embeddings)
-        edge_features_list.append(input_edge_embeddings)
-        return node_features_list, edge_features_list
+        return input_node_embeddings, input_edge_embeddings, input_triplet_embeddings
 
-    def _residual_featurization_impl(
-        self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
-    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
-        """
-        Residual featurization: saves intermediate features from each GNN layer
-        for use in readout. Averages forward and reversed edge messages between layers.
-
-        :param inputs: Dictionary containing input tensors required for feature
-            computation
-        :param use_manual_attention: Whether to use manual attention computation
-            (required for double backward when edge vectors require gradients)
-        :return: Tuple of two lists:
-            - List of node feature tensors from all GNN layers
-            - List of edge feature tensors from all GNN layers
-        """
-        node_features_list: List[torch.Tensor] = []
-        edge_features_list: List[torch.Tensor] = []
-        input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
-        for node_embedder, gnn_layer in zip(
-            self.node_embedders, self.gnn_layers, strict=True
-        ):
-            input_node_embeddings = node_embedder(inputs["element_indices_nodes"])
-            output_node_embeddings, output_edge_embeddings = gnn_layer(
-                input_node_embeddings,
-                input_edge_embeddings,
-                inputs["element_indices_neighbors"],
-                inputs["edge_vectors"],
-                inputs["padding_mask"],
-                inputs["edge_distances"],
-                inputs["cutoff_factors"],
-                use_manual_attention,
-            )
-            node_features_list.append(output_node_embeddings)
-            edge_features_list.append(output_edge_embeddings)
-
-            # The GNN contraction happens by reordering the messages,
-            # using a reversed neighbor list, so the new input message
-            # from atom `j` to atom `i` in on the GNN layer N+1 is a
-            # reversed message from atom `i` to atom `j` on the GNN layer N.
-            # (Flatten, index, and reshape to the original shape)
-            new_input_messages = output_edge_embeddings.reshape(
-                output_edge_embeddings.shape[0] * output_edge_embeddings.shape[1],
-                output_edge_embeddings.shape[2],
-            )[inputs["reverse_neighbor_index"]].reshape(
-                output_edge_embeddings.shape[0],
-                output_edge_embeddings.shape[1],
-                output_edge_embeddings.shape[2],
-            )
-            input_edge_embeddings = 0.5 * (input_edge_embeddings + new_input_messages)
-        return node_features_list, edge_features_list
-
-    def _calculate_long_range_features(
-        self,
-        systems: List[System],
-        node_features_list: List[torch.Tensor],
-        edge_distances: torch.Tensor,
-        padding_mask: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Calculate long-range electrostatic features using Ewald summation.
-        Forces use_ewald=True during training for stability.
-
-        :param systems: List of `metatomic.torch.System` objects to process.
-        :param node_features_list: List of node feature tensors from each GNN layer.
-        :param edge_distances: Tensor of edge distances [n_atoms, max_num_neighbors].
-        :param padding_mask: Boolean mask indicating real vs padded neighbors
-            [n_atoms, max_num_neighbors].
-        :return: Tensor of long-range features [n_atoms, d_pet].
-        """
-        if self.training:
-            # Currently, the long-range implementation show instabilities
-            # during training if P3MCalculator is used instead of the
-            # EwaldCalculator. We will use the EwaldCalculator for training.
-            self.long_range_featurizer.use_ewald = True
-        flattened_lengths = edge_distances[padding_mask]
-        short_range_features = (
-            torch.stack(node_features_list).sum(dim=0)
-            * (1 / len(node_features_list)) ** 0.5
-        )
-        long_range_features = self.long_range_featurizer(
-            systems, short_range_features, flattened_lengths
-        )
-        return long_range_features
 
     def _get_cutoff_stats(
         self,
@@ -830,8 +851,6 @@ class PET(ModelInterface[ModelHypers]):
     def _get_output_features(
         self,
         node_features_list: List[torch.Tensor],
-        edge_features_list: List[torch.Tensor],
-        cutoff_factors: torch.Tensor,
         selected_atoms: Optional[Labels],
         sample_labels: Labels,
         requested_outputs: Dict[str, ModelOutput],
@@ -842,7 +861,7 @@ class PET(ModelInterface[ModelHypers]):
 
         :param node_features_list: List of node feature tensors from each GNN layer.
         :param edge_features_list: List of edge feature tensors from each GNN layer.
-        :param cutoff_factors: Tensor of cutoff factors for edge distances
+        :param log_cutoff_factors: Tensor of cutoff factors for edge distances
             [n_atoms, max_num_neighbors].
         :param selected_atoms: Optional Labels specifying a subset of atoms to include.
         :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
@@ -851,10 +870,7 @@ class PET(ModelInterface[ModelHypers]):
             representations, either per-atom or summed over atoms.
         """
         features_dict: Dict[str, TensorMap] = {}
-        node_features = torch.cat(node_features_list, dim=1)
-        edge_features = torch.cat(edge_features_list, dim=2)
-        edge_features = (edge_features * cutoff_factors[:, :, None]).sum(dim=1)
-        features = torch.cat([node_features, edge_features], dim=1)
+        features = torch.cat(node_features_list, dim=1)
 
         feature_tmap = TensorMap(
             keys=self.single_label,
@@ -888,8 +904,7 @@ class PET(ModelInterface[ModelHypers]):
     def _calculate_last_layer_features(
         self,
         node_features_list: List[torch.Tensor],
-        edge_features_list: List[torch.Tensor],
-    ) -> Tuple[Dict[str, List[torch.Tensor]], Dict[str, List[torch.Tensor]]]:
+    ) -> Dict[str, List[torch.Tensor]]:
         """
         Apply output-specific heads to node and edge features from each GNN layer.
         Returns dictionaries mapping output names to lists of head-transformed features.
@@ -901,7 +916,6 @@ class PET(ModelInterface[ModelHypers]):
             - Dictionary mapping output names to lists of edge last layer features
         """
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
-        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
 
         # Calculating node last layer features
         for output_name, node_heads in self.node_heads.items():
@@ -912,22 +926,11 @@ class PET(ModelInterface[ModelHypers]):
                     node_head(node_features_list[i])
                 )
 
-        # Calculating edge last layer features
-        for output_name, edge_heads in self.edge_heads.items():
-            if output_name not in edge_last_layer_features_dict:
-                edge_last_layer_features_dict[output_name] = []
-            for i, edge_head in enumerate(edge_heads):
-                edge_last_layer_features_dict[output_name].append(
-                    edge_head(edge_features_list[i])
-                )
-
-        return node_last_layer_features_dict, edge_last_layer_features_dict
+        return node_last_layer_features_dict
 
     def _get_output_last_layer_features(
         self,
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
-        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]],
-        cutoff_factors: torch.Tensor,
         selected_atoms: Optional[Labels],
         sample_labels: Labels,
         requested_outputs: Dict[str, ModelOutput],
@@ -940,7 +943,7 @@ class PET(ModelInterface[ModelHypers]):
             lists of node last layer features.
         :param edge_last_layer_features_dict: Dictionary mapping output names to
             lists of edge last layer features.
-        :param cutoff_factors: Tensor of cutoff factors for edge distances
+        :param log_cutoff_factors: Tensor of cutoff factors for edge distances
             [n_atoms, max_num_neighbors].
         :param selected_atoms: Optional Labels specifying a subset of atoms to include.
         :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
@@ -957,12 +960,7 @@ class PET(ModelInterface[ModelHypers]):
                 last_layer_features_dict[output_name] = []
             for i in range(len(node_last_layer_features_dict[output_name])):
                 node_last_layer_features = node_last_layer_features_dict[output_name][i]
-                edge_last_layer_features = edge_last_layer_features_dict[output_name][i]
-                edge_last_layer_features = (
-                    edge_last_layer_features * cutoff_factors[:, :, None]
-                ).sum(dim=1)
                 last_layer_features_dict[output_name].append(node_last_layer_features)
-                last_layer_features_dict[output_name].append(edge_last_layer_features)
 
         for output_name in requested_outputs:
             if not (
@@ -1015,9 +1013,6 @@ class PET(ModelInterface[ModelHypers]):
     def _calculate_atomic_predictions(
         self,
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
-        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]],
-        padding_mask: torch.Tensor,
-        cutoff_factors: torch.Tensor,
         outputs: Dict[str, ModelOutput],
     ) -> Tuple[
         Dict[str, List[List[torch.Tensor]]], Dict[str, List[List[torch.Tensor]]]
@@ -1033,7 +1028,7 @@ class PET(ModelInterface[ModelHypers]):
             lists of edge last layer features.
         :param padding_mask: Boolean mask indicating real vs padded neighbors
             [n_atoms, max_num_neighbors].
-        :param cutoff_factors: Tensor of cutoff factors for edge distances
+        :param log_cutoff_factors: Tensor of cutoff factors for edge distances
             [n_atoms, max_num_neighbors].
         :param outputs: Dictionary of requested outputs.
         :return: Tuple of two dictionaries:
@@ -1043,7 +1038,6 @@ class PET(ModelInterface[ModelHypers]):
               prediction tensors (one list per GNN layer, one tensor per block)
         """
         node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]] = {}
-        edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]] = {}
 
         # Computing node atomic predictions. Since we have last layer features
         # for each GNN layer, and each last layer can have multiple blocks,
@@ -1067,46 +1061,12 @@ class PET(ModelInterface[ModelHypers]):
                         node_atomic_predictions_by_block
                     )
 
-        # Computing edge atomic predictions. Following the same logic as above,
-        # we (1) iterate over the last layer features and last layer blocks, and (2)
-        # sum the edge features with cutoff factors to get their per-node contribution.
-
-        for output_name, edge_last_layers in self.edge_last_layers.items():
-            if output_name in outputs:
-                edge_atomic_predictions_dict[output_name] = torch.jit.annotate(
-                    List[List[torch.Tensor]], []
-                )
-                for i, edge_last_layer in enumerate(edge_last_layers):
-                    edge_last_layer_features = edge_last_layer_features_dict[
-                        output_name
-                    ][i]
-                    edge_atomic_predictions_by_block: List[torch.Tensor] = []
-                    for edge_last_layer_by_block in edge_last_layer.values():
-                        edge_atomic_predictions = edge_last_layer_by_block(
-                            edge_last_layer_features
-                        )
-                        expanded_padding_mask = padding_mask[..., None].repeat(
-                            1, 1, edge_atomic_predictions.shape[2]
-                        )
-                        edge_atomic_predictions = torch.where(
-                            ~expanded_padding_mask, 0.0, edge_atomic_predictions
-                        )
-                        edge_atomic_predictions_by_block.append(
-                            (edge_atomic_predictions * cutoff_factors[:, :, None]).sum(
-                                dim=1
-                            )
-                        )
-                    edge_atomic_predictions_dict[output_name].append(
-                        edge_atomic_predictions_by_block
-                    )
-
-        return node_atomic_predictions_dict, edge_atomic_predictions_dict
+        return node_atomic_predictions_dict
 
     def _get_output_atomic_predictions(
         self,
         systems: List[System],
         node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
-        edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
         edge_vectors: torch.Tensor,
         system_indices: torch.Tensor,
         sample_labels: Labels,
@@ -1147,18 +1107,13 @@ class PET(ModelInterface[ModelHypers]):
                 node_atomic_predictions_by_block = node_atomic_predictions_dict[
                     output_name
                 ]
-                edge_atomic_predictions_by_block = edge_atomic_predictions_dict[
-                    output_name
-                ]
                 for i in range(len(node_atomic_predictions_by_block)):
                     node_atomic_prediction_block = node_atomic_predictions_by_block[i]
-                    edge_atomic_prediction_block = edge_atomic_predictions_by_block[i]
                     for j, key in enumerate(atomic_predictions_by_block):
                         node_atomic_predictions = node_atomic_prediction_block[j]
-                        edge_atomic_predictions = edge_atomic_prediction_block[j]
                         atomic_predictions_by_block[key] = atomic_predictions_by_block[
                             key
-                        ] + (node_atomic_predictions + edge_atomic_predictions)
+                        ] + node_atomic_predictions
 
                 if output_name == "non_conservative_stress":  # TODO: variants
                     block_key = list(atomic_predictions_by_block.keys())[0]
@@ -1336,35 +1291,7 @@ class PET(ModelInterface[ModelHypers]):
             ]
         )
 
-        self.edge_heads[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.Sequential(
-                    torch.nn.Linear(self.d_pet, self.d_head),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(self.d_head, self.d_head),
-                    torch.nn.SiLU(),
-                )
-                for _ in range(self.num_readout_layers)
-            ]
-        )
-
         self.node_last_layers[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.ModuleDict(
-                    {
-                        key: torch.nn.Linear(
-                            self.d_head,
-                            prod(shape),
-                            bias=True,
-                        )
-                        for key, shape in self.output_shapes[target_name].items()
-                    }
-                )
-                for _ in range(self.num_readout_layers)
-            ]
-        )
-
-        self.edge_last_layers[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.ModuleDict(
                     {
@@ -1387,9 +1314,6 @@ class PET(ModelInterface[ModelHypers]):
             for key in self.output_shapes[target_name].keys():
                 self.last_layer_parameter_names[target_name].append(
                     f"node_last_layers.{target_name}.{layer_index}.{key}.weight"
-                )
-                self.last_layer_parameter_names[target_name].append(
-                    f"edge_last_layers.{target_name}.{layer_index}.{key}.weight"
                 )
 
         ll_features_name = get_last_layer_features_name(target_name)
