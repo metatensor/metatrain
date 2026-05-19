@@ -614,7 +614,7 @@ class PET(ModelInterface[ModelHypers]):
             edge_features = edge_features + self.triplet_expander(
                 torch.sum(triplet_features * torch.exp(triplet_second_log_cutoff_factors[:, None, :, None]), dim=2)
             )
-            node_features = node_features + self.edge_expander(torch.sum(edge_features * log_cutoff_factors.unsqueeze(-1), dim=1))
+            node_features = node_features + self.edge_expander(torch.sum(edge_features * torch.exp(log_cutoff_factors.unsqueeze(-1)), dim=1))
             
             node_features_list = [node_features]
 

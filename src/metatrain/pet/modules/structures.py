@@ -285,7 +285,7 @@ def systems_to_batch(
     element_indices_neighbors = edge_array_to_nef(
         element_indices_neighbors, nef_indices
     )
-    log_cutoff_factors = edge_array_to_nef(log_cutoff_factors, nef_indices, nef_mask, 0.0)
+    log_cutoff_factors = edge_array_to_nef(log_cutoff_factors, nef_indices, nef_mask, -10000.0)
 
     corresponding_edges = get_corresponding_edges(centers, neighbors, cell_shifts)
 
