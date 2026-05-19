@@ -243,6 +243,16 @@ class ModelHypers(TypedDict):
         readout_type:
           name: IrrepResidualZCorrection
 
+        # ── Trunk + deep Z-conditioned correction tower (zero-init output) ───
+        # Generalises IrrepResidualZCorrection to K hidden layers, each
+        # Z-conditioned.  Expressiveness increases with depth; parameter cost
+        # scales as n_species × K × d².  Only the output layer is zero-init.
+        # num_correction_layers=1 exactly recovers IrrepResidualZCorrection.
+        readout_type:
+          name: IrrepResidualZCorrectionDeep
+          args:
+            num_correction_layers: 2    # K; sweep 1, 2, 3
+
     The ``readout_type`` applies only to atomic basis targets; non-atomic-basis
     targets always use a shared linear readout regardless of this setting.
     """

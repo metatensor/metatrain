@@ -36,6 +36,7 @@ from .modules.atomic_basis import (
     IrrepResidualFiLM,
     IrrepResidualReadout,
     IrrepResidualZCorrection,
+    IrrepResidualZCorrectionDeep,
     IrrepResidualZOutput,
     IrrepThenMoE,
     IrrepThenZConditioned,
@@ -1416,6 +1417,14 @@ class PET(ModelInterface[ModelHypers]):
 
         elif name == "IrrepResidualZCorrection":
             return IrrepResidualZCorrection(in_features, out_features, n_species)
+
+        elif name == "IrrepResidualZCorrectionDeep":
+            return IrrepResidualZCorrectionDeep(
+                in_features,
+                out_features,
+                n_species,
+                num_correction_layers=args.get("num_correction_layers", 2),
+            )
 
         else:
             raise ValueError(

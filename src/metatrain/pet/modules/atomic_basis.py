@@ -668,6 +668,106 @@ class IrrepResidualZCorrection(torch.nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# IrrepResidualZCorrectionDeep — depth-parameterised Z-conditioned correction
+# ---------------------------------------------------------------------------
+
+
+class IrrepResidualZCorrectionDeep(torch.nn.Module):
+    """
+    Trunk + deep fully Z-conditioned correction tower (zero-initialized output).
+
+    Generalises :class:`IrrepResidualZCorrection` to ``num_correction_layers``
+    hidden layers, each carrying per-species weight matrices.  The correction
+    tower is a :class:`ZConditionedReadout` with
+    ``hidden_layer_widths=[in_features] * num_correction_layers``:
+
+    .. math::
+        h^{(0)} &= h_i \\\\
+        h^{(k)} &= \\text{SiLU}\\!\\left(V_z^{(k)}\\, h^{(k-1)}\\right),
+                   \\quad k = 1,\\ldots,K \\\\
+        \\text{output} &= W_z\\, h_i
+                        + \\underbrace{W_z^{\\prime}\\, h^{(K)}}_{=\\,0\\text{ at init}}
+
+    Only the output weight :math:`W_z^{\\prime}` is zero-initialized; all
+    hidden layers :math:`V_z^{(k)}` use Kaiming initialization, so gradients
+    reach :math:`W_z^{\\prime}` from step 1 (the hidden activations are
+    non-zero).  Training therefore starts at pure Z-readout and the correction
+    grows in as it identifies what the linear trunk cannot capture.
+
+    **Why depth helps** — a :math:`K`-hidden-layer network can compose
+    :math:`K` levels of nonlinearity, accessing increasingly complex cross-term
+    interactions between PET feature dimensions.  As the backbone grows
+    (larger ``d_pet``, more GNN layers), the features :math:`h_i` become
+    richer; additional correction depth extracts correspondingly higher-order
+    structure from that richer representation.  The correction's parameter cost
+    scales as :math:`n_Z \\times K \\times d^2`, so it grows naturally with
+    model width without any manual tuning.
+
+    **Recommended sweep** — ``num_correction_layers`` ∈ {1, 2, 3} at each
+    model size; a monotone improvement with depth is a reliable signal that
+    the correction is not yet saturated.
+
+    :param in_features: Input feature dimension (``d_head``).
+    :param out_features: Output dimension for this block.
+    :param n_species: Number of distinct atomic species.
+    :param num_correction_layers: Number of hidden layers ``K`` in the
+        correction tower.  ``1`` recovers :class:`IrrepResidualZCorrection`
+        exactly.  Default ``2``.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        n_species: int,
+        num_correction_layers: int = 2,
+    ) -> None:
+        super().__init__()
+
+        if num_correction_layers < 1:
+            raise ValueError(
+                f"num_correction_layers must be >= 1, got {num_correction_layers}. "
+                "Use IrrepResidualZCorrection (or ZConditioned) for shallower readouts."
+            )
+
+        # Z-conditioned linear trunk — the dominant, warm-started prediction path
+        self.trunk = ZConditionedReadout(
+            in_features, out_features, n_species, z_conditioned=True
+        )
+
+        # Deep Z-conditioned correction tower.
+        # hidden_layer_widths=[in_features] * K gives K hidden layers, each
+        # of dimension in_features.  The final (output) layer maps to out_features.
+        # Layer index layout in self.correction.weights:
+        #   [0 .. K-1] → hidden layers  (Kaiming init, kept)
+        #   [K]        → output layer   (zero-init for warm start)
+        self.correction = ZConditionedReadout(
+            in_features,
+            out_features,
+            n_species,
+            z_conditioned=True,
+            hidden_layer_widths=[in_features] * num_correction_layers,
+        )
+        # Zero-init output layer only — hidden layers keep Kaiming init so
+        # the output layer receives non-zero gradients from step 1.
+        torch.nn.init.zeros_(self.correction.weights[num_correction_layers])
+        torch.nn.init.zeros_(self.correction.biases[num_correction_layers])
+
+    def forward(
+        self, features: torch.Tensor, species_idx: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        :param features: ``(n_atoms, in_features)`` or
+            ``(n_atoms, n_neighbours, in_features)``.
+        :param species_idx: Long tensor ``(n_atoms,)``.
+        :return: Same leading dims as ``features``, last dim ``out_features``.
+        """
+        return self.trunk(features, species_idx) + self.correction(
+            features, species_idx
+        )
+
+
+# ---------------------------------------------------------------------------
 # IrrepThenZConditioned  — per-irrep MLP → Z-conditioned linear/MLP
 # ---------------------------------------------------------------------------
 
