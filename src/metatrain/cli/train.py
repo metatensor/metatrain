@@ -570,7 +570,14 @@ def train_model(
         logging.info("Atomic types explicitly defined in options.yaml")
         atomic_types = sorted(options["architecture"]["atomic_types"])
 
-    logging.info(f"Model defined for atomic types: {atomic_types}")
+    if len(atomic_types) > 1:
+        atomic_types_str = (
+            ", ".join(map(str, atomic_types[:-1])) + f" and {atomic_types[-1]}"
+        )
+        logging.info(f"Model defined for atomic types: {atomic_types_str}")
+    else:
+        atomic_types_str = str(atomic_types[0])
+        logging.info(f"Model defined for atomic type: {atomic_types_str}")
 
     dataset_info = DatasetInfo(
         length_unit=options["training_set"][0]["systems"]["length_unit"],
