@@ -32,7 +32,16 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .documentation import ModelHypers
-from .modules.atomic_basis import MoEReadout, ZConditionedReadout
+from .modules.atomic_basis import (
+    IrrepResidualFiLM,
+    IrrepResidualReadout,
+    IrrepResidualZCorrection,
+    IrrepResidualZOutput,
+    IrrepThenMoE,
+    IrrepThenZConditioned,
+    MoEReadout,
+    ZConditionedReadout,
+)
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import systems_to_batch
 from .modules.transformer import CartesianTransformer
@@ -53,7 +62,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 13
+    __checkpoint_version__ = 16
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -87,34 +96,8 @@ class PET(ModelInterface[ModelHypers]):
         self.attention_temperature = self.hypers["attention_temperature"]
         self.transformer_type = self.hypers["transformer_type"]
         self.featurizer_type = self.hypers["featurizer_type"]
-        self.atomic_basis_z_readout = self.hypers["atomic_basis_z_readout"]
+        self.readout_type = self.hypers["readout_type"]
         self.geometry_embedding_lmax = self.hypers["geometry_embedding_lmax"]
-        # MoE hypers
-        self.num_experts = self.hypers["num_experts"]
-        self.num_routed_experts = self.hypers["num_routed_experts"]
-        self.num_topk_experts = self.hypers["num_topk_experts"]
-        self.moe_embedding_dim = self.hypers["moe_embedding_dim"]
-        self.use_moe = self.num_experts is not None
-        if self.use_moe:
-            if self.num_routed_experts is None or self.num_topk_experts is None:
-                raise ValueError(
-                    "num_routed_experts and num_topk_experts must both be "
-                    "set when num_experts is set."
-                )
-            num_shared = self.num_experts - self.num_routed_experts
-            if (
-                self.num_routed_experts < 1
-                or num_shared < 0
-                or self.num_topk_experts < 1
-                or self.num_topk_experts > self.num_routed_experts
-            ):
-                raise ValueError(
-                    f"Inconsistent MoE hypers: num_experts={self.num_experts}, "
-                    f"num_routed_experts={self.num_routed_experts}, "
-                    f"num_topk_experts={self.num_topk_experts}. "
-                    "Need: 1 ≤ num_routed_experts ≤ num_experts, and "
-                    "1 ≤ num_topk_experts ≤ num_routed_experts."
-                )
 
         self.atomic_types = dataset_info.atomic_types
         self.requested_nl = NeighborListOptions(
@@ -1344,39 +1327,101 @@ class PET(ModelInterface[ModelHypers]):
         self,
         in_features: int,
         out_features: int,
-        use_z_readout: bool,
+        is_atomic_basis: bool,
     ) -> torch.nn.Module:
         """
-        Return the appropriate readout module for a single output block.
+        Factory: return the readout module for one output block.
 
-        When ``self.use_moe`` is True the MoE-E architecture is used
-        (``ZConditionedReadout`` experts with Z-gated routing); otherwise a
-        plain ``ZConditionedReadout`` is returned.  Both have an identical
-        ``forward(features, species_idx)`` signature so they are
-        interchangeable inside the model's ``ModuleDict`` containers.
+        For non-atomic-basis targets (or when ``readout_type`` is ``None``),
+        returns a plain shared linear layer (``ZConditionedReadout`` with
+        ``z_conditioned=False``).
 
-        This method is only called during ``__init__`` / ``_add_output`` and
-        does not need to be TorchScript-compatible.
+        For atomic basis targets with ``readout_type`` set, dispatches on
+        ``readout_type["name"]``:
+
+        - ``"ZConditioned"``        — :class:`ZConditionedReadout`
+        - ``"MoE"``                 — :class:`MoEReadout`
+        - ``"IrrepThenZConditioned"``— :class:`IrrepThenZConditioned`
+        - ``"IrrepThenMoE"``        — :class:`IrrepThenMoE`
+        - ``"IrrepResidual"``       — :class:`IrrepResidualReadout`
+
+        All returned modules share ``forward(features, species_idx)`` so they
+        are drop-in replaceable in the model's ``ModuleDict`` containers.
         """
         n_species = len(self.dataset_info.atomic_types)
-        if self.use_moe:
-            # num_experts / num_routed_experts / num_topk_experts are
-            # guaranteed non-None here (validated in __init__).
-            return MoEReadout(
-                in_features,
-                out_features,
-                n_species,
-                self.num_experts,        # type: ignore[arg-type]
-                self.num_routed_experts, # type: ignore[arg-type]
-                self.num_topk_experts,   # type: ignore[arg-type]
-                embedding_dim=self.moe_embedding_dim,
+
+        if not is_atomic_basis or self.readout_type is None:
+            # Vanilla shared linear — same for all species, no Z-conditioning.
+            return ZConditionedReadout(
+                in_features, out_features, n_species, z_conditioned=False
             )
-        else:
+
+        name = self.readout_type.get("name", "ZConditioned")
+        args = self.readout_type.get("args", {})
+
+        if name == "ZConditioned":
             return ZConditionedReadout(
                 in_features,
                 out_features,
                 n_species,
-                z_conditioned=use_z_readout,
+                z_conditioned=True,
+                hidden_layer_widths=args.get("hidden_layer_widths", None),
+            )
+
+        elif name == "MoE":
+            return MoEReadout(
+                in_features,
+                out_features,
+                n_species,
+                num_experts=args["num_experts"],
+                num_routed_experts=args["num_routed_experts"],
+                num_topk_experts=args["num_topk_experts"],
+                embedding_dim=args.get("embedding_dim", 16),
+            )
+
+        elif name == "IrrepThenZConditioned":
+            return IrrepThenZConditioned(
+                in_features,
+                out_features,
+                n_species,
+                z_conditioned=args.get("z_conditioned", True),
+                hidden_layer_widths=args.get("hidden_layer_widths", None),
+            )
+
+        elif name == "IrrepThenMoE":
+            return IrrepThenMoE(
+                in_features,
+                out_features,
+                n_species,
+                d_irrep=args.get("d_irrep", in_features),
+                num_experts=args["num_experts"],
+                num_routed_experts=args["num_routed_experts"],
+                num_topk_experts=args["num_topk_experts"],
+                embedding_dim=args.get("embedding_dim", 16),
+            )
+
+        elif name == "IrrepResidual":
+            return IrrepResidualReadout(
+                in_features,
+                out_features,
+                n_species,
+                z_conditioned=args.get("z_conditioned", True),
+            )
+
+        elif name == "IrrepResidualZOutput":
+            return IrrepResidualZOutput(in_features, out_features, n_species)
+
+        elif name == "IrrepResidualFiLM":
+            return IrrepResidualFiLM(in_features, out_features, n_species)
+
+        elif name == "IrrepResidualZCorrection":
+            return IrrepResidualZCorrection(in_features, out_features, n_species)
+
+        else:
+            raise ValueError(
+                f"Unknown readout_type name: '{name}'. "
+                "Available: ZConditioned, MoE, IrrepThenZConditioned, "
+                "IrrepThenMoE, IrrepResidual."
             )
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
@@ -1428,24 +1473,15 @@ class PET(ModelInterface[ModelHypers]):
             ]
         )
 
-        # Resolve whether to use Z-conditioned readout for this target.
-        # Only atomic-basis targets can use Z-conditioned readout; all other
-        # targets always fall back to the standard (shared) linear readout.
-        raw_z_readout = self.atomic_basis_z_readout
-        if isinstance(raw_z_readout, bool):
-            use_z_readout = raw_z_readout and self.is_atomic_basis_target[target_name]
-        else:
-            # dict mapping target name -> bool; absent keys default to False
-            use_z_readout = (
-                raw_z_readout.get(target_name, False)
-                and self.is_atomic_basis_target[target_name]
-            )
+        is_atomic_basis = self.is_atomic_basis_target[target_name]
 
         self.node_last_layers[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.ModuleDict(
                     {
-                        key: self._make_readout(self.d_head, prod(shape), use_z_readout)
+                        key: self._make_readout(
+                            self.d_head, prod(shape), is_atomic_basis
+                        )
                         for key, shape in self.output_shapes[target_name].items()
                     }
                 )
@@ -1457,7 +1493,9 @@ class PET(ModelInterface[ModelHypers]):
             [
                 torch.nn.ModuleDict(
                     {
-                        key: self._make_readout(self.d_head, prod(shape), use_z_readout)
+                        key: self._make_readout(
+                            self.d_head, prod(shape), is_atomic_basis
+                        )
                         for key, shape in self.output_shapes[target_name].items()
                     }
                 )

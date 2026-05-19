@@ -72,7 +72,7 @@ important** (in decreasing order of importance):
       :no-index:
 """
 
-from typing import Dict, Literal, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union
 
 from typing_extensions import TypedDict
 
@@ -170,33 +170,82 @@ class ModelHypers(TypedDict):
     """Use ZBL potential for short-range repulsion"""
     long_range: LongRangeHypers = init_with_defaults(LongRangeHypers)
     """Long-range Coulomb interactions parameters."""
-    atomic_basis_z_readout: Union[bool, Dict[str, bool]] = False
-    """Whether to use Z-conditioned linear readout layers for atomic basis targets.
+    readout_type: Optional[Dict[str, Any]] = None
+    """Readout module used for atomic basis targets.
 
-    Can be set in two ways:
+    ``null`` (default): a single shared linear layer per irrep block, no
+    species conditioning.  This is the vanilla PET readout.
 
-    * A single ``bool`` — applies uniformly to every atomic basis target in
-      the model.  Non-atomic-basis targets are unaffected (they always use a
-      standard shared linear readout).
-    * A ``dict`` mapping target names to ``bool`` — enables per-target control.
-      Targets absent from the dict default to ``False``.  Again, non-atomic-
-      basis targets are never Z-conditioned regardless of the value provided.
+    Otherwise a dict with ``name`` and optional ``args``:
+
+    .. code-block:: yaml
+
+        # ── Z-conditioned linear (or MLP) per (irrep, species) ──────────────
+        # Each (α, Z) pair has its own weight matrix.  Optional hidden layers
+        # add nonlinearity before the final projection.
+        readout_type:
+          name: ZConditioned
+          args:
+            hidden_layer_widths: [64]   # omit or [] for plain linear
+
+        # ── Mixture-of-Experts, routing conditioned on Z ────────────────────
+        readout_type:
+          name: MoE
+          args:
+            num_experts: 5
+            num_routed_experts: 5       # all routed, 0 shared
+            num_topk_experts: 2
+            embedding_dim: 16           # optional, default 16
+
+        # ── Per-irrep MLP → Z-conditioned linear/MLP ────────────────────────
+        # Stage 1: shared MLP d→d'(α), unique per irrep block.
+        # Stage 2: Z-conditioned readout d'(α)→q(α,Z).
+        readout_type:
+          name: IrrepThenZConditioned
+          args:
+            d_irrep: 64
+            z_conditioned: true         # optional, default true
+            hidden_layer_widths: []     # optional further hidden layers in stage 2
+
+        # ── Per-irrep MLP → MoE ──────────────────────────────────────────────
+        readout_type:
+          name: IrrepThenMoE
+          args:
+            d_irrep: 64
+            num_experts: 5
+            num_routed_experts: 5
+            num_topk_experts: 2
+            embedding_dim: 16           # optional
+
+        # ── Trunk + per-irrep residual correction, gated by species ─────────
+        # Trunk is Z-conditioned linear; correction starts at zero.
+        readout_type:
+          name: IrrepResidual
+          args:
+            z_conditioned: true         # optional, default true
+
+        # ── Trunk + shared hidden layer → Z-conditioned output (zero-init) ──
+        # Shared MLP extracts universal nonlinear features; per-species output
+        # weights decide how to combine them. Zero-init → warm start.
+        readout_type:
+          name: IrrepResidualZOutput
+
+        # ── Trunk + FiLM-conditioned correction (zero-init output) ───────────
+        # Per-species affine transform (γ·x + β) modulates inputs before the
+        # shared correction hidden layer. Species conditions which features get
+        # nonlinearly mixed. Cheap: 2 × n_species × d_pet FiLM parameters.
+        readout_type:
+          name: IrrepResidualFiLM
+
+        # ── Trunk + fully Z-conditioned correction MLP (zero-init output) ────
+        # Both hidden and output layers of the correction are per-species.
+        # Most expressive variant; cost scales as n_species × (d² + d × out).
+        readout_type:
+          name: IrrepResidualZCorrection
+
+    The ``readout_type`` applies only to atomic basis targets; non-atomic-basis
+    targets always use a shared linear readout regardless of this setting.
     """
-    num_experts: Optional[int] = None
-    """Total number of experts N for the MoE-E readout.  ``None`` (default)
-    disables MoE and falls back to ``ZConditionedReadout``.  When set,
-    ``num_routed_experts`` and ``num_topk_experts`` must also be set."""
-    num_routed_experts: Optional[int] = None
-    """Number of Z-gated routed experts I.  Must satisfy
-    1 ≤ I ≤ ``num_experts`` when MoE is enabled."""
-    num_topk_experts: Optional[int] = None
-    """Number of routed experts K' selected per atom via TopK
-    (must satisfy 1 ≤ K' ≤ ``num_routed_experts``).
-    Total experts activated per atom = K' + (``num_experts`` − ``num_routed_experts``) shared."""
-    moe_embedding_dim: int = 16
-    """Latent dimension M of the species embedding used by the MoE router.
-    16 is sufficient to distinguish all ~100 periodic-table elements while
-    leaving the model free to learn a continuous chemical manifold."""
     geometry_embedding_lmax: Optional[int] = None
     """
     The L max of solid spherical harmonics to use for edge geometry embeddings

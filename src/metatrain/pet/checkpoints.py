@@ -290,6 +290,88 @@ def model_update_v12_v13(checkpoint: dict) -> None:
     update_per_property_scales(checkpoint)
 
 
+def model_update_v13_v14(checkpoint: dict) -> None:
+    """
+    Update a v13 checkpoint to v14.
+
+    Adds ``geometry_embedding_lmax`` (default ``None``, i.e. disabled).
+
+    :param checkpoint: The checkpoint to update.
+    """
+    if "geometry_embedding_lmax" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["geometry_embedding_lmax"] = None
+
+
+def model_update_v14_v15(checkpoint: dict) -> None:
+    """
+    Update a v14 checkpoint to v15.
+
+    Converts the old scattered readout-control flags
+    (``atomic_basis_z_readout``, ``atomic_basis_irrep_residual``,
+    ``num_experts``, ``num_routed_experts``, ``num_topk_experts``,
+    ``moe_embedding_dim``) into the unified ``readout_type`` dict, and
+    removes the old keys.  Checkpoints that never had those flags simply
+    get ``readout_type: null`` (vanilla shared linear).
+
+    :param checkpoint: The checkpoint to update.
+    """
+    hypers = checkpoint["model_data"]["model_hypers"]
+    if "readout_type" not in hypers:
+        use_z = hypers.get("atomic_basis_z_readout", False)
+        use_irrep_res = hypers.get("atomic_basis_irrep_residual", False)
+        num_experts = hypers.get("num_experts", None)
+
+        if use_irrep_res is True or (
+            isinstance(use_irrep_res, dict) and any(use_irrep_res.values())
+        ):
+            readout_type = {
+                "name": "IrrepResidual",
+                "args": {"z_conditioned": bool(use_z)},
+            }
+        elif num_experts is not None:
+            readout_type = {
+                "name": "MoE",
+                "args": {
+                    "num_experts": num_experts,
+                    "num_routed_experts": hypers.get("num_routed_experts"),
+                    "num_topk_experts": hypers.get("num_topk_experts"),
+                    "embedding_dim": hypers.get("moe_embedding_dim", 16),
+                },
+            }
+        elif use_z is True or (isinstance(use_z, dict) and any(use_z.values())):
+            readout_type = {"name": "ZConditioned", "args": {}}
+        else:
+            readout_type = None
+
+        hypers["readout_type"] = readout_type
+
+    for old_key in (
+        "atomic_basis_z_readout",
+        "atomic_basis_irrep_residual",
+        "atomic_basis_geometric_readout",
+        "num_experts",
+        "num_routed_experts",
+        "num_topk_experts",
+        "moe_embedding_dim",
+    ):
+        hypers.pop(old_key, None)
+
+
+def model_update_v15_v16(checkpoint: dict) -> None:
+    """
+    Update a v15 checkpoint to v16.
+
+    v16 is the first version that ships with the unified ``readout_type``
+    dict as the sole readout-control hyperparameter.  All of the migration
+    logic that removes old scattered flags was already handled in
+    ``model_update_v14_v15``; this function is therefore a no-op bookkeeping
+    fence.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    pass  # all structural changes were handled in v14→v15
+
+
 ###########################
 # TRAINER #################
 ###########################

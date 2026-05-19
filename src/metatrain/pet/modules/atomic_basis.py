@@ -331,3 +331,485 @@ class MoEReadout(torch.nn.Module):
             output = output + expert(features, species_idx)
 
         return output
+
+
+# ---------------------------------------------------------------------------
+# Irrep-conditioned residual readout
+# ---------------------------------------------------------------------------
+
+
+class IrrepResidualReadout(torch.nn.Module):
+    """
+    Trunk + per-irrep nonlinear correction with species gating.
+
+    For each output block (corresponding to one ``o3_lambda`` irrep):
+
+    .. math::
+        c_\\lambda = \\underbrace{\\text{trunk}(h_i,\\, z_i)}_{\\text{Z-readout}}
+                   +\\; \\text{MLP}_\\lambda(h_i) \\odot g^z_\\lambda
+
+    where:
+
+    * **trunk** is a :class:`ZConditionedReadout` — the standard per-species
+      linear readout, which remains the dominant prediction throughout training.
+    * **MLP**_λ is a two-layer SiLU network with weights *shared across species*
+      but *separate for every irrep block*.  It learns what non-linear features
+      of the environment are useful for this particular angular channel.
+    * **g**^z_λ is a per-species gate vector of shape ``(n_species, out_features)``,
+      initialized to **zero**.  Because the gate multiplies the MLP output, the
+      correction starts at exactly zero, so the first training steps are
+      identical to plain Z-readout.  The gate then learns per-species how much
+      — and in which output directions — to apply the nonlinear correction.
+
+    Gradient flow at initialization
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    * ``d loss / d gate`` = ``MLP(h_i) * d loss / d output`` → non-zero from
+      step 1 (the randomly-initialized MLP produces non-zero activations).
+    * ``d loss / d MLP params`` = ``gate * ...`` → zero initially, but the gate
+      becomes non-zero after the first few steps, after which the MLP receives
+      full gradient signal.
+
+    This warm-start property means the model begins as a plain Z-readout and
+    gradually develops per-irrep nonlinear corrections — useful for ablation
+    because early training curves are directly comparable.
+
+    :param in_features: Input feature dimension (``d_head``).
+    :param out_features: Output dimension = ``(2λ+1) × n_properties``.
+    :param n_species: Number of distinct atomic species.
+    :param z_conditioned: Passed through to the trunk
+        :class:`ZConditionedReadout`.  If ``True``, the trunk uses per-species
+        weight matrices; if ``False``, a single shared trunk is used.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        n_species: int,
+        z_conditioned: bool,
+    ) -> None:
+        super().__init__()
+
+        # ------------------------------------------------------------------
+        # Trunk: standard Z-conditioned (or shared) linear readout.
+        # ------------------------------------------------------------------
+        self.trunk = ZConditionedReadout(
+            in_features,
+            out_features,
+            n_species,
+            z_conditioned=z_conditioned,
+        )
+
+        # ------------------------------------------------------------------
+        # Per-irrep nonlinear correction MLP.
+        # Hidden dimension matches in_features (d_head) — same as the node
+        # head MLP used elsewhere in PET, so parameter cost is comparable.
+        # ------------------------------------------------------------------
+        self.correction = torch.nn.Sequential(
+            torch.nn.Linear(in_features, in_features),
+            torch.nn.SiLU(),
+            torch.nn.Linear(in_features, out_features),
+        )
+
+        # ------------------------------------------------------------------
+        # Per-species gate on the correction output.
+        # Zero initialization ensures the model starts at pure Z-readout.
+        # ------------------------------------------------------------------
+        self.species_gate = torch.nn.Parameter(
+            torch.zeros(n_species, out_features)
+        )
+
+    def forward(
+        self, features: torch.Tensor, species_idx: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        :param features: ``(n_atoms, in_features)`` for node features, or
+            ``(n_atoms, n_neighbours, in_features)`` for edge features.
+        :param species_idx: Long tensor of shape ``(n_atoms,)``.
+        :return: Same leading dims as ``features``, last dim ``out_features``.
+        """
+        trunk_out = self.trunk(features, species_idx)
+        correction = self.correction(features)                # (..., out_features)
+        gate = self.species_gate[species_idx]                 # (n_atoms, out_features)
+
+        # For edge features (3-D input), broadcast gate over the neighbour dim.
+        if features.dim() == 3:
+            gate = gate.unsqueeze(1)                          # (n_atoms, 1, out_features)
+
+        return trunk_out + correction * gate
+
+
+# ---------------------------------------------------------------------------
+# IrrepResidual variants — Z-conditioned corrections
+# ---------------------------------------------------------------------------
+
+
+class IrrepResidualZOutput(torch.nn.Module):
+    """
+    Trunk + nonlinear correction with a Z-conditioned output layer.
+
+    Extends :class:`IrrepResidualReadout` by replacing the scalar per-species
+    gate with a full per-species weight matrix on the correction's output layer:
+
+    .. math::
+        \\text{output} = \\underbrace{W_z \\, h_i}_{\\text{trunk}}
+                       + \\underbrace{(W_z^{\\prime} \\, \\text{SiLU}(U \\, h_i))}_{\\text{correction}}
+
+    where :math:`U` is a *shared* hidden-layer weight (species-agnostic) and
+    :math:`W_z^{\\prime}` is a *per-species* output-layer weight (zero-initialized).
+
+    The hidden layer learns which nonlinear combinations of :math:`h_i` are
+    universally useful; the Z-conditioned output layer decides per-species how
+    to combine them.  Zero-initializing :math:`W_z^{\\prime}` gives the same
+    warm-start as the scalar-gate variant: training begins at pure Z-readout.
+
+    **Gradient flow at initialization**
+
+    * :math:`\\partial L / \\partial W_z^{\\prime}` = ``SiLU(U h_i) ⊗ (∂L/∂output)``
+      — non-zero from step 1 because the randomly-initialised :math:`U` produces
+      non-zero hidden activations.
+
+    :param in_features: Input feature dimension.
+    :param out_features: Output dimension for this block.
+    :param n_species: Number of distinct atomic species.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        n_species: int,
+    ) -> None:
+        super().__init__()
+
+        # Z-conditioned trunk (dominant prediction path)
+        self.trunk = ZConditionedReadout(
+            in_features, out_features, n_species, z_conditioned=True
+        )
+
+        # Shared hidden layer — species-agnostic nonlinear feature extraction
+        self.correction_hidden = torch.nn.Sequential(
+            torch.nn.Linear(in_features, in_features),
+            torch.nn.SiLU(),
+        )
+
+        # Z-conditioned output layer — zero-initialized for warm start
+        self.correction_out = ZConditionedReadout(
+            in_features, out_features, n_species, z_conditioned=True
+        )
+        torch.nn.init.zeros_(self.correction_out.weights[0])
+        torch.nn.init.zeros_(self.correction_out.biases[0])
+
+    def forward(
+        self, features: torch.Tensor, species_idx: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        :param features: ``(n_atoms, in_features)`` or
+            ``(n_atoms, n_neighbours, in_features)``.
+        :param species_idx: Long tensor ``(n_atoms,)``.
+        :return: Same leading dims as ``features``, last dim ``out_features``.
+        """
+        trunk_out = self.trunk(features, species_idx)
+        hidden = self.correction_hidden(features)
+        correction = self.correction_out(hidden, species_idx)
+        return trunk_out + correction
+
+
+class IrrepResidualFiLM(torch.nn.Module):
+    """
+    Trunk + nonlinear correction with FiLM species-conditioning on the inputs.
+
+    Applies a learnable per-species affine transform (FiLM — Feature-wise Linear
+    Modulation) to the features *before* the correction's hidden layer, then
+    runs a shared MLP on the modulated features:
+
+    .. math::
+        x_z       &= \\gamma_z \\odot h_i + \\beta_z  \\quad\\text{(FiLM)}\\\\
+        \\text{output} &= W_z h_i
+                        + \\underbrace{U_\\text{out} \\, \\text{SiLU}(U_\\text{hid}\\, x_z)}_{\\text{correction}}
+
+    where :math:`\\gamma_z` and :math:`\\beta_z` are per-species vectors of size
+    ``in_features``, initialized to ones and zeros respectively (identity
+    transform).  The final shared linear :math:`U_\\text{out}` is zero-initialized
+    to ensure the correction is exactly zero at the start of training.
+
+    The inductive bias differs from :class:`IrrepResidualZOutput`: species
+    conditioning acts on *which features get nonlinearly mixed* (in the hidden
+    layer) rather than on *how the hidden activations are projected to the
+    output*.  Both effects can matter; this class isolates the former.
+
+    Parameter cost of the FiLM layers: ``2 × n_species × in_features`` —
+    independent of ``out_features``, so cheap for high-:math:`\\lambda` blocks.
+
+    :param in_features: Input feature dimension.
+    :param out_features: Output dimension for this block.
+    :param n_species: Number of distinct atomic species.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        n_species: int,
+    ) -> None:
+        super().__init__()
+
+        # Z-conditioned trunk
+        self.trunk = ZConditionedReadout(
+            in_features, out_features, n_species, z_conditioned=True
+        )
+
+        # FiLM parameters: per-species scale (γ) and shift (β)
+        # γ = ones, β = zeros → identity at initialization
+        self.film_gamma = torch.nn.Parameter(torch.ones(n_species, in_features))
+        self.film_beta = torch.nn.Parameter(torch.zeros(n_species, in_features))
+
+        # Shared correction MLP; output layer zero-initialized for warm start
+        correction_hidden = torch.nn.Linear(in_features, in_features)
+        correction_out = torch.nn.Linear(in_features, out_features)
+        torch.nn.init.zeros_(correction_out.weight)
+        torch.nn.init.zeros_(correction_out.bias)
+        self.correction = torch.nn.Sequential(
+            correction_hidden, torch.nn.SiLU(), correction_out
+        )
+
+    def forward(
+        self, features: torch.Tensor, species_idx: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        :param features: ``(n_atoms, in_features)`` or
+            ``(n_atoms, n_neighbours, in_features)``.
+        :param species_idx: Long tensor ``(n_atoms,)``.
+        :return: Same leading dims as ``features``, last dim ``out_features``.
+        """
+        trunk_out = self.trunk(features, species_idx)
+
+        gamma = self.film_gamma[species_idx]  # (n_atoms, in_features)
+        beta = self.film_beta[species_idx]    # (n_atoms, in_features)
+        if features.dim() == 3:
+            gamma = gamma.unsqueeze(1)        # (n_atoms, 1, in_features)
+            beta = beta.unsqueeze(1)
+
+        modulated = gamma * features + beta
+        correction = self.correction(modulated)
+        return trunk_out + correction
+
+
+class IrrepResidualZCorrection(torch.nn.Module):
+    """
+    Trunk + fully Z-conditioned correction MLP (zero-initialized output layer).
+
+    The most expressive residual variant: *both* the hidden layer and the output
+    layer of the correction carry per-species weight matrices.
+
+    .. math::
+        \\text{output} = \\underbrace{W_z \\, h_i}_{\\text{trunk}}
+                       + \\underbrace{W_z^{\\prime} \\, \\text{SiLU}(V_z \\, h_i)}_{\\text{correction}}
+
+    where :math:`V_z` and :math:`W_z^{\\prime}` are both Z-conditioned.
+    Only :math:`W_z^{\\prime}` (the output layer) is zero-initialized; the
+    hidden layer :math:`V_z` uses Kaiming initialization so gradients flow
+    to the output weights from step 1.
+
+    **Warm-start argument** — at initialization, :math:`W_z^{\\prime} = 0`
+    so the correction is zero.  The gradient of the loss w.r.t. each entry
+    of :math:`W_z^{\\prime}` is ``SiLU(V_z h_i) ⊗ (∂L/∂output)`` which is
+    non-zero because :math:`V_z` is Kaiming-initialized, ensuring the output
+    layer starts learning immediately.
+
+    **Parameter cost** — ``n_species × (in² + in × out)`` for the correction,
+    compared to ``in² + n_species × out`` for :class:`IrrepResidualZOutput`.
+    For small ``n_species`` the difference is modest; for large datasets with
+    many species it becomes significant.
+
+    :param in_features: Input feature dimension.
+    :param out_features: Output dimension for this block.
+    :param n_species: Number of distinct atomic species.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        n_species: int,
+    ) -> None:
+        super().__init__()
+
+        # Z-conditioned trunk
+        self.trunk = ZConditionedReadout(
+            in_features, out_features, n_species, z_conditioned=True
+        )
+
+        # Fully Z-conditioned two-layer correction MLP
+        # hidden_layer_widths=[in_features] → weights[0] is hidden, weights[1] is output
+        self.correction = ZConditionedReadout(
+            in_features,
+            out_features,
+            n_species,
+            z_conditioned=True,
+            hidden_layer_widths=[in_features],
+        )
+        # Zero-init output layer only — hidden layer retains Kaiming init
+        torch.nn.init.zeros_(self.correction.weights[1])
+        torch.nn.init.zeros_(self.correction.biases[1])
+
+    def forward(
+        self, features: torch.Tensor, species_idx: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        :param features: ``(n_atoms, in_features)`` or
+            ``(n_atoms, n_neighbours, in_features)``.
+        :param species_idx: Long tensor ``(n_atoms,)``.
+        :return: Same leading dims as ``features``, last dim ``out_features``.
+        """
+        return self.trunk(features, species_idx) + self.correction(
+            features, species_idx
+        )
+
+
+# ---------------------------------------------------------------------------
+# IrrepThenZConditioned  — per-irrep MLP → Z-conditioned linear/MLP
+# ---------------------------------------------------------------------------
+
+
+class IrrepThenZConditioned(torch.nn.Module):
+    """
+    Per-irrep shared MLP followed by a Z-conditioned (or shared) linear readout.
+
+    Maps last-layer features through two sequential stages:
+
+    1. **Irrep MLP** ``d → d'(α)`` — a single SiLU-activated linear layer whose
+       weights are *shared across species* but *unique per irrep block*.  This
+       extracts features that are specifically useful for angular channel α,
+       independently of which atomic species is at the centre.
+
+    2. **Z-conditioned readout** ``d'(α) → q(α, Z)`` — a
+       :class:`ZConditionedReadout` (optionally with further hidden layers)
+       that separates species-specific behaviour from the irrep-specific
+       features.
+
+    The separation of roles mirrors the factorisation
+
+    .. math::
+        q(\\alpha, Z) = f_Z\\!\\left(g_\\alpha(h_i)\\right)
+
+    where :math:`g_\\alpha` is species-agnostic (learns *what* is informative
+    for irrep :math:`\\alpha`) and :math:`f_Z` is irrep-agnostic (learns *how*
+    species :math:`Z` modulates those features).
+
+    :param in_features: Input feature dimension ``d`` (``d_head``).
+    :param out_features: Total output dimension for this block.
+    :param n_species: Number of distinct atomic species.
+    :param d_irrep: Hidden dimension ``d'(α)`` produced by the irrep MLP.
+        Defaults to ``in_features``.
+    :param z_conditioned: Whether the final readout uses per-species weights.
+    :param hidden_layer_widths: Optional additional hidden layers inside the
+        Z-conditioned readout (forwarded to :class:`ZConditionedReadout`).
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        n_species: int,
+        z_conditioned: bool = True,
+        hidden_layer_widths: Optional[List[int]] = None,
+    ) -> None:
+        super().__init__()
+
+        # Stage 1: per-irrep shared feature extraction
+        self.irrep_mlp = torch.nn.Sequential(
+            torch.nn.Linear(in_features, in_features),
+            torch.nn.SiLU(),
+        )
+
+        # Stage 2: Z-conditioned (or shared) linear/MLP readout
+        self.readout = ZConditionedReadout(
+            in_features,
+            out_features,
+            n_species,
+            z_conditioned=z_conditioned,
+            hidden_layer_widths=hidden_layer_widths,
+        )
+
+    def forward(
+        self, features: torch.Tensor, species_idx: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        :param features: ``(n_atoms, in_features)`` or
+            ``(n_atoms, n_neighbours, in_features)``.
+        :param species_idx: Long tensor ``(n_atoms,)``.
+        :return: Same leading dims as ``features``, last dim ``out_features``.
+        """
+        return self.readout(self.irrep_mlp(features), species_idx)
+
+
+# ---------------------------------------------------------------------------
+# IrrepThenMoE  — per-irrep MLP → MoE readout
+# ---------------------------------------------------------------------------
+
+
+class IrrepThenMoE(torch.nn.Module):
+    """
+    Per-irrep shared MLP followed by a Mixture-of-Experts readout.
+
+    Identical in structure to :class:`IrrepThenZConditioned` but replaces the
+    Z-conditioned linear with a :class:`MoEReadout`:
+
+    .. math::
+        q(\\alpha, Z) = \\text{MoE}_\\alpha\\!\\left(g_\\alpha(h_i),\\, z_i\\right)
+
+    This combines per-irrep feature extraction (shared MLP, stage 1) with
+    soft Z-gated expert selection (stage 2), giving the model both angular
+    specialisation and species-dependent routing.
+
+    :param in_features: Input feature dimension ``d``.
+    :param out_features: Total output dimension for this block.
+    :param n_species: Number of distinct atomic species.
+    :param d_irrep: Hidden dimension produced by the irrep MLP.
+    :param num_experts: Total number of experts N.
+    :param num_routed_experts: Z-gated routed experts I (1 ≤ I ≤ N).
+    :param num_topk_experts: TopK experts K' selected per atom (1 ≤ K' ≤ I).
+    :param embedding_dim: Species embedding dimension for the MoE router.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        n_species: int,
+        d_irrep: int,
+        num_experts: int,
+        num_routed_experts: int,
+        num_topk_experts: int,
+        embedding_dim: int = 16,
+    ) -> None:
+        super().__init__()
+
+        # Stage 1: per-irrep shared feature extraction
+        self.irrep_mlp = torch.nn.Sequential(
+            torch.nn.Linear(in_features, d_irrep),
+            torch.nn.SiLU(),
+        )
+
+        # Stage 2: MoE readout
+        self.readout = MoEReadout(
+            d_irrep,
+            out_features,
+            n_species,
+            num_experts,
+            num_routed_experts,
+            num_topk_experts,
+            embedding_dim=embedding_dim,
+        )
+
+    def forward(
+        self, features: torch.Tensor, species_idx: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        :param features: ``(n_atoms, in_features)`` or
+            ``(n_atoms, n_neighbours, in_features)``.
+        :param species_idx: Long tensor ``(n_atoms,)``.
+        :return: Same leading dims as ``features``, last dim ``out_features``.
+        """
+        return self.readout(self.irrep_mlp(features), species_idx)
