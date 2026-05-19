@@ -97,11 +97,18 @@ dpa3 = [
 ignore = ["src/metatrain/_version.py"]
 
 [tool.uv]
-extra-index-url = ["https://download.pytorch.org/whl/cpu"]
 override-dependencies = [
     "metatomic-torch @ git+https://github.com/Luthaf/metatomic.git@create-doc-classes#subdirectory=python/metatomic_torch",
     "metatomic-ase @ git+https://github.com/Luthaf/metatomic.git@create-doc-classes#subdirectory=python/metatomic_ase",
 ]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
