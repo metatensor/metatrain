@@ -23,7 +23,8 @@ dependencies = [
     "omegaconf >= 2.3.0",
     "python-hostlist",
     "tqdm",
-    "vesin >= 0.5.2" # Because of https://github.com/Luthaf/vesin/pull/119,
+    "vesin >= 0.5.2", # Because of https://github.com/Luthaf/vesin/pull/119,
+    'sphericart-torch == 1.0.8 ; platform_system == "Windows"'
 ]
 
 keywords = ["machine learning", "molecular modeling"]
