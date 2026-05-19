@@ -292,6 +292,14 @@ class FlashMD(ModelInterface[ModelHypers]):
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
 
+    def requested_inputs(self) -> Dict[str, ModelOutput]:
+        return {
+            "momenta": ModelOutput(
+                quantity="momentum", unit="(eV*u)^(1/2)", per_atom=True
+            ),
+            "masses": ModelOutput(quantity="mass", unit="u", per_atom=True),
+        }
+
     def forward(
         self,
         systems: List[System],
