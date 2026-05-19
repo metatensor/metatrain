@@ -206,6 +206,7 @@ filterwarnings = [
     "ignore:Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed:UserWarning",
     # vesin.metatomic deprecation
     "ignore:`compute_requested_neighbors_from_options` is deprecated and will be removed in a future version:UserWarning",
+    "ignore:Found metatomic.torch.*but vesin.metatomic was only tested:UserWarning",
     # metatomic 0.1.12 deprecations
     "ignore:the 'features' output name is deprecated:UserWarning",
     "ignore:the 'features' quantity is deprecated:UserWarning",
