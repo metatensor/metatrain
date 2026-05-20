@@ -831,11 +831,11 @@ class BaseScaler(torch.nn.Module):
 
         self.scales[target_name] = TensorMap(
             self.Y2[target_name].keys.to(device=block.values.device),
-            [block.copy()],
+            [block.copy(deep=False)],
         )
         self.per_target_scales[target_name] = TensorMap(
             self.Y2[target_name].keys.to(device=block.values.device),
-            [block.copy()],
+            [block.copy(deep=False)],
         )
 
     def _sync_device_dtype(self, device: torch.device, dtype: torch.dtype) -> None:

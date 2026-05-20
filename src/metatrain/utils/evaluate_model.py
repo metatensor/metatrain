@@ -111,7 +111,7 @@ def evaluate_model(
                 destroy_graph=(index == len(energy_targets_with_gradients) - 1),
             )
             old_energy_tensor_map = model_outputs[energy_target]
-            new_block = old_energy_tensor_map.block().copy()
+            new_block = old_energy_tensor_map.block().copy(deep=False)
             new_block.add_gradient(
                 "positions", _position_gradients_to_block(gradients[: len(systems)])
             )
@@ -132,7 +132,7 @@ def evaluate_model(
                 destroy_graph=(index == len(energy_targets_with_gradients) - 1),
             )
             old_energy_tensor_map = model_outputs[energy_target]
-            new_block = old_energy_tensor_map.block().copy()
+            new_block = old_energy_tensor_map.block().copy(deep=False)
             new_block.add_gradient("positions", _position_gradients_to_block(gradients))
             new_energy_tensor_map = TensorMap(
                 keys=old_energy_tensor_map.keys,
@@ -147,7 +147,7 @@ def evaluate_model(
                 destroy_graph=(index == len(energy_targets_with_gradients) - 1),
             )
             old_energy_tensor_map = model_outputs[energy_target]
-            new_block = old_energy_tensor_map.block().copy()
+            new_block = old_energy_tensor_map.block().copy(deep=False)
             new_block.add_gradient("strain", _strain_gradients_to_block(gradients))
             new_energy_tensor_map = TensorMap(
                 keys=old_energy_tensor_map.keys,

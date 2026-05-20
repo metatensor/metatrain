@@ -244,16 +244,9 @@ class GAP(ModelInterface[ModelHypers]):
             key = self._species_labels.entry(idx_key)
             if soap_features.keys.position(key) is not None:
                 block = soap_features.block(key)
-                new_blocks.append(
-                    TensorBlock(
-                        values=block.values,
-                        samples=block.samples,
-                        components=block.components,
-                        properties=block.properties,
-                    )
-                )
+                new_blocks.append(block.copy(deep=False))
             else:
-                new_blocks.append(dummyblock.copy())
+                new_blocks.append(dummyblock.copy(deep=False))
         soap_features = TensorMap(keys=self._species_labels, blocks=new_blocks)
         soap_features = soap_features.keys_to_samples("center_type")
         # here, we move to properties to use metatensor operations to aggregate
@@ -264,15 +257,7 @@ class GAP(ModelInterface[ModelHypers]):
         )
         soap_features = TensorMap(
             self._keys,
-            [
-                TensorBlock(
-                    values=block.values,
-                    samples=block.samples,
-                    components=block.components,
-                    properties=block.properties,
-                )
-                for block in soap_features.blocks()
-            ],
+            [block.copy(deep=False) for block in soap_features.blocks()],
         )
         output_key = list(outputs.keys())[0]
         energies = self._subset_of_regressors_torch(soap_features)
