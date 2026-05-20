@@ -11,7 +11,12 @@ build:
   tools:
     python: "3.13"
     rust: "1.75"
+  apt_packages:
+    - cmake
   jobs:
+    post_install:
+      - pip install --force-reinstall --no-deps "metatomic-torch @ git+https://github.com/Luthaf/metatomic.git@create-doc-classes#subdirectory=python/metatomic_torch"
+      - pip install --force-reinstall --no-deps "metatomic-ase @ git+https://github.com/Luthaf/metatomic.git@create-doc-classes#subdirectory=python/metatomic_ase"
     pre_build:
       - set -e && for f in $(find examples -name '*.sh'); do cd $(dirname $f); bash $(basename $f); cd -; done
 
