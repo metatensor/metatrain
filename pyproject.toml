@@ -15,7 +15,7 @@ dependencies = [
     "metatensor-learn >=0.5.0,<0.6",
     "metatensor-operations >=0.5.0,<0.6",
     "metatensor-torch >=0.9.0,<0.10",
-    "metatomic-torch >=0.1.12,<0.2",
+    "metatomic-torch >=0.1.14,<0.2",
     "metatomic-ase >=0.1.1,<0.2",
     "jsonschema",
     "pydantic >= 2.12", # Because of passing arguments to validator functions
@@ -95,12 +95,6 @@ dpa3 = [
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]
-
-[tool.uv]
-override-dependencies = [
-    "metatomic-torch @ git+https://github.com/Luthaf/metatomic.git@release-torch-0.1.14#subdirectory=python/metatomic_torch",
-    "metatomic-ase @ git+https://github.com/Luthaf/metatomic.git@release-torch-0.1.14#subdirectory=python/metatomic_ase",
-]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -206,7 +200,6 @@ filterwarnings = [
     "ignore:Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed:UserWarning",
     # vesin.metatomic deprecation
     "ignore:`compute_requested_neighbors_from_options` is deprecated and will be removed in a future version:UserWarning",
-    "ignore:Found metatomic.torch.*but vesin.metatomic was only tested:UserWarning",
     # metatomic 0.1.12 deprecations
     "ignore:the 'features' output name is deprecated:UserWarning",
     "ignore:the 'features' quantity is deprecated:UserWarning",
