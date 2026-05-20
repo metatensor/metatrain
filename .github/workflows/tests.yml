@@ -54,8 +54,6 @@ jobs:
       env:
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
-        UV_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
-        UV_INDEX_STRATEGY: unsafe-best-match
         # Temporary workaround: avoid the deprecated hf_xet.download_files() path
         # until huggingface_hub switches to the new Xet API.
         HF_HUB_DISABLE_XET: 1
