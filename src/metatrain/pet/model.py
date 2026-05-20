@@ -1,6 +1,4 @@
 import logging
-import typing
-import warnings
 from math import prod
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
@@ -25,7 +23,6 @@ from metatrain.utils.data.atomic_basis_helpers import (
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
@@ -71,14 +68,18 @@ class TripletFeaturizer(torch.nn.Module):
         edge_vectors_triplet: torch.Tensor,
         edge_distances_triplet: torch.Tensor,
         log_cutoff_factors_triplet: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         max_neighbors = edge_vectors.shape[1]
         max_neighbors_triplet = edge_vectors_triplet.shape[1]
 
-        triplet_log_cutoff_factors = log_cutoff_factors[:, :, None] + log_cutoff_factors_triplet[:, None, :]
+        triplet_log_cutoff_factors = (
+            log_cutoff_factors[:, :, None] + log_cutoff_factors_triplet[:, None, :]
+        )
 
         center_features = self.center_embedder(atomic_numbers)[:, None, None, :]
-        center_features = center_features.expand(-1, max_neighbors, max_neighbors_triplet, -1)
+        center_features = center_features.expand(
+            -1, max_neighbors, max_neighbors_triplet, -1
+        )
 
         first_features = self.first_embedder(element_indices_neighbors)
         first_features = first_features[:, :, None, :].expand(
@@ -91,12 +92,15 @@ class TripletFeaturizer(torch.nn.Module):
         )
 
         normalizer = 0.5 * self.cutoff
-        first_geometry = torch.cat(
-            [edge_vectors, edge_distances.unsqueeze(-1)], dim=-1
-        ) / normalizer
-        second_geometry = torch.cat(
-            [edge_vectors_triplet, edge_distances_triplet.unsqueeze(-1)], dim=-1
-        ) / normalizer
+        first_geometry = (
+            torch.cat([edge_vectors, edge_distances.unsqueeze(-1)], dim=-1) / normalizer
+        )
+        second_geometry = (
+            torch.cat(
+                [edge_vectors_triplet, edge_distances_triplet.unsqueeze(-1)], dim=-1
+            )
+            / normalizer
+        )
         first_geometry = first_geometry[:, :, None, :].expand(
             -1, -1, max_neighbors_triplet, -1
         )
@@ -118,13 +122,15 @@ class TripletFeaturizer(torch.nn.Module):
 
         return (
             triplet_features.reshape(
-                triplet_features.shape[0], max_neighbors * max_neighbors_triplet, -1
+                triplet_features.shape[0],
+                max_neighbors * max_neighbors_triplet,
+                self.d_triplet,
             ),
             triplet_log_cutoff_factors.reshape(
-                triplet_log_cutoff_factors.shape[0], max_neighbors * max_neighbors_triplet
+                triplet_log_cutoff_factors.shape[0],
+                max_neighbors * max_neighbors_triplet,
             ),
         )
-
 
 
 class EdgeFeaturizer(torch.nn.Module):
@@ -155,9 +161,9 @@ class EdgeFeaturizer(torch.nn.Module):
         edge_vectors: torch.Tensor,
         edge_distances: torch.Tensor,
     ) -> torch.Tensor:
-        geometry = torch.cat(
-            [edge_vectors, edge_distances.unsqueeze(-1)], dim=-1
-        ) / (0.5 * self.cutoff)
+        geometry = torch.cat([edge_vectors, edge_distances.unsqueeze(-1)], dim=-1) / (
+            0.5 * self.cutoff
+        )
         edge_features = torch.concatenate(
             [
                 self.center_embedder(element_indices_centers),
@@ -188,7 +194,7 @@ class PET(ModelInterface[ModelHypers]):
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
     component_labels: Dict[str, List[List[Labels]]]
-    NUM_FEATURE_TYPES: int = 2  # node + edge features
+    NUM_FEATURE_TYPES: int = 3  # node + edge + triplet features
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -262,17 +268,14 @@ class PET(ModelInterface[ModelHypers]):
         self.edge_embedder = EdgeFeaturizer(num_atomic_species, self.d_edge)
         self.triplet_embedder = TripletFeaturizer(num_atomic_species, self.d_triplet)
 
-        self.edge_expander = torch.nn.Linear(self.d_edge, self.d_node)
-        self.edge_expander.weight.data.zero_()
-        self.edge_expander.bias.data.zero_()
-        self.triplet_expander = torch.nn.Linear(self.d_triplet, self.d_edge)
-        self.triplet_expander.weight.data.zero_()
-        self.triplet_expander.bias.data.zero_()
-
         self.node_heads = torch.nn.ModuleDict()
+        self.edge_heads = torch.nn.ModuleDict()
+        self.triplet_heads = torch.nn.ModuleDict()
         self.node_last_layers = torch.nn.ModuleDict()
-        self.last_layer_feature_size = (
-            self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
+        self.edge_last_layers = torch.nn.ModuleDict()
+        self.triplet_last_layers = torch.nn.ModuleDict()
+        self.last_layer_feature_size = self.num_readout_layers * (
+            self.d_node + self.d_edge + self.d_triplet
         )  # for LLPR
 
         # the model is always capable of outputting the internal features
@@ -584,7 +587,9 @@ class PET(ModelInterface[ModelHypers]):
                     outputs["mtt::aux::cutoff_stats"].per_atom,
                 )
 
-        element_indices_centers = element_indices_nodes.reshape(-1, 1).expand(-1, element_indices_neighbors.shape[1])
+        element_indices_centers = element_indices_nodes.reshape(-1, 1).expand(
+            -1, element_indices_neighbors.shape[1]
+        )
 
         node_features = self.node_embedder(element_indices_nodes)
         edge_features = self.edge_embedder(
@@ -593,12 +598,7 @@ class PET(ModelInterface[ModelHypers]):
             edge_vectors,
             edge_distances,
         )
-        (
-            triplet_features,
-            triplet_log_cutoff_factors,
-            # triplet_second_log_cutoff_factors,
-            # num_second_triplet_slots,
-        ) = self.triplet_embedder(
+        triplet_features, triplet_log_cutoff_factors = self.triplet_embedder(
             element_indices_nodes,
             element_indices_neighbors,
             edge_vectors,
@@ -609,8 +609,8 @@ class PET(ModelInterface[ModelHypers]):
             edge_distances_triplet,
             log_cutoff_factors_triplet,
         )
-        triplet_second_log_cutoff_factors = log_cutoff_factors_triplet
-        num_second_triplet_slots = edge_vectors_triplet.shape[1]
+        cutoff_factors = torch.exp(log_cutoff_factors)
+        triplet_cutoff_factors = torch.exp(triplet_log_cutoff_factors)
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
@@ -624,27 +624,24 @@ class PET(ModelInterface[ModelHypers]):
                 triplet_features=triplet_features,
                 log_cutoff_factors_edges=log_cutoff_factors,
                 log_cutoff_factors_triplets=triplet_log_cutoff_factors,
-                reverse_neighbor_index=reverse_neighbor_index,  
+                reverse_neighbor_index=reverse_neighbor_index,
             )
-            node_features, edge_features, triplet_features = self._calculate_features(
-                featurizer_inputs,
-                use_manual_attention=use_manual_attention,
+            node_features_list, edge_features_list, triplet_features_list = (
+                self._calculate_features(
+                    featurizer_inputs,
+                    use_manual_attention=use_manual_attention,
+                )
             )
-
-            # exit(0)  # FIX SHAPES
-            triplet_features = triplet_features.reshape(triplet_features.shape[0], edge_features.shape[1], num_second_triplet_slots, triplet_features.shape[-1])
-            edge_features = edge_features + self.triplet_expander(
-                torch.sum(triplet_features * torch.exp(triplet_second_log_cutoff_factors[:, None, :, None]), dim=2)
-            )
-            node_features = node_features + self.edge_expander(torch.sum(edge_features * torch.exp(log_cutoff_factors.unsqueeze(-1)), dim=1))
-            
-            node_features_list = [node_features]
 
         # **Stage 2: Intermediate Feature Output (Optional)**
         with torch.profiler.record_function("PET::_get_output_features"):
             if "features" in outputs:
                 features_dict = self._get_output_features(
                     node_features_list,
+                    edge_features_list,
+                    triplet_features_list,
+                    cutoff_factors,
+                    triplet_cutoff_factors,
                     selected_atoms,
                     sample_labels,
                     outputs,
@@ -656,11 +653,21 @@ class PET(ModelInterface[ModelHypers]):
 
         # **Stage 3: Last Layer Feature Computation**
         with torch.profiler.record_function("PET::_calculate_last_layer_features"):
-            node_last_layer_features_dict = self._calculate_last_layer_features(
+            (
+                node_last_layer_features_dict,
+                edge_last_layer_features_dict,
+                triplet_last_layer_features_dict,
+            ) = self._calculate_last_layer_features(
                 node_features_list,
+                edge_features_list,
+                triplet_features_list,
             )
             last_layer_features_dict = self._get_output_last_layer_features(
                 node_last_layer_features_dict,
+                edge_last_layer_features_dict,
+                triplet_last_layer_features_dict,
+                cutoff_factors,
+                triplet_cutoff_factors,
                 selected_atoms,
                 sample_labels,
                 outputs,
@@ -671,13 +678,24 @@ class PET(ModelInterface[ModelHypers]):
 
         # **Stage 4: Atomic Predictions**
         with torch.profiler.record_function("PET::_calculate_atomic_predictions"):
-            node_atomic_predictions_dict = self._calculate_atomic_predictions(
+            (
+                node_atomic_predictions_dict,
+                edge_atomic_predictions_dict,
+                triplet_atomic_predictions_dict,
+            ) = self._calculate_atomic_predictions(
                 node_last_layer_features_dict,
+                edge_last_layer_features_dict,
+                triplet_last_layer_features_dict,
+                padding_mask,
+                cutoff_factors,
+                triplet_cutoff_factors,
                 outputs,
             )
             atomic_predictions_dict = self._get_output_atomic_predictions(
                 systems,
                 node_atomic_predictions_dict,
+                edge_atomic_predictions_dict,
+                triplet_atomic_predictions_dict,
                 edge_vectors,
                 system_indices,
                 sample_labels,
@@ -760,7 +778,7 @@ class PET(ModelInterface[ModelHypers]):
 
     def _calculate_features(
         self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
-    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
         """
         Calculate node and edge features using the selected featurization strategy.
         Returns lists of feature tensors from GNN layers.
@@ -769,12 +787,12 @@ class PET(ModelInterface[ModelHypers]):
             computation
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
-        :return: Tuple of two lists:
+        :return: Tuple of three lists:
             - List of node feature tensors
             - List of edge feature tensors
+            - List of triplet feature tensors
             In the case of feedforward featurization, each list contains a single tensor
-            from the final GNN layer. In the case of residual featurization, each list
-            contains tensors from all GNN layers.
+            from the final GNN layer.
         """
         return self._feedforward_featurization_impl(inputs, use_manual_attention)
 
@@ -790,9 +808,10 @@ class PET(ModelInterface[ModelHypers]):
             computation
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
-        :return: Tuple of two lists:
+        :return: Tuple of three lists:
             - List of node feature tensors from the final GNN layer
             - List of edge feature tensors from the final GNN layer
+            - List of triplet feature tensors from the final GNN layer
         """
         input_node_embeddings = inputs["node_features"]
         input_edge_embeddings = inputs["edge_features"]
@@ -800,7 +819,11 @@ class PET(ModelInterface[ModelHypers]):
         for combination_norm, combination_mlp, gnn_layer in zip(
             self.combination_norms, self.combination_mlps, self.gnn_layers, strict=True
         ):
-            output_node_embeddings, output_edge_embeddings, output_triplet_embeddings = gnn_layer(
+            (
+                output_node_embeddings,
+                output_edge_embeddings,
+                output_triplet_embeddings,
+            ) = gnn_layer(
                 input_node_embeddings,
                 input_edge_embeddings,
                 input_triplet_embeddings,
@@ -834,8 +857,11 @@ class PET(ModelInterface[ModelHypers]):
                 + combination_mlp(combination_norm(concatenated))
             )
 
-        return input_node_embeddings, input_edge_embeddings, input_triplet_embeddings
-
+        return (
+            [input_node_embeddings],
+            [input_edge_embeddings],
+            [input_triplet_embeddings],
+        )
 
     def _get_cutoff_stats(
         self,
@@ -873,6 +899,10 @@ class PET(ModelInterface[ModelHypers]):
     def _get_output_features(
         self,
         node_features_list: List[torch.Tensor],
+        edge_features_list: List[torch.Tensor],
+        triplet_features_list: List[torch.Tensor],
+        cutoff_factors: torch.Tensor,
+        triplet_cutoff_factors: torch.Tensor,
         selected_atoms: Optional[Labels],
         sample_labels: Labels,
         requested_outputs: Dict[str, ModelOutput],
@@ -883,8 +913,12 @@ class PET(ModelInterface[ModelHypers]):
 
         :param node_features_list: List of node feature tensors from each GNN layer.
         :param edge_features_list: List of edge feature tensors from each GNN layer.
-        :param log_cutoff_factors: Tensor of cutoff factors for edge distances
+        :param triplet_features_list: List of triplet feature tensors from each GNN
+            layer.
+        :param cutoff_factors: Tensor of cutoff factors for edge distances
             [n_atoms, max_num_neighbors].
+        :param triplet_cutoff_factors: Tensor of cutoff factors for triplets
+            [n_atoms, max_num_neighbors * max_num_triplet_neighbors].
         :param selected_atoms: Optional Labels specifying a subset of atoms to include.
         :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
         :param requested_outputs: Dictionary of requested outputs.
@@ -892,7 +926,14 @@ class PET(ModelInterface[ModelHypers]):
             representations, either per-atom or summed over atoms.
         """
         features_dict: Dict[str, TensorMap] = {}
-        features = torch.cat(node_features_list, dim=1)
+        node_features = torch.cat(node_features_list, dim=1)
+        edge_features = torch.cat(edge_features_list, dim=2)
+        edge_features = (edge_features * cutoff_factors[:, :, None]).sum(dim=1)
+        triplet_features = torch.cat(triplet_features_list, dim=2)
+        triplet_features = (triplet_features * triplet_cutoff_factors[:, :, None]).sum(
+            dim=1
+        )
+        features = torch.cat([node_features, edge_features, triplet_features], dim=1)
 
         feature_tmap = TensorMap(
             keys=self.single_label,
@@ -926,18 +967,29 @@ class PET(ModelInterface[ModelHypers]):
     def _calculate_last_layer_features(
         self,
         node_features_list: List[torch.Tensor],
-    ) -> Dict[str, List[torch.Tensor]]:
+        edge_features_list: List[torch.Tensor],
+        triplet_features_list: List[torch.Tensor],
+    ) -> Tuple[
+        Dict[str, List[torch.Tensor]],
+        Dict[str, List[torch.Tensor]],
+        Dict[str, List[torch.Tensor]],
+    ]:
         """
         Apply output-specific heads to node and edge features from each GNN layer.
         Returns dictionaries mapping output names to lists of head-transformed features.
 
         :param node_features_list: List of node feature tensors from each GNN layer.
         :param edge_features_list: List of edge feature tensors from each GNN layer.
-        :return: Tuple of two dictionaries:
+        :param triplet_features_list: List of triplet feature tensors from each GNN
+            layer.
+        :return: Tuple of three dictionaries:
             - Dictionary mapping output names to lists of node last layer features
             - Dictionary mapping output names to lists of edge last layer features
+            - Dictionary mapping output names to lists of triplet last layer features
         """
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
+        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
+        triplet_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
 
         # Calculating node last layer features
         for output_name, node_heads in self.node_heads.items():
@@ -948,11 +1000,37 @@ class PET(ModelInterface[ModelHypers]):
                     node_head(node_features_list[i])
                 )
 
-        return node_last_layer_features_dict
+        # Calculating edge last layer features
+        for output_name, edge_heads in self.edge_heads.items():
+            if output_name not in edge_last_layer_features_dict:
+                edge_last_layer_features_dict[output_name] = []
+            for i, edge_head in enumerate(edge_heads):
+                edge_last_layer_features_dict[output_name].append(
+                    edge_head(edge_features_list[i])
+                )
+
+        # Calculating triplet last layer features
+        for output_name, triplet_heads in self.triplet_heads.items():
+            if output_name not in triplet_last_layer_features_dict:
+                triplet_last_layer_features_dict[output_name] = []
+            for i, triplet_head in enumerate(triplet_heads):
+                triplet_last_layer_features_dict[output_name].append(
+                    triplet_head(triplet_features_list[i])
+                )
+
+        return (
+            node_last_layer_features_dict,
+            edge_last_layer_features_dict,
+            triplet_last_layer_features_dict,
+        )
 
     def _get_output_last_layer_features(
         self,
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+        triplet_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+        cutoff_factors: torch.Tensor,
+        triplet_cutoff_factors: torch.Tensor,
         selected_atoms: Optional[Labels],
         sample_labels: Labels,
         requested_outputs: Dict[str, ModelOutput],
@@ -965,8 +1043,12 @@ class PET(ModelInterface[ModelHypers]):
             lists of node last layer features.
         :param edge_last_layer_features_dict: Dictionary mapping output names to
             lists of edge last layer features.
-        :param log_cutoff_factors: Tensor of cutoff factors for edge distances
+        :param triplet_last_layer_features_dict: Dictionary mapping output names to
+            lists of triplet last layer features.
+        :param cutoff_factors: Tensor of cutoff factors for edge distances
             [n_atoms, max_num_neighbors].
+        :param triplet_cutoff_factors: Tensor of cutoff factors for triplets
+            [n_atoms, max_num_neighbors * max_num_triplet_neighbors].
         :param selected_atoms: Optional Labels specifying a subset of atoms to include.
         :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
         :param requested_outputs: Dictionary of requested outputs.
@@ -982,7 +1064,21 @@ class PET(ModelInterface[ModelHypers]):
                 last_layer_features_dict[output_name] = []
             for i in range(len(node_last_layer_features_dict[output_name])):
                 node_last_layer_features = node_last_layer_features_dict[output_name][i]
+                edge_last_layer_features = edge_last_layer_features_dict[output_name][i]
+                edge_last_layer_features = (
+                    edge_last_layer_features * cutoff_factors[:, :, None]
+                ).sum(dim=1)
+                triplet_last_layer_features = triplet_last_layer_features_dict[
+                    output_name
+                ][i]
+                triplet_last_layer_features = (
+                    triplet_last_layer_features * triplet_cutoff_factors[:, :, None]
+                ).sum(dim=1)
                 last_layer_features_dict[output_name].append(node_last_layer_features)
+                last_layer_features_dict[output_name].append(edge_last_layer_features)
+                last_layer_features_dict[output_name].append(
+                    triplet_last_layer_features
+                )
 
         for output_name in requested_outputs:
             if not (
@@ -1035,9 +1131,16 @@ class PET(ModelInterface[ModelHypers]):
     def _calculate_atomic_predictions(
         self,
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+        triplet_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+        padding_mask: torch.Tensor,
+        cutoff_factors: torch.Tensor,
+        triplet_cutoff_factors: torch.Tensor,
         outputs: Dict[str, ModelOutput],
     ) -> Tuple[
-        Dict[str, List[List[torch.Tensor]]], Dict[str, List[List[torch.Tensor]]]
+        Dict[str, List[List[torch.Tensor]]],
+        Dict[str, List[List[torch.Tensor]]],
+        Dict[str, List[List[torch.Tensor]]],
     ]:
         """
         Apply final linear layers to last layer features to produce
@@ -1048,18 +1151,26 @@ class PET(ModelInterface[ModelHypers]):
             lists of node last layer features.
         :param edge_last_layer_features_dict: Dictionary mapping output names to
             lists of edge last layer features.
+        :param triplet_last_layer_features_dict: Dictionary mapping output names to
+            lists of triplet last layer features.
         :param padding_mask: Boolean mask indicating real vs padded neighbors
             [n_atoms, max_num_neighbors].
-        :param log_cutoff_factors: Tensor of cutoff factors for edge distances
+        :param cutoff_factors: Tensor of cutoff factors for edge distances
             [n_atoms, max_num_neighbors].
+        :param triplet_cutoff_factors: Tensor of cutoff factors for triplets
+            [n_atoms, max_num_neighbors * max_num_triplet_neighbors].
         :param outputs: Dictionary of requested outputs.
-        :return: Tuple of two dictionaries:
+        :return: Tuple of three dictionaries:
             - Dictionary mapping output names to lists of lists of node atomic
               prediction tensors (one list per GNN layer, one tensor per block)
             - Dictionary mapping output names to lists of lists of edge atomic
               prediction tensors (one list per GNN layer, one tensor per block)
+            - Dictionary mapping output names to lists of lists of triplet atomic
+              prediction tensors (one list per GNN layer, one tensor per block)
         """
         node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]] = {}
+        edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]] = {}
+        triplet_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]] = {}
 
         # Computing node atomic predictions. Since we have last layer features
         # for each GNN layer, and each last layer can have multiple blocks,
@@ -1083,12 +1194,76 @@ class PET(ModelInterface[ModelHypers]):
                         node_atomic_predictions_by_block
                     )
 
-        return node_atomic_predictions_dict
+        # Computing edge atomic predictions. Following the same logic as above,
+        # we sum the edge features with cutoff factors to get their per-node
+        # contribution.
+        for output_name, edge_last_layers in self.edge_last_layers.items():
+            if output_name in outputs:
+                edge_atomic_predictions_dict[output_name] = torch.jit.annotate(
+                    List[List[torch.Tensor]], []
+                )
+                for i, edge_last_layer in enumerate(edge_last_layers):
+                    edge_last_layer_features = edge_last_layer_features_dict[
+                        output_name
+                    ][i]
+                    edge_atomic_predictions_by_block: List[torch.Tensor] = []
+                    for edge_last_layer_by_block in edge_last_layer.values():
+                        edge_atomic_predictions = edge_last_layer_by_block(
+                            edge_last_layer_features
+                        )
+                        expanded_padding_mask = padding_mask[..., None].repeat(
+                            1, 1, edge_atomic_predictions.shape[2]
+                        )
+                        edge_atomic_predictions = torch.where(
+                            ~expanded_padding_mask, 0.0, edge_atomic_predictions
+                        )
+                        edge_atomic_predictions_by_block.append(
+                            (edge_atomic_predictions * cutoff_factors[:, :, None]).sum(
+                                dim=1
+                            )
+                        )
+                    edge_atomic_predictions_dict[output_name].append(
+                        edge_atomic_predictions_by_block
+                    )
+
+        # Computing triplet atomic predictions. Triplet predictions are reduced
+        # directly to per-node contributions with the joint triplet cutoff.
+        for output_name, triplet_last_layers in self.triplet_last_layers.items():
+            if output_name in outputs:
+                triplet_atomic_predictions_dict[output_name] = torch.jit.annotate(
+                    List[List[torch.Tensor]], []
+                )
+                for i, triplet_last_layer in enumerate(triplet_last_layers):
+                    triplet_last_layer_features = triplet_last_layer_features_dict[
+                        output_name
+                    ][i]
+                    triplet_atomic_predictions_by_block: List[torch.Tensor] = []
+                    for triplet_last_layer_by_block in triplet_last_layer.values():
+                        triplet_atomic_predictions = triplet_last_layer_by_block(
+                            triplet_last_layer_features
+                        )
+                        triplet_atomic_predictions_by_block.append(
+                            (
+                                triplet_atomic_predictions
+                                * triplet_cutoff_factors[:, :, None]
+                            ).sum(dim=1)
+                        )
+                    triplet_atomic_predictions_dict[output_name].append(
+                        triplet_atomic_predictions_by_block
+                    )
+
+        return (
+            node_atomic_predictions_dict,
+            edge_atomic_predictions_dict,
+            triplet_atomic_predictions_dict,
+        )
 
     def _get_output_atomic_predictions(
         self,
         systems: List[System],
         node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+        edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+        triplet_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
         edge_vectors: torch.Tensor,
         system_indices: torch.Tensor,
         sample_labels: Labels,
@@ -1107,6 +1282,9 @@ class PET(ModelInterface[ModelHypers]):
         :param edge_atomic_predictions_dict: Dictionary mapping output names to
             lists of lists of edge atomic prediction tensors (one list per GNN layer,
             one tensor per block).
+        :param triplet_atomic_predictions_dict: Dictionary mapping output names to
+            lists of lists of triplet atomic prediction tensors (one list per GNN
+            layer, one tensor per block).
         :param edge_vectors: Tensor of edge vectors [n_atoms, max_num_neighbors, 3].
         :param system_indices: Tensor mapping each atom to its system index
             [n_atoms].
@@ -1129,13 +1307,29 @@ class PET(ModelInterface[ModelHypers]):
                 node_atomic_predictions_by_block = node_atomic_predictions_dict[
                     output_name
                 ]
+                edge_atomic_predictions_by_block = edge_atomic_predictions_dict[
+                    output_name
+                ]
+                triplet_atomic_predictions_by_block = triplet_atomic_predictions_dict[
+                    output_name
+                ]
                 for i in range(len(node_atomic_predictions_by_block)):
                     node_atomic_prediction_block = node_atomic_predictions_by_block[i]
+                    edge_atomic_prediction_block = edge_atomic_predictions_by_block[i]
+                    triplet_atomic_prediction_block = (
+                        triplet_atomic_predictions_by_block[i]
+                    )
                     for j, key in enumerate(atomic_predictions_by_block):
                         node_atomic_predictions = node_atomic_prediction_block[j]
+                        edge_atomic_predictions = edge_atomic_prediction_block[j]
+                        triplet_atomic_predictions = triplet_atomic_prediction_block[j]
                         atomic_predictions_by_block[key] = atomic_predictions_by_block[
                             key
-                        ] + node_atomic_predictions
+                        ] + (
+                            node_atomic_predictions
+                            + edge_atomic_predictions
+                            + triplet_atomic_predictions
+                        )
 
                 if output_name == "non_conservative_stress":  # TODO: variants
                     block_key = list(atomic_predictions_by_block.keys())[0]
@@ -1304,9 +1498,33 @@ class PET(ModelInterface[ModelHypers]):
         self.node_heads[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.Sequential(
-                    torch.nn.Linear(self.d_node, self.d_head),
+                    torch.nn.Linear(self.d_node, self.d_node),
                     torch.nn.SiLU(),
-                    torch.nn.Linear(self.d_head, self.d_head),
+                    torch.nn.Linear(self.d_node, self.d_node),
+                    torch.nn.SiLU(),
+                )
+                for _ in range(self.num_readout_layers)
+            ]
+        )
+
+        self.edge_heads[target_name] = torch.nn.ModuleList(
+            [
+                torch.nn.Sequential(
+                    torch.nn.Linear(self.d_edge, self.d_edge),
+                    torch.nn.SiLU(),
+                    torch.nn.Linear(self.d_edge, self.d_edge),
+                    torch.nn.SiLU(),
+                )
+                for _ in range(self.num_readout_layers)
+            ]
+        )
+
+        self.triplet_heads[target_name] = torch.nn.ModuleList(
+            [
+                torch.nn.Sequential(
+                    torch.nn.Linear(self.d_triplet, self.d_triplet),
+                    torch.nn.SiLU(),
+                    torch.nn.Linear(self.d_triplet, self.d_triplet),
                     torch.nn.SiLU(),
                 )
                 for _ in range(self.num_readout_layers)
@@ -1318,7 +1536,7 @@ class PET(ModelInterface[ModelHypers]):
                 torch.nn.ModuleDict(
                     {
                         key: torch.nn.Linear(
-                            self.d_head,
+                            self.d_node,
                             prod(shape),
                             bias=True,
                         )
@@ -1329,6 +1547,50 @@ class PET(ModelInterface[ModelHypers]):
             ]
         )
 
+        self.edge_last_layers[target_name] = torch.nn.ModuleList(
+            [
+                torch.nn.ModuleDict(
+                    {
+                        key: torch.nn.Linear(
+                            self.d_edge,
+                            prod(shape),
+                            bias=True,
+                        )
+                        for key, shape in self.output_shapes[target_name].items()
+                    }
+                )
+                for _ in range(self.num_readout_layers)
+            ]
+        )
+        # zero out weights and biases of edge last layers, since in the beginning we
+        # want the model to rely on node contributions only
+        for edge_last_layer in self.edge_last_layers[target_name]:
+            for linear in edge_last_layer.values():
+                torch.nn.init.zeros_(linear.weight)
+                torch.nn.init.zeros_(linear.bias)
+
+        self.triplet_last_layers[target_name] = torch.nn.ModuleList(
+            [
+                torch.nn.ModuleDict(
+                    {
+                        key: torch.nn.Linear(
+                            self.d_triplet,
+                            prod(shape),
+                            bias=True,
+                        )
+                        for key, shape in self.output_shapes[target_name].items()
+                    }
+                )
+                for _ in range(self.num_readout_layers)
+            ]
+        )
+        # zero out weights and biases of triplet last layers, since in the beginning we
+        # want the model to rely on node contributions only
+        for triplet_last_layer in self.triplet_last_layers[target_name]:
+            for linear in triplet_last_layer.values():
+                torch.nn.init.zeros_(linear.weight)
+                torch.nn.init.zeros_(linear.bias)
+
         # Register last-layer parameters, in the same order as they are returned as
         # last-layer features in the model
         self.last_layer_parameter_names[target_name] = []
@@ -1336,6 +1598,12 @@ class PET(ModelInterface[ModelHypers]):
             for key in self.output_shapes[target_name].keys():
                 self.last_layer_parameter_names[target_name].append(
                     f"node_last_layers.{target_name}.{layer_index}.{key}.weight"
+                )
+                self.last_layer_parameter_names[target_name].append(
+                    f"edge_last_layers.{target_name}.{layer_index}.{key}.weight"
+                )
+                self.last_layer_parameter_names[target_name].append(
+                    f"triplet_last_layers.{target_name}.{layer_index}.{key}.weight"
                 )
 
         ll_features_name = get_last_layer_features_name(target_name)

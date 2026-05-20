@@ -145,7 +145,7 @@ class TransformerLayer(torch.nn.Module):
         triplet_embeddings: torch.Tensor,
         log_cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Forward pass for a single Transformer layer.
 
@@ -316,7 +316,7 @@ class CartesianTransformer(torch.nn.Module):
         log_cutoff_factors_edges: torch.Tensor,
         log_cutoff_factors_triplets: torch.Tensor,
         use_manual_attention: bool,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Forward pass for the CartesianTransformer.
 

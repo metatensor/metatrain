@@ -153,8 +153,12 @@ def apply_finetuning_strategy(model: nn.Module, strategy: FinetuneHypers) -> nn.
         heads_config = strategy.get(
             "config",
             {
-                "head_modules": ["node_heads", "edge_heads"],
-                "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+                "head_modules": ["node_heads", "edge_heads", "triplet_heads"],
+                "last_layer_modules": [
+                    "node_last_layers",
+                    "edge_last_layers",
+                    "triplet_last_layers",
+                ],
             },
         )
 

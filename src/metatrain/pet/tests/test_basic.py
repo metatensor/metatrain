@@ -22,7 +22,8 @@ class PETTests(ArchitectureTests):
     def minimal_model_hypers(self):
         hypers = get_default_hypers(self.architecture)["model"]
         hypers = copy.deepcopy(hypers)
-        hypers["d_pet"] = 1
+        hypers["d_triplet"] = 1
+        hypers["d_edge"] = 1
         hypers["d_head"] = 1
         hypers["d_node"] = 1
         hypers["d_feedforward"] = 1
@@ -47,7 +48,9 @@ class TestOutput(OutputTests, PETTests):
             else model_hypers["num_gnn_layers"]
         )
 
-        return (model_hypers["d_node"] + model_hypers["d_pet"]) * num_readout_layers
+        return (
+            model_hypers["d_node"] + model_hypers["d_edge"] + model_hypers["d_triplet"]
+        ) * num_readout_layers
 
     @pytest.fixture
     def n_last_layer_features(self, model_hypers):
@@ -57,7 +60,9 @@ class TestOutput(OutputTests, PETTests):
             else model_hypers["num_gnn_layers"]
         )
 
-        return model_hypers["d_head"] * num_readout_layers * 2
+        return (
+            model_hypers["d_node"] + model_hypers["d_edge"] + model_hypers["d_triplet"]
+        ) * num_readout_layers
 
 
 class TestAutograd(AutogradTests, PETTests): ...
