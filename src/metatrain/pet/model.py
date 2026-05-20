@@ -66,35 +66,26 @@ class TripletFeaturizer(torch.nn.Module):
         element_indices_neighbors: torch.Tensor,
         edge_vectors: torch.Tensor,
         edge_distances: torch.Tensor,
-        nef_mask: torch.Tensor,
         log_cutoff_factors: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int]:
+        element_indices_neighbors_triplet: torch.Tensor,
+        edge_vectors_triplet: torch.Tensor,
+        edge_distances_triplet: torch.Tensor,
+        log_cutoff_factors_triplet: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
         max_neighbors = edge_vectors.shape[1]
-        if max_neighbors == 0:
-            return (
-                edge_vectors.new_zeros((edge_vectors.shape[0], 0, self.d_triplet)),
-                torch.zeros(
-                    (edge_vectors.shape[0], 0),
-                    dtype=torch.bool,
-                    device=edge_vectors.device,
-                ),
-                edge_vectors.new_zeros((edge_vectors.shape[0], 0)),
-                edge_vectors.new_zeros((edge_vectors.shape[0], 0)),
-                0,
-            )
+        max_neighbors_triplet = edge_vectors_triplet.shape[1]
 
-        triplet_mask = nef_mask[:, :, None] & nef_mask[:, None, :]
-        triplet_log_cutoff_factors = log_cutoff_factors[:, :, None] + log_cutoff_factors[:, None, :]
+        triplet_log_cutoff_factors = log_cutoff_factors[:, :, None] + log_cutoff_factors_triplet[:, None, :]
 
         center_features = self.center_embedder(atomic_numbers)[:, None, None, :]
-        center_features = center_features.expand(-1, max_neighbors, max_neighbors, -1)
+        center_features = center_features.expand(-1, max_neighbors, max_neighbors_triplet, -1)
 
         first_features = self.first_embedder(element_indices_neighbors)
         first_features = first_features[:, :, None, :].expand(
-            -1, -1, max_neighbors, -1
+            -1, -1, max_neighbors_triplet, -1
         )
 
-        second_features = self.second_embedder(element_indices_neighbors)
+        second_features = self.second_embedder(element_indices_neighbors_triplet)
         second_features = second_features[:, None, :, :].expand(
             -1, max_neighbors, -1, -1
         )
@@ -103,9 +94,11 @@ class TripletFeaturizer(torch.nn.Module):
         first_geometry = torch.cat(
             [edge_vectors, edge_distances.unsqueeze(-1)], dim=-1
         ) / normalizer
-        second_geometry = first_geometry
+        second_geometry = torch.cat(
+            [edge_vectors_triplet, edge_distances_triplet.unsqueeze(-1)], dim=-1
+        ) / normalizer
         first_geometry = first_geometry[:, :, None, :].expand(
-            -1, -1, max_neighbors, -1
+            -1, -1, max_neighbors_triplet, -1
         )
         second_geometry = second_geometry[:, None, :, :].expand(
             -1, max_neighbors, -1, -1
@@ -125,14 +118,11 @@ class TripletFeaturizer(torch.nn.Module):
 
         return (
             triplet_features.reshape(
-                triplet_features.shape[0], max_neighbors * max_neighbors, -1
+                triplet_features.shape[0], max_neighbors * max_neighbors_triplet, -1
             ),
-            triplet_mask.reshape(triplet_mask.shape[0], max_neighbors * max_neighbors),
             triplet_log_cutoff_factors.reshape(
-                triplet_log_cutoff_factors.shape[0], max_neighbors * max_neighbors
+                triplet_log_cutoff_factors.shape[0], max_neighbors * max_neighbors_triplet
             ),
-            log_cutoff_factors,
-            max_neighbors,
         )
 
 
@@ -210,6 +200,11 @@ class PET(ModelInterface[ModelHypers]):
         self.num_neighbors_adaptive = (
             float(self.hypers["num_neighbors_adaptive"])
             if self.hypers["num_neighbors_adaptive"] is not None
+            else None
+        )
+        self.num_neighbors_adaptive_triplet = (
+            float(self.hypers["num_neighbors_adaptive_triplet"])
+            if self.hypers["num_neighbors_adaptive_triplet"] is not None
             else None
         )
         self.adaptive_cutoff_method = self.hypers["adaptive_cutoff_method"]
@@ -556,6 +551,29 @@ class PET(ModelInterface[ModelHypers]):
                 self.adaptive_cutoff_method,
             )
 
+            (
+                _,
+                element_indices_neighbors_triplet,
+                edge_vectors_triplet,
+                edge_distances_triplet,
+                _,
+                _,
+                log_cutoff_factors_triplet,
+                _,
+                _,
+                _,
+                atomic_cutoffs_stats_triplet,
+            ) = systems_to_batch(
+                systems,
+                nl_options,
+                self.atomic_types,
+                self.species_to_species_index,
+                self.cutoff_function,
+                self.cutoff_width,
+                self.num_neighbors_adaptive_triplet,
+                self.adaptive_cutoff_method,
+            )
+
         if "mtt::aux::cutoff_stats" in outputs:
             with torch.profiler.record_function("PET::_get_cutoff_stats"):
                 return_dict["mtt::aux::cutoff_stats"] = self._get_cutoff_stats(
@@ -577,18 +595,22 @@ class PET(ModelInterface[ModelHypers]):
         )
         (
             triplet_features,
-            triplet_mask,
             triplet_log_cutoff_factors,
-            triplet_second_log_cutoff_factors,
-            num_second_triplet_slots,
+            # triplet_second_log_cutoff_factors,
+            # num_second_triplet_slots,
         ) = self.triplet_embedder(
             element_indices_nodes,
             element_indices_neighbors,
             edge_vectors,
             edge_distances,
-            padding_mask,
             log_cutoff_factors,
+            element_indices_neighbors_triplet,
+            edge_vectors_triplet,
+            edge_distances_triplet,
+            log_cutoff_factors_triplet,
         )
+        triplet_second_log_cutoff_factors = log_cutoff_factors_triplet
+        num_second_triplet_slots = edge_vectors_triplet.shape[1]
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed

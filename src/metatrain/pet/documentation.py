@@ -41,6 +41,9 @@ important** (in decreasing order of importance):
   .. autoattribute:: {{model_hypers_path}}.num_neighbors_adaptive
       :no-index:
 
+  .. autoattribute:: {{model_hypers_path}}.num_neighbors_adaptive_triplet
+      :no-index:
+
   .. autoattribute:: {{trainer_hypers_path}}.learning_rate
       :no-index:
 
@@ -92,6 +95,16 @@ class ModelHypers(TypedDict):
     to faster models.
     """
     num_neighbors_adaptive: Optional[int] = None
+    """Target number of neighbors for the adaptive cutoff scheme.
+
+    This parameter activates the adaptive cutoff functionality.
+    Each atomic environments has a different cutoff, that is chosen
+    such that the number of neighbors is approximately equal to this
+    value. This can be useful to have a more uniform number of neighbors
+    per atom, especially in sparse systems. Setting it to None disables
+    this feature and uses all neighbors within the fixed cutoff radius.
+    """
+    num_neighbors_adaptive_triplet: Optional[int] = None
     """Target number of neighbors for the adaptive cutoff scheme.
 
     This parameter activates the adaptive cutoff functionality.
