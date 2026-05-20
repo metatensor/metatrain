@@ -98,8 +98,8 @@ ignore = ["src/metatrain/_version.py"]
 
 [tool.uv]
 override-dependencies = [
-    "metatomic-torch @ git+https://github.com/Luthaf/metatomic.git@create-doc-classes#subdirectory=python/metatomic_torch",
-    "metatomic-ase @ git+https://github.com/Luthaf/metatomic.git@create-doc-classes#subdirectory=python/metatomic_ase",
+    "metatomic-torch @ git+https://github.com/Luthaf/metatomic.git@release-torch-0.1.14#subdirectory=python/metatomic_torch",
+    "metatomic-ase @ git+https://github.com/Luthaf/metatomic.git@release-torch-0.1.14#subdirectory=python/metatomic_ase",
 ]
 
 [tool.setuptools.packages.find]
