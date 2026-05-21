@@ -4,7 +4,7 @@
 import math
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, Literal, Optional, Type
+from typing import Any, Dict, Literal, Mapping, Optional, Type
 
 import metatensor.torch as mts
 import torch
@@ -1029,7 +1029,7 @@ class LossAggregator(LossInterface):
     def __init__(
         self,
         targets: Dict[str, TargetInfo],
-        config: "str | Dict[str, LossSpecification | str]",
+        config: "str | Mapping[str, LossSpecification | str]",
     ):
         super().__init__(name="", gradient=None, weight=0.0, reduction="mean")
         self.losses: Dict[str, LossInterface] = {}
@@ -1051,16 +1051,19 @@ class LossAggregator(LossInterface):
                 }
             )
 
+        normalized_config: Dict[str, LossSpecification]
         if isinstance(config, str):
-            config = {target_name: _full_spec(config) for target_name in targets}
+            normalized_config = {
+                target_name: _full_spec(config) for target_name in targets
+            }
         else:
-            config = {
+            normalized_config = {
                 name: _full_spec(spec) if isinstance(spec, str) else spec
                 for name, spec in config.items()
             }
 
         for target_name, target_info in targets.items():
-            target_config = config.get(target_name, _full_spec("mse"))
+            target_config = normalized_config.get(target_name, _full_spec("mse"))
 
             # Create main loss and its scheduler
             base_loss = create_loss(
