@@ -24,7 +24,6 @@ dependencies = [
     "python-hostlist",
     "tqdm",
     "vesin >= 0.5.2", # Because of https://github.com/Luthaf/vesin/pull/119,
-    'sphericart-torch == 1.0.8 ; platform_system == "Windows"'
 ]
 
 keywords = ["machine learning", "molecular modeling"]
@@ -67,6 +66,7 @@ build-backend = "setuptools.build_meta"
 [project.optional-dependencies]
 soap-bpnn = [
     "torch-spex>=0.1,<0.2",
+    'sphericart-torch == 1.0.8 ; platform_system == "Windows"', # for some reason sphericart-torch 1.0.9 can't load on windows
     "wigners",
 ]
 pet = []
