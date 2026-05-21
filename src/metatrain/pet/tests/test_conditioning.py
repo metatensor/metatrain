@@ -396,3 +396,88 @@ def test_export_with_conditioning_preserves_validate(tmp_path):
     atoms_bad.calc = MetatomicCalculator(path)
     with pytest.raises(Exception, match="spin_multiplicity"):
         atoms_bad.get_potential_energy()
+
+
+def _to_max_atom_sampler_shape(checkpoint):
+    """Rewrite a checkpoint produced on this branch so it looks like one that
+    came out of the ``origin/max-atom-sampler`` fork.
+
+    Reverses every rename that
+    :func:`metatrain.pet.checkpoints.model_update_from_max_atom_sampler`
+    is expected to undo, so we can exercise the function on a realistic
+    payload without depending on an external .ckpt artifact.
+    """
+    hypers = checkpoint["model_data"]["model_hypers"]
+    hypers["max_spin"] = hypers.pop("max_spin_multiplicity")
+    hypers.pop("adaptive_cutoff_method", None)
+
+    for key in ("model_state_dict", "best_model_state_dict"):
+        sd = checkpoint.get(key)
+        if sd is None:
+            continue
+        new_sd = {}
+        for k, v in sd.items():
+            if k.startswith("system_conditioning.spin_multiplicity_embedding."):
+                k = k.replace(
+                    "system_conditioning.spin_multiplicity_embedding.",
+                    "system_conditioning.spin_embedding.",
+                )
+            if "gnn_layers" in k and ".edge_embedder." in k:
+                k = k.replace(".edge_embedder.", ".edge_linear.")
+            new_sd[k] = v
+        checkpoint[key] = new_sd
+
+    # Per-property scaler buffers did not exist before PR #1107 either.
+    for key in ("model_state_dict", "best_model_state_dict"):
+        sd = checkpoint.get(key)
+        if sd is None:
+            continue
+        for k in list(sd):
+            if "_per_target_scaler_buffer" in k or "_per_property_scaler_buffer" in k:
+                del sd[k]
+
+    checkpoint["model_ckpt_version"] = 11
+    return checkpoint
+
+
+def test_model_update_from_max_atom_sampler():
+    """Round-trip: build a v14 checkpoint with conditioning, downgrade it to
+    a max-atom-sampler-shaped v11 payload, then verify our migration restores
+    something the standard loader accepts."""
+    from metatrain.pet.checkpoints import model_update_from_max_atom_sampler
+
+    hypers = _small_hypers(
+        system_conditioning=True, max_charge=3, max_spin_multiplicity=4
+    )
+    model = PET(hypers, _dataset_info())
+    checkpoint = model.get_checkpoint()
+
+    legacy = _to_max_atom_sampler_shape(copy.deepcopy(checkpoint))
+    assert legacy["model_ckpt_version"] == 11
+    assert "max_spin" in legacy["model_data"]["model_hypers"]
+    assert "max_spin_multiplicity" not in legacy["model_data"]["model_hypers"]
+    assert any(
+        k.startswith("system_conditioning.spin_embedding.")
+        for k in legacy["model_state_dict"]
+    )
+
+    upgraded = model_update_from_max_atom_sampler(legacy)
+
+    assert upgraded["model_ckpt_version"] == PET.__checkpoint_version__
+    new_hypers = upgraded["model_data"]["model_hypers"]
+    assert new_hypers["max_spin_multiplicity"] == 4
+    assert "max_spin" not in new_hypers
+    assert new_hypers["adaptive_cutoff_method"] == "grid"
+    assert new_hypers["max_charge"] == 3
+    assert new_hypers["system_conditioning"] is True
+    assert not any(
+        k.startswith("system_conditioning.spin_embedding.")
+        for k in upgraded["model_state_dict"]
+    )
+    assert any(
+        k.startswith("system_conditioning.spin_multiplicity_embedding.")
+        for k in upgraded["model_state_dict"]
+    )
+
+    # The upgraded checkpoint must load cleanly via the standard loader.
+    PET.load_checkpoint(upgraded, "export")
