@@ -6,6 +6,8 @@ from torch import nn
 
 from .utilities import DummyModule
 
+from torch.nn.attention import sdpa_kernel, SDPBackend
+
 
 class FeedForward(nn.Module):
     def __init__(self, d_model: int) -> None:
@@ -84,7 +86,15 @@ class AttentionBlock(nn.Module):
         attn_weights = log_cutoff_factors[:, None, :, :]
 
         if use_manual_attention:
-            x = manual_attention(queries, keys, values, attn_weights, self.temperature)
+            # x = manual_attention(queries, keys, values, attn_weights, self.temperature)
+            with sdpa_kernel(SDPBackend.MATH):
+                x = torch.nn.functional.scaled_dot_product_attention(
+                    queries,
+                    keys,
+                    values,
+                    attn_mask=attn_weights,
+                    scale=1.0 / (self.head_dim**0.5 * self.temperature),
+                )
         else:
             x = torch.nn.functional.scaled_dot_product_attention(
                 queries,
