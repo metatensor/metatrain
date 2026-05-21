@@ -1206,7 +1206,7 @@ class MemmapDataset(TorchDataset):
             )
         if masses is not None:
             system.add_data(
-                "masses",
+                "mass",
                 TensorMap(
                     keys=Labels.single(),
                     blocks=[

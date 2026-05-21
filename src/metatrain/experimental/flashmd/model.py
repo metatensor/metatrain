@@ -1389,7 +1389,7 @@ def should_compute_last_layer_features(
 def verify_masses(systems: list[System], masses: torch.Tensor):
     """Attach masses to systems that don't have them yet."""
     for system_index, system in enumerate(systems):
-        if "masses" not in system.known_data():
+        if "mass" not in system.known_data():
             # obtain the masses from the atomic types
             values = masses[system.types].unsqueeze(-1)
 
@@ -1421,11 +1421,11 @@ def verify_masses(systems: list[System], masses: torch.Tensor):
                     )
                 ],
             )
-            system.add_data("masses", masses_map)
+            system.add_data("mass", masses_map)
         else:
             # verify that the masses are correct
             # (compare them to the ones stored in the model)
-            system_masses = system.get_data("masses").block(0).values.squeeze(-1)
+            system_masses = system.get_data("mass").block(0).values.squeeze(-1)
             expected_system_masses = masses[system.types]
             if not torch.allclose(system_masses, expected_system_masses):
                 # find which atom has the wrong mass
