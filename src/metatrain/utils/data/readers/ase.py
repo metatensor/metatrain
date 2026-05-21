@@ -82,7 +82,7 @@ def read_systems(filename: str) -> List[System]:
                     )
                 ],
             )
-            system.add_data("momenta", momenta)
+            system.add_data("momentum", momenta)
 
     return systems
 

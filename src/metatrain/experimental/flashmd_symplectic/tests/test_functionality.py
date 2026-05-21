@@ -97,7 +97,7 @@ def test_forward():
                 ),
             ],
         )
-        system.add_data("momenta", tmap)
+        system.add_data("momentum", tmap)
 
     outputs = {
         "positions": ModelOutput(quantity="length", unit="angstrom", per_atom=True),

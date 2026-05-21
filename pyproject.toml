@@ -205,7 +205,6 @@ filterwarnings = [
     "ignore:the 'features' quantity is deprecated:UserWarning",
     "ignore:the 'features' quantity is deprecated:DeprecationWarning",
     "ignore:the 'non_conservative_forces' output name is deprecated:UserWarning",
-    "ignore:the 'momenta' quantity is deprecated:DeprecationWarning",
     "ignore:the 'positions' quantity is deprecated:DeprecationWarning",
     "ignore:the 'masses' quantity is deprecated:DeprecationWarning",
     "ignore:the 'velocities' quantity is deprecated:DeprecationWarning",

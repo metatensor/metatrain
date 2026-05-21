@@ -1185,7 +1185,7 @@ class MemmapDataset(TorchDataset):
         # attach momenta to the system
         if momenta is not None:
             system.add_data(
-                "momenta",
+                "momentum",
                 TensorMap(
                     keys=Labels.single(),
                     blocks=[
@@ -1335,7 +1335,7 @@ class MemmapDataset(TorchDataset):
                 momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
             )
             system.add_data(
-                "momenta",
+                "momentum",
                 TensorMap(
                     keys=Labels.single(),
                     blocks=[

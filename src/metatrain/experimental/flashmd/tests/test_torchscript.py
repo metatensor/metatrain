@@ -84,7 +84,7 @@ def test_torchscript():
                 ),
             ],
         )
-        system.add_data("momenta", tmap)
+        system.add_data("momentum", tmap)
 
     requested_neighbor_lists = get_requested_neighbor_lists(model)
     model = torch.jit.script(model)

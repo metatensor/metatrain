@@ -142,7 +142,7 @@ class PositionAdditive(torch.nn.Module):
 
         if self.do_momenta:
             all_momenta = torch.concatenate(
-                [system.get_data("momenta").block().values for system in systems]
+                [system.get_data("momentum").block().values for system in systems]
             )
             momenta_tensor_map = TensorMap(
                 keys=single_label,
