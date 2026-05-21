@@ -13,7 +13,7 @@ from metatrain.pet.modules.adaptive_cutoff import (
     get_effective_num_neighbors,
     get_gaussian_cutoff_weights,
 )
-from metatrain.pet.modules.structures import concatenate_structures
+from metatrain.pet.modules.structures import concatenate_structures, systems_to_batch
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -205,6 +205,78 @@ def test_cutoff_stats_not_requested():
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
     result = model([system], {"energy": ModelOutput(per_atom=False)})
     assert "mtt::aux::cutoff_stats" not in result
+
+
+@pytest.mark.parametrize("adaptive_cutoff_method", ["solver", "grid"])
+def test_zero_adaptive_neighbors_gives_empty_topology(adaptive_cutoff_method):
+    """A zero adaptive-neighbor target is an explicit empty-topology request."""
+
+    options = NeighborListOptions(cutoff=5.0, full_list=True, strict=True)
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, [options])
+    species_to_species_index = torch.full((7,), -1, dtype=torch.long)
+    species_to_species_index[6] = 0
+
+    batch = systems_to_batch(
+        [system],
+        options,
+        [6],
+        species_to_species_index,
+        "Bump",
+        0.1,
+        0.0,
+        adaptive_cutoff_method,
+    )
+
+    padding_mask = batch[4]
+    log_cutoff_factors = batch[6]
+    atomic_cutoffs_stats = batch[10]
+
+    assert padding_mask.shape == (2, 0)
+    assert log_cutoff_factors.shape == (2, 0)
+    assert torch.all(atomic_cutoffs_stats == 0.0)
+
+
+def test_zero_adaptive_neighbors_model_forward():
+    """The PET forward pass works with no edge or triplet topology."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[6],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    hypers = MODEL_HYPERS.copy()
+    hypers["num_neighbors_adaptive"] = 0
+    hypers["num_neighbors_adaptive_triplet"] = 0
+    hypers["cutoff"] = 5.0
+    model = PET(hypers, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    result = model(
+        [system],
+        {
+            "energy": ModelOutput(per_atom=False),
+            "mtt::aux::cutoff_stats": ModelOutput(per_atom=True),
+        },
+    )
+
+    assert result["energy"].block().values.shape == (1, 1)
+    assert torch.all(result["mtt::aux::cutoff_stats"].block().values == 0.0)
 
 
 def test_cutoff_stats_exported():

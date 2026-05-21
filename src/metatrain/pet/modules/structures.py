@@ -11,7 +11,6 @@ from .nef import (
     get_corresponding_edges,
     get_nef_indices,
 )
-from .utilities import cutoff_func_bump, cutoff_func_cosine
 
 
 def concatenate_structures(
@@ -198,44 +197,61 @@ def systems_to_batch(
     num_nodes = len(positions)
 
     if num_neighbors_adaptive is not None:
-        with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
-            # Adaptive cutoff scheme to approximately select `num_neighbors_adaptive`
-            # neighbors for each atom
-            if adaptive_cutoff_method.lower() == "solver":
-                atomic_cutoffs = get_adaptive_cutoffs_solver(
-                    centers,
-                    edge_distances,
-                    num_neighbors_adaptive,
-                    num_nodes,
-                    options.cutoff,
-                    cutoff_width=cutoff_width,
-                )
-            elif adaptive_cutoff_method.lower() == "grid":
-                atomic_cutoffs = get_adaptive_cutoffs_grid(
-                    centers,
-                    edge_distances,
-                    num_neighbors_adaptive,
-                    num_nodes,
-                    options.cutoff,
-                    cutoff_width=cutoff_width,
-                )
-            else:
-                raise ValueError(
-                    "adaptive_cutoff_method must be 'grid' or 'solver', got "
-                    + adaptive_cutoff_method
-                )
-            atomic_cutoffs_stats = atomic_cutoffs.detach()
-            # Symmetrize the cutoffs between pairs of atoms (PET needs this symmetry
-            # due to its corresponding edge indexing ij -> ji)
-            pair_cutoffs = (atomic_cutoffs[centers] + atomic_cutoffs[neighbors]) / 2.0
-        with torch.profiler.record_function("PET::adaptive_cutoff_masking"):
-            keep = torch.nonzero(edge_distances <= pair_cutoffs).squeeze(-1)
+        if num_neighbors_adaptive < 0.0:
+            raise ValueError("num_neighbors_adaptive must be non-negative")
+        if num_neighbors_adaptive == 0.0:
+            atomic_cutoffs_stats = torch.zeros(
+                num_nodes, device=positions.device, dtype=positions.dtype
+            )
+            pair_cutoffs = edge_distances.new_empty((0,))
+            keep = centers.new_empty((0,))
             pair_cutoffs = pair_cutoffs.index_select(0, keep)
             centers = centers.index_select(0, keep)
             neighbors = neighbors.index_select(0, keep)
             edge_vectors = edge_vectors.index_select(0, keep)
             cell_shifts = cell_shifts.index_select(0, keep)
             edge_distances = edge_distances.index_select(0, keep)
+        else:
+            with torch.profiler.record_function("PET::get_adaptive_cutoffs"):
+                # Adaptive cutoff scheme to approximately select
+                # `num_neighbors_adaptive` neighbors for each atom
+                if adaptive_cutoff_method.lower() == "solver":
+                    atomic_cutoffs = get_adaptive_cutoffs_solver(
+                        centers,
+                        edge_distances,
+                        num_neighbors_adaptive,
+                        num_nodes,
+                        options.cutoff,
+                        cutoff_width=cutoff_width,
+                    )
+                elif adaptive_cutoff_method.lower() == "grid":
+                    atomic_cutoffs = get_adaptive_cutoffs_grid(
+                        centers,
+                        edge_distances,
+                        num_neighbors_adaptive,
+                        num_nodes,
+                        options.cutoff,
+                        cutoff_width=cutoff_width,
+                    )
+                else:
+                    raise ValueError(
+                        "adaptive_cutoff_method must be 'grid' or 'solver', got "
+                        + adaptive_cutoff_method
+                    )
+                atomic_cutoffs_stats = atomic_cutoffs.detach()
+                # Symmetrize the cutoffs between pairs of atoms (PET needs this
+                # symmetry due to its corresponding edge indexing ij -> ji)
+                pair_cutoffs = (
+                    atomic_cutoffs[centers] + atomic_cutoffs[neighbors]
+                ) / 2.0
+            with torch.profiler.record_function("PET::adaptive_cutoff_masking"):
+                keep = torch.nonzero(edge_distances <= pair_cutoffs).squeeze(-1)
+                pair_cutoffs = pair_cutoffs.index_select(0, keep)
+                centers = centers.index_select(0, keep)
+                neighbors = neighbors.index_select(0, keep)
+                edge_vectors = edge_vectors.index_select(0, keep)
+                cell_shifts = cell_shifts.index_select(0, keep)
+                edge_distances = edge_distances.index_select(0, keep)
     else:
         pair_cutoffs = options.cutoff * torch.ones(
             len(centers), device=positions.device, dtype=positions.dtype
@@ -255,7 +271,9 @@ def systems_to_batch(
     #     cutoff_factors = cutoff_func_bump(edge_distances, pair_cutoffs, cutoff_width)
     # elif cutoff_function.lower() == "cosine":
     #     # backward-compatible cosine swithcing for fixed cutoff
-    #     cutoff_factors = cutoff_func_cosine(edge_distances, pair_cutoffs, cutoff_width)
+    #     cutoff_factors = cutoff_func_cosine(
+    #         edge_distances, pair_cutoffs, cutoff_width
+    #     )
     # else:
     #     raise ValueError(
     #         f"Unknown cutoff function type: {cutoff_function}. "
@@ -285,7 +303,9 @@ def systems_to_batch(
     element_indices_neighbors = edge_array_to_nef(
         element_indices_neighbors, nef_indices
     )
-    log_cutoff_factors = edge_array_to_nef(log_cutoff_factors, nef_indices, nef_mask, -10000.0)
+    log_cutoff_factors = edge_array_to_nef(
+        log_cutoff_factors, nef_indices, nef_mask, -10000.0
+    )
 
     corresponding_edges = get_corresponding_edges(centers, neighbors, cell_shifts)
 
