@@ -758,7 +758,10 @@ def is_auxiliary_output(name: str) -> bool:
     :return: `True` if the target is an auxiliary output, `False` otherwise.
     """
     is_auxiliary = (
-        name == "features" or name == "energy_ensemble" or name.startswith("mtt::aux::")
+        name == "features"
+        or name == "feature"
+        or name == "energy_ensemble"
+        or name.startswith("mtt::aux::")
     )
     return is_auxiliary
 
