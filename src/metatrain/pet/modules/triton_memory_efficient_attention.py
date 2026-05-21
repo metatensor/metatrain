@@ -29,10 +29,10 @@ def _triton_attention_fwd_kernel(
     bias,
     output,
     logsumexp,
-    batch: tl.constexpr,
+    batch,
     heads: tl.constexpr,
-    query_len: tl.constexpr,
-    key_len: tl.constexpr,
+    query_len,
+    key_len,
     head_dim: tl.constexpr,
     sm_scale: tl.constexpr,
     has_bias: tl.constexpr,
@@ -54,7 +54,8 @@ def _triton_attention_fwd_kernel(
     row_sum = tl.zeros((block_m,), tl.float32)
     acc = tl.zeros((block_m, head_dim), tl.float32)
 
-    for start_n in range(0, key_len, block_n):
+    start_n = 0
+    while start_n < key_len:
         cols = start_n + offs_n
         k_ptrs = key + (pid_bh * key_len + cols[:, None]) * head_dim + offs_d[None, :]
         v_ptrs = value + (pid_bh * key_len + cols[:, None]) * head_dim + offs_d[None, :]
@@ -74,6 +75,7 @@ def _triton_attention_fwd_kernel(
         acc = acc * alpha[:, None] + tl.dot(probs, v, input_precision="ieee")
         row_max = new_row_max
         row_sum = new_row_sum
+        start_n += block_n
 
     out = acc / row_sum[:, None]
     lse = row_max + tl.log(row_sum)
@@ -96,10 +98,10 @@ def _triton_attention_bwd_dkdv_kernel(
     grad_key,
     grad_value,
     grad_bias,
-    batch: tl.constexpr,
+    batch,
     heads: tl.constexpr,
-    query_len: tl.constexpr,
-    key_len: tl.constexpr,
+    query_len,
+    key_len,
     head_dim: tl.constexpr,
     sm_scale: tl.constexpr,
     has_bias: tl.constexpr,
@@ -127,7 +129,8 @@ def _triton_attention_bwd_dkdv_kernel(
     if has_bias:
         token_bias = tl.load(bias + batch_id * key_len + offs_n, mask=offs_n < key_len, other=0.0)
 
-    for start_m in range(0, query_len, block_m):
+    start_m = 0
+    while start_m < query_len:
         rows = start_m + offs_m
         q_ptrs = query + (pid_bh * query_len + rows[:, None]) * head_dim + offs_d[None, :]
         do_ptrs = grad_output + (pid_bh * query_len + rows[:, None]) * head_dim + offs_d[None, :]
@@ -150,6 +153,7 @@ def _triton_attention_bwd_dkdv_kernel(
         dv += tl.dot(tl.trans(p), do, input_precision="ieee")
         dk += tl.dot(tl.trans(ds), q, input_precision="ieee") * sm_scale
         db += tl.sum(ds, axis=0)
+        start_m += block_m
 
     dk_ptrs = grad_key + (pid_bh * key_len + offs_n[:, None]) * head_dim + offs_d[None, :]
     dv_ptrs = grad_value + (pid_bh * key_len + offs_n[:, None]) * head_dim + offs_d[None, :]
@@ -170,10 +174,10 @@ def _triton_attention_bwd_dq_kernel(
     logsumexp,
     delta,
     grad_query,
-    batch: tl.constexpr,
+    batch,
     heads: tl.constexpr,
-    query_len: tl.constexpr,
-    key_len: tl.constexpr,
+    query_len,
+    key_len,
     head_dim: tl.constexpr,
     sm_scale: tl.constexpr,
     has_bias: tl.constexpr,
@@ -197,7 +201,8 @@ def _triton_attention_bwd_dq_kernel(
 
     dq = tl.zeros((block_m, head_dim), tl.float32)
 
-    for start_n in range(0, key_len, block_n):
+    start_n = 0
+    while start_n < key_len:
         cols = start_n + offs_n
         k_ptrs = key + (pid_bh * key_len + cols[:, None]) * head_dim + offs_d[None, :]
         v_ptrs = value + (pid_bh * key_len + cols[:, None]) * head_dim + offs_d[None, :]
@@ -216,6 +221,7 @@ def _triton_attention_bwd_dq_kernel(
         ds = p * (dp - d[:, None])
         ds = tl.where((offs_m[:, None] < query_len) & (cols[None, :] < key_len), ds, 0.0)
         dq += tl.dot(ds, k, input_precision="ieee") * sm_scale
+        start_n += block_n
 
     dq_ptrs = grad_query + (pid_bh * query_len + offs_m[:, None]) * head_dim + offs_d[None, :]
     tl.store(dq_ptrs, dq, mask=offs_m[:, None] < query_len)
@@ -237,10 +243,10 @@ def _triton_attention_bwd2_preprocess_kernel(
     row_delta,
     row_rbar,
     row_mean,
-    batch: tl.constexpr,
+    batch,
     heads: tl.constexpr,
-    query_len: tl.constexpr,
-    key_len: tl.constexpr,
+    query_len,
+    key_len,
     head_dim: tl.constexpr,
     sm_scale: tl.constexpr,
     has_bias: tl.constexpr,
@@ -267,7 +273,8 @@ def _triton_attention_bwd2_preprocess_kernel(
     prx = tl.zeros((block_m,), tl.float32)
     mean_w = tl.zeros((block_m,), tl.float32)
 
-    for start_n in range(0, key_len, block_n):
+    start_n = 0
+    while start_n < key_len:
         cols = start_n + offs_n
         k = tl.load(key + (pid_bh * key_len + cols[:, None]) * head_dim + offs_d[None, :], mask=cols[:, None] < key_len, other=0.0)
         v = tl.load(value + (pid_bh * key_len + cols[:, None]) * head_dim + offs_d[None, :], mask=cols[:, None] < key_len, other=0.0)
@@ -292,6 +299,7 @@ def _triton_attention_bwd2_preprocess_kernel(
         rbar += tl.sum(p * r, axis=1)
         prx += tl.sum(p * r * x, axis=1)
         mean_w += tl.sum(p * w, axis=1)
+        start_n += block_n
 
     mean = prx - 2.0 * delta * rbar + mean_w
     tl.store(row_delta + pid_bh * query_len + offs_m, delta, mask=offs_m < query_len)
@@ -316,10 +324,10 @@ def _triton_attention_bwd2_dq_dgo_kernel(
     row_mean,
     grad_query,
     grad_grad_output,
-    batch: tl.constexpr,
+    batch,
     heads: tl.constexpr,
-    query_len: tl.constexpr,
-    key_len: tl.constexpr,
+    query_len,
+    key_len,
     head_dim: tl.constexpr,
     sm_scale: tl.constexpr,
     has_bias: tl.constexpr,
@@ -346,7 +354,8 @@ def _triton_attention_bwd2_dq_dgo_kernel(
     dq = tl.zeros((block_m, head_dim), tl.float32)
     dgo = tl.zeros((block_m, head_dim), tl.float32)
 
-    for start_n in range(0, key_len, block_n):
+    start_n = 0
+    while start_n < key_len:
         cols = start_n + offs_n
         k = tl.load(key + (pid_bh * key_len + cols[:, None]) * head_dim + offs_d[None, :], mask=cols[:, None] < key_len, other=0.0)
         v = tl.load(value + (pid_bh * key_len + cols[:, None]) * head_dim + offs_d[None, :], mask=cols[:, None] < key_len, other=0.0)
@@ -380,6 +389,7 @@ def _triton_attention_bwd2_dq_dgo_kernel(
         dq += tl.dot(ds, g2k, input_precision="ieee") * sm_scale
         dgo += tl.dot(t, v, input_precision="ieee")
         dgo += tl.dot(p, g2v, input_precision="ieee")
+        start_n += block_n
 
     tl.store(grad_query + (pid_bh * query_len + offs_m[:, None]) * head_dim + offs_d[None, :], dq, mask=offs_m[:, None] < query_len)
     tl.store(grad_grad_output + (pid_bh * query_len + offs_m[:, None]) * head_dim + offs_d[None, :], dgo, mask=offs_m[:, None] < query_len)
@@ -403,10 +413,10 @@ def _triton_attention_bwd2_dk_dv_db_kernel(
     grad_key,
     grad_value,
     grad_bias,
-    batch: tl.constexpr,
+    batch,
     heads: tl.constexpr,
-    query_len: tl.constexpr,
-    key_len: tl.constexpr,
+    query_len,
+    key_len,
     head_dim: tl.constexpr,
     sm_scale: tl.constexpr,
     has_bias: tl.constexpr,
@@ -436,7 +446,8 @@ def _triton_attention_bwd2_dk_dv_db_kernel(
     if has_grad2_bias:
         g2b = tl.load(grad2_bias + batch_id * key_len + offs_n, mask=offs_n < key_len, other=0.0)
 
-    for start_m in range(0, query_len, block_m):
+    start_m = 0
+    while start_m < query_len:
         rows = start_m + offs_m
         q = tl.load(query + (pid_bh * query_len + rows[:, None]) * head_dim + offs_d[None, :], mask=rows[:, None] < query_len, other=0.0)
         go = tl.load(grad_output + (pid_bh * query_len + rows[:, None]) * head_dim + offs_d[None, :], mask=rows[:, None] < query_len, other=0.0)
@@ -472,6 +483,7 @@ def _triton_attention_bwd2_dk_dv_db_kernel(
         dk += tl.dot(tl.trans(ds), g2q, input_precision="ieee") * sm_scale
         dv += tl.dot(tl.trans(t), go, input_precision="ieee")
         db += tl.sum(s2, axis=0)
+        start_m += block_m
 
     tl.store(grad_key + (pid_bh * key_len + offs_n[:, None]) * head_dim + offs_d[None, :], dk, mask=offs_n[:, None] < key_len)
     tl.store(grad_value + (pid_bh * key_len + offs_n[:, None]) * head_dim + offs_d[None, :], dv, mask=offs_n[:, None] < key_len)
