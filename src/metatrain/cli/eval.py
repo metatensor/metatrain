@@ -179,7 +179,7 @@ def _eval_targets(
     target_keys = list(model.capabilities().outputs.keys())
     requested_neighbor_lists = get_requested_neighbor_lists(model)
     callables = [get_system_with_neighbor_lists_transform(requested_neighbor_lists)]
-    requested_inputs = list(model.requested_inputs().keys())
+    requested_inputs = list(model.requested_inputs(use_new_names=True).keys())
     if requested_inputs:
         callables.append(get_system_data_transform(requested_inputs))
     collate_fn = CollateFn(target_keys, callables=callables)
