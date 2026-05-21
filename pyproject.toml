@@ -205,9 +205,6 @@ filterwarnings = [
     "ignore:the 'features' quantity is deprecated:UserWarning",
     "ignore:the 'features' quantity is deprecated:DeprecationWarning",
     "ignore:the 'non_conservative_forces' output name is deprecated:UserWarning",
-    "ignore:the 'positions' quantity is deprecated:DeprecationWarning",
-    "ignore:the 'velocities' quantity is deprecated:DeprecationWarning",
-    "ignore:the 'charges' quantity is deprecated:DeprecationWarning",
     "ignore:`per_atom` is deprecated:DeprecationWarning",
     "ignore:ModelOutput.quantity is deprecated:DeprecationWarning"
 ]
