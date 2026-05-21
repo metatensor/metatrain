@@ -643,7 +643,7 @@ class FlashMDSymplectic(ModelInterface):
                                     )
                                 )
                             else:
-                                output_blocks.append(b)
+                                output_blocks.append(b.copy(deep=False))
                         return_dict[name] = TensorMap(
                             return_dict[name].keys, output_blocks
                         )

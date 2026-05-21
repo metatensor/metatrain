@@ -53,7 +53,8 @@ def test_read_unknonw_library():
 def test_unsupported_target_name():
     conf = {"free_energy": {"quantity": "energy"}}
     with pytest.raises(
-        ValueError, match="invalid model output name 'free_energy'"
+        ValueError,
+        match="invalid model output name 'free_energy': this is not a known quantity",
     ):
         read_targets(OmegaConf.create(conf))
 

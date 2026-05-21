@@ -528,7 +528,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
                             )
                         )
                     else:
-                        output_blocks.append(b)
+                        output_blocks.append(b.copy(deep=False))
                 values[name] = TensorMap(values[name].keys, output_blocks)
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:

@@ -829,22 +829,14 @@ class BaseScaler(torch.nn.Module):
                 "int to float."
             )
 
-        # `block` is moved into the TensorMap below, so capture the device and
-        # build an independent block for each map (a TensorBlock can only be
-        # owned by a single TensorMap in metatensor >=0.9).
-        device = block.values.device
-        keys = self.Y2[target_name].keys.to(device=device)
-
-        def _fixed_block() -> TensorBlock:
-            return TensorBlock(
-                values=block.values.clone(),
-                samples=block.samples,
-                components=block.components,
-                properties=block.properties,
-            )
-
-        self.scales[target_name] = TensorMap(keys, [_fixed_block()])
-        self.per_target_scales[target_name] = TensorMap(keys, [_fixed_block()])
+        self.scales[target_name] = TensorMap(
+            self.Y2[target_name].keys.to(device=block.values.device),
+            [block.copy(deep=False)],
+        )
+        self.per_target_scales[target_name] = TensorMap(
+            self.Y2[target_name].keys.to(device=block.values.device),
+            [block.copy(deep=False)],
+        )
 
     def _sync_device_dtype(self, device: torch.device, dtype: torch.dtype) -> None:
         # manually move the TensorMap dicts:
