@@ -176,8 +176,9 @@ def get_adaptive_cutoffs_solver(
             device=edge_distances.device,
         )
         r = 0.5 * r_hi
-        # 10 Newton iters are typically enough to converge to float32 precision.
-        for _ in range(10):
+        # Small cutoff widths need a few extra Newton-bisection steps to avoid
+        # a large IFT correction moving the forward cutoff across neighbor shells.
+        for _ in range(16):
             n, dn = _n_total_and_dn_dr(
                 r,
                 edge_distances_d,
