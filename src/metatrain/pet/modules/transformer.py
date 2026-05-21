@@ -7,6 +7,7 @@ from torch import nn
 from .utilities import DummyModule
 
 from torch.nn.attention import sdpa_kernel, SDPBackend
+from .triton_memory_efficient_attention import triton_memory_efficient_attention
 
 
 class FeedForward(nn.Module):
@@ -83,26 +84,11 @@ class AttentionBlock(nn.Module):
         x = x.permute(2, 0, 3, 1, 4)
 
         queries, keys, values = x[0], x[1], x[2]
-        attn_weights = log_cutoff_factors[:, None, :, :]
 
-        if use_manual_attention:
-            # x = manual_attention(queries, keys, values, attn_weights, self.temperature)
-            with sdpa_kernel(SDPBackend.MATH):
-                x = torch.nn.functional.scaled_dot_product_attention(
-                    queries,
-                    keys,
-                    values,
-                    attn_mask=attn_weights,
-                    scale=1.0 / (self.head_dim**0.5 * self.temperature),
-                )
-        else:
-            x = torch.nn.functional.scaled_dot_product_attention(
-                queries,
-                keys,
-                values,
-                attn_mask=attn_weights,
-                scale=1.0 / (self.head_dim**0.5 * self.temperature),
-            )
+        x = triton_memory_efficient_attention(
+            queries, keys, values, log_cutoff_factors
+        )
+
         x = x.transpose(1, 2).reshape(initial_shape)
         x = self.output_linear(x)
         return x
@@ -358,8 +344,6 @@ class CartesianTransformer(torch.nn.Module):
             log_cutoff_factors_edges,
             log_cutoff_factors_triplets,
         ], dim=1)
-        log_cutoff_factors = log_cutoff_factors[:, None, :]
-        log_cutoff_factors = log_cutoff_factors.repeat(1, log_cutoff_factors.shape[2], 1)
 
         output_node_embeddings, output_edge_embeddings, output_triplet_embeddings = self.trans(
             node_features[:, None, :],
