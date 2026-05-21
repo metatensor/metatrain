@@ -162,9 +162,9 @@ class ZElementRouter(torch.nn.Module):
         """
         u = torch.nn.functional.silu(
             self.species_embedding(species_idx)
-        )                                            # (n_atoms, M)
-        logits = self.routing_matrix(u)              # (n_atoms, I)
-        return torch.softmax(logits, dim=-1)         # (n_atoms, I)
+        )  # (n_atoms, M)
+        logits = self.routing_matrix(u)  # (n_atoms, I)
+        return torch.softmax(logits, dim=-1)  # (n_atoms, I)
 
 
 # ---------------------------------------------------------------------------
@@ -299,16 +299,12 @@ class MoEReadout(torch.nn.Module):
         # Keep only the K' largest scores; zero the rest.
         topk_scores, topk_idx = torch.topk(scores, self.num_topk, dim=-1)
         # routing_weights: (n_atoms, I), sparse — K' non-zero entries per row
-        routing_weights = torch.zeros_like(scores).scatter(
-            -1, topk_idx, topk_scores
-        )
+        routing_weights = torch.zeros_like(scores).scatter(-1, topk_idx, topk_scores)
 
         # ------------------------------------------------------------------ #
         # 2. Routed experts — run all I, aggregate with sparse weights        #
         # ------------------------------------------------------------------ #
-        routed_outs: List[torch.Tensor] = torch.jit.annotate(
-            List[torch.Tensor], []
-        )
+        routed_outs: List[torch.Tensor] = torch.jit.annotate(List[torch.Tensor], [])
         for expert in self.routed_experts:
             routed_outs.append(expert(features, species_idx))
 
@@ -415,9 +411,7 @@ class IrrepResidualReadout(torch.nn.Module):
         # Per-species gate on the correction output.
         # Zero initialization ensures the model starts at pure Z-readout.
         # ------------------------------------------------------------------
-        self.species_gate = torch.nn.Parameter(
-            torch.zeros(n_species, out_features)
-        )
+        self.species_gate = torch.nn.Parameter(torch.zeros(n_species, out_features))
 
     def forward(
         self, features: torch.Tensor, species_idx: torch.Tensor
@@ -429,12 +423,12 @@ class IrrepResidualReadout(torch.nn.Module):
         :return: Same leading dims as ``features``, last dim ``out_features``.
         """
         trunk_out = self.trunk(features, species_idx)
-        correction = self.correction(features)                # (..., out_features)
-        gate = self.species_gate[species_idx]                 # (n_atoms, out_features)
+        correction = self.correction(features)  # (..., out_features)
+        gate = self.species_gate[species_idx]  # (n_atoms, out_features)
 
         # For edge features (3-D input), broadcast gate over the neighbour dim.
         if features.dim() == 3:
-            gate = gate.unsqueeze(1)                          # (n_atoms, 1, out_features)
+            gate = gate.unsqueeze(1)  # (n_atoms, 1, out_features)
 
         return trunk_out + correction * gate
 
@@ -585,9 +579,9 @@ class IrrepResidualFiLM(torch.nn.Module):
         trunk_out = self.trunk(features, species_idx)
 
         gamma = self.film_gamma[species_idx]  # (n_atoms, in_features)
-        beta = self.film_beta[species_idx]    # (n_atoms, in_features)
+        beta = self.film_beta[species_idx]  # (n_atoms, in_features)
         if features.dim() == 3:
-            gamma = gamma.unsqueeze(1)        # (n_atoms, 1, in_features)
+            gamma = gamma.unsqueeze(1)  # (n_atoms, 1, in_features)
             beta = beta.unsqueeze(1)
 
         modulated = gamma * features + beta
@@ -632,8 +626,12 @@ class IrrepResidualZCorrection(torch.nn.Module):
         in_features: int,
         out_features: int,
         n_species: int,
+        expansion_factor: Optional[int] = None,
     ) -> None:
         super().__init__()
+
+        if expansion_factor is None:
+            expansion_factor = 1
 
         # Z-conditioned trunk
         self.trunk = ZConditionedReadout(
@@ -647,7 +645,7 @@ class IrrepResidualZCorrection(torch.nn.Module):
             out_features,
             n_species,
             z_conditioned=True,
-            hidden_layer_widths=[in_features],
+            hidden_layer_widths=[in_features * expansion_factor],
         )
         # Zero-init output layer only — hidden layer retains Kaiming init
         torch.nn.init.zeros_(self.correction.weights[1])

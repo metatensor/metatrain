@@ -72,7 +72,7 @@ important** (in decreasing order of importance):
       :no-index:
 """
 
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Dict, Literal, Optional
 
 from typing_extensions import TypedDict
 
@@ -242,6 +242,8 @@ class ModelHypers(TypedDict):
         # Most expressive variant; cost scales as n_species × (d² + d × out).
         readout_type:
           name: IrrepResidualZCorrection
+          args:
+            expansion_factor: 1  # optional, default 1
 
         # ── Trunk + deep Z-conditioned correction tower (zero-init output) ───
         # Generalises IrrepResidualZCorrection to K hidden layers, each

@@ -1416,7 +1416,9 @@ class PET(ModelInterface[ModelHypers]):
             return IrrepResidualFiLM(in_features, out_features, n_species)
 
         elif name == "IrrepResidualZCorrection":
-            return IrrepResidualZCorrection(in_features, out_features, n_species)
+            return IrrepResidualZCorrection(
+                in_features, out_features, n_species, args.get("expansion_factor")
+            )
 
         elif name == "IrrepResidualZCorrectionDeep":
             return IrrepResidualZCorrectionDeep(

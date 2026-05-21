@@ -415,7 +415,10 @@ class CartesianTransformer(torch.nn.Module):
             self.spherical_harmonics = torch.nn.Identity()
             self.rmsnorm = torch.nn.Identity()
         else:  # SSH embedding
-            from sphericart.torch import SolidHarmonics  # avoid installing unless necessary
+            from sphericart.torch import (
+                SolidHarmonics,
+            )  # avoid installing unless necessary
+
             self.spherical_harmonics = SolidHarmonics(l_max=geometry_embedding_lmax)
             self.edge_embedder = nn.Linear(
                 (self.geometry_embedding_lmax + 1) ** 2, d_model
