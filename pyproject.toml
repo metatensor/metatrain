@@ -215,7 +215,6 @@ filterwarnings = [
     "ignore:the 'masses' quantity is deprecated:DeprecationWarning",
     "ignore:the 'velocities' quantity is deprecated:DeprecationWarning",
     "ignore:the 'charges' quantity is deprecated:DeprecationWarning",
-    "ignore:`per_atom` is deprecated:DeprecationWarning",
     "ignore:ModelOutput.quantity is deprecated:DeprecationWarning"
 ]
 addopts = ["-p", "mtt_plugin"]

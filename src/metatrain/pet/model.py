@@ -461,7 +461,7 @@ class PET(ModelInterface[ModelHypers]):
                     padding_mask,
                     sample_labels,
                     selected_atoms,
-                    outputs["mtt::aux::cutoff_stats"].per_atom,
+                    outputs["mtt::aux::cutoff_stats"].sample_kind == "atom",
                 )
 
         # the scaled_dot_product_attention function from torch cannot do

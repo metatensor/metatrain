@@ -380,7 +380,7 @@ def test_rotation_per_atom_spherical_rank2(batch_size):
                             },
                         }
                     },
-                    "per_atom": True,
+                    "sample_kind": "atom",
                     "num_subtargets": 1,
                 },
             )

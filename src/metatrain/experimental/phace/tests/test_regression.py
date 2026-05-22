@@ -212,7 +212,7 @@ def test_regression_train_spherical(device):
                         ]
                     },
                 },
-                "per_atom": True,
+                "sample_kind": "atom",
                 "num_subtargets": 1,  # dummy value
             },
         },
@@ -259,7 +259,7 @@ def test_regression_train_spherical(device):
         systems,
         {
             "mtt::electron_density_basis": ModelOutput(
-                quantity="", unit="", per_atom=True
+                quantity="", unit="", sample_kind="atom"
             )
         },
     )

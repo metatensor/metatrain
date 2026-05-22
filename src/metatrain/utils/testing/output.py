@@ -354,7 +354,7 @@ class OutputTests(ArchitectureTests):
 
         If this test is failing, your model might:
         - not be producing spherical outputs of rank 2 when requested.
-        - not be taking into account correctly the ``per_atom`` field of the
+        - not be taking into account correctly the ``sample_kind`` field of the
         outputs passed to the ``outputs`` argument of the ``forward()`` method.
 
         :param model_hypers: Hyperparameters to initialize the model.
@@ -722,13 +722,8 @@ class OutputTests(ArchitectureTests):
         # last-layer features per atom:
         ll_output_options = ModelOutput(
             quantity="",
-<<<<<<< HEAD
             unit="",
-            per_atom=per_atom,
-=======
-            unit="unitless",
             sample_kind=sample_kind,
->>>>>>> 00a5f8fa (Replace per_atom with sample_kind)
         )
         model = model.to(system.positions.dtype)
         outputs = model(

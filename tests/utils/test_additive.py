@@ -1371,7 +1371,7 @@ def test_composition_spherical_atomic_basis_dense():
                     "unit": "",
                     "type": {"spherical": {"irreps": irreps}},
                     "num_subtargets": 1,
-                    "per_atom": True,
+                    "sample_kind": "atom",
                 },
             )
         },
@@ -1415,7 +1415,7 @@ def test_composition_spherical_atomic_basis_dense():
     # Check predictions
     predictions = composition_model(
         systems,
-        outputs={"spherical_atomic_basis": ModelOutput(per_atom=True)},
+        outputs={"spherical_atomic_basis": ModelOutput(sample_kind="atom")},
     )
     pred_values = (
         predictions["spherical_atomic_basis"]
@@ -1525,7 +1525,7 @@ def test_composition_atomic_basis_sparse_dense_consistency():
                     "unit": "",
                     "type": {"spherical": {"irreps": irreps}},
                     "num_subtargets": 1,
-                    "per_atom": True,
+                    "sample_kind": "atom",
                 },
             )
         },
@@ -1716,7 +1716,7 @@ def test_composition_spherical_atomic_basis_dense_nan_weights():
                     "unit": "",
                     "type": {"spherical": {"irreps": irreps}},
                     "num_subtargets": 1,
-                    "per_atom": True,
+                    "sample_kind": "atom",
                 },
             )
         },
@@ -1772,7 +1772,7 @@ def test_composition_spherical_atomic_basis_dense_nan_weights():
     # Get predictions
     predictions = composition_model(
         [systems[1]],
-        outputs={"spherical_atomic_basis": ModelOutput(per_atom=True)},
+        outputs={"spherical_atomic_basis": ModelOutput(sample_kind="atom")},
     )
     pred_values = (
         predictions["spherical_atomic_basis"]
@@ -1936,7 +1936,7 @@ def test_composition_spherical_per_atom_rank_2():
                 }
             },
             "num_subtargets": 1,
-            "per_atom": True,
+            "sample_kind": "atom",
         },
     )
     target_info.layout = _empty_tensor_map_like(tensor_map_1)
@@ -1953,7 +1953,7 @@ def test_composition_spherical_per_atom_rank_2():
     composition_model.train_model([dataset], [], batch_size=1, is_distributed=False)
 
     output = composition_model(
-        [systems[1]], {"rank_2_target": ModelOutput(per_atom=True)}
+        [systems[1]], {"rank_2_target": ModelOutput(sample_kind="atom")}
     )
 
     ss_key = {"o3_lambda_1": 0, "o3_lambda_2": 0, "o3_sigma_1": 1, "o3_sigma_2": 1}
@@ -2070,7 +2070,7 @@ def test_composition_spherical_per_atom_rank_2_rotation_invariance():
                 }
             },
             "num_subtargets": 1,
-            "per_atom": True,
+            "sample_kind": "atom",
         },
     )
     target_info.layout = _empty_tensor_map_like(make_tensor_map(ss_vals, pp_full, 0))
@@ -2276,7 +2276,7 @@ def test_composition_spherical_atomic_basis_rank_2(missing_type):
                             "spherical": {"irreps": irreps, "product": "cartesian"}
                         },
                         "num_subtargets": 1,
-                        "per_atom": True,
+                        "sample_kind": "atom",
                     },
                 )
             },
@@ -2287,7 +2287,7 @@ def test_composition_spherical_atomic_basis_rank_2(missing_type):
     assert composition_model.atomic_types == atomic_types
 
     output = composition_model(
-        [systems[1]], {"uncoupled_hamiltonian": ModelOutput(per_atom=True)}
+        [systems[1]], {"uncoupled_hamiltonian": ModelOutput(sample_kind="atom")}
     )
 
     ss_key = {"o3_lambda_1": 0, "o3_lambda_2": 0, "o3_sigma_1": 1, "o3_sigma_2": 1}
@@ -2320,7 +2320,7 @@ def test_composition_spherical_atomic_basis_rank_2(missing_type):
             pbc=torch.tensor([True, True, True]),
         )
         output_F = composition_model(
-            [system_F], {"uncoupled_hamiltonian": ModelOutput(per_atom=True)}
+            [system_F], {"uncoupled_hamiltonian": ModelOutput(sample_kind="atom")}
         )
         F_ss_block = output_F["uncoupled_hamiltonian"].block({**ss_key, "atom_type": 9})
         torch.testing.assert_close(
@@ -2447,7 +2447,7 @@ def test_composition_spherical_atomic_basis_rank_2_rotation_invariance(missing_t
             "unit": "",
             "type": {"spherical": {"irreps": irreps, "product": "cartesian"}},
             "num_subtargets": 1,
-            "per_atom": True,
+            "sample_kind": "atom",
         },
     )
     dataset_info = DatasetInfo(

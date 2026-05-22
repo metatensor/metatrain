@@ -301,11 +301,11 @@ class ArchitectureTests:
         )
 
     @pytest.fixture
-    def dataset_info_spherical_rank2(self, per_atom: bool) -> DatasetInfo:
+    def dataset_info_spherical_rank2(self, sample_kind: Literal["atom", "system"]) -> DatasetInfo:
         """Fixture that provides a basic ``DatasetInfo`` with a spherical
         target of rank 2 for testing.
 
-        :param per_atom: Whether the target is per-atom or not.
+        :param sample_kind: The kind of samples for which to request features.
         :return: A ``DatasetInfo`` instance with a spherical target of
             rank 2.
         """
@@ -327,7 +327,7 @@ class ArchitectureTests:
                             },
                         },
                         "num_subtargets": 2,
-                        "per_atom": per_atom,
+                        "sample_kind": sample_kind,
                     },
                 )
             },
@@ -426,7 +426,7 @@ class ArchitectureTests:
                             }
                         },
                         "num_subtargets": 2,
-                        "per_atom": True,
+                        "sample_kind": "atom",
                     },
                 )
             },

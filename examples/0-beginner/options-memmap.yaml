@@ -22,7 +22,7 @@ training_set:
       key: f
       quantity: force
       unit: eV/A
-      per_atom: true
+      sample_kind: atom
       type:
         cartesian:
           rank: 1

@@ -79,13 +79,13 @@ structures = ase.io.read("ethanol_reduced_100.xyz", ":5")
 calc = MetatomicCalculator("model-llpr-ens.pt", extensions_directory="extensions/")
 
 # Get predictions with both ensemble and analytical uncertainties
-# (note that all these quantities are also available per-atom with ``per_atom=True``)
+# (note that all these quantities are also available per-atom with ``sample_kind="atom"``)
 predictions = calc.run_model(
     structures,
     {
-        "energy": ModelOutput(per_atom=False),
-        "energy_uncertainty": ModelOutput(per_atom=False),  # LLPR analytical
-        "energy_ensemble": ModelOutput(per_atom=False),  # ensemble predictions
+        "energy": ModelOutput(sample_kind="system"),
+        "energy_uncertainty": ModelOutput(sample_kind="system"),  # LLPR analytical
+        "energy_ensemble": ModelOutput(sample_kind="system"),  # ensemble predictions
     },
 )
 
