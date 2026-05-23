@@ -360,8 +360,6 @@ def test_eval_routes_extra_data_to_conditioning():
     "ignore:`per_atom` is deprecated:DeprecationWarning",
     "ignore:ModelOutput.quantity is deprecated:UserWarning",
     "ignore:Found metatomic.torch v.*vesin.metatomic was only tested:UserWarning",
-    "ignore:calling Model.requested_inputs.use_new_names=False. is deprecated"
-    ":UserWarning",
 )
 def test_export_with_conditioning_preserves_validate(tmp_path):
     """Exporting (TorchScript) a PET model with system_conditioning must keep the

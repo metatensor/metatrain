@@ -210,7 +210,6 @@ filterwarnings = [
     "ignore:the '\\w+' (output|input|quantity) name is deprecated:UserWarning",
     "ignore:the '\\w+' quantity is deprecated:UserWarning",
     "ignore:the '\\w+' quantity is deprecated:DeprecationWarning",
-    "ignore:calling Model.requested_inputs\\(use_new_names=False\\) is deprecated:UserWarning",
     "ignore:`per_atom` is deprecated:DeprecationWarning",
     "ignore:ModelOutput.quantity is deprecated:DeprecationWarning"
 ]
