@@ -1,3 +1,4 @@
+import warnings
 from typing import Any, Union
 
 import torch
@@ -10,6 +11,42 @@ from metatrain.utils.loss import LossParams, LossSpecification
 from .. import RANDOM_SEED
 from .architectures import import_architecture
 from .devices import pick_devices
+
+
+DEPRECATED_METATOMIC_TARGET_NAMES = {
+    "positions": "position",
+    "momenta": "momentum",
+    "masses": "mass",
+    "velocities": "velocity",
+    "charges": "charge",
+}
+
+
+def _rename_deprecated_target_names(targets: DictConfig) -> DictConfig:
+    """
+    Rename plural target names to singular form as they are deprecated in metatomic
+    0.1.12 and emit :py:class:`DeprecationWarning`
+
+    :param targets: the targets section of dataset configuration
+    :return: targets dict without deprecated metatomic names
+    """
+
+    for old, new in DEPRECATED_METATOMIC_TARGET_NAMES.items():
+        if old in targets:
+            if new in targets:
+                raise ValueError(
+                    f"target dict contains both '{old}' (deprecated) and "
+                    f"'{new}', please remove the deprecated key"
+                )
+            warnings.warn(
+                f"'{old}' target name is deprecated, please update the "
+                f"input YAML to use '{new}' instead",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            targets[new] = targets.pop(old)
+
+    return targets
 
 
 def _get_architecture_model(conf: BaseContainer) -> Any:
@@ -306,6 +343,10 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
             )
 
         if hasattr(conf_element, "targets"):
+            conf_element["targets"] = _rename_deprecated_target_names(
+                conf_element["targets"]
+            )
+
             for target_key, target in conf_element["targets"].items():
                 if type(target) is str:
                     target = _resolve_single_str(target)

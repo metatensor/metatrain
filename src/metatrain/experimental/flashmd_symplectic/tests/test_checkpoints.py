@@ -69,8 +69,8 @@ def model_trainer_():
                 "reader": "ase",
             },
             "targets": {
-                "positions": positions_target,
-                "momenta": momenta_target,
+                "position": positions_target,
+                "momentum": momenta_target,
             },
         }
     )
@@ -96,7 +96,7 @@ def model_trainer_():
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 1
     loss_hypers = OmegaConf.create(
-        {"positions": CONF_LOSS.copy(), "momenta": CONF_LOSS.copy()}
+        {"position": CONF_LOSS.copy(), "momentum": CONF_LOSS.copy()}
     )
     loss_hypers = OmegaConf.to_container(loss_hypers, resolve=True)
     hypers["training"]["loss"] = loss_hypers
@@ -158,8 +158,8 @@ class TestCheckpoints(CheckpointTests):
                     "reader": "ase",
                 },
                 "targets": {
-                    "positions": positions_target,
-                    "momenta": momenta_target,
+                    "position": positions_target,
+                    "momentum": momenta_target,
                 },
             }
         )
@@ -185,7 +185,7 @@ class TestCheckpoints(CheckpointTests):
         hypers = copy.deepcopy(DEFAULT_HYPERS)
         hypers["training"]["num_epochs"] = 1
         loss_hypers = OmegaConf.create(
-            {"positions": CONF_LOSS.copy(), "momenta": CONF_LOSS.copy()}
+            {"position": CONF_LOSS.copy(), "momentum": CONF_LOSS.copy()}
         )
         loss_hypers = OmegaConf.to_container(loss_hypers, resolve=True)
         hypers["training"]["loss"] = loss_hypers

@@ -46,7 +46,7 @@ class FlashMD(ModelInterface[ModelHypers]):
     For more information, you can refer to https://arxiv.org/abs/2505.19350.
     """
 
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 5
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -454,7 +454,7 @@ class FlashMD(ModelInterface[ModelHypers]):
                 element_indices_nodes=element_indices_nodes,
                 element_indices_neighbors=element_indices_neighbors,
                 edge_vectors=edge_vectors,
-                momenta=momenta,
+                momentum=momenta,
                 reverse_neighbor_index=reverse_neighbor_index,
                 padding_mask=padding_mask,
                 edge_distances=edge_distances,
@@ -635,7 +635,7 @@ class FlashMD(ModelInterface[ModelHypers]):
         edge_features_list: List[torch.Tensor] = []
 
         input_node_embeddings = self.node_embedders[0](
-            inputs["element_indices_nodes"], inputs["momenta"]
+            inputs["element_indices_nodes"], inputs["momentum"]
         )
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
         for combination_norm, combination_mlp, gnn_layer in zip(
@@ -701,7 +701,7 @@ class FlashMD(ModelInterface[ModelHypers]):
             self.node_embedders, self.gnn_layers, strict=True
         ):
             input_node_embeddings = node_embedder(
-                inputs["element_indices_nodes"], inputs["momenta"]
+                inputs["element_indices_nodes"], inputs["momentum"]
             )
             output_node_embeddings, output_edge_embeddings = gnn_layer(
                 input_node_embeddings,
