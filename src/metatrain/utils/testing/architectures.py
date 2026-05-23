@@ -301,7 +301,9 @@ class ArchitectureTests:
         )
 
     @pytest.fixture
-    def dataset_info_spherical_rank2(self, sample_kind: Literal["atom", "system"]) -> DatasetInfo:
+    def dataset_info_spherical_rank2(
+        self, sample_kind: Literal["atom", "system"]
+    ) -> DatasetInfo:
         """Fixture that provides a basic ``DatasetInfo`` with a spherical
         target of rank 2 for testing.
 

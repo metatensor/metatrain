@@ -884,7 +884,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
     def _format_features_output(
         self,
         features: TensorMap,
-        sample_kind: Literal["atom", "system"],
+        sample_kind: str,
     ) -> TensorMap:
         """Format internal features for output.
 

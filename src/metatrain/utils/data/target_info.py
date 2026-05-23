@@ -92,7 +92,7 @@ class TargetInfo:
             )
 
     @property
-    def sample_kind(self) -> Literal["system", "atom"]:
+    def sample_kind(self) -> str:
         """The kind of sample the target corresponds to."""
         sample_names = self.layout.block(0).samples.names
         if "atom" in sample_names:
