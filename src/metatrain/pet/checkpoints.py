@@ -2,6 +2,8 @@ import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
+from metatrain.utils.scaler.checkpoints import update_per_property_scales
+
 
 ###########################
 # MODEL ###################
@@ -289,6 +291,15 @@ def model_update_v11_v12(checkpoint: dict) -> None:
         hypers["edge_tokens_cutoff"] = False
     if "cutoff_width_adaptive" not in hypers:
         hypers["cutoff_width_adaptive"] = 1.0
+
+
+def model_update_v12_v13(checkpoint: dict) -> None:
+    """
+    Update a v12 checkpoint to v13.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    update_per_property_scales(checkpoint)
 
 
 ###########################
