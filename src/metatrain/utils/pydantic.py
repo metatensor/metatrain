@@ -1,9 +1,10 @@
+import inspect
 import logging
 from typing import Any
 
 from pydantic import BaseModel, TypeAdapter, ValidationError, create_model
 
-from ..share.base_hypers import BaseHypers
+from ..share.base_hypers import BaseHypers, DatasetSpec
 
 
 class MetatrainValidationError(Exception):
@@ -60,7 +61,7 @@ class MetatrainValidationError(Exception):
         return error_str
 
 
-def validate(model_cls: Any, data: dict, **kwargs: Any) -> None:
+def validate(model_cls: Any, data: dict, **kwargs: Any) -> dict:
     r"""Validate with pydantic, raising custom metatrain errors.
 
     :param model_cls: The Pydantic model class to use for validation.
@@ -69,30 +70,37 @@ def validate(model_cls: Any, data: dict, **kwargs: Any) -> None:
     :param data: The data to validate.
     :param \*\*kwargs: Additional keyword arguments to pass to the validation method.
 
+    :return: The validated options, which have been sanitized.
+
     :raises MetatrainValidationError: If validation fails.
     """
 
-    if issubclass(model_cls, BaseModel):
+    if inspect.isclass(model_cls) and issubclass(model_cls, BaseModel):
         try:
-            model_cls.model_validate(data, **kwargs)
+            validated = model_cls.model_validate(data, **kwargs)
         except ValidationError as e:
             raise MetatrainValidationError(model_cls, e.errors()) from e
     else:
         adapter = TypeAdapter(model_cls)
         try:
-            adapter.validate_python(data, **kwargs)
+            validated = adapter.validate_python(data, **kwargs)
         except ValidationError as e:
             raise MetatrainValidationError(model_cls, e.errors()) from e
+
+    return validated
 
 
 def validate_architecture_options(
     options: dict, model_hypers: type, trainer_hypers: type
-) -> None:
+) -> dict:
     """Validate architecture-specific options using Pydantic.
 
     :param options: The architecture options to validate.
     :param model_hypers: The ModelHypers class of the architecture.
     :param trainer_hypers: The TrainerHypers class of the architecture.
+
+    :return: The validated options, which have been sanitized.
+    :raises MetatrainValidationError: If validation fails.
     """
 
     def _is_validatable(cls: Any) -> bool:
@@ -103,7 +111,7 @@ def validate_architecture_options(
             "Architecture does not provide validation of hyperparameters. "
             "Continuing without validation."
         )
-        return
+        return options
 
     ArchitectureOptions = create_model(
         "ArchitectureOptions",
@@ -124,17 +132,33 @@ def validate_architecture_options(
         options["atomic_types"] = []
         added_atomic_types = True
 
-    validate(ArchitectureOptions, options)
+    validated = validate(ArchitectureOptions, options)
 
     if added_atomic_types:
         del options["atomic_types"]
 
+    return validated
 
-def validate_base_options(options: dict) -> None:
+
+def validate_base_options(options: dict) -> dict:
     """Validate base options using Pydantic.
 
     :param options: The base options to validate.
 
-    :raises ValueError: If the options are invalid.
+    :return: The validated options, which have been sanitized.
+
+    :raises MetatrainValidationError: If the options are invalid.
     """
-    validate(BaseHypers, options)
+    return validate(BaseHypers, options)
+
+
+def validate_eval_options(options: dict) -> dict:
+    """Validate evaluation options using Pydantic.
+
+    :param options: The evaluation options to validate.
+
+    :return: The validated options, which have been sanitized.
+
+    :raises MetatrainValidationError: If the options are invalid.
+    """
+    return validate(DatasetSpec, options)

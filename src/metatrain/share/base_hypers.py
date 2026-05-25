@@ -1,7 +1,7 @@
 # mypy: disable-error-code=misc
 # We ignore misc errors in this file because TypedDict
 # with default values is not allowed by mypy.
-import logging
+import warnings
 from typing import Annotated, Literal, Optional
 
 from annotated_types import Interval
@@ -236,11 +236,13 @@ def sanitize_target_hypers(target_hypers: TargetHypers) -> TargetHypers:
         per_atom = target_hypers.pop("per_atom")
         sample_kind: Literal["system", "atom"] = "atom" if per_atom else "system"
 
-        logging.warning(
+        warnings.warn(
             "DEPRECATED[per_atom]: The `per_atom` key in target specifications is"
             " deprecated and will be removed at some point. Please use "
             f"`sample_kind` instead. You passed {per_atom=} which corresponds "
-            f"to {sample_kind=}."
+            f"to {sample_kind=}.",
+            DeprecationWarning,
+            stacklevel=2,
         )
 
         if (
