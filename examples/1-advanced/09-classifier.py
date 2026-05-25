@@ -232,7 +232,7 @@ for structure in structures:
     features = (
         calc.run_model(
             structure,
-            {"feature": ModelOutput(per_atom=False)},
+            {"feature": ModelOutput(sample_kind="system")},
         )["feature"]
         .block()
         .values.cpu()

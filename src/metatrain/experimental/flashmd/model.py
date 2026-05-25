@@ -144,7 +144,7 @@ class FlashMD(ModelInterface[ModelHypers]):
 
         # the model is always capable of outputting the internal features
         self.outputs = {
-            "feature": ModelOutput(per_atom=True, description="internal features")
+            "feature": ModelOutput(sample_kind="atom", description="internal features")
         }
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
@@ -817,7 +817,7 @@ class FlashMD(ModelInterface[ModelHypers]):
                 axis="samples",
                 selection=selected_atoms,
             )
-        if requested_outputs["feature"].per_atom:
+        if requested_outputs["feature"].sample_kind == "atom":
             features_dict["feature"] = feature_tmap
         else:
             features_dict["feature"] = sum_over_atoms(feature_tmap)

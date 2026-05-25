@@ -22,6 +22,7 @@ from metatrain.utils.data import (
     read_systems,
     unpack_batch,
 )
+from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.data.writers import (
     DiskDatasetWriter,
     Writer,
@@ -44,12 +45,6 @@ from metatrain.utils.transfer import batch_to
 
 
 logger = logging.getLogger(__name__)
-
-
-# metatomic 0.1.12 auto-injects deprecated output names back for backward compatability
-DEPRECATED_METATOMIC_OUTPUT_NAMES = {
-    "features": "feature",
-}
 
 
 def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:

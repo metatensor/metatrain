@@ -90,7 +90,7 @@ class PhACE(ModelInterface[ModelHypers]):
         self.final_scaling = hypers["final_scaling"]
 
         self.outputs = {
-            "feature": ModelOutput(unit="", per_atom=True)
+            "feature": ModelOutput(unit="", sample_kind="atom")
         }  # the model is always capable of outputting the internal features
         for target_name in dataset_info.targets.keys():
             # the model can always output the last-layer features for the targets
@@ -283,7 +283,7 @@ class PhACE(ModelInterface[ModelHypers]):
                 features = metatensor.torch.slice(
                     features, axis="samples", selection=selected_atoms
                 )
-            if outputs["feature"].per_atom:
+            if outputs["feature"].sample_kind == "atom":
                 return_dict["feature"] = features
             else:
                 return_dict["feature"] = metatensor.torch.sum_over_samples(

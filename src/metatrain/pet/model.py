@@ -157,7 +157,7 @@ class PET(ModelInterface[ModelHypers]):
 
         # the model is always capable of outputting the internal features
         self.outputs = {
-            "feature": ModelOutput(per_atom=True, description="internal features"),
+            "feature": ModelOutput(sample_kind="atom", description="internal features"),
             "mtt::aux::cutoff_stats": ModelOutput(
                 sample_kind="atom",
                 description=(
@@ -879,7 +879,7 @@ class PET(ModelInterface[ModelHypers]):
                 axis="samples",
                 selection=selected_atoms,
             )
-        if requested_outputs["feature"].per_atom:
+        if requested_outputs["feature"].sample_kind == "atom":
             features_dict["feature"] = feature_tmap
         else:
             features_dict["feature"] = sum_over_atoms(feature_tmap)
