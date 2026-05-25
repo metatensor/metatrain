@@ -117,7 +117,7 @@ class SphericalTargetIrrepsConfig(TypedDict):
     specified in ``TargetHypers``.
     """
     o3_lambda: int
-    o3_sigma: float
+    o3_sigma: int
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))

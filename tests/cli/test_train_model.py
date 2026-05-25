@@ -36,9 +36,11 @@ from ..conftest import (
     DATASET_PATH_ETHANOL,
     DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
+    DATASET_PATH_SPHERICAL,
     OPTIONS_EXTRA_DATA_PATH,
     OPTIONS_PATH,
     OPTIONS_PET_PATH,
+    OPTIONS_SPHERICAL_PATH,
     RESOURCES_PATH,
 )
 from .dump_spherical_targets import dump_spherical_targets
@@ -57,6 +59,11 @@ def options_pet():
 @pytest.fixture
 def options_extra():
     return OmegaConf.load(OPTIONS_EXTRA_DATA_PATH)
+
+
+@pytest.fixture
+def options_spherical():
+    return OmegaConf.load(OPTIONS_SPHERICAL_PATH)
 
 
 @pytest.mark.parametrize("output", [None, "mymodel.pt"])
@@ -1845,3 +1852,25 @@ def test_indices_out_of_range_error(monkeypatch, tmp_path, options):
 
     with pytest.raises(ValueError, match="out of range"):
         train_model(options)
+
+
+def test_input_sanitized(monkeypatch, tmp_path, options_spherical):
+    """Checks that the input is sanitized before training
+    by passing a deprecated option that should be removed
+    during sanitization."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_SPHERICAL, "spherical_disk_dataset.zip")
+    options_spherical = copy.deepcopy(options_spherical)
+
+    options_spherical["training_set"]["indices"] = [0]
+
+    target_name = "mtt::electron_density_basis"
+    target_options = options_spherical["training_set"]["targets"][target_name]
+    del target_options["sample_kind"]
+    target_options["per_atom"] = True
+
+    with pytest.warns(
+        DeprecationWarning,
+        match="The `per_atom` key in target specifications is deprecated",
+    ):
+        train_model(options_spherical)
