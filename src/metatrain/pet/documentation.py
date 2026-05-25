@@ -17,7 +17,7 @@ Additional outputs
 In addition to the targets defined in the dataset, the PET architecture can also output
 the following additional quantity:
 
-- ``features``: the internal PET features, before the different heads for each target.
+- ``feature``: the internal PET features, before the different heads for each target.
 - :ref:`mtt-aux-target-last-layer-features`: The features for a given target, taken
   before the last linear layer of the corresponding head.
 
