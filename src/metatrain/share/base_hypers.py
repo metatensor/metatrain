@@ -282,6 +282,25 @@ class DatasetDictHypers(TypedDict):
     """
 
 
+@with_config(ConfigDict(extra="forbid", strict=True))
+class EvalDatasetDictHypers(TypedDict):
+    systems: str | SystemsHypers
+    """Path to the dataset file or a dictionary specifying the dataset."""
+    targets: NotRequired[
+        dict[str, Annotated[TargetHypers, AfterValidator(sanitize_target_hypers)] | str]
+    ]
+    """A dictionary specifying the targets in the dataset."""
+    extra_data: NotRequired[dict]
+    """Additional data to include from the dataset."""
+    indices: NotRequired[list[int] | str]
+    """Explicit indices to select from the dataset.
+
+    Can be either a list of integers (e.g., ``[0, 1, 5, 10]``) or a path to a
+    text file containing one index per line. When specified, only the structures
+    at these indices will be used from the dataset.
+    """
+
+
 DatasetSpec = DatasetDictHypers | list[DatasetDictHypers] | str
 
 

@@ -1863,6 +1863,8 @@ def test_input_sanitized(monkeypatch, tmp_path, options_spherical):
     options_spherical = copy.deepcopy(options_spherical)
 
     options_spherical["training_set"]["indices"] = [0]
+    options_spherical["validation_set"] = {"indices": [0]}
+    options_spherical["test_set"] = {"indices": [0]}
 
     target_name = "mtt::electron_density_basis"
     target_options = options_spherical["training_set"]["targets"][target_name]
