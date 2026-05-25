@@ -46,6 +46,12 @@ from metatrain.utils.transfer import batch_to
 logger = logging.getLogger(__name__)
 
 
+# metatomic 0.1.12 auto-injects deprecated output names back for backward compatability
+DEPRECATED_METATOMIC_OUTPUT_NAMES = {
+    "features": "feature",
+}
+
+
 def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     """Add the `eval_model` paramaters to an argparse (sub)-parser
 
@@ -323,7 +329,13 @@ def eval_model(
 
             # FIXME: this works only for energy models
             eval_targets: Dict[str, TensorMap] = {}
-            eval_info_dict = copy.deepcopy(model.capabilities().outputs)
+            eval_info_dict = copy.deepcopy(
+                {
+                    name: model_output
+                    for name, model_output in model.capabilities().outputs.items()
+                    if name not in DEPRECATED_METATOMIC_OUTPUT_NAMES
+                }
+            )
             for name, model_output in eval_info_dict.items():
                 if "energy" in name:
                     model_output.sample_kind = "system"  # type: ignore
