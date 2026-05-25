@@ -13,6 +13,7 @@ architecture:
 training_set:
   systems:
     read_from: spherical_disk_dataset.zip
+    length_unit: angstrom
   targets:
     mtt::electron_density_basis:
       sample_kind: atom
