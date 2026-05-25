@@ -282,6 +282,9 @@ class DatasetDictHypers(TypedDict):
     """
 
 
+DatasetSpec = DatasetDictHypers | list[DatasetDictHypers] | str
+
+
 @with_config(ConfigDict(extra="forbid", strict=True))
 class EvalDatasetDictHypers(TypedDict):
     systems: str | SystemsHypers
@@ -301,7 +304,7 @@ class EvalDatasetDictHypers(TypedDict):
     """
 
 
-DatasetSpec = DatasetDictHypers | list[DatasetDictHypers] | str
+EvalHypers = EvalDatasetDictHypers | list[EvalDatasetDictHypers]
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))

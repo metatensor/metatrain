@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, TypeAdapter, ValidationError, create_model
 
-from ..share.base_hypers import BaseHypers, EvalDatasetDictHypers
+from ..share.base_hypers import BaseHypers, EvalHypers
 
 
 class MetatrainValidationError(Exception):
@@ -161,4 +161,4 @@ def validate_eval_options(options: dict) -> dict:
 
     :raises MetatrainValidationError: If the options are invalid.
     """
-    return validate(EvalDatasetDictHypers, options)
+    return validate(EvalHypers, options)
