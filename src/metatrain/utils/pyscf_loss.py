@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import copy
 import importlib
-import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -36,49 +35,38 @@ def _import_pyscf_modules() -> tuple[ModuleType, ModuleType]:
     return gto, elements
 
 
-def _build_etb_basis_for_element(ref_basis: str, symbol: str, ratio: float) -> list:
-    """Build an uncontracted ETB basis for one element from a reference basis.
+def _build_etb_basis_via_aug_etb(
+    ao_basis: str, atomic_numbers: tuple[int, ...], beta: float
+) -> dict[str, object]:
+    """Build an ETB auxiliary basis using ``pyscf.df.aug_etb``.
 
-    Parses ``ref_basis`` (a named PySCF basis) to discover which angular-momentum
-    channels are present and the exponent range for each.  For every channel ``l``
-    the function constructs an even-tempered sequence of ``n`` uncontracted
-    primitives starting at the minimum exponent of the reference and spaced by
-    ``ratio``, choosing ``n`` to cover at least the full exponent range of the
-    reference.  The result is returned in the format accepted by ``gto.etbs`` /
-    ``mol.basis``.
+    Constructs a dummy molecule with one atom per unique element using the
+    **orbital** basis ``ao_basis``, then calls ``pyscf.df.aug_etb(mol, beta)``
+    — matching exactly how SCFBench and similar datasets are generated.
 
-    :param ref_basis: Name of the PySCF reference basis (e.g. ``"def2-svp"``).
-    :param symbol: Element symbol (e.g. ``"O"``).
-    :param ratio: Even-tempering ratio β (consecutive exponents differ by this factor).
-    :return: Basis specification list suitable for ``mol.basis[symbol]``.
+    :param ao_basis: Orbital (not auxiliary) basis name (e.g. ``"def2-svp"``).
+    :param atomic_numbers: Tuple of unique atomic numbers present in the system.
+    :param beta: Even-tempering ratio β.
+    :return: Dictionary mapping element symbols to basis specifications,
+        suitable for ``mol.basis``.
     """
-    gto, _ = _import_pyscf_modules()
-    ref = gto.basis.load(ref_basis, symbol)
+    gto, elements = _import_pyscf_modules()
+    df = importlib.import_module("pyscf.df")
 
-    # Collect all primitive exponents per angular momentum from the reference.
-    l_exps: dict[int, list[float]] = {}
-    for shell in ref:
-        l = int(shell[0])
-        for prim in shell[1:]:
-            if isinstance(prim, (list, tuple)) and prim:
-                l_exps.setdefault(l, []).append(float(prim[0]))
+    symbols = [elements.ELEMENTS[n] for n in atomic_numbers]
+    # Place each element far apart so the dummy molecule builds without issues.
+    atom_str = "\n".join(f"{sym} 0.0 0.0 {i * 10.0}" for i, sym in enumerate(symbols))
 
-    etb_specs = []
-    for l in sorted(l_exps):
-        exps = sorted(l_exps[l])
-        alpha_min = exps[0]
-        alpha_max = exps[-1]
-        if len(exps) > 1 and alpha_max > alpha_min:
-            # Enough primitives to cover [alpha_min, alpha_max] with spacing ratio.
-            n = max(
-                len(exps),
-                round(math.log(alpha_max / alpha_min) / math.log(ratio)) + 1,
-            )
-        else:
-            n = len(exps)
-        etb_specs.append((l, n, alpha_min, ratio))
+    mol = gto.Mole()
+    mol.atom = atom_str
+    mol.basis = ao_basis
+    mol.unit = "Angstrom"
+    mol.verbose = 0
+    mol.spin = None
+    mol.cart = False
+    mol.build()
 
-    return gto.etbs(etb_specs)
+    return df.aug_etb(mol, beta=beta)
 
 
 @lru_cache(maxsize=None)
@@ -90,25 +78,25 @@ def _load_auxiliary_basis(
     Supports two formats for ``aux_basis``:
 
     - A plain PySCF basis name (e.g. ``"def2-universal-jfit"``), loaded via
-      ``gto.basis.load``.
-    - An even-tempered basis specification ``"etb:<ref_basis>:<ratio>"``
-      (e.g. ``"etb:def2-svp:2.0"``), which derives an uncontracted ETB from
-      ``<ref_basis>`` using the given ratio for each element.
+      ``gto.basis.load`` for each element.
+    - An even-tempered basis specification ``"etb:<ao_basis>:<beta>"``
+      (e.g. ``"etb:def2-svp:2.0"``), which calls ``pyscf.df.aug_etb`` on a
+      molecule built with the **orbital** basis ``<ao_basis>`` and ratio
+      ``<beta>`` — the same algorithm used by SCFBench to generate RI datasets.
     """
     gto, elements = _import_pyscf_modules()
 
     etb_parts = aux_basis.split(":")
-    is_etb = len(etb_parts) == 3 and etb_parts[0].lower() == "etb"
+    if len(etb_parts) == 3 and etb_parts[0].lower() == "etb":
+        # aug_etb returns a complete per-element dict; return it directly.
+        return _build_etb_basis_via_aug_etb(
+            etb_parts[1], atomic_numbers, float(etb_parts[2])
+        )
 
     basis: dict[str, object] = {}
     for atomic_number in atomic_numbers:
         symbol = elements.ELEMENTS[atomic_number]
-        if is_etb:
-            basis[symbol] = _build_etb_basis_for_element(
-                etb_parts[1], symbol, float(etb_parts[2])
-            )
-        else:
-            basis[symbol] = gto.basis.load(aux_basis, symbol)
+        basis[symbol] = gto.basis.load(aux_basis, symbol)
 
     return basis
 
