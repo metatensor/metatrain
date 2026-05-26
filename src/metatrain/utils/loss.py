@@ -14,6 +14,12 @@ from torch.nn.modules.loss import _Loss
 from typing_extensions import NotRequired, TypedDict
 
 from metatrain.utils.data import TargetInfo
+from metatrain.utils.pyscf_loss import (
+    metric_matrix_name,
+    packed_two_center_basis_sizes,
+    ri_density_fit_constant_name,
+    ri_projections_name,
+)
 
 
 @with_config(ConfigDict(extra="allow"))
@@ -442,6 +448,415 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
             loss_fn=torch.nn.HuberLoss(reduction=reduction, delta=delta),
         )
 
+
+########################################################################################
+# RI-coefficient helper functions (PySCF ordering)
+
+########################################################################################
+# RI coefficient helpers (PySCF basis ordering)
+########################################################################################
+
+
+def _ri_coefficients_pyscf_order_impl(
+    tensor_map: TensorMap,
+    other_tensor_map: Optional[TensorMap] = None,
+) -> list[torch.Tensor]:
+    """Flatten RI coefficients or deltas directly in the PySCF basis order."""
+
+    ordered_keys = sorted(tensor_map.keys, key=lambda key: int(key[0]))
+    if len(ordered_keys) == 0:
+        return []
+
+    first_block = tensor_map.block(ordered_keys[0])
+    if len(first_block.samples) == 0:
+        return []
+
+    system_indices = first_block.samples.values[:, 0]
+    _, sample_counts = torch.unique_consecutive(system_indices, return_counts=True)
+    sample_counts_list = sample_counts.tolist()
+
+    split_blocks: list[tuple[tuple[torch.Tensor, ...], tuple[torch.Tensor, ...]]] = []
+    for key in ordered_keys:
+        block = tensor_map.block(key)
+        values = block.values
+        if other_tensor_map is not None:
+            values = values - other_tensor_map.block(key).values
+
+        if int(key[0]) == 1:
+            values = values[:, [2, 0, 1], :]
+
+        # RI values are stored as [sample, m, n], but PySCF expects n-major ordering
+        # within each angular channel.
+        values = values.transpose(1, 2).reshape(values.shape[0], -1)
+        valid = ~torch.isnan(values)
+        split_blocks.append(
+            (
+                torch.split(values, sample_counts_list, dim=0),
+                torch.split(valid, sample_counts_list, dim=0),
+            )
+        )
+
+    coefficients_per_system = []
+    for i_system in range(len(sample_counts_list)):
+        system_parts = []
+        n_samples = split_blocks[0][0][i_system].shape[0]
+        for i_sample in range(n_samples):
+            for block_values_per_system, block_valid_per_system in split_blocks:
+                values = block_values_per_system[i_system][i_sample]
+                valid = block_valid_per_system[i_system][i_sample]
+                system_parts.append(values[valid])
+
+        if len(system_parts) == 0:
+            coefficients_per_system.append(
+                torch.empty(
+                    0,
+                    dtype=first_block.values.dtype,
+                    device=first_block.values.device,
+                )
+            )
+        else:
+            coefficients_per_system.append(torch.cat(system_parts))
+
+    return coefficients_per_system
+
+
+def _ri_coefficients_delta_pyscf_order(
+    tensor_map_pred: TensorMap,
+    tensor_map_targ: TensorMap,
+) -> list[torch.Tensor]:
+    """
+    Flatten RI coefficient deltas directly in the PySCF basis order.
+
+    :param tensor_map_pred: Predicted RI coefficients.
+    :param tensor_map_targ: Target RI coefficients.
+    :return: One 1D tensor per system in PySCF coefficient order.
+    """
+    return _ri_coefficients_pyscf_order_impl(tensor_map_pred, tensor_map_targ)
+
+
+def _ri_coefficients_pyscf_order(tensor_map: TensorMap) -> list[torch.Tensor]:
+    """Flatten RI coefficients in the PySCF basis order."""
+    return _ri_coefficients_pyscf_order_impl(tensor_map)
+
+
+def _ri_coefficients_pyscf_order_aligned(
+    *tensor_maps: TensorMap,
+) -> list[tuple[torch.Tensor, ...]]:
+    """
+    Flatten several RI TensorMaps with a shared NaN mask (union across maps).
+
+    Returns one tuple per system with one flat tensor per input map, all of equal
+    length per system.
+    """
+    if len(tensor_maps) == 0:
+        return []
+
+    first_map = tensor_maps[0]
+    ordered_keys = sorted(first_map.keys, key=lambda key: int(key[0]))
+    if len(ordered_keys) == 0:
+        return []
+
+    first_block = first_map.block(ordered_keys[0])
+    if len(first_block.samples) == 0:
+        return []
+
+    system_indices = first_block.samples.values[:, 0]
+    _, sample_counts = torch.unique_consecutive(system_indices, return_counts=True)
+    sample_counts_list = sample_counts.tolist()
+
+    split_blocks: list[tuple[list[tuple[torch.Tensor, ...]], tuple[torch.Tensor, ...]]]
+    split_blocks = []
+    for key in ordered_keys:
+        per_map_values = []
+        union_invalid: Optional[torch.Tensor] = None
+        for tensor_map in tensor_maps:
+            block = tensor_map.block(key)
+            values = block.values
+            if int(key[0]) == 1:
+                values = values[:, [2, 0, 1], :]
+            values = values.transpose(1, 2).reshape(values.shape[0], -1)
+            per_map_values.append(values)
+            invalid = torch.isnan(values)
+            union_invalid = (
+                invalid if union_invalid is None else (union_invalid | invalid)
+            )
+        assert union_invalid is not None
+        valid = ~union_invalid
+        split_blocks.append(
+            (
+                [torch.split(v, sample_counts_list, dim=0) for v in per_map_values],
+                torch.split(valid, sample_counts_list, dim=0),
+            )
+        )
+
+    result_per_system: list[tuple[torch.Tensor, ...]] = []
+    for i_system in range(len(sample_counts_list)):
+        per_map_parts: list[list[torch.Tensor]] = [[] for _ in tensor_maps]
+        n_samples = split_blocks[0][0][0][i_system].shape[0]
+        for i_sample in range(n_samples):
+            for per_map_splits, valid_splits in split_blocks:
+                valid_v = valid_splits[i_system][i_sample]
+                for i_map, splits in enumerate(per_map_splits):
+                    values_v = splits[i_system][i_sample]
+                    per_map_parts[i_map].append(values_v[valid_v])
+
+        if not per_map_parts[0]:
+            empty = torch.empty(
+                0,
+                dtype=first_block.values.dtype,
+                device=first_block.values.device,
+            )
+            result_per_system.append(tuple(empty for _ in tensor_maps))
+        else:
+            result_per_system.append(tuple(torch.cat(parts) for parts in per_map_parts))
+
+    return result_per_system
+
+
+########################################################################################
+# RI density losses
+########################################################################################
+
+
+class DensityMSELossViaC(LossInterface):
+    """
+    Quadratic density loss using the coefficient residual: ``L = Δc^T · M · Δc``.
+
+    This is the L2 loss on the real-space electron density for metric ``M``:
+
+    - ``metric="overlap"``: ``M = S`` (two-centre overlap) — the true
+      :math:`\\int |\\rho_{ML}(r) - \\rho_{RI}(r)|^2\\,dr` for the RI expansion.
+    - ``metric="coulomb"``: ``M = J`` (two-centre Coulomb ERI) — the electrostatic
+      self-energy of the density residual.
+
+    Predictions and targets must be passed at the same physical scale (CM
+    subtracted, no per-coefficient normalisation applied), because per-property
+    scales cannot be factored out of the quadratic form.  The trainer is
+    responsible for rescaling before calling :meth:`compute`.
+
+    :param name: key of the RI-coefficient target.
+    :param gradient: not supported; must be ``None``.
+    :param weight: loss weight in the aggregated loss.
+    :param reduction: ``"mean"`` or ``"sum"``.
+    :param metric: two-centre metric to use — ``"overlap"`` (default) or ``"coulomb"``.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+        metric: str = "overlap",
+    ):
+        super().__init__(name, gradient, weight, reduction)
+        self.metric = metric
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        if self.gradient is not None:
+            raise NotImplementedError(
+                "DensityMSELossViaC does not support gradients of RI targets."
+            )
+        assert extra_data is not None, (
+            "DensityMSELossViaC requires extra_data with the packed metric matrix."
+        )
+        mat_name = metric_matrix_name(self.target, self.metric)
+        assert mat_name in extra_data, (
+            f"DensityMSELossViaC requires '{mat_name}' in extra_data"
+        )
+
+        tensor_map_pred = predictions[self.target]
+        tensor_map_targ = targets[self.target]
+        delta_coefficients = _ri_coefficients_delta_pyscf_order(
+            tensor_map_pred, tensor_map_targ
+        )
+
+        if len(delta_coefficients) == 0:
+            first_block = tensor_map_pred.block(tensor_map_pred.keys[0])
+            return torch.zeros(
+                (), dtype=first_block.values.dtype, device=first_block.values.device
+            )
+
+        packed_matrix = extra_data[mat_name]
+        packed_block = packed_matrix.block()
+        basis_sizes = packed_two_center_basis_sizes(packed_matrix).tolist()
+        coefficient_sizes = [len(d) for d in delta_coefficients]
+
+        if len(basis_sizes) != len(coefficient_sizes):
+            raise ValueError(
+                "The number of packed metric matrices does not match the number of "
+                "systems."
+            )
+        for coeff_size, basis_size in zip(coefficient_sizes, basis_sizes, strict=True):
+            if coeff_size != basis_size:
+                raise ValueError(
+                    "The RI target size does not match the configured auxiliary basis. "
+                    "Check that 'ri_aux_basis' matches the RI coefficients stored in "
+                    "the dataset."
+                )
+
+        max_basis = packed_block.values.shape[-1]
+        delta_padded = packed_block.values.new_zeros(
+            (len(delta_coefficients), max_basis)
+        )
+        for i_system, delta in enumerate(delta_coefficients):
+            delta_padded[i_system, : delta.shape[0]] = delta
+
+        matrix_values = torch.nan_to_num(packed_block.values, nan=0.0)
+        # L_i = Δc_i^T M_i Δc_i
+        loss_values = torch.einsum(
+            "bi,bij,bj->b", delta_padded, matrix_values, delta_padded
+        )
+
+        if self.reduction == "mean":
+            return loss_values.mean()
+        elif self.reduction == "sum":
+            return loss_values.sum()
+        elif self.reduction == "none":
+            return loss_values
+        else:
+            raise ValueError(f"Unknown reduction '{self.reduction}'")
+
+
+class DensityMSELossViaW(LossInterface):
+    """
+    Density-fit loss using projection vectors as reference data.
+
+    Implements ``L = c_ML^T M c_ML - 2 c_ML^T w`` per system, where ``w = M c_RI``
+    are the projections of the reference density coefficients under the chosen metric
+    ``M``.  Adding the pre-computed per-system constant ``c_RI^T w`` (stored in
+    ``extra_data`` by the collate transform) makes the loss bounded below at zero;
+    this constant has no gradient w.r.t. model parameters.
+
+    - ``metric="overlap"``: ``M = S`` (two-centre overlap). Avoids computing
+      ``c_RI = S⁻¹ w_S`` entirely, circumventing the ill-conditioning of ``S``.
+    - ``metric="coulomb"``: ``M = J`` (two-centre Coulomb ERI). Minimises the
+      electrostatic self-energy of the prediction error in coefficient space.
+
+    Predictions must be fully reconstructed RI coefficients — composition-model
+    contributions added back and all scales applied — because the projections and
+    constant are in the same physical units.  The trainer handles this before
+    calling :meth:`compute`.
+
+    :param name: key of the RI-coefficient target.
+    :param gradient: not supported; must be ``None``.
+    :param weight: loss weight in the aggregated loss.
+    :param reduction: ``"mean"`` or ``"sum"``.
+    :param metric: two-centre metric to use — ``"overlap"`` (default) or ``"coulomb"``.
+    :param projections_key: ``extra_data`` key for the projection vectors
+        ``w = M c_RI``.  Defaults to ``<target_name>_projections`` when ``None``.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+        metric: str = "overlap",
+        projections_key: Optional[str] = None,
+    ):
+        super().__init__(name, gradient, weight, reduction)
+        self.metric = metric
+        self.projections_key = (
+            projections_key if projections_key is not None
+            else ri_projections_name(name)
+        )
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        if self.gradient is not None:
+            raise NotImplementedError(
+                "DensityMSELossViaW does not support gradients of RI targets."
+            )
+        assert extra_data is not None, (
+            "DensityMSELossViaW requires extra_data with the packed metric matrix "
+            "and RI projections."
+        )
+        mat_name = metric_matrix_name(self.target, self.metric)
+        projection_name = self.projections_key
+        assert mat_name in extra_data, (
+            f"DensityMSELossViaW requires '{mat_name}' in extra_data"
+        )
+        assert projection_name in extra_data, (
+            f"DensityMSELossViaW requires '{projection_name}' in extra_data"
+        )
+
+        tensor_map_pred = predictions[self.target]
+        projection_map = extra_data[projection_name]
+
+        # Align predictions and projections under a shared NaN mask so both
+        # flat vectors are the same length per system.
+        aligned = _ri_coefficients_pyscf_order_aligned(tensor_map_pred, projection_map)
+        coefficients = [item[0] for item in aligned]
+        projections  = [item[1] for item in aligned]
+
+        if len(coefficients) == 0:
+            first_block = tensor_map_pred.block(tensor_map_pred.keys[0])
+            return torch.zeros(
+                (), dtype=first_block.values.dtype, device=first_block.values.device
+            )
+
+        packed_matrix = extra_data[mat_name]
+        packed_block = packed_matrix.block()
+        basis_sizes = packed_two_center_basis_sizes(packed_matrix).tolist()
+        coefficient_sizes = [len(c) for c in coefficients]
+
+        if len(basis_sizes) != len(coefficient_sizes):
+            raise ValueError(
+                "The number of packed metric matrices does not match the number of "
+                "systems."
+            )
+        for coeff_size, basis_size in zip(coefficient_sizes, basis_sizes, strict=True):
+            if coeff_size != basis_size:
+                raise ValueError(
+                    "The RI target size does not match the configured auxiliary basis. "
+                    "Check that 'ri_aux_basis' matches the RI coefficients stored in "
+                    "the dataset."
+                )
+
+        max_basis = packed_block.values.shape[-1]
+        coeff_padded = packed_block.values.new_zeros((len(coefficients), max_basis))
+        proj_padded  = packed_block.values.new_zeros((len(projections),  max_basis))
+        for i_system, (c, p) in enumerate(zip(coefficients, projections, strict=True)):
+            coeff_padded[i_system, : c.shape[0]] = c
+            proj_padded [i_system, : p.shape[0]] = p
+
+        matrix_values = torch.nan_to_num(packed_block.values, nan=0.0)
+        # quadratic term:  c^T M c
+        quadratic = torch.einsum(
+            "bi,bij,bj->b", coeff_padded, matrix_values, coeff_padded
+        )
+        # linear term:  c^T w
+        linear = torch.einsum("bi,bi->b", coeff_padded, proj_padded)
+        # L_i = c_ML^T M c_ML - 2 c_ML^T w
+        loss_values = quadratic - 2.0 * linear
+
+        # Add the pre-computed per-system constant c_RI^T w (no gradient).
+        constant_name = ri_density_fit_constant_name(self.target)
+        if constant_name in extra_data:
+            constants = extra_data[constant_name].block().values.squeeze(-1)
+            loss_values = loss_values + constants.to(
+                dtype=loss_values.dtype, device=loss_values.device
+            )
+
+        if self.reduction == "mean":
+            return loss_values.mean()
+        elif self.reduction == "sum":
+            return loss_values.sum()
+        elif self.reduction == "none":
+            return loss_values
+        else:
+            raise ValueError(f"Unknown reduction '{self.reduction}'")
 
 class MaskedDOSLoss(LossInterface):
     """
@@ -1184,6 +1599,8 @@ class LossType(Enum):
     GAUSSIAN_NLL = ("gaussian_nll_ensemble", TensorMapGaussianNLLLoss)
     GAUSSIAN_CRPS = ("gaussian_crps_ensemble", TensorMapGaussianCRPSLoss)
     EMPIRICAL_CRPS = ("empirical_crps_ensemble", TensorMapEmpiricalCRPSLoss)
+    DENSITY_MSE_VIA_C = ("density_mse_via_c", DensityMSELossViaC)
+    DENSITY_MSE_VIA_W = ("density_mse_via_w", DensityMSELossViaW)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key

@@ -12,6 +12,8 @@ from metatrain.utils.loss import (
     GaussianCRPSLoss,
     LossAggregator,
     LossType,
+    DensityMSELossViaW,
+    DensityMSELossViaC,
     TensorMapGaussianCRPSLoss,
     TensorMapGaussianNLLLoss,
     TensorMapHuberLoss,
@@ -20,7 +22,15 @@ from metatrain.utils.loss import (
     TensorMapMaskedMAELoss,
     TensorMapMaskedMSELoss,
     TensorMapMSELoss,
+    _ri_coefficients_delta_pyscf_order,
+    _ri_coefficients_pyscf_order,
     create_loss,
+)
+from metatrain.utils.pyscf_loss import (
+    overlap_matrix_name,
+    pack_two_center_matrices,
+    ri_density_fit_constant_name,
+    ri_projections_name,
 )
 
 
@@ -246,6 +256,8 @@ def test_loss_type_and_factory():
         "masked_mse": TensorMapMaskedMSELoss,
         "masked_mae": TensorMapMaskedMAELoss,
         "masked_huber": TensorMapMaskedHuberLoss,
+        "density_mse_via_c": DensityMSELossViaC,
+        "density_mse_via_w": DensityMSELossViaW,
     }
     for key, cls in mapping.items():
         # LossType.from_key should return enum with .key
@@ -317,6 +329,643 @@ def test_create_loss_invalid_kwargs():
     assert (
         "foo" in msg
     )  # original constructor error should mention the unexpected 'foo'
+
+
+def _make_ri_tensor_map_from_blocks(samples, values_l0, values_l1) -> TensorMap:
+    values_l0 = (
+        values_l0
+        if isinstance(values_l0, torch.Tensor)
+        else torch.tensor(values_l0, dtype=torch.float64)
+    )
+    values_l1 = (
+        values_l1
+        if isinstance(values_l1, torch.Tensor)
+        else torch.tensor(values_l1, dtype=torch.float64)
+    )
+
+    return TensorMap(
+        keys=Labels(
+            names=["o3_lambda", "o3_sigma"],
+            values=torch.tensor([[0, 1], [1, 1]], dtype=torch.int32),
+        ),
+        blocks=[
+            TensorBlock(
+                values=values_l0,
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor(samples, dtype=torch.int32),
+                ),
+                components=[
+                    Labels(
+                        names=["o3_mu"], values=torch.tensor([[0]], dtype=torch.int32)
+                    )
+                ],
+                properties=Labels(
+                    names=["n"],
+                    values=torch.arange(values_l0.shape[-1], dtype=torch.int32).reshape(
+                        -1, 1
+                    ),
+                ),
+            ),
+            TensorBlock(
+                values=values_l1,
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor(samples, dtype=torch.int32),
+                ),
+                components=[
+                    Labels(
+                        names=["o3_mu"],
+                        values=torch.tensor([[-1], [0], [1]], dtype=torch.int32),
+                    )
+                ],
+                properties=Labels(
+                    names=["n"],
+                    values=torch.arange(values_l1.shape[-1], dtype=torch.int32).reshape(
+                        -1, 1
+                    ),
+                ),
+            ),
+        ],
+    )
+
+
+def _make_ri_tensor_map(values_l0, values_l1) -> TensorMap:
+    return _make_ri_tensor_map_from_blocks(
+        samples=[[0, 0]],
+        values_l0=torch.tensor(values_l0, dtype=torch.float64).reshape(1, 1, 1),
+        values_l1=torch.tensor(values_l1, dtype=torch.float64).reshape(1, 3, 1),
+    )
+
+
+def _make_ri_tensor_map_from_pyscf_vector(
+    values: list[float] | torch.Tensor,
+) -> TensorMap:
+    vector = (
+        values
+        if isinstance(values, torch.Tensor)
+        else torch.tensor(values, dtype=torch.float64)
+    )
+    return _make_ri_tensor_map(
+        [vector[0].item()],
+        [vector[2].item(), vector[3].item(), vector[1].item()],
+    )
+
+
+def _make_multisystem_ri_tensor_map(
+    values_l0: torch.Tensor, values_l1: torch.Tensor
+) -> TensorMap:
+    return _make_ri_tensor_map_from_blocks(
+        samples=[[0, 0], [0, 1], [1, 0]],
+        values_l0=values_l0,
+        values_l1=values_l1,
+    )
+
+
+def _make_ri_delta_map(pred: TensorMap, targ: TensorMap) -> TensorMap:
+    blocks = []
+    for key in pred.keys:
+        block_pred = pred.block(key)
+        block_targ = targ.block(key)
+        blocks.append(
+            TensorBlock(
+                values=block_pred.values - block_targ.values,
+                samples=block_pred.samples,
+                components=block_pred.components,
+                properties=block_pred.properties,
+            )
+        )
+
+    return TensorMap(pred.keys, blocks)
+
+
+def _make_multisystem_ri_prediction_and_target() -> tuple[TensorMap, TensorMap]:
+    pred_l0 = torch.tensor(
+        [
+            [[1.0, 10.0]],
+            [[2.0, float("nan")]],
+            [[3.0, 30.0]],
+        ],
+        dtype=torch.float64,
+    )
+    targ_l0 = torch.tensor(
+        [
+            [[0.5, 8.0]],
+            [[1.5, float("nan")]],
+            [[1.0, 29.0]],
+        ],
+        dtype=torch.float64,
+    )
+
+    pred_l1 = torch.tensor(
+        [
+            [[1.0, 11.0], [2.0, 12.0], [3.0, 13.0]],
+            [[4.0, float("nan")], [5.0, float("nan")], [6.0, float("nan")]],
+            [[7.0, 17.0], [8.0, 18.0], [9.0, 19.0]],
+        ],
+        dtype=torch.float64,
+    )
+    targ_l1 = torch.tensor(
+        [
+            [[0.5, 10.0], [1.0, 11.0], [1.5, 12.0]],
+            [[2.0, float("nan")], [2.5, float("nan")], [3.0, float("nan")]],
+            [[3.5, 16.0], [4.0, 17.0], [4.5, 18.0]],
+        ],
+        dtype=torch.float64,
+    )
+
+    pred = _make_multisystem_ri_tensor_map(pred_l0, pred_l1)
+    targ = _make_multisystem_ri_tensor_map(targ_l0, targ_l1)
+    return pred, targ
+
+
+def _manual_unpadded_ri_deltas(pred: TensorMap, targ: TensorMap) -> list[torch.Tensor]:
+    ordered_keys = sorted(pred.keys, key=lambda key: int(key[0]))
+    if len(ordered_keys) == 0:
+        return []
+
+    first_block = pred.block(ordered_keys[0])
+    if len(first_block.samples) == 0:
+        return []
+
+    system_ids = first_block.samples.values[:, 0].tolist()
+    unique_system_ids = list(dict.fromkeys(system_ids))
+    system_deltas = []
+
+    for system_id in unique_system_ids:
+        system_parts = []
+        sample_mask = first_block.samples.values[:, 0] == system_id
+        system_sample_indices = torch.nonzero(sample_mask, as_tuple=True)[0].tolist()
+
+        for sample_index in system_sample_indices:
+            for key in ordered_keys:
+                block_pred = pred.block(key)
+                block_targ = targ.block(key)
+                delta = (
+                    block_pred.values[sample_index] - block_targ.values[sample_index]
+                )
+                if int(key[0]) == 1:
+                    delta = delta[[2, 0, 1], :]
+
+                for radial_index in range(delta.shape[-1]):
+                    for magnetic_index in range(delta.shape[0]):
+                        value = delta[magnetic_index, radial_index]
+                        if not torch.isnan(value):
+                            system_parts.append(value.reshape(1))
+
+        if len(system_parts) == 0:
+            system_deltas.append(
+                torch.empty(
+                    0,
+                    dtype=first_block.values.dtype,
+                    device=first_block.values.device,
+                )
+            )
+        else:
+            system_deltas.append(torch.cat(system_parts))
+
+    return system_deltas
+
+
+def _manual_unpadded_ri_losses(
+    pred: TensorMap, targ: TensorMap, matrices: list[torch.Tensor]
+) -> torch.Tensor:
+    deltas = _manual_unpadded_ri_deltas(pred, targ)
+    return torch.stack(
+        [
+            torch.einsum("i,ij,j->", delta, matrix, delta)
+            for delta, matrix in zip(deltas, matrices, strict=True)
+        ]
+    )
+
+
+def _manual_unpadded_ri_values(tensor: TensorMap) -> list[torch.Tensor]:
+    ordered_keys = sorted(tensor.keys, key=lambda key: int(key[0]))
+    if len(ordered_keys) == 0:
+        return []
+
+    first_block = tensor.block(ordered_keys[0])
+    if len(first_block.samples) == 0:
+        return []
+
+    system_ids = first_block.samples.values[:, 0].tolist()
+    unique_system_ids = list(dict.fromkeys(system_ids))
+    system_values = []
+
+    for system_id in unique_system_ids:
+        system_parts = []
+        sample_mask = first_block.samples.values[:, 0] == system_id
+        system_sample_indices = torch.nonzero(sample_mask, as_tuple=True)[0].tolist()
+
+        for sample_index in system_sample_indices:
+            for key in ordered_keys:
+                block = tensor.block(key)
+                values = block.values[sample_index]
+                if int(key[0]) == 1:
+                    values = values[[2, 0, 1], :]
+
+                for radial_index in range(values.shape[-1]):
+                    for magnetic_index in range(values.shape[0]):
+                        value = values[magnetic_index, radial_index]
+                        if not torch.isnan(value):
+                            system_parts.append(value.reshape(1))
+
+        if len(system_parts) == 0:
+            system_values.append(
+                torch.empty(
+                    0,
+                    dtype=first_block.values.dtype,
+                    device=first_block.values.device,
+                )
+            )
+        else:
+            system_values.append(torch.cat(system_parts))
+
+    return system_values
+
+
+def test_ri_delta_helper_matches_reference_flattening():
+    pred, targ = _make_multisystem_ri_prediction_and_target()
+
+    reference = _manual_unpadded_ri_deltas(pred, targ)
+    optimized = _ri_coefficients_delta_pyscf_order(pred, targ)
+
+    assert len(optimized) == len(reference)
+    for optimized_system, reference_system in zip(optimized, reference, strict=True):
+        torch.testing.assert_close(optimized_system, reference_system)
+
+
+def test_ri_coefficients_helper_matches_reference_flattening():
+    tensor = _make_multisystem_ri_tensor_map(
+        torch.tensor(
+            [
+                [[1.0, 10.0]],
+                [[2.0, float("nan")]],
+                [[3.0, 30.0]],
+            ],
+            dtype=torch.float64,
+        ),
+        torch.tensor(
+            [
+                [[1.0, 11.0], [2.0, 12.0], [3.0, 13.0]],
+                [[4.0, float("nan")], [5.0, float("nan")], [6.0, float("nan")]],
+                [[7.0, 17.0], [8.0, 18.0], [9.0, 19.0]],
+            ],
+            dtype=torch.float64,
+        ),
+    )
+
+    reference = _manual_unpadded_ri_values(tensor)
+    optimized = _ri_coefficients_pyscf_order(tensor)
+
+    assert len(optimized) == len(reference)
+    for optimized_system, reference_system in zip(optimized, reference, strict=True):
+        torch.testing.assert_close(optimized_system, reference_system)
+
+
+
+def test_density_overlap_loss_zero():
+    target_name = "mtt::ri"
+    tensor_map = _make_ri_tensor_map([1.0], [2.0, 3.0, 4.0])
+    extra_data = {
+        overlap_matrix_name(target_name): pack_two_center_matrices(
+            [torch.eye(4, dtype=torch.float64)]
+        )
+    }
+
+    loss = DensityMSELossViaC(
+        name=target_name, gradient=None, weight=1.0, reduction="mean"
+    )
+
+    result = loss({target_name: tensor_map}, {target_name: tensor_map}, extra_data)
+    assert result.item() == pytest.approx(0.0)
+
+
+def test_density_overlap_loss_reorders_p_orbitals_for_pyscf():
+    target_name = "mtt::ri"
+    pred = _make_ri_tensor_map([0.0], [10.0, 20.0, 30.0])
+    targ = _make_ri_tensor_map([0.0], [1.0, 2.0, 3.0])
+
+    delta_pyscf = torch.tensor([0.0, 27.0, 9.0, 18.0], dtype=torch.float64)
+    overlap = torch.diag(torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float64))
+    expected = torch.einsum("i,ij,j->", delta_pyscf, overlap, delta_pyscf)
+
+    extra_data = {overlap_matrix_name(target_name): pack_two_center_matrices([overlap])}
+    loss = DensityMSELossViaC(
+        name=target_name, gradient=None, weight=1.0, reduction="mean"
+    )
+
+    result = loss({target_name: pred}, {target_name: targ}, extra_data)
+    torch.testing.assert_close(result, expected)
+
+
+def test_density_overlap_loss_matches_reference_multisystem():
+    target_name = "mtt::ri"
+    pred, targ = _make_multisystem_ri_prediction_and_target()
+    manual_delta = _manual_unpadded_ri_deltas(pred, targ)
+
+    matrices = []
+    for coefficients in manual_delta:
+        diag = torch.arange(1, len(coefficients) + 1, dtype=torch.float64)
+        matrices.append(torch.diag(diag))
+
+    expected = _manual_unpadded_ri_losses(pred, targ, matrices).mean()
+
+    extra_data = {overlap_matrix_name(target_name): pack_two_center_matrices(matrices)}
+    loss = DensityMSELossViaC(
+        name=target_name, gradient=None, weight=1.0, reduction="mean"
+    )
+
+    result = loss({target_name: pred}, {target_name: targ}, extra_data)
+    torch.testing.assert_close(result, expected)
+
+
+def test_density_overlap_loss_reduction_none_matches_reference_multisystem():
+    target_name = "mtt::ri"
+    pred, targ = _make_multisystem_ri_prediction_and_target()
+    manual_delta = _manual_unpadded_ri_deltas(pred, targ)
+
+    matrices = []
+    for coefficients in manual_delta:
+        diag = torch.arange(1, len(coefficients) + 1, dtype=torch.float64)
+        matrices.append(torch.diag(diag))
+
+    expected = _manual_unpadded_ri_losses(pred, targ, matrices)
+
+    extra_data = {overlap_matrix_name(target_name): pack_two_center_matrices(matrices)}
+    loss = DensityMSELossViaC(
+        name=target_name, gradient=None, weight=1.0, reduction="none"
+    )
+
+    result = loss({target_name: pred}, {target_name: targ}, extra_data)
+    torch.testing.assert_close(result, expected)
+
+
+def test_density_overlap_loss_gradient_matches_reference():
+    target_name = "mtt::ri"
+
+    pred_l0_new = torch.tensor(
+        [
+            [[1.0, 10.0]],
+            [[2.0, float("nan")]],
+            [[3.0, 30.0]],
+        ],
+        dtype=torch.float64,
+    ).requires_grad_()
+    pred_l1_new = torch.tensor(
+        [
+            [[1.0, 11.0], [2.0, 12.0], [3.0, 13.0]],
+            [[4.0, float("nan")], [5.0, float("nan")], [6.0, float("nan")]],
+            [[7.0, 17.0], [8.0, 18.0], [9.0, 19.0]],
+        ],
+        dtype=torch.float64,
+    ).requires_grad_()
+    pred_new = _make_multisystem_ri_tensor_map(pred_l0_new, pred_l1_new)
+
+    pred_l0_ref = pred_l0_new.detach().clone().requires_grad_()
+    pred_l1_ref = pred_l1_new.detach().clone().requires_grad_()
+    pred_ref = _make_multisystem_ri_tensor_map(pred_l0_ref, pred_l1_ref)
+
+    _, targ = _make_multisystem_ri_prediction_and_target()
+
+    reference_delta = _manual_unpadded_ri_deltas(pred_ref, targ)
+    matrices = []
+    for coefficients in reference_delta:
+        diag = torch.arange(1, len(coefficients) + 1, dtype=torch.float64)
+        matrices.append(torch.diag(diag))
+
+    extra_data = {overlap_matrix_name(target_name): pack_two_center_matrices(matrices)}
+    loss = DensityMSELossViaC(
+        name=target_name, gradient=None, weight=1.0, reduction="mean"
+    )
+
+    result = loss({target_name: pred_new}, {target_name: targ}, extra_data)
+    result.backward()
+
+    reference = _manual_unpadded_ri_losses(pred_ref, targ, matrices).mean()
+    reference.backward()
+
+    torch.testing.assert_close(pred_l0_new.grad, pred_l0_ref.grad, equal_nan=True)
+    torch.testing.assert_close(pred_l1_new.grad, pred_l1_ref.grad, equal_nan=True)
+
+
+def test_density_overlap_loss_reduction_none():
+    target_name = "mtt::ri"
+    pred = _make_ri_tensor_map([0.0], [1.0, 2.0, 3.0])
+    targ = _make_ri_tensor_map([0.0], [0.0, 0.0, 0.0])
+    overlap = torch.eye(4, dtype=torch.float64)
+    extra_data = {overlap_matrix_name(target_name): pack_two_center_matrices([overlap])}
+
+    loss = DensityMSELossViaC(
+        name=target_name, gradient=None, weight=1.0, reduction="none"
+    )
+
+    result = loss({target_name: pred}, {target_name: targ}, extra_data)
+    assert result.shape == (1,)
+
+
+def test_density_overlap_loss_rejects_basis_mismatch():
+    target_name = "mtt::ri"
+    pred = _make_ri_tensor_map([0.0], [1.0, 2.0, 3.0])
+    targ = _make_ri_tensor_map([0.0], [0.0, 0.0, 0.0])
+    extra_data = {
+        overlap_matrix_name(target_name): pack_two_center_matrices(
+            [torch.eye(5, dtype=torch.float64)]
+        )
+    }
+
+    loss = DensityMSELossViaC(
+        name=target_name, gradient=None, weight=1.0, reduction="mean"
+    )
+
+    with pytest.raises(ValueError, match="RI target size does not match"):
+        loss({target_name: pred}, {target_name: targ}, extra_data)
+
+
+def test_density_fit_loss_matches_closed_form():
+    target_name = "mtt::ri"
+    pred = _make_ri_tensor_map([1.0], [2.0, 3.0, 4.0])
+    targ = _make_ri_tensor_map([5.0], [6.0, 7.0, 8.0])
+
+    c_pyscf = torch.tensor([1.0, 4.0, 2.0, 3.0], dtype=torch.float64)
+    p_pyscf = torch.tensor([7.0, 17.0, 11.0, 13.0], dtype=torch.float64)
+    overlap = torch.tensor(
+        [
+            [2.0, 0.1, 0.0, 0.0],
+            [0.1, 3.0, 0.2, 0.0],
+            [0.0, 0.2, 4.0, 0.3],
+            [0.0, 0.0, 0.3, 5.0],
+        ],
+        dtype=torch.float64,
+    )
+    expected = c_pyscf @ overlap @ c_pyscf - 2.0 * c_pyscf @ p_pyscf
+
+    extra_data = {
+        overlap_matrix_name(target_name): pack_two_center_matrices([overlap]),
+        ri_projections_name(target_name): _make_ri_tensor_map_from_pyscf_vector(p_pyscf),
+    }
+    loss = DensityMSELossViaW(
+        name=target_name,
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+    )
+    result = loss({target_name: pred}, {target_name: targ}, extra_data)
+    torch.testing.assert_close(result, expected)
+
+
+def test_density_fit_loss_minimum_at_c_true():
+    """The density-fit loss is minimised at the true coefficients when the
+    pre-computed constant c_RI^T w_RI is included in extra_data."""
+
+    target_name = "mtt::ri"
+    c_true = _make_ri_tensor_map([0.7], [1.5, -0.3, 2.1])
+
+    c_pyscf = torch.tensor([0.7, 2.1, 1.5, -0.3], dtype=torch.float64)
+    matrix = torch.tensor(
+        [
+            [2.0, 0.1, 0.05, 0.0],
+            [0.1, 3.0, 0.2, 0.04],
+            [0.05, 0.2, 1.5, 0.1],
+            [0.0, 0.04, 0.1, 2.5],
+        ],
+        dtype=torch.float64,
+    )
+    p_pyscf = matrix @ c_pyscf  # w_RI = S c_RI
+
+    from metatensor.torch import Labels, TensorBlock, TensorMap
+
+    const_val = float(c_pyscf @ p_pyscf)
+    const_block = TensorBlock(
+        values=torch.tensor([[const_val]], dtype=torch.float64),
+        samples=Labels(
+            names=["system"],
+            values=torch.tensor([[0]], dtype=torch.int32),
+        ),
+        components=[],
+        properties=Labels(
+            names=["_"],
+            values=torch.zeros((1, 1), dtype=torch.int32),
+        ),
+    )
+    const_map = TensorMap(Labels.single(), [const_block])
+
+    extra_data = {
+        overlap_matrix_name(target_name): pack_two_center_matrices([matrix]),
+        ri_projections_name(target_name): _make_ri_tensor_map_from_pyscf_vector(p_pyscf),
+        ri_density_fit_constant_name(target_name): const_map,
+    }
+    loss = DensityMSELossViaW(
+        name=target_name,
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+    )
+
+    result = loss({target_name: c_true}, {target_name: c_true}, extra_data)
+    torch.testing.assert_close(result, torch.tensor(0.0, dtype=torch.float64), atol=1e-12, rtol=0)
+
+
+def test_density_fit_loss_adds_constant_when_present():
+    """Providing ri_density_fit_constant in extra_data shifts the loss by that value."""
+    target_name = "mtt::ri"
+    pred = _make_ri_tensor_map([0.5], [1.0, 2.0, 3.0])
+    targ = _make_ri_tensor_map([0.0], [0.0, 0.0, 0.0])
+    proj_pyscf = torch.tensor([0.4, 30.0, 10.0, 20.0], dtype=torch.float64)
+    overlap = torch.diag(torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float64))
+
+    from metatensor.torch import Labels, TensorBlock, TensorMap
+
+    constant_value = 42.0
+    const_block = TensorBlock(
+        values=torch.tensor([[constant_value]], dtype=torch.float64),
+        samples=Labels(
+            names=["system"],
+            values=torch.tensor([[0]], dtype=torch.int32),
+        ),
+        components=[],
+        properties=Labels(
+            names=["_"],
+            values=torch.zeros((1, 1), dtype=torch.int32),
+        ),
+    )
+    const_map = TensorMap(Labels.single(), [const_block])
+
+    extra_without = {
+        overlap_matrix_name(target_name): pack_two_center_matrices([overlap]),
+        ri_projections_name(target_name): _make_ri_tensor_map_from_pyscf_vector(proj_pyscf),
+    }
+    extra_with = {**extra_without, ri_density_fit_constant_name(target_name): const_map}
+
+    loss = DensityMSELossViaW(
+        name=target_name, gradient=None, weight=1.0, reduction="mean"
+    )
+
+    result_without = loss({target_name: pred}, {target_name: targ}, extra_without)
+    result_with    = loss({target_name: pred}, {target_name: targ}, extra_with)
+    torch.testing.assert_close(result_with - result_without,
+                                torch.tensor(constant_value, dtype=torch.float64))
+
+
+def test_density_fit_loss_requires_projection_extra_data():
+    target_name = "mtt::ri"
+    pred = _make_ri_tensor_map([0.0], [1.0, 2.0, 3.0])
+    targ = _make_ri_tensor_map([0.0], [0.0, 0.0, 0.0])
+    matrix = torch.eye(4, dtype=torch.float64)
+
+    extra_data_without_projection = {
+        overlap_matrix_name(target_name): pack_two_center_matrices([matrix])
+    }
+    loss = DensityMSELossViaW(
+        name=target_name,
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+    )
+    with pytest.raises(AssertionError, match=ri_projections_name(target_name)):
+        loss({target_name: pred}, {target_name: targ}, extra_data_without_projection)
+
+
+def test_density_fit_loss_requires_overlap_extra_data():
+    """Density-fit loss must look up the overlap key."""
+    target_name = "mtt::ri"
+    pred = _make_ri_tensor_map([0.0], [1.0, 2.0, 3.0])
+    targ = _make_ri_tensor_map([0.0], [0.0, 0.0, 0.0])
+    matrix = torch.eye(4, dtype=torch.float64)
+
+    only_projection = {
+        ri_projections_name(target_name): _make_ri_tensor_map([0.0], [0.0, 0.0, 0.0]),
+    }
+    loss = DensityMSELossViaW(
+        name=target_name,
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+    )
+    with pytest.raises(AssertionError, match=overlap_matrix_name(target_name)):
+        loss({target_name: pred}, {target_name: targ}, only_projection)
+
+
+def test_density_fit_loss_rejects_basis_mismatch():
+    target_name = "mtt::ri"
+    pred = _make_ri_tensor_map([0.0], [1.0, 2.0, 3.0])
+    targ = _make_ri_tensor_map([0.0], [0.0, 0.0, 0.0])
+    extra_data = {
+        overlap_matrix_name(target_name): pack_two_center_matrices(
+            [torch.eye(5, dtype=torch.float64)]
+        ),
+        ri_projections_name(target_name): _make_ri_tensor_map([0.0], [0.0, 0.0, 0.0]),
+    }
+
+    loss = DensityMSELossViaW(
+        name=target_name,
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+    )
+
+    with pytest.raises(ValueError, match="RI target size does not match"):
+        loss({target_name: pred}, {target_name: targ}, extra_data)
 
 
 def test_masked_pointwise_gradient_branch(

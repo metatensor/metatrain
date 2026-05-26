@@ -142,6 +142,58 @@ Some losses, like ``huber``, require additional parameters to be specified:
 :param delta: This parameter is specific to the Huber loss functions (``huber`` and ``masked_huber``) and defines the threshold at which the loss function transitions from quadratic to linear behavior. The default value is 1.0.
 
 
+RI Density Losses
+-----------------
+
+``metatrain`` provides two loss functions for targets that are RI (resolution-of-identity) expansion coefficients ``c`` of the electron density on an auxiliary basis.  Both require ``ri_aux_basis`` to be set in the trainer hypers so that the metric matrix ``M`` (either the overlap ``S`` or Coulomb ``J``) can be computed on the fly via PySCF.
+
+Both losses accept an optional ``metric`` parameter (default ``"overlap"``) that selects the two-centre matrix used to define the density inner product:
+
+- ``metric: overlap`` — uses the auxiliary-basis overlap matrix ``S = ⟨χ_P|χ_Q⟩``
+- ``metric: coulomb`` — uses the two-centre Coulomb (ERI) matrix ``J_PQ = (χ_P|χ_Q)``
+
+**density_mse_via_c**
+    The true L² density loss expressed in terms of the coefficient residual:
+
+    .. math::
+
+       L = \Delta c^T M \, \Delta c
+
+    where ``Δc = c_{ML} - c_{RI}`` and ``M`` is the chosen two-centre metric matrix.  This correctly down-weights "ghost modes" (near-zero eigenvalues of ``M``) and up-weights well-represented density components.
+
+    .. code-block:: yaml
+
+      ri_aux_basis: def2-universal-jfit
+      loss:
+        mtt::ri_coeffs:
+          type: density_mse_via_c
+          metric: overlap  # or coulomb
+
+**density_mse_via_w**
+    An indirect loss that avoids computing ``c_{RI} = M^{-1} w_{RI}`` entirely.  Requires the projections ``w_{RI} = M c_{RI}`` (and optionally the pre-computed constant ``c_{RI}^T w_{RI}``) in ``extra_data``:
+
+    .. math::
+
+       L = c_{ML}^T M \, c_{ML} - 2\, c_{ML}^T w_{RI} + c_{RI}^T w_{RI}
+
+    The last term has no gradient w.r.t. model parameters and is pre-computed in the collate transform when the ``get_density_fit_constant_transform`` is active.
+
+    The ``projections_key`` option specifies the ``extra_data`` key under which the projections ``w_{RI}`` are stored.  If omitted it defaults to ``<target_name>_projections``.
+
+    .. code-block:: yaml
+
+      ri_aux_basis: def2-universal-jfit
+      loss:
+        mtt::rho_c_jfit_overlap:
+          type: density_mse_via_w
+          metric: overlap  # or coulomb
+          projections_key: mtt::rho_w_jfit_overlap
+
+.. note::
+
+   ``density_mse_via_c`` and ``density_mse_via_w`` handle CM removal and target scaling internally via the trainer; ``scale_targets`` may be ``true`` or ``false`` for either loss.  The ``log_density_loss`` trainer hyper enables an epoch-by-epoch ``Δc^T S Δc`` validation metric (always using the overlap metric) regardless of which loss is used for training.
+
+
 Masked loss functions
 ---------------------
 

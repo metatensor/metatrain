@@ -64,9 +64,15 @@ important** (in decreasing order of importance):
 
   .. autoattribute:: {{model_hypers_path}}.long_range
       :no-index:
+
+  .. autoattribute:: {{model_hypers_path}}.atomic_basis_z_readout
+      :no-index:
+
+  .. autoattribute:: {{model_hypers_path}}.geometry_embedding_lmax
+      :no-index:
 """
 
-from typing import Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 from typing_extensions import TypedDict
 
@@ -164,6 +170,98 @@ class ModelHypers(TypedDict):
     """Use ZBL potential for short-range repulsion"""
     long_range: LongRangeHypers = init_with_defaults(LongRangeHypers)
     """Long-range Coulomb interactions parameters."""
+    readout_type: Optional[Dict[str, Any]] = None
+    """Readout module used for atomic basis targets.
+
+    ``null`` (default): a single shared linear layer per irrep block, no
+    species conditioning.  This is the vanilla PET readout.
+
+    Otherwise a dict with ``name`` and optional ``args``:
+
+    .. code-block:: yaml
+
+        # ── Z-conditioned linear (or MLP) per (irrep, species) ──────────────
+        # Each (α, Z) pair has its own weight matrix.  Optional hidden layers
+        # add nonlinearity before the final projection.
+        readout_type:
+          name: ZConditioned
+          args:
+            hidden_layer_widths: [64]   # omit or [] for plain linear
+
+        # ── Mixture-of-Experts, routing conditioned on Z ────────────────────
+        readout_type:
+          name: MoE
+          args:
+            num_experts: 5
+            num_routed_experts: 5       # all routed, 0 shared
+            num_topk_experts: 2
+            embedding_dim: 16           # optional, default 16
+
+        # ── Per-irrep MLP → Z-conditioned linear/MLP ────────────────────────
+        # Stage 1: shared MLP d→d'(α), unique per irrep block.
+        # Stage 2: Z-conditioned readout d'(α)→q(α,Z).
+        readout_type:
+          name: IrrepThenZConditioned
+          args:
+            d_irrep: 64
+            z_conditioned: true         # optional, default true
+            hidden_layer_widths: []     # optional further hidden layers in stage 2
+
+        # ── Per-irrep MLP → MoE ──────────────────────────────────────────────
+        readout_type:
+          name: IrrepThenMoE
+          args:
+            d_irrep: 64
+            num_experts: 5
+            num_routed_experts: 5
+            num_topk_experts: 2
+            embedding_dim: 16           # optional
+
+        # ── Trunk + per-irrep residual correction, gated by species ─────────
+        # Trunk is Z-conditioned linear; correction starts at zero.
+        readout_type:
+          name: IrrepResidual
+          args:
+            z_conditioned: true         # optional, default true
+
+        # ── Trunk + shared hidden layer → Z-conditioned output (zero-init) ──
+        # Shared MLP extracts universal nonlinear features; per-species output
+        # weights decide how to combine them. Zero-init → warm start.
+        readout_type:
+          name: IrrepResidualZOutput
+
+        # ── Trunk + FiLM-conditioned correction (zero-init output) ───────────
+        # Per-species affine transform (γ·x + β) modulates inputs before the
+        # shared correction hidden layer. Species conditions which features get
+        # nonlinearly mixed. Cheap: 2 × n_species × d_pet FiLM parameters.
+        readout_type:
+          name: IrrepResidualFiLM
+
+        # ── Trunk + fully Z-conditioned correction MLP (zero-init output) ────
+        # Both hidden and output layers of the correction are per-species.
+        # Most expressive variant; cost scales as n_species × (d² + d × out).
+        readout_type:
+          name: IrrepResidualZCorrection
+          args:
+            expansion_factor: 1  # optional, default 1
+
+        # ── Trunk + deep Z-conditioned correction tower (zero-init output) ───
+        # Generalises IrrepResidualZCorrection to K hidden layers, each
+        # Z-conditioned.  Expressiveness increases with depth; parameter cost
+        # scales as n_species × K × d².  Only the output layer is zero-init.
+        # num_correction_layers=1 exactly recovers IrrepResidualZCorrection.
+        readout_type:
+          name: IrrepResidualZCorrectionDeep
+          args:
+            num_correction_layers: 2    # K; sweep 1, 2, 3
+
+    The ``readout_type`` applies only to atomic basis targets; non-atomic-basis
+    targets always use a shared linear readout regardless of this setting.
+    """
+    geometry_embedding_lmax: Optional[int] = None
+    """
+    The L max of solid spherical harmonics to use for edge geometry embeddings
+    """
 
 
 class TrainerHypers(TypedDict):
@@ -244,6 +342,23 @@ class TrainerHypers(TypedDict):
     This is passed to the ``fixed_weights`` argument of
     :meth:`Scaler.train_model <metatrain.utils.scaler.scaler.Scaler.train_model>`,
     see its documentation to understand exactly what to pass here.
+    """
+    ri_aux_basis: str | dict[str, str] | None = None
+    """Auxiliary basis used to compute per-system overlap matrices for RI density losses.
+
+    This can be a single PySCF auxiliary basis name shared across all RI-coefficient
+    targets, or a mapping from target name to basis name when different RI targets use
+    different auxiliary bases. Required when using the ``density_overlap`` or
+    ``density_fit`` loss types; leave as ``None`` otherwise.
+    """
+    log_density_loss: bool = False
+    """Log the real-space density loss Δc^T S Δc on the validation set each epoch.
+
+    When ``True``, the trainer computes the density-overlap loss (``Δc^T S Δc``) for
+    all RI-coefficient targets at every validation step and reports it alongside the
+    standard losses.
+
+    Requires ``ri_aux_basis`` to be set.
     """
     per_structure_targets: list[str] = []
     """Targets to calculate per-structure losses and errors on."""
