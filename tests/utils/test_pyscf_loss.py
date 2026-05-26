@@ -54,6 +54,29 @@ def test_build_auxiliary_molecule_and_overlap_matrix():
     assert torch.linalg.eigvalsh(S).min().item() > 0.0
 
 
+def test_etb_basis_builds_valid_overlap_matrix():
+    """ETB spec 'etb:<ref>:<ratio>' should produce a valid PD overlap matrix."""
+    system = _make_systems()[1]
+
+    S = compute_overlap_matrix(system, "etb:def2-svp:2.0")
+
+    assert S.ndim == 2
+    assert S.shape[0] == S.shape[1]
+    torch.testing.assert_close(S, S.T)
+    assert torch.linalg.eigvalsh(S).min().item() > 0.0
+
+
+def test_etb_basis_size_differs_from_reference():
+    """ETB basis should produce a different number of AOs than the reference."""
+    system = _make_systems()[1]
+
+    S_jkfit = compute_overlap_matrix(system, "def2-svp-jkfit")
+    S_etb = compute_overlap_matrix(system, "etb:def2-svp:2.0")
+
+    # ETB and jkfit are different bases; sizes should differ.
+    assert S_etb.shape[0] != S_jkfit.shape[0]
+
+
 def test_build_auxiliary_molecule_and_coulomb_matrix():
     system = _make_systems()[1]
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import importlib
+import math
 from collections.abc import Callable, Mapping, Sequence
 from functools import lru_cache
 from typing import TYPE_CHECKING
@@ -35,18 +36,79 @@ def _import_pyscf_modules() -> tuple[ModuleType, ModuleType]:
     return gto, elements
 
 
+def _build_etb_basis_for_element(ref_basis: str, symbol: str, ratio: float) -> list:
+    """Build an uncontracted ETB basis for one element from a reference basis.
+
+    Parses ``ref_basis`` (a named PySCF basis) to discover which angular-momentum
+    channels are present and the exponent range for each.  For every channel ``l``
+    the function constructs an even-tempered sequence of ``n`` uncontracted
+    primitives starting at the minimum exponent of the reference and spaced by
+    ``ratio``, choosing ``n`` to cover at least the full exponent range of the
+    reference.  The result is returned in the format accepted by ``gto.etbs`` /
+    ``mol.basis``.
+
+    :param ref_basis: Name of the PySCF reference basis (e.g. ``"def2-svp"``).
+    :param symbol: Element symbol (e.g. ``"O"``).
+    :param ratio: Even-tempering ratio β (consecutive exponents differ by this factor).
+    :return: Basis specification list suitable for ``mol.basis[symbol]``.
+    """
+    gto, _ = _import_pyscf_modules()
+    ref = gto.basis.load(ref_basis, symbol)
+
+    # Collect all primitive exponents per angular momentum from the reference.
+    l_exps: dict[int, list[float]] = {}
+    for shell in ref:
+        l = int(shell[0])
+        for prim in shell[1:]:
+            if isinstance(prim, (list, tuple)) and prim:
+                l_exps.setdefault(l, []).append(float(prim[0]))
+
+    etb_specs = []
+    for l in sorted(l_exps):
+        exps = sorted(l_exps[l])
+        alpha_min = exps[0]
+        alpha_max = exps[-1]
+        if len(exps) > 1 and alpha_max > alpha_min:
+            # Enough primitives to cover [alpha_min, alpha_max] with spacing ratio.
+            n = max(
+                len(exps),
+                round(math.log(alpha_max / alpha_min) / math.log(ratio)) + 1,
+            )
+        else:
+            n = len(exps)
+        etb_specs.append((l, n, alpha_min, ratio))
+
+    return gto.etbs(etb_specs)
+
+
 @lru_cache(maxsize=None)
 def _load_auxiliary_basis(
     aux_basis: str, atomic_numbers: tuple[int, ...]
 ) -> dict[str, object]:
-    """Load and cache parsed auxiliary basis data for the requested elements."""
+    """Load and cache parsed auxiliary basis data for the requested elements.
 
+    Supports two formats for ``aux_basis``:
+
+    - A plain PySCF basis name (e.g. ``"def2-universal-jfit"``), loaded via
+      ``gto.basis.load``.
+    - An even-tempered basis specification ``"etb:<ref_basis>:<ratio>"``
+      (e.g. ``"etb:def2-svp:2.0"``), which derives an uncontracted ETB from
+      ``<ref_basis>`` using the given ratio for each element.
+    """
     gto, elements = _import_pyscf_modules()
+
+    etb_parts = aux_basis.split(":")
+    is_etb = len(etb_parts) == 3 and etb_parts[0].lower() == "etb"
 
     basis: dict[str, object] = {}
     for atomic_number in atomic_numbers:
         symbol = elements.ELEMENTS[atomic_number]
-        basis[symbol] = gto.basis.load(aux_basis, symbol)
+        if is_etb:
+            basis[symbol] = _build_etb_basis_for_element(
+                etb_parts[1], symbol, float(etb_parts[2])
+            )
+        else:
+            basis[symbol] = gto.basis.load(aux_basis, symbol)
 
     return basis
 
