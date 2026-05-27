@@ -21,7 +21,10 @@ from metatrain.utils.data import (
     DatasetInfo,
     unpack_batch,
 )
-from metatrain.utils.data.target_info import is_auxiliary_output
+from metatrain.utils.data.target_info import (
+    DEPRECATED_METATOMIC_OUTPUT_NAMES,
+    is_auxiliary_output,
+)
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.neighbor_lists import (
@@ -142,8 +145,14 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 sample_kind=output.sample_kind,
                 description=output.description,
             )
+
+        backbone_outputs = {
+            name: output
+            for name, output in old_capabilities.outputs.items()
+            if name not in DEPRECATED_METATOMIC_OUTPUT_NAMES
+        }
         self.capabilities = ModelCapabilities(
-            outputs={**old_capabilities.outputs, **additional_capabilities},
+            outputs={**backbone_outputs, **additional_capabilities},
             atomic_types=old_capabilities.atomic_types,
             interaction_range=old_capabilities.interaction_range,
             length_unit=old_capabilities.length_unit,

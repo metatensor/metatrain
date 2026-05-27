@@ -235,7 +235,8 @@ def test_is_auxiliary_output():
     assert not is_auxiliary_output("energy")
     assert not is_auxiliary_output("foo")
     assert is_auxiliary_output("mtt::aux::foo")
-    assert is_auxiliary_output("features")
+    assert is_auxiliary_output("features")  # deprecated
+    assert is_auxiliary_output("feature")
     assert is_auxiliary_output("energy_ensemble")
     assert is_auxiliary_output("mtt::aux::energy_ensemble")
 

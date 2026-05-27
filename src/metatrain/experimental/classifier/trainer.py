@@ -96,10 +96,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
         with torch.no_grad():
             features_dict = model.model(
                 [system],
-                {"features": ModelOutput(sample_kind="atom")},
+                {"feature": ModelOutput(sample_kind="atom")},
             )
             averaged_features = mts.mean_over_samples(
-                features_dict["features"], sample_names=["atom"]
+                features_dict["feature"], sample_names=["atom"]
             )
             feature_size = averaged_features.block().values.shape[-1]
 

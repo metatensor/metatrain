@@ -13,7 +13,7 @@ more about it here: https://pubs.acs.org/doi/10.1021/acs.jpclett.4c02376.
 Additional outputs
 ------------------
 
-- ``features``: the internal FlashMD features, before the different heads for each
+- ``feature``: the internal PhACE features, before the different heads for each
   target.
 - :ref:`mtt-aux-target-last-layer-features`: The features for a given target, taken
   before the last linear layer of the corresponding head.

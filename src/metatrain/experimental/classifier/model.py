@@ -81,15 +81,15 @@ class Classifier(ModelInterface[ModelHypers]):
                 )
 
         # Check that the model can output features
-        if "features" not in old_capabilities.outputs:
+        if "feature" not in old_capabilities.outputs:
             raise ValueError(
-                "The wrapped model does not support 'features' output. "
+                "The wrapped model does not support 'feature' output. "
                 "The Classifier model requires a backbone that can output features."
             )
 
         # Store capabilities
         outputs = {name: ModelOutput() for name in self.dataset_info.targets.keys()}
-        outputs["features"] = ModelOutput(quantity="", unit="", sample_kind="system")
+        outputs["feature"] = ModelOutput(quantity="", unit="", sample_kind="system")
         self.capabilities = ModelCapabilities(
             outputs=outputs,
             atomic_types=old_capabilities.atomic_types,
@@ -140,12 +140,12 @@ class Classifier(ModelInterface[ModelHypers]):
         # Request features from the wrapped model (per-atom features)
         features_output = ModelOutput(sample_kind="atom")
         features_dict = self.model(
-            systems, {"features": features_output}, selected_atoms
+            systems, {"feature": features_output}, selected_atoms
         )
 
         # Average over atoms to get system-level features
         averaged_features = mts.mean_over_samples(
-            features_dict["features"], sample_names=["atom"]
+            features_dict["feature"], sample_names=["atom"]
         )
         features = averaged_features.block().values
 
@@ -174,7 +174,7 @@ class Classifier(ModelInterface[ModelHypers]):
         logits = self.linear(current_tensor)
 
         # Store features output if requested
-        if "features" in outputs:
+        if "feature" in outputs:
             output_tmap = TensorMap(
                 keys=Labels(
                     names=["_"],
@@ -196,11 +196,11 @@ class Classifier(ModelInterface[ModelHypers]):
                     )
                 ],
             )
-            return_dict["features"] = output_tmap
+            return_dict["feature"] = output_tmap
 
         # Handle logits output (for training with CrossEntropyLoss)
         for name in outputs:
-            if name == "features":
+            if name == "feature":
                 continue  # Skip features output
 
             # Check if logits are requested (for training)

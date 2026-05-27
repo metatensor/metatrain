@@ -645,13 +645,13 @@ class OutputTests(ArchitectureTests):
             [system],
             {
                 "energy": model.outputs["energy"],
-                "features": features_output_options,
+                "feature": features_output_options,
             },
         )
         assert "energy" in outputs
-        assert "features" in outputs
+        assert "feature" in outputs
 
-        features_outputs = outputs["features"]
+        features_outputs = outputs["feature"]
         for i in range(len(features_outputs)):
             features = features_outputs.block(i)
 

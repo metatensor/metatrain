@@ -232,8 +232,8 @@ for structure in structures:
     features = (
         calc.run_model(
             structure,
-            {"features": ModelOutput(sample_kind="system")},
-        )["features"]
+            {"feature": ModelOutput(sample_kind="system")},
+        )["feature"]
         .block()
         .values.cpu()
         .squeeze(0)

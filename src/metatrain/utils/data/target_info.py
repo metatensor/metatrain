@@ -791,6 +791,12 @@ def is_auxiliary_output(name: str) -> bool:
     return is_auxiliary
 
 
+# metatomic 0.1.12 auto-injects deprecated output names back for backward compatability
+DEPRECATED_METATOMIC_OUTPUT_NAMES = {
+    "features": "feature",
+}
+
+
 def _is_equal_up_to_gradients(
     layout1: TensorMap,
     layout2: TensorMap,

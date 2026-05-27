@@ -90,7 +90,7 @@ class PhACE(ModelInterface[ModelHypers]):
         self.final_scaling = hypers["final_scaling"]
 
         self.outputs = {
-            "features": ModelOutput(unit="", sample_kind="atom")
+            "feature": ModelOutput(unit="", sample_kind="atom")
         }  # the model is always capable of outputting the internal features
         for target_name in dataset_info.targets.keys():
             # the model can always output the last-layer features for the targets
@@ -260,9 +260,9 @@ class PhACE(ModelInterface[ModelHypers]):
         return_dict: Dict[str, TensorMap] = {}
 
         # output the features, if requested:
-        if "features" in outputs:
+        if "feature" in outputs:
             # only a single features block is supported by metatomic, we choose L=0
-            features_tensor = predictions["features"][0].squeeze(1)
+            features_tensor = predictions["feature"][0].squeeze(1)
             features = TensorMap(
                 keys=self.single_label,
                 blocks=[
@@ -283,10 +283,10 @@ class PhACE(ModelInterface[ModelHypers]):
                 features = metatensor.torch.slice(
                     features, axis="samples", selection=selected_atoms
                 )
-            if outputs["features"].sample_kind == "atom":
-                return_dict["features"] = features
+            if outputs["feature"].sample_kind == "atom":
+                return_dict["feature"] = features
             else:
-                return_dict["features"] = metatensor.torch.sum_over_samples(
+                return_dict["feature"] = metatensor.torch.sum_over_samples(
                     features, ["atom"]
                 )
 
@@ -343,7 +343,7 @@ class PhACE(ModelInterface[ModelHypers]):
 
         # remaining outputs (main outputs)
         for output_name in outputs.keys():
-            if output_name == "features" or output_name.startswith("mtt::aux::"):
+            if output_name == "feature" or output_name.startswith("mtt::aux::"):
                 continue
             output_as_tensor_dict = predictions[output_name]
             return_dict[output_name] = TensorMap(

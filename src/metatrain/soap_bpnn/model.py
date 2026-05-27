@@ -348,7 +348,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
 
         # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(sample_kind="atom", description="internal features")
+            "feature": ModelOutput(sample_kind="atom", description="internal features")
         }
 
         self.single_label = Labels.single()
@@ -666,9 +666,9 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             features = mts.add(features, long_range_features)
 
         # output the hidden features, if requested:
-        if "features" in outputs:
-            return_dict["features"] = self._format_features_output(
-                features, outputs["features"].sample_kind
+        if "feature" in outputs:
+            return_dict["feature"] = self._format_features_output(
+                features, outputs["feature"].sample_kind
             )
 
         features_by_output: Dict[str, TensorMap] = {}

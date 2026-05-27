@@ -22,6 +22,7 @@ from metatrain.utils.data import (
     read_systems,
     unpack_batch,
 )
+from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.data.writers import (
     DiskDatasetWriter,
     Writer,
@@ -323,7 +324,13 @@ def eval_model(
 
             # FIXME: this works only for energy models
             eval_targets: Dict[str, TensorMap] = {}
-            eval_info_dict = copy.deepcopy(model.capabilities().outputs)
+            eval_info_dict = copy.deepcopy(
+                {
+                    name: model_output
+                    for name, model_output in model.capabilities().outputs.items()
+                    if name not in DEPRECATED_METATOMIC_OUTPUT_NAMES
+                }
+            )
             for name, model_output in eval_info_dict.items():
                 if "energy" in name:
                     model_output.sample_kind = "system"  # type: ignore
