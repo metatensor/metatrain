@@ -4,9 +4,9 @@ import contextlib
 import csv
 import logging
 import sys
+import warnings
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple, Union
-import warnings
 
 import numpy as np
 import torch
