@@ -157,9 +157,11 @@ class PET(ModelInterface[ModelHypers]):
 
         # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(per_atom=True, description="internal features"),
+            "features": ModelOutput(
+                sample_kind="atom", description="internal features"
+            ),
             "mtt::aux::cutoff_stats": ModelOutput(
-                per_atom=True,
+                sample_kind="atom",
                 description=(
                     "Per-atom adaptive-cutoff diagnostics: column 0 = atomic_cutoff, "
                     "column 1 = num_neighbors. If requested per structure, "
@@ -459,7 +461,7 @@ class PET(ModelInterface[ModelHypers]):
                     padding_mask,
                     sample_labels,
                     selected_atoms,
-                    outputs["mtt::aux::cutoff_stats"].per_atom,
+                    outputs["mtt::aux::cutoff_stats"].sample_kind == "atom",
                 )
 
         # the scaled_dot_product_attention function from torch cannot do
@@ -879,7 +881,7 @@ class PET(ModelInterface[ModelHypers]):
                 axis="samples",
                 selection=selected_atoms,
             )
-        if requested_outputs["features"].per_atom:
+        if requested_outputs["features"].sample_kind == "atom":
             features_dict["features"] = feature_tmap
         else:
             features_dict["features"] = sum_over_atoms(feature_tmap)
@@ -1004,7 +1006,7 @@ class PET(ModelInterface[ModelHypers]):
                     selection=selected_atoms,
                 )
             last_layer_features_options = requested_outputs[output_name]
-            if last_layer_features_options.per_atom:
+            if last_layer_features_options.sample_kind == "atom":
                 last_layer_features_outputs[output_name] = last_layer_feature_tmap
             else:
                 last_layer_features_outputs[output_name] = sum_over_atoms(
@@ -1207,7 +1209,7 @@ class PET(ModelInterface[ModelHypers]):
         # to get the final per-structure predictions for each requested output.
 
         for output_name, atomic_property in atomic_predictions_tmap_dict.items():
-            if outputs[output_name].per_atom:
+            if outputs[output_name].sample_kind == "atom":
                 atomic_predictions_tmap_dict[output_name] = atomic_property
             else:
                 atomic_predictions_tmap_dict[output_name] = sum_over_atoms(
@@ -1320,7 +1322,7 @@ class PET(ModelInterface[ModelHypers]):
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
-            per_atom=True,
+            sample_kind="atom",
             description=target_info.description,
         )
 
@@ -1394,7 +1396,7 @@ class PET(ModelInterface[ModelHypers]):
 
         ll_features_name = get_last_layer_features_name(target_name)
         self.outputs[ll_features_name] = ModelOutput(
-            per_atom=True, description=f"last layer features for {target_name}"
+            sample_kind="atom", description=f"last layer features for {target_name}"
         )
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [

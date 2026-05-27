@@ -174,7 +174,7 @@ for structure in structures:
     probabilities = (
         calc.run_model(
             structure,
-            {"mtt::class_probabilities": ModelOutput(per_atom=False)},
+            {"mtt::class_probabilities": ModelOutput(sample_kind="system")},
         )["mtt::class_probabilities"]
         .block()
         .values.cpu()
@@ -232,7 +232,7 @@ for structure in structures:
     features = (
         calc.run_model(
             structure,
-            {"features": ModelOutput(per_atom=False)},
+            {"features": ModelOutput(sample_kind="system")},
         )["features"]
         .block()
         .values.cpu()
@@ -242,7 +242,7 @@ for structure in structures:
     probs = (
         calc.run_model(
             structure,
-            {"mtt::class_probabilities": ModelOutput(per_atom=False)},
+            {"mtt::class_probabilities": ModelOutput(sample_kind="system")},
         )["mtt::class_probabilities"]
         .block()
         .values.cpu()
