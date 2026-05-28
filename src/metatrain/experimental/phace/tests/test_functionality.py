@@ -5,6 +5,7 @@ import torch
 from metatomic.torch import ModelOutput, System
 
 from metatrain.experimental.phace import PhACE
+from metatrain.experimental.phace.modules.base_model import _make_k_max_l
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -36,6 +37,29 @@ def _make_system(model: PhACE) -> System:
         pbc=torch.tensor([True, True, True]),
     )
     return get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+
+
+@pytest.mark.parametrize(
+    ("n_max", "expected_k_max_l"),
+    [
+        ([128, 64, 32], [256, 64, 64]),
+        ([128, 64, 64, 32, 16], [256, 128, 128, 32, 32]),
+        ([128, 64], [256, 128]),
+    ],
+)
+def test_k_max_l_pairs_odd_l_with_next_even_l(n_max, expected_k_max_l):
+    assert (
+        _make_k_max_l(n_max, n_channels=2, force_rectangular=False)
+        == expected_k_max_l
+    )
+
+
+def test_rectangular_k_max_l_is_unchanged():
+    assert _make_k_max_l([128, 64, 32], n_channels=2, force_rectangular=True) == [
+        256,
+        256,
+        256,
+    ]
 
 
 def test_cartesian_rank1():

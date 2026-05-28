@@ -12,6 +12,18 @@ from .precomputations import Precomputer
 from .tensor_product import couple_features_all, uncouple_features_all
 
 
+def _make_k_max_l(
+    n_max: List[int], n_channels: int, force_rectangular: bool
+) -> List[int]:
+    if force_rectangular:
+        return [n_channels * n_max[0]] * len(n_max)
+
+    k_max_l = [n_channels * n_max_l for n_max_l in n_max]
+    for l in range(1, len(k_max_l) - 1, 2):  # noqa: E741
+        k_max_l[l] = k_max_l[l + 1]
+    return k_max_l
+
+
 class BaseModel(torch.nn.Module):
     """Core PhACE GNN model operating on raw tensor data (no metatensor wrapping)."""
 
@@ -40,13 +52,11 @@ class BaseModel(torch.nn.Module):
         n_max = self.precomputer.n_max_l
         self.l_max = len(n_max) - 1
         n_channels = hypers["num_element_channels"]
-        if hypers["force_rectangular"]:
-            self.k_max_l = [n_channels * n_max[0]] * (self.l_max + 1)
-        else:
-            self.k_max_l = [
-                n_channels * n_max[l]
-                for l in range(self.l_max + 1)  # noqa: E741
-            ]
+        self.k_max_l = _make_k_max_l(
+            n_max=n_max,
+            n_channels=n_channels,
+            force_rectangular=hypers["force_rectangular"],
+        )
 
         # CG transformation matrices between coupled (spherical) and uncoupled basis.
         cg_calculator = get_cg_coefficients(2 * ((self.l_max + 1) // 2))
