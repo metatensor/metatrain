@@ -246,7 +246,7 @@ class BaseModel(torch.nn.Module):
 
         # calculate and return predictions
         return_dict: Dict[str, Dict[int, torch.Tensor]] = {}
-        return_dict["features"] = {l: tensor for l, tensor in enumerate(features)}  # noqa: E741
+        return_dict["feature"] = {l: tensor for l, tensor in enumerate(features)}  # noqa: E741
 
         last_layer_feature_dict: Dict[str, List[torch.Tensor]] = {}
         for output_name, layer in self.heads.items():

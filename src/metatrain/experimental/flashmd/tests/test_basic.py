@@ -45,7 +45,7 @@ class FlashMDTests(ArchitectureTests):
                     "rank": 1,
                 }
             },
-            "per_atom": True,
+            "sample_kind": "atom",
             "num_subtargets": 1,
         }
 
@@ -60,7 +60,7 @@ class FlashMDTests(ArchitectureTests):
                     "rank": 1,
                 }
             },
-            "per_atom": True,
+            "sample_kind": "atom",
             "num_subtargets": 1,
         }
 

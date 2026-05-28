@@ -1,0 +1,29 @@
+seed: 42
+
+architecture:
+  name: soap_bpnn
+  training:
+    batch_size: 1
+    num_epochs: 1
+  model:
+    soap:
+      max_radial: 1
+      max_angular: 3
+
+training_set:
+  systems:
+    read_from: spherical_disk_dataset.zip
+    length_unit: angstrom
+  targets:
+    mtt::electron_density_basis:
+      sample_kind: atom
+      type:
+        spherical:
+          irreps:
+            - {o3_lambda: 0, o3_sigma: 1}
+            - {o3_lambda: 1, o3_sigma: 1}
+            - {o3_lambda: 2, o3_sigma: 1}
+            - {o3_lambda: 3, o3_sigma: 1}
+
+test_set: 0.0
+validation_set: 0.0

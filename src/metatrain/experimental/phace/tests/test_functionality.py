@@ -52,21 +52,21 @@ def test_cartesian_rank1():
                     "unit": "",
                     "type": {"cartesian": {"rank": 1}},
                     "num_subtargets": 1,
-                    "per_atom": False,
+                    "sample_kind": "system",
                 },
             )
         },
     )
     model = PhACE(hypers, dataset_info)
     system = _make_system(model)
-    output = model([system], {"dipole": ModelOutput(per_atom=False)})
+    output = model([system], {"dipole": ModelOutput(sample_kind="system")})
     values = output["dipole"].block().values
     # shape: (n_structures, 3, n_properties)
     assert values.shape == (1, 3, 1)
 
 
-@pytest.mark.parametrize("per_atom", [True, False])
-def test_nc_stress(per_atom):
+@pytest.mark.parametrize("sample_kind", ["atom", "system"])
+def test_nc_stress(sample_kind):
     """Tests that rank-2 Cartesian non-conservative stress is symmetric."""
     hypers = _make_hypers()
     dataset_info = DatasetInfo(
@@ -80,14 +80,14 @@ def test_nc_stress(per_atom):
                     "unit": "",
                     "type": {"cartesian": {"rank": 2}},
                     "num_subtargets": 1,
-                    "per_atom": per_atom,
+                    "sample_kind": sample_kind,
                 },
             )
         },
     )
     model = PhACE(hypers, dataset_info)
     system = _make_system(model)
-    outputs = {"non_conservative_stress": ModelOutput(per_atom=per_atom)}
+    outputs = {"non_conservative_stress": ModelOutput(sample_kind=sample_kind)}
     stress = model([system], outputs)["non_conservative_stress"].block().values
     assert torch.allclose(stress, stress.transpose(-3, -2))
 
@@ -104,7 +104,7 @@ def test_multiple_targets():
                 "unit": "",
                 "type": {"cartesian": {"rank": 1}},
                 "num_subtargets": 1,
-                "per_atom": False,
+                "sample_kind": "system",
             },
         ),
         "non_conservative_stress": get_generic_target_info(
@@ -114,7 +114,7 @@ def test_multiple_targets():
                 "unit": "",
                 "type": {"cartesian": {"rank": 2}},
                 "num_subtargets": 1,
-                "per_atom": False,
+                "sample_kind": "system",
             },
         ),
     }
@@ -126,9 +126,9 @@ def test_multiple_targets():
     model = PhACE(hypers, dataset_info)
     system = _make_system(model)
     outputs = {
-        "energy": ModelOutput(quantity="energy", unit="eV", per_atom=False),
-        "dipole": ModelOutput(per_atom=False),
-        "non_conservative_stress": ModelOutput(per_atom=False),
+        "energy": ModelOutput(quantity="energy", unit="eV", sample_kind="system"),
+        "dipole": ModelOutput(sample_kind="system"),
+        "non_conservative_stress": ModelOutput(sample_kind="system"),
     }
     result = model([system], outputs)
     assert "energy" in result

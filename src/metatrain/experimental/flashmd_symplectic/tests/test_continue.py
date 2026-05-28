@@ -93,7 +93,7 @@ def test_continue(monkeypatch, tmp_path):
                 "rank": 1,
             }
         },
-        "per_atom": True,
+        "sample_kind": "atom",
         "num_subtargets": 1,
     }
 
@@ -108,7 +108,7 @@ def test_continue(monkeypatch, tmp_path):
                 "rank": 1,
             }
         },
-        "per_atom": True,
+        "sample_kind": "atom",
         "num_subtargets": 1,
     }
 

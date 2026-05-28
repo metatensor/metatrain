@@ -43,7 +43,7 @@ class PositionAdditive(torch.nn.Module):
             self.outputs[key] = ModelOutput(
                 quantity=value.quantity,
                 unit=value.unit,
-                per_atom=True,
+                sample_kind="atom",
                 description=value.description,
             )
 
@@ -65,7 +65,7 @@ class PositionAdditive(torch.nn.Module):
             self.outputs[key] = ModelOutput(
                 quantity=value.quantity,
                 unit=value.unit,
-                per_atom=True,
+                sample_kind="atom",
                 description=value.description,
             )
         return self

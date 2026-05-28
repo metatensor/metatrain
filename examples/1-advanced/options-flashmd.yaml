@@ -21,7 +21,7 @@ training_set:
       type:
         cartesian:
           rank: 1
-      per_atom: true
+      sample_kind: atom
     momentum:
       key: future_momenta
       quantity: momentum
@@ -29,7 +29,7 @@ training_set:
       type:
         cartesian:
           rank: 1
-      per_atom: true
+      sample_kind: atom
 
 validation_set: 0.1
 test_set: 0.1
