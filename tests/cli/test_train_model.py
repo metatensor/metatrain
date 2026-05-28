@@ -1391,16 +1391,14 @@ def test_train_memmap_dataset(monkeypatch, tmp_path, options_pet):
     options_pet["training_set"]["targets"]["energy"]["stress"] = OmegaConf.create(
         {"key": "s"}
     )
-    options_pet["training_set"]["targets"]["non_conservative_forces"] = (
-        OmegaConf.create(
-            {
-                "key": "f",
-                "quantity": "force",
-                "unit": "eV/A",
-                "sample_kind": "atom",
-                "type": {"cartesian": {"rank": 1}},
-            }
-        )
+    options_pet["training_set"]["targets"]["non_conservative_force"] = OmegaConf.create(
+        {
+            "key": "f",
+            "quantity": "force",
+            "unit": "eV/A",
+            "sample_kind": "atom",
+            "type": {"cartesian": {"rank": 1}},
+        }
     )
     options_pet["training_set"]["targets"]["non_conservative_stress"] = (
         OmegaConf.create(
