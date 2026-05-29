@@ -22,7 +22,7 @@ jobs:
           - pet
           - phace
           - soap-bpnn
-          - dpa3       
+          - dpa3
 
     runs-on: ubuntu-24.04
 

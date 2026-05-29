@@ -213,7 +213,7 @@ def _validate_target(key: str, entry: DictConfig) -> None:
 def _decide_target_reader(key: str, entry: DictConfig) -> str:
     is_energy = (
         entry.get("quantity") == "energy"
-        and not entry.get("per_atom", False)
+        and entry.get("sample_kind", "system") == "system"
         and entry.get("num_subtargets", 1) == 1
         and entry.get("type") == "scalar"
     )

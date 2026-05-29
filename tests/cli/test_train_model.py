@@ -36,9 +36,11 @@ from ..conftest import (
     DATASET_PATH_ETHANOL,
     DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
+    DATASET_PATH_SPHERICAL,
     OPTIONS_EXTRA_DATA_PATH,
     OPTIONS_PATH,
     OPTIONS_PET_PATH,
+    OPTIONS_SPHERICAL_PATH,
     RESOURCES_PATH,
 )
 from .dump_spherical_targets import dump_spherical_targets
@@ -57,6 +59,11 @@ def options_pet():
 @pytest.fixture
 def options_extra():
     return OmegaConf.load(OPTIONS_EXTRA_DATA_PATH)
+
+
+@pytest.fixture
+def options_spherical():
+    return OmegaConf.load(OPTIONS_SPHERICAL_PATH)
 
 
 @pytest.mark.parametrize("output", [None, "mymodel.pt"])
@@ -1151,7 +1158,7 @@ def test_train_generic_target(monkeypatch, tmp_path):
     options["training_set"]["targets"]["energy"]["type"] = {
         "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
     }
-    options["training_set"]["targets"]["energy"]["per_atom"] = True
+    options["training_set"]["targets"]["energy"]["sample_kind"] = "atom"
     options["training_set"]["targets"]["energy"]["key"] = "forces"
 
     train_model(options)
@@ -1166,7 +1173,7 @@ def test_train_direct_forces(monkeypatch, tmp_path):
     options = OmegaConf.load(OPTIONS_PET_PATH)
     options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"]["targets"]["energy"]["type"] = {"cartesian": {"rank": 1}}
-    options["training_set"]["targets"]["energy"]["per_atom"] = True
+    options["training_set"]["targets"]["energy"]["sample_kind"] = "atom"
     options["training_set"]["targets"]["energy"]["key"] = "forces"
 
     train_model(options)
@@ -1186,7 +1193,7 @@ def test_train_density_of_states(monkeypatch, tmp_path):
             "key": "DOS",
             "quantity": "",
             "unit": "",
-            "per_atom": False,
+            "sample_kind": "system",
             "type": "scalar",
             "num_subtargets": 4806,
         }
@@ -1197,7 +1204,7 @@ def test_train_density_of_states(monkeypatch, tmp_path):
             "key": "mask",
             "quantity": "",
             "unit": "",
-            "per_atom": False,
+            "sample_kind": "system",
             "type": "scalar",
             "num_subtargets": 4806,
         }
@@ -1390,7 +1397,7 @@ def test_train_memmap_dataset(monkeypatch, tmp_path, options_pet):
                 "key": "f",
                 "quantity": "force",
                 "unit": "eV/A",
-                "per_atom": True,
+                "sample_kind": "atom",
                 "type": {"cartesian": {"rank": 1}},
             }
         )
@@ -1845,3 +1852,27 @@ def test_indices_out_of_range_error(monkeypatch, tmp_path, options):
 
     with pytest.raises(ValueError, match="out of range"):
         train_model(options)
+
+
+def test_input_sanitized(monkeypatch, tmp_path, options_spherical):
+    """Checks that the input is sanitized before training
+    by passing a deprecated option that should be removed
+    during sanitization."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_SPHERICAL, "spherical_disk_dataset.zip")
+    options_spherical = copy.deepcopy(options_spherical)
+
+    options_spherical["training_set"]["indices"] = [0]
+    options_spherical["validation_set"] = {"indices": [0]}
+    options_spherical["test_set"] = {"indices": [0]}
+
+    target_name = "mtt::electron_density_basis"
+    target_options = options_spherical["training_set"]["targets"][target_name]
+    del target_options["sample_kind"]
+    target_options["per_atom"] = True
+
+    with pytest.warns(
+        DeprecationWarning,
+        match="The `per_atom` key in target specifications is deprecated",
+    ):
+        train_model(options_spherical)

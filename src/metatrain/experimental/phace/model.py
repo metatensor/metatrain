@@ -90,14 +90,14 @@ class PhACE(ModelInterface[ModelHypers]):
         self.final_scaling = hypers["final_scaling"]
 
         self.outputs = {
-            "features": ModelOutput(unit="", per_atom=True)
+            "feature": ModelOutput(unit="", sample_kind="atom")
         }  # the model is always capable of outputting the internal features
         for target_name in dataset_info.targets.keys():
             # the model can always output the last-layer features for the targets
             ll_features_name = (
                 f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
             )
-            self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+            self.outputs[ll_features_name] = ModelOutput(sample_kind="atom")
 
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
@@ -260,9 +260,9 @@ class PhACE(ModelInterface[ModelHypers]):
         return_dict: Dict[str, TensorMap] = {}
 
         # output the features, if requested:
-        if "features" in outputs:
+        if "feature" in outputs:
             # only a single features block is supported by metatomic, we choose L=0
-            features_tensor = predictions["features"][0].squeeze(1)
+            features_tensor = predictions["feature"][0].squeeze(1)
             features = TensorMap(
                 keys=self.single_label,
                 blocks=[
@@ -283,10 +283,10 @@ class PhACE(ModelInterface[ModelHypers]):
                 features = metatensor.torch.slice(
                     features, axis="samples", selection=selected_atoms
                 )
-            if outputs["features"].per_atom:
-                return_dict["features"] = features
+            if outputs["feature"].sample_kind == "atom":
+                return_dict["feature"] = features
             else:
-                return_dict["features"] = metatensor.torch.sum_over_samples(
+                return_dict["feature"] = metatensor.torch.sum_over_samples(
                     features, ["atom"]
                 )
 
@@ -336,14 +336,14 @@ class PhACE(ModelInterface[ModelHypers]):
                 return_dict[output_name] = metatensor.torch.slice(
                     return_dict[output_name], axis="samples", selection=selected_atoms
                 )
-            if not outputs[output_name].per_atom:
+            if outputs[output_name].sample_kind == "system":
                 return_dict[output_name] = metatensor.torch.sum_over_samples(
                     return_dict[output_name], ["atom"]
                 )
 
         # remaining outputs (main outputs)
         for output_name in outputs.keys():
-            if output_name == "features" or output_name.startswith("mtt::aux::"):
+            if output_name == "feature" or output_name.startswith("mtt::aux::"):
                 continue
             output_as_tensor_dict = predictions[output_name]
             return_dict[output_name] = TensorMap(
@@ -388,7 +388,7 @@ class PhACE(ModelInterface[ModelHypers]):
                 return_dict[output_name] = metatensor.torch.slice(
                     return_dict[output_name], axis="samples", selection=selected_atoms
                 )
-            if not outputs[output_name].per_atom:
+            if outputs[output_name].sample_kind == "system":
                 return_dict[output_name] = metatensor.torch.sum_over_samples(
                     return_dict[output_name], ["atom"]
                 )
@@ -513,7 +513,7 @@ class PhACE(ModelInterface[ModelHypers]):
                                 )
                             )
                         else:
-                            output_blocks.append(b)
+                            output_blocks.append(b.copy(deep=False))
                     return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
 
             # For atomic basis targets, sparsify to create blocks with "atom_type"
@@ -621,7 +621,7 @@ class PhACE(ModelInterface[ModelHypers]):
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
-            per_atom=True,
+            sample_kind="atom",
         )
 
         if target_info.is_spherical and len(target_info.layout.block(0).components) > 1:

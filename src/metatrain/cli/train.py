@@ -265,7 +265,8 @@ def train_model(
     # Training, test and validation set options are verified within the
     # `expand_dataset_config()` function.
 
-    validate_base_options(OmegaConf.to_container(options))
+    options = validate_base_options(OmegaConf.to_container(options))
+    options = OmegaConf.create(options)
 
     ###########################
     # LOAD ARCHITECTURE #######
