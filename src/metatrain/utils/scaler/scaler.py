@@ -292,6 +292,7 @@ class Scaler(torch.nn.Module):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
+                targets = {k: v for k, v in targets.items() if k in self.target_infos}
                 if len(targets) == 0:
                     break
 
@@ -578,6 +579,8 @@ class Scaler(torch.nn.Module):
         # Reload the scales of the (old) targets, which are not stored in the model
         # state_dict, from the buffers
         for k in self.dataset_info.targets:
+            if k not in self.target_infos:
+                continue
             self.model.scales[k] = mts.load_buffer(
                 self.__getattr__(k + "_scaler_buffer")
             )
