@@ -131,7 +131,7 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
         self.graph2mats = torch.nn.ModuleDict()
         self.graph2mat_nls: dict[str, NeighborListOptions] = {}
         self.graph2mat_processors: dict[str, MatrixDataProcessor] = {}
-        self.radial_embeddings: dict[str, RadialEmbeddingBlock] = {}
+        self.radial_embeddings = torch.nn.ModuleDict()
         for matrix_name, matrix_spec in self.hypers["matrices"].items():
             node_target = matrix_spec["nodes"]
             edge_target = matrix_spec["edges"]

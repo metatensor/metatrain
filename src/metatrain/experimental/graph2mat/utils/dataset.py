@@ -365,7 +365,7 @@ def add_neighbor_lists(
                 ),
                 components=[Labels.range("xyz", 3)],
                 properties=Labels.range("distance", 1),
-            )
+            ).to(systems[i].positions.device)
 
             register_autograd_neighbors(systems[i], neighbor_list)
             systems[i].add_neighbor_list(nls_options[matrix_name], neighbor_list)
@@ -435,14 +435,14 @@ def graph2mat_to_tensormap(
         n_edges = batch["n_edges"][i_system]
         edge_types = batch["edge_types"][ptr_edge: ptr_edge + n_edges + 1: step]
         edge_indices = batch["edge_index"][:, ptr_edge: ptr_edge + n_edges + 1: step]
-        edge_ptrs = processor.basis_table.edge_block_pointer(abs(edge_types))
+        edge_ptrs = processor.basis_table.edge_block_pointer(abs(edge_types).cpu())
         edge_types = edge_types.tolist()
         for i_edge in range(n_edges // step):
             start, end = ptr_edge + edge_ptrs[i_edge: i_edge + 2]
             src, dst = edge_indices[:, i_edge] - atom_start
             edge_blocks[edge_types[i_edge]].append(batch["edge_labels"][start:end])
             edge_samples[edge_types[i_edge]].append((i_system, int(src), int(dst), 0, 0, 0))
-        ptr_edge += n_edges
+        ptr_edge += int(n_edges)
 
     # -----------------------------------------------------
     #                   RESHAPE PROPERLY
@@ -503,6 +503,7 @@ def graph2mat_to_tensormap(
         keys = []
 
         for block_key, blocks_list in input_blocks.items():
+            device = blocks_list.device
             if is_atom:
                 atom_type_0 = block_key
                 atom_type_1 = block_key
@@ -535,18 +536,18 @@ def graph2mat_to_tensormap(
                         values=torch.stack(block_values, dim=-1).reshape(-1, 2*l_1+1, 2*l_2+1, len(block_properties)),
                         samples=Labels(
                             names=samples_names,
-                            values=torch.tensor(input_samples[block_key])
+                            values=torch.tensor(input_samples[block_key], device=device)
                         ),
                         components=[
-                            Labels(["o3_mu_1"], torch.arange(-l_1, l_1 + 1).reshape(-1, 1)),
-                            Labels(["o3_mu_2"], torch.arange(-l_2, l_2 + 1).reshape(-1, 1)),
+                            Labels(["o3_mu_1"], torch.arange(-l_1, l_1 + 1, device=device).reshape(-1, 1)),
+                            Labels(["o3_mu_2"], torch.arange(-l_2, l_2 + 1, device=device).reshape(-1, 1)),
                         ],
-                        properties=Labels(["n_1", "n_2"], torch.tensor(block_properties)),
+                        properties=Labels(["n_1", "n_2"], torch.tensor(block_properties, device=device)),
                     )
                     blocks.append(block)
 
         return TensorMap(
-            keys=Labels(keys_names, torch.tensor(keys)),
+            keys=Labels(keys_names, torch.tensor(keys, device=device)),
             blocks=blocks,
         )
 
