@@ -18,7 +18,7 @@ training_set:
         key: f
       stress:
         key: s
-    non_conservative_forces:
+    non_conservative_force:
       key: f
       quantity: force
       unit: eV/A
