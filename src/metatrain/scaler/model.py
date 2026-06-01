@@ -484,6 +484,8 @@ class Scaler(ModelInterface[ModelHypers]):
         # Reload the scales of the (old) targets, which are not stored in the model
         # state_dict, from the buffers
         for k in self.dataset_info.targets:
+            if k not in self.target_infos:
+                continue
             buffer = self.__getattr__(k + "_scaler_buffer")
             weights = mts.load_buffer(buffer.to(device="cpu"))
             self.model.scales[k] = weights.to(device=buffer.device)

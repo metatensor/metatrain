@@ -168,6 +168,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
+                targets = {k: v for k, v in targets.items() if k in self.target_infos}
                 if len(targets) == 0:
                     break
 
@@ -241,6 +242,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
+                targets = {k: v for k, v in targets.items() if k in self.target_infos}
                 if len(targets) == 0:
                     break
 
