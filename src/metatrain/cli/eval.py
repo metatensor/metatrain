@@ -296,13 +296,13 @@ def _eval_targets(
         writer.finish()
 
     # Finalize metrics and log
-    rmse_vals = rmse_acc.finalize(not_per_atom=["positions_gradients"])
-    mae_vals = mae_acc.finalize(not_per_atom=["positions_gradients"])
-    metrics = {**rmse_vals, **mae_vals}
-    metric_logger = MetricLogger(
-        log_obj=logger, dataset_info=model.capabilities(), initial_metrics=metrics
-    )
-    metric_logger.log(metrics)
+    # rmse_vals = rmse_acc.finalize(not_per_atom=["positions_gradients"])
+    # mae_vals = mae_acc.finalize(not_per_atom=["positions_gradients"])
+    # metrics = {**rmse_vals, **mae_vals}
+    # metric_logger = MetricLogger(
+    #     log_obj=logger, dataset_info=model.capabilities(), initial_metrics=metrics
+    # )
+    # metric_logger.log(metrics)
 
     # Log timings
     timings_per_atom = np.array(timings_per_atom)
@@ -350,6 +350,8 @@ def eval_model(
 
     options = validate_eval_options(OmegaConf.to_container(options))
     options = OmegaConf.create(options)
+    model = model.eval()
+
     options_list = expand_dataset_config(options)
     for i, options in enumerate(options_list):
         idx_suffix = f"_{i}" if len(options_list) > 1 else ""
