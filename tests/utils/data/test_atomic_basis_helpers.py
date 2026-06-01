@@ -1,4 +1,5 @@
 import metatensor.torch as mts
+import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
@@ -74,6 +75,77 @@ def _make_layout_coupled_per_atom():
                 components=l1_comp,
                 properties=Labels(
                     names=["n"], values=torch.tensor([[0], [1]], dtype=torch.int32)
+                ),
+            ),
+        ],
+    )
+
+
+def _make_layout_per_atom_pair():
+    """
+    Layout TensorMap (zero-sample blocks) defining an atomic basis spherical target
+    of rank 1 that is per atom pair.
+    """
+    empty = Labels(
+        names=[
+            "system",
+            "first_atom",
+            "second_atom",
+            "cell_shift_a",
+            "cell_shift_b",
+            "cell_shift_c",
+        ],
+        values=torch.empty((0, 6), dtype=torch.int32),
+    )
+
+    l0_comp = [Labels(names=["o3_mu"], values=torch.tensor([[0]], dtype=torch.int32))]
+    l1_comp = [
+        Labels(
+            names=["o3_mu"],
+            values=torch.tensor([[-1], [0], [1]], dtype=torch.int32),
+        )
+    ]
+
+    return TensorMap(
+        keys=Labels(
+            names=["o3_lambda", "o3_sigma", "first_atom_type", "second_atom_type"],
+            values=torch.tensor(
+                [[0, 1, 1, 1], [1, 1, 1, 1], [0, 1, 6, 1], [1, 1, 6, 1]],
+                dtype=torch.int32,
+            ),
+        ),
+        blocks=[
+            TensorBlock(  # l=0, HH: n=[0,1,2,3] - seeds the union at positions 0,1,2,3
+                values=torch.empty((0, 1, 3), dtype=torch.float64),
+                samples=empty,
+                components=l0_comp,
+                properties=Labels(
+                    names=["n"], values=torch.tensor([[0], [3], [2]], dtype=torch.int32)
+                ),
+            ),
+            TensorBlock(  # l=1, HH: n=[0] - seeds the union at position 0
+                values=torch.empty((0, 3, 1), dtype=torch.float64),
+                samples=empty,
+                components=l1_comp,
+                properties=Labels(
+                    names=["n"], values=torch.tensor([[0]], dtype=torch.int32)
+                ),
+            ),
+            TensorBlock(  # l=0, CH: n=[4,5,6,7] - disjoint; ends up at positions 4-7 in union
+                values=torch.empty((0, 1, 4), dtype=torch.float64),
+                samples=empty,
+                components=l0_comp,
+                properties=Labels(
+                    names=["n"],
+                    values=torch.tensor([[1], [0], [2], [3]], dtype=torch.int32),
+                ),
+            ),
+            TensorBlock(  # l=1, CH: n=[8,9] - disjoint; ends up at positions 8-9 in union
+                values=torch.empty((0, 3, 2), dtype=torch.float64),
+                samples=empty,
+                components=l1_comp,
+                properties=Labels(
+                    names=["n"], values=torch.tensor([[1], [0]], dtype=torch.int32)
                 ),
             ),
         ],
@@ -188,19 +260,121 @@ def _make_sparse_tensor(system_ids=(0, 1)):
     )
 
 
+def _make_sparse_tensor_atompair(layout):
+    """ """
+    hh_samples = Labels(
+        names=[
+            "system",
+            "first_atom",
+            "second_atom",
+            "cell_shift_a",
+            "cell_shift_b",
+            "cell_shift_c",
+        ],
+        values=torch.tensor([[1, 0, 1, 0, 0, 0]], dtype=torch.int32),
+    )
+    ch_samples = Labels(
+        names=[
+            "system",
+            "first_atom",
+            "second_atom",
+            "cell_shift_a",
+            "cell_shift_b",
+            "cell_shift_c",
+        ],
+        values=torch.tensor(
+            [[0, 1, 0, 0, 0, 0], [1, 2, 0, 0, 0, 0], [1, 2, 1, 0, 0, 0]],
+            dtype=torch.int32,
+        ),
+    )
+
+    l0_comp = [Labels(names=["o3_mu"], values=torch.tensor([[0]], dtype=torch.int32))]
+    l1_comp = [
+        Labels(
+            names=["o3_mu"],
+            values=torch.tensor([[-1], [0], [1]], dtype=torch.int32),
+        )
+    ]
+
+    n_hh = hh_samples.values.shape[0]
+    n_ch = ch_samples.values.shape[0]
+
+    # Use easily distinguishable values to make assertion failures informative. H and C
+    # have disjoint property indices, matching the layout above.
+    hh_l0 = torch.arange(n_hh * 3, dtype=torch.float64).reshape(n_hh, 1, 3)
+    hh_l1 = torch.arange(n_hh * 3, dtype=torch.float64).reshape(n_hh, 3, 1) + 100.0
+    ch_l0 = torch.arange(n_ch * 4, dtype=torch.float64).reshape(n_ch, 1, 4) + 200.0
+    ch_l1 = torch.arange(n_ch * 6, dtype=torch.float64).reshape(n_ch, 3, 2) + 300.0
+
+    return TensorMap(
+        keys=Labels(
+            names=["o3_lambda", "o3_sigma", "first_atom_type", "second_atom_type"],
+            values=torch.tensor(
+                [[0, 1, 1, 1], [1, 1, 1, 1], [0, 1, 6, 1], [1, 1, 6, 1]],
+                dtype=torch.int32,
+            ),
+        ),
+        blocks=[
+            TensorBlock(
+                values=hh_l0,
+                samples=hh_samples,
+                components=l0_comp,
+                properties=Labels(
+                    names=["n"], values=torch.tensor([[0], [3], [2]], dtype=torch.int32)
+                ),
+            ),
+            TensorBlock(
+                values=hh_l1,
+                samples=hh_samples,
+                components=l1_comp,
+                properties=Labels(
+                    names=["n"], values=torch.tensor([[0]], dtype=torch.int32)
+                ),
+            ),
+            TensorBlock(
+                values=ch_l0,
+                samples=ch_samples,
+                components=l0_comp,
+                properties=Labels(
+                    names=["n"],
+                    values=torch.tensor([[1], [0], [2], [3]], dtype=torch.int32),
+                ),
+            ),
+            TensorBlock(
+                values=ch_l1,
+                samples=ch_samples,
+                components=l1_comp,
+                properties=Labels(
+                    names=["n"], values=torch.tensor([[1], [0]], dtype=torch.int32)
+                ),
+            ),
+        ],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
 
-def test_densify_sparsify_round_trip_():
+@pytest.fixture(params=["atom", "atom_pair"])
+def sample_kind(request):
+    return request.param
+
+
+def test_densify_sparsify_round_trip_(sample_kind):
     """
-    Densifying then sparsifying (in atom type) an atomic basis spherical (coupled,
-    per-atom) should exactly recover the original TensorMap.
+    Densifying and then sparsifying (in atom type) an atomic basis spherical
+    target should exactly recover the original TensorMap.
     """
-    layout = _make_layout_coupled_per_atom()
-    sparse = _make_sparse_tensor()
     systems = _make_systems()
+
+    if sample_kind == "atom":
+        layout = _make_layout_coupled_per_atom()
+        sparse = _make_sparse_tensor()
+    else:
+        layout = _make_layout_per_atom_pair()
+        sparse = _make_sparse_tensor_atompair(layout)
 
     dense = densify_atomic_basis_target(sparse, layout)
     recovered = sparsify_atomic_basis_target(systems, dense, layout)

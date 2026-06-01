@@ -335,6 +335,14 @@ class CompositionModel(ModelInterface[ModelHypers]):
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
+
+        if target_info.sample_kind == "atom_pair":
+            logging.debug(
+                f"Composition model does not support target {target_name} "
+                "since sample kind 'atom_pair' is not implemented yet."
+            )
+            return False
+
         if not target_info.is_scalar and not target_info.is_spherical:
             logging.debug(
                 f"Composition model does not support target {target_name} "
