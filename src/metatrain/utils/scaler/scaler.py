@@ -48,6 +48,7 @@ class Scaler(torch.nn.Module):
         self.target_infos = {
             target_name: target_info
             for target_name, target_info in dataset_info.targets.items()
+            if target_info.sample_kind != "atom_pair"
         }
 
         # Initialize the scaler model
@@ -64,7 +65,7 @@ class Scaler(torch.nn.Module):
         self.register_buffer("dummy_buffer", torch.randn(1))
 
         self.new_outputs = []
-        for target_name, target_info in self.dataset_info.targets.items():
+        for target_name, target_info in self.target_infos.items():
             self.new_outputs.append(target_name)
             self._add_output(target_name, target_info)
 
@@ -217,6 +218,7 @@ class Scaler(torch.nn.Module):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
+                targets = {k: v for k, v in targets.items() if k in self.target_infos}
                 if len(targets) == 0:
                     break
 

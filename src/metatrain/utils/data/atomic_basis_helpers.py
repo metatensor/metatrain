@@ -1,3 +1,4 @@
+import itertools
 from typing import Callable, Dict, List, Optional, Tuple
 
 import metatensor.torch as mts
@@ -227,6 +228,8 @@ def densify_atomic_basis_target(
     """
     if "atom" in tensor.sample_names:
         return _densify_per_atom_atomic_basis_target(tensor, layout, fill_value)
+    else:
+        return _densify_per_atom_atomic_basis_target(tensor, layout, fill_value)
 
     raise NotImplementedError(
         "Currently only densification of per-atom atomic basis targets is implemented."
@@ -274,6 +277,8 @@ def pad_samples_atomic_basis_target(
 
     if "atom" in tensor.sample_names:
         return _pad_samples_per_atom_atomic_basis_target(systems, tensor)
+    elif "first_atom" in tensor.sample_names:
+        return tensor
     raise NotImplementedError(
         "Currently only padding of per-atom atomic basis targets is implemented."
     )
@@ -465,6 +470,118 @@ def _sparsify_per_atom_atomic_basis_target(
     return tensor
 
 
+def _sparsify_per_atom_pair_atomic_basis_target(
+    systems: List[System],
+    tensor: TensorMap,
+    sparse_properties: TensorMap,
+    atom_types_batch: Optional[torch.Tensor] = None,
+) -> TensorMap:
+    """"""
+    if atom_types_batch is None:
+        # Get the atom types for each sample in the batch from the systems
+        atom_types_batch = torch.cat(
+            [system.types for system in systems],
+            dim=0,
+        )
+
+    device = tensor.device
+
+    # Sparsify by moving the "atom_type" from the samples to the keys
+    unique_types: list[int] = (
+        torch.unique(atom_types_batch).to(torch.int64).cpu().tolist()
+    )
+    # atom_type_masks: Dict[int, torch.Tensor] = {}
+    # atom_type_samples: Dict[int, Labels] = {}
+
+    # # Compute the samples masks (i.e. get the indices for the atoms
+    # # of each type), and build the samples labels. This could be computed
+    # # in the dataloader since it only depends on the atom types of the systems.
+    # sample_indices = torch.arange(len(atom_types_batch)).to(device=device)
+    # for first_atom_type, second_atom_type in itertools.product(unique_types, repeat=2):
+    #     atom_type_masks[atom_type] = sample_indices[atom_types_batch == atom_type]
+    #     atom_type_samples[atom_type] = Labels(
+    #         names=["system", "atom"],
+    #         values=tensor[0].samples.values[atom_type_masks[atom_type]],
+    #     )
+
+    sparse_properties = sparse_properties.to(device=device)
+
+    # Build the sparsified tensormap by looping over the dense one
+    # and splitting each block into one block per atom type.
+    new_keys: list[list[int]] = []
+    sparse_blocks: List[TensorBlock] = []
+    for key, block in tensor.items():
+        key_values: list[int] = key.values.to(torch.int64).tolist()
+
+        samples = block.samples
+        for first_atom_type, second_atom_type in itertools.product(
+            unique_types, repeat=2
+        ):
+            # mask = (atom_types_batch[samples["first_atom"]] == first_atom_type) & (atom_types_batch[samples["second_atom"]] == second_atom_type)
+
+            mask = torch.tensor(
+                [
+                    systems[i_sys].types[first_atom].item() == first_atom_type
+                    and systems[i_sys].types[second_atom].item() == second_atom_type
+                    for i_sys, first_atom, second_atom, *_ in samples.values
+                ]
+            )
+            new_key = key_values + [first_atom_type, second_atom_type]
+
+            # Get the corresponding layout block to know which properties to select
+            block_position = sparse_properties.keys.position(new_key)
+            if block_position is None:
+                # This irrep doesn't exist for this atom type in the layout
+                continue
+            assert block_position is not None  # for torchscript
+            layout_block = sparse_properties.block_by_id(block_position)
+
+            # Select samples
+            values = block.values[mask]
+            # Select properties
+            properties_mask = layout_block.values.ravel()
+            # Do block.values[..., properties_mask] in a torchscriptable way.
+            if block.values.ndim == 3:
+                values = values[:, :, properties_mask]
+            elif block.values.ndim == 4:
+                values = values[:, :, :, properties_mask]
+            else:
+                raise ValueError(
+                    "Tensorblocks with more than 2 component dimensions can't be "
+                    "sparsified with the current implementation."
+                )
+
+            sparse_block = TensorBlock(
+                values=values,
+                samples=Labels(
+                    names=[
+                        "system",
+                        "first_atom",
+                        "second_atom",
+                        "cell_shift_a",
+                        "cell_shift_b",
+                        "cell_shift_c",
+                    ],
+                    values=block.samples.values[mask],
+                ),
+                components=block.components,
+                properties=layout_block.properties,
+            )
+
+            new_keys.append(new_key)
+            sparse_blocks.append(sparse_block)
+
+    tensor = TensorMap(
+        Labels(
+            names=tensor.keys.names + ["first_atom_type", "second_atom_type"],
+            values=torch.tensor(new_keys, device=device),
+        ),
+        sparse_blocks,
+    )
+
+    return tensor
+
+
 def sparsify_atomic_basis_target(
     systems: List[System],
     tensor: TensorMap,
@@ -494,6 +611,10 @@ def sparsify_atomic_basis_target(
 
     if "atom" in tensor.sample_names:
         return _sparsify_per_atom_atomic_basis_target(
+            systems, tensor, sparse_properties, atom_types_batch
+        )
+    elif "first_atom" in tensor.sample_names:
+        return _sparsify_per_atom_pair_atomic_basis_target(
             systems, tensor, sparse_properties, atom_types_batch
         )
 
