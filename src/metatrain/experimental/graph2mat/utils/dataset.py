@@ -62,6 +62,7 @@ def get_graph2mat_transform(
     nls_options: dict[str, NeighborListOptions],
     matrices: dict[str, dict],
     target_infos: dict[str, TargetInfo],
+    add_neighbor_lists: bool = True,
 ) -> Callable:
     """Returns a transform function that processes systems and targets
     to adapt them to Graph2Mat.
@@ -304,7 +305,7 @@ def get_graph2mat_transform(
             node_target = matrix_spec["nodes"]
             edge_target = matrix_spec["edges"]
 
-            targets[node_target], targets[edge_target] = convert_tmaps(matrix_name, targets[node_target], targets[edge_target], systems)
+            targets[node_target], targets[edge_target] = convert_tmaps(matrix_name, targets[node_target], targets[edge_target], systems, add_neighbor_list=add_neighbor_lists)
 
             node_scales = f"mtt::aux::scales::{node_target}"
             edge_scales = f"mtt::aux::scales::{edge_target}"
