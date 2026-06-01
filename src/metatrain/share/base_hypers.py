@@ -177,7 +177,7 @@ class TargetHypers(TypedDict):
     The list of possible units is available `here
     <https://docs.metatensor.org/metatomic/latest/torch/reference/misc.html#known-quantities-units>`_."""
 
-    sample_kind: NotRequired[Literal["system", "atom"]]
+    sample_kind: NotRequired[Literal["system", "atom", "atom_pair"]]
     """Which kind of sample the target corresponds to.
 
     If not provided and ``per_atom`` is also not provided,

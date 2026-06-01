@@ -451,6 +451,12 @@ class CompositionModel(torch.nn.Module):
         :return: ``True`` if the target is compatible with a composition model,
             ``False`` otherwise.
         """
+        if target_info.sample_kind == "atom_pair":
+            logging.debug(
+                f"Composition model does not support target {target_name} "
+                "since sample kind 'atom_pair' is not implemented yet."
+            )
+            return False
         # only scalars can have composition contributions
         if not target_info.is_scalar and not target_info.is_spherical:
             logging.debug(
