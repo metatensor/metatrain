@@ -224,14 +224,14 @@ def _eval_targets(
         end_time = time.time()
 
         # Update metrics
-        preds_per_atom = average_by_num_atoms(
-            batch_predictions, systems, per_structure_keys=[]
-        )
-        targ_per_atom = average_by_num_atoms(
-            batch_targets, systems, per_structure_keys=[]
-        )
-        rmse_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
-        mae_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
+        # preds_per_atom = average_by_num_atoms(
+        #     batch_predictions, systems, per_structure_keys=[]
+        # )
+        # targ_per_atom = average_by_num_atoms(
+        #     batch_targets, systems, per_structure_keys=[]
+        # )
+        # rmse_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
+        # mae_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
 
         # Write out each sample if a writer is configured
         if writer:
@@ -247,13 +247,13 @@ def _eval_targets(
         writer.finish()
 
     # Finalize metrics and log
-    rmse_vals = rmse_acc.finalize(not_per_atom=["positions_gradients"])
-    mae_vals = mae_acc.finalize(not_per_atom=["positions_gradients"])
-    metrics = {**rmse_vals, **mae_vals}
-    metric_logger = MetricLogger(
-        log_obj=logger, dataset_info=model.capabilities(), initial_metrics=metrics
-    )
-    metric_logger.log(metrics)
+    # rmse_vals = rmse_acc.finalize(not_per_atom=["positions_gradients"])
+    # mae_vals = mae_acc.finalize(not_per_atom=["positions_gradients"])
+    # metrics = {**rmse_vals, **mae_vals}
+    # metric_logger = MetricLogger(
+    #     log_obj=logger, dataset_info=model.capabilities(), initial_metrics=metrics
+    # )
+    # metric_logger.log(metrics)
 
     # Log timings
     timings_per_atom = np.array(timings_per_atom)
@@ -293,6 +293,8 @@ def eval_model(
 
     options = validate_eval_options(OmegaConf.to_container(options))
     options = OmegaConf.create(options)
+    model = model.eval()
+
     options_list = expand_dataset_config(options)
     for i, options in enumerate(options_list):
         idx_suffix = f"_{i}" if len(options_list) > 1 else ""
