@@ -823,7 +823,7 @@ def _write_minimal_memmap(tmp_path, ns=3, values_per_system=None):
     target_options = {
         "energy": {
             "key": "e",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "type": "scalar",
             "quantity": "energy",
@@ -851,7 +851,7 @@ def test_memmap_extra_data_values_in_sample(tmp_path):
         "charge": {
             "key": "charge",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "quantity": "",
         },
@@ -873,7 +873,7 @@ def test_memmap_extra_data_system_label(tmp_path):
         "mtt::feat": {
             "key": "feat",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "quantity": "",
         },
@@ -896,7 +896,7 @@ def test_memmap_extra_data_property_name_from_key(tmp_path):
         "charge": {
             "key": "charge",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "quantity": "",
         },
@@ -927,7 +927,7 @@ def test_memmap_extra_data_fields_present_in_sample(tmp_path):
         "charge": {
             "key": "charge",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "quantity": "",
         },
@@ -948,7 +948,7 @@ def test_memmap_get_extra_data_info_returns_target_info(tmp_path):
         "charge": {
             "key": "charge",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "quantity": "",
             "unit": "",
@@ -981,14 +981,14 @@ def test_memmap_extra_data_multiple_keys(tmp_path):
         "charge": {
             "key": "charge",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "quantity": "",
         },
         "spin_multiplicity": {
             "key": "spin_multiplicity",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "quantity": "",
         },
@@ -1010,7 +1010,7 @@ def test_memmap_extra_data_overlapping_key_raises(tmp_path):
         "energy": {
             "key": "e",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "quantity": "",
         },
@@ -1028,7 +1028,7 @@ def test_memmap_extra_data_non_scalar_type_raises(tmp_path):
         "charge": {
             "key": "charge",
             "type": {"cartesian": {"rank": 1}},
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 3,
             "quantity": "",
         },
@@ -1051,7 +1051,7 @@ def test_memmap_extra_data_mtt_prefix_accessible(tmp_path):
         "charge": {
             "key": "charge",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "quantity": "",
         },
@@ -1086,7 +1086,7 @@ def _write_heterogeneous_memmap(tmp_path, atoms_per_system):
     target_options = {
         "energy": {
             "key": "e",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "type": "scalar",
             "quantity": "energy",
@@ -1119,7 +1119,7 @@ def test_memmap_extra_data_per_atom_heterogeneous(tmp_path):
         "mtt::feat": {
             "key": "feat",
             "type": "scalar",
-            "per_atom": True,
+            "sample_kind": "atom",
             "num_subtargets": 1,
             "quantity": "",
         },

@@ -1126,7 +1126,7 @@ class MemmapDataset(TorchDataset):
         # Register per-system (or per-atom) scalar arrays for extra_data keys
         self.extra_data_arrays: Dict[str, MemmapArray] = {}
         for key, opts in self.extra_data_config.items():
-            n_samples = self.na[-1] if opts["per_atom"] else self.ns
+            n_samples = self.na[-1] if opts["sample_kind"] == "atom" else self.ns
             self.extra_data_arrays[key] = MemmapArray(
                 path / f"{opts['key']}.bin",
                 (n_samples, opts["num_subtargets"]),
@@ -1420,7 +1420,7 @@ class MemmapDataset(TorchDataset):
         # the `extra` argument of CollateFn callables
         extra_data_dict = {}
         for key, arr in self.extra_data_arrays.items():
-            is_per_atom = bool(self.extra_data_config[key]["per_atom"])
+            is_per_atom = self.extra_data_config[key]["sample_kind"] == "atom"
             if is_per_atom:
                 extra_samples = Labels(
                     names=["system", "atom"],
