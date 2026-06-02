@@ -26,13 +26,13 @@ training_set:
   targets:
     mtt::dos:
       key: dos
-      per_atom: false
+      sample_kind: system
       type: scalar
       num_subtargets: 3830
   extra_data:
     mtt::dos_mask:
       key: dos_mask
-      per_atom: false
+      sample_kind: system
       type: scalar
       num_subtargets: 3830
 
@@ -41,13 +41,13 @@ validation_set:
   targets:
     mtt::dos:
       key: dos
-      per_atom: false
+      sample_kind: system
       type: scalar
       num_subtargets: 3830
   extra_data:
     mtt::dos_mask:
       key: dos_mask
-      per_atom: false
+      sample_kind: system
       type: scalar
       num_subtargets: 3830
 

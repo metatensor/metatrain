@@ -46,8 +46,9 @@ produces multiple targets, the corresponding representations might be different.
 
   * - samples
     - ``["system", "atom"]`` or ``["system"]``
-    - if a ``per_atom`` output is requested, the sample names will be
-      ``["system", "atom"]``, otherwise they will be ``["system"]``.
+    - if a ``sample_kind="atom"`` output is requested, the sample names will
+      be ``["system", "atom"]``, if ``sample_kind="system"`` they will
+      be ``["system"]``.
 
       ``"system"`` ranges from 0 to the number of systems given as input to
       the model. ``"atom"`` ranges between 0 and the number of

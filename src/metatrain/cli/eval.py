@@ -23,6 +23,7 @@ from metatrain.utils.data import (
     unpack_batch,
 )
 from metatrain.utils.data.readers import read_extra_data
+from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.data.writers import (
     DiskDatasetWriter,
     Writer,
@@ -40,6 +41,7 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.omegaconf import expand_dataset_config
 from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.pydantic import validate_eval_options
 from metatrain.utils.system_data import get_system_data_transform
 from metatrain.utils.transfer import batch_to
 
@@ -292,6 +294,8 @@ def eval_model(
     logging.info("Setting up evaluation set.")
     output = Path(output) if isinstance(output, str) else output
 
+    options = validate_eval_options(OmegaConf.to_container(options))
+    options = OmegaConf.create(options)
     options_list = expand_dataset_config(options)
     for i, options in enumerate(options_list):
         idx_suffix = f"_{i}" if len(options_list) > 1 else ""
@@ -318,10 +322,16 @@ def eval_model(
 
             # FIXME: this works only for energy models
             eval_targets: Dict[str, List[TensorMap]] = {}
-            eval_info_dict = copy.deepcopy(model.capabilities().outputs)
+            eval_info_dict = copy.deepcopy(
+                {
+                    name: model_output
+                    for name, model_output in model.capabilities().outputs.items()
+                    if name not in DEPRECATED_METATOMIC_OUTPUT_NAMES
+                }
+            )
             for name, model_output in eval_info_dict.items():
                 if "energy" in name:
-                    model_output.per_atom = False  # type: ignore
+                    model_output.sample_kind = "system"  # type: ignore
 
             extra_data: Dict[str, List[TensorMap]] = {}
             if "extra_data" in options:

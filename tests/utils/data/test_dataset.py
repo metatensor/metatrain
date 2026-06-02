@@ -118,7 +118,7 @@ def test_target_info_scalar(layout_scalar):
     assert target_info.quantity == "energy"
     assert target_info.unit == "kcal/mol"
     assert target_info.gradients == []
-    assert not target_info.per_atom
+    assert target_info.sample_kind == "system"
 
     expected_start = f"TargetInfo(layout={layout_scalar}, quantity='energy', "
     assert target_info.__repr__()[: len(expected_start)] == expected_start
@@ -134,7 +134,7 @@ def test_target_info_spherical(layout_spherical):
     assert target_info.quantity == "mtt::spherical"
     assert target_info.unit == "kcal/mol"
     assert target_info.gradients == []
-    assert not target_info.per_atom
+    assert target_info.sample_kind == "system"
 
     expected_start = f"TargetInfo(layout={layout_spherical}, quantity='mtt::spherical',"
     assert target_info.__repr__()[: len(expected_start)] == expected_start
@@ -150,7 +150,7 @@ def test_target_info_cartesian(layout_cartesian):
     assert target_info.quantity == "mtt::cartesian"
     assert target_info.unit == "kcal/mol"
     assert target_info.gradients == []
-    assert not target_info.per_atom
+    assert target_info.sample_kind == "system"
 
     expected_start = f"TargetInfo(layout={layout_cartesian}, quantity='mtt::cartesian',"
     assert target_info.__repr__()[: len(expected_start)] == expected_start
@@ -396,7 +396,7 @@ def test_dataset():
             "key": "U0",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -427,7 +427,7 @@ def test_get_atomic_types():
             "key": "U0",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -443,7 +443,7 @@ def test_get_atomic_types():
             "key": "energy",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -472,7 +472,7 @@ def test_get_all_targets():
             "key": "U0",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -488,7 +488,7 @@ def test_get_all_targets():
             "key": "energy",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -516,7 +516,7 @@ def test_check_datasets():
             "key": "U0",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -532,7 +532,7 @@ def test_check_datasets():
             "key": "energy",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -596,7 +596,7 @@ def test_collate_fn():
             "key": "U0",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -613,7 +613,7 @@ def test_collate_fn():
             "key": "U0",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
         }
     }
@@ -650,7 +650,7 @@ def test_get_stats(layout_scalar):
             "key": "U0",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -666,7 +666,7 @@ def test_get_stats(layout_scalar):
             "key": "energy",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -738,7 +738,7 @@ def test_memmap_per_atom_labels_use_local_indices(tmp_path):
     target_options = {
         "atomic_charge": {
             "key": "charge",
-            "per_atom": True,
+            "sample_kind": "atom",
             "num_subtargets": 1,
             "type": "scalar",
             "quantity": "energy",
@@ -778,7 +778,7 @@ def test_memmap_rejects_non_int64_na(tmp_path, bad_dtype):
     target_options = {
         "energy": {
             "key": "e",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "type": "scalar",
             "quantity": "energy",

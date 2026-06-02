@@ -28,10 +28,12 @@ DATASET_PATH_ETHANOL = RESOURCES_PATH / "ethanol_reduced_100.xyz"
 DATASET_PATH_CARBON = RESOURCES_PATH / "carbon_reduced_100.xyz"
 DATASET_PATH_QM7X = RESOURCES_PATH / "qm7x_reduced_100.xyz"
 DATASET_PATH_DOS = RESOURCES_PATH / "dos_100.xyz"
+DATASET_PATH_SPHERICAL = RESOURCES_PATH / "spherical_disk_dataset.zip"
 EVAL_OPTIONS_PATH = RESOURCES_PATH / "eval.yaml"
 OPTIONS_PATH = RESOURCES_PATH / "options.yaml"
 OPTIONS_PET_PATH = RESOURCES_PATH / "options-pet.yaml"
 OPTIONS_EXTRA_DATA_PATH = RESOURCES_PATH / "options-extra-data.yaml"
+OPTIONS_SPHERICAL_PATH = RESOURCES_PATH / "options-spherical.yaml"
 
 
 # -------------------------------
