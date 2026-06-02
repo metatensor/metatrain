@@ -76,31 +76,22 @@ def remove_additive(
                 components=[c.to(device=device) for c in old_block.components],
                 properties=old_block.properties.to(device=device),
             )
-            additive_block = additive_contribution[target_key].block(block_key)
             for gradient_name in targets[target_key].block(block_key).gradients_list():
-                target_gradient = (
-                    targets[target_key].block(block_key).gradient(gradient_name)
+                gradient = (
+                    additive_contribution[target_key]
+                    .block(block_key)
+                    .gradient(gradient_name)
                 )
-                if additive_block.has_gradient(gradient_name):
-                    src_gradient = additive_block.gradient(gradient_name)
-                    grad_values = src_gradient.values.detach()
-                    grad_components = src_gradient.components
-                    grad_properties = src_gradient.properties
-                else:
-                    # The additive model does not produce this gradient (e.g.
-                    # composition contributions have no position gradients).
-                    # Insert a zero gradient so the subsequent block-wise
-                    # subtract leaves the target gradient untouched.
-                    grad_values = torch.zeros_like(target_gradient.values).detach()
-                    grad_components = target_gradient.components
-                    grad_properties = target_gradient.properties
                 block.add_gradient(
                     gradient_name,
                     mts.TensorBlock(
-                        values=grad_values,
-                        samples=target_gradient.samples,
-                        components=grad_components,
-                        properties=grad_properties,
+                        values=gradient.values.detach(),
+                        samples=targets[target_key]
+                        .block(block_key)
+                        .gradient(gradient_name)
+                        .samples,
+                        components=gradient.components,
+                        properties=gradient.properties,
                     ),
                 )
             blocks.append(block)

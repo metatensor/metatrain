@@ -115,11 +115,6 @@ class RMSEAccumulator:
                 )
 
                 for gradient_name, target_gradient in target_block.gradients():
-                    if not prediction_block.has_gradient(gradient_name):
-                        # Prediction may legitimately omit a gradient that the
-                        # target carries (e.g. composition baselines have no
-                        # position gradients); skip the per-gradient metric.
-                        continue
                     if (
                         f"{key_to_write}_{gradient_name}_gradients"
                         not in self.information
@@ -309,11 +304,6 @@ class MAEAccumulator:
                 )
 
                 for gradient_name, target_gradient in target_block.gradients():
-                    if not prediction_block.has_gradient(gradient_name):
-                        # Prediction may legitimately omit a gradient that the
-                        # target carries (e.g. composition baselines have no
-                        # position gradients); skip the per-gradient metric.
-                        continue
                     if (
                         f"{key_to_write}_{gradient_name}_gradients"
                         not in self.information

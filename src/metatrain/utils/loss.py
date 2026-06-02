@@ -4,7 +4,7 @@
 import math
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, Literal, Mapping, Optional, Type
+from typing import Any, Dict, Literal, Optional, Type
 
 import metatensor.torch as mts
 import torch
@@ -1027,43 +1027,24 @@ class LossAggregator(LossInterface):
     """
 
     def __init__(
-        self,
-        targets: Dict[str, TargetInfo],
-        config: "str | Mapping[str, LossSpecification | str]",
+        self, targets: Dict[str, TargetInfo], config: Dict[str, LossSpecification]
     ):
         super().__init__(name="", gradient=None, weight=0.0, reduction="mean")
         self.losses: Dict[str, LossInterface] = {}
         self.metadata: Dict[str, Dict[str, Any]] = {}
 
-        # Normalize the shorthand forms documented for the ``loss`` hyper
-        # (``loss: str | dict[str, LossSpecification | str]``). A bare string is
-        # the loss type applied to every target; a per-target string is the
-        # type for that target. This mirrors
-        # :func:`metatrain.utils.omegaconf.expand_loss_config` for callers that
-        # construct the trainer directly without going through that expansion.
-        def _full_spec(loss_type: str) -> LossSpecification:
-            return LossSpecification(
-                {
-                    "type": loss_type,
-                    "weight": 1.0,
-                    "reduction": "mean",
-                    "gradients": {},
-                }
-            )
-
-        normalized_config: Dict[str, LossSpecification]
-        if isinstance(config, str):
-            normalized_config = {
-                target_name: _full_spec(config) for target_name in targets
-            }
-        else:
-            normalized_config = {
-                name: _full_spec(spec) if isinstance(spec, str) else spec
-                for name, spec in config.items()
-            }
-
         for target_name, target_info in targets.items():
-            target_config = normalized_config.get(target_name, _full_spec("mse"))
+            target_config = config.get(
+                target_name,
+                LossSpecification(
+                    {
+                        "type": "mse",
+                        "weight": 1.0,
+                        "reduction": "mean",
+                        "gradients": {},
+                    }
+                ),
+            )
 
             # Create main loss and its scheduler
             base_loss = create_loss(
