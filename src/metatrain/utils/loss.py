@@ -464,7 +464,6 @@ class MaskedDOSLoss(LossInterface):
         weight: float,
         grad_weight: float,
         int_weight: float,
-        extra_targets: int,
         reduction: str,
     ):
         super().__init__(
@@ -475,7 +474,6 @@ class MaskedDOSLoss(LossInterface):
         )
         self.grad_weight = grad_weight
         self.int_weight = int_weight
-        self.extra_targets = extra_targets
 
         interval = 0.05
         self.grid = (
@@ -547,7 +545,7 @@ class MaskedDOSLoss(LossInterface):
         final_loss, shift = torch.min(total_losses, dim=1)
 
         dos_loss = torch.mean(final_loss)
-        # Compute gradient loss
+        # Compute gradient loss !!! Need to change mask and gradient com-putation
         aligned_predictions = []
         adjusted_dos_mask = []
         for index, prediction in enumerate(predictions):
@@ -559,7 +557,9 @@ class MaskedDOSLoss(LossInterface):
                     [
                         (torch.ones(shift[index])).bool().to(device),
                         mask[index],
-                        (torch.zeros(int(self.extra_targets - shift[index])))
+                        torch.zeros(
+                            int(predictions.shape[1] - len(dos_pad) - shift[index])
+                        )
                         .bool()
                         .to(device),
                     ]
