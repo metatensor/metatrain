@@ -8,6 +8,7 @@ from typing import Any, Dict, Literal, Optional, Type
 
 import metatensor.torch as mts
 import torch
+import torch.nn.functional as F
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from pydantic import ConfigDict, with_config
 from torch.nn.modules.loss import _Loss
@@ -514,24 +515,37 @@ class MaskedDOSLoss(LossInterface):
         # There should only be one block
 
         predictions = tensor_map_pred.block().values
-        target = tensor_map_targ.block().values[:, self.extra_targets :]
-        mask = tensor_map_mask.block().values[:, self.extra_targets :].bool()
+        dos_pad = torch.zeros_like(predictions)
+        predictions = torch.hstack([dos_pad, predictions, dos_pad])
+
+        target = tensor_map_targ.block().values
+        mask = tensor_map_mask.block().values.float()
         dtype = predictions.dtype
         device = predictions.device
-        predictions_unfolded = predictions.unfold(1, len(target[0]), 1)
-        target_expanded = target[:, None, :]
-        delta = target_expanded - predictions_unfolded
-        dynamic_delta = delta * mask.unsqueeze(dim=1)
-        losses = torch.trapezoid(dynamic_delta * dynamic_delta, dx=0.05, dim=2)
-        front_tail = torch.cumulative_trapezoid(predictions**2, dx=0.05, dim=1)
+
+        sum_sq_smaller = torch.sum((target**2) * mask, dim=1, keepdim=True)
+        batch_size = predictions.shape[0]
+        bigger_reshaped = predictions.unsqueeze(0)
+        kernel = (target * mask).unsqueeze(1)
+        cross_corr = F.conv1d(bigger_reshaped, kernel, groups=batch_size)
+        cross_corr = cross_corr.squeeze(0)
+        bigger_sq_reshaped = (predictions**2).unsqueeze(0)
+        mask_kernel = mask.unsqueeze(1)
+        sum_sq_bigger = F.conv1d(bigger_sq_reshaped, mask_kernel, groups=batch_size)
+        sum_sq_bigger = sum_sq_bigger.squeeze(0)
+        losses = sum_sq_bigger - 2 * cross_corr + sum_sq_smaller
+        losses = torch.clamp(losses, min=0.0)
+        front_tail = torch.cumsum(predictions**2, dim=1)
+        shape_difference = predictions.shape[1] - target.shape[1]
         additional_error = torch.hstack(
             [
-                torch.zeros(len(predictions), device=device).reshape(-1, 1),
-                front_tail[:, : self.extra_targets],
+                torch.zeros(len(predictions), device=predictions.device).reshape(-1, 1),
+                front_tail[:, :shape_difference],
             ]
         )
         total_losses = losses + additional_error
         final_loss, shift = torch.min(total_losses, dim=1)
+
         dos_loss = torch.mean(final_loss)
         # Compute gradient loss
         aligned_predictions = []
