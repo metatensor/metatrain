@@ -23,14 +23,14 @@ def update_per_property_scales(checkpoint: dict, scaler_key: str = "scaler") -> 
         "dataset_info"
     ].targets.items():
         layout = target_info.layout
-        if len(layout.keys) > 1 or len(layout[0].properties) > 1:
-            raise ValueError(
-                f"Target '{target_name}' has multiple blocks or multiple properties "
-                f"per block. Upgrading checkpoints for such targets is not supported, "
-                f"as it would require re-computing per-target scales from the original "
-                f"training data. Please install from source the older version of "
-                f"metatrain (before the per-target/per-property scale separation)."
-            )
+        # if len(layout.keys) > 1 or len(layout[0].properties) > 1:
+        #     raise ValueError(
+        #         f"Target '{target_name}' has multiple blocks or multiple properties "
+        #         f"per block. Upgrading checkpoints for such targets is not supported, "
+        #         f"as it would require re-computing per-target scales from the original "
+        #         f"training data. Please install from source the older version of "
+        #         f"metatrain (before the per-target/per-property scale separation)."
+        #     )
 
     # For single-block, single-property targets (e.g. MLIPs): the old `scales`
     # TensorMap can be used directly as `per_target_scales`, and `per_property_scales`

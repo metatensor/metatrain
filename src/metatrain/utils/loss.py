@@ -512,11 +512,11 @@ class MaskedDOSLoss(LossInterface):
 
         # There should only be one block
 
-        predictions = tensor_map_pred.block().values
+        predictions = tensor_map_pred.block().values.float()
         dos_pad = torch.zeros_like(predictions)
         predictions = torch.hstack([dos_pad, predictions, dos_pad])
 
-        target = tensor_map_targ.block().values
+        target = tensor_map_targ.block().values.float()
         mask = tensor_map_mask.block().values.float()
         dtype = predictions.dtype
         device = predictions.device
@@ -556,12 +556,10 @@ class MaskedDOSLoss(LossInterface):
                 torch.hstack(  # Adjust the mask to account for the discrete shift
                     [
                         (torch.ones(shift[index])).bool().to(device),
-                        mask[index],
+                        mask[index].bool().to(device),
                         torch.zeros(
                             int(predictions.shape[1] - len(dos_pad) - shift[index])
-                        )
-                        .bool()
-                        .to(device),
+                        ).bool().to(device),
                     ]
                 )
             )
@@ -573,6 +571,8 @@ class MaskedDOSLoss(LossInterface):
             grad_predictions = torch.nn.functional.conv1d(
                 predictions.unsqueeze(dim=1), self.grid.to(device).to(dtype)
             ).squeeze(dim=1)
+            print (grad_predictions.shape, predictions.shape, adjusted_dos_mask.shape)
+
             dim_loss = (
                 predictions.shape[1] - grad_predictions.shape[1]
             )  # Dimensions lost due to the gradient convolution
