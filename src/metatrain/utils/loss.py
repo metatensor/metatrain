@@ -545,7 +545,7 @@ class MaskedDOSLoss(LossInterface):
         final_loss, shift = torch.min(total_losses, dim=1)
 
         dos_loss = torch.mean(final_loss)
-        # Compute gradient loss !!! Need to change mask and gradient com-putation
+        # Compute gradient loss 
         aligned_predictions = []
         adjusted_dos_mask = []
         for index, prediction in enumerate(predictions):
@@ -558,7 +558,7 @@ class MaskedDOSLoss(LossInterface):
                         (torch.ones(shift[index])).bool().to(device),
                         mask[index].bool().to(device),
                         torch.zeros(
-                            int(predictions.shape[1] - len(dos_pad) - shift[index])
+                            int(predictions.shape[1] - len(mask[index]) - shift[index])
                         ).bool().to(device),
                     ]
                 )
@@ -571,7 +571,6 @@ class MaskedDOSLoss(LossInterface):
             grad_predictions = torch.nn.functional.conv1d(
                 predictions.unsqueeze(dim=1), self.grid.to(device).to(dtype)
             ).squeeze(dim=1)
-            print (grad_predictions.shape, predictions.shape, adjusted_dos_mask.shape)
 
             dim_loss = (
                 predictions.shape[1] - grad_predictions.shape[1]
