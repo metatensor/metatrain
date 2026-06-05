@@ -16,7 +16,8 @@ def update_per_property_scales(checkpoint: dict, scaler_key: str = "scaler") -> 
     :param scaler_key: The key under which the scaler is stored in the state_dict
       of the model.
     """
-    if checkpoint["train_hypers"]["scale_targets"]:
+    targets_scaled = checkpoint.get("train_hypers", {}).get("scale_targets", True)
+    if targets_scaled:
         # If the model checkpoint can output targets with multiple blocks and/or
         # multiple properties per-block, this version of metatrain cannot be used.
         # This doesn't affect MLIP checkpoints.
