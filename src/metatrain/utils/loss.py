@@ -453,7 +453,6 @@ class MaskedDOSLoss(LossInterface):
     :param weight: weight of the loss contribution in the final aggregation.
     :param grad_weight: Multiplier for the gradient of the unmasked DOS component.
     :param int_weight: Multiplier for the cumulative DOS component.
-    :param extra_targets: Number of extra targets predicted by the model.
     :param reduction: reduction mode for torch loss.
     """
 
@@ -545,7 +544,7 @@ class MaskedDOSLoss(LossInterface):
         final_loss, shift = torch.min(total_losses, dim=1)
 
         dos_loss = torch.mean(final_loss)
-        # Compute gradient loss 
+        # Compute gradient loss
         aligned_predictions = []
         adjusted_dos_mask = []
         for index, prediction in enumerate(predictions):
@@ -559,7 +558,9 @@ class MaskedDOSLoss(LossInterface):
                         mask[index].bool().to(device),
                         torch.zeros(
                             int(predictions.shape[1] - len(mask[index]) - shift[index])
-                        ).bool().to(device),
+                        )
+                        .bool()
+                        .to(device),
                     ]
                 )
             )
