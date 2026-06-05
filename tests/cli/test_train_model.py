@@ -1217,7 +1217,6 @@ def test_train_density_of_states(monkeypatch, tmp_path):
             "weight": 1.0,
             "grad_weight": 1e-4,
             "int_weight": 2.0,
-            "extra_targets": 200,
             "reduction": "mean",
         }
     }

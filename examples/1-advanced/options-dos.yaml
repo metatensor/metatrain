@@ -17,7 +17,6 @@ architecture:
         weight: 1.0
         grad_weight: 1e-4
         int_weight: 2
-        extra_targets: 200  # Number of extra zero-padded targets to ignore during loss computation
         reduction: mean
 
 # Section defining the parameters for system and target data
