@@ -13,7 +13,7 @@ more about it here: https://pubs.acs.org/doi/10.1021/acs.jpclett.4c02376.
 Additional outputs
 ------------------
 
-- ``features``: the internal FlashMD features, before the different heads for each
+- ``feature``: the internal PhACE features, before the different heads for each
   target.
 - :ref:`mtt-aux-target-last-layer-features`: The features for a given target, taken
   before the last linear layer of the corresponding head.
@@ -239,7 +239,18 @@ class TrainerHypers(TypedDict):
     """Interval to save model checkpoints."""
 
     scale_targets: bool = True
-    """Whether to scale targets during training."""
+    """
+    Normalize targets to unit std during training.
+
+    If true, a single scale is computed for each target, given by the uncentered
+    standard deviation across all values in the dataset for that target.
+
+    For targets with more than one property (i.e. > 1 block or >= 1 block with > 1
+    property), per-property scales are also computed, and used to re-scale model
+    predictions.
+
+    See also :ref:`scale-targets`.
+    """
 
     atomic_baseline: FixedCompositionWeights = {}
     """The baselines for each target.

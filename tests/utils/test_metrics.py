@@ -189,15 +189,15 @@ def test_per_block(accumulator_class, tensor_map_with_grad_1, tensor_map_with_gr
     tensor_1 = TensorMap(
         keys=Labels.range("label_name", 2),
         blocks=[
-            tensor_map_with_grad_1.block().copy(),
-            tensor_map_with_grad_1.block().copy(),
+            tensor_map_with_grad_1.block().copy(deep=False),
+            tensor_map_with_grad_1.block().copy(deep=False),
         ],
     )
     tensor_2 = TensorMap(
         keys=Labels.range("label_name", 2),
         blocks=[
-            tensor_map_with_grad_2.block().copy(),
-            tensor_map_with_grad_2.block().copy(),
+            tensor_map_with_grad_2.block().copy(deep=False),
+            tensor_map_with_grad_2.block().copy(deep=False),
         ],
     )
 

@@ -10,3 +10,6 @@ DATASET_WITH_FORCES_PATH = str(
 
 DEFAULT_HYPERS = get_default_hypers("pet")
 MODEL_HYPERS = DEFAULT_HYPERS["model"]
+SPHERICAL_DISK_DATASET_PATH = str(
+    Path(__file__).parents[4] / "tests/resources/spherical_disk_dataset.zip"
+)

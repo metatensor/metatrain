@@ -57,7 +57,7 @@ def test_pet_mad_consistency(version, monkeypatch, tmp_path):
 
     systems = [system.to(torch.float32) for system in systems]
 
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
 
     predictions = pet_mad_model(systems, outputs)
 

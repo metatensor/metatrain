@@ -4,6 +4,7 @@ import contextlib
 import csv
 import logging
 import sys
+import warnings
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 
@@ -415,6 +416,8 @@ def setup_logging(
         # set the level for root logger
         logging.basicConfig(format=format, handlers=handlers, level=level, style="{")
         logging.captureWarnings(True)
+        # Deprecation warnings don't show up by default, make them show up
+        warnings.simplefilter("default", DeprecationWarning)
 
         if log_file:
             abs_path = str(Path(log_file).absolute().resolve())

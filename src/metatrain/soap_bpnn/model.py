@@ -187,7 +187,7 @@ def concatenate_structures(
 
 
 class SoapBpnn(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 8
+    __checkpoint_version__ = 9
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -348,7 +348,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
 
         # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(per_atom=True, description="internal features")
+            "feature": ModelOutput(sample_kind="atom", description="internal features")
         }
 
         self.single_label = Labels.single()
@@ -666,9 +666,9 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             features = mts.add(features, long_range_features)
 
         # output the hidden features, if requested:
-        if "features" in outputs:
-            return_dict["features"] = self._format_features_output(
-                features, outputs["features"].per_atom
+        if "feature" in outputs:
+            return_dict["feature"] = self._format_features_output(
+                features, outputs["feature"].sample_kind
             )
 
         features_by_output: Dict[str, TensorMap] = {}
@@ -697,7 +697,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             if f"mtt::{base_name}" in features_by_output:
                 base_name = f"mtt::{base_name}"
             return_dict[output_name] = self._format_features_output(
-                features_by_output[base_name], outputs[output_name].per_atom
+                features_by_output[base_name], outputs[output_name].sample_kind
             )
 
         # Pre-compute sorting indices for legacy keys_to_samples (shared across
@@ -815,7 +815,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 )
 
         for output_name, atomic_property in atomic_properties.items():
-            if outputs[output_name].per_atom:
+            if outputs[output_name].sample_kind == "atom":
                 return_dict[output_name] = atomic_property
             else:
                 # sum the atomic property to get the total property
@@ -824,7 +824,11 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
             return_dict = self.scaler(
-                systems, return_dict, selected_atoms=selected_atoms
+                systems,
+                return_dict,
+                selected_atoms=selected_atoms,
+                use_per_target_scales=True,
+                use_per_property_scales=True,
             )
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
@@ -861,7 +865,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                                 )
                             )
                         else:
-                            output_blocks.append(b)
+                            output_blocks.append(b.copy(deep=False))
                     return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
 
             # For atomic basis targets, sparsify to create blocks with "atom_type"
@@ -880,7 +884,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
     def _format_features_output(
         self,
         features: TensorMap,
-        per_atom: bool,
+        sample_kind: str,
     ) -> TensorMap:
         """Format internal features for output.
 
@@ -888,14 +892,14 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         and legacy center_type removal from properties.
 
         :param features: the internal features to format
-        :param per_atom: whether the output should be per-atom or summed over atoms
+        :param sample_kind: sample kind for the output.
         :return: the formatted features TensorMap
         """
         if self.legacy:
             out = features.keys_to_properties(self.center_type_labels)
         else:
             out = features
-        if not per_atom:
+        if sample_kind == "system":
             out = sum_over_atoms(out)
         if self.legacy:
             out = _remove_center_type_from_properties(out)
@@ -1138,7 +1142,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
         )
         self.outputs[ll_features_name] = ModelOutput(
-            per_atom=True, description=f"last layer features for {target_name}"
+            sample_kind="atom", description=f"last layer features for {target_name}"
         )
 
         # For rank-2 Cartesian targets, construct an internal spherical layout
@@ -1231,7 +1235,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         self.outputs[target_name] = ModelOutput(
             quantity=target.quantity,
             unit=target.unit,
-            per_atom=True,
+            sample_kind="atom",
             description=target.description,
         )
 

@@ -16,7 +16,7 @@ metatrain is based on the :ref:`PET architecture <arch-pet>`.
 Additional outputs
 ------------------
 
-- ``features``: the internal FlashMD features, before the different heads for each
+- ``feature``: the internal FlashMD features, before the different heads for each
   target.
 - :ref:`mtt-aux-target-last-layer-features`: The features for a given target, taken
   before the last linear layer of the corresponding head.
@@ -219,7 +219,18 @@ class TrainerHypers(TypedDict):
         structure.
     """
     scale_targets: bool = True
-    """Normalize targets to unit std during training."""
+    """
+    Normalize targets to unit std during training.
+
+    If true, a single scale is computed for each target, given by the uncentered
+    standard deviation across all values in the dataset for that target.
+
+    For targets with more than one property (i.e. > 1 block or >= 1 block with > 1
+    property), per-property scales are also computed, and used to re-scale model
+    predictions.
+
+    See also :ref:`scale-targets`.
+    """
     fixed_scaling_weights: FixedScalerWeights = {}
     """Weights for target scaling.
 
