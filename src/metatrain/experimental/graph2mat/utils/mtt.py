@@ -1,7 +1,6 @@
 import torch
 from e3nn import o3
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from omegaconf import DictConfig
 
 from metatrain.utils.data import DatasetInfo, TargetInfo
 
@@ -96,8 +95,12 @@ def _wrap_in_tensorblock(data_values, i, dtype=torch.float64):
 #         ],
 #     )
 
+
 def g2m_labels_to_tensormap(
-    node_labels: torch.Tensor, edge_labels: torch.Tensor, i: int = 0, dtype=torch.float64
+    node_labels: torch.Tensor,
+    edge_labels: torch.Tensor,
+    i: int = 0,
+    dtype=torch.float64,
 ) -> tuple[TensorMap, TensorMap]:
     node_tmap = TensorMap(
         keys=Labels(
@@ -180,7 +183,9 @@ def get_e3nn_target_info(target_name: str, target: dict) -> TargetInfo:
     return target_info
 
 
-def split_dataset_info(dataset_info: DatasetInfo, node_hidden_irreps: str, matrices: dict[str, dict]) -> tuple[DatasetInfo, DatasetInfo]:
+def split_dataset_info(
+    dataset_info: DatasetInfo, node_hidden_irreps: str, matrices: dict[str, dict]
+) -> tuple[DatasetInfo, DatasetInfo]:
     """Splits the dataset info into one info for the featurizer and one for graph2mat."""
     graph2mat_targets = {}
     featurizer_targets = {}
@@ -188,17 +193,15 @@ def split_dataset_info(dataset_info: DatasetInfo, node_hidden_irreps: str, matri
         node_target = matrix_spec["nodes"]
         edge_target = matrix_spec["edges"]
 
-        featurizer_targets[f"mtt::aux::graph2mat_{matrix_name}"] = (
-            get_e3nn_target_info(
-                target_name=f"mtt::aux::graph2mat_{matrix_name}",
-                target={
-                    "type": {"spherical": {"irreps": node_hidden_irreps}},
-                    "quantity": "",
-                    "unit": "",
-                    "per_atom": True,
-                    "properties_name": "_",
-                },
-            )
+        featurizer_targets[f"mtt::aux::graph2mat_{matrix_name}"] = get_e3nn_target_info(
+            target_name=f"mtt::aux::graph2mat_{matrix_name}",
+            target={
+                "type": {"spherical": {"irreps": node_hidden_irreps}},
+                "quantity": "",
+                "unit": "",
+                "per_atom": True,
+                "properties_name": "_",
+            },
         )
 
         graph2mat_targets[node_target] = dataset_info.targets[node_target]

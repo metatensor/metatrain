@@ -1,7 +1,3 @@
-from collections import defaultdict
-
-import numpy as np
-import sisl
 import torch
 from e3nn import o3
 from graph2mat import (
@@ -9,7 +5,7 @@ from graph2mat import (
     conversions,
 )
 from graph2mat.core.data.basis import get_change_of_basis
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import TensorBlock, TensorMap
 
 
 Formats.TENSORMAP = "tensormap"

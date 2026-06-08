@@ -12,6 +12,7 @@ from typing_extensions import TypedDict
 from metatrain.utils.loss import LossSpecification
 from metatrain.utils.scaler import FixedScalerWeights
 
+
 class MatrixSpecification(TypedDict):
     nodes: str
     """Name of the target that contains the node features
@@ -25,9 +26,12 @@ class MatrixSpecification(TypedDict):
     self_blocks_symmetry: Optional[str] = None
     node_operation: Literal["linear", "tsq"] = "tsq"
     edge_operation: Literal["linear", "simple"] = "simple"
-    preprocessing_edges: Literal["two_center_message", "mace_node_message"] = "mace_edge_message"
+    preprocessing_edges: Literal["two_center_message", "mace_node_message"] = (
+        "mace_edge_message"
+    )
     preprocessing_nodes: Optional[str] = None
     edge_cutoff: float
+
 
 class ModelHypers(TypedDict):
     featurizer_architecture: dict
