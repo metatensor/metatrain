@@ -55,7 +55,7 @@ class DiskDatasetWriter(Writer):
         for system, preds in zip(systems, split_predictions, strict=True):
             # system
             with self.zip_file.open(f"{self.index}/system.mta", "w") as f:
-                system.cell[:] = 0 # TEMPORARY TO AVOID ERRORS WITH PBC=False
+                system.cell[:] = 0  # TEMPORARY TO AVOID ERRORS WITH PBC=False
                 mta.save(f, system.to("cpu").to(torch.float64))
 
             # each target

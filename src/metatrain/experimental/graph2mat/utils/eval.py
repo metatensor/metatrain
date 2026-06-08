@@ -2,34 +2,29 @@
 it is not torchscript compatible yet."""
 
 from typing import Optional
-from functools import partial
 
+import ase
 import graph2mat
 import sisl
 import torch
 from graph2mat.bindings.torch import TorchBasisMatrixData, TorchBasisMatrixDataset
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, systems_to_torch
-import ase
 
 from metatrain.experimental.graph2mat import MetaGraph2Mat
 from metatrain.experimental.graph2mat.utils.conversions import (
-    get_target_converters,
     transform_tensormap_matrix,
 )
 from metatrain.experimental.graph2mat.utils.dataset import (
-    get_graph2mat_eval_transform,
+    get_graph2mat_transform,
     system_to_config,
 )
-from metatrain.utils.data import CollateFn, Dataset, read_systems, unpack_batch
+from metatrain.utils.data import CollateFn, Dataset, unpack_batch
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists_transform,
 )
 from metatrain.utils.transfer import batch_to
-
-from metatrain.experimental.graph2mat.utils.dataset import get_graph2mat_transform
-from metatomic.torch import systems_to_torch
-from metatensor.torch import TensorMap, TensorBlock, Labels
 
 
 # ----------------------------------------
@@ -58,21 +53,31 @@ from metatensor.torch import TensorMap, TensorBlock, Labels
 # )
 # dataset = Dataset.from_dict({"system": systems})
 
+
 class Graph2MatCalculator:
     def __init__(self, model_ckpt):
         ckpt = torch.load(model_ckpt, map_location="cpu")
-        self.model = MetaGraph2Mat.load_checkpoint(ckpt, context="export").to(torch.float64)
-        self.requested_neighbor_lists = get_requested_neighbor_lists(self.model.featurizer_model)
+        self.model = MetaGraph2Mat.load_checkpoint(ckpt, context="export").to(
+            torch.float64
+        )
+        self.requested_neighbor_lists = get_requested_neighbor_lists(
+            self.model.featurizer_model
+        )
 
         self.transform = get_graph2mat_transform(
             self.model.graph2mat_processors,
             self.model.graph2mat_nls,
             self.model.hypers["matrices"],
             self.model.dataset_info.targets,
-            add_neighbor_lists=False
+            add_neighbor_lists=False,
         )
 
-    def __call__(self, atoms: ase.Atoms, properties: Optional[list[str]] = None, out_format: Optional[str] = None) -> dict[str, torch.Tensor]:
+    def __call__(
+        self,
+        atoms: ase.Atoms,
+        properties: Optional[list[str]] = None,
+        out_format: Optional[str] = None,
+    ) -> dict[str, torch.Tensor]:
 
         self.model = self.model.to(torch.float32)
         self.model.eval()
@@ -97,12 +102,14 @@ class Graph2MatCalculator:
             systems = systems_to_torch([atoms])
         else:
             systems = [atoms]
-        systems = [system.to(torch.float64) for system in systems] # so that they can be pickled
+        systems = [
+            system.to(torch.float64) for system in systems
+        ]  # so that they can be pickled
         dataset = Dataset.from_dict({"system": systems})
         dataloader = torch.utils.data.DataLoader(
             dataset, batch_size=1, collate_fn=collate_fn, shuffle=False
         )
-        
+
         batch = next(iter(dataloader))
         systems, batch_targets, batch_extra_data = unpack_batch(batch)
         systems, batch_targets, batch_extra_data = batch_to(
@@ -143,7 +150,9 @@ class Graph2MatCalculator:
                 )
             ],
         )
-        _, out, _ = self.transform(systems, detached_out, {'mtt::aux::system_index': tensor_map})
+        _, out, _ = self.transform(
+            systems, detached_out, {"mtt::aux::system_index": tensor_map}
+        )
 
         results = {}
         for matrix_name, matrix_spec in self.model.hypers["matrices"].items():
@@ -151,7 +160,9 @@ class Graph2MatCalculator:
             edge_target = matrix_spec["edges"]
 
             configs = [
-                system_to_config(system, self.model.graph2mat_processors[matrix_name], None)
+                system_to_config(
+                    system, self.model.graph2mat_processors[matrix_name], None
+                )
                 for system in systems
             ]
 
@@ -173,22 +184,23 @@ class Graph2MatCalculator:
                 pred.edge_labels = preds["edge_labels"]
             else:
                 processor = self.model.graph2mat_processors[matrix_name]
-                pred = processor.matrix_from_data(
-                    data, preds, out_format=out_format
-                )
+                pred = processor.matrix_from_data(data, preds, out_format=out_format)
 
             results[matrix_name] = pred
 
         return results
-    
+
     def convert_sample(self, sample, out_format: Optional[str]):
         system = sample["system"]
-        target_names = [field for field in sample._fields if field not in ["system", "mtt::aux::system_index"]]
+        target_names = [
+            field
+            for field in sample._fields
+            if field not in ["system", "mtt::aux::system_index"]
+        ]
         targets = {target_name: sample[target_name] for target_name in target_names}
 
         return self._convert_output([system], targets, out_format=out_format)
 
-        
 
 # ---------------------------------------------------------------
 #   Helpers to convert from spherical harmonics to the basis used
@@ -260,20 +272,20 @@ def spherical_to_basis(
 #         data["point_labels"] = dm_tensormap.block(0).values.ravel()
 #         data["edge_labels"] = dm_tensormap.block(1).values.ravel()
 
-        # data = spherical_to_basis(
-        #     data,
-        #     converters=converters[target],
-        #     data_processor=model.graph2mat_processors[target],
-        # )
+# data = spherical_to_basis(
+#     data,
+#     converters=converters[target],
+#     data_processor=model.graph2mat_processors[target],
+# )
 
-        # if target == "density_matrix":
-        #     dm = graph2mat.conversions.torch_basismatrixdata_to_sisl_DM(data)
-        #     dm.write("prediction.DM")
-        # elif target == "hamiltonian":
-        #     hamiltonian = graph2mat.conversions.torch_basismatrixdata_to_sisl_H(data)
-        #     hamiltonian.write("prediction.TSHS")
-        # elif target == "overlap_matrix":
-        #     overlap_matrix = graph2mat.conversions.torch_basismatrixdata_to_sisl_S(data)
-        #     overlap_matrix.write("prediction.TSHS")
-        # else:
-        #     print(f"Writing for target {target} not implemented.")
+# if target == "density_matrix":
+#     dm = graph2mat.conversions.torch_basismatrixdata_to_sisl_DM(data)
+#     dm.write("prediction.DM")
+# elif target == "hamiltonian":
+#     hamiltonian = graph2mat.conversions.torch_basismatrixdata_to_sisl_H(data)
+#     hamiltonian.write("prediction.TSHS")
+# elif target == "overlap_matrix":
+#     overlap_matrix = graph2mat.conversions.torch_basismatrixdata_to_sisl_S(data)
+#     overlap_matrix.write("prediction.TSHS")
+# else:
+#     print(f"Writing for target {target} not implemented.")

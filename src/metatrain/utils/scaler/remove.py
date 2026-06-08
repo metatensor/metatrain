@@ -1,10 +1,9 @@
 from typing import Callable, Dict, List, Tuple
 
-import torch
-from metatensor.torch import TensorMap, TensorBlock
-from metatomic.torch import System
-
 import metatensor.torch as mts
+import torch
+from metatensor.torch import TensorBlock, TensorMap
+from metatomic.torch import System
 
 from .scaler import Scaler
 
@@ -81,12 +80,13 @@ def get_remove_scale_transform(scaler: Scaler) -> Callable:
             return TensorMap(tensormap.keys, new_blocks)
 
         for key in targets.keys():
-            
             scales = mts.divide(targets[key], new_targets[key])
             per_property_scales = mts.divide(targets[key], per_property_scaled[key])
 
             extra[f"mtt::aux::scales::{key}"] = NaNs_to_1(scales)
-            extra[f"mtt::aux::per-property-scales::{key}"] = NaNs_to_1(per_property_scales)
+            extra[f"mtt::aux::per-property-scales::{key}"] = NaNs_to_1(
+                per_property_scales
+            )
 
         return systems, new_targets, extra
 
