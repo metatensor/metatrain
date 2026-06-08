@@ -469,8 +469,6 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
                     )
                 )
 
-                print("DEBUGG", C_node_block.values[..., 0])
-
             return_dict = self.scaler(
                 systems,
                 return_dict,
