@@ -95,7 +95,9 @@ def create_batch(
         cell = system.cell.cpu()
         for i in range(3):
             if torch.all(cell[i] == 0):
-                cell[i, i] = system.positions[:, i].max() - system.positions[:, i].min() + 20.0
+                cell[i, i] = (
+                    system.positions[:, i].max() - system.positions[:, i].min() + 20.0
+                )
         supercell = sisl.Lattice(system.cell.cpu(), nsc=nsc.cpu())
 
         # Then, get the supercell index of each interaction.

@@ -46,7 +46,8 @@ class BesselBasis(torch.nn.Module):
             f"{self.__class__.__name__}(r_max={self.r_max}, num_basis={len(self.bessel_weights)}, "
             f"trainable={self.bessel_weights.requires_grad})"
         )
-    
+
+
 class PolynomialCutoff(torch.nn.Module):
     """Polynomial cutoff function that goes from 1 to 0 as x goes from 0 to r_max.
     Equation (8) -- TODO: from where?
@@ -80,7 +81,8 @@ class PolynomialCutoff(torch.nn.Module):
 
     def __repr__(self):
         return f"{self.__class__.__name__}(p={self.p}, r_max={self.r_max})"
-    
+
+
 class RadialEmbeddingBlock(torch.nn.Module):
     def __init__(
         self,

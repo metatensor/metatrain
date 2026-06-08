@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
+import metatensor.torch as mts
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
 
@@ -32,82 +33,83 @@ from metatrain.utils.neighbor_lists import (
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
-import metatensor.torch as mts
 
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import MetaGraph2Mat
 from .utils.dataset import get_graph2mat_transform, graph2mat_to_tensormap
 
+
 # TO GET MACE OPTIMIZER
-        # from mace.tools.scripts_utils import (
-        #     LRScheduler,
-        #     get_optimizer,
-        #     get_params_options,
-        # )
-        # import argparse
-        # from metatrain.utils.architectures import get_default_hypers
+# from mace.tools.scripts_utils import (
+#     LRScheduler,
+#     get_optimizer,
+#     get_params_options,
+# )
+# import argparse
+# from metatrain.utils.architectures import get_default_hypers
 
-        # # Take into account distributed training
-        # featurizer_model = model.featurizer_model.module if is_distributed else model.featurizer_model
+# # Take into account distributed training
+# featurizer_model = model.featurizer_model.module if is_distributed else model.featurizer_model
 
-        # trainer_hypers = get_default_hypers("experimental.mace")["training"]
+# trainer_hypers = get_default_hypers("experimental.mace")["training"]
 
-        # opt_args = argparse.Namespace(
-        #     lr=trainer_hypers["learning_rate"],
-        #     weight_decay=trainer_hypers["weight_decay"],
-        #     amsgrad=trainer_hypers["amsgrad"],
-        #     beta=trainer_hypers["beta"],
-        #     optimizer=trainer_hypers["optimizer"],
-        #     scheduler=trainer_hypers["lr_scheduler"],
-        #     lr_scheduler_gamma=trainer_hypers["lr_scheduler_gamma"],
-        #     lr_factor=trainer_hypers["lr_factor"],
-        #     scheduler_patience=trainer_hypers["lr_scheduler_patience"],
-        # )
+# opt_args = argparse.Namespace(
+#     lr=trainer_hypers["learning_rate"],
+#     weight_decay=trainer_hypers["weight_decay"],
+#     amsgrad=trainer_hypers["amsgrad"],
+#     beta=trainer_hypers["beta"],
+#     optimizer=trainer_hypers["optimizer"],
+#     scheduler=trainer_hypers["lr_scheduler"],
+#     lr_scheduler_gamma=trainer_hypers["lr_scheduler_gamma"],
+#     lr_factor=trainer_hypers["lr_factor"],
+#     scheduler_patience=trainer_hypers["lr_scheduler_patience"],
+# )
 
-        # opt_options = get_params_options(opt_args, featurizer_model.mace_model)
+# opt_options = get_params_options(opt_args, featurizer_model.mace_model)
 
-        # # Add heads, additive models and scaler parameters to the optimizer. Although the
-        # # additive models and scaler weights are not optimized, this maintains consistency
-        # # with PET, where all model parameters (including the additive models stored as
-        # # attributes) are passed to the optimizer.
-        # head_parameters = []
-        # for k, v in featurizer_model.heads.items():
-        #     if k != featurizer_model.hypers["mace_head_target"]:
-        #         head_parameters.extend(v.parameters())
+# # Add heads, additive models and scaler parameters to the optimizer. Although the
+# # additive models and scaler weights are not optimized, this maintains consistency
+# # with PET, where all model parameters (including the additive models stored as
+# # attributes) are passed to the optimizer.
+# head_parameters = []
+# for k, v in featurizer_model.heads.items():
+#     if k != featurizer_model.hypers["mace_head_target"]:
+#         head_parameters.extend(v.parameters())
 
-        # opt_options["params"].extend(
-        #     [
-        #         # Parameters of all heads except the wrapper for the internal MACE head
-        #         {
-        #             "name": "featurizer_model.heads",
-        #             "params": head_parameters,
-        #         },
-        #         {
-        #             "name": "graph2mats",
-        #             "params": (model.module if is_distributed else model).graph2mats.parameters(),
-        #         },
-        #     ]
-        # )
+# opt_options["params"].extend(
+#     [
+#         # Parameters of all heads except the wrapper for the internal MACE head
+#         {
+#             "name": "featurizer_model.heads",
+#             "params": head_parameters,
+#         },
+#         {
+#             "name": "graph2mats",
+#             "params": (model.module if is_distributed else model).graph2mats.parameters(),
+#         },
+#     ]
+# )
 
-        # optimizer = get_optimizer(opt_args, opt_options)
+# optimizer = get_optimizer(opt_args, opt_options)
 
 
-def scale_targets(
-    scaler, systems, targets, extra, per_property: bool = False
-) -> None:
-    
+def scale_targets(scaler, systems, targets, extra, per_property: bool = False) -> None:
+
     name = "per-property-scales" if per_property else "scales"
 
     scaled = {}
-    have_scales = {k:v for k,v in targets.items() if f"mtt::aux::{name}::{k}" in extra}
+    have_scales = {
+        k: v for k, v in targets.items() if f"mtt::aux::{name}::{k}" in extra
+    }
     for key, value in have_scales.items():
         if "::matrix_edges::" in key:
             scaled[key] = value
             continue
         a, b = value, extra[f"mtt::aux::{name}::{key}"]
         # REMOVE THIS WHEN GUILLAUME FIXES THE BUG IN METATENSOR
-        from metatensor.torch import TensorMap, TensorBlock
+        from metatensor.torch import TensorBlock, TensorMap
+
         b_blocks = []
         for _, block in b.items():
             b_blocks.append(
@@ -122,12 +124,18 @@ def scale_targets(
 
         scaled[key] = mts.multiply(a, b)
 
-    no_scales = {k:v for k,v in targets.items() if f"mtt::aux::{name}::{k}" not in extra}
-    scaled.update(scaler(
-        systems, no_scales, remove=False,
-        use_per_target_scales=True,
-        use_per_property_scales=False, 
-    ))
+    no_scales = {
+        k: v for k, v in targets.items() if f"mtt::aux::{name}::{k}" not in extra
+    }
+    scaled.update(
+        scaler(
+            systems,
+            no_scales,
+            remove=False,
+            use_per_target_scales=True,
+            use_per_property_scales=False,
+        )
+    )
     return scaled
 
 
@@ -197,7 +205,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             model.additive_models[1:],
             self.hypers["batch_size"],
             is_distributed,
-            {}, #self.hypers["atomic_baseline"],
+            {},  # self.hypers["atomic_baseline"],
         )
 
         if self.hypers["scale_targets"]:
@@ -264,7 +272,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
                 get_graph2mat_transform(
-                    model.graph2mat_processors, model.graph2mat_nls, model.hypers["matrices"], train_targets
+                    model.graph2mat_processors,
+                    model.graph2mat_nls,
+                    model.hypers["matrices"],
+                    train_targets,
                 ),
             ],
         )
@@ -423,7 +434,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # leaves the others unchanged.
                 predictions = scale_targets(
                     (model.module if is_distributed else model).scaler,
-                    systems, predictions, extra_data, per_property=True
+                    systems,
+                    predictions,
+                    extra_data,
+                    per_property=True,
                 )
 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
@@ -447,25 +461,35 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 scaled_predictions = scale_targets(
                     (model.module if is_distributed else model).scaler,
-                    systems, predictions, extra_data
+                    systems,
+                    predictions,
+                    extra_data,
                 )
                 scaled_targets = scale_targets(
                     (model.module if is_distributed else model).scaler,
-                    systems, targets, extra_data
+                    systems,
+                    targets,
+                    extra_data,
                 )
                 if self.hypers["log_separate_blocks"] and False:
                     for matrix_name, matrix_spec in model.hypers["matrices"].items():
-                        scaled_predictions.update(graph2mat_to_tensormap(
-                            batch=model.datas[matrix_name],
-                            out=scaled_predictions,
-                            processor=(model.module if is_distributed else model).graph2mat_processors[matrix_name],
-                            node_labels_name=matrix_spec["nodes"],
-                            edge_labels_name=matrix_spec["edges"],
-                        ))
+                        scaled_predictions.update(
+                            graph2mat_to_tensormap(
+                                batch=model.datas[matrix_name],
+                                out=scaled_predictions,
+                                processor=(
+                                    model.module if is_distributed else model
+                                ).graph2mat_processors[matrix_name],
+                                node_labels_name=matrix_spec["nodes"],
+                                edge_labels_name=matrix_spec["edges"],
+                            )
+                        )
                         scaled_targets = graph2mat_to_tensormap(
                             batch=model.datas[matrix_name],
                             out=scaled_targets,
-                            processor=(model.module if is_distributed else model).graph2mat_processors[matrix_name],
+                            processor=(
+                                model.module if is_distributed else model
+                            ).graph2mat_processors[matrix_name],
                             node_labels_name=matrix_spec["nodes"],
                             edge_labels_name=matrix_spec["edges"],
                         )
@@ -519,7 +543,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # leaves the others unchanged.
                 predictions = scale_targets(
                     (model.module if is_distributed else model).scaler,
-                    systems, predictions, extra_data, per_property=True
+                    systems,
+                    predictions,
+                    extra_data,
+                    per_property=True,
                 )
 
                 val_loss_batch = loss_fn(predictions, targets, extra_data)
@@ -531,25 +558,35 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 scaled_predictions = scale_targets(
                     (model.module if is_distributed else model).scaler,
-                    systems, predictions, extra_data
+                    systems,
+                    predictions,
+                    extra_data,
                 )
                 scaled_targets = scale_targets(
                     (model.module if is_distributed else model).scaler,
-                    systems, targets, extra_data
+                    systems,
+                    targets,
+                    extra_data,
                 )
                 if self.hypers["log_separate_blocks"]:
                     for matrix_name, matrix_spec in model.hypers["matrices"].items():
-                        scaled_predictions.update(graph2mat_to_tensormap(
-                            batch=model.datas[matrix_name],
-                            out=scaled_predictions,
-                            processor=(model.module if is_distributed else model).graph2mat_processors[matrix_name],
-                            node_labels_name=matrix_spec["nodes"],
-                            edge_labels_name=matrix_spec["edges"],
-                        ))
+                        scaled_predictions.update(
+                            graph2mat_to_tensormap(
+                                batch=model.datas[matrix_name],
+                                out=scaled_predictions,
+                                processor=(
+                                    model.module if is_distributed else model
+                                ).graph2mat_processors[matrix_name],
+                                node_labels_name=matrix_spec["nodes"],
+                                edge_labels_name=matrix_spec["edges"],
+                            )
+                        )
                         scaled_targets = graph2mat_to_tensormap(
                             batch=model.datas[matrix_name],
                             out=scaled_targets,
-                            processor=(model.module if is_distributed else model).graph2mat_processors[matrix_name],
+                            processor=(
+                                model.module if is_distributed else model
+                            ).graph2mat_processors[matrix_name],
                             node_labels_name=matrix_spec["nodes"],
                             edge_labels_name=matrix_spec["edges"],
                         )
@@ -562,7 +599,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
 
             if lr_scheduler is not None:
-                lr_scheduler.step()#metrics=val_loss)
+                lr_scheduler.step()  # metrics=val_loss)
 
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
