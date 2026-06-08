@@ -517,14 +517,13 @@ def graph2mat_to_tensormap(
         step = 2 if processor.symmetric_matrix else 1
 
         # Get edge types and atom pairs (edge indices) for this system
-        edge_types = batch["edge_types"][
-            edge_start : edge_start + n_edges : step
-        ].tolist()
+        edge_types = batch["edge_types"][edge_start : edge_start + n_edges : step]
         edge_indices = batch["edge_index"][:, edge_start : edge_start + n_edges : step]
         # Get the pointers to the position of each edge block for this system
         edge_ptrs = ptr_edges + processor.basis_table.edge_block_pointer(
             abs(edge_types).cpu()
         )
+        edge_types = edge_types.tolist()
 
         # Loop over edges and store their blocks, as well as the corresponding samples
         for i_edge in range(n_edges // step):
