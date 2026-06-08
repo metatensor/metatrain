@@ -34,14 +34,12 @@ from metatrain.utils.devices import pick_devices
 from metatrain.utils.errors import ArchitectureError
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import load_model
-from metatrain.utils.logging import MetricLogger
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists_transform,
 )
 from metatrain.utils.omegaconf import expand_dataset_config
-from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.pydantic import validate_eval_options
 from metatrain.utils.transfer import batch_to
 
@@ -191,17 +189,17 @@ def _eval_targets(
     mae_acc = MAEAccumulator()
 
     # Warm-up
-    cycled = itertools.cycle(dataloader)
-    for _ in range(10):
-        batch = unpack_batch(next(cycled))
-        systems = [system.to(device=device, dtype=dtype) for system in batch[0]]
-        evaluate_model(
-            model,
-            systems,
-            options,
-            is_training=False,
-            check_consistency=check_consistency,
-        )
+    # cycled = itertools.cycle(dataloader)
+    # for _ in range(10):
+    #     batch = unpack_batch(next(cycled))
+    #     systems = [system.to(device=device, dtype=dtype) for system in batch[0]]
+    #     evaluate_model(
+    #         model,
+    #         systems,
+    #         options,
+    #         is_training=False,
+    #         check_consistency=check_consistency,
+    #     )
 
     total_time = 0.0
     timings_per_atom = []
