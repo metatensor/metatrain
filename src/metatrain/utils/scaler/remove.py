@@ -7,6 +7,7 @@ from metatomic.torch import System
 
 from metatrain.scaler import Scaler
 
+
 def remove_scale(
     systems: List[System],
     targets: Dict[str, TensorMap],
@@ -79,12 +80,13 @@ def get_remove_scale_transform(scaler: Scaler) -> Callable:
             return TensorMap(tensormap.keys, new_blocks)
 
         for key in targets.keys():
-            
             scales = mts.divide(targets[key], new_targets[key])
             per_property_scales = mts.divide(targets[key], per_property_scaled[key])
 
             extra[f"mtt::aux::scales::{key}"] = NaNs_to_1(scales)
-            extra[f"mtt::aux::per-property-scales::{key}"] = NaNs_to_1(per_property_scales)
+            extra[f"mtt::aux::per-property-scales::{key}"] = NaNs_to_1(
+                per_property_scales
+            )
 
         return systems, new_targets, extra
 

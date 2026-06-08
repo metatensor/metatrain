@@ -1,48 +1,51 @@
 from pathlib import Path
 
-from metatrain.experimental.graph2mat.utils.dataset import get_graph2mat_transform, graph2mat_to_tensormap
+import pytest
+import torch
+import yaml
+from metatensor.torch import Labels
+from torch.utils.data import DataLoader
+
 from metatrain.experimental.graph2mat.model import MetaGraph2Mat
 from metatrain.experimental.graph2mat.trainer import scale_targets
-import torch
-import pytest
-
-from metatrain.utils.data import DiskDataset
-from torch.utils.data import DataLoader
-from metatrain.utils.data import CollateFn, unpack_batch
-from metatrain.utils.transfer import batch_to
-
-from metatrain.utils.scaler import get_remove_scale_transform
+from metatrain.experimental.graph2mat.utils.dataset import (
+    get_graph2mat_transform,
+    graph2mat_to_tensormap,
+)
 from metatrain.utils.additive import get_remove_additive_transform
+from metatrain.utils.architectures import get_default_hypers
+from metatrain.utils.data import (
+    CollateFn,
+    DatasetInfo,
+    get_atomic_types,
+    get_dataset,
+    unpack_batch,
+)
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists_transform,
 )
-from metatrain.utils.architectures import get_default_hypers
+from metatrain.utils.scaler import get_remove_scale_transform
+from metatrain.utils.transfer import batch_to
 
-from metatensor.torch import Labels
-
-from metatrain.utils.data import (
-    DatasetInfo,
-    get_atomic_types,
-    get_dataset,
-)
-
-from metatrain.experimental.graph2mat.model import MetaGraph2Mat
-import yaml
 
 @pytest.fixture(params=[True, False])
 def symmetric(request):
     return request.param
 
+
 @pytest.fixture(params=["point_type", "max"])
 def basis_grouping(request):
     return request.param
 
+
 @pytest.mark.parametrize("scaler_and_composition", [False, "train", "eval"])
-def test_graph2mat_transform_roundtrip(scaler_and_composition, symmetric, basis_grouping):
+def test_graph2mat_transform_roundtrip(
+    scaler_and_composition, symmetric, basis_grouping
+):
     """Checks that graph2mat transforms are correct by doing a round trip
     and comparing the final targets with the unprocessed targets from the dataset.
-    
+
     :param scaler_and_composition: If False, the test is done without any scaler
       or additive composition. If "train", the scaler is applied in the way it is
       done during training. If "eval", the scaler is applied in the way it is
@@ -87,13 +90,17 @@ def test_graph2mat_transform_roundtrip(scaler_and_composition, symmetric, basis_
     )
 
     data = dataset[0]
-    unprocessed_targets = {k: data[k] for k in data._fields if k in model.graph2mat_dataset_info.targets}
+    unprocessed_targets = {
+        k: data[k] for k in data._fields if k in model.graph2mat_dataset_info.targets
+    }
 
     requested_neighbor_lists = get_requested_neighbor_lists(model.featurizer_model)
     preprocessing_callables = []
     if scaler_and_composition:
         preprocessing_callables = [
-            get_remove_additive_transform(model.additive_models, model.graph2mat_dataset_info.targets),
+            get_remove_additive_transform(
+                model.additive_models, model.graph2mat_dataset_info.targets
+            ),
             get_remove_scale_transform(model.scaler),
         ]
     collate_fn = CollateFn(
@@ -102,7 +109,10 @@ def test_graph2mat_transform_roundtrip(scaler_and_composition, symmetric, basis_
             get_system_with_neighbor_lists_transform(requested_neighbor_lists),
             *preprocessing_callables,
             get_graph2mat_transform(
-                model.graph2mat_processors, model.graph2mat_nls, model.hypers["matrices"], model.graph2mat_dataset_info.targets
+                model.graph2mat_processors,
+                model.graph2mat_nls,
+                model.hypers["matrices"],
+                model.graph2mat_dataset_info.targets,
             ),
         ],
     )
@@ -131,14 +141,16 @@ def test_graph2mat_transform_roundtrip(scaler_and_composition, symmetric, basis_
         for matrix_name in model.hypers["matrices"]:
             node_target = model.hypers["matrices"][matrix_name]["nodes"]
             edge_target = model.hypers["matrices"][matrix_name]["edges"]
-            
-            targets.update(graph2mat_to_tensormap(
-                batch=model.datas[matrix_name],
-                out=targets,
-                processor=model.graph2mat_processors[matrix_name],
-                node_labels_name=node_target,
-                edge_labels_name=edge_target,
-            ))
+
+            targets.update(
+                graph2mat_to_tensormap(
+                    batch=model.datas[matrix_name],
+                    out=targets,
+                    processor=model.graph2mat_processors[matrix_name],
+                    node_labels_name=node_target,
+                    edge_labels_name=edge_target,
+                )
+            )
 
     if scaler_and_composition == "eval":
         _back_to_tensormap()
@@ -162,9 +174,7 @@ def test_graph2mat_transform_roundtrip(scaler_and_composition, symmetric, basis_
         _back_to_tensormap()
 
     if scaler_and_composition:
-        model.add_additive_contributions(
-            targets, systems, model.outputs, None
-        )
+        model.add_additive_contributions(targets, systems, model.outputs, None)
 
     # At this point, targets should be equal to unprocessed targets
     for key, tmap in targets.items():
@@ -181,8 +191,14 @@ def test_graph2mat_transform_roundtrip(scaler_and_composition, symmetric, basis_
             )
 
             sample_indices = unproc_samples.select(samples)
-            assert block.properties == unprocessed_block.properties, f"Properties for {key} block {block_key} do not match"
-            assert block.components == unprocessed_block.components, f"Components for {key} block {block_key} do not match"
-            assert torch.allclose(block.values, unprocessed_block.values[sample_indices].to(dtype), atol=1e-5), f"Values for {key} block {block_key} do not match"
-
-
+            assert block.properties == unprocessed_block.properties, (
+                f"Properties for {key} block {block_key} do not match"
+            )
+            assert block.components == unprocessed_block.components, (
+                f"Components for {key} block {block_key} do not match"
+            )
+            assert torch.allclose(
+                block.values,
+                unprocessed_block.values[sample_indices].to(dtype),
+                atol=1e-5,
+            ), f"Values for {key} block {block_key} do not match"

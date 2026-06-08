@@ -5,9 +5,14 @@ import numpy as np
 import torch
 from e3nn import o3
 from graph2mat import MatrixDataProcessor
-from graph2mat.bindings.e3nn import E3nnGraph2Mat, E3nnSimpleNodeBlock, E3nnSimpleEdgeBlock, E3nnEdgeMessageBlock
+from graph2mat.bindings.e3nn import (
+    E3nnEdgeMessageBlock,
+    E3nnGraph2Mat,
+    E3nnSimpleEdgeBlock,
+    E3nnSimpleNodeBlock,
+)
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.operations._add import _add_block_block
-from metatensor.torch import Labels, TensorMap, TensorBlock
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -19,19 +24,19 @@ from metatomic.torch import (
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import CompositionModel
-from metatrain.utils.scaler import Scaler
 from metatrain.utils.architectures import get_default_hypers, import_architecture
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.scaler import Scaler
 
 from .documentation import ModelHypers
 from .modules.edge_embedding import RadialEmbeddingBlock
 from .modules.operations import OPERATIONS_REGISTRY
 from .utils.basis import get_basis_from_layout
+from .utils.dataset import add_neighbor_lists, graph2mat_to_tensormap
 from .utils.mtt import g2m_labels_to_tensormap, split_dataset_info
 from .utils.structures import create_batch, get_edge_vectors_and_lengths
-from .utils.dataset import graph2mat_to_tensormap, add_neighbor_lists
 
 
 class MetaGraph2Mat(ModelInterface[ModelHypers]):
@@ -84,7 +89,7 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
 
         # Atomic types, and helper to convert from atomic type (Z) to index
         # in the basis table.
-        #self.atomic_types = [atom.Z for atom in basis_table.atoms]
+        # self.atomic_types = [atom.Z for atom in basis_table.atoms]
         self.atomic_types = dataset_info.atomic_types
         self.register_buffer(
             "atomic_types_to_species_index",
@@ -113,7 +118,7 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
             # Get the basis for this matrix
             basis_table = get_basis_from_layout(
                 layout=self.graph2mat_dataset_info.targets[node_target].layout,
-                R=matrix_spec.get("edge_cutoff") / 2
+                R=matrix_spec.get("edge_cutoff") / 2,
             )
 
             # Functions to embed edges for graph2mat.
@@ -121,8 +126,8 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
             n_basis = 10
             self.radial_embeddings[matrix_name] = RadialEmbeddingBlock(
                 r_max=np.max(basis_table.R) * 2,
-                num_bessel=n_basis, 
-                num_polynomial_cutoff=10
+                num_bessel=n_basis,
+                num_polynomial_cutoff=10,
             )
 
             # Irreps for all the inputs that graph2mat will take.
@@ -150,20 +155,16 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
             self.graph2mat_processors[matrix_name] = data_processor
 
             node_operation = OPERATIONS_REGISTRY["node_operation"].get(
-                matrix_spec.get("node_operation", "tsq"),
-                E3nnSimpleNodeBlock
+                matrix_spec.get("node_operation", "tsq"), E3nnSimpleNodeBlock
             )
             edge_operation = OPERATIONS_REGISTRY["edge_operation"].get(
-                matrix_spec.get("edge_operation", "none"),
-                E3nnSimpleEdgeBlock
+                matrix_spec.get("edge_operation", "none"), E3nnSimpleEdgeBlock
             )
             preprocessing_edges = OPERATIONS_REGISTRY["preprocessing_edges"].get(
-                matrix_spec.get("preprocessing_edges", "none"),
-                E3nnEdgeMessageBlock
+                matrix_spec.get("preprocessing_edges", "none"), E3nnEdgeMessageBlock
             )
             preprocessing_nodes = OPERATIONS_REGISTRY["preprocessing_nodes"].get(
-                matrix_spec.get("preprocessing_nodes", "none"),
-                None
+                matrix_spec.get("preprocessing_nodes", "none"), None
             )
 
             # Initialize graph2mat.
@@ -286,9 +287,11 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
     ) -> Dict[str, TensorMap]:
         if selected_atoms is not None:
             raise NotImplementedError("selected_atoms not implemented yet")
-        
+
         if not self.training:
-            systems = add_neighbor_lists(systems, self.graph2mat_processors, self.graph2mat_nls)
+            systems = add_neighbor_lists(
+                systems, self.graph2mat_processors, self.graph2mat_nls
+            )
 
         # -------------------------------------------------------
         #  Split outputs according to whether the featurizer or
@@ -307,7 +310,10 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
         for matrix_name in self.graph2mats.keys():
             node_taget = self.hypers["matrices"][matrix_name]["nodes"]
             edge_target = self.hypers["matrices"][matrix_name]["edges"]
-            if node_taget not in graph2mat_outputs and edge_target not in graph2mat_outputs:
+            if (
+                node_taget not in graph2mat_outputs
+                and edge_target not in graph2mat_outputs
+            ):
                 continue
             featurizer_outputs[f"mtt::aux::graph2mat_{matrix_name}"] = ModelOutput(
                 quantity="",
@@ -362,7 +368,10 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
         for matrix_name, graph2mat in self.graph2mats.items():
             node_taget = self.hypers["matrices"][matrix_name]["nodes"]
             edge_target = self.hypers["matrices"][matrix_name]["edges"]
-            if node_taget not in graph2mat_outputs and edge_target not in graph2mat_outputs:
+            if (
+                node_taget not in graph2mat_outputs
+                and edge_target not in graph2mat_outputs
+            ):
                 continue
 
             # Create the batch with the graph that this graph2mat will use
@@ -388,7 +397,10 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
             )
             edge_attrs = self.spherical_harmonics(vectors)
             edge_feats = self.radial_embeddings[matrix_name](
-                lengths, data["node_attrs"], data["edge_index"], self.dataset_info.atomic_types
+                lengths,
+                data["node_attrs"],
+                data["edge_index"],
+                self.dataset_info.atomic_types,
             )
 
             data["edge_attrs"] = edge_attrs
@@ -415,17 +427,18 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
         return_dict: Dict[str, TensorMap] = {
             **featurizer_return,
         }
-        
+
         for matrix_name, graph2mat_return in graph2mat_returns.items():
             node_target = self.hypers["matrices"][matrix_name]["nodes"]
             edge_target = self.hypers["matrices"][matrix_name]["edges"]
 
-            return_dict[node_target], return_dict[edge_target] = g2m_labels_to_tensormap(
-                node_labels=graph2mat_return[0],
-                edge_labels=graph2mat_return[1],
-                dtype=graph2mat_return[0].dtype,
+            return_dict[node_target], return_dict[edge_target] = (
+                g2m_labels_to_tensormap(
+                    node_labels=graph2mat_return[0],
+                    edge_labels=graph2mat_return[1],
+                    dtype=graph2mat_return[0].dtype,
+                )
             )
-                
 
         # -----------------------------------------
         #   Undo data preprocessing (eval only)
@@ -436,15 +449,28 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
             for matrix_name in graph2mat_returns.keys():
                 node_target = self.hypers["matrices"][matrix_name]["nodes"]
                 edge_target = self.hypers["matrices"][matrix_name]["edges"]
-                
-                return_dict.update(graph2mat_to_tensormap(
-                    batch=datas[matrix_name],
-                    out=return_dict,
-                    processor=self.graph2mat_processors[matrix_name],
-                    node_labels_name=node_target,
-                    edge_labels_name=edge_target,
-                ))
-            
+
+                return_dict.update(
+                    graph2mat_to_tensormap(
+                        batch=datas[matrix_name],
+                        out=return_dict,
+                        processor=self.graph2mat_processors[matrix_name],
+                        node_labels_name=node_target,
+                        edge_labels_name=edge_target,
+                    )
+                )
+                C_node_block = return_dict[node_target].block(
+                    dict(
+                        o3_lambda_1=0,
+                        o3_lambda_2=0,
+                        o3_sigma_1=1,
+                        o3_sigma_2=1,
+                        atom_type=6,
+                    )
+                )
+
+                print("DEBUGG", C_node_block.values[..., 0])
+
             return_dict = self.scaler(
                 systems,
                 return_dict,
@@ -520,7 +546,7 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
     ) -> List[NeighborListOptions]:
         return [
             *self.featurizer_model.requested_neighbor_lists(),
-            #*list(self.graph2mat_nls.values())
+            # *list(self.graph2mat_nls.values())
         ]
 
     @classmethod
