@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from e3nn import o3
 from graph2mat import MatrixDataProcessor
-from graph2mat.bindings.e3nn import E3nnGraph2Mat, E3nnSimpleNodeBlock
+from graph2mat.bindings.e3nn import E3nnGraph2Mat, E3nnSimpleNodeBlock, E3nnSimpleEdgeBlock, E3nnEdgeMessageBlock
 from metatensor.torch.operations._add import _add_block_block
 from metatensor.torch import Labels, TensorMap, TensorBlock
 from metatomic.torch import (
@@ -27,37 +27,11 @@ from metatrain.utils.metadata import merge_metadata
 
 from .documentation import ModelHypers
 from .modules.edge_embedding import RadialEmbeddingBlock
+from .modules.operations import OPERATIONS_REGISTRY
 from .utils.basis import get_basis_from_layout
 from .utils.mtt import g2m_labels_to_tensormap, split_dataset_info
 from .utils.structures import create_batch, get_edge_vectors_and_lengths
 from .utils.dataset import graph2mat_to_tensormap, add_neighbor_lists
-
-class E3nnLinearNodeBlock(torch.nn.Module):
-    """Sums all node features and then passes them to a linear layer."""
-
-    def __init__(self, irreps_in: o3.Irreps, irreps_out: o3.Irreps):
-        super().__init__()
-
-        if isinstance(irreps_in, (list, tuple)) and not isinstance(
-            irreps_in, o3.Irreps
-        ):
-            assert all(
-                irreps == irreps_in[0] for irreps in irreps_in
-            ), "All input irreps must be the same."
-            irreps_in = irreps_in[0]
-
-        #self.tsq = o3.TensorSquare(irreps_in, irreps_out)
-        self.linear = o3.Linear(irreps_in, irreps_out)
-
-    def forward(self, **node_kwargs: torch.Tensor) -> torch.Tensor:
-        node_tensors = iter(node_kwargs.values())
-
-        node_feats = next(node_tensors)
-        for other_node_feats in node_tensors:
-            node_feats = node_feats + other_node_feats
-
-        #return self.tsq(node_feats)
-        return self.linear(node_feats)
 
 
 class MetaGraph2Mat(ModelInterface[ModelHypers]):
@@ -175,10 +149,22 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
 
             self.graph2mat_processors[matrix_name] = data_processor
 
-            node_operation = {
-                "linear": E3nnLinearNodeBlock,
-                "tsq": E3nnSimpleNodeBlock,
-            }.get(matrix_spec.get("node_operation", "tsq"))
+            node_operation = OPERATIONS_REGISTRY["node_operation"].get(
+                matrix_spec.get("node_operation", "tsq"),
+                E3nnSimpleNodeBlock
+            )
+            edge_operation = OPERATIONS_REGISTRY["edge_operation"].get(
+                matrix_spec.get("edge_operation", "none"),
+                E3nnSimpleEdgeBlock
+            )
+            preprocessing_edges = OPERATIONS_REGISTRY["preprocessing_edges"].get(
+                matrix_spec.get("preprocessing_edges", "none"),
+                E3nnEdgeMessageBlock
+            )
+            preprocessing_nodes = OPERATIONS_REGISTRY["preprocessing_nodes"].get(
+                matrix_spec.get("preprocessing_nodes", "none"),
+                None
+            )
 
             # Initialize graph2mat.
             self.graph2mats[matrix_name] = E3nnGraph2Mat(
@@ -186,7 +172,10 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
                 irreps=graph2mat_irreps,
                 symmetric=data_processor.symmetric_matrix,
                 basis_grouping=matrix_spec.get("basis_grouping", "point_type"),
+                preprocessing_nodes=preprocessing_nodes,
+                preprocessing_edges=preprocessing_edges,
                 node_operation=node_operation,
+                edge_operation=edge_operation,
                 self_blocks_symmetry=matrix_spec.get("self_blocks_symmetry"),
             )
 

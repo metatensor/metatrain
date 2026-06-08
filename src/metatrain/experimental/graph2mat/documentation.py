@@ -24,6 +24,9 @@ class MatrixSpecification(TypedDict):
     """Whether the matrix is symmetric"""
     self_blocks_symmetry: Optional[str] = None
     node_operation: Literal["linear", "tsq"] = "tsq"
+    edge_operation: Literal["linear", "simple"] = "simple"
+    preprocessing_edges: Literal["two_center_message", "mace_node_message"] = "mace_edge_message"
+    preprocessing_nodes: Optional[str] = None
     edge_cutoff: float
 
 class ModelHypers(TypedDict):
