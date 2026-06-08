@@ -459,15 +459,6 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
                         edge_labels_name=edge_target,
                     )
                 )
-                C_node_block = return_dict[node_target].block(
-                    dict(
-                        o3_lambda_1=0,
-                        o3_lambda_2=0,
-                        o3_sigma_1=1,
-                        o3_sigma_2=1,
-                        atom_type=6,
-                    )
-                )
 
             return_dict = self.scaler(
                 systems,
