@@ -375,7 +375,7 @@ def read_generic(
     components = target_info.layout.block().components
     properties = target_info.layout.block().properties
     shape_after_samples = target_info.layout.block().shape[1:]
-    per_atom = target_info.per_atom
+    per_atom = target_info.sample_kind == "atom"
     keys = target_info.layout.keys
 
     target_key = target["key"]

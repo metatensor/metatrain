@@ -59,7 +59,7 @@ class ZBL(torch.nn.Module):
             key: ModelOutput(
                 quantity=value.quantity,
                 unit=value.unit,
-                per_atom=True,
+                sample_kind="atom",
                 description=value.description,
             )
             for key, value in dataset_info.targets.items()
@@ -203,7 +203,7 @@ class ZBL(torch.nn.Module):
                     targets_out[target_key], "samples", selected_atoms
                 )
 
-            if not target.per_atom:
+            if target.sample_kind == "system":
                 targets_out[target_key] = sum_over_atoms(targets_out[target_key])
 
         return targets_out

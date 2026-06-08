@@ -1,7 +1,10 @@
 # mypy: ignore-errors
 # Satisfying mypy in this file is hard because the fixtures
 # define different classes depending on the parametrization.
+from pathlib import Path
+
 import pytest
+from omegaconf import OmegaConf
 from typing_extensions import TypedDict
 
 from metatrain.utils.hypers import (
@@ -9,6 +12,7 @@ from metatrain.utils.hypers import (
     init_with_defaults,
     overwrite_defaults,
 )
+from metatrain.utils.pydantic import validate_base_options, validate_eval_options
 
 
 @pytest.fixture(params=["custom_class", "typed_dict"])
@@ -92,3 +96,55 @@ def test_default_hypers_inheritance_overwrite(simple_hypers_class: type):
 
     parent_hypers = init_with_defaults(simple_hypers_class)
     assert parent_hypers == {"a": 2.0}
+
+
+@pytest.mark.parametrize(
+    "per_atom,mode",
+    [(True, "train"), (False, "train"), (True, "eval"), (False, "eval")],
+)
+def test_per_atom_deprecation(per_atom: bool, mode: str, tmp_path: Path):
+
+    # Write yaml file with a target using per_atom.
+    if mode == "eval":
+        options_yaml = f"""
+        systems:
+            read_from: somefile.xyz
+        targets:
+            mtt::some_target:
+                per_atom: {per_atom}
+        """
+    elif mode == "train":
+        options_yaml = f"""
+        architecture:
+            name: soap_bpnn
+            atomic_types: [1]
+
+        training_set:
+            systems:
+                read_from: somefile.xyz
+            targets:
+                mtt::some_target:
+                    per_atom: {per_atom}
+        validation_set: 0.0
+        """
+
+    options = OmegaConf.create(options_yaml)
+
+    # Check that a deprecation warning is raised
+    with pytest.warns(
+        DeprecationWarning,
+        match="The `per_atom` key in target specifications is deprecated",
+    ):
+        if mode == "eval":
+            options = validate_eval_options(OmegaConf.to_container(options))
+        elif mode == "train":
+            options = validate_base_options(OmegaConf.to_container(options))
+        options = OmegaConf.create(options)
+
+    sample_kind = "atom" if per_atom else "system"
+    if mode == "train":
+        assert (
+            options.training_set.targets["mtt::some_target"].sample_kind == sample_kind
+        )
+    elif mode == "eval":
+        assert options.targets["mtt::some_target"].sample_kind == sample_kind

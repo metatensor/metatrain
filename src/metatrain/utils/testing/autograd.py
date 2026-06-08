@@ -75,7 +75,7 @@ class AutogradTests(ArchitectureTests):
                 system, model.requested_neighbor_lists()
             )
 
-            outputs = {"energy": ModelOutput(per_atom=False)}
+            outputs = {"energy": ModelOutput(sample_kind="system")}
             output = model([system], outputs)
             energy = output["energy"].block().values.sum()
             return energy
@@ -140,7 +140,7 @@ class AutogradTests(ArchitectureTests):
                 system, model.requested_neighbor_lists()
             )
 
-            outputs = {"energy": ModelOutput(per_atom=False)}
+            outputs = {"energy": ModelOutput(sample_kind="system")}
             output = model([system], outputs)
             energy = output["energy"].block().values.sum()
             return energy

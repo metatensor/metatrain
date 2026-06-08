@@ -340,7 +340,7 @@ learning the electronic density of states (DOS) along with forces and stresses:
                 reader: ase
                 key: energy
                 unit: null
-                per_atom: True
+                sample_kind: atom
                 type: scalar
                 num_subtargets: 1
                 forces:
@@ -351,13 +351,13 @@ learning the electronic density of states (DOS) along with forces and stresses:
                     read_from: dataset.xyz
                     reader: ase
                     key: stress
-            non_conservative_forces:
+            non_conservative_force:
                 quantity: null
                 read_from: nonconservative_force.mts
                 reader: metatensor
                 key: forces
                 unit: null
-                per_atom: True
+                sample_kind: atom
                 type:
                     cartesian:
                         rank: 1
@@ -368,7 +368,7 @@ learning the electronic density of states (DOS) along with forces and stresses:
                 reader: metatensor
                 key: dos
                 unit: null
-                per_atom: False
+                sample_kind: system
                 type: scalar
                 num_subtargets: 4000
         extra_data:
@@ -378,7 +378,7 @@ learning the electronic density of states (DOS) along with forces and stresses:
                 reader: ase
                 key: dos_mask
                 unit: null
-                per_atom: False
+                sample_kind: system
                 type: scalar
                 num_subtargets: 4000
 
