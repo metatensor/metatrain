@@ -1,7 +1,8 @@
 from typing import Callable, Dict, List, Tuple
 
+import metatensor.torch as mts
 import torch
-from metatensor.torch import TensorMap
+from metatensor.torch import TensorBlock, TensorMap
 from metatomic.torch import System
 
 from .scaler import Scaler
@@ -50,6 +51,43 @@ def get_remove_scale_transform(scaler: Scaler) -> Callable:
         :return: The systems, updated targets and extra data.
         """
         new_targets = remove_scale(systems, targets, scaler)
+        per_property_scaled = scaler(
+            systems,
+            targets,
+            remove=True,
+            use_per_target_scales=False,
+            use_per_property_scales=True,
+        )
+
+        def NaNs_to_1(tensormap: TensorMap) -> TensorMap:
+            """If the targets with the removed scales contain 0s,
+            computing the scales by dividing will give NaNs.
+            This function replaces those NaNs with 1s, to avoid
+            issues during training
+            (the true scale in this case does not really matter)"""
+            new_blocks = []
+            for block in tensormap.blocks():
+                values = block.values
+                values[torch.isnan(values)] = 1.0
+                new_blocks.append(
+                    TensorBlock(
+                        values=values,
+                        samples=block.samples,
+                        components=block.components,
+                        properties=block.properties,
+                    )
+                )
+            return TensorMap(tensormap.keys, new_blocks)
+
+        for key in targets.keys():
+            scales = mts.divide(targets[key], new_targets[key])
+            per_property_scales = mts.divide(targets[key], per_property_scaled[key])
+
+            extra[f"mtt::aux::scales::{key}"] = NaNs_to_1(scales)
+            extra[f"mtt::aux::per-property-scales::{key}"] = NaNs_to_1(
+                per_property_scales
+            )
+
         return systems, new_targets, extra
 
     return transform
