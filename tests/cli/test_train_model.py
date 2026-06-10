@@ -1203,7 +1203,7 @@ def test_train_density_of_states(monkeypatch, tmp_path):
     options["test_set"] = copy.deepcopy(options["training_set"])
     options["architecture"]["training"]["loss"] = {
         "mtt::dos": {
-            "type": "shift_agnostic",
+            "type": "shift_agnostic_mse",
             "weight": 1.0,
             "grad_weight": 1e-4,
             "int_weight": 2.0,

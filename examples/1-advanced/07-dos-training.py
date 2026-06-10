@@ -95,7 +95,7 @@ for index in range(len(structures)):
         )
         * normalization
     )  # Apply Gaussian smearing and sum contributions
-    # Replace unphysical DOs values with NaNs
+    # Replace unphysical DOS values with NaNs
     mask_i = (energy_grid <= confident_energy_upper_bound).astype(
         int
     )  # Define the mask

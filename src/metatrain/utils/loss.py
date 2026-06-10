@@ -446,13 +446,15 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
 
 class ShiftAgnosticMSE(LossInterface):
     """
-    Masked DOS loss on :py:class:`TensorMap` entries.
+    ShiftAgnosticMSE loss on :py:class:`TensorMap` entries. This loss is
+    defined in such a way that is does not depend on the relative shift
+    between the prediction and target.
 
-    :param name: key for the dos in the prediction/target dictionary.
+    :param name: key for the target in the prediction/target dictionary.
     :param gradient: optional gradient field name.
     :param weight: weight of the loss contribution in the final aggregation.
-    :param grad_weight: Multiplier for the gradient of the unmasked DOS component.
-    :param int_weight: Multiplier for the cumulative DOS component.
+    :param grad_weight: Multiplier for the gradient of the unmasked targets component.
+    :param int_weight: Multiplier for the cumulative target component.
     :param reduction: reduction mode for torch loss.
     """
 
@@ -489,7 +491,8 @@ class ShiftAgnosticMSE(LossInterface):
         extra_data: Any | None = None,
     ) -> torch.Tensor:
         """
-        Gather and flatten target and prediction blocks, then compute loss.
+        Gather and flatten target and prediction blocks, then compute shift
+        agnostic loss.
 
         :param model_predictions: Mapping from target names to TensorMaps.
         :param targets: Mapping from target names to TensorMaps.
@@ -504,8 +507,8 @@ class ShiftAgnosticMSE(LossInterface):
         # There should only be one block
 
         predictions = tensor_map_pred.block().values.float()
-        dos_pad = torch.zeros_like(predictions)
-        predictions = torch.hstack([dos_pad, predictions, dos_pad])
+        convolution_pad = torch.zeros_like(predictions)
+        predictions = torch.hstack([convolution_pad, predictions, convolution_pad])
 
         target = tensor_map_targ.block().values.float()
         mask = (~torch.isnan(target)).float()
@@ -513,7 +516,8 @@ class ShiftAgnosticMSE(LossInterface):
 
         dtype = predictions.dtype
         device = predictions.device
-
+        # Uses convolutions to find the optimal shift that minimzes the MSE
+        # between the prediction and the target
         sum_sq_smaller = torch.sum((target**2) * mask, dim=1, keepdim=True)
         batch_size = predictions.shape[0]
         bigger_reshaped = predictions.unsqueeze(0)
@@ -537,31 +541,29 @@ class ShiftAgnosticMSE(LossInterface):
         total_losses = losses + additional_error
         final_loss, shift = torch.min(total_losses, dim=1)
 
-        dos_loss = torch.mean(final_loss)
+        loss = torch.mean(final_loss)
         # Compute gradient loss
         aligned_predictions = []
-        adjusted_dos_mask = []
+        adjusted_mask = []
         for index, prediction in enumerate(predictions):
             aligned_prediction = prediction[
                 shift[index] : shift[index] + len(target[0])
             ]
-            dos_mask_i = (
-                torch.hstack(  # Adjust the mask to account for the discrete shift
-                    [
-                        (torch.ones(shift[index])).bool().to(device),
-                        mask[index].bool().to(device),
-                        torch.zeros(
-                            int(predictions.shape[1] - len(mask[index]) - shift[index])
-                        )
-                        .bool()
-                        .to(device),
-                    ]
-                )
+            mask_i = torch.hstack(  # Adjust the mask to account for the discrete shift
+                [
+                    (torch.ones(shift[index])).bool().to(device),
+                    mask[index].bool().to(device),
+                    torch.zeros(
+                        int(predictions.shape[1] - len(mask[index]) - shift[index])
+                    )
+                    .bool()
+                    .to(device),
+                ]
             )
             aligned_predictions.append(aligned_prediction)
-            adjusted_dos_mask.append(dos_mask_i)
+            adjusted_mask.append(mask_i)
         aligned_predictions = torch.vstack(aligned_predictions)
-        adjusted_dos_mask = torch.vstack(adjusted_dos_mask)
+        adjusted_mask = torch.vstack(adjusted_mask)
         if self.grad_weight > 0:
             grad_predictions = torch.nn.functional.conv1d(
                 predictions.unsqueeze(dim=1), self.grid.to(device).to(dtype)
@@ -574,7 +576,7 @@ class ShiftAgnosticMSE(LossInterface):
                 torch.mean(
                     torch.trapezoid(
                         (
-                            (grad_predictions * (~adjusted_dos_mask[:, dim_loss:])) ** 2
+                            (grad_predictions * (~adjusted_mask[:, dim_loss:])) ** 2
                         ),  # non-zero gradients outside the window are penalized
                         dx=0.05,
                         dim=1,
@@ -592,14 +594,14 @@ class ShiftAgnosticMSE(LossInterface):
             int_error = (int_predictions - int_target) ** 2
             int_error = int_error * mask[:, 1:].unsqueeze(
                 dim=1
-            )  # only penalize the integral where the DOS is defined
+            )  # only penalize the integral where the target is defined
             int_MSE = (
                 torch.mean(torch.trapezoid(int_error, dx=0.05, dim=1)) * self.int_weight
             )
         else:
             int_MSE = 0.0
 
-        return dos_loss + gradient_loss + int_MSE
+        return loss + gradient_loss + int_MSE
 
 
 class TensorMapEnsembleLoss(BaseTensorMapLoss):
@@ -1188,7 +1190,7 @@ class LossType(Enum):
     MASKED_HUBER = ("masked_huber", TensorMapMaskedHuberLoss)
     POINTWISE = ("pointwise", BaseTensorMapLoss)
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
-    MASKED_DOS = ("shift_agnostic", ShiftAgnosticMSE)
+    SHIFT_AGNOSTIC_MSE = ("shift_agnostic_mse", ShiftAgnosticMSE)
     GAUSSIAN_NLL = ("gaussian_nll_ensemble", TensorMapGaussianNLLLoss)
     GAUSSIAN_CRPS = ("gaussian_crps_ensemble", TensorMapGaussianCRPSLoss)
     EMPIRICAL_CRPS = ("empirical_crps_ensemble", TensorMapEmpiricalCRPSLoss)
