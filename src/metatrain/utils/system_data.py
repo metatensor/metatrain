@@ -18,10 +18,10 @@ def get_system_data_transform(
 
     After ``group_and_join`` the extra dict contains batched
     :class:`TensorMap` objects keyed by the requested names (e.g.
-    ``"charge"``, ``"spin_multiplicity"``), with the ``"system"`` sample
-    dimension indexed 0, 1, … matching the position of each system in the
-    batch list.  This callable re-attaches those per-system scalars to the
-    :class:`System` objects so that models can read them with
+    ``"charge"``, ``"spin_multiplicity"``), with one sample row per system,
+    in batch order (the values of the ``"system"`` sample dimension are the
+    original dataset indices).  This callable re-attaches those per-system
+    scalars to the :class:`System` objects so that models can read them with
     ``system.get_data(key)``.
 
     NaN values are treated as missing: the corresponding system will not have
@@ -50,6 +50,10 @@ def get_system_data_transform(
                     f"for key '{key}'. Per-atom extra data cannot be attached "
                     "to System objects this way."
                 )
+            # ``group_and_join`` concatenates the per-sample blocks in batch
+            # order, so row ``row_idx`` belongs to ``systems[row_idx]``. The
+            # label *values* in the "system" column are the original dataset
+            # indices and must not be used to index the batch list.
             for row_idx in range(len(block.samples)):
                 val = block.values[row_idx : row_idx + 1]  # shape [1, n_props]
                 if torch.isnan(val).any():

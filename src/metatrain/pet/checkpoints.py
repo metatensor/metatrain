@@ -7,6 +7,11 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatrain.utils.scaler.checkpoints import update_per_property_scales
 
 
+# Single source of truth for the current model checkpoint version;
+# ``PET.__checkpoint_version__`` reads this value.
+MODEL_CHECKPOINT_VERSION = 14
+
+
 ###########################
 # MODEL ###################
 ###########################
@@ -393,9 +398,6 @@ def model_update_from_max_atom_sampler(checkpoint: dict) -> dict:
         branch. The dict is mutated in place and also returned for convenience.
     :return: The migrated checkpoint.
     """
-    # Import here to avoid a circular import at module load time.
-    from .model import PET
-
     hypers = checkpoint["model_data"]["model_hypers"]
 
     # Hypers that this branch added on top of max-atom-sampler.
@@ -433,10 +435,10 @@ def model_update_from_max_atom_sampler(checkpoint: dict) -> dict:
     # the single per-target scales buffer.
     update_per_property_scales(checkpoint)
 
-    checkpoint["model_ckpt_version"] = PET.__checkpoint_version__
+    checkpoint["model_ckpt_version"] = MODEL_CHECKPOINT_VERSION
     logging.info(
         "Converted max-atom-sampler checkpoint to model version %d.",
-        PET.__checkpoint_version__,
+        MODEL_CHECKPOINT_VERSION,
     )
     return checkpoint
 

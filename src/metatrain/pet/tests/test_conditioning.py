@@ -267,13 +267,13 @@ def _make_raw_system() -> System:
     )
 
 
-def _make_extra_tmap(value: float, prop_name: str) -> TensorMap:
+def _make_extra_tmap(value: float, prop_name: str, system_index: int = 0) -> TensorMap:
     return TensorMap(
         keys=Labels.single(),
         blocks=[
             TensorBlock(
                 values=torch.tensor([[value]], dtype=torch.float64),
-                samples=Labels("system", torch.tensor([[0]])),
+                samples=Labels("system", torch.tensor([[system_index]])),
                 components=[],
                 properties=Labels(prop_name, torch.tensor([[0]])),
             )
@@ -288,10 +288,10 @@ def test_eval_routes_extra_data_to_conditioning():
     get_system_data_transform) and verifies that a non-default charge produces
     different model predictions than the default (charge=0).
 
-    This would silently fail if extra_data_keys were filtered to empty (e.g.
-    by incorrectly gating on model.requested_inputs() which returns {} for
-    exported models), causing all systems to fall back to
-    charge=0 / spin_multiplicity=1.
+    This would silently fail if the transform were not applied (or applied with
+    an empty key list): all systems would fall back to charge=0 /
+    spin_multiplicity=1 without any error. The actual ``mtt eval`` wiring of
+    the transform is covered by ``test_eval_model_end_to_end_with_extra_data``.
     """
     hypers = _small_hypers()
     model = PET(hypers, _dataset_info())
@@ -479,3 +479,189 @@ def test_model_update_from_max_atom_sampler():
 
     # The upgraded checkpoint must load cleanly via the standard loader.
     PET.load_checkpoint(upgraded, "export")
+
+
+def test_non_integer_charge_raises():
+    """Non-integer charge or spin_multiplicity values raise a clear ValueError
+    instead of being silently truncated by the long() cast."""
+    hypers = _small_hypers()
+    model = PET(hypers, _dataset_info())
+    model.eval()
+
+    outputs = {"energy": ModelOutput(per_atom=False)}
+
+    system_bad_charge = _make_system(model, charge=0.5, spin_multiplicity=1)
+    with pytest.raises(ValueError, match="charge must be an integer value"):
+        model([system_bad_charge], outputs)
+
+    system_bad_spin = _make_system(model, charge=0, spin_multiplicity=1.5)
+    with pytest.raises(ValueError, match="spin_multiplicity must be an integer value"):
+        model([system_bad_spin], outputs)
+
+
+@pytest.mark.filterwarnings(
+    "ignore:the 'features' output name is deprecated:UserWarning",
+    "ignore:`per_atom` is deprecated:DeprecationWarning",
+    "ignore:ModelOutput.quantity is deprecated:UserWarning",
+    "ignore:Found metatomic.torch v.*vesin.metatomic was only tested:UserWarning",
+)
+def test_eval_model_end_to_end_with_extra_data(tmp_path, monkeypatch):
+    """``mtt eval`` routes extra_data charge/spin to system conditioning.
+
+    Runs the real eval path (``eval_model`` on an exported model, with an
+    ``extra_data`` section in the options) on two xyz files differing only in
+    the charge stored in ``atoms.info``, and checks the predicted energies
+    differ. This covers the ``requested_inputs(use_new_names=True)`` gating in
+    ``cli/eval.py``: if the exported model stopped declaring its requested
+    inputs (or the gate filtered them out), both runs would silently fall back
+    to charge=0 and predict identical energies.
+    """
+    import ase
+    import ase.io
+    from metatensor.torch import load as mts_load
+    from omegaconf import OmegaConf
+
+    from metatrain.cli.eval import eval_model
+
+    monkeypatch.chdir(tmp_path)
+
+    hypers = _small_hypers()
+    model = PET(hypers, _dataset_info())
+    _train_steps(model)
+    model.eval()
+
+    exported = model.export()
+    # The contract cli/eval.py relies on: the exported model still declares
+    # its requested inputs.
+    assert set(exported.requested_inputs(use_new_names=True).keys()) == {
+        "charge",
+        "spin_multiplicity",
+    }
+
+    for name, charge in [("neutral", 0), ("charged", 2)]:
+        atoms = ase.Atoms("CH", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.1]])
+        atoms.info["charge"] = charge
+        atoms.info["spin_multiplicity"] = 1
+        ase.io.write(f"{name}.xyz", atoms)
+
+        options = OmegaConf.create(
+            {
+                "systems": {"read_from": f"{name}.xyz", "reader": "ase"},
+                "extra_data": {
+                    "charge": {"key": "charge"},
+                    "spin_multiplicity": {"key": "spin_multiplicity"},
+                },
+            }
+        )
+        # .mts output: the MetatensorWriter writes one file per predicted target
+        eval_model(model=exported, options=options, output=f"out_{name}.mts")
+
+    e_neutral = mts_load("out_neutral_energy.mts").block().values.item()
+    e_charged = mts_load("out_charged_energy.mts").block().values.item()
+    assert e_neutral != pytest.approx(e_charged), (
+        "charge=0 and charge=2 gave identical energies through mtt eval — "
+        "extra_data is not reaching the conditioning module"
+    )
+
+
+def test_trainer_wires_conditioning_transform(tmp_path, monkeypatch):
+    """The PET trainer attaches charge/spin extra_data to systems during training.
+
+    Trains briefly on systems that all carry charge=2 / spin_multiplicity=3 and
+    checks that exactly the embedding rows for those values received updates,
+    while the rows for the default values (charge=0, spin_multiplicity=1) are
+    untouched. If the trainer did not wire ``get_system_data_transform`` into
+    its collate functions, the defaults' rows would be the ones to change.
+    """
+    from omegaconf import OmegaConf
+
+    from metatrain.pet import Trainer
+    from metatrain.utils.hypers import init_with_defaults
+    from metatrain.utils.loss import LossSpecification
+
+    monkeypatch.chdir(tmp_path)
+
+    max_charge = 4
+    hypers = _small_hypers(max_charge=max_charge, max_spin_multiplicity=4)
+    model = PET(hypers, _dataset_info())
+
+    n_systems = 4
+    systems = [_make_raw_system() for _ in range(n_systems)]
+    # Sample labels carry the dataset index, like the readers produce them;
+    # batching joins them and duplicate labels would fail.
+    energies = [
+        TensorMap(
+            keys=Labels.single(),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[float(i)]], dtype=torch.float64),
+                    samples=Labels("system", torch.tensor([[i]])),
+                    components=[],
+                    properties=Labels("energy", torch.tensor([[0]])),
+                )
+            ],
+        )
+        for i in range(n_systems)
+    ]
+    dataset = Dataset.from_dict(
+        {
+            "system": systems,
+            "energy": energies,
+            "charge": [
+                _make_extra_tmap(2.0, "charge", system_index=i)
+                for i in range(n_systems)
+            ],
+            "spin_multiplicity": [
+                _make_extra_tmap(3.0, "spin_multiplicity", system_index=i)
+                for i in range(n_systems)
+            ],
+        }
+    )
+
+    train_hypers = copy.deepcopy(get_default_hypers("pet")["training"])
+    train_hypers["num_epochs"] = 4
+    train_hypers["num_workers"] = 0
+    train_hypers["batch_size"] = 2
+    train_hypers["atomic_baseline"] = {}
+    loss_conf = OmegaConf.create({"energy": init_with_defaults(LossSpecification)})
+    OmegaConf.resolve(loss_conf)
+    train_hypers["loss"] = loss_conf
+
+    charge_weights_before = (
+        model.system_conditioning.charge_embedding.weight.detach().clone()
+    )
+    spin_weights_before = (
+        model.system_conditioning.spin_multiplicity_embedding.weight.detach().clone()
+    )
+
+    trainer = Trainer(train_hypers)
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
+
+    charge_weights_after = model.system_conditioning.charge_embedding.weight.detach()
+    spin_weights_after = (
+        model.system_conditioning.spin_multiplicity_embedding.weight.detach()
+    )
+
+    # Rows for the values present in the dataset must have been updated ...
+    assert not torch.equal(
+        charge_weights_before[2 + max_charge], charge_weights_after[2 + max_charge]
+    ), "charge=2 embedding row unchanged — charge did not reach the module"
+    assert not torch.equal(spin_weights_before[3 - 1], spin_weights_after[3 - 1]), (
+        "spin_multiplicity=3 embedding row unchanged — spin did not reach the module"
+    )
+    # ... while the rows for the default values must be untouched (plain Adam
+    # leaves rows with zero gradient exactly as they were).
+    assert torch.equal(
+        charge_weights_before[0 + max_charge], charge_weights_after[0 + max_charge]
+    ), "charge=0 (default) embedding row changed — systems fell back to defaults"
+    assert torch.equal(spin_weights_before[1 - 1], spin_weights_after[1 - 1]), (
+        "spin_multiplicity=1 (default) embedding row changed — "
+        "systems fell back to defaults"
+    )

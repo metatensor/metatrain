@@ -688,7 +688,6 @@ class DiskDataset(torch.utils.data.Dataset):
 
     def __init__(self, path: Union[str, Path], fields: Optional[List[str]] = None):
         self.zip_file_path = path
-        self.extra_data_config: Dict[str, Any] = {}
         self._field_names = ["system"]
         # check that we have at least one sample:
         with zipfile.ZipFile(path, "r") as zip_file:
@@ -830,24 +829,6 @@ class DiskDataset(torch.utils.data.Dataset):
                 },
             )
         return target_info_dict
-
-    def get_extra_data_info(self) -> Dict[str, TargetInfo]:
-        """
-        Get information about the extra_data entries in the dataset.
-
-        :return: A dictionary mapping extra_data keys to :py:class:`TargetInfo`
-            objects describing each per-system scalar array.
-        """
-        extra_data_info_dict: Dict[str, TargetInfo] = {}
-        if not self.extra_data_config:
-            return extra_data_info_dict
-        first_sample = self[0]
-        for key, opts in self.extra_data_config.items():
-            tensor_map = first_sample[key]
-            target_info = get_generic_target_info(key, opts)
-            target_info.layout = _empty_tensor_map_like(tensor_map)
-            extra_data_info_dict[key] = target_info
-        return extra_data_info_dict
 
     def __del__(self) -> None:
         if self.zip_file is not None:
