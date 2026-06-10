@@ -13,7 +13,7 @@ architecture:
     scale_targets: false
     loss:
       mtt::dos:
-        type: masked_dos
+        type: shift_agnostic
         weight: 1.0
         grad_weight: 1e-4
         int_weight: 2
@@ -28,24 +28,12 @@ training_set:
       sample_kind: system
       type: scalar
       num_subtargets: 3630
-  extra_data:
-    mtt::dos_mask:
-      key: dos_mask
-      sample_kind: system
-      type: scalar
-      num_subtargets: 3630
 
 validation_set:
   systems: DOS.xyz
   targets:
     mtt::dos:
       key: dos
-      sample_kind: system
-      type: scalar
-      num_subtargets: 3630
-  extra_data:
-    mtt::dos_mask:
-      key: dos_mask
       sample_kind: system
       type: scalar
       num_subtargets: 3630

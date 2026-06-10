@@ -1180,7 +1180,7 @@ def test_train_direct_forces(monkeypatch, tmp_path):
 
 
 def test_train_density_of_states(monkeypatch, tmp_path):
-    """Test training with the DOS loss"""
+    """Test training with the ShiftAgnostic MSE loss"""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_DOS, "dos.xyz")
 
@@ -1198,22 +1198,12 @@ def test_train_density_of_states(monkeypatch, tmp_path):
             "num_subtargets": 4806,
         }
     }
-    options["training_set"]["extra_data"] = {
-        "mtt::dos_mask": {
-            "read_from": "dos.xyz",
-            "key": "mask",
-            "quantity": "",
-            "unit": "",
-            "sample_kind": "system",
-            "type": "scalar",
-            "num_subtargets": 4806,
-        }
-    }
+
     options["validation_set"] = copy.deepcopy(options["training_set"])
     options["test_set"] = copy.deepcopy(options["training_set"])
     options["architecture"]["training"]["loss"] = {
         "mtt::dos": {
-            "type": "masked_dos",
+            "type": "shift_agnostic",
             "weight": 1.0,
             "grad_weight": 1e-4,
             "int_weight": 2.0,

@@ -444,7 +444,7 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
         )
 
 
-class MaskedDOSLoss(LossInterface):
+class ShiftAgnosticMSE(LossInterface):
     """
     Masked DOS loss on :py:class:`TensorMap` entries.
 
@@ -486,37 +486,29 @@ class MaskedDOSLoss(LossInterface):
         self,
         model_predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
-        extra_data: Optional[Dict[str, TensorMap]] = None,
+        extra_data: Any | None = None,
     ) -> torch.Tensor:
         """
         Gather and flatten target and prediction blocks, then compute loss.
 
         :param model_predictions: Mapping from target names to TensorMaps.
         :param targets: Mapping from target names to TensorMaps.
-        :param extra_data: Additional data for loss computation. Assumes that, for the
-            target ``name`` used in the constructor, there is a corresponding data field
-            ``name + "_mask"`` that contains the tensor to be used for masking. It
-            should have the same metadata as the target and prediction tensors.
+        :param extra_data: extra data, not needed for this loss function
+
         :return: Scalar loss tensor.
         """
-        mask_key = f"{self.target}_mask"
-        if extra_data is None or mask_key not in extra_data:
-            raise ValueError(
-                f"Expected extra_data to contain TensorMap under '{mask_key}'"
-            )
 
         tensor_map_pred = model_predictions[self.target]
         tensor_map_targ = targets[self.target]
-        tensor_map_mask = extra_data[mask_key]
 
         # There should only be one block
 
         predictions = tensor_map_pred.block().values.float()
+        mask = (~torch.isnan(predictions)).float()
         dos_pad = torch.zeros_like(predictions)
         predictions = torch.hstack([dos_pad, predictions, dos_pad])
 
         target = tensor_map_targ.block().values.float()
-        mask = tensor_map_mask.block().values.float()
         dtype = predictions.dtype
         device = predictions.device
 
@@ -1194,7 +1186,7 @@ class LossType(Enum):
     MASKED_HUBER = ("masked_huber", TensorMapMaskedHuberLoss)
     POINTWISE = ("pointwise", BaseTensorMapLoss)
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
-    MASKED_DOS = ("masked_dos", MaskedDOSLoss)
+    MASKED_DOS = ("shift_agnostic", ShiftAgnosticMSE)
     GAUSSIAN_NLL = ("gaussian_nll_ensemble", TensorMapGaussianNLLLoss)
     GAUSSIAN_CRPS = ("gaussian_crps_ensemble", TensorMapGaussianCRPSLoss)
     EMPIRICAL_CRPS = ("empirical_crps_ensemble", TensorMapEmpiricalCRPSLoss)
