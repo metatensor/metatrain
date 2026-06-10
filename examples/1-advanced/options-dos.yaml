@@ -3,7 +3,7 @@ base_precision: 64
 seed: 42
 
 architecture:
-  name: soap_bpnn
+  name: pet
   training:
     batch_size: 1
     num_epochs: 10

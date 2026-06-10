@@ -99,7 +99,7 @@ for index in range(len(structures)):
     mask_i = (energy_grid <= confident_energy_upper_bound).astype(
         int
     )  # Define the mask
-    dos_i[mask_i] = np.nan
+    dos_i[~mask_i] = np.nan
     structures[index].info["dos"] = dos_i
 
 # Write the structures to an xyz file

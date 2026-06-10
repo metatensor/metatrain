@@ -504,11 +504,13 @@ class ShiftAgnosticMSE(LossInterface):
         # There should only be one block
 
         predictions = tensor_map_pred.block().values.float()
-        mask = (~torch.isnan(predictions)).float()
         dos_pad = torch.zeros_like(predictions)
         predictions = torch.hstack([dos_pad, predictions, dos_pad])
 
         target = tensor_map_targ.block().values.float()
+        mask = (~torch.isnan(target)).float()
+        target = torch.nan_to_num(target)
+
         dtype = predictions.dtype
         device = predictions.device
 
