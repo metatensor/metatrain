@@ -446,15 +446,24 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
 
 class ShiftAgnosticMSE(LossInterface):
     """
-    ShiftAgnosticMSE loss on :py:class:`TensorMap` entries. This loss is
-    defined in such a way that is does not depend on the relative shift
-    between the prediction and target.
+    Shift agnostic MSE loss on :py:class:`TensorMap` entries.
+
+    This loss assumes that the target is some kind of profile
+    along the properties of the ``TensorBlock``. It finds the
+    rigid shift between the predictions and targets that
+    minimizes the MSE, and returns that minimal MSE.
 
     :param name: key for the target in the prediction/target dictionary.
     :param gradient: optional gradient field name.
     :param weight: weight of the loss contribution in the final aggregation.
-    :param grad_weight: Multiplier for the gradient of the unmasked targets component.
-    :param int_weight: Multiplier for the cumulative target component.
+    :param int_weight: The loss function can also contain the MSE on the
+      cumulative profile. This number weights the contribution of the
+      cumulative term in the final loss. If 0, no cumulative term is added.
+    :param grad_penalty_weight: The loss function penalizes gradients of the
+      predicted profiles in the regions where the target is NaN.
+      This number weights the contribution of the penalty term
+      in the final loss. If 0, the predictions on those regions are
+      free to be what they want.
     :param reduction: reduction mode for torch loss.
     """
 
@@ -463,8 +472,8 @@ class ShiftAgnosticMSE(LossInterface):
         name: str,
         gradient: Optional[str],
         weight: float,
-        grad_weight: float,
         int_weight: float,
+        grad_penalty_weight: float,
         reduction: str,
     ):
         super().__init__(
@@ -473,7 +482,7 @@ class ShiftAgnosticMSE(LossInterface):
             weight,
             reduction,
         )
-        self.grad_weight = grad_weight
+        self.grad_penalty_weight = grad_penalty_weight
         self.int_weight = int_weight
 
         interval = 0.05
@@ -564,7 +573,7 @@ class ShiftAgnosticMSE(LossInterface):
             adjusted_mask.append(mask_i)
         aligned_predictions = torch.vstack(aligned_predictions)
         adjusted_mask = torch.vstack(adjusted_mask)
-        if self.grad_weight > 0:
+        if self.grad_penalty_weight > 0:
             grad_predictions = torch.nn.functional.conv1d(
                 predictions.unsqueeze(dim=1), self.grid.to(device).to(dtype)
             ).squeeze(dim=1)
@@ -582,7 +591,7 @@ class ShiftAgnosticMSE(LossInterface):
                         dim=1,
                     )
                 )
-                * self.grad_weight
+                * self.grad_penalty_weight
             )
         else:
             gradient_loss = 0.0
