@@ -139,7 +139,9 @@ def test_gradients_unaffected_by_diagnostic_outputs():
             pbc=torch.tensor([False, False, False]),
         )
         system.positions.requires_grad_(True)
-        system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        system = get_system_with_neighbor_lists(
+            system, model.requested_neighbor_lists()
+        )
         outputs = {"energy": ModelOutput(per_atom=False)}
         if with_diagnostic:
             outputs["mtt::feature::node_heads.energy.0"] = ModelOutput(per_atom=True)
