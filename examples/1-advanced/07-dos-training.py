@@ -24,15 +24,11 @@ import numpy as np
 # Data Loading
 # ----------------
 #
-# In order to use the masked dos loss function, we need to extract the DOS,
-# the mask, and prepare them in a way to facilitate the use of extra targets
-# during training. The extra targets parameter gives the model freedom to shift
-# the energy reference of the target DOS, which is important as the energy
-# reference is ill-defined for bulk systems. In this example, we will demonstrate
-# the entire data processing pipeline, using 200 extra targets, starting from the
+# In order to use the masked dos loss function, we need to extract the DOS and
+# the mask. In this example, we will demonstrate
+# the entire data processing pipeline, starting from the
 # eigenvalues and k-point weights obtained from a DFT calculation.
 #
-n_extra_targets = 200
 structures = ase.io.read("DOS_structures.xyz", ":")
 # Each structure contains the eigenvalues and k-point weights as arrays in info.
 eigenvalues = []
@@ -99,19 +95,12 @@ for index in range(len(structures)):
         )
         * normalization
     )  # Apply Gaussian smearing and sum contributions
+    # Replace unphysical DOS values with NaNs
     mask_i = (energy_grid <= confident_energy_upper_bound).astype(
         int
     )  # Define the mask
-
-    # padding the dos and mask with zeros in front based on extra targets,
-    # these values will be ignored during loss computation
-    dos_i_padded = np.concatenate([np.zeros(n_extra_targets), dos_i])
-    mask_i_padded = np.concatenate([np.zeros(n_extra_targets), mask_i])
-
-    # Store the dos and mask in the structure info for later use during training
-    structures[index].info["dos"] = dos_i_padded.astype(np.float32)
-    structures[index].info["dos_mask"] = mask_i_padded.astype(np.float32)
-
+    dos_i[~mask_i] = np.nan
+    structures[index].info["dos"] = dos_i
 
 # Write the structures to an xyz file
 ase.io.write("DOS.xyz", structures)
