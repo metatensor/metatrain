@@ -794,6 +794,7 @@ def is_auxiliary_output(name: str) -> bool:
 # metatomic 0.1.12 auto-injects deprecated output names back for backward compatability
 DEPRECATED_METATOMIC_OUTPUT_NAMES = {
     "features": "feature",
+    "non_conservative_forces": "non_conservative_force",
 }
 
 

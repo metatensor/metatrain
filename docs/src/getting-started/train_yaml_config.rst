@@ -351,7 +351,7 @@ learning the electronic density of states (DOS) along with forces and stresses:
                     read_from: dataset.xyz
                     reader: ase
                     key: stress
-            non_conservative_forces:
+            non_conservative_force:
                 quantity: null
                 read_from: nonconservative_force.mts
                 reader: metatensor
