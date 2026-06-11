@@ -118,9 +118,10 @@ def systems_to_batch(
     all_species_list: List[int],
     species_to_species_index: torch.Tensor,
     cutoff_function: str,
-    cutoff_width: float,
+    cutoff_width: Optional[float] = None,
     num_neighbors_adaptive: Optional[float] = None,
     adaptive_cutoff_method: str = "solver",
+    cutoff_width_adaptive: float = 1.0,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -142,7 +143,11 @@ def systems_to_batch(
     :param all_species_list: List of all atomic species in the dataset.
     :param species_to_species_index: Mapping from atomic species to species indices.
     :param cutoff_function: Type of the smoothing function at the cutoff.
-    :param cutoff_width: Width of the cutoff function for a cutoff mask.
+    :param cutoff_width: Width of the per-edge cutoff function. If ``None``,
+        the bump/cosine width per edge equals the per-edge cutoff radius
+        itself (i.e. the function spans the entire range from 0 to that
+        edge's cutoff, which is ``options.cutoff`` in the fixed-cutoff path
+        and the symmetrized adaptive cutoff in the adaptive path).
     :param num_neighbors_adaptive: Optional maximum number of neighbors per atom.
         If provided, the adaptive cutoff scheme will be used for each atom to
         approximately select this number of neighbors.
@@ -150,6 +155,12 @@ def systems_to_batch(
         cutoffs when ``num_neighbors_adaptive`` is set. ``"grid"`` uses the legacy
         probe-grid + Gaussian-weighted average; ``"solver"`` uses a Newton-bisection
         root finder on the smoothed neighbor count.
+    :param cutoff_width_adaptive: Width of the smooth bump used to build the
+        smoothed neighbor count ``n(r)`` in the adaptive cutoff solver.
+        Smaller values make the counting more step-like (closer to a hard
+        neighbor count) but can be numerically unstable; larger values give
+        a smoother landscape that the root finder navigates more reliably.
+        Defaults to 1.0 Angstrom, which provides a good balance.
     :return: A tuple containing the batch tensors.
         The batch consists of the following tensors:
         - `element_indices_nodes`: The atomic species of the central atoms
@@ -208,7 +219,7 @@ def systems_to_batch(
                     num_neighbors_adaptive,
                     num_nodes,
                     options.cutoff,
-                    cutoff_width=cutoff_width,
+                    cutoff_width=cutoff_width_adaptive,
                 )
             elif adaptive_cutoff_method.lower() == "grid":
                 atomic_cutoffs = get_adaptive_cutoffs_grid(
@@ -217,7 +228,7 @@ def systems_to_batch(
                     num_neighbors_adaptive,
                     num_nodes,
                     options.cutoff,
-                    cutoff_width=cutoff_width,
+                    cutoff_width=cutoff_width_adaptive,
                 )
             else:
                 raise ValueError(
@@ -250,11 +261,11 @@ def systems_to_batch(
         int(torch.max(num_neighbors)) if num_neighbors.numel() > 0 else 0
     )
 
+    # if cutoff_width is None, the cutoff function spans the entire range from 0 to
+    # the cutoff radius, (either fixed or adaptive)
     if cutoff_function.lower() == "bump":
-        # use bump switching function for adaptive cutoff
         cutoff_factors = cutoff_func_bump(edge_distances, pair_cutoffs, cutoff_width)
     elif cutoff_function.lower() == "cosine":
-        # backward-compatible cosine swithcing for fixed cutoff
         cutoff_factors = cutoff_func_cosine(edge_distances, pair_cutoffs, cutoff_width)
     else:
         raise ValueError(
