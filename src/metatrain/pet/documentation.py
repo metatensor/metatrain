@@ -21,6 +21,73 @@ the following additional quantity:
 - :ref:`mtt-aux-target-last-layer-features`: The features for a given target, taken
   before the last linear layer of the corresponding head.
 
+Charge and spin conditioning
+----------------------------
+
+PET can condition its predictions on the total charge and spin multiplicity of
+each system, so that the same structure can yield different predictions for
+different electronic states (e.g. a neutral singlet vs. a charged doublet).
+Enable it with the ``system_conditioning`` model hyperparameter and provide the
+per-system values as ``extra_data`` in the training options file:
+
+.. code-block:: yaml
+
+    architecture:
+      name: pet
+      model:
+        system_conditioning: true
+        # optional, these are the defaults:
+        max_charge: 10              # supports charges in [-10, 10]
+        max_spin_multiplicity: 10   # supports 2S+1 values in [1, 10]
+
+    training_set:
+      systems:
+        read_from: dataset.xyz
+        length_unit: angstrom
+      targets:
+        energy:
+          key: energy
+          unit: eV
+      extra_data:
+        charge:
+          key: charge                # from atoms.info["charge"]
+        spin_multiplicity:
+          key: spin_multiplicity     # from atoms.info["spin_multiplicity"]
+
+The same ``extra_data`` section is used for evaluation with ``mtt eval``:
+
+.. code-block:: yaml
+
+    systems:
+      read_from: test.xyz
+    targets:
+      energy:
+        key: energy
+        unit: eV
+    extra_data:
+      charge:
+        key: charge
+      spin_multiplicity:
+        key: spin_multiplicity
+
+Systems without a value fall back to ``charge=0`` and ``spin_multiplicity=1``,
+so a conditioned model can still be used on data without this information.
+Values must be integers within ``[-max_charge, max_charge]`` and
+``[1, max_spin_multiplicity]``; out-of-range or non-integer values raise an
+error.
+
+When running an exported model through the ASE calculator, the values are read
+from ``atoms.info``:
+
+.. code-block:: python
+
+    from metatomic_ase import MetatomicCalculator
+
+    atoms.info["charge"] = 1
+    atoms.info["spin"] = 2  # spin multiplicity (2S + 1)
+    atoms.calc = MetatomicCalculator("model.pt")
+    energy = atoms.get_potential_energy()
+
 {{SECTION_DEFAULT_HYPERS}}
 
 Tuning hyperparameters
@@ -164,6 +231,17 @@ class ModelHypers(TypedDict):
     """Use ZBL potential for short-range repulsion"""
     long_range: LongRangeHypers = init_with_defaults(LongRangeHypers)
     """Long-range Coulomb interactions parameters."""
+    system_conditioning: bool = False
+    """Enable charge and spin conditioning embeddings. When enabled, per-system
+    charge and spin multiplicity are embedded and added to node features at each
+    GNN layer, allowing different predictions for the same structure under
+    different electronic states."""
+    max_charge: int = 10
+    """Maximum absolute charge for the conditioning embedding table. Supports
+    charges in the range ``[-max_charge, +max_charge]``."""
+    max_spin_multiplicity: int = 10
+    """Maximum spin multiplicity (2S+1) for the conditioning embedding table.
+    Supports values in the range ``[1, max_spin_multiplicity]``."""
 
 
 class TrainerHypers(TypedDict):

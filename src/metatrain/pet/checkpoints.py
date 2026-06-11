@@ -1,8 +1,15 @@
+import logging
+
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatrain.utils.scaler.checkpoints import update_per_property_scales
+
+
+# Single source of truth for the current model checkpoint version;
+# ``PET.__checkpoint_version__`` reads this value.
+MODEL_CHECKPOINT_VERSION = 14
 
 
 ###########################
@@ -285,9 +292,155 @@ def model_update_v12_v13(checkpoint: dict) -> None:
     """
     Update a v12 checkpoint to v13.
 
+    Adds per-property scales to comply with the scaler changes introduced in
+    https://github.com/metatensor/metatrain/pull/1107.
+
     :param checkpoint: The checkpoint to update.
     """
     update_per_property_scales(checkpoint)
+
+
+def model_update_v13_v14(checkpoint: dict) -> None:
+    """
+    Update a v13 checkpoint to v14.
+
+    Adds system-conditioning hyperparameters, renames the muon2-era
+    ``edge_linear`` submodule to ``edge_embedder``, and migrates the short
+    ``spin`` form to the canonical ``spin_multiplicity`` form to match the
+    metatomic standard quantity name. Affects both the model hyperparameters
+    and the state-dict tensor paths inside ``system_conditioning``.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    hypers = checkpoint["model_data"]["model_hypers"]
+
+    # The pre-merge muon2 v12 was defined before upstream introduced the
+    # adaptive_cutoff_method hyper in upstream's v11→v12. Ensure it is set
+    # so the upgrade is robust to either v12 lineage.
+    if "adaptive_cutoff_method" not in hypers:
+        hypers["adaptive_cutoff_method"] = "grid"
+
+    state_dict = (
+        checkpoint.get("model_state_dict")
+        or checkpoint.get("best_model_state_dict")
+        or {}
+    )
+    has_conditioning_weights = any(
+        k.startswith("system_conditioning.") for k in state_dict
+    )
+    logging.info(
+        "Checkpoint upgrade v13→v14: system_conditioning weights %s in checkpoint.",
+        "found" if has_conditioning_weights else "NOT found",
+    )
+    # Adding system conditioning hyperparameters — enabled if weights already present
+    # (muon2 branch trained with system conditioning), disabled otherwise.
+    if "system_conditioning" not in hypers:
+        hypers["system_conditioning"] = has_conditioning_weights
+    if "max_charge" not in hypers:
+        hypers["max_charge"] = 10
+    if "max_spin_multiplicity" not in hypers:
+        hypers["max_spin_multiplicity"] = hypers.pop("max_spin", 10)
+
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (sd := checkpoint.get(key)) is not None:
+            new_state_dict = {}
+            for k, v in sd.items():
+                if "gnn_layers" in k and ".edge_linear." in k:
+                    k = k.replace(".edge_linear.", ".edge_embedder.")
+                if k.startswith("system_conditioning.spin_embedding."):
+                    k = k.replace(
+                        "system_conditioning.spin_embedding.",
+                        "system_conditioning.spin_multiplicity_embedding.",
+                    )
+                new_state_dict[k] = v
+            checkpoint[key] = new_state_dict
+
+
+def model_update_from_max_atom_sampler(checkpoint: dict) -> dict:
+    """
+    Convert a model checkpoint from the ``origin/max-atom-sampler`` fork into
+    the format expected by this branch.
+
+    The max-atom-sampler branch sits at ``__checkpoint_version__ = 11`` with an
+    earlier flavour of the system-conditioning module, so its checkpoints can
+    not be loaded directly through :meth:`PET.upgrade_checkpoint`. This
+    function bridges the gap in one step:
+
+    * Renames the ``max_spin`` hyperparameter to ``max_spin_multiplicity`` and
+      fills in defaults for the hypers added on this branch
+      (``adaptive_cutoff_method``, ``system_conditioning``, ``max_charge``,
+      ``max_spin_multiplicity``).
+    * Renames the state-dict tensor paths inside ``system_conditioning``
+      (``spin_embedding`` → ``spin_multiplicity_embedding``) and inside each
+      ``gnn_layers.<i>`` block (``edge_linear`` → ``edge_embedder``).
+    * Applies the per-property scaler migration from
+      https://github.com/metatensor/metatrain/pull/1107, which max-atom-sampler
+      pre-dates.
+    * Bumps ``model_ckpt_version`` to the current ``PET.__checkpoint_version__``
+      so the normal loader treats the checkpoint as up-to-date.
+
+    .. note::
+        max-atom-sampler reads ``mtt::charge``/``mtt::spin`` from each
+        :class:`~metatomic.torch.System` at inference time, whereas this branch
+        reads ``charge``/``spin_multiplicity`` (metatomic standard quantity
+        names). The data on each ``System`` you predict with must use the new
+        names; the checkpoint itself carries no per-system data so nothing in
+        it needs rewriting.
+
+    .. note::
+        max-atom-sampler ships a trainer checkpoint that is incompatible with
+        this branch's trainer. Only the model state is migrated here. To
+        continue training, instantiate a fresh trainer rather than calling
+        :meth:`Trainer.load_checkpoint` on a max-atom-sampler trainer
+        checkpoint.
+
+    :param checkpoint: A model checkpoint produced by the max-atom-sampler
+        branch. The dict is mutated in place and also returned for convenience.
+    :return: The migrated checkpoint.
+    """
+    hypers = checkpoint["model_data"]["model_hypers"]
+
+    # Hypers that this branch added on top of max-atom-sampler.
+    if "adaptive_cutoff_method" not in hypers:
+        # Preserve the legacy behaviour: max-atom-sampler used the grid-based
+        # adaptive cutoff. New trainings default to "solver".
+        hypers["adaptive_cutoff_method"] = "grid"
+    if "system_conditioning" not in hypers:
+        hypers["system_conditioning"] = False
+    if "max_charge" not in hypers:
+        hypers["max_charge"] = 10
+    # Rename max_spin → max_spin_multiplicity (preserve the trained value).
+    if "max_spin_multiplicity" not in hypers:
+        hypers["max_spin_multiplicity"] = hypers.pop("max_spin", 10)
+    else:
+        hypers.pop("max_spin", None)
+
+    # State-dict key renames.
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (sd := checkpoint.get(key)) is None:
+            continue
+        new_state_dict = {}
+        for k, v in sd.items():
+            if "gnn_layers" in k and ".edge_linear." in k:
+                k = k.replace(".edge_linear.", ".edge_embedder.")
+            if k.startswith("system_conditioning.spin_embedding."):
+                k = k.replace(
+                    "system_conditioning.spin_embedding.",
+                    "system_conditioning.spin_multiplicity_embedding.",
+                )
+            new_state_dict[k] = v
+        checkpoint[key] = new_state_dict
+
+    # Per-property scaler migration (PR #1107) — max-atom-sampler still has
+    # the single per-target scales buffer.
+    update_per_property_scales(checkpoint)
+
+    checkpoint["model_ckpt_version"] = MODEL_CHECKPOINT_VERSION
+    logging.info(
+        "Converted max-atom-sampler checkpoint to model version %d.",
+        MODEL_CHECKPOINT_VERSION,
+    )
+    return checkpoint
 
 
 ###########################
