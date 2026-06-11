@@ -393,13 +393,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                # Accumulate quantities for computing train metrics,
-                # but only if this is an epoch to log
-                if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
-                    train_rmse_calculator.update(predictions, targets)
-                    if self.hypers["log_mae"]:
-                        train_mae_calculator.update(predictions, targets)
-
                 # Reapply scales and accumulate quantities for computing train metrics,
                 # but only if this is an epoch to log
                 if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
