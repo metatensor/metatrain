@@ -258,3 +258,41 @@ def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix, MODEL_PATH):
     else:
         pred = DiskDataset("foo.zip")
         assert pred[0]["energy"].keys == Labels(["_"], torch.tensor([[0]]))
+
+
+@pytest.mark.parametrize("indices_mode", ["list", "file"])
+def test_eval_indices(monkeypatch, tmp_path, caplog, options, MODEL_PATH, indices_mode):
+    """Checks that the indices option is correctly used to evaluate only a subset"""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.INFO)
+
+    shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
+
+    options = options.copy()
+    if indices_mode == "file":
+        with open("indices.txt", "w") as f:
+            f.write("0\n")
+        options["indices"] = "indices.txt"
+    else:
+        options["indices"] = [0]
+
+    model = torch.jit.load(MODEL_PATH)
+
+    eval_model(
+        model=model,
+        options=options,
+        output="foo.xyz",
+        check_consistency=True,
+    )
+
+    # Test target predictions
+    log = "".join([rec.message for rec in caplog.records])
+    assert "energy RMSE (per atom)" in log
+    assert "energy MAE (per atom)" in log
+    assert "dataset with index" not in log
+    assert "Evaluation time" in log
+    assert "ms per atom" in log
+
+    # Test file is written predictions
+    frames = read("foo.xyz", ":")
+    assert len(frames) == 1

@@ -12,6 +12,7 @@ import tqdm
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import AtomisticModel, ModelOutput
 from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import Subset
 
 from metatrain.cli.formatter import CustomHelpFormatter
 from metatrain.utils.data import (
@@ -19,6 +20,7 @@ from metatrain.utils.data import (
     Dataset,
     TargetInfo,
     get_dataset,
+    load_indices,
     read_systems,
     unpack_batch,
 )
@@ -340,6 +342,12 @@ def eval_model(
             eval_dataset = Dataset.from_dict(
                 {"system": eval_systems, **eval_targets, **extra_data}
             )
+
+        if "indices" in options:
+            eval_indices = options["indices"]
+            if isinstance(options["indices"], str):
+                eval_indices = load_indices(eval_indices)
+            eval_dataset = Subset(eval_dataset, eval_indices)
 
         # run evaluation & writing
         try:
