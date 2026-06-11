@@ -2,16 +2,25 @@
 
 import copy
 
+import ase
+import ase.io
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import load as mts_load
 from metatomic.torch import ModelOutput, System
+from metatomic_ase import MetatomicCalculator
+from omegaconf import OmegaConf
 
-from metatrain.pet import PET
+from metatrain.cli.eval import eval_model
+from metatrain.pet import PET, Trainer
+from metatrain.pet.checkpoints import model_update_from_max_atom_sampler
 from metatrain.pet.modules.conditioning import SystemConditioningEmbedding
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import CollateFn, Dataset, DatasetInfo, unpack_batch
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.hypers import init_with_defaults
+from metatrain.utils.loss import LossSpecification
 from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
     get_system_with_neighbor_lists_transform,
@@ -367,9 +376,6 @@ def test_export_with_conditioning_preserves_validate(tmp_path):
     inputs run through, and an out-of-range value raises a clear error from the
     scripted module (driven via ``MetatomicCalculator`` for end-to-end coverage).
     """
-    import ase
-    from metatomic_ase import MetatomicCalculator
-
     hypers = _small_hypers(max_charge=3, max_spin_multiplicity=4)
     model = PET(hypers, _dataset_info())
     model.eval()
@@ -442,8 +448,6 @@ def test_model_update_from_max_atom_sampler():
     """Round-trip: build a v14 checkpoint with conditioning, downgrade it to
     a max-atom-sampler-shaped v11 payload, then verify our migration restores
     something the standard loader accepts."""
-    from metatrain.pet.checkpoints import model_update_from_max_atom_sampler
-
     hypers = _small_hypers(
         system_conditioning=True, max_charge=3, max_spin_multiplicity=4
     )
@@ -516,13 +520,6 @@ def test_eval_model_end_to_end_with_extra_data(tmp_path, monkeypatch):
     inputs (or the gate filtered them out), both runs would silently fall back
     to charge=0 and predict identical energies.
     """
-    import ase
-    import ase.io
-    from metatensor.torch import load as mts_load
-    from omegaconf import OmegaConf
-
-    from metatrain.cli.eval import eval_model
-
     monkeypatch.chdir(tmp_path)
 
     hypers = _small_hypers()
@@ -573,12 +570,6 @@ def test_trainer_wires_conditioning_transform(tmp_path, monkeypatch):
     untouched. If the trainer did not wire ``get_system_data_transform`` into
     its collate functions, the defaults' rows would be the ones to change.
     """
-    from omegaconf import OmegaConf
-
-    from metatrain.pet import Trainer
-    from metatrain.utils.hypers import init_with_defaults
-    from metatrain.utils.loss import LossSpecification
-
     monkeypatch.chdir(tmp_path)
 
     max_charge = 4
