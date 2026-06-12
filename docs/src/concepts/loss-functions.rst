@@ -182,6 +182,7 @@ Shift Agnostic MSE Loss Function
 The shift agnostic MSE loss function is a specialized loss function designed for training on targets where the reference is not fixed. The loss function also supports masking by setting the target where the loss should not be computed as nan. The mask is then generated on-the-fly using:
 
 .. code-block:: python
+
     mask = (~torch.isnan(target)).float()
 
 An example of such a target is the electronic density of states (DOS), where the energy reference is not well defined and there are regions on the energy grid where the DOS is not well-defined due to truncation introduced during electronic structure computations. The loss function achieves shift invariance by first padding the model predictions as follows
