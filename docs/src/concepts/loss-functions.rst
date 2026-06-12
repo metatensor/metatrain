@@ -179,49 +179,35 @@ The values of the masks must be passed as ``extra_data`` in the training set, an
 Shift Agnostic MSE Loss Function
 ---------------------------------
 
-The shift agnostic MSE loss function is a specialized loss function designed for training on targets where the reference is not fixed. The loss function also supports masking by setting the target where the loss should not be computed as nan. The mask is then generated on-the-fly using:
+The shift agnostic MSE loss function is a specialized loss function designed for training on targets where the reference is not fixed.
+It finds the rigid shift between targets and predictions that minimizes the MSE. Then it returns the MSE for that shift. NaNs in the
+target are simply ignored.
+
+An example of such a target is the electronic density of states (DOS), where the energy reference is not well defined.
+
+For the optimal rigid shift, two additional components might be added to the loss function:
+
+- A penalty on the gradient for regions where the target is NaN, to make the predictions for that region smoother.
 
 .. code-block:: python
 
-    mask = (~torch.isnan(target)).float()
+    gradient_penalty_loss = torch.trapezoid(aligned_predictions_gradient[NaN_mask]**2, x_axis = tmap_properties_grid)
 
-An example of such a target is the electronic density of states (DOS), where the energy reference is not well defined and there are regions on the energy grid where the DOS is not well-defined due to truncation introduced during electronic structure computations. The loss function achieves shift invariance by first padding the model predictions as follows
-
-.. code-block:: python
-
-    convolution_pad = torch.zeros_like(predictions)
-    padded_predictions = torch.hstack([convolution_pad, predictions, convolution_pad])
-
-Then, the loss function uses convolutions to find the continuous region in the padded_predictions that minimizes the loss when compared against the target. The loss is only defined on the region where the loss is a minimum, achieving shift invariance. At this step, the loss is defined as an integrated loss on the masked values
+- A contribution from the cumulative profiles.
 
 .. code-block:: python
 
-    masked_DOS_loss = torch.trapezoid((padded_predictions[start:end] - targets)**2 * mask)
-
-
-Afterwards, the continuous regions in the predictions where the loss is a minimum is obtained and two additional components of the loss function is calculated:
-
-- an integrated loss on the gradient of the *unmasked* DOS values, to ensure that values outside the masked region are also learned smoothly
-
-.. code-block:: python
-
-    unmasked_gradient_loss = torch.trapezoid(aligned_predictions_gradient**2 * (~mask), x_axis = energy_grid)
-
-- an integrated loss on the cumulative DOS values in the masked region
-
-.. code-block:: python
-
-    cumulative_aligned_predictions = torch.cumulative_trapezoid(aligned_predictions, x = energy_grid)
-    cumulative_targets = torch.cumulative_trapezoid(targets, x = energy_grid)
-    masked_cumulative_DOS_loss = torch.trapezoid((cumulative_aligned_predictions - cumulative_targets)**2 * mask, x_axis = energy_grid[1:])
+    cumulative_aligned_predictions = torch.cumulative_trapezoid(aligned_predictions, x = tmap_properties_grid)
+    cumulative_targets = torch.cumulative_trapezoid(targets, x = tmap_properties_grid)
+    cumulative_loss = torch.trapezoid((cumulative_aligned_predictions - cumulative_targets)**2, x_axis = tmap_properties_grid[1:])
 
 Each component can be weighted independently to tailor the loss function to specific training needs.
 
 .. code-block:: python
 
-    loss = (masked_DOS_loss +
-            grad_penalty_weight  * unmasked_gradient_loss +
-            int_weight * masked_cumulative_DOS_loss)
+    loss = (mse +
+            grad_penalty_weight  * gradient_penalty_loss +
+            int_weight * cumulative_loss)
 
 To use this loss function, you can refer to this code snippet for the ``loss`` section in your YAML configuration file:
 
@@ -234,12 +220,7 @@ To use this loss function, you can refer to this code snippet for the ``loss`` s
         int_weight: 2.0
         reduction: "mean"
 
-:param grad_penalty_weight : Multiplier for the gradient of the unmasked DOS component.
-:param int_weight: Multiplier for the cumulative DOS component.
-:param reduction: reduction mode for torch loss. Options are "mean", "sum", or "none".
-
 The values used in the above example are the ones used for PETMADDOS training and can be a reasonable starting point for other applications.
-
 
 Ensemble Loss Function
 ----------------------
