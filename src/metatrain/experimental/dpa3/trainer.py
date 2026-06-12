@@ -393,12 +393,22 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                # Accumulate quantities for computing train metrics,
+                # Reapply scales and accumulate quantities for computing train metrics,
                 # but only if this is an epoch to log
                 if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
-                    train_rmse_calculator.update(predictions, targets)
+                    scaled_predictions = (
+                        model.module if is_distributed else model
+                    ).scaler(systems, predictions)
+                    scaled_targets = (model.module if is_distributed else model).scaler(
+                        systems, targets
+                    )
+                    train_rmse_calculator.update(
+                        scaled_predictions, scaled_targets, extra_data
+                    )
                     if self.hypers["log_mae"]:
-                        train_mae_calculator.update(predictions, targets)
+                        train_mae_calculator.update(
+                            scaled_predictions, scaled_targets, extra_data
+                        )
 
             # Compute train metrics if they are to be logged this epoch:
             if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
@@ -465,11 +475,23 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
 
-                # Accumulate quantities for computing val metrics. This is done for
-                # every epoch as validation metrics are needed for model selection
-                val_rmse_calculator.update(predictions, targets)
+                # Reapply scales and accumulate quantities for computing val
+                # metrics. This is done for every epoch as validation metrics are
+                # needed for model selection
+                scaled_predictions = (model.module if is_distributed else model).scaler(
+                    systems, predictions
+                )
+                scaled_targets = (model.module if is_distributed else model).scaler(
+                    systems, targets
+                )
+
+                val_rmse_calculator.update(
+                    scaled_predictions, scaled_targets, extra_data
+                )
                 if self.hypers["log_mae"]:
-                    val_mae_calculator.update(predictions, targets)
+                    val_mae_calculator.update(
+                        scaled_predictions, scaled_targets, extra_data
+                    )
 
             # Compute val metrics:
             finalized_val_info = val_rmse_calculator.finalize(
