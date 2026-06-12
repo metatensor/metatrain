@@ -134,6 +134,7 @@ Generally, each loss-function term accepts the following parameters:
 
 :param type: This controls the type of loss to be used. The default value is ``mse``, and other standard options are ``mae`` and ``huber``, which implement the equivalent PyTorch loss functions `MSELoss <https://docs.pytorch.org/docs/stable/generated/torch.nn.MSELoss.html>`_, `L1Loss <https://docs.pytorch.org/docs/stable/generated/torch.nn.L1Loss.html>`_, and `HuberLoss <https://docs.pytorch.org/docs/stable/generated/torch.nn.HuberLoss.html>`_, respectively.
    There are also "masked" versions of these losses, which are useful when using padded targets with values that should be masked before computing the loss. The masked losses are named ``masked_mse``, ``masked_mae``, and ``masked_huber``.
+   All loss types implemented in ``metatrain`` are registered in the :class:`~metatrain.utils.loss.LossType` enumeration, which can be used as a reference for available options.
 :param ``weight``: This controls the weighting of different contributions to the loss (e.g., energy, forces, virial, etc.). The default value of 1.0 for all targets works well for most datasets, but can be adjusted if required.
 :param ``reduction``: This controls how the overall loss is computed across batches. The default for this is to use the ``mean`` of the batch losses. The ``sum`` function is also supported.
 
@@ -221,6 +222,8 @@ To use this loss function, you can refer to this code snippet for the ``loss`` s
         reduction: "mean"
 
 The values used in the above example are the ones used for PETMADDOS training and can be a reasonable starting point for other applications.
+
+See :class:`~metatrain.utils.loss.ShiftAgnosticMSE` for more details on the implementation and parameters of this loss function.
 
 Ensemble Loss Function
 ----------------------
