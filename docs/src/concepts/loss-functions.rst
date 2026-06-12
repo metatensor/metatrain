@@ -134,6 +134,7 @@ Generally, each loss-function term accepts the following parameters:
 
 :param type: This controls the type of loss to be used. The default value is ``mse``, and other standard options are ``mae`` and ``huber``, which implement the equivalent PyTorch loss functions `MSELoss <https://docs.pytorch.org/docs/stable/generated/torch.nn.MSELoss.html>`_, `L1Loss <https://docs.pytorch.org/docs/stable/generated/torch.nn.L1Loss.html>`_, and `HuberLoss <https://docs.pytorch.org/docs/stable/generated/torch.nn.HuberLoss.html>`_, respectively.
    There are also "masked" versions of these losses, which are useful when using padded targets with values that should be masked before computing the loss. The masked losses are named ``masked_mse``, ``masked_mae``, and ``masked_huber``.
+   All loss types implemented in ``metatrain`` are registered in the :class:`~metatrain.utils.loss.LossType` enumeration, which can be used as a reference for available options.
 :param ``weight``: This controls the weighting of different contributions to the loss (e.g., energy, forces, virial, etc.). The default value of 1.0 for all targets works well for most datasets, but can be adjusted if required.
 :param ``reduction``: This controls how the overall loss is computed across batches. The default for this is to use the ``mean`` of the batch losses. The ``sum`` function is also supported.
 
@@ -174,64 +175,55 @@ The values of the masks must be passed as ``extra_data`` in the training set, an
         read_from: my_target_mask.mts
 
 
-.. _dos-loss:
+.. _shift-agnostic-loss:
 
-DOS Loss Function
-^^^^^^^^^^^^^^^^^
+Shift Agnostic MSE Loss Function
+---------------------------------
 
-The masked DOS loss function is a specialized loss designed for training on the electronic density of states (DOS), typically represented on an energy grid. Structures in a dataset can (and usually do) have eigenvalues spanning different energy ranges, and DOS calculations do not share a common absolute energy reference.
-To handle this, the loss uses a user-specified number of extra predicted targets to dynamically shift the energy grid for each structure, aligning the predicted DOS with the reference DOS before computing the loss.
+The shift agnostic MSE loss function is a specialized loss function designed for training on targets where the reference is not fixed.
+It finds the rigid shift between targets and predictions that minimizes the MSE. Then it returns the MSE for that shift. NaNs in the
+target are simply ignored.
 
-After this alignment step, the loss function consists of three components:
+An example of such a target is the electronic density of states (DOS), where the energy reference is not well defined.
 
-- an integrated loss on the masked DOS values
+For the optimal rigid shift, two additional components might be added to the loss function:
 
-.. code-block:: python
-
-    masked_DOS_loss = torch.trapezoid((aligned_predictions - targets)**2 * mask, x_axis = energy_grid)
-
-- an integrated loss on the gradient of the *unmasked* DOS values, to ensure that values outside the masked region are also learned smoothly
+- A penalty on the gradient for regions where the target is NaN, to make the predictions for that region smoother.
 
 .. code-block:: python
 
-    unmasked_gradient_loss = torch.trapezoid(aligned_predictions_gradient**2 * (~mask), x_axis = energy_grid)
+    gradient_penalty_loss = torch.trapezoid(aligned_predictions_gradient[NaN_mask]**2, x_axis = tmap_properties_grid)
 
-- an integrated loss on the cumulative DOS values in the masked region
+- A contribution from the cumulative profiles.
 
 .. code-block:: python
 
-    cumulative_aligned_predictions = torch.cumulative_trapezoid(aligned_predictions, x = energy_grid)
-    cumulative_targets = torch.cumulative_trapezoid(targets, x = energy_grid)
-    masked_cumulative_DOS_loss = torch.trapezoid((cumulative_aligned_predictions - cumulative_targets)**2 * mask, x_axis = energy_grid[1:])
+    cumulative_aligned_predictions = torch.cumulative_trapezoid(aligned_predictions, x = tmap_properties_grid)
+    cumulative_targets = torch.cumulative_trapezoid(targets, x = tmap_properties_grid)
+    cumulative_loss = torch.trapezoid((cumulative_aligned_predictions - cumulative_targets)**2, x_axis = tmap_properties_grid[1:])
 
 Each component can be weighted independently to tailor the loss function to specific training needs.
 
 .. code-block:: python
 
-    loss = (masked_DOS_loss +
-            grad_weight * unmasked_gradient_loss +
-            int_weight * masked_cumulative_DOS_loss)
+    loss = (mse +
+            grad_penalty_weight  * gradient_penalty_loss +
+            int_weight * cumulative_loss)
 
 To use this loss function, you can refer to this code snippet for the ``loss`` section in your YAML configuration file:
 
 .. code-block:: yaml
 
     loss:
-      mtt::dos:
-        type: "masked_dos"
-        grad_weight: 1e-4
+      mtt::target_name:
+        type: "shift_agnostic_mse"
+        grad_penalty_weight : 1e-4
         int_weight: 2.0
-        extra_targets: 200
         reduction: "mean"
-
-:param name: key for the dos in the prediction/target dictionary. (mtt::dos in this case)
-:param grad_weight: Multiplier for the gradient of the unmasked DOS component.
-:param int_weight: Multiplier for the cumulative DOS component.
-:param extra_targets: Number of extra targets predicted by the model.
-:param reduction: reduction mode for torch loss. Options are "mean", "sum", or "none".
 
 The values used in the above example are the ones used for PETMADDOS training and can be a reasonable starting point for other applications.
 
+See :class:`~metatrain.utils.loss.ShiftAgnosticMSE` for more details on the implementation and parameters of this loss function.
 
 Ensemble Loss Function
 ----------------------
