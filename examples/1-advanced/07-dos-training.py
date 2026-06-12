@@ -4,9 +4,9 @@ Training a DOS model
 
 This tutorial demonstrates how to train a model for the prediction
 of the electronic density of states (DOS), while accounting for the unique properties
-of the DOS using the :ref:`masked dos loss function <dos-loss>`. This procedure can be
-used to train PET-MAD-DOS, a universal model for the electronic density
-of states. (https://arxiv.org/abs/2508.17418)
+of the DOS using the :ref:`Shift Agnostic MSE loss function <shift-agnostic-loss>`.
+This procedure can be used to train PET-MAD-DOS, a universal model for the
+electronic density of states. (https://arxiv.org/abs/2508.17418)
 """
 
 # %%
