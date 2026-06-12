@@ -174,21 +174,31 @@ The values of the masks must be passed as ``extra_data`` in the training set, an
         read_from: my_target_mask.mts
 
 
-.. _dos-loss:
+.. _shift-agnostic-loss:
 
-DOS Loss Function
-^^^^^^^^^^^^^^^^^
+Shift Agnostic MSE Loss Function
+---------------------------------
 
-The masked DOS loss function is a specialized loss designed for training on the electronic density of states (DOS), typically represented on an energy grid. Structures in a dataset can (and usually do) have eigenvalues spanning different energy ranges, and DOS calculations do not share a common absolute energy reference.
-To handle this, the loss uses a user-specified number of extra predicted targets to dynamically shift the energy grid for each structure, aligning the predicted DOS with the reference DOS before computing the loss.
+The shift agnostic MSE loss function is a specialized loss function designed for training on targets where the reference is not fixed. The loss function also supports masking by setting the target where the loss should not be computed as nan. The mask is then generated on-the-fly using:
 
-After this alignment step, the loss function consists of three components:
+.. code-block:: python
+    mask = (~torch.isnan(target)).float()
 
-- an integrated loss on the masked DOS values
+An example of such a target is the electronic density of states (DOS), where the energy reference is not well defined and there are regions on the energy grid where the DOS is not well-defined due to truncation introduced during electronic structure computations. The loss function achieves shift invariance by first padding the model predictions as follows
 
 .. code-block:: python
 
-    masked_DOS_loss = torch.trapezoid((aligned_predictions - targets)**2 * mask, x_axis = energy_grid)
+    convolution_pad = torch.zeros_like(predictions)
+    padded_predictions = torch.hstack([convolution_pad, predictions, convolution_pad])
+
+Then, the loss function uses convolutions to find the continuous region in the padded_predictions that minimizes the loss when compared against the target. The loss is only defined on the region where the loss is a minimum, achieving shift invariance. At this step, the loss is defined as an integrated loss on the masked values
+
+.. code-block:: python
+
+    masked_DOS_loss = torch.trapezoid((padded_predictions[start:end] - targets)**2 * mask)
+
+
+Afterwards, the continuous regions in the predictions where the loss is a minimum is obtained and two additional components of the loss function is calculated:
 
 - an integrated loss on the gradient of the *unmasked* DOS values, to ensure that values outside the masked region are also learned smoothly
 
@@ -209,7 +219,7 @@ Each component can be weighted independently to tailor the loss function to spec
 .. code-block:: python
 
     loss = (masked_DOS_loss +
-            grad_weight * unmasked_gradient_loss +
+            grad_penalty_weight  * unmasked_gradient_loss +
             int_weight * masked_cumulative_DOS_loss)
 
 To use this loss function, you can refer to this code snippet for the ``loss`` section in your YAML configuration file:
@@ -217,17 +227,14 @@ To use this loss function, you can refer to this code snippet for the ``loss`` s
 .. code-block:: yaml
 
     loss:
-      mtt::dos:
-        type: "masked_dos"
-        grad_weight: 1e-4
+      mtt::target_name:
+        type: "shift_agnostic_mse"
+        grad_penalty_weight : 1e-4
         int_weight: 2.0
-        extra_targets: 200
         reduction: "mean"
 
-:param name: key for the dos in the prediction/target dictionary. (mtt::dos in this case)
-:param grad_weight: Multiplier for the gradient of the unmasked DOS component.
+:param grad_penalty_weight : Multiplier for the gradient of the unmasked DOS component.
 :param int_weight: Multiplier for the cumulative DOS component.
-:param extra_targets: Number of extra targets predicted by the model.
 :param reduction: reduction mode for torch loss. Options are "mean", "sum", or "none".
 
 The values used in the above example are the ones used for PETMADDOS training and can be a reasonable starting point for other applications.
