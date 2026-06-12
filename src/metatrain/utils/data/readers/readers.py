@@ -123,6 +123,73 @@ def read_extra_data(
     )
 
 
+def _target_defines_sample_weights(entry: DictConfig) -> bool:
+    """Whether a target config requests per-sample loss weights.
+
+    :param entry: a single (expanded) target configuration.
+    :return: ``True`` if the target or any of its gradients defines a
+        ``sample_weight_key``.
+    """
+    if entry.get("sample_weight_key") is not None:
+        return True
+    for gradient in ("forces", "stress", "virial"):
+        gradient_conf = entry.get(gradient)
+        if (
+            isinstance(gradient_conf, DictConfig)
+            and gradient_conf.get("sample_weight_key") is not None
+        ):
+            return True
+    return False
+
+
+def read_sample_weights(
+    conf: DictConfig,
+    targets: Dict[str, List[TensorMap]],
+) -> Dict[str, List[TensorMap]]:
+    """Read per-sample loss weights for all targets that define a ``sample_weight_key``.
+
+    The weights are returned under the key ``f"{target_name}_weights"`` so that they
+    can be added to the dataset as ``extra_data`` and picked up by the weighted loss
+    functions (see :py:class:`metatrain.utils.loss.WeightedTensorMapLoss`).
+
+    :param conf: the (expanded) ``targets`` configuration.
+    :param targets: the already-read target TensorMaps, used as templates for the
+        structure (metadata) of the weights.
+    :return: a dictionary mapping ``f"{target_name}_weights"`` to a list of weight
+        TensorMaps (one per system).
+    """
+    weights: Dict[str, List[TensorMap]] = {}
+    for key, entry in conf.items():
+        if not _target_defines_sample_weights(entry):
+            continue
+
+        reader = entry.get("reader")
+        filename = entry.get("read_from")
+        if reader is None:
+            suffix = Path(filename).suffix
+            try:
+                reader = DEFAULT_READER[suffix]
+            except KeyError:
+                raise ValueError(
+                    f"File extension {suffix!r} has no default reader. "
+                    f"Set 'reader' explicitly from: {AVAILABLE_READERS}"
+                )
+
+        module = _load_reader_module(reader)
+        try:
+            reader_fn = module.read_sample_weights
+        except AttributeError as e:
+            raise ValueError(
+                f"Reader {reader!r} does not support 'sample_weight_key'. "
+                "Per-sample loss weights can currently only be read with the 'ase' "
+                "reader."
+            ) from e
+
+        weights[f"{key}_weights"] = reader_fn(key, entry, targets[key])
+
+    return weights
+
+
 def _read_conf_section(
     conf: DictConfig,
     decide_reader: Callable[[str, DictConfig], str],

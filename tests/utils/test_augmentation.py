@@ -5,11 +5,16 @@ import numpy as np
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import System
+from omegaconf import OmegaConf
 from scipy.spatial.transform import Rotation
 
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import DatasetInfo, DiskDataset, TargetInfo
-from metatrain.utils.data.target_info import get_generic_target_info
+from metatrain.utils.data.target_info import (
+    get_energy_target_info,
+    get_generic_target_info,
+)
 
 from ..conftest import RESOURCES_PATH
 
@@ -405,6 +410,84 @@ def test_rotation_per_atom_spherical_rank2(batch_size):
 
         # Check that the rotated target matches the reference
         mts.allclose_raise(RfX, fRX, atol=1e-5)
+
+
+def test_augmentation_does_not_rotate_loss_weights():
+    """Per-sample loss weights (``*_weights`` extra_data) must be left untouched by the
+    rotational augmenter, even when they carry Cartesian (xyz) gradient components."""
+    n_atoms = 4
+
+    energy_info = get_energy_target_info(
+        "energy",
+        OmegaConf.create({"quantity": "energy", "unit": "eV"}),
+        add_position_gradients=True,
+    )
+    # The weights mirror the structure of the energy target.
+    weights_info = TargetInfo(layout=energy_info.layout, quantity="", unit="")
+
+    augmenter = RotationalAugmenter(
+        {"energy": energy_info}, {"energy_weights": weights_info}
+    )
+
+    system = System(
+        types=torch.ones(n_atoms, dtype=torch.int32),
+        positions=torch.rand(n_atoms, 3, dtype=torch.float64),
+        cell=torch.zeros((3, 3), dtype=torch.float64),
+        pbc=torch.zeros(3, dtype=torch.bool),
+    )
+
+    def make_energy_like_tmap(energy_value, gradient_values):
+        block = TensorBlock(
+            values=torch.tensor([[energy_value]], dtype=torch.float64),
+            samples=Labels(["system"], torch.tensor([[0]])),
+            components=[],
+            properties=Labels.range("energy", 1),
+        )
+        block.add_gradient(
+            "positions",
+            TensorBlock(
+                values=gradient_values,
+                samples=Labels(
+                    ["sample", "atom"],
+                    torch.tensor([[0, a] for a in range(n_atoms)]),
+                ),
+                components=[Labels(["xyz"], torch.arange(3).reshape(-1, 1))],
+                properties=Labels.range("energy", 1),
+            ),
+        )
+        return TensorMap(keys=Labels.single(), blocks=[block])
+
+    forces = torch.arange(1, n_atoms * 3 + 1, dtype=torch.float64).reshape(
+        n_atoms, 3, 1
+    )
+    energy_tm = make_energy_like_tmap(1.5, forces.clone())
+
+    # distinct xyz weights so that, if they were (wrongly) rotated, they would change
+    weight_grad = torch.arange(1, n_atoms * 3 + 1, dtype=torch.float64).reshape(
+        n_atoms, 3, 1
+    )
+    weights_tm = make_energy_like_tmap(2.0, weight_grad.clone())
+
+    rotation = Rotation.from_euler("xyz", [30.0, 45.0, 60.0], degrees=True)
+    _, new_targets, new_extra_data = augmenter.apply_augmentations(
+        [system],
+        {"energy": energy_tm},
+        rotations=[rotation],
+        inversions=[1],
+        extra_data={"energy_weights": weights_tm},
+    )
+
+    # Sanity check: the target forces were actually rotated (so the test is meaningful)
+    assert not torch.allclose(
+        new_targets["energy"].block().gradient("positions").values, forces
+    )
+
+    # The weights must be unchanged, both for the values and the gradient
+    new_weights = new_extra_data["energy_weights"].block()
+    torch.testing.assert_close(
+        new_weights.values, torch.tensor([[2.0]], dtype=torch.float64)
+    )
+    torch.testing.assert_close(new_weights.gradient("positions").values, weight_grad)
 
 
 def test_missing_library(monkeypatch, layout_spherical):

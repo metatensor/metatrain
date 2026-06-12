@@ -134,6 +134,7 @@ Generally, each loss-function term accepts the following parameters:
 
 :param type: This controls the type of loss to be used. The default value is ``mse``, and other standard options are ``mae`` and ``huber``, which implement the equivalent PyTorch loss functions `MSELoss <https://docs.pytorch.org/docs/stable/generated/torch.nn.MSELoss.html>`_, `L1Loss <https://docs.pytorch.org/docs/stable/generated/torch.nn.L1Loss.html>`_, and `HuberLoss <https://docs.pytorch.org/docs/stable/generated/torch.nn.HuberLoss.html>`_, respectively.
    There are also "masked" versions of these losses, which are useful when using padded targets with values that should be masked before computing the loss. The masked losses are named ``masked_mse``, ``masked_mae``, and ``masked_huber``.
+   Finally, there are "weighted" versions, ``weighted_mse``, ``weighted_mae``, and ``weighted_huber``, which multiply the per-sample-component contribution of the loss by a user-provided weight (see :ref:`weighted-losses` below).
 :param ``weight``: This controls the weighting of different contributions to the loss (e.g., energy, forces, virial, etc.). The default value of 1.0 for all targets works well for most datasets, but can be adjusted if required.
 :param ``reduction``: This controls how the overall loss is computed across batches. The default for this is to use the ``mean`` of the batch losses. The ``sum`` function is also supported.
 
@@ -172,6 +173,82 @@ The values of the masks must be passed as ``extra_data`` in the training set, an
     extra_data:
       mtt::my_target_mask:
         read_from: my_target_mask.mts
+
+
+.. _weighted-losses:
+
+Weighted loss functions
+----------------------
+
+Weighted loss functions multiply the per-sample-component contribution of an underlying
+pointwise loss by a user-provided weight. For the ``weighted_mse`` loss with the default
+``mean`` reduction, this computes
+
+.. math::
+
+    L = \frac{1}{N} \sum_i w_i \, (y_i - \hat{y}_i)^2,
+
+where :math:`w_i` is the weight of the :math:`i`-th sample-component, :math:`y_i` the
+reference value and :math:`\hat{y}_i` the prediction. This is useful when some samples
+(e.g. specific structures, or specific atoms for forces) are more important or more
+reliable than others, or to counteract dataset imbalance. The available weighted losses
+are ``weighted_mse``, ``weighted_mae`` and ``weighted_huber``.
+
+The per-sample weights are read from the training set by setting ``sample_weight_key`` in
+the target (and, for forces/stress/virial, in the corresponding gradient) section. The
+weights are read from the same file as the target: per-structure weights from the
+structure ``info`` (for energies, stresses and virials) and per-atom weights from the
+per-atom ``arrays`` (for forces). A single weight is broadcast over all the components
+and properties of the sample it refers to.
+
+An example configuration that weights both the energy and the forces is:
+
+.. code-block:: yaml
+
+  loss:
+    energy:
+      type: weighted_mse
+      weight: 1.0
+      reduction: mean
+      forces:
+        type: weighted_mse
+        weight: 1.0
+        reduction: mean
+  ...
+
+  training_set:
+    systems:
+      read_from: dataset.xyz
+      length_unit: angstrom
+    targets:
+      energy:
+        key: energy
+        unit: eV
+        sample_weight_key: energy_weight   # per-structure, from atoms.info
+        forces:
+          key: forces
+          sample_weight_key: force_weight  # per-atom, from atoms.arrays
+
+Here ``energy_weight`` is a per-structure scalar stored in the ``info`` dictionary of
+each frame, and ``force_weight`` is a per-atom value stored in the per-atom ``arrays``.
+Internally, the weights are stored as ``extra_data`` under the reserved key
+``<target>_weights`` and applied by the weighted loss. Any target or gradient for which
+``sample_weight_key`` is not provided is given a weight of 1.0 (i.e. an unweighted
+contribution), so it is possible to weight only the energy, only the forces, or both.
+
+.. note::
+
+    The weights are applied **after** the usual per-atom averaging of the energy loss
+    (the energy and its squared error are divided by the number of atoms before the
+    loss, while per-atom forces are not). The weights themselves are never rescaled, so
+    filling every weight of a target with a constant :math:`c` exactly reproduces the
+    corresponding unweighted loss scaled by :math:`c`.
+
+Power users can also provide the weights directly as an ``extra_data`` field named
+``<target>_weights``, whose :py:class:`metatensor.torch.TensorMap` mirrors the structure
+of the target (same blocks, components, properties and gradients). This is equivalent to
+using ``sample_weight_key`` and is the only supported route for ``.zip`` (disk) and
+memory-mapped datasets.
 
 
 .. _dos-loss:

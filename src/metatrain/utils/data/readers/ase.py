@@ -1,7 +1,7 @@
 import logging
 import warnings
 from pathlib import PurePath
-from typing import IO, Any, List, Tuple, Union
+from typing import IO, Any, Dict, List, Tuple, Union
 
 import ase.io
 import torch
@@ -338,6 +338,178 @@ def read_energy(
         target_name, target, add_position_gradients, add_strain_gradients
     )
     return tensor_map_list, target_info
+
+
+def _read_per_sample_weight_values(
+    atoms: ase.Atoms,
+    key: str,
+    n_samples: int,
+    per_atom: bool,
+    filename: str,
+    i_system: int,
+) -> torch.Tensor:
+    """Read ``n_samples`` per-sample weight values from a single ASE ``Atoms`` object.
+
+    Per-atom weights are read from ``atoms.arrays`` and per-structure weights from
+    ``atoms.info``. A single per-structure value is broadcast to ``n_samples``.
+
+    :param atoms: the ASE ``Atoms`` object to read from.
+    :param key: the info/arrays key holding the weights.
+    :param n_samples: the expected number of per-sample weights (i.e. the size of the
+        first/sample dimension of the block the weights refer to).
+    :param per_atom: whether the weights are per-atom (read from ``arrays``) or
+        per-structure (read from ``info``).
+    :param filename: the file the frame was read from (for error messages).
+    :param i_system: the index of the frame (for error messages).
+    :return: a 1D ``float64`` tensor of length ``n_samples``.
+    """
+    container = atoms.arrays if per_atom else atoms.info
+    if key not in container:
+        location = "arrays" if per_atom else "info"
+        raise ValueError(
+            f"sample weight key {key!r} was not found in the {location} of system "
+            f"{filename!r} at index {i_system}"
+        )
+    raw = torch.as_tensor(container[key], dtype=torch.float64).reshape(-1)
+    if raw.numel() == 1 and n_samples != 1:
+        # a single per-structure value is broadcast over all samples
+        raw = raw.expand(n_samples)
+    if raw.numel() != n_samples:
+        raise ValueError(
+            f"sample weight key {key!r} in system {filename!r} at index {i_system} has "
+            f"{raw.numel()} values, but {n_samples} were expected."
+        )
+    return raw
+
+
+def _broadcast_weight_to_block_shape(
+    weights_per_sample: torch.Tensor, shape: List[int]
+) -> torch.Tensor:
+    """Broadcast per-sample weights over the components and properties of a block.
+
+    :param weights_per_sample: 1D tensor of length ``shape[0]``.
+    :param shape: the target block (or gradient block) values shape.
+    :return: a contiguous tensor of the requested shape.
+    """
+    view_shape = [shape[0]] + [1] * (len(shape) - 1)
+    return weights_per_sample.reshape(view_shape).expand(shape).contiguous()
+
+
+def read_sample_weights(
+    target_name: str,
+    target: DictConfig,
+    target_tensor_maps: List[TensorMap],
+) -> List[TensorMap]:
+    """Read per-sample loss weights for a target, mirroring its :py:class:`TensorMap`.
+
+    For each system, the returned :py:class:`TensorMap` has the same keys, blocks,
+    components, properties and gradients as the corresponding target
+    :py:class:`TensorMap`. The values of each block (and gradient block) are filled by
+    broadcasting a single per-sample weight over the components and properties.
+
+    The weights for the main values are read using the target's ``sample_weight_key``.
+    The weights for the gradients are read using the ``sample_weight_key`` of the
+    corresponding gradient section (``forces`` for the ``positions`` gradient,
+    ``stress`` or ``virial`` for the ``strain`` gradient). Any weight that is not
+    specified defaults to 1.0 (i.e. an unweighted contribution).
+
+    :param target_name: the name of the target.
+    :param target: the (expanded) configuration of the target.
+    :param target_tensor_maps: the already-read target TensorMaps, used as templates
+        for the structure (metadata) of the weights.
+    :return: a list of weight :py:class:`TensorMap` objects, one per system.
+    """
+    value_key = target.get("sample_weight_key")
+    value_file = target["read_from"]
+
+    # Map gradient parameter names (as stored in the target TensorMap) to the
+    # (filename, key) from which their weights should be read.
+    gradient_specs: Dict[str, Tuple[str, str]] = {}
+    forces = target.get("forces")
+    if isinstance(forces, DictConfig) and forces.get("sample_weight_key") is not None:
+        gradient_specs["positions"] = (
+            forces["read_from"],
+            forces["sample_weight_key"],
+        )
+    for strain_section in ("stress", "virial"):
+        strain = target.get(strain_section)
+        if (
+            isinstance(strain, DictConfig)
+            and strain.get("sample_weight_key") is not None
+        ):
+            gradient_specs["strain"] = (
+                strain["read_from"],
+                strain["sample_weight_key"],
+            )
+
+    # Lazily read (and cache) frames per file.
+    frame_cache: Dict[str, List[ase.Atoms]] = {}
+
+    def get_frames(filename: str) -> List[ase.Atoms]:
+        if filename not in frame_cache:
+            frame_cache[filename] = read(filename, ":")
+        return frame_cache[filename]
+
+    weight_tensor_maps: List[TensorMap] = []
+    for i_system, tensor_map in enumerate(target_tensor_maps):
+        new_blocks = []
+        for block in tensor_map.blocks():
+            n_samples = block.values.shape[0]
+            per_atom = "atom" in block.samples.names
+            if value_key is not None:
+                weights_per_sample = _read_per_sample_weight_values(
+                    get_frames(value_file)[i_system],
+                    value_key,
+                    n_samples,
+                    per_atom,
+                    value_file,
+                    i_system,
+                )
+            else:
+                weights_per_sample = torch.ones(n_samples, dtype=torch.float64)
+
+            new_block = TensorBlock(
+                values=_broadcast_weight_to_block_shape(
+                    weights_per_sample, list(block.values.shape)
+                ),
+                samples=block.samples,
+                components=block.components,
+                properties=block.properties,
+            )
+
+            for parameter, gradient in block.gradients():
+                n_grad_samples = gradient.values.shape[0]
+                grad_per_atom = "atom" in gradient.samples.names
+                if parameter in gradient_specs:
+                    grad_file, grad_key = gradient_specs[parameter]
+                    grad_weights = _read_per_sample_weight_values(
+                        get_frames(grad_file)[i_system],
+                        grad_key,
+                        n_grad_samples,
+                        grad_per_atom,
+                        grad_file,
+                        i_system,
+                    )
+                else:
+                    grad_weights = torch.ones(n_grad_samples, dtype=torch.float64)
+
+                new_block.add_gradient(
+                    parameter,
+                    TensorBlock(
+                        values=_broadcast_weight_to_block_shape(
+                            grad_weights, list(gradient.values.shape)
+                        ),
+                        samples=gradient.samples,
+                        components=gradient.components,
+                        properties=gradient.properties,
+                    ),
+                )
+
+            new_blocks.append(new_block)
+
+        weight_tensor_maps.append(TensorMap(keys=tensor_map.keys, blocks=new_blocks))
+
+    return weight_tensor_maps
 
 
 def read_generic(

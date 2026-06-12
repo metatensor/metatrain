@@ -213,8 +213,8 @@ class RotationalAugmenter:
                 tensormap_dicts, info_dicts, strict=True
             ):
                 for name in tensormap_dict.keys():
-                    if name.endswith("_mask"):
-                        # skip loss masks
+                    if name.endswith("_mask") or name.endswith("_weights"):
+                        # skip loss masks and per-sample loss weights
                         continue
                     tensormap_info = info_dict[name]
                     if tensormap_info.is_spherical:
@@ -397,13 +397,15 @@ def _apply_augmentations(
     new_targets: Dict[str, TensorMap] = {}
     new_extra_data: Dict[str, TensorMap] = {}
 
-    # Do not transform any masks present in extra_data
+    # Do not transform any masks or per-sample loss weights present in extra_data.
+    # These are rotation-invariant (weights are scalars broadcast over the components
+    # of the target they refer to), so rotating them would corrupt their values.
     if extra_data is not None:
-        mask_keys: List[str] = []
+        invariant_keys: List[str] = []
         for key in extra_data.keys():
-            if key.endswith("_mask"):
-                mask_keys.append(key)
-        for key in mask_keys:
+            if key.endswith("_mask") or key.endswith("_weights"):
+                invariant_keys.append(key)
+        for key in invariant_keys:
             new_extra_data[key] = extra_data.pop(key)
 
     for tensormap_dict, new_dict in zip(

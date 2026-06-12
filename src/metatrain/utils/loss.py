@@ -444,6 +444,268 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
         )
 
 
+class WeightedTensorMapLoss(BaseTensorMapLoss):
+    """
+    Per-sample-component weighted pointwise loss on :py:class:`TensorMap` entries.
+
+    This loss multiplies the per-element contribution of an underlying pointwise
+    loss (MSE, MAE, Huber, ...) by a per-sample-component weight before reducing.
+    For an ``mse`` base and ``reduction="mean"`` this computes
+
+    .. math::
+
+        L = \\frac{1}{N} \\sum_i w_i \\, (y_i - \\hat{y}_i)^2
+
+    where :math:`w_i` is the weight of the :math:`i`-th sample-component, :math:`y_i`
+    the reference value and :math:`\\hat{y}_i` the prediction.
+
+    The weights are read from ``extra_data`` under the key ``f"{name}_weights"``. The
+    weight :py:class:`TensorMap` must mirror the structure of the target (same blocks,
+    components, properties and gradients), so that, once flattened, each prediction
+    element has a matching weight. Weights are conventionally populated by setting
+    ``sample_weight_key`` in the target (and gradient) sections of the training set
+    configuration, which broadcasts a single per-sample weight over the components and
+    properties of each block.
+
+    .. note::
+
+        The weights are stored as ``extra_data`` and are therefore **not** rescaled by
+        the per-atom averaging applied to predictions and targets before the loss
+        (e.g. the energy is divided by the number of atoms). The weight simply
+        multiplies the already-(per-atom-)scaled squared error, so filling every weight
+        with a constant :math:`c` reproduces the unweighted loss scaled by :math:`c`.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for the weighted loss ("mean", "sum" or "none").
+    :param loss_fn: pre-instantiated torch.nn loss constructed with
+        ``reduction="none"`` so the per-element values can be weighted before reduction.
+    """
+
+    weights_suffix: str = "_weights"
+
+    def _reduce(self, values: torch.Tensor) -> torch.Tensor:
+        """Apply the configured reduction to per-element (weighted) values.
+
+        :param values: per-element (already weighted) loss values.
+        :return: the reduced loss according to ``self.reduction``.
+        """
+        if self.reduction == "mean":
+            return values.mean()
+        elif self.reduction == "sum":
+            return values.sum()
+        elif self.reduction == "none":
+            return values
+        else:
+            raise ValueError(f"{self.reduction!r} is not a valid reduction")
+
+    def compute_weighted(
+        self,
+        tensor_map_predictions_for_target: TensorMap,
+        tensor_map_targets_for_target: TensorMap,
+        tensor_map_weights_for_target: TensorMap,
+    ) -> torch.Tensor:
+        """
+        Flatten prediction, target and weight blocks, apply the per-element torch
+        loss, weight it, and reduce.
+
+        :param tensor_map_predictions_for_target: predicted :py:class:`TensorMap`.
+        :param tensor_map_targets_for_target: target :py:class:`TensorMap`.
+        :param tensor_map_weights_for_target: weight :py:class:`TensorMap`, mirroring
+            the structure of the target.
+        :return: scalar (or per-element, if ``reduction="none"``) torch.Tensor.
+        """
+        list_of_prediction_segments = []
+        list_of_target_segments = []
+        list_of_weight_segments = []
+
+        def extract_flattened_values_from_block(
+            tensor_block: mts.TensorBlock,
+        ) -> torch.Tensor:
+            if self.gradient is not None:
+                values = tensor_block.gradient(self.gradient).values
+            else:
+                values = tensor_block.values
+            return values.reshape(-1)
+
+        for single_key in tensor_map_predictions_for_target.keys:
+            block_for_prediction = tensor_map_predictions_for_target.block(single_key)
+            block_for_target = tensor_map_targets_for_target.block(single_key)
+            block_for_weight = tensor_map_weights_for_target.block(single_key)
+
+            flattened_prediction = extract_flattened_values_from_block(
+                block_for_prediction
+            )
+            flattened_target = extract_flattened_values_from_block(block_for_target)
+
+            # The weight block mirrors the target structure. If the (gradient) weight
+            # is missing we fall back to ones, i.e. an unweighted contribution.
+            if self.gradient is not None and self.gradient not in (
+                block_for_weight.gradients_list()
+            ):
+                flattened_weight = torch.ones_like(flattened_target)
+            else:
+                flattened_weight = extract_flattened_values_from_block(block_for_weight)
+
+            list_of_prediction_segments.append(flattened_prediction)
+            list_of_target_segments.append(flattened_target)
+            list_of_weight_segments.append(flattened_weight)
+
+        all_predictions_flattened = torch.cat(list_of_prediction_segments)
+        all_targets_flattened = torch.cat(list_of_target_segments)
+        all_weights_flattened = torch.cat(list_of_weight_segments)
+
+        # Don't include in the loss calculation any points where the target is NaN
+        not_nan = ~torch.isnan(all_targets_flattened)
+        all_targets_flattened = all_targets_flattened[not_nan]
+        all_predictions_flattened = all_predictions_flattened[not_nan]
+        all_weights_flattened = all_weights_flattened[not_nan]
+
+        if len(all_targets_flattened) == 0:
+            # No valid data points to compute the loss
+            return torch.zeros(
+                (),
+                dtype=all_predictions_flattened.dtype,
+                device=all_predictions_flattened.device,
+            )
+
+        # self.torch_loss uses reduction="none", so this is a per-element tensor
+        per_element_loss = self.torch_loss(
+            all_predictions_flattened, all_targets_flattened
+        )
+        weighted_loss = all_weights_flattened * per_element_loss
+        return self._reduce(weighted_loss)
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ) -> torch.Tensor:
+        """
+        Gather prediction, target and weight blocks, then compute the weighted loss.
+
+        :param predictions: Mapping from target names to TensorMaps.
+        :param targets: Mapping from target names to TensorMaps.
+        :param extra_data: Additional data for the loss computation. Must contain a
+            weight :py:class:`TensorMap` under the key ``f"{name}_weights"`` mirroring
+            the structure of the target. These weights are conventionally provided by
+            setting ``sample_weight_key`` in the training set configuration.
+        :return: Scalar loss tensor.
+        """
+        weights_key = f"{self.target}{self.weights_suffix}"
+        if extra_data is None or weights_key not in extra_data:
+            raise ValueError(
+                f"Expected extra_data to contain a weight TensorMap under "
+                f"'{weights_key}'. Set 'sample_weight_key' in the target (and, if "
+                f"needed, gradient) configuration of the training set to use a "
+                f"weighted loss such as '{self.target}'."
+            )
+        tensor_map_targ = targets[self.target]
+
+        # Check gradients are present in the target TensorMap
+        if self.gradient is not None:
+            if self.gradient not in tensor_map_targ[0].gradients_list():
+                # Skip loss computation if block gradient is missing in the dataset
+                return torch.zeros(
+                    (), dtype=torch.float, device=tensor_map_targ[0].values.device
+                )
+
+        return self.compute_weighted(
+            predictions[self.target],
+            tensor_map_targ,
+            extra_data[weights_key],
+        )
+
+
+class TensorMapWeightedMSELoss(WeightedTensorMapLoss):
+    """
+    Per-sample-component weighted mean-squared error on :py:class:`TensorMap` entries.
+
+    See :py:class:`WeightedTensorMapLoss` for details. The per-sample weights are read
+    from ``extra_data`` under the key ``f"{name}_weights"``.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for the weighted loss.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_fn=torch.nn.MSELoss(reduction="none"),
+        )
+
+
+class TensorMapWeightedMAELoss(WeightedTensorMapLoss):
+    """
+    Per-sample-component weighted mean-absolute error on :py:class:`TensorMap` entries.
+
+    See :py:class:`WeightedTensorMapLoss` for details.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for the weighted loss.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_fn=torch.nn.L1Loss(reduction="none"),
+        )
+
+
+class TensorMapWeightedHuberLoss(WeightedTensorMapLoss):
+    """
+    Per-sample-component weighted Huber loss on :py:class:`TensorMap` entries.
+
+    See :py:class:`WeightedTensorMapLoss` for details.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for the weighted loss.
+    :param delta: threshold parameter for HuberLoss.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+        delta: float,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_fn=torch.nn.HuberLoss(reduction="none", delta=delta),
+        )
+
+
 class ShiftAgnosticMSE(LossInterface):
     """
     Shift agnostic MSE loss on :py:class:`TensorMap` entries.
@@ -1197,6 +1459,9 @@ class LossType(Enum):
     MASKED_MSE = ("masked_mse", TensorMapMaskedMSELoss)
     MASKED_MAE = ("masked_mae", TensorMapMaskedMAELoss)
     MASKED_HUBER = ("masked_huber", TensorMapMaskedHuberLoss)
+    WEIGHTED_MSE = ("weighted_mse", TensorMapWeightedMSELoss)
+    WEIGHTED_MAE = ("weighted_mae", TensorMapWeightedMAELoss)
+    WEIGHTED_HUBER = ("weighted_huber", TensorMapWeightedHuberLoss)
     POINTWISE = ("pointwise", BaseTensorMapLoss)
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
     SHIFT_AGNOSTIC_MSE = ("shift_agnostic_mse", ShiftAgnosticMSE)

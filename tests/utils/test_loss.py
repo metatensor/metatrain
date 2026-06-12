@@ -20,8 +20,12 @@ from metatrain.utils.loss import (
     TensorMapMaskedMAELoss,
     TensorMapMaskedMSELoss,
     TensorMapMSELoss,
+    TensorMapWeightedHuberLoss,
+    TensorMapWeightedMAELoss,
+    TensorMapWeightedMSELoss,
     create_loss,
 )
+from metatrain.utils.per_atom import average_by_num_atoms
 
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
@@ -753,3 +757,334 @@ def test_tensormap_gaussian_crps_loss(ensemble_tensor_maps):
     result = loss_fn.compute(predictions, targets)
     assert torch.isfinite(result)
     assert result.item() >= 0.0  # CRPS should be non-negative
+
+
+# ===== Tests for weighted losses =====
+
+
+def _constant_weight_map(tensor_map, value):
+    """Build a weight TensorMap mirroring ``tensor_map`` with all weights ``value``."""
+    blocks = []
+    for block in tensor_map.blocks():
+        new_block = TensorBlock(
+            values=torch.full_like(block.values, value),
+            samples=block.samples,
+            components=block.components,
+            properties=block.properties,
+        )
+        for parameter, gradient in block.gradients():
+            new_block.add_gradient(
+                parameter,
+                TensorBlock(
+                    values=torch.full_like(gradient.values, value),
+                    samples=gradient.samples,
+                    components=gradient.components,
+                    properties=gradient.properties,
+                ),
+            )
+        blocks.append(new_block)
+    return TensorMap(keys=tensor_map.keys, blocks=blocks)
+
+
+@pytest.mark.parametrize("gradient", [None, "positions"])
+@pytest.mark.parametrize("reduction", ["mean", "sum"])
+def test_weighted_mse_matches_constant_scaled_mse(
+    tensor_map_with_grad_3, tensor_map_with_grad_4, gradient, reduction
+):
+    """Filling all per-sample weights with a constant ``c`` must reproduce the plain
+    MSE scaled by ``c`` (the consistency test suggested in the specification)."""
+    pred = {"energy": tensor_map_with_grad_3}
+    targ = {"energy": tensor_map_with_grad_4}
+
+    c = 3.7
+    extra_data = {"energy_weights": _constant_weight_map(tensor_map_with_grad_4, c)}
+
+    weighted = TensorMapWeightedMSELoss(
+        name="energy", gradient=gradient, weight=1.0, reduction=reduction
+    )
+    plain = TensorMapMSELoss(
+        name="energy", gradient=gradient, weight=1.0, reduction=reduction
+    )
+
+    weighted_value = weighted(pred, targ, extra_data)
+    plain_value = plain(pred, targ)
+    torch.testing.assert_close(weighted_value, c * plain_value)
+
+
+def test_weighted_mse_per_element_values():
+    """Explicit known-value test with non-uniform per-sample weights."""
+    pred_block = TensorBlock(
+        values=torch.tensor([[1.0], [2.0], [3.0]]),
+        samples=Labels.range("system", 3),
+        components=[],
+        properties=Labels("energy", torch.tensor([[0]])),
+    )
+    targ_block = TensorBlock(
+        values=torch.tensor([[0.0], [0.0], [0.0]]),
+        samples=Labels.range("system", 3),
+        components=[],
+        properties=Labels("energy", torch.tensor([[0]])),
+    )
+    pred = {"energy": TensorMap(keys=Labels.single(), blocks=[pred_block])}
+    targ = {"energy": TensorMap(keys=Labels.single(), blocks=[targ_block])}
+
+    weights = torch.tensor([[1.0], [2.0], [3.0]])
+    weight_block = TensorBlock(
+        values=weights,
+        samples=Labels.range("system", 3),
+        components=[],
+        properties=Labels("energy", torch.tensor([[0]])),
+    )
+    extra_data = {
+        "energy_weights": TensorMap(keys=Labels.single(), blocks=[weight_block])
+    }
+
+    # errors are [1, 2, 3], squared [1, 4, 9], weighted [1, 8, 27], sum = 36
+    loss_sum = TensorMapWeightedMSELoss(
+        name="energy", gradient=None, weight=1.0, reduction="sum"
+    )
+    assert loss_sum(pred, targ, extra_data).item() == pytest.approx(36.0)
+
+    # mean divides by the number of elements (3), as in 1/N sum_i w_i e_i^2
+    loss_mean = TensorMapWeightedMSELoss(
+        name="energy", gradient=None, weight=1.0, reduction="mean"
+    )
+    assert loss_mean(pred, targ, extra_data).item() == pytest.approx(36.0 / 3.0)
+
+    # none returns the per-element weighted squared errors
+    loss_none = TensorMapWeightedMSELoss(
+        name="energy", gradient=None, weight=1.0, reduction="none"
+    )
+    torch.testing.assert_close(
+        loss_none(pred, targ, extra_data),
+        torch.tensor([1.0, 8.0, 27.0]),
+    )
+
+
+def test_weighted_loss_errors_on_missing_weights(tensor_map_with_grad_1):
+    """A weighted loss must error if no weights are supplied in extra_data."""
+    tm = tensor_map_with_grad_1
+    key = tm.keys.names[0]
+    loss = TensorMapWeightedMSELoss(
+        name=key, gradient=None, weight=1.0, reduction="mean"
+    )
+    with pytest.raises(ValueError, match="sample_weight_key"):
+        loss({key: tm}, {key: tm})
+
+
+def test_weighted_loss_factory():
+    """The factory and enum should resolve all weighted loss types."""
+    mapping = {
+        "weighted_mse": TensorMapWeightedMSELoss,
+        "weighted_mae": TensorMapWeightedMAELoss,
+        "weighted_huber": TensorMapWeightedHuberLoss,
+    }
+    for key, cls in mapping.items():
+        assert LossType.from_key(key).key == key
+        extra_kwargs = {"delta": 1.0} if key == "weighted_huber" else {}
+        loss = create_loss(
+            key,
+            name="dummy",
+            gradient=None,
+            weight=1.0,
+            reduction="mean",
+            **extra_kwargs,
+        )
+        assert isinstance(loss, cls)
+
+
+def test_weighted_mae_and_huber_match_constant_scaled(
+    tensor_map_with_grad_3, tensor_map_with_grad_4
+):
+    """Constant weights ``c`` reproduce the plain MAE/Huber scaled by ``c``."""
+    pred = {"energy": tensor_map_with_grad_3}
+    targ = {"energy": tensor_map_with_grad_4}
+    c = 2.0
+    extra_data = {"energy_weights": _constant_weight_map(tensor_map_with_grad_4, c)}
+
+    weighted_mae = TensorMapWeightedMAELoss(
+        name="energy", gradient=None, weight=1.0, reduction="mean"
+    )
+    plain_mae = TensorMapMAELoss(
+        name="energy", gradient=None, weight=1.0, reduction="mean"
+    )
+    torch.testing.assert_close(
+        weighted_mae(pred, targ, extra_data), c * plain_mae(pred, targ)
+    )
+
+    weighted_huber = TensorMapWeightedHuberLoss(
+        name="energy", gradient=None, weight=1.0, reduction="mean", delta=1.0
+    )
+    plain_huber = TensorMapHuberLoss(
+        name="energy", gradient=None, weight=1.0, reduction="mean", delta=1.0
+    )
+    torch.testing.assert_close(
+        weighted_huber(pred, targ, extra_data), c * plain_huber(pred, targ)
+    )
+
+
+def test_weighted_loss_ignores_nan_targets():
+    """Elements with NaN targets (and their weights) must be excluded from the loss."""
+    pred_block = TensorBlock(
+        values=torch.tensor([[1.0], [2.0], [3.0]]),
+        samples=Labels.range("system", 3),
+        components=[],
+        properties=Labels("energy", torch.tensor([[0]])),
+    )
+    targ_block = TensorBlock(
+        values=torch.tensor([[0.0], [float("nan")], [0.0]]),
+        samples=Labels.range("system", 3),
+        components=[],
+        properties=Labels("energy", torch.tensor([[0]])),
+    )
+    pred = {"energy": TensorMap(keys=Labels.single(), blocks=[pred_block])}
+    targ = {"energy": TensorMap(keys=Labels.single(), blocks=[targ_block])}
+
+    # A huge weight on the NaN element must not leak into the loss.
+    weight_block = TensorBlock(
+        values=torch.tensor([[1.0], [1e9], [1.0]]),
+        samples=Labels.range("system", 3),
+        components=[],
+        properties=Labels("energy", torch.tensor([[0]])),
+    )
+    extra_data = {
+        "energy_weights": TensorMap(keys=Labels.single(), blocks=[weight_block])
+    }
+
+    loss = TensorMapWeightedMSELoss(
+        name="energy", gradient=None, weight=1.0, reduction="sum"
+    )
+    # only elements 0 and 2 contribute: 1*1^2 + 1*3^2 = 10
+    assert loss(pred, targ, extra_data).item() == pytest.approx(10.0)
+
+
+def test_weighted_mse_per_atom_scaling_consistency():
+    """End-to-end per-atom-scaling consistency through ``average_by_num_atoms`` and the
+    ``LossAggregator``.
+
+    The energy is divided by the number of atoms before the loss, while the weights
+    (stored as extra_data) are not. Filling every weight with a constant ``c`` must
+    therefore reproduce the unweighted loss scaled by ``c``, even with structures of
+    different sizes.
+    """
+    from metatomic.torch import System
+
+    num_atoms = [2, 5, 9]
+    n_systems = len(num_atoms)
+
+    def make_energy_tmap(energy_values, force_values):
+        block = TensorBlock(
+            values=torch.tensor(energy_values).reshape(n_systems, 1),
+            samples=Labels(["system"], torch.arange(n_systems).reshape(-1, 1)),
+            components=[],
+            properties=Labels("energy", torch.tensor([[0]])),
+        )
+        # the "sample" column indexes the row of the energy block this gradient
+        # refers to (i.e. the system index)
+        force_samples = Labels(
+            ["sample", "system", "atom"],
+            torch.tensor(
+                [[s, s, a] for s in range(n_systems) for a in range(num_atoms[s])]
+            ),
+        )
+        block.add_gradient(
+            "positions",
+            TensorBlock(
+                values=torch.tensor(force_values).reshape(-1, 3, 1),
+                samples=force_samples,
+                components=[Labels(["xyz"], torch.arange(3).reshape(-1, 1))],
+                properties=Labels("energy", torch.tensor([[0]])),
+            ),
+        )
+        return TensorMap(keys=Labels.single(), blocks=[block])
+
+    total_atoms = sum(num_atoms)
+    torch.manual_seed(0)
+    pred_tm = make_energy_tmap(
+        torch.randn(n_systems).tolist(),
+        torch.randn(total_atoms * 3).tolist(),
+    )
+    targ_tm = make_energy_tmap(
+        torch.randn(n_systems).tolist(),
+        torch.randn(total_atoms * 3).tolist(),
+    )
+
+    systems = [
+        System(
+            types=torch.zeros(n, dtype=torch.int32),
+            positions=torch.zeros((n, 3), dtype=torch.float64),
+            cell=torch.zeros((3, 3), dtype=torch.float64),
+            pbc=torch.zeros(3, dtype=torch.bool),
+        )
+        for n in num_atoms
+    ]
+
+    # Per-atom averaging (energy divided by num_atoms, forces left untouched)
+    predictions = average_by_num_atoms({"energy": pred_tm}, systems, [])
+    targets = average_by_num_atoms({"energy": targ_tm}, systems, [])
+
+    # Build a TargetInfo with a positions gradient layout
+    layout_block = TensorBlock(
+        values=torch.empty(0, 1),
+        samples=Labels(names=["system"], values=torch.empty((0, 1), dtype=torch.int32)),
+        components=[],
+        properties=Labels.range("energy", 1),
+    )
+    layout_block.add_gradient(
+        "positions",
+        TensorBlock(
+            values=torch.empty(0, 3, 1),
+            samples=Labels(
+                names=["sample"], values=torch.empty((0, 1), dtype=torch.int32)
+            ),
+            components=[Labels(["xyz"], torch.arange(3).reshape(-1, 1))],
+            properties=Labels.range("energy", 1),
+        ),
+    )
+    target_info = TargetInfo(
+        layout=TensorMap(keys=Labels.single(), blocks=[layout_block]),
+        quantity="energy",
+        unit="eV",
+    )
+
+    c = 4.2
+    extra_data = {"energy_weights": _constant_weight_map(targ_tm, c)}
+
+    weighted_aggregator = LossAggregator(
+        targets={"energy": target_info},
+        config={
+            "energy": {
+                "type": "weighted_mse",
+                "weight": 1.0,
+                "reduction": "mean",
+                "gradients": {
+                    "positions": {
+                        "type": "weighted_mse",
+                        "weight": 1.0,
+                        "reduction": "mean",
+                    }
+                },
+            }
+        },
+    )
+    plain_aggregator = LossAggregator(
+        targets={"energy": target_info},
+        config={
+            "energy": {
+                "type": "mse",
+                "weight": c,
+                "reduction": "mean",
+                "gradients": {
+                    "positions": {
+                        "type": "mse",
+                        "weight": c,
+                        "reduction": "mean",
+                    }
+                },
+            }
+        },
+    )
+
+    weighted_loss = weighted_aggregator(predictions, targets, extra_data)
+    plain_loss = plain_aggregator(predictions, targets, extra_data)
+    torch.testing.assert_close(weighted_loss, plain_loss)

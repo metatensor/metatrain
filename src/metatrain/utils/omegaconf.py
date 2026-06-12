@@ -121,6 +121,7 @@ CONF_TARGET_FIELDS = OmegaConf.create(
         "read_from": "${...systems.read_from}",
         "reader": None,
         "key": None,
+        "sample_weight_key": None,
         "unit": "",
         "sample_kind": "system",
         "type": "scalar",
@@ -149,6 +150,7 @@ CONF_GRADIENT = OmegaConf.create(
         "read_from": "${..read_from}",
         "reader": None,
         "key": None,
+        "sample_weight_key": None,
     }
 )
 
@@ -490,7 +492,7 @@ def expand_loss_config(conf: DictConfig) -> DictConfig:
             node["weight"] = d["weight"]
         if "reduction" not in node:
             node["reduction"] = d["reduction"]
-        if node.get("type") == "huber" and "delta" not in node:
+        if node.get("type") in ("huber", "weighted_huber") and "delta" not in node:
             node["delta"] = default_huber_loss_delta()
         if node.get("type") == "llpr_ensemble" and "scoring_rule" not in node:
             node["scoring_rule"] = default_llpr_ensemble_scoring_rule()

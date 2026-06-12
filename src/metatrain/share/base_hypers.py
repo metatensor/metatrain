@@ -90,6 +90,13 @@ class GradientDict(TypedDict):
 
     If not provided, it defaults to the key of the gradient in the
     yaml dataset specification."""
+    sample_weight_key: NotRequired[Optional[str]] = None
+    """The key holding the per-sample loss weights for this gradient.
+
+    If provided, the weights are read from the file (per-atom for the
+    ``positions`` gradient, per-structure for the ``strain`` gradient) and made
+    available to weighted loss functions (e.g. ``weighted_mse``). If ``null`` or not
+    provided, no weights are read for this gradient."""
 
 
 ScalarTargetTypeHyper = Literal["scalar"]
@@ -169,6 +176,13 @@ class TargetHypers(TypedDict):
 
     If not provided, it defaults to the key of the target in the
     yaml dataset specification."""
+    sample_weight_key: NotRequired[Optional[str]] = None
+    """The key holding the per-sample loss weights for this target.
+
+    If provided, the weights are read from the file (per-structure for system targets,
+    per-atom for atomic targets) and made available to weighted loss functions
+    (e.g. ``weighted_mse``) under the ``extra_data`` key ``<target>_weights``. If
+    ``null`` or not provided, no weights are read for this target."""
     unit: NotRequired[str] = ""
     """Unit of the target, optional but **highly recommended for running simulations**.
     If not given, no unit conversion will be performed when running simulations which
