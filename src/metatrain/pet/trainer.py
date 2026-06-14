@@ -23,7 +23,6 @@ from metatrain.utils.data import (
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
 )
-from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
@@ -81,7 +80,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 13
+    __checkpoint_version__ = 14
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -171,12 +170,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         max_atoms = self.hypers["max_atoms_per_batch"]
-        # When max_atoms_per_batch is set, batches are pre-filtered by atom count at
-        # construction time, so batch_atom_bounds filtering in the collate function is
-        # not needed (and its documented behaviour is to be ignored in this mode).
-        batch_atom_bounds = (
-            None if max_atoms is not None else self.hypers["batch_atom_bounds"]
-        )
         atomic_basis_transform, atomic_basis_reverse_transform = (
             get_prepare_atomic_basis_targets_transform(train_targets, extra_data_info)
         )
@@ -253,7 +246,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
-            batch_atom_bounds=batch_atom_bounds,
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
@@ -263,7 +255,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
-            batch_atom_bounds=batch_atom_bounds,
         )
 
         # Create dataloader for the training datasets:
@@ -436,10 +427,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             train_loss = 0.0
             for batch in train_dataloader:
-                # Skip None batches (those outside batch_atom_bounds)
-                if should_skip_batch(batch, is_distributed, device):
-                    continue
-
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = unpack_batch(batch)
@@ -555,10 +542,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
             ):  # keep gradients on if any of the targets require them
                 val_loss = 0.0
                 for batch in val_dataloader:
-                    # Skip None batches (those outside batch_atom_bounds)
-                    if should_skip_batch(batch, is_distributed, device):
-                        continue
-
                     systems, targets, extra_data = unpack_batch(batch)
                     systems, targets, extra_data = batch_to(
                         systems, targets, extra_data, dtype=dtype, device=device
