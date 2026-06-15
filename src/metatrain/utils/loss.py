@@ -16,7 +16,6 @@ from typing_extensions import NotRequired, TypedDict
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.pyscf_loss import (
     metric_matrix_name,
-    packed_two_center_basis_sizes,
     ri_density_fit_constant_name,
     ri_projections_name,
 )
@@ -682,9 +681,9 @@ class DensityMSELossViaC(LossInterface):
                 (), dtype=first_block.values.dtype, device=first_block.values.device
             )
 
-        packed_matrix = extra_data[mat_name]
-        packed_block = packed_matrix.block()
-        basis_sizes = packed_two_center_basis_sizes(packed_matrix).tolist()
+        ragged_matrix = extra_data[mat_name]
+        basis_sizes = ragged_matrix.sizes
+        matrices = ragged_matrix.matrices()
         coefficient_sizes = [len(d) for d in delta_coefficients]
 
         if len(basis_sizes) != len(coefficient_sizes):
@@ -700,18 +699,15 @@ class DensityMSELossViaC(LossInterface):
                     "the dataset."
                 )
 
-        max_basis = packed_block.values.shape[-1]
-        delta_padded = packed_block.values.new_zeros(
-            (len(delta_coefficients), max_basis)
-        )
-        for i_system, delta in enumerate(delta_coefficients):
-            delta_padded[i_system, : delta.shape[0]] = delta
-
-        matrix_values = torch.nan_to_num(packed_block.values, nan=0.0)
-        # L_i = Δc_i^T M_i Δc_i
-        loss_values = torch.einsum(
-            "bi,bij,bj->b", delta_padded, matrix_values, delta_padded
-        )
+        # L_i = Δc_i^T M_i Δc_i, evaluated per system on the ragged matrices (no
+        # padding, no batch-max blow-up). The quadratic form runs in the matrix dtype
+        # (= model dtype in training); the cast is a no-op when they already match and
+        # reproduces the old padded path, which placed Δc in a matrix-dtype buffer.
+        per_system = []
+        for delta, matrix in zip(delta_coefficients, matrices, strict=True):
+            delta = delta.to(matrix.dtype)
+            per_system.append(torch.einsum("i,ij,j->", delta, matrix, delta))
+        loss_values = torch.stack(per_system)
 
         if self.reduction == "mean":
             return loss_values.mean()
@@ -806,9 +802,9 @@ class DensityMSELossViaW(LossInterface):
                 (), dtype=first_block.values.dtype, device=first_block.values.device
             )
 
-        packed_matrix = extra_data[mat_name]
-        packed_block = packed_matrix.block()
-        basis_sizes = packed_two_center_basis_sizes(packed_matrix).tolist()
+        ragged_matrix = extra_data[mat_name]
+        basis_sizes = ragged_matrix.sizes
+        matrices = ragged_matrix.matrices()
         coefficient_sizes = [len(c) for c in coefficients]
 
         if len(basis_sizes) != len(coefficient_sizes):
@@ -824,20 +820,19 @@ class DensityMSELossViaW(LossInterface):
                     "the dataset."
                 )
 
-        max_basis = packed_block.values.shape[-1]
-        coeff_padded = packed_block.values.new_zeros((len(coefficients), max_basis))
-        proj_padded  = packed_block.values.new_zeros((len(projections),  max_basis))
-        for i_system, (c, p) in enumerate(zip(coefficients, projections, strict=True)):
-            coeff_padded[i_system, : c.shape[0]] = c
-            proj_padded [i_system, : p.shape[0]] = p
-
-        matrix_values = torch.nan_to_num(packed_block.values, nan=0.0)
-        # quadratic term:  c^T M c
-        quadratic = torch.einsum(
-            "bi,bij,bj->b", coeff_padded, matrix_values, coeff_padded
-        )
-        # linear term:  c^T w
-        linear = torch.einsum("bi,bi->b", coeff_padded, proj_padded)
+        # Per system (ragged, no padding):
+        #   quadratic_i = c_i^T M_i c_i ;  linear_i = c_i^T w_i
+        # Run in the matrix dtype (= model dtype in training); the cast is a no-op when
+        # dtypes already match and reproduces the old matrix-dtype padded buffers.
+        mdtype = ragged_matrix.values.dtype
+        quad_parts = []
+        lin_parts = []
+        for c, p, matrix in zip(coefficients, projections, matrices, strict=True):
+            c = c.to(mdtype)
+            quad_parts.append(torch.einsum("i,ij,j->", c, matrix, c))
+            lin_parts.append(torch.dot(c, p.to(mdtype)))
+        quadratic = torch.stack(quad_parts)
+        linear = torch.stack(lin_parts)
         # L_i = c_ML^T M c_ML - 2 c_ML^T w
         loss_values = quadratic - 2.0 * linear
 

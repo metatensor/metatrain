@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -240,6 +241,77 @@ def compute_metric_matrix(system: System, aux_basis: str, metric: str) -> torch.
         )
 
 
+# ── Ragged metric-matrix container ─────────────────────────────────────────────
+
+@dataclass
+class RaggedMetricMatrices:
+    """
+    Per-system two-centre metric matrices stored ragged, with NO padding.
+
+    The matrices are concatenated flat (``values`` = ``cat([M_i.reshape(-1)])``, length
+    ``Σ N_i²``) plus their sizes ``N_i``.  This is the channel used to carry metric
+    matrices through the dataloader: a single flat tensor transfers across the worker
+    boundary via shared memory (one fd, not one-per-system), and — because it is a raw
+    tensor rather than a :py:class:`TensorMap` — it bypasses ``save_buffer`` (float64
+    only) and the batch-max padding of :func:`pack_two_center_matrices`.
+
+    :param values: 1D tensor, concatenation of each row-major ``M_i``.
+    :param sizes: basis size ``N_i`` of each system's matrix.
+    """
+
+    values: torch.Tensor
+    sizes: list[int]
+
+    def to(
+        self,
+        dtype: torch.dtype | None = None,
+        device: torch.device | None = None,
+        non_blocking: bool = False,
+    ) -> "RaggedMetricMatrices":
+        """Move/cast the flat buffer (mirrors ``Tensor.to``); sizes are metadata."""
+        return RaggedMetricMatrices(
+            self.values.to(dtype=dtype, device=device, non_blocking=non_blocking),
+            self.sizes,
+        )
+
+    def matrices(self) -> list[torch.Tensor]:
+        """Reconstruct the dense per-system matrices ``M_i`` (views into ``values``)."""
+        out: list[torch.Tensor] = []
+        offset = 0
+        for n in self.sizes:
+            out.append(self.values[offset : offset + n * n].view(n, n))
+            offset += n * n
+        return out
+
+
+def compute_ragged_metric_matrices(
+    systems: list[System],
+    aux_basis: str,
+    metric: str,
+    dtype: torch.dtype = torch.float64,
+) -> RaggedMetricMatrices:
+    """
+    Compute per-system metric matrices for a batch and pack them ragged (no padding).
+
+    :param systems: Systems in one batch.
+    :param aux_basis: PySCF auxiliary basis name.
+    :param metric: ``"overlap"`` or ``"coulomb"``.
+    :param dtype: dtype of the stored matrices. Pass the model dtype (e.g. ``float32``)
+        to halve transport + memory; casting float64->float32 here is bit-identical to
+        the recast that ``batch_to`` applies today.
+    :return: Ragged metric matrices for the batch.
+    """
+    matrices = [
+        compute_metric_matrix(system, aux_basis, metric).to(dtype) for system in systems
+    ]
+    sizes = [int(m.shape[0]) for m in matrices]
+    if matrices:
+        flat = torch.cat([m.reshape(-1) for m in matrices])
+    else:
+        flat = torch.zeros(0, dtype=dtype)
+    return RaggedMetricMatrices(flat, sizes)
+
+
 # ── TensorMap packing / unpacking ──────────────────────────────────────────────
 
 def pack_two_center_matrices(matrices: list[torch.Tensor]) -> TensorMap:
@@ -259,9 +331,12 @@ def pack_two_center_matrices(matrices: list[torch.Tensor]) -> TensorMap:
         [[matrix.shape[0]] for matrix in matrices], dtype=torch.int32, device=device
     )
 
-    values = torch.full(
+    # Pad with 0.0 (not NaN): padding contributes nothing to the quadratic forms
+    # c^T M c / Δc^T M Δc in the density losses (the corresponding c/Δc entries are
+    # also zero-padded), so the loss can use the matrix directly without a
+    # nan_to_num copy. Physical basis sizes are recorded in the samples below.
+    values = torch.zeros(
         (len(matrices), max_basis, max_basis),
-        fill_value=torch.nan,
         dtype=dtype,
         device=device,
     )
@@ -387,59 +462,71 @@ def compute_batched_metric_matrices(
 
 # ── Collate transforms ────────────────────────────────────────────────────────
 
-def get_overlap_matrices_transform(
+def _get_metric_matrices_transform_impl(
     target_to_aux_basis: Mapping[str, str],
+    metric: str,
+    name_fn: Callable[[str], str],
+    dtype: torch.dtype,
 ) -> Callable:
-    """Create a collate transform that attaches per-target overlap matrices."""
+    """Collate transform attaching per-target RAGGED metric matrices.
+
+    The matrices are stored as :py:class:`RaggedMetricMatrices` (not a TensorMap), so
+    they bypass ``save_buffer`` (float64-only) and padding: the CollateFn carries them
+    raw through the worker boundary, and the density loss consumes them per system.
+    """
 
     def transform(
         systems: list[System],
         targets: dict[str, TensorMap],
-        extra: dict[str, TensorMap],
-    ) -> tuple[list[System], dict[str, TensorMap], dict[str, TensorMap]]:
-        cache: dict[str, TensorMap] = {}
+        extra: dict,
+    ) -> tuple[list[System], dict[str, TensorMap], dict]:
+        cache: dict[str, RaggedMetricMatrices] = {}
         for target_name, aux_basis in target_to_aux_basis.items():
             if aux_basis not in cache:
-                cache[aux_basis] = compute_batched_overlap_matrices(systems, aux_basis)
-            extra[overlap_matrix_name(target_name)] = cache[aux_basis]
+                cache[aux_basis] = compute_ragged_metric_matrices(
+                    systems, aux_basis, metric, dtype
+                )
+            extra[name_fn(target_name)] = cache[aux_basis]
         return systems, targets, extra
 
     return transform
+
+
+def get_overlap_matrices_transform(
+    target_to_aux_basis: Mapping[str, str],
+    dtype: torch.dtype = torch.float64,
+) -> Callable:
+    """Create a collate transform that attaches per-target overlap matrices (ragged)."""
+    return _get_metric_matrices_transform_impl(
+        target_to_aux_basis, "overlap", overlap_matrix_name, dtype
+    )
 
 
 def get_coulomb_matrices_transform(
     target_to_aux_basis: Mapping[str, str],
+    dtype: torch.dtype = torch.float64,
 ) -> Callable:
-    """Create a collate transform that attaches per-target Coulomb matrices."""
-
-    def transform(
-        systems: list[System],
-        targets: dict[str, TensorMap],
-        extra: dict[str, TensorMap],
-    ) -> tuple[list[System], dict[str, TensorMap], dict[str, TensorMap]]:
-        cache: dict[str, TensorMap] = {}
-        for target_name, aux_basis in target_to_aux_basis.items():
-            if aux_basis not in cache:
-                cache[aux_basis] = compute_batched_coulomb_matrices(systems, aux_basis)
-            extra[coulomb_matrix_name(target_name)] = cache[aux_basis]
-        return systems, targets, extra
-
-    return transform
+    """Create a collate transform that attaches per-target Coulomb matrices (ragged)."""
+    return _get_metric_matrices_transform_impl(
+        target_to_aux_basis, "coulomb", coulomb_matrix_name, dtype
+    )
 
 
 def get_metric_matrices_transform(
     target_to_aux_basis: Mapping[str, str],
     metric: str,
+    dtype: torch.dtype = torch.float64,
 ) -> Callable:
-    """Create a collate transform that attaches per-target metric matrices.
+    """Create a collate transform that attaches per-target metric matrices (ragged).
 
     :param target_to_aux_basis: Mapping from target name to PySCF auxiliary basis name.
     :param metric: ``"overlap"`` or ``"coulomb"``.
+    :param dtype: dtype of the stored matrices (pass the model dtype to save memory).
     """
     if metric == "overlap":
-        return get_overlap_matrices_transform(target_to_aux_basis)
+        return get_overlap_matrices_transform(target_to_aux_basis, dtype)
     elif metric == "coulomb":
-        return get_coulomb_matrices_transform(target_to_aux_basis)
+        return get_coulomb_matrices_transform(target_to_aux_basis, dtype)
     else:
         raise ValueError(
             f"Unknown RI metric '{metric}'. Supported values are 'overlap' and 'coulomb'."

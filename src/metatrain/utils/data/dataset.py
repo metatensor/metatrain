@@ -41,6 +41,7 @@ from metatrain.utils.data.target_info import (
     get_generic_target_info,
 )
 from metatrain.utils.external_naming import to_external_name
+from metatrain.utils.pyscf_loss import RaggedMetricMatrices
 from metatrain.utils.units import get_gradient_units
 
 
@@ -426,17 +427,27 @@ class CollateFn:
         self,
         batch: List[Dict[str, Any]],
     ) -> Optional[
-        Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]
+        Tuple[
+            torch.Tensor,
+            List[int],
+            List[str],
+            List[int],
+            List[str],
+            List[int],
+            Dict[str, Any],
+        ]
     ]:
         """
         :param batch: A batch
         :return: A tuple containing:
-            - a single tensor containing all systems, targets and extra data
+            - a single tensor containing all systems, targets and serialised extra data
             - a list with the sizes of each system buffer
             - a list with the names of each target
             - a list with the sizes of each target buffer
-            - a list with the names of each extra data
-            - a list with the sizes of each extra data buffer
+            - a list with the names of each serialised extra data
+            - a list with the sizes of each serialised extra data buffer
+            - a dict of raw (non-serialised) extra entries, e.g. ragged metric matrices,
+              carried alongside the blob and reattached by ``unpack_batch``
 
             Returns None if the batch is outside the specified atom count bounds.
         """
@@ -476,7 +487,19 @@ class CollateFn:
             systems, targets, extra = callable(systems, targets, extra)
 
         target_names = list(targets.keys())
-        extra_names = list(extra.keys())
+        # Partition extra data. TensorMaps are serialised into the blob via save_buffer
+        # (which only supports float64). RaggedMetricMatrices (the ragged metric matrices
+        # for density losses) are carried RAW alongside the blob: this avoids
+        # save_buffer's float64-only constraint and the padding/extra copy, and lets the
+        # matrices ride through the worker boundary as plain tensors.
+        # NB: metatensor's TensorMap is a TorchScript class and cannot be used as the
+        # second argument to isinstance(), so we test for the raw type instead.
+        raw_extra = {
+            name: value
+            for name, value in extra.items()
+            if isinstance(value, RaggedMetricMatrices)
+        }
+        extra_names = [name for name in extra if name not in raw_extra]
 
         system_buffers = [
             save_system_buffer(_make_system_contiguous(s)) for s in systems
@@ -494,7 +517,15 @@ class CollateFn:
 
         blob = torch.concatenate(system_buffers + target_buffers + extra_buffers)
 
-        return blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes
+        return (
+            blob,
+            system_sizes,
+            target_names,
+            target_sizes,
+            extra_names,
+            extra_sizes,
+            raw_extra,
+        )
 
 
 def unpack_batch(
@@ -506,7 +537,15 @@ def unpack_batch(
     :param batch: The batch to unpack.
     :return: A tuple with the unpacked batch
     """
-    blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes = batch
+    (
+        blob,
+        system_sizes,
+        target_names,
+        target_sizes,
+        extra_names,
+        extra_sizes,
+        raw_extra,
+    ) = batch
 
     all_buffers = torch.split(blob, system_sizes + target_sizes + extra_sizes)
     systems = all_buffers[: len(system_sizes)]
@@ -530,6 +569,8 @@ def unpack_batch(
     systems = list(load_system_buffer(s) for s in systems)
     targets = {key: load_buffer(t) for key, t in targets.items()}
     extra_data = {key: load_buffer(t) for key, t in extra_data.items()}
+    # Reattach raw (non-serialised) extra entries, e.g. ragged metric matrices.
+    extra_data.update(raw_extra)
     return systems, targets, extra_data
 
 

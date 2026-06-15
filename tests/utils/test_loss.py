@@ -27,11 +27,22 @@ from metatrain.utils.loss import (
     create_loss,
 )
 from metatrain.utils.pyscf_loss import (
+    RaggedMetricMatrices,
     overlap_matrix_name,
-    pack_two_center_matrices,
     ri_density_fit_constant_name,
     ri_projections_name,
 )
+
+
+def _ragged_matrices(matrices: list[torch.Tensor]) -> RaggedMetricMatrices:
+    """Build the ragged metric-matrix container the density losses now consume."""
+    sizes = [int(m.shape[0]) for m in matrices]
+    flat = (
+        torch.cat([m.reshape(-1) for m in matrices])
+        if matrices
+        else torch.zeros(0, dtype=torch.float64)
+    )
+    return RaggedMetricMatrices(flat, sizes)
 
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
@@ -628,7 +639,7 @@ def test_density_overlap_loss_zero():
     target_name = "mtt::ri"
     tensor_map = _make_ri_tensor_map([1.0], [2.0, 3.0, 4.0])
     extra_data = {
-        overlap_matrix_name(target_name): pack_two_center_matrices(
+        overlap_matrix_name(target_name): _ragged_matrices(
             [torch.eye(4, dtype=torch.float64)]
         )
     }
@@ -650,7 +661,7 @@ def test_density_overlap_loss_reorders_p_orbitals_for_pyscf():
     overlap = torch.diag(torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float64))
     expected = torch.einsum("i,ij,j->", delta_pyscf, overlap, delta_pyscf)
 
-    extra_data = {overlap_matrix_name(target_name): pack_two_center_matrices([overlap])}
+    extra_data = {overlap_matrix_name(target_name): _ragged_matrices([overlap])}
     loss = DensityMSELossViaC(
         name=target_name, gradient=None, weight=1.0, reduction="mean"
     )
@@ -671,7 +682,7 @@ def test_density_overlap_loss_matches_reference_multisystem():
 
     expected = _manual_unpadded_ri_losses(pred, targ, matrices).mean()
 
-    extra_data = {overlap_matrix_name(target_name): pack_two_center_matrices(matrices)}
+    extra_data = {overlap_matrix_name(target_name): _ragged_matrices(matrices)}
     loss = DensityMSELossViaC(
         name=target_name, gradient=None, weight=1.0, reduction="mean"
     )
@@ -692,7 +703,7 @@ def test_density_overlap_loss_reduction_none_matches_reference_multisystem():
 
     expected = _manual_unpadded_ri_losses(pred, targ, matrices)
 
-    extra_data = {overlap_matrix_name(target_name): pack_two_center_matrices(matrices)}
+    extra_data = {overlap_matrix_name(target_name): _ragged_matrices(matrices)}
     loss = DensityMSELossViaC(
         name=target_name, gradient=None, weight=1.0, reduction="none"
     )
@@ -734,7 +745,7 @@ def test_density_overlap_loss_gradient_matches_reference():
         diag = torch.arange(1, len(coefficients) + 1, dtype=torch.float64)
         matrices.append(torch.diag(diag))
 
-    extra_data = {overlap_matrix_name(target_name): pack_two_center_matrices(matrices)}
+    extra_data = {overlap_matrix_name(target_name): _ragged_matrices(matrices)}
     loss = DensityMSELossViaC(
         name=target_name, gradient=None, weight=1.0, reduction="mean"
     )
@@ -754,7 +765,7 @@ def test_density_overlap_loss_reduction_none():
     pred = _make_ri_tensor_map([0.0], [1.0, 2.0, 3.0])
     targ = _make_ri_tensor_map([0.0], [0.0, 0.0, 0.0])
     overlap = torch.eye(4, dtype=torch.float64)
-    extra_data = {overlap_matrix_name(target_name): pack_two_center_matrices([overlap])}
+    extra_data = {overlap_matrix_name(target_name): _ragged_matrices([overlap])}
 
     loss = DensityMSELossViaC(
         name=target_name, gradient=None, weight=1.0, reduction="none"
@@ -769,7 +780,7 @@ def test_density_overlap_loss_rejects_basis_mismatch():
     pred = _make_ri_tensor_map([0.0], [1.0, 2.0, 3.0])
     targ = _make_ri_tensor_map([0.0], [0.0, 0.0, 0.0])
     extra_data = {
-        overlap_matrix_name(target_name): pack_two_center_matrices(
+        overlap_matrix_name(target_name): _ragged_matrices(
             [torch.eye(5, dtype=torch.float64)]
         )
     }
@@ -801,7 +812,7 @@ def test_density_fit_loss_matches_closed_form():
     expected = c_pyscf @ overlap @ c_pyscf - 2.0 * c_pyscf @ p_pyscf
 
     extra_data = {
-        overlap_matrix_name(target_name): pack_two_center_matrices([overlap]),
+        overlap_matrix_name(target_name): _ragged_matrices([overlap]),
         ri_projections_name(target_name): _make_ri_tensor_map_from_pyscf_vector(p_pyscf),
     }
     loss = DensityMSELossViaW(
@@ -851,7 +862,7 @@ def test_density_fit_loss_minimum_at_c_true():
     const_map = TensorMap(Labels.single(), [const_block])
 
     extra_data = {
-        overlap_matrix_name(target_name): pack_two_center_matrices([matrix]),
+        overlap_matrix_name(target_name): _ragged_matrices([matrix]),
         ri_projections_name(target_name): _make_ri_tensor_map_from_pyscf_vector(p_pyscf),
         ri_density_fit_constant_name(target_name): const_map,
     }
@@ -892,7 +903,7 @@ def test_density_fit_loss_adds_constant_when_present():
     const_map = TensorMap(Labels.single(), [const_block])
 
     extra_without = {
-        overlap_matrix_name(target_name): pack_two_center_matrices([overlap]),
+        overlap_matrix_name(target_name): _ragged_matrices([overlap]),
         ri_projections_name(target_name): _make_ri_tensor_map_from_pyscf_vector(proj_pyscf),
     }
     extra_with = {**extra_without, ri_density_fit_constant_name(target_name): const_map}
@@ -914,7 +925,7 @@ def test_density_fit_loss_requires_projection_extra_data():
     matrix = torch.eye(4, dtype=torch.float64)
 
     extra_data_without_projection = {
-        overlap_matrix_name(target_name): pack_two_center_matrices([matrix])
+        overlap_matrix_name(target_name): _ragged_matrices([matrix])
     }
     loss = DensityMSELossViaW(
         name=target_name,
@@ -951,7 +962,7 @@ def test_density_fit_loss_rejects_basis_mismatch():
     pred = _make_ri_tensor_map([0.0], [1.0, 2.0, 3.0])
     targ = _make_ri_tensor_map([0.0], [0.0, 0.0, 0.0])
     extra_data = {
-        overlap_matrix_name(target_name): pack_two_center_matrices(
+        overlap_matrix_name(target_name): _ragged_matrices(
             [torch.eye(5, dtype=torch.float64)]
         ),
         ri_projections_name(target_name): _make_ri_tensor_map([0.0], [0.0, 0.0, 0.0]),
