@@ -113,10 +113,6 @@ for i, fname in enumerate(filelist):
     atoms = ase.io.read(fname, index=i)
 
     system = systems_to_torch(atoms, dtype=torch.float64)
-    system = get_system_with_neighbor_lists(
-        system,
-        [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
-    )
     energy = TensorMap(
         keys=Labels.single(),
         blocks=[
@@ -144,13 +140,6 @@ disk_dataset_writer.finish()
 disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100_all_at_once.zip")
 
 systems = systems_to_torch(frames, dtype=torch.float64)
-systems = [
-    get_system_with_neighbor_lists(
-        system,
-        [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
-    )
-    for system in systems
-]
 energy = TensorMap(
     keys=Labels.single(),
     blocks=[
