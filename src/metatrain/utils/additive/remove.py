@@ -1,3 +1,4 @@
+import functools
 import warnings
 from typing import Callable, Dict, List, Tuple
 
@@ -133,6 +134,18 @@ def remove_additive(
     return targets
 
 
+def _remove_additive_transform_impl(
+    additive_models: List[torch.nn.Module],
+    target_info_dict: Dict[str, TargetInfo],
+    systems: List[System],
+    targets: Dict[str, TensorMap],
+    extra: Dict[str, TensorMap],
+) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+    for additive_model in additive_models:
+        targets = remove_additive(systems, targets, additive_model, target_info_dict)
+    return systems, targets, extra
+
+
 def get_remove_additive_transform(
     additive_models: List[torch.nn.Module],
     target_info_dict: Dict[str, TargetInfo],
@@ -146,27 +159,4 @@ def get_remove_additive_transform(
     :return: A function that takes in systems, targets and extra data, and returns
         the systems, updated targets and extra data.
     """
-
-    def transform(
-        systems: List[System],
-        targets: Dict[str, TensorMap],
-        extra: Dict[str, TensorMap],
-    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
-        """
-        Transform function that removes the additive contributions from the targets.
-
-        :param systems: List of systems.
-        :param targets: Dictionary containing the targets corresponding to the systems.
-        :param extra: Dictionary containing any extra data.
-        :return: The systems, updated targets and extra data.
-        """
-        for additive_model in additive_models:
-            targets = remove_additive(
-                systems,
-                targets,
-                additive_model,
-                target_info_dict,
-            )
-        return systems, targets, extra
-
-    return transform
+    return functools.partial(_remove_additive_transform_impl, additive_models, target_info_dict)

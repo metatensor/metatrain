@@ -4,6 +4,7 @@ import copy
 import importlib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+import functools
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -462,6 +463,25 @@ def compute_batched_metric_matrices(
 
 # ── Collate transforms ────────────────────────────────────────────────────────
 
+def _metric_matrices_transform_impl(
+    target_to_aux_basis: Mapping[str, str],
+    metric: str,
+    name_fn: Callable[[str], str],
+    dtype: torch.dtype,
+    systems: list[System],
+    targets: dict[str, TensorMap],
+    extra: dict,
+) -> tuple[list[System], dict[str, TensorMap], dict]:
+    cache: dict[str, RaggedMetricMatrices] = {}
+    for target_name, aux_basis in target_to_aux_basis.items():
+        if aux_basis not in cache:
+            cache[aux_basis] = compute_ragged_metric_matrices(
+                systems, aux_basis, metric, dtype
+            )
+        extra[name_fn(target_name)] = cache[aux_basis]
+    return systems, targets, extra
+
+
 def _get_metric_matrices_transform_impl(
     target_to_aux_basis: Mapping[str, str],
     metric: str,
@@ -474,22 +494,9 @@ def _get_metric_matrices_transform_impl(
     they bypass ``save_buffer`` (float64-only) and padding: the CollateFn carries them
     raw through the worker boundary, and the density loss consumes them per system.
     """
-
-    def transform(
-        systems: list[System],
-        targets: dict[str, TensorMap],
-        extra: dict,
-    ) -> tuple[list[System], dict[str, TensorMap], dict]:
-        cache: dict[str, RaggedMetricMatrices] = {}
-        for target_name, aux_basis in target_to_aux_basis.items():
-            if aux_basis not in cache:
-                cache[aux_basis] = compute_ragged_metric_matrices(
-                    systems, aux_basis, metric, dtype
-                )
-            extra[name_fn(target_name)] = cache[aux_basis]
-        return systems, targets, extra
-
-    return transform
+    return functools.partial(
+        _metric_matrices_transform_impl, target_to_aux_basis, metric, name_fn, dtype
+    )
 
 
 def get_overlap_matrices_transform(
@@ -533,78 +540,74 @@ def get_metric_matrices_transform(
         )
 
 
+def _density_fit_constant_transform_impl(
+    target_to_projections_key: Mapping[str, str],
+    systems: list[System],
+    targets: dict[str, TensorMap],
+    extra: dict[str, TensorMap],
+) -> tuple[list[System], dict[str, TensorMap], dict[str, TensorMap]]:
+    for target_name, proj_key in target_to_projections_key.items():
+        if target_name not in targets or proj_key not in extra:
+            continue
+
+        c_map = targets[target_name]
+        w_map = extra[proj_key]
+
+        first_block = c_map.block(c_map.keys[0])
+        sys_idx_col = first_block.samples.values[:, 0]
+        n_systems = int(sys_idx_col.max().item()) + 1
+        device = first_block.values.device
+        dtype = first_block.values.dtype
+
+        constants = torch.zeros(n_systems, device=device, dtype=dtype)
+
+        for key in c_map.keys:
+            c_block = c_map.block(key)
+            w_block = w_map.block(key)
+            sys_idx = c_block.samples.values[:, 0].long()
+
+            c_vals = c_block.values  # [n_samples, n_m, n_radial]
+            w_vals = w_block.values
+
+            # NaN entries are padding; zero them out before summing.
+            mask = ~(torch.isnan(c_vals) | torch.isnan(w_vals))
+            contrib = torch.where(mask, c_vals * w_vals, torch.zeros_like(c_vals))
+            per_sample = contrib.sum(dim=[1, 2])  # [n_samples]
+            constants.scatter_add_(0, sys_idx, per_sample)
+
+        # Pack as a scalar TensorMap: one value per system.
+        const_block = TensorBlock(
+            values=constants.unsqueeze(-1),  # [n_systems, 1]
+            samples=Labels(
+                names=["system"],
+                values=torch.arange(
+                    n_systems, dtype=torch.int32, device=device
+                ).reshape(-1, 1),
+            ),
+            components=[],
+            properties=Labels(
+                names=["_"],
+                values=torch.zeros((1, 1), dtype=torch.int32, device=device),
+            ),
+        )
+        extra[ri_density_fit_constant_name(target_name)] = TensorMap(
+            Labels.single().to(device=device), [const_block]
+        )
+
+    return systems, targets, extra
+
+
 def get_density_fit_constant_transform(
     target_to_projections_key: Mapping[str, str],
 ) -> Callable:
     """
     Create a collate transform that pre-computes the per-system density-fit constant.
 
-    For each target, computes ``c_RI^T w_RI`` (= ``c_RI^T S c_RI`` when
-    ``w_RI = S c_RI``) and stores the result in ``extra_data`` as a scalar
-    TensorMap.  This constant bounds the density-fit loss from below at zero and
-    has no gradient w.r.t. model parameters.
-
-    **This transform must run before the CM-removal and scale-removal transforms**
-    so that ``targets`` still contains raw RI coefficients in physical units.
+    For each target, computes ``c_RI^T w_RI`` and stores the result in ``extra_data``
+    as a scalar TensorMap. Must run before CM-removal and scale-removal transforms.
 
     :param target_to_projections_key: mapping from RI-coefficient target name to the
         ``extra_data`` key under which the corresponding projections ``w = M c_RI``
         are stored.
     """
-
-    def transform(
-        systems: list[System],
-        targets: dict[str, TensorMap],
-        extra: dict[str, TensorMap],
-    ) -> tuple[list[System], dict[str, TensorMap], dict[str, TensorMap]]:
-        for target_name, proj_key in target_to_projections_key.items():
-            if target_name not in targets or proj_key not in extra:
-                continue
-
-            c_map = targets[target_name]
-            w_map = extra[proj_key]
-
-            first_block = c_map.block(c_map.keys[0])
-            sys_idx_col = first_block.samples.values[:, 0]
-            n_systems = int(sys_idx_col.max().item()) + 1
-            device = first_block.values.device
-            dtype = first_block.values.dtype
-
-            constants = torch.zeros(n_systems, device=device, dtype=dtype)
-
-            for key in c_map.keys:
-                c_block = c_map.block(key)
-                w_block = w_map.block(key)
-                sys_idx = c_block.samples.values[:, 0].long()
-
-                c_vals = c_block.values  # [n_samples, n_m, n_radial]
-                w_vals = w_block.values
-
-                # NaN entries are padding; zero them out before summing.
-                mask = ~(torch.isnan(c_vals) | torch.isnan(w_vals))
-                contrib = torch.where(mask, c_vals * w_vals, torch.zeros_like(c_vals))
-                per_sample = contrib.sum(dim=[1, 2])  # [n_samples]
-                constants.scatter_add_(0, sys_idx, per_sample)
-
-            # Pack as a scalar TensorMap: one value per system.
-            const_block = TensorBlock(
-                values=constants.unsqueeze(-1),  # [n_systems, 1]
-                samples=Labels(
-                    names=["system"],
-                    values=torch.arange(
-                        n_systems, dtype=torch.int32, device=device
-                    ).reshape(-1, 1),
-                ),
-                components=[],
-                properties=Labels(
-                    names=["_"],
-                    values=torch.zeros((1, 1), dtype=torch.int32, device=device),
-                ),
-            )
-            extra[ri_density_fit_constant_name(target_name)] = TensorMap(
-                Labels.single().to(device=device), [const_block]
-            )
-
-        return systems, targets, extra
-
-    return transform
+    return functools.partial(_density_fit_constant_transform_impl, target_to_projections_key)

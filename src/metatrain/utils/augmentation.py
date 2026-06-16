@@ -99,11 +99,27 @@ class RotationalAugmenter:
                 )
             largest_l = max(largest_l_targets, largest_l_extra_data)
 
+            self._largest_l = largest_l
             self.wigner = spherical.Wigner(largest_l)
             for ell in range(largest_l + 1):
                 self.complex_to_real_spherical_harmonics_transforms[ell] = (
                     _complex_to_real_spherical_harmonics_transform(ell)
                 )
+
+    def __getstate__(self) -> dict:
+        # spherical.Wigner uses numba JIT functions that are not picklable.
+        # Exclude it; rebuild in the worker via __setstate__.
+        state = self.__dict__.copy()
+        state.pop("wigner", None)
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        if hasattr(self, "_largest_l"):
+            import spherical as _spherical
+            self.wigner = _spherical.Wigner(self._largest_l)
+        else:
+            self.wigner = None
 
     def apply_random_augmentations(
         self,

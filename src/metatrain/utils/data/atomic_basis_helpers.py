@@ -1,3 +1,4 @@
+import functools
 from typing import Callable, Dict, List, Optional, Tuple
 
 import metatensor.torch as mts
@@ -20,19 +21,22 @@ def reindex_to_batch_index(
     Reindex the system ids in the samples of the blocks of the tensor to have batch ids.
 
     :param tensor: the input TensorMap with system ids in the samples to reindex.
-    :param system_ids: Tensor containing the actual system ids for each sample in the
-        input ``tensor``.
+    :param system_ids: Tensor containing the stored system labels for each batch item,
+        in batch order (system_ids[i] = stored label for batch position i).
 
     :return: the output TensorMap with batch ids in the samples instead of system ids.
     """
-    id_mapping = torch.ones(system_ids.max().item() + 1, dtype=int) * -1
-    for new_id, old_id in enumerate(system_ids):
-        id_mapping[old_id] = new_id
+    # Map stored system label → batch position.
+    # system_ids[i] is the stored system label for batch position i (obtained from
+    # mtt::aux::system_index, which mirrors the atomic-basis target's own system labels).
+    id_mapping = {int(s): i for i, s in enumerate(system_ids.tolist())}
 
     blocks = []
     for block in tensor:
-        system_ids = block.samples.values[:, 0]
-        batch_id = id_mapping[system_ids]
+        sys_col = block.samples.values[:, 0]
+        batch_id = torch.tensor(
+            [id_mapping[s.item()] for s in sys_col], dtype=torch.int32
+        )
         block = TensorBlock(
             samples=Labels(
                 block.samples.names,
@@ -561,6 +565,77 @@ def get_reindex_to_batch_index_transform(
     return transform
 
 
+def _prepare_atomic_basis_targets_impl(
+    target_info_dict: dict[str, TargetInfo],
+    extra_data_info_dict: dict[str, TargetInfo],
+    systems: List[System],
+    targets: Dict[str, TensorMap],
+    extra: Dict[str, TensorMap],
+) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+    for name, tensor in targets.items():
+        if name in target_info_dict and target_info_dict[name].is_atomic_basis:
+            assert "mtt::aux::system_index" in extra
+            system_ids = (
+                extra["mtt::aux::system_index"][0].values[:, 0].to(dtype=torch.int64)
+            )
+            targets[name] = prepare_atomic_basis_targets(
+                systems,
+                system_ids,
+                tensor,
+                target_info_dict[name].layout,
+                fill_value=torch.nan,
+            )
+
+    for name, tensor in extra.items():
+        if name in extra_data_info_dict and extra_data_info_dict[name].is_atomic_basis:
+            assert "mtt::aux::system_index" in extra
+            system_ids = (
+                extra["mtt::aux::system_index"][0].values[:, 0].to(dtype=torch.int64)
+            )
+            extra[name] = prepare_atomic_basis_targets(
+                systems,
+                system_ids,
+                tensor,
+                extra_data_info_dict[name].layout,
+                fill_value=torch.nan,
+            )
+
+    return systems, targets, extra
+
+
+def _reverse_atomic_basis_targets_impl(
+    target_info_dict: dict[str, TargetInfo],
+    extra_data_info_dict: dict[str, TargetInfo],
+    sparse_properties: dict[str, TensorMap],
+    systems: List[System],
+    targets: Dict[str, TensorMap],
+    extra: Dict[str, TensorMap],
+) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+    for name, tensor in targets.items():
+        if name in target_info_dict and target_info_dict[name].is_atomic_basis:
+            if name in sparse_properties:
+                sparse_properties[name] = sparse_properties[name].to(tensor.device)
+            targets[name] = sparsify_atomic_basis_target(
+                systems,
+                tensor,
+                target_info_dict[name].layout,
+                sparse_properties=sparse_properties.get(name),
+            )
+
+    for name, tensor in extra.items():
+        if name in extra_data_info_dict and extra_data_info_dict[name].is_atomic_basis:
+            if name in sparse_properties:
+                sparse_properties[name] = sparse_properties[name].to(tensor.device)
+            extra[name] = sparsify_atomic_basis_target(
+                systems,
+                tensor,
+                extra_data_info_dict[name].layout,
+                sparse_properties=sparse_properties.get(name),
+            )
+
+    return systems, targets, extra
+
+
 def get_prepare_atomic_basis_targets_transform(
     target_info_dict: dict[str, TargetInfo],
     extra_data_info_dict: dict[str, TargetInfo],
@@ -576,60 +651,6 @@ def get_prepare_atomic_basis_targets_transform(
     :return: A function that takes in systems, targets and extra data, and returns the
         systems, targets and extra data with prepared atomic basis targets.
     """
-
-    def transform(
-        systems: List[System],
-        targets: Dict[str, TensorMap],
-        extra: Dict[str, TensorMap],
-    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
-        """
-        Transform function that prepares the atomic basis targets for batching by
-        reindexing to batch ids, densifying and padding, modifying in-place.
-
-        :param systems: List of systems.
-        :param targets: Dictionary containing the targets corresponding to the systems.
-        :param extra: Dictionary containing any extra data.
-        :return: The systems, targets and extra data with prepared atomic basis targets.
-        """
-        for name, tensor in targets.items():
-            if name in target_info_dict and target_info_dict[name].is_atomic_basis:
-                assert "mtt::aux::system_index" in extra
-                system_ids = (
-                    extra["mtt::aux::system_index"][0]
-                    .values[:, 0]
-                    .to(dtype=torch.int64)
-                )
-
-                targets[name] = prepare_atomic_basis_targets(
-                    systems,
-                    system_ids,
-                    tensor,
-                    target_info_dict[name].layout,
-                    fill_value=torch.nan,
-                )
-
-        for name, tensor in extra.items():
-            if (
-                name in extra_data_info_dict
-                and extra_data_info_dict[name].is_atomic_basis
-            ):
-                assert "mtt::aux::system_index" in extra
-                system_ids = (
-                    extra["mtt::aux::system_index"][0]
-                    .values[:, 0]
-                    .to(dtype=torch.int64)
-                )
-
-                extra[name] = prepare_atomic_basis_targets(
-                    systems,
-                    system_ids,
-                    tensor,
-                    extra_data_info_dict[name].layout,
-                    fill_value=torch.nan,
-                )
-
-        return systems, targets, extra
-
     # Precompute property masks for all atomic basis targets and extra data.
     # This avoids calling layout_properties.select(block.properties) every
     # time we want to sparsify a batch.
@@ -641,49 +662,17 @@ def get_prepare_atomic_basis_targets_transform(
         if info.is_atomic_basis:
             sparse_properties[name] = _compute_sparse_properties(info.layout)
 
-    def reverse_transform(
-        systems: List[System],
-        targets: Dict[str, TensorMap],
-        extra: Dict[str, TensorMap],
-    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
-        """
-        Reverse transform function that unpads, undensifies and reindexes the atomic
-        basis targets, modifying in-place.
-
-        :param systems: List of systems.
-        :param targets: Dictionary containing the targets corresponding to the systems.
-        :param extra: Dictionary containing any extra data.
-        :return: The systems, targets and extra data with unprepared atomic basis
-            targets.
-        """
-        for name, tensor in targets.items():
-            if name in target_info_dict and target_info_dict[name].is_atomic_basis:
-                if name in sparse_properties:
-                    sparse_properties[name] = sparse_properties[name].to(tensor.device)
-                targets[name] = sparsify_atomic_basis_target(
-                    systems,
-                    tensor,
-                    target_info_dict[name].layout,
-                    sparse_properties=sparse_properties.get(name),
-                )
-
-        for name, tensor in extra.items():
-            if (
-                name in extra_data_info_dict
-                and extra_data_info_dict[name].is_atomic_basis
-            ):
-                if name in sparse_properties:
-                    sparse_properties[name] = sparse_properties[name].to(tensor.device)
-                extra[name] = sparsify_atomic_basis_target(
-                    systems,
-                    tensor,
-                    extra_data_info_dict[name].layout,
-                    sparse_properties=sparse_properties.get(name),
-                )
-
-        return systems, targets, extra
-
-    return transform, reverse_transform
+    return (
+        functools.partial(
+            _prepare_atomic_basis_targets_impl, target_info_dict, extra_data_info_dict
+        ),
+        functools.partial(
+            _reverse_atomic_basis_targets_impl,
+            target_info_dict,
+            extra_data_info_dict,
+            sparse_properties,
+        ),
+    )
 
 
 # ===== DatasetInfo manipulation utilities
