@@ -333,6 +333,15 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # OOM. Use 'spawn' to start workers as fresh processes instead.
         mp_context = "spawn" if num_workers > 0 and device.type == "cuda" else None
 
+        if mp_context == "spawn":
+            # Some container setups (e.g. CSCS daint ml4es) restrict /dev/shm so that
+            # ftruncate() fails with EINVAL.  PyTorch's default 'file_descriptor' sharing
+            # strategy creates POSIX shared-memory files in /dev/shm; switching to
+            # 'file_system' uses regular files in /tmp instead, which always works.
+            import torch.multiprocessing as _torch_mp
+
+            _torch_mp.set_sharing_strategy("file_system")
+
         # Samplers that need set_epoch() called each epoch (may be DistributedSampler
         # or MaxAtomDistributedBatchSampler depending on which path is taken below).
         epoch_samplers: List[
