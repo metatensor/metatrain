@@ -1,3 +1,4 @@
+import functools
 import math
 import multiprocessing
 import os
@@ -761,11 +762,23 @@ class DiskDataset(torch.utils.data.Dataset):
 
         self._fields_to_read.append("mtt::aux::system_index")
 
-        self._sample_class = namedtuple("Sample", self._fields_to_read)
-
         # Do not open file in the main process and start sub-processes with None
         self.zip_file: Optional[zipfile.ZipFile] = None
         self._zip_file_pid: Optional[int] = None
+
+    @functools.cached_property
+    def _sample_class(self) -> Any:
+        return namedtuple("Sample", self._fields_to_read)
+
+    def __getstate__(self) -> dict:
+        # zip_file is a BufferedReader — not picklable and must be re-opened per-process.
+        # _sample_class is a cached_property stored in __dict__ after first access; drop
+        # it so workers recreate it lazily rather than unpickling a dynamic class.
+        state = self.__dict__.copy()
+        state.pop("_sample_class", None)
+        state["zip_file"] = None
+        state["_zip_file_pid"] = None
+        return state
 
     def _open_zip_once(self) -> None:
         pid = os.getpid()
