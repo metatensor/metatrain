@@ -201,7 +201,6 @@ filterwarnings = [
     # vesin.metatomic deprecation
     "ignore:`compute_requested_neighbors_from_options` is deprecated and will be removed in a future version:UserWarning",
     # metatomic 0.1.12 deprecations
-    "ignore:the 'non_conservative_forces' output name is deprecated:UserWarning",
     "ignore:ModelOutput.quantity is deprecated:DeprecationWarning"
 ]
 addopts = ["-p", "mtt_plugin"]
