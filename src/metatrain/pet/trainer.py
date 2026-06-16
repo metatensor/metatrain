@@ -328,6 +328,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
             num_workers = self.hypers["num_workers"]
             validate_num_workers(num_workers)
 
+        # On CUDA (especially GH200 unified memory), forking after CUDA init causes
+        # workers to inherit GPU memory mappings, inflating per-worker RSS and triggering
+        # OOM. Use 'spawn' to start workers as fresh processes instead.
+        mp_context = "spawn" if num_workers > 0 and device.type == "cuda" else None
+
         # Samplers that need set_epoch() called each epoch (may be DistributedSampler
         # or MaxAtomDistributedBatchSampler depending on which path is taken below).
         epoch_samplers: List[
@@ -355,6 +360,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         batch_sampler=batch_sampler,
                         collate_fn=collate_fn_train,
                         num_workers=num_workers,
+                        multiprocessing_context=mp_context,
                     )
                 )
             else:
@@ -376,6 +382,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         drop_last=(train_sampler is None),
                         collate_fn=collate_fn_train,
                         num_workers=num_workers,
+                        multiprocessing_context=mp_context,
                     )
                 )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
@@ -397,6 +404,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         batch_sampler=val_batch_sampler,
                         collate_fn=collate_fn_val,
                         num_workers=num_workers,
+                        multiprocessing_context=mp_context,
                     )
                 )
             else:
@@ -409,6 +417,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         drop_last=False,
                         collate_fn=collate_fn_val,
                         num_workers=num_workers,
+                        multiprocessing_context=mp_context,
                     )
                 )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
