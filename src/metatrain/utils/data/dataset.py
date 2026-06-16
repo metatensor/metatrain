@@ -734,16 +734,25 @@ class DiskDataset(torch.utils.data.Dataset):
         # check that we have at least one sample:
         with zipfile.ZipFile(path, "r") as zip_file:
             namelist = zip_file.namelist()
-            if "0/system.mta" not in namelist:
+            # Build an explicit mapping position→zip_entry so that positional
+            # indices 0..N-1 always land on a valid entry even when the zip has
+            # gaps (missing entries due to failed structure processing).
+            self._valid_entry_indices: List[int] = sorted(
+                int(f.split("/")[0])
+                for f in namelist
+                if f.endswith("/system.mta")
+            )
+            if not self._valid_entry_indices:
                 raise ValueError(
-                    "Could not find `0/system.mta` in the zip file. "
+                    "Could not find any `<N>/system.mta` entries in the zip file. "
                     "The dataset format might be wrong, or the dataset might be empty. "
                     "Empty disk datasets are not supported."
                 )
+            first_entry = self._valid_entry_indices[0]
             for file_name in namelist:
-                if file_name.startswith("0/") and file_name.endswith(".mts"):
-                    self._field_names.append(file_name[2:-4])
-            self._len = len([f for f in namelist if f.endswith(".mta")])
+                if file_name.startswith(f"{first_entry}/") and file_name.endswith(".mts"):
+                    self._field_names.append(file_name[len(f"{first_entry}/"):-4])
+            self._len = len(self._valid_entry_indices)
 
         # Determine which fields are going to be read
         if fields is None:
@@ -795,10 +804,15 @@ class DiskDataset(torch.utils.data.Dataset):
         self._open_zip_once()
         assert self.zip_file is not None
 
+        # Translate positional index → actual zip entry path.
+        # _valid_entry_indices covers only entries that have system.mta, so
+        # we never hit gaps left by failed structure processing in the zip.
+        zip_entry = self._valid_entry_indices[index]
+
         system_and_targets = []
         for field_name in self._fields_to_read:
             if field_name == "system":
-                with self.zip_file.open(f"{index}/system.mta", "r") as file:
+                with self.zip_file.open(f"{zip_entry}/system.mta", "r") as file:
                     system = load_system(file)
                     system_and_targets.append(system)
             elif field_name == "mtt::aux::system_index":
@@ -807,10 +821,10 @@ class DiskDataset(torch.utils.data.Dataset):
                     blocks=[
                         TensorBlock(
                             # Integer values are not supported (coming soon)
-                            values=torch.tensor([[index]]).to(torch.float64),
+                            values=torch.tensor([[zip_entry]]).to(torch.float64),
                             samples=Labels(
                                 names=["system"],
-                                values=torch.tensor([[index]]),
+                                values=torch.tensor([[zip_entry]]),
                             ),
                             components=[],
                             properties=Labels(["_"], torch.tensor([[0]])),
@@ -819,11 +833,11 @@ class DiskDataset(torch.utils.data.Dataset):
                 )
                 system_and_targets.append(tensor_map)
             else:
-                with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
+                with self.zip_file.open(f"{zip_entry}/{field_name}.mts", "r") as file:
                     numpy_buffer = np.load(file)
                     tensor_buffer = torch.from_numpy(numpy_buffer)
                     tensor_map = load_buffer(tensor_buffer)
-                    system_and_targets.append(tensor_map)
+                system_and_targets.append(tensor_map)
         return self._sample_class(*system_and_targets)
 
     def __iter__(self) -> Any:
@@ -885,7 +899,7 @@ class DiskDataset(torch.utils.data.Dataset):
         return target_info_dict
 
     def __del__(self) -> None:
-        if self.zip_file is not None:
+        if getattr(self, "zip_file", None) is not None:
             self.zip_file.close()
 
 
