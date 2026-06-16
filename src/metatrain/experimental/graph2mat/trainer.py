@@ -440,6 +440,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     per_property=True,
                 )
 
+                extra_data["model"] = model.module if is_distributed else model
+                extra_data["systems"] = systems
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
@@ -549,6 +551,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     per_property=True,
                 )
 
+                extra_data["model"] = model.module if is_distributed else model
+                extra_data["systems"] = systems
                 val_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
