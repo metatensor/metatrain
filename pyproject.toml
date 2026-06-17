@@ -199,9 +199,7 @@ filterwarnings = [
     # MACE warning with newer versions of pytorch (because they use e3nn==0.4.4)
     "ignore:Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed:UserWarning",
     # vesin.metatomic deprecation
-    "ignore:`compute_requested_neighbors_from_options` is deprecated and will be removed in a future version:UserWarning",
-    # metatomic 0.1.12 deprecations
-    "ignore:ModelOutput.quantity is deprecated:DeprecationWarning"
+    "ignore:`compute_requested_neighbors_from_options` is deprecated and will be removed in a future version:UserWarning"
 ]
 addopts = ["-p", "mtt_plugin"]
 pythonpath = "src/metatrain/utils/testing"
