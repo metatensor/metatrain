@@ -48,7 +48,12 @@ _TUPLE_MODULE_TYPES = (CartesianTransformer, Transformer, TransformerLayer)
 # invokes it in forward(), so its hook would never fire; and (b) the other
 # Identity instances in the model (gnn_layers_post_mp_node, node_backbone, …)
 # are simple pass-throughs that do not produce interesting diagnostic tensors.
-_SKIP_MODULE_TYPES = (torch.nn.ModuleList, torch.nn.ModuleDict, torch.nn.Identity, DummyModule)
+_SKIP_MODULE_TYPES = (
+    torch.nn.ModuleList,
+    torch.nn.ModuleDict,
+    torch.nn.Identity,
+    DummyModule,
+)
 
 
 # ---------------------------------------------------------------------------

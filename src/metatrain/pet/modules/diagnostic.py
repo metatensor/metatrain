@@ -69,7 +69,8 @@ def create_diagnostic_feature_tensormap(
         # Node-like: (n_atoms, d)
         labels = sample_labels
     elif outp.ndim == 3:
-        # Edge-like in NEF format: (n_atoms, max_neighbors, d) -> flatten to (n_edges, d)
+        # Edge-like in NEF format: (n_atoms, max_neighbors, d)
+        # -> flatten to (n_edges, d)
         outp = outp[centers, nef_to_edges_neighbor]
         labels = pair_sample_labels
     else:
