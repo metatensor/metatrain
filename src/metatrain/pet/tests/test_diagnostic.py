@@ -18,11 +18,37 @@ import torch
 from metatomic.torch import ModelOutput, System
 
 from metatrain.pet import PET
+from metatrain.pet.modules.diagnostic import (
+    DIAGNOSTIC_PREFIX,
+    EXCLUDED_MODULE_PREFIXES,
+    FEATURIZER_INPUT_NAMES,
+)
+from metatrain.pet.modules.transformer import (
+    CartesianTransformer,
+    Transformer,
+    TransformerLayer,
+)
+from metatrain.pet.modules.utilities import DummyModule
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import MODEL_HYPERS
+
+
+# Module types whose forward() returns (node_tensor, edge_tensor) — these
+# require a "_node" or "_edge" suffix when requesting as diagnostic outputs.
+_TUPLE_MODULE_TYPES = (CartesianTransformer, Transformer, TransformerLayer)
+
+# Container modules and placeholder modules whose forward hooks never fire:
+# ModuleList/ModuleDict are called via their children, not directly; DummyModule
+# raises RuntimeError if called and exists only for TorchScript compatibility.
+# nn.Identity is also skipped because (a) in SwiGLU mode FeedForward registers
+# an Identity as ``self.activation`` for TorchScript compatibility but never
+# invokes it in forward(), so its hook would never fire; and (b) the other
+# Identity instances in the model (gnn_layers_post_mp_node, node_backbone, …)
+# are simple pass-throughs that do not produce interesting diagnostic tensors.
+_SKIP_MODULE_TYPES = (torch.nn.ModuleList, torch.nn.ModuleDict, torch.nn.Identity, DummyModule)
 
 
 # ---------------------------------------------------------------------------
@@ -401,3 +427,116 @@ def test_diagnostic_outputs_are_deterministic():
         result1[key].block().values,
         result2[key].block().values,
     )
+
+
+# ---------------------------------------------------------------------------
+# Comprehensive sweep: every capturable module path, diatomic system
+# ---------------------------------------------------------------------------
+
+
+def _build_all_outputs(model) -> dict:
+    """Return an ``outputs`` dict requesting every capturable module path.
+
+    Modules whose ``forward()`` returns a ``(node_tensor, edge_tensor)`` tuple
+    are requested with both the ``_node`` and ``_edge`` suffix variants.
+    All raw featurizer inputs are also included.
+    """
+    # These module prefixes are only executed when the corresponding target
+    # output (e.g. "energy") is also requested.  Including them in a
+    # diagnostic-only sweep would register hooks that never fire, causing the
+    # "key not in result" assertion to fail.
+    _CONDITIONAL_MODULE_PREFIXES = [
+        "node_last_layers",
+        "edge_last_layers",
+    ]
+
+    outputs = {}
+
+    for name, module in model.named_modules():
+        if not name:
+            continue  # skip the root module itself
+        if any(name.startswith(p) for p in EXCLUDED_MODULE_PREFIXES):
+            continue
+        if any(name.startswith(p) for p in _CONDITIONAL_MODULE_PREFIXES):
+            continue
+        # ModuleList/ModuleDict are container types — PyTorch calls their
+        # children directly, so a hook registered on the container itself
+        # never fires.  DummyModule is a TorchScript placeholder that raises
+        # RuntimeError if called and is never actually invoked at runtime.
+        if isinstance(module, _SKIP_MODULE_TYPES):
+            continue
+        key_base = DIAGNOSTIC_PREFIX + name
+        if isinstance(module, _TUPLE_MODULE_TYPES):
+            outputs[key_base + "_node"] = ModelOutput(per_atom=True)
+            outputs[key_base + "_edge"] = ModelOutput(per_atom=True)
+        else:
+            outputs[key_base] = ModelOutput(per_atom=True)
+
+    for feat_name in FEATURIZER_INPUT_NAMES:
+        outputs[DIAGNOSTIC_PREFIX + feat_name] = ModelOutput(per_atom=True)
+
+    return outputs
+
+
+def test_all_module_outputs_diatomic():
+    """Request every named sub-module output in a single forward pass.
+
+    The system is a diatomic H₂ molecule so that ``max_neighbors == 1`` in
+    PET's NEF format.  This means every edge tensor inside the model has shape
+    ``(n_atoms, 1, d)``, directly exercising the ambiguous shape that Sofia
+    flagged: an edge tensor whose second dimension equals 1 looks identical to a
+    node tensor with a dummy neighbor axis if we rely solely on shape to decide
+    which sample labels to attach.
+
+    The test asserts:
+
+    * Every requested key is present in the result (no silent drop).
+    * Every returned TensorMap has at least one row (non-empty).
+    * Outputs requested with a ``_node`` suffix carry per-atom
+      ``["system", "atom"]`` labels.
+    * Outputs requested with an ``_edge`` suffix carry per-pair
+      ``["system", "first_atom", "second_atom", ...]`` labels.
+    """
+    dataset_info = _make_dataset_info(atomic_types=[1])  # hydrogen only
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    # A diatomic H-H pair 1.5 Å apart — well within the default 4.5 Å cutoff.
+    # With a full neighbor list every atom sees exactly one neighbor, so
+    # max_neighbors == 1 throughout the forward pass.
+    system = System(
+        types=torch.tensor([1, 1]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.5]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+
+    outputs = _build_all_outputs(model)
+    result = model([system], outputs)
+
+    node_label_names = ["system", "atom"]
+    edge_label_names = [
+        "system",
+        "first_atom",
+        "second_atom",
+        "cell_shift_a",
+        "cell_shift_b",
+        "cell_shift_c",
+    ]
+
+    for key in outputs:
+        assert key in result, f"Missing diagnostic output: {key}"
+        block = result[key].block()
+        assert block.values.shape[0] > 0, f"Empty output for: {key}"
+
+        bare = key[len(DIAGNOSTIC_PREFIX) :]
+        if bare.endswith("_node"):
+            assert block.samples.names == node_label_names, (
+                f"{key}: expected per-atom labels {node_label_names}, "
+                f"got {block.samples.names}"
+            )
+        elif bare.endswith("_edge"):
+            assert block.samples.names == edge_label_names, (
+                f"{key}: expected per-pair labels {edge_label_names}, "
+                f"got {block.samples.names}"
+            )

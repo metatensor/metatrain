@@ -2,7 +2,8 @@
 Utilities for capturing intermediate tensor outputs from PET sub-modules.
 """
 
-from typing import Any, Dict, List, Set
+from contextlib import contextmanager
+from typing import Any, Dict, Generator, List, Set
 
 import torch
 import torch.nn
@@ -21,6 +22,12 @@ FEATURIZER_INPUT_NAMES: Set[str] = {
 }
 
 DIAGNOSTIC_PREFIX = "mtt::feature::"
+
+EXCLUDED_MODULE_PREFIXES = [
+    "additive_models",
+    "scaler",
+    "long_range_featurizer",
+]
 
 
 def create_diagnostic_feature_tensormap(
@@ -62,13 +69,9 @@ def create_diagnostic_feature_tensormap(
         # Node-like: (n_atoms, d)
         labels = sample_labels
     elif outp.ndim == 3:
-        if outp.shape[1] == 1:  # special case: node-like with a dummy neighbor axis
-            outp = outp.squeeze(1)  # (n_atoms, 1, d) → (n_atoms, d)
-            labels = sample_labels
-        else:
-            # Edge-like in NEF format: (n_atoms, max_neighbors, d) → (n_edges, d)
-            outp = outp[centers, nef_to_edges_neighbor]
-            labels = pair_sample_labels
+        # Edge-like in NEF format: (n_atoms, max_neighbors, d) -> flatten to (n_edges, d)
+        outp = outp[centers, nef_to_edges_neighbor]
+        labels = pair_sample_labels
     else:
         raise ValueError(
             f"Unexpected tensor shape for diagnostic capture: {outp.shape}. "
@@ -232,6 +235,16 @@ def prepare_diagnostic_handles(
             else:
                 tensor = outp
 
+            # ``Transformer`` and ``TransformerLayer`` carry the node token in a
+            # size-1 slot: their node output has shape ``(n_atoms, 1, d)`` where
+            # the "1" is the single node-token position, *not* max_neighbors.
+            # ``CartesianTransformer`` already calls ``.squeeze(1)`` on its node
+            # output, so it returns a 2-D tensor.  For the other two, we must
+            # squeeze here so that ``create_diagnostic_feature_tensormap`` sees a
+            # 2-D node tensor and attaches per-atom sample labels.
+            if suffix == "_node" and tensor.ndim == 3 and tensor.shape[1] == 1:
+                tensor = tensor.squeeze(1)
+
             return_dict[DIAGNOSTIC_PREFIX + resolved_path + suffix] = (
                 create_diagnostic_feature_tensormap(
                     tensor,
@@ -283,10 +296,7 @@ def prepare_diagnostic_handles(
         valid_paths = sorted(
             p
             for p in named_modules_dict
-            if p
-            and not p.startswith("additive_models")
-            and not p.startswith("scaler")
-            and not p.startswith("long_range_featurizer")
+            if p and not any([p.startswith(m) for m in EXCLUDED_MODULE_PREFIXES])
         )
         raise AttributeError(
             f"Module path '{path}' (from output key '{output_key}') was not "
@@ -296,3 +306,19 @@ def prepare_diagnostic_handles(
         )
 
     return diagnostic_handles
+
+
+@contextmanager
+def diagnostic_hooks_context(handles: List[Any]) -> Generator[None, None, None]:
+    """
+    Context manager that guarantees forward hooks are removed on exit, even if an
+    exception is raised during the forward pass.
+
+    :param handles: List of :class:`torch.utils.hooks.RemovableHandle` objects to remove
+        on exit.
+    """
+    try:
+        yield
+    finally:
+        for h in handles:
+            h.remove()

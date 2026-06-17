@@ -483,14 +483,14 @@ class PET(ModelInterface[ModelHypers]):
 
         # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
         # optional diagnostic token capture by registering temporary module hooks
-        diagnostic_handles = torch.jit.annotate(List[Any], [])
         _diagnostic_pair_labels: Optional[Labels] = None
+        _diagnostic_handles: List[Any] = []
         if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
             if any(k.startswith(DIAGNOSTIC_PREFIX) for k in outputs):
                 _diagnostic_pair_labels = get_pair_sample_labels(
                     sample_labels, centers, neighbors, cell_shifts
                 )
-                diagnostic_handles = prepare_diagnostic_handles(
+                _diagnostic_handles = prepare_diagnostic_handles(
                     self,
                     outputs,
                     return_dict,
@@ -546,9 +546,18 @@ class PET(ModelInterface[ModelHypers]):
                             )
             # ===== END DIAGNOSTIC-RELATED BLOCK
 
+            # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
+            # Hooks were registered before stage 1 (via prepare_diagnostic_handles)
+            # and must remain active through stage 4 so that modules in
+            # _calculate_last_layer_features and _calculate_atomic_predictions can
+            # also be captured.  Do NOT remove them inside a context manager here —
+            # they are cleaned up after stage 4 completes (see below).
+            _capture_diagnostics = _diagnostic_pair_labels is not None
+            # ===== END DIAGNOSTIC-RELATED BLOCK
             node_features_list, edge_features_list = self._calculate_features(
                 featurizer_inputs,
                 use_manual_attention=use_manual_attention,
+                capture_diagnostics=_capture_diagnostics,
             )
 
             # If the long-range module is activated, we add the long-range features
@@ -624,6 +633,16 @@ class PET(ModelInterface[ModelHypers]):
             for k, v in atomic_predictions_dict.items():
                 return_dict[k] = v
 
+        # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
+        # All four computation stages are now complete.  Remove the diagnostic
+        # hooks that were registered before stage 1.  Modules in additive_models,
+        # scaler, and long_range_featurizer are excluded from diagnostic capture
+        # (see EXCLUDED_MODULE_PREFIXES), so no hooks fire after this point.
+        if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
+            for h in _diagnostic_handles:
+                h.remove()
+        # ===== END DIAGNOSTIC-RELATED BLOCK
+
         # **Post-processing (Evaluation Only)**
         with torch.profiler.record_function("PET::post-processing"):
             if not self.training:
@@ -692,17 +711,13 @@ class PET(ModelInterface[ModelHypers]):
                             species,
                         )
 
-        # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
-        # Remove any diagnostic hooks we registered during this forward pass.
-        if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
-            for h in diagnostic_handles:
-                h.remove()
-        # ===== END DIAGNOSTIC-RELATED BLOCK
-
         return return_dict
 
     def _calculate_features(
-        self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
+        self,
+        inputs: Dict[str, torch.Tensor],
+        use_manual_attention: bool,
+        capture_diagnostics: bool = False,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
         Calculate node and edge features using the selected featurization strategy.
@@ -712,6 +727,9 @@ class PET(ModelInterface[ModelHypers]):
             computation
         :param use_manual_attention: Whether to use manual attention computation
             (required for double backward when edge vectors require gradients)
+        :param capture_diagnostics: Whether to capture diagnostic features via temporary
+            module hooks. This is only used when diagnostic outputs are requested, and
+            it is skipped in TorchScript / tracing mode where hooks are not supported.
         :return: Tuple of two lists:
             - List of node feature tensors
             - List of edge feature tensors
@@ -729,9 +747,15 @@ class PET(ModelInterface[ModelHypers]):
             )
 
         # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
-        # Pass the raw node and edge backbone features through identity modules to
-        # enable them to be captured by diagnostic hooks if needed.
-        if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
+        # Pass the raw node and edge backbone features through identity modules so
+        # that diagnostic hooks on ``node_backbone[i]`` / ``edge_backbone[i]`` fire.
+        # Skipped when no diagnostic output was requested, and always skipped in
+        # TorchScript / tracing mode where hooks are never registered.
+        if (
+            capture_diagnostics
+            and (not torch.jit.is_scripting())
+            and (not torch.jit.is_tracing())
+        ):
             new_node_features: List[torch.Tensor] = []
             for i in range(len(node_features_list)):
                 new_node_features.append(self.node_backbone[i](node_features_list[i]))

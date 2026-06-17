@@ -7,6 +7,7 @@ PET computes rich intermediate representations at every stage of its forward pas
 atom-type embeddings, embeddings of the neighborhood geometries, transformer outputs,
 and more. This tutorial shows how to retrieve any of those tensors using the
 ``mtt::feature::`` prefix in the ``outputs`` dictionary passed to ``PET.forward()``.
+Note that this only applies to non-exported models, i.e. checkpoints.
 
 All outputs are returned as :class:`~metatensor.torch.TensorMap` objects, so they carry
 full sample metadata (atom or pair indices, cell-shift vectors) and are immediately
@@ -14,10 +15,10 @@ compatible with the rest of the metatensor/metatomic ecosystem.
 
 The tutorial is structured as follows:
 
-1. :ref:`Standard outputs <standard-outputs>` — ``features``, last-layer features, and
-   ``energy``.
-2. :ref:`Unprocessed backbone and head features <backbone-features>` — per-atom and
-   per-pair tensors as used internally by the model.
+1. :ref:`Standard outputs <standard-outputs>` — backbone feature, last-layer features,
+   and ``energy``.
+2. :ref:`Unprocessed backbone and last layer features <backbone-features>` — per-atom
+   and per-pair tensors as used internally by the model.
 3. :ref:`Raw featurizer inputs <featurizer-inputs>` — distances, displacement vectors,
    and element-type indices, tied back to the water geometry.
 4. :ref:`Discovering available paths <discovering-paths>` — how to enumerate every
@@ -98,11 +99,10 @@ systems = [
 # 1. Standard model outputs
 # -------------------------
 #
-# PET exposes three standard outputs: the backbone features (``"features"``), the
-# last-layer features before the output head
-# (``"mtt::aux::energy_last_layer_features"``), and the predicted energy. These are the
-# normal production outputs. Setting ``per_atom=False`` aggregates atom features into a
-# single per-structure vector.
+# PET exposes three standard outputs: the backbone features (``"feature"``), the
+# last-layer features before the readout (``"mtt::aux::energy_last_layer_features"``),
+# and the predicted energy. These are the normal production outputs. Setting
+# ``per_atom=False`` aggregates atom features into a single per-structure vector.
 
 outputs = {
     "feature": ModelOutput(per_atom=True),
@@ -124,15 +124,15 @@ print("backbone samples:           ", backbone_block.samples.names)
 
 # %%
 #
-# The sample labels confirm that ``features`` and ``last_layer_features`` are per-atom
+# The sample labels confirm that the backbone and last layer features are per-atom
 # (``["system", "atom"]``), while the energy is per-structure (``["system"]``).
 #
 # .. note::
 #
 #    These standard outputs go through PET's full aggregation pipeline: edge
-#    contributions are summed over neighbours with cutoff weights applied, and the
-#    result is concatenated to the node stream. They are great for feature analysis but
-#    do **not** give direct access to the raw intermediate tensors used inside the GNN
+#    contributions are summed over neighbors with cutoff weights applied, and the result
+#    is concatenated to the node stream. They are great for feature analysis but do
+#    **not** give direct access to the raw intermediate tensors used inside the GNN
 #    layers.
 #
 # The backbone features have feature size 384, which due to the concatenated node
@@ -183,7 +183,7 @@ print("edge_backbone.0  samples: ", edge_bb.samples.names)
 # **Edge-like** tensors have shape ``(n_edges, d)`` and samples
 # ``["system", "first_atom", "second_atom", "cell_shift_a", "cell_shift_b",
 # "cell_shift_c"]`` — one row per directed pair. The cell-shift columns follow
-# the standard metatensor neighbour-list convention.
+# the standard metatensor neighbor-list convention.
 
 
 # %%
@@ -200,7 +200,7 @@ print("edge_backbone.0  samples: ", edge_bb.samples.names)
 #   ``(n_edges, 3)``
 # * ``element_indices_nodes`` — element-type index for each centre atom, shape
 #   ``(n_atoms, 1)``
-# * ``element_indices_neighbors`` — element-type index for each neighbour atom, shape
+# * ``element_indices_neighbors`` — element-type index for each neighbor atom, shape
 #   ``(n_edges, 1)``
 
 outputs = {
@@ -225,7 +225,7 @@ nbr_types = predictions["mtt::feature::element_indices_neighbors"].block()
 # * O–H₂: 0.500 Å  (displacement [0, −0.5, 0] from H₂ to O)
 # * H₁–H₂: √(1² + 0.5²) ≈ 1.118 Å
 #
-# With a full neighbour list each pair appears twice (both directions), giving 6
+# With a full neighbor list each pair appears twice (both directions), giving 6
 # directed edges in total.
 
 print("Edge distances (Å):")
@@ -266,6 +266,7 @@ print(" ", node_types.values.long().squeeze(-1).tolist())
 
 def print_all_module_paths(model):
     _skip = ("additive_models", "scaler", "long_range_featurizer")
+
     print(f"{'Module path':<65} {'Module type'}")
     print("-" * 95)
     for name, module in model.named_modules():
