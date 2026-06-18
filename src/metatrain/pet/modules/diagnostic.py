@@ -2,8 +2,7 @@
 Utilities for capturing intermediate tensor outputs from PET sub-modules.
 """
 
-from contextlib import contextmanager
-from typing import Any, Dict, Generator, List, Set
+from typing import Any, Dict, List, Set
 
 import torch
 import torch.nn
@@ -307,19 +306,3 @@ def prepare_diagnostic_handles(
         )
 
     return diagnostic_handles
-
-
-@contextmanager
-def diagnostic_hooks_context(handles: List[Any]) -> Generator[None, None, None]:
-    """
-    Context manager that guarantees forward hooks are removed on exit, even if an
-    exception is raised during the forward pass.
-
-    :param handles: List of :class:`torch.utils.hooks.RemovableHandle` objects to remove
-        on exit.
-    """
-    try:
-        yield
-    finally:
-        for h in handles:
-            h.remove()
