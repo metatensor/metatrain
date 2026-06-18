@@ -79,36 +79,33 @@ from metatrain.utils.hypers import init_with_defaults
 class PoolingHypers(TypedDict):
     """Hyperparameters for the per-system pooling step.
 
-    Two pooling types are supported:
+    Two pooling types are supported, both controlled by the same ``alpha_homo``
+    / ``alpha_lumo`` parameters (sign selects max- vs min-pool, magnitude sets
+    the sharpness):
 
-    - ``"smooth_extremum"`` (default): ``E = (1/alpha) log sum_i exp(alpha h_i)``.
-      Recovers a hard max/min as ``|alpha| -> infinity``. Size-intensive.
-    - ``"attention"``: ``E = sum_i softmax(beta * s_i) * h_i`` where ``s_i`` is
-      a second per-atom scalar produced by an independent PET-style readout.
-      Strictly intensive (softmax weights sum to 1) and removes the
-      ``log(N)/|alpha|`` residual of the smooth-extremum pool.
+    - ``"smoothmax"`` (default): ``E = (1/alpha) log sum_i exp(alpha h_i)``.
+      Recovers a hard max/min as ``|alpha| -> infinity``. Size-intensive up to a
+      ``log(N)/|alpha|`` residual.
+    - ``"softmax"``: ``E = sum_i softmax(alpha * h_i) * h_i``. A self-weighted
+      softmax pool: the softmax weights are computed from the per-atom *values
+      themselves*, so the pool attends to the most extreme contributions.
+      Strictly intensive (softmax weights sum to 1, removing the
+      ``log(N)/|alpha|`` residual of the smoothmax pool) and recovers a hard
+      max/min as ``|alpha| -> infinity``.
     """
 
-    type: str = "smooth_extremum"
-    """Pooling type. One of ``"smooth_extremum"`` or ``"attention"``."""
+    type: str = "smoothmax"
+    """Pooling type. One of ``"smoothmax"`` or ``"softmax"``."""
 
     alpha_homo: float = 20.0
-    """Smoothness parameter for the HOMO smooth-extremum pool. Used only when
-    ``type == "smooth_extremum"``."""
+    """HOMO pooling parameter. ``alpha_homo > 0`` gives a (smooth/soft) max.
+    Larger magnitude -> sharper (closer to a hard max). Used by both pooling
+    types."""
 
     alpha_lumo: float = -20.0
-    """Smoothness parameter for the LUMO smooth-extremum pool. Used only when
-    ``type == "smooth_extremum"``."""
-
-    beta_homo: float = 1.0
-    """Temperature for the HOMO attention pool. ``beta_homo > 0`` makes the
-    pool concentrate on atoms with the *largest* score. Used only when
-    ``type == "attention"``."""
-
-    beta_lumo: float = -1.0
-    """Temperature for the LUMO attention pool. ``beta_lumo < 0`` makes the
-    pool concentrate on atoms with the *smallest* score. Used only when
-    ``type == "attention"``."""
+    """LUMO pooling parameter. ``alpha_lumo < 0`` gives a (smooth/soft) min.
+    Larger magnitude -> sharper (closer to a hard min). Used by both pooling
+    types."""
 
 
 class ModelHypers(PETModelHypers):

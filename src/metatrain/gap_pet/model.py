@@ -2,16 +2,19 @@
 
 The model wraps :class:`metatrain.pet.PET` (in ``residual`` featurizer mode) and
 replaces its summation readout with two heads (HOMO, LUMO) followed by an
-extremal log-sum-exp pool. The result is a per-system gap energy that does not
-scale with system size, suitable for excited-state surrogates in molecular
-dynamics.
+intensive pool. The result is a per-system gap energy that does not scale with
+system size, suitable for excited-state surrogates in molecular dynamics.
+
+Two pooling schemes are available (see :mod:`metatrain.gap_pet.documentation`):
+``"smoothmax"`` (an extremal log-sum-exp / smooth max-min, the default) and
+``"softmax"`` (a strictly-intensive self-weighted softmax pool). The predicted
+gap is ``E_gap = E_LUMO - E_HOMO``.
 
 The HOMO and LUMO heads use PET's *standard* per-target readout machinery
 (``node_heads``, ``edge_heads``, ``node_last_layers``, ``edge_last_layers``):
 one MLP per GNN layer, separate node and edge MLPs, summed across layers with
 edge contributions weighted by the cutoff factor. Everything is identical to a
-standard PET energy head except for the final pool, which is replaced by the
-extremal smooth max / smooth min instead of summation.
+standard PET energy head except for the final pool, which replaces summation.
 """
 
 import logging
@@ -47,17 +50,17 @@ LUMO_PER_ATOM_OUTPUT_NAME = "mtt::aux::lumo_per_atom"
 
 def _scatter_softmax_pool(
     values: torch.Tensor,
-    scores: torch.Tensor,
-    beta: torch.Tensor,
+    alpha: torch.Tensor,
     system_indices: torch.Tensor,
     num_systems: int,
 ) -> torch.Tensor:
-    """Per-system attention pool: ``sum_i softmax(beta * s_i)_i * v_i``.
+    """Per-system self-weighted softmax pool: ``sum_i softmax(alpha * v_i)_i * v_i``.
 
-    Numerically stable: shift ``beta * s`` by per-system max before exponentiating.
-    Strictly intensive (softmax weights sum to 1 within each system).
+    Numerically stable: shift ``alpha * v`` by per-system max before exponentiating.
+    Strictly intensive (softmax weights sum to 1 within each system). The sign of
+    ``alpha`` selects max- vs min-pool, exactly as in :func:`_scatter_logsumexp`.
     """
-    logits = beta * scores  # (N,)
+    logits = alpha * values  # (N,)
     neg_inf = torch.full(
         (num_systems,), float("-inf"), dtype=values.dtype, device=values.device
     )
@@ -161,7 +164,7 @@ class GapPET(PET):
         # pooling on the internal HOMO/LUMO heads instead), so remove them to
         # avoid wasted compute and parameters.
         self._unregister_pet_target(self._gap_target_name)
-        
+
         self.HOMO_PER_ATOM_OUTPUT_NAME = HOMO_PER_ATOM_OUTPUT_NAME
         self.LUMO_PER_ATOM_OUTPUT_NAME = LUMO_PER_ATOM_OUTPUT_NAME
 
@@ -171,11 +174,7 @@ class GapPET(PET):
         # auxiliary outputs.
         self._HOMO_INTERNAL_KEY = "__gap_pet_homo_internal__"
         self._LUMO_INTERNAL_KEY = "__gap_pet_lumo_internal__"
-        # Score heads for attention pooling (registered only if needed).
-        self._HOMO_SCORE_INTERNAL_KEY = "__gap_pet_homo_score_internal__"
-        self._LUMO_SCORE_INTERNAL_KEY = "__gap_pet_lumo_score_internal__"
-        
-        
+
         # Register two *internal* pseudo-targets, one for HOMO and one for LUMO.
         # Each gets the standard PET readout: per-layer node + edge MLPs and a
         # per-layer linear projection to a scalar. The user-visible
@@ -194,34 +193,22 @@ class GapPET(PET):
 
         # Pooling configuration.
         pooling_hypers = hypers["pooling"]
-        self._pooling_type: str = str(pooling_hypers.get("type", "smooth_extremum"))
-        if self._pooling_type not in ("smooth_extremum", "attention"):
+        self._pooling_type: str = str(pooling_hypers.get("type", "smoothmax"))
+        if self._pooling_type not in ("smoothmax", "softmax"):
             raise ValueError(
                 f"Unknown pooling type {self._pooling_type!r}; "
-                "expected 'smooth_extremum' or 'attention'."
+                "expected 'smoothmax' or 'softmax'."
             )
+        # ``alpha_homo``/``alpha_lumo`` parametrize both pools: the sign selects
+        # max- vs min-pool and the magnitude the sharpness. ``alpha_homo > 0``
+        # (smooth/soft max for E_HOMO) and ``alpha_lumo < 0`` (smooth/soft min
+        # for E_LUMO).
         self.register_buffer(
             "alpha_homo", torch.tensor(float(pooling_hypers["alpha_homo"]))
         )
         self.register_buffer(
             "alpha_lumo", torch.tensor(float(pooling_hypers["alpha_lumo"]))
         )
-        self.register_buffer(
-            "beta_homo", torch.tensor(float(pooling_hypers.get("beta_homo", 1.0)))
-        )
-        self.register_buffer(
-            "beta_lumo", torch.tensor(float(pooling_hypers.get("beta_lumo", -1.0)))
-        )
-
-        # Attention pool: register two extra PET-style readouts that produce
-        # per-atom scalar *scores*, with weights independent from the value
-        # heads above.
-        if self._pooling_type == "attention":
-            self._add_output(self._HOMO_SCORE_INTERNAL_KEY, synth_target_info)
-            self._add_output(self._LUMO_SCORE_INTERNAL_KEY, synth_target_info)
-            internal_keys.extend(
-                [self._HOMO_SCORE_INTERNAL_KEY, self._LUMO_SCORE_INTERNAL_KEY]
-            )
 
         for key in internal_keys:
             self.outputs.pop(key, None)
@@ -374,9 +361,6 @@ class GapPET(PET):
             self._HOMO_INTERNAL_KEY: ModelOutput(per_atom=True),
             self._LUMO_INTERNAL_KEY: ModelOutput(per_atom=True),
         }
-        if self._pooling_type == "attention":
-            internal_outputs[self._HOMO_SCORE_INTERNAL_KEY] = ModelOutput(per_atom=True)
-            internal_outputs[self._LUMO_SCORE_INTERNAL_KEY] = ModelOutput(per_atom=True)
         node_apr_dict, edge_apr_dict = self._calculate_atomic_predictions(
             node_ll_dict,
             edge_ll_dict,
@@ -394,18 +378,16 @@ class GapPET(PET):
 
         # Stage 4: pool per-atom contributions -> per-system scalars.
         num_systems = len(systems)
-        if self._pooling_type == "attention":
-            s_homo = self._sum_per_atom_scalar(
-                node_apr_dict, edge_apr_dict, self._HOMO_SCORE_INTERNAL_KEY
-            )
-            s_lumo = self._sum_per_atom_scalar(
-                node_apr_dict, edge_apr_dict, self._LUMO_SCORE_INTERNAL_KEY
-            )
+        if self._pooling_type == "softmax":
+            # Self-weighted softmax pool: the softmax weights are computed
+            # directly from the per-atom values themselves, so atoms with the
+            # most extreme contribution dominate. Strictly intensive (weights
+            # sum to 1) and recovers a hard max/min as ``|alpha| -> infinity``.
             e_homo = _scatter_softmax_pool(
-                h_homo, s_homo, self.beta_homo, system_indices, num_systems
+                h_homo, self.alpha_homo, system_indices, num_systems
             )
             e_lumo = _scatter_softmax_pool(
-                h_lumo, s_lumo, self.beta_lumo, system_indices, num_systems
+                h_lumo, self.alpha_lumo, system_indices, num_systems
             )
         else:
             e_homo = _scatter_logsumexp(
@@ -469,7 +451,6 @@ class GapPET(PET):
                     if name in additive_model.outputs:
                         outputs_for_additive_model[name] = output
                 if outputs_for_additive_model:
-                    
                     additive_contributions = additive_model(
                         systems, outputs_for_additive_model, selected_atoms
                     )

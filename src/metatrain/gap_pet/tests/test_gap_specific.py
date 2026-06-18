@@ -1,6 +1,6 @@
 """GapPET-specific tests.
 
-Five tests that exercise the design properties of the architecture:
+Tests that exercise the design properties of the architecture:
 
 1. ``test_size_intensivity``: replicating the cell does not change the gap.
 2. ``test_force_finite_difference``: forces match a finite-difference estimate.
@@ -9,6 +9,13 @@ Five tests that exercise the design properties of the architecture:
 4. ``test_alpha_limits``: large ``|alpha|`` recovers ``max`` / ``min``.
 5. ``test_train_step_decreases_loss``: one optimizer step on synthetic data
    decreases the loss.
+6. ``test_softmax_pool_intensivity``: the ``softmax`` pool is strictly
+   intensive under cell replication.
+7. ``test_softmax_pool_alpha_limits``: large ``|alpha|`` recovers ``max`` /
+   ``min`` and the softmax pool never overshoots ``[min, max]``.
+8. ``test_softmax_per_atom_outputs_pool_to_gap``: per-atom outputs pool to the
+   gap exactly under ``softmax`` pooling.
+9. ``test_unknown_pooling_type_raises``: an invalid pooling type is rejected.
 """
 
 import math
@@ -24,6 +31,7 @@ from metatrain.gap_pet.model import (
     LUMO_PER_ATOM_OUTPUT_NAME,
     GapPET,
     _scatter_logsumexp,
+    _scatter_softmax_pool,
 )
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
@@ -77,8 +85,10 @@ def _build_water_systems(n_replicas: int = 1):
     return systems
 
 
-def _make_model(atomic_types):
+def _make_model(atomic_types, pooling=None):
     hypers = _minimal_hypers()
+    if pooling is not None:
+        hypers["pooling"] = {**hypers["pooling"], **pooling}
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=sorted(set(atomic_types)),
@@ -336,5 +346,121 @@ def test_train_step_decreases_loss():
         f"Training loss should drop by at least 2x within 40 AdamW steps. "
         f"Got initial loss {losses[0]:.4f}, min loss {min(losses):.4f}."
     )
+
+
+# --- test 6: softmax pool is strictly intensive ---------------------------
+
+
+@pytest.mark.parametrize("n_replicas", [2, 3])
+def test_softmax_pool_intensivity(n_replicas):
+    """The ``softmax`` pool is strictly intensive (softmax weights sum to 1),
+    so replicating the cell must leave ``E_gap`` invariant up to the small
+    differences in PET features at the (now internal) cell boundaries.
+
+    Unlike ``smoothmax`` there is no ``log(N)/|alpha|`` residual, so we can use
+    a tight bound that would fail for an extensive readout.
+    """
+    systems_1 = _build_water_systems(1)
+    systems_n = _build_water_systems(n_replicas)
+    atomic_types = list(systems_1[0].types.tolist())
+
+    model = _make_model(atomic_types, pooling={"type": "softmax"})
+    systems_1 = _attach_nl(model, systems_1)
+    systems_n = _attach_nl(model, systems_n)
+
+    outputs = {TARGET_NAME: ModelOutput(per_atom=False)}
+    with torch.no_grad():
+        e_gap_1 = model(systems_1, outputs)[TARGET_NAME].block().values.item()
+        e_gap_n = model(systems_n, outputs)[TARGET_NAME].block().values.item()
+
+    # No analytical degeneracy residual for the softmax pool; the only source
+    # of disagreement is the PET features changing slightly between the open
+    # and replicated boundaries. 0.5 eV cleanly separates intensive (~0.1 eV)
+    # from extensive (~N^3 eV) behaviour.
+    assert abs(e_gap_n - e_gap_1) < 0.5, (
+        f"softmax E_gap is not intensive: "
+        f"|E_gap({n_replicas}^3) - E_gap(1)| = {abs(e_gap_n - e_gap_1):.4f} eV"
+    )
+
+
+# --- test 7: softmax pool alpha limits ------------------------------------
+
+
+def test_softmax_pool_alpha_limits():
+    """As ``|alpha| -> infinity`` the self-weighted softmax pool must approach
+    the hard max (``alpha > 0``) / min (``alpha < 0``) of the per-atom values,
+    and the pooled value always lies within ``[min, max]`` (convex combination).
+    """
+    values = torch.tensor([0.1, -0.7, 1.3, 0.4, -1.1, 2.5], dtype=DTYPE)
+    system_indices = torch.zeros(values.shape[0], dtype=torch.int64)
+
+    pooled_max = _scatter_softmax_pool(
+        values, torch.tensor(1000.0, dtype=DTYPE), system_indices, 1
+    )
+    assert torch.isclose(pooled_max, values.max().reshape(1), atol=1e-2), (
+        f"softmax pool with alpha=1000 should approach {values.max()}, "
+        f"got {pooled_max.item()}"
+    )
+
+    pooled_min = _scatter_softmax_pool(
+        values, torch.tensor(-1000.0, dtype=DTYPE), system_indices, 1
+    )
+    assert torch.isclose(pooled_min, values.min().reshape(1), atol=1e-2), (
+        f"softmax pool with alpha=-1000 should approach {values.min()}, "
+        f"got {pooled_min.item()}"
+    )
+
+    # At finite alpha the pooled value is a convex combination of the inputs,
+    # hence strictly within [min, max] -- never overshoots (unlike smoothmax).
+    for alpha in (1.0, -1.0, 5.0, -5.0):
+        pooled = _scatter_softmax_pool(
+            values, torch.tensor(alpha, dtype=DTYPE), system_indices, 1
+        ).item()
+        assert values.min().item() - 1e-12 <= pooled <= values.max().item() + 1e-12
+
+
+# --- test 8: softmax per-atom outputs pool to gap -------------------------
+
+
+def test_softmax_per_atom_outputs_pool_to_gap():
+    """Under ``softmax`` pooling, the per-atom auxiliary outputs pooled with the
+    model's own alphas must reproduce ``E_LUMO - E_HOMO = E_gap`` exactly.
+    """
+    systems = _build_water_systems(1)
+    atomic_types = list(systems[0].types.tolist())
+
+    model = _make_model(atomic_types, pooling={"type": "softmax"})
+    systems = _attach_nl(model, systems)
+
+    outputs = {
+        TARGET_NAME: ModelOutput(per_atom=False),
+        HOMO_PER_ATOM_OUTPUT_NAME: ModelOutput(per_atom=True),
+        LUMO_PER_ATOM_OUTPUT_NAME: ModelOutput(per_atom=True),
+    }
+    with torch.no_grad():
+        out = model(systems, outputs)
+
+    n_atoms = systems[0].positions.shape[0]
+    h_homo = out[HOMO_PER_ATOM_OUTPUT_NAME].block().values.squeeze(-1)
+    h_lumo = out[LUMO_PER_ATOM_OUTPUT_NAME].block().values.squeeze(-1)
+    system_indices = torch.zeros(n_atoms, dtype=torch.int64)
+    e_homo = _scatter_softmax_pool(h_homo, model.alpha_homo, system_indices, 1)
+    e_lumo = _scatter_softmax_pool(h_lumo, model.alpha_lumo, system_indices, 1)
+    expected_gap = (e_lumo - e_homo).item()
+    actual_gap = out[TARGET_NAME].block().values.item()
+
+    assert abs(expected_gap - actual_gap) < 1e-10, (
+        f"softmax per-atom outputs do not pool to E_gap: "
+        f"pooled = {expected_gap:.6e}, model E_gap = {actual_gap:.6e}"
+    )
+
+
+# --- test 9: unknown pooling type is rejected -----------------------------
+
+
+def test_unknown_pooling_type_raises():
+    """An unrecognised pooling type must fail loudly at construction time."""
+    with pytest.raises(ValueError, match="Unknown pooling type"):
+        _make_model([1, 8], pooling={"type": "not_a_pool"})
 
 
