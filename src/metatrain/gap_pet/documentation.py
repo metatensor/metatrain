@@ -113,8 +113,12 @@ class ModelHypers(PETModelHypers):
 
     Inherits all the PET backbone hyperparameters and adds the GapPET-specific
     ``pooling`` section. The HOMO and LUMO heads share PET's ``d_head`` for the
-    readout MLP width. The PET hyperparameter ``featurizer_type`` is forced to
-    ``"residual"`` internally (all GNN layers are read out)."""
+    readout MLP width."""
+
+    featurizer_type: str = "residual"
+    """PET featurizer. GapPET defaults to ``"residual"`` so the HOMO/LUMO heads
+    read out every GNN layer. Set to ``"feedforward"`` to read out only the
+    final GNN layer (less expressive; mainly for ablations)."""
 
     pooling: PoolingHypers = init_with_defaults(PoolingHypers)
     """Hyperparameters for the extremal pooling."""

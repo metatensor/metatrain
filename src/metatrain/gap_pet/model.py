@@ -136,10 +136,12 @@ class GapPET(PET):
     )
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
-        # GapPET requires the residual featurizer (all GNN layers are read out
-        # by the heads). We always override ``featurizer_type`` to ``residual``
-        # silently; PET's default ``feedforward`` only ever exposes the last
-        # layer, which is wrong for GapPET.
+        # GapPET reads out *all* GNN layers via the HOMO/LUMO heads, so it works
+        # best with the ``residual`` featurizer; ``feedforward`` exposes only the
+        # last layer. GapPET therefore *defaults* ``featurizer_type`` to
+        # ``residual`` (see documentation.ModelHypers), but the configured value
+        # is honored, so ``featurizer_type: feedforward`` can be requested
+        # explicitly (e.g. to ablate the two featurizers).
 
         if len(dataset_info.targets) != 1:
             raise ValueError(
@@ -149,15 +151,16 @@ class GapPET(PET):
         self._gap_target_name = next(iter(dataset_info.targets))
 
         # PET reads only the keys it knows; the extra ``pooling`` key is ignored.
+        # ``featurizer_type`` is passed through as configured; if it is somehow
+        # absent we fall back to GapPET's ``residual`` default.
         backbone_hypers = dict(hypers)
-        backbone_hypers["featurizer_type"] = "residual"
+        backbone_hypers.setdefault("featurizer_type", "residual")
         super().__init__(backbone_hypers, dataset_info)
 
-        # Restore the gap hypers on self.hypers so that get_checkpoint round-trips.
-        # Also stamp the residual override so the saved checkpoint truthfully
-        # reflects what the model was actually built with.
+        # Restore the gap hypers on self.hypers so that get_checkpoint round-trips,
+        # recording the featurizer actually used.
         self.hypers = dict(hypers)
-        self.hypers["featurizer_type"] = "residual"
+        self.hypers.setdefault("featurizer_type", "residual")
 
         # PET's ``__init__`` registered standard energy heads + last layers for
         # the gap target. We don't use them (the gap is read out by extremal
