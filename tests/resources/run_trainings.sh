@@ -60,6 +60,15 @@ if [ "$MODE" != "32-bit" ]; then
     exit 0
 fi
 
+# Previously, we used to upload the generated 32-bit model to Hugging Face, so
+# that we can test downloading the model from hugging-face. However, this gives
+# rate limit issues in the CI. It also results in race conditions when multiple
+# CI runs are triggered at the same time, as they all try to upload the model
+# with the same name. For these reasons, for now we will skip the upload step,
+# which means that we might need to upload manually whenever there is a breaking
+# change. We might come up with a smarter solution, let's see.
+exit 0
+
 set +x  # disable command echoing for sensitive private token check
 TOKEN_PRESENT=false
 if [[ -n "${HUGGINGFACE_TOKEN_METATRAIN:-}" ]]; then
