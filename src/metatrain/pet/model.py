@@ -528,10 +528,9 @@ class PET(ModelInterface[ModelHypers]):
             )
 
             # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
-            # Allow direct diagnostic capture of raw featurizer input tensors
-            # (e.g. ``mtt::feature::edge_vectors``).  These are handled explicitly
-            # here rather than via hooks because they are plain tensors, not module
-            # outputs.
+            # Allow direct diagnostic capture of raw featurizer input tensors (e.g.
+            # ``mtt::feature::edge_vectors``).  These are handled explicitly here rather
+            # than via hooks because they are plain tensors, not module outputs.
             if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
                 if _diagnostic_pair_labels is not None:
                     for name, tensor in featurizer_inputs.items():
@@ -544,16 +543,15 @@ class PET(ModelInterface[ModelHypers]):
                                 sample_labels,
                                 _diagnostic_pair_labels,
                             )
+
+            # Hooks were registered before stage 1 (via prepare_diagnostic_handles) and
+            # must remain active through stage 4 so that modules in
+            # _calculate_last_layer_features and _calculate_atomic_predictions can also
+            # be captured.
+            _capture_diagnostics = _diagnostic_pair_labels is not None
+
             # ===== END DIAGNOSTIC-RELATED BLOCK
 
-            # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
-            # Hooks were registered before stage 1 (via prepare_diagnostic_handles)
-            # and must remain active through stage 4 so that modules in
-            # _calculate_last_layer_features and _calculate_atomic_predictions can
-            # also be captured.  Do NOT remove them inside a context manager here —
-            # they are cleaned up after stage 4 completes (see below).
-            _capture_diagnostics = _diagnostic_pair_labels is not None
-            # ===== END DIAGNOSTIC-RELATED BLOCK
             node_features_list, edge_features_list = self._calculate_features(
                 featurizer_inputs,
                 use_manual_attention=use_manual_attention,
