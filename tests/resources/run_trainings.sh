@@ -67,7 +67,8 @@ if [[ -n "${HUGGINGFACE_TOKEN_METATRAIN:-}" ]]; then
 fi
 set -x
 
-if [ $TOKEN_PRESENT = true ]; then
+if [ $TOKEN_PRESENT = true  && "$MODE" == "32-bit"]; then
+    # Upload model checkpoint 
     hf upload \
         "metatensor/metatrain-test" \
         "model-32-bit-$TRAIN_ID.ckpt" \
