@@ -173,7 +173,7 @@ def prepare_diagnostic_handles(
     convention) can be requested as::
 
         outputs = {
-            "mtt::feature::<module_path>": ModelOutput(per_atom=True), ...
+            "mtt::feature::<module_path>": ModelOutput(sample_kind="atom"), ...
         }
 
     For example, after seeing ``node_heads`` → ``energy`` → ``0`` in the repr, the user

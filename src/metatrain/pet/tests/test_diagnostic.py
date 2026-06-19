@@ -104,12 +104,12 @@ def test_energy_unaffected_by_hook_changes():
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    energy_only = model([system], {"energy": ModelOutput(per_atom=False)})
+    energy_only = model([system], {"energy": ModelOutput(sample_kind="system")})
     energy_with_diag = model(
         [system],
         {
-            "energy": ModelOutput(per_atom=False),
-            "mtt::feature::node_heads.energy.0": ModelOutput(per_atom=True),
+            "energy": ModelOutput(sample_kind="system"),
+            "mtt::feature::node_heads.energy.0": ModelOutput(sample_kind="atom"),
         },
     )
 
@@ -132,7 +132,7 @@ def test_node_head_output_returned():
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {"mtt::feature::node_heads.energy.0": ModelOutput(per_atom=True)}
+    outputs = {"mtt::feature::node_heads.energy.0": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
 
     assert "mtt::feature::node_heads.energy.0" in result
@@ -146,7 +146,7 @@ def test_node_head_output_sample_labels():
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {"mtt::feature::node_heads.energy.0": ModelOutput(per_atom=True)}
+    outputs = {"mtt::feature::node_heads.energy.0": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
 
     block = result["mtt::feature::node_heads.energy.0"].block()
@@ -161,7 +161,7 @@ def test_node_head_output_sample_labels_batch():
     model = PET(MODEL_HYPERS, dataset_info)
     systems = _make_multi_system(model)
 
-    outputs = {"mtt::feature::node_heads.energy.0": ModelOutput(per_atom=True)}
+    outputs = {"mtt::feature::node_heads.energy.0": ModelOutput(sample_kind="atom")}
     result = model(systems, outputs)
 
     block = result["mtt::feature::node_heads.energy.0"].block()
@@ -182,7 +182,7 @@ def test_edge_head_output_returned():
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {"mtt::feature::edge_heads.energy.0": ModelOutput(per_atom=True)}
+    outputs = {"mtt::feature::edge_heads.energy.0": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
 
     assert "mtt::feature::edge_heads.energy.0" in result
@@ -198,7 +198,7 @@ def test_edge_head_output_sample_labels():
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {"mtt::feature::edge_heads.energy.0": ModelOutput(per_atom=True)}
+    outputs = {"mtt::feature::edge_heads.energy.0": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
 
     block = result["mtt::feature::edge_heads.energy.0"].block()
@@ -222,7 +222,7 @@ def test_edge_head_pair_labels_valid_atoms():
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {"mtt::feature::edge_heads.energy.0": ModelOutput(per_atom=True)}
+    outputs = {"mtt::feature::edge_heads.energy.0": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
 
     block = result["mtt::feature::edge_heads.energy.0"].block()
@@ -244,7 +244,7 @@ def test_gnn_layer_node_output():
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {"mtt::feature::gnn_layers.0_node": ModelOutput(per_atom=True)}
+    outputs = {"mtt::feature::gnn_layers.0_node": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
 
     assert "mtt::feature::gnn_layers.0_node" in result
@@ -259,7 +259,7 @@ def test_gnn_layer_edge_output():
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {"mtt::feature::gnn_layers.0_edge": ModelOutput(per_atom=True)}
+    outputs = {"mtt::feature::gnn_layers.0_edge": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
 
     assert "mtt::feature::gnn_layers.0_edge" in result
@@ -296,7 +296,7 @@ def test_featurizer_input_capture(input_name):
     system = _make_water_system(model)
 
     key = f"mtt::feature::{input_name}"
-    result = model([system], {key: ModelOutput(per_atom=True)})
+    result = model([system], {key: ModelOutput(sample_kind="atom")})
 
     assert key in result
     assert result[key].block().values.shape[0] > 0
@@ -313,7 +313,7 @@ def test_node_embedder_output():
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {"mtt::feature::node_embedders.0": ModelOutput(per_atom=True)}
+    outputs = {"mtt::feature::node_embedders.0": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
 
     assert "mtt::feature::node_embedders.0" in result
@@ -334,10 +334,10 @@ def test_multiple_diagnostic_outputs():
     system = _make_water_system(model)
 
     outputs = {
-        "energy": ModelOutput(per_atom=False),
-        "mtt::feature::node_heads.energy.0": ModelOutput(per_atom=True),
-        "mtt::feature::edge_heads.energy.0": ModelOutput(per_atom=True),
-        "mtt::feature::gnn_layers.0_node": ModelOutput(per_atom=True),
+        "energy": ModelOutput(sample_kind="system"),
+        "mtt::feature::node_heads.energy.0": ModelOutput(sample_kind="atom"),
+        "mtt::feature::edge_heads.energy.0": ModelOutput(sample_kind="atom"),
+        "mtt::feature::gnn_layers.0_node": ModelOutput(sample_kind="atom"),
     }
     result = model([system], outputs)
 
@@ -368,7 +368,9 @@ def test_multiple_diagnostic_outputs_raw_features(featurizer_type):
             f"mtt::feature::node_heads.energy.{readout_layer}",
             f"mtt::feature::edge_heads.energy.{readout_layer}",
         ]
-        result = model([system], {name: ModelOutput(per_atom=True) for name in outputs})
+        result = model(
+            [system], {name: ModelOutput(sample_kind="atom") for name in outputs}
+        )
 
         assert result[outputs[0]].block().values.shape[1] == 128  # d_node
         assert result[outputs[1]].block().values.shape[1] == 64  # d_pet
@@ -390,7 +392,11 @@ def test_invalid_module_path_raises():
     with pytest.raises(AttributeError, match="not found in the model"):
         model(
             [system],
-            {"mtt::feature::this_module_does_not_exist": ModelOutput(per_atom=True)},
+            {
+                "mtt::feature::this_module_does_not_exist": ModelOutput(
+                    sample_kind="atom"
+                )
+            },
         )
 
 
@@ -406,7 +412,7 @@ def test_tuple_module_without_suffix_raises():
     with pytest.raises(ValueError, match="_node.*_edge|_edge.*_node"):
         model(
             [system],
-            {"mtt::feature::gnn_layers.0": ModelOutput(per_atom=True)},
+            {"mtt::feature::gnn_layers.0": ModelOutput(sample_kind="atom")},
         )
 
 
@@ -423,7 +429,7 @@ def test_diagnostic_outputs_are_deterministic():
     system = _make_water_system(model)
 
     key = "mtt::feature::node_heads.energy.0"
-    outputs = {key: ModelOutput(per_atom=True)}
+    outputs = {key: ModelOutput(sample_kind="atom")}
 
     result1 = model([system], outputs)
     result2 = model([system], outputs)
@@ -472,13 +478,13 @@ def _build_all_outputs(model) -> dict:
             continue
         key_base = DIAGNOSTIC_PREFIX + name
         if isinstance(module, _TUPLE_MODULE_TYPES):
-            outputs[key_base + "_node"] = ModelOutput(per_atom=True)
-            outputs[key_base + "_edge"] = ModelOutput(per_atom=True)
+            outputs[key_base + "_node"] = ModelOutput(sample_kind="atom")
+            outputs[key_base + "_edge"] = ModelOutput(sample_kind="atom")
         else:
-            outputs[key_base] = ModelOutput(per_atom=True)
+            outputs[key_base] = ModelOutput(sample_kind="atom")
 
     for feat_name in FEATURIZER_INPUT_NAMES:
-        outputs[DIAGNOSTIC_PREFIX + feat_name] = ModelOutput(per_atom=True)
+        outputs[DIAGNOSTIC_PREFIX + feat_name] = ModelOutput(sample_kind="atom")
 
     return outputs
 
