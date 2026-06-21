@@ -939,8 +939,6 @@ def test_memmap_extra_data_fields_present_in_sample(tmp_path):
 
 def test_memmap_get_extra_data_info_returns_target_info(tmp_path):
     """get_extra_data_info() returns a TargetInfo for each extra_data key."""
-    from metatrain.utils.data import TargetInfo
-
     target_options, _ = _write_minimal_memmap(tmp_path)
     np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
 
