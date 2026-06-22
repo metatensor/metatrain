@@ -29,6 +29,7 @@ from metatrain.utils.data import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
+from metatrain.utils.io import model_from_checkpoint
 
 from .documentation import ModelHypers
 from .modules.edge_embedding import RadialEmbeddingBlock
@@ -231,6 +232,12 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
         )
 
         self.additive_models = torch.nn.ModuleList([composition_model])
+
+        if self.hypers.get("edge_composition"):
+            ckpt = torch.load(self.hypers["edge_composition"], map_location="cpu", weights_only=False)
+            self.additive_models.append(
+                model_from_checkpoint(ckpt, "export")
+            )
 
         self.scaler = Scaler(hypers={}, dataset_info=self.dataset_info)
 
@@ -533,8 +540,14 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
     def requested_neighbor_lists(
         self,
     ) -> List[NeighborListOptions]:
+        if len(self.additive_models) > 1:
+            edge_comp_neighbor_lists = self.additive_models[1].requested_neighbor_lists()
+        else:
+            edge_comp_neighbor_lists = []
+
         return [
             *self.featurizer_model.requested_neighbor_lists(),
+            *edge_comp_neighbor_lists,
             # *list(self.graph2mat_nls.values())
         ]
 
