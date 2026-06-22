@@ -66,6 +66,8 @@ class ModelHypers(TypedDict):
     The keys of the dictionary are the names of the matrices, and the
     values specify which nodes and edges to use for each matrix.
     """
+    edge_composition: Optional[str] = None
+    """Path to a checkpoint for a pretrained edge composition model."""
 
 
 class TrainerHypers(TypedDict):
