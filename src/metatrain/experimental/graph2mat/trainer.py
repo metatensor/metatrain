@@ -264,7 +264,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Create collate functions:
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
-        requested_neighbor_lists = get_requested_neighbor_lists(model.featurizer_model)
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
         collate_fn = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
