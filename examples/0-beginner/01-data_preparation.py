@@ -9,7 +9,7 @@ How to prepare data for training
     common file format (like XYZ or `ASE database`_), you can skip this tutorial and
     directly start training.
 
-.. _ASE database: https://ase-lib.org/ase/db/db.html
+.. _ASE database: https://docs.ase-lib.org/ase/db/db.html
 
 XYZ, ASE databases, and also from metrain's
 :class:`metatrain.utils.data.dataset.DiskDataset <DiskDataset>` file.
@@ -51,7 +51,7 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 # first create a list of all path that we want to read from. Here, for simplicity, we
 # assume that all files are located in the same directory.
 #
-# .. _ASE: https://ase-lib.org/
+# .. _ASE: https://docs.ase-lib.org/
 
 filelist = 100 * ["qm9_reduced_100.xyz"]
 
