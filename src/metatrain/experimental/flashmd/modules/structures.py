@@ -1,4 +1,3 @@
-import warnings
 from typing import List
 
 import torch
@@ -49,30 +48,11 @@ def concatenate_structures(
         positions.append(system.positions)
         species.append(system.types)
 
-        # for backwards compatibility, allow both "momentum" and "momenta" as a field
-        if (
-            "momentum" not in system.known_data()
-            and "momenta" not in system.known_data()
-        ):
+        if "momentum" not in system.known_data():
             raise ValueError(
                 "System does not contain momentum data, which is required for FlashMD."
             )
-
-        # print a deprecation warning if "momenta" is used instead of "momentum"
-        if not torch.jit.is_scripting():
-            if "momenta" in system.known_data():
-                warnings.warn(
-                    "DEPRECATED[momenta]: System contains 'momenta' data, but "
-                    "'momentum' is expected. Please rename the field to 'momentum' "
-                    "to avoid this warning in the future.",
-                    stacklevel=2,
-                )
-
-        if "momenta" in system.known_data():
-            tmap = system.get_data("momenta")
-        else:
-            tmap = system.get_data("momentum")
-
+        tmap = system.get_data("momentum")
         block = tmap[0]
         momenta.append(block.values.squeeze(-1))
 

@@ -145,13 +145,8 @@ class PositionAdditive(torch.nn.Module):
         return_dict["position"] = position_tensor_map
 
         if self.do_momenta:
-            # as of now, the extra field can either be "momentum" or "momenta".
-            field_name = (
-                "momentum" if "momentum" in systems[0].known_data() else "momenta"
-            )
-
             all_momenta = torch.concatenate(
-                [system.get_data(field_name).block().values for system in systems]
+                [system.get_data("momentum").block().values for system in systems]
             )
             momenta_tensor_map = TensorMap(
                 keys=single_label,
