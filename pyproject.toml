@@ -206,7 +206,9 @@ filterwarnings = [
     "ignore:the 'masses' quantity is deprecated:DeprecationWarning",
     "ignore:the 'velocities' quantity is deprecated:DeprecationWarning",
     "ignore:the 'charges' quantity is deprecated:DeprecationWarning",
-    "ignore:ModelOutput.quantity is deprecated:DeprecationWarning"
+    "ignore:ModelOutput.quantity is deprecated:DeprecationWarning",
+    # numpy 2.5 deprecation from ASE readers (checked with ASE v3.29)
+    "ignore:Setting the shape on a NumPy array has been deprecated in NumPy 2.5:DeprecationWarning",
 ]
 addopts = ["-p", "mtt_plugin"]
 pythonpath = "src/metatrain/utils/testing"

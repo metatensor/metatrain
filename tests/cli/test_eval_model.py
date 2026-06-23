@@ -1,6 +1,7 @@
 import logging
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -42,14 +43,27 @@ def test_eval_cli(monkeypatch, tmp_path, MODEL_PATH):
         str(MODEL_PATH),
         str(EVAL_OPTIONS_PATH),
         "-e",
-        str(RESOURCES_PATH / "extensions"),
+        str(MODEL_PATH.parent / "extensions"),
         "--check-consistency",
     ]
 
-    output = subprocess.check_output(command, stderr=subprocess.STDOUT)
+    result = subprocess.run(
+        command,
+        stderr=subprocess.STDOUT,
+        stdout=subprocess.PIPE,
+    )
 
-    assert "100%|██████████" in output.decode()
-    assert b"energy RMSE" in output
+    if result.returncode != 0:
+        print(
+            f"Eval logs:\n{result.stdout.decode()}",
+            file=sys.stderr,
+        )
+        raise RuntimeError(
+            "Failed to evaluate model via CLI. Logs should be printed above."
+        )
+
+    assert "100%|██████████" in result.stdout.decode()
+    assert "energy RMSE" in result.stdout.decode()
 
     assert Path("output.xyz").is_file()
 

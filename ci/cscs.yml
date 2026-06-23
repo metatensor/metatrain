@@ -39,26 +39,6 @@ build mtt:
     KUBERNETES_MEMORY_REQUEST: '64Gi'
     KUBERNETES_MEMORY_LIMIT: '64Gi'
 
-# Run tox tests (single GPU)
-test tox:
-  stage: test
-  # Trigger tox tests as soon as base image is ready
-  needs:
-    - build base
-  extends: .container-runner-daint-gh200
-  image: $BASE_IMAGE
-  timeout: 24h
-  script:
-    - rm -rf /tmp/tox/
-    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
-    - tox --workdir /tmp/tox/ --list-dependencies
-  variables:
-    SLURM_JOB_NUM_NODES: 1
-    SLURM_PARTITION: normal
-    SLURM_NTASKS: 1
-    SLURM_TIMELIMIT: '01:00:00'
-    GIT_STRATEGY: fetch
-
 # Run distributed training (single node, multiple GPUs)
 test distributed:
   stage: test
@@ -131,4 +111,225 @@ test distributed multitarget finetuning:
     SLURM_TIMELIMIT: '00:10:00'
     SLURM_UNBUFFEREDIO: 1
     USE_NCCL: 'cuda12'
+    GIT_STRATEGY: fetch
+
+
+# Run tox tests (single GPU)
+tests:
+  stage: test
+  # Trigger tox tests as soon as base image is ready
+  needs:
+    - build base
+  extends: .container-runner-daint-gh200
+  image: $BASE_IMAGE
+  timeout: 24h
+  script:
+    - rm -rf /tmp/tox/
+    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    - tox -e tests --workdir /tmp/tox/ --list-dependencies
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 1
+    SLURM_TIMELIMIT: '00:08:00'
+    GIT_STRATEGY: fetch
+
+# Run tox tests (single GPU)
+gap-tests:
+  stage: test
+  # Trigger tox tests as soon as base image is ready
+  needs:
+    - build base
+  extends: .container-runner-daint-gh200
+  image: $BASE_IMAGE
+  timeout: 24h
+  script:
+    - rm -rf /tmp/tox/
+    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    - tox -e gap-tests --workdir /tmp/tox/ --list-dependencies
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 1
+    SLURM_TIMELIMIT: '00:04:00'
+    GIT_STRATEGY: fetch
+
+# Run tox tests (single GPU)
+pet-tests:
+  stage: test
+  # Trigger tox tests as soon as base image is ready
+  needs:
+    - build base
+  extends: .container-runner-daint-gh200
+  image: $BASE_IMAGE
+  timeout: 24h
+  script:
+    - rm -rf /tmp/tox/
+    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    - tox -e pet-tests --workdir /tmp/tox/ --list-dependencies
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 1
+    SLURM_TIMELIMIT: '00:08:00'
+    GIT_STRATEGY: fetch
+
+# Run tox tests (single GPU)
+llpr-tests:
+  stage: test
+  # Trigger tox tests as soon as base image is ready
+  needs:
+    - build base
+  extends: .container-runner-daint-gh200
+  image: $BASE_IMAGE
+  timeout: 24h
+  script:
+    - rm -rf /tmp/tox/
+    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    - tox -e llpr-tests --workdir /tmp/tox/ --list-dependencies
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 1
+    SLURM_TIMELIMIT: '00:08:00'
+    GIT_STRATEGY: fetch
+
+# Run tox tests (single GPU)
+soap-bpnn-tests:
+  stage: test
+  # Trigger tox tests as soon as base image is ready
+  needs:
+    - build base
+  extends: .container-runner-daint-gh200
+  image: $BASE_IMAGE
+  timeout: 24h
+  script:
+    - rm -rf /tmp/tox/
+    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    - tox -e soap-bpnn-tests --workdir /tmp/tox/ --list-dependencies
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 1
+    SLURM_TIMELIMIT: '00:08:00'
+    GIT_STRATEGY: fetch
+
+# Run tox tests (single GPU)
+phace-tests:
+  stage: test
+  # Trigger tox tests as soon as base image is ready
+  needs:
+    - build base
+  extends: .container-runner-daint-gh200
+  image: $BASE_IMAGE
+  timeout: 24h
+  script:
+    - rm -rf /tmp/tox/
+    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    - tox -e phace-tests --workdir /tmp/tox/ --list-dependencies
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 1
+    SLURM_TIMELIMIT: '00:07:00'
+    GIT_STRATEGY: fetch
+
+# Run tox tests (single GPU)
+flashmd-symplectic-tests:
+  stage: test
+  # Trigger tox tests as soon as base image is ready
+  needs:
+    - build base
+  extends: .container-runner-daint-gh200
+  image: $BASE_IMAGE
+  timeout: 24h
+  script:
+    - rm -rf /tmp/tox/
+    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    - tox -e flashmd-symplectic-tests --workdir /tmp/tox/ --list-dependencies
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 1
+    SLURM_TIMELIMIT: '00:04:00'
+    GIT_STRATEGY: fetch
+
+# Run tox tests (single GPU)
+dpa3-tests:
+  stage: test
+  # Trigger tox tests as soon as base image is ready
+  needs:
+    - build base
+  extends: .container-runner-daint-gh200
+  image: $BASE_IMAGE
+  timeout: 24h
+  script:
+    - rm -rf /tmp/tox/
+    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    - tox -e dpa3-tests --workdir /tmp/tox/ --list-dependencies
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 1
+    SLURM_TIMELIMIT: '00:07:00'
+    GIT_STRATEGY: fetch
+
+# Run tox tests (single GPU)
+mace-tests:
+  stage: test
+  # Trigger tox tests as soon as base image is ready
+  needs:
+    - build base
+  extends: .container-runner-daint-gh200
+  image: $BASE_IMAGE
+  timeout: 24h
+  script:
+    - rm -rf /tmp/tox/
+    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    - tox -e mace-tests --workdir /tmp/tox/ --list-dependencies
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 1
+    SLURM_TIMELIMIT: '00:10:00'
+    GIT_STRATEGY: fetch
+
+# Run tox tests (single GPU)
+classifier-tests:
+  stage: test
+  # Trigger tox tests as soon as base image is ready
+  needs:
+    - build base
+  extends: .container-runner-daint-gh200
+  image: $BASE_IMAGE
+  timeout: 24h
+  script:
+    - rm -rf /tmp/tox/
+    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    - tox -e classifier-tests --workdir /tmp/tox/ --list-dependencies
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 1
+    SLURM_TIMELIMIT: '00:10:00'
+    GIT_STRATEGY: fetch
+
+# Run tox tests (single GPU)
+flashmd-tests:
+  stage: test
+  # Trigger tox tests as soon as base image is ready
+  needs:
+    - build base
+  extends: .container-runner-daint-gh200
+  image: $BASE_IMAGE
+  timeout: 24h
+  script:
+    - rm -rf /tmp/tox/
+    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    - tox -e flashmd-tests --workdir /tmp/tox/ --list-dependencies
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 1
+    SLURM_TIMELIMIT: '00:06:00'
     GIT_STRATEGY: fetch
