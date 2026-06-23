@@ -126,9 +126,6 @@ tests:
   script:
     - rm -rf /tmp/tox/
     - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
-    # Pre run all trainings to avoid issues with multiple processes
-    # in CSCS
-    - bash tests/resources/run_all_trainings.sh
     - tox -e tests --workdir /tmp/tox/ --list-dependencies
   variables:
     SLURM_JOB_NUM_NODES: 1
@@ -136,11 +133,13 @@ tests:
     SLURM_NTASKS: 1
     SLURM_TIMELIMIT: '00:08:00'
     GIT_STRATEGY: fetch
+    # Pre run all trainings to avoid issues with multiple processes
+    # in CSCS
+    MTT_TESTS_PRERUN_TRAININGS: '1'
 
-# Run tox tests (single GPU)
 gap-tests:
   stage: test
-  # Trigger tox tests as soon as base image is ready
+  # Trigger tests as soon as base image is ready
   needs:
     - build base
   extends: .container-runner-daint-gh200
@@ -157,10 +156,9 @@ gap-tests:
     SLURM_TIMELIMIT: '00:04:00'
     GIT_STRATEGY: fetch
 
-# Run tox tests (single GPU)
 pet-tests:
   stage: test
-  # Trigger tox tests as soon as base image is ready
+  # Trigger tests as soon as base image is ready
   needs:
     - build base
   extends: .container-runner-daint-gh200
@@ -177,10 +175,9 @@ pet-tests:
     SLURM_TIMELIMIT: '00:08:00'
     GIT_STRATEGY: fetch
 
-# Run tox tests (single GPU)
 llpr-tests:
   stage: test
-  # Trigger tox tests as soon as base image is ready
+  # Trigger tests as soon as base image is ready
   needs:
     - build base
   extends: .container-runner-daint-gh200
@@ -197,10 +194,9 @@ llpr-tests:
     SLURM_TIMELIMIT: '00:08:00'
     GIT_STRATEGY: fetch
 
-# Run tox tests (single GPU)
 soap-bpnn-tests:
   stage: test
-  # Trigger tox tests as soon as base image is ready
+  # Trigger tests as soon as base image is ready
   needs:
     - build base
   extends: .container-runner-daint-gh200
@@ -237,10 +233,9 @@ phace-tests:
     SLURM_TIMELIMIT: '00:07:00'
     GIT_STRATEGY: fetch
 
-# Run tox tests (single GPU)
 flashmd-symplectic-tests:
   stage: test
-  # Trigger tox tests as soon as base image is ready
+  # Trigger tests as soon as base image is ready
   needs:
     - build base
   extends: .container-runner-daint-gh200
@@ -257,10 +252,9 @@ flashmd-symplectic-tests:
     SLURM_TIMELIMIT: '00:04:00'
     GIT_STRATEGY: fetch
 
-# Run tox tests (single GPU)
 dpa3-tests:
   stage: test
-  # Trigger tox tests as soon as base image is ready
+  # Trigger tests as soon as base image is ready
   needs:
     - build base
   extends: .container-runner-daint-gh200
@@ -277,10 +271,9 @@ dpa3-tests:
     SLURM_TIMELIMIT: '00:07:00'
     GIT_STRATEGY: fetch
 
-# Run tox tests (single GPU)
 mace-tests:
   stage: test
-  # Trigger tox tests as soon as base image is ready
+  # Trigger tests as soon as base image is ready
   needs:
     - build base
   extends: .container-runner-daint-gh200
@@ -297,10 +290,9 @@ mace-tests:
     SLURM_TIMELIMIT: '00:10:00'
     GIT_STRATEGY: fetch
 
-# Run tox tests (single GPU)
 classifier-tests:
   stage: test
-  # Trigger tox tests as soon as base image is ready
+  # Trigger tests as soon as base image is ready
   needs:
     - build base
   extends: .container-runner-daint-gh200
@@ -317,10 +309,9 @@ classifier-tests:
     SLURM_TIMELIMIT: '00:10:00'
     GIT_STRATEGY: fetch
 
-# Run tox tests (single GPU)
 flashmd-tests:
   stage: test
-  # Trigger tox tests as soon as base image is ready
+  # Trigger tests as soon as base image is ready
   needs:
     - build base
   extends: .container-runner-daint-gh200
