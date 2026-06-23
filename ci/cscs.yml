@@ -126,6 +126,9 @@ tests:
   script:
     - rm -rf /tmp/tox/
     - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    # Pre run all trainings to avoid issues with multiple processes
+    # in CSCS
+    - bash tests/resources/run_all_trainings.sh
     - tox -e tests --workdir /tmp/tox/ --list-dependencies
   variables:
     SLURM_JOB_NUM_NODES: 1
