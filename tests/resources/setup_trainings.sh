@@ -6,5 +6,7 @@ if [ "${MTT_TESTS_PRERUN_TRAININGS:0}" = 1 ]; then
     bash "$ROOT_DIR/run_trainings.sh" 64-bit
     bash "$ROOT_DIR/run_trainings.sh" pet
 else
-    echo "Skipping prerunning trainings. Set MTT_TESTS_PRERUN_TRAININGS=1 to enable."
+    rm -r ${ROOT_DIR}/train_32-bit || true
+    rm -r ${ROOT_DIR}/train_64-bit || true
+    rm -r ${ROOT_DIR}/train_pet || true
 fi
