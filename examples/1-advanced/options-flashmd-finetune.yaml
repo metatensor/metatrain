@@ -10,11 +10,11 @@ architecture:
     num_epochs: 1  # to be increased (at least 1000-10000) in a production scenario
     log_interval: 1
     loss:
-      positions:
+      position:
         type: mse
         weight: 1.0
         reduction: mean
-      momenta:
+      momentum:
         type: mse
         weight: 1.0
         reduction: mean
@@ -24,7 +24,7 @@ training_set:
     read_from: flashmd.xyz
     length_unit: A
   targets:
-    positions:
+    position:
       key: future_positions
       quantity: length
       unit: A
@@ -32,7 +32,7 @@ training_set:
         cartesian:
           rank: 1
       sample_kind: atom
-    momenta:
+    momentum:
       key: future_momenta
       quantity: momentum
       unit: (eV*u)^(1/2)
