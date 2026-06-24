@@ -3,6 +3,8 @@
 Training YAML Reference
 ***********************
 
+VS code can help you write metatrain YAML files, see :ref:`validation-vscode`!
+
 Overview
 ========
 
@@ -480,3 +482,40 @@ run so you don't have to set the ``config`` parameter.
     **Before** running also set up your credentials with ``wandb login`` from the
     command line. See `wandb login documentation
     <https://docs.wandb.ai/ref/cli/wandb-login>`_ for details on the setup.
+
+JSON Schema
+===========
+
+JSON schemas are a powerful tool to validate input files.
+The full ``metatrain`` training JSON schema can be downloaded by clicking :download:`this link <../architectures/generated/schemas/mtt_train_schema.json>`.
+
+.. _validation-vscode:
+
+Validation in VS code
+---------------------
+
+It is very easy to set up VS code to help you with writing metatrain YAML files.
+
+**Step 1**: Download the YAML extension (by Red Hat) from the marketplace.
+
+**Step 2**: Go to ``File > Preferences > Settings``, search for "yaml schemas", then click on "Edit in settings.json".
+There, add the following entry:
+
+.. code-block:: json
+
+    "yaml.schemas": {
+        "https://docs.metatensor.org/metatrain/latest/mtt_train_schema.json": "options.yaml"
+    }
+
+.. note::
+
+    If you are using a particular metatrain released version, you can replace ``latest`` with ``v<VERSION>``,
+    where ``<VERSION>`` is the version of metatrain you are using, which can be obtained with ``mtt --version``.
+    You can also just :download:`download the schema <../architectures/generated/schemas/mtt_train_schema.json>`
+    to a local file and replace the URL with the path to the local file.
+
+    If your input yaml files are not called ``options.yaml``, you can modify the right hand side of
+    the entry to match whatever you need, e.g. ``["mtt_*.yaml", "train.yaml"]`` to apply the schema
+    validation to all yaml files starting with ``mtt_`` or named ``train.yaml``.
+
+**Step 3**: Enjoy autocompletion, hyperparameter descriptions and error highlighting.

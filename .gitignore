@@ -176,6 +176,7 @@ extensions/
 
 # lock files for model training
 tests/resources/*.trainlock
+tests/resources/train_*/
 
 # sphinx gallery
 docs/src/generated_examples/

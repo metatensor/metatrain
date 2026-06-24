@@ -4,9 +4,9 @@ Training a DOS model
 
 This tutorial demonstrates how to train a model for the prediction
 of the electronic density of states (DOS), while accounting for the unique properties
-of the DOS using the :ref:`masked dos loss function <dos-loss>`. This procedure can be
-used to train PET-MAD-DOS, a universal model for the electronic density
-of states. (https://arxiv.org/abs/2508.17418)
+of the DOS using the :ref:`Shift Agnostic MSE loss function <shift-agnostic-loss>`.
+This procedure can be used to train PET-MAD-DOS, a universal model for the
+electronic density of states. (https://arxiv.org/abs/2508.17418)
 """
 
 # %%
@@ -120,11 +120,8 @@ ase.io.write("DOS.xyz", structures)
 
 # We disable composition contributions because it is difficult to fit the DOS
 # using a composition model, accounting for the ill-defined energy reference of
-# the DOS. ``scale_targets`` is also set to false because it does not support masks.
-# For details regarding the parameters of the loss function, please refer
-# to the :ref:`masked dos loss function <dos-loss>` documentation. Additionally,
-# the mask should be provided as extra data and share the same name as the target
-# DOS with a "_mask" suffix. Due to the small dataset in this example, we set the
+# the DOS. For the same reason, we set ``scale_targets`` to ``False``.
+# Due to the small dataset in this example, we set the
 # validation set to be identical to the train set. In practice, you should use a
 # separate validation set or set it as a fraction of the training set.
 
