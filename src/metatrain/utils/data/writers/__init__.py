@@ -5,6 +5,7 @@ from metatomic.torch import ModelCapabilities
 
 from .ase import ASEWriter
 from .diskdataset import DiskDatasetWriter
+from .memmap import MemMapWriter
 from .metatensor import MetatensorWriter
 from .writers import (
     Writer,

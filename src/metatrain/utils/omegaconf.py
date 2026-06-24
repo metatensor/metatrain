@@ -103,6 +103,10 @@ BASE_OPTIONS = OmegaConf.create(
         "base_precision": "${default_precision:}",
         "seed": "${default_random_seed:}",
         "test_set": 0.0,
+        "final_evaluation": {
+            "write_predictions": False,
+            "format": "xyz",
+        },
     }
 )
 

@@ -326,6 +326,24 @@ WandbConfig = dict
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))
+class FinalEvaluationHypers(TypedDict):
+    """Hyperparameters controlling prediction output at the end of training."""
+
+    write_predictions: NotRequired[bool]
+    """If ``True``, save model predictions for each split to disk after training.
+
+    Predictions are written to ``<checkpoint_dir>/final_evaluation/``."""
+
+    format: NotRequired[Literal["xyz", "memmap"]]
+    """Output format for the saved predictions.
+
+    - ``"xyz"``: extended XYZ file (one per split), compatible with ASE.
+    - ``"memmap"``: one ``.npy`` file per target per split, loadable as a
+      memory-mapped array via ``numpy.load(path, mmap_mode='r')``.
+    """
+
+
+@with_config(ConfigDict(extra="forbid", strict=True))
 class BaseHypers(TypedDict):
     """Base hyperparameters for all models."""
 
@@ -378,3 +396,8 @@ class BaseHypers(TypedDict):
     a full dataset specification, or an ``indices`` dict referencing
     the training source file.
     """
+
+    final_evaluation: NotRequired[FinalEvaluationHypers]
+    """Options controlling prediction output at the end of training.
+
+    If not provided, only RMSE/MAE metrics are logged (existing behaviour)."""
