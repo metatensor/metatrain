@@ -130,7 +130,7 @@ autodoc_typehints = "both"
 autodoc_typehints_format = "short"
 
 intersphinx_mapping = {
-    "ase": ("https://ase-lib.org/", None),
+    "ase": ("https://docs.ase-lib.org/", None),
     "python": ("https://docs.python.org/3", None),
     "torch": ("https://docs.pytorch.org/docs/stable/", None),
     "metatensor": ("https://docs.metatensor.org/latest/", None),
