@@ -50,7 +50,7 @@ warnings.filterwarnings(
 
 
 class PhACE(ModelInterface[ModelHypers]):
-    """PhACE model: metatensor-based wrapper around ``BaseModel``
+    """PhACE model: metatomic-based wrapper around ``BaseModel``
     and/or ``GradientModel``."""
 
     __checkpoint_version__ = 2
