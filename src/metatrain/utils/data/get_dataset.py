@@ -5,6 +5,7 @@ from metatensor.torch import TensorMap
 from omegaconf import DictConfig
 
 from .dataset import Dataset, DiskDataset, MemmapDataset
+from .memmap_from_disk import create_memmap_dataset_from_zip
 from .readers import read_extra_data, read_systems, read_targets
 from .target_info import TargetInfo
 
@@ -30,14 +31,25 @@ def get_dataset(
     extra_data_info_dictionary = {}
 
     if options["systems"]["read_from"].endswith(".zip"):  # disk dataset
-        dataset = DiskDataset(
-            options["systems"]["read_from"],
-            fields=[*options["targets"], *options.get("extra_data", {})],
-        )
-        target_info_dictionary = dataset.get_target_info(options["targets"])
-        extra_data_info_dictionary = dataset.get_target_info(
-            options.get("extra_data", {}), is_extra_data=True
-        )
+        if options.get("to_memmap", False):
+            # Build a generic memory-mapped copy of the DiskDataset on the fly. The
+            # temporary files are removed automatically when training finishes.
+            dataset = create_memmap_dataset_from_zip(
+                options["systems"]["read_from"],
+                options["targets"],
+                extra_data_options=options.get("extra_data", {}),
+            )
+            target_info_dictionary = dataset.get_target_info()
+            extra_data_info_dictionary = dataset.get_extra_data_info()
+        else:
+            dataset = DiskDataset(
+                options["systems"]["read_from"],
+                fields=[*options["targets"], *options.get("extra_data", {})],
+            )
+            target_info_dictionary = dataset.get_target_info(options["targets"])
+            extra_data_info_dictionary = dataset.get_target_info(
+                options.get("extra_data", {}), is_extra_data=True
+            )
     elif Path(options["systems"]["read_from"]).is_dir():  # memmap dataset
         dataset = MemmapDataset(options["systems"]["read_from"], options["targets"])
         target_info_dictionary = dataset.get_target_info()
