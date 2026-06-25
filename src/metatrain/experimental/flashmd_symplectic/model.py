@@ -45,7 +45,7 @@ class FlashMDSymplectic(ModelInterface):
     For more information, you can refer to https://arxiv.org/abs/2508.01068.
     """
 
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -464,7 +464,7 @@ class FlashMDSymplectic(ModelInterface):
                 element_indices_nodes=element_indices_nodes,
                 element_indices_neighbors=element_indices_neighbors,
                 edge_vectors=edge_vectors,
-                momenta=momenta,
+                momentum=momenta,
                 reverse_neighbor_index=reverse_neighbor_index,
                 padding_mask=padding_mask,
                 edge_distances=edge_distances,
@@ -568,7 +568,7 @@ class FlashMDSymplectic(ModelInterface):
             dSdp = dSdp_opt
         else:
             raise ValueError("Error dSdp :(")
-        return_dict["positions"] = TensorMap(
+        return_dict["position"] = TensorMap(
             keys=self.single_label,
             blocks=[
                 TensorBlock(
@@ -580,13 +580,13 @@ class FlashMDSymplectic(ModelInterface):
                             values=torch.tensor([[0], [1], [2]], device=device),
                         )
                     ],
-                    properties=self.dataset_info.targets["positions"]
+                    properties=self.dataset_info.targets["position"]
                     .layout.block(0)
                     .properties.to(device),
                 )
             ],
         )
-        return_dict["momenta"] = TensorMap(
+        return_dict["momentum"] = TensorMap(
             keys=self.single_label,
             blocks=[
                 TensorBlock(
@@ -598,7 +598,7 @@ class FlashMDSymplectic(ModelInterface):
                             values=torch.tensor([[0], [1], [2]], device=device),
                         )
                     ],
-                    properties=self.dataset_info.targets["momenta"]
+                    properties=self.dataset_info.targets["momentum"]
                     .layout.block(0)
                     .properties.to(device),
                 )
@@ -701,7 +701,7 @@ class FlashMDSymplectic(ModelInterface):
         edge_features_list: List[torch.Tensor] = []
 
         input_node_embeddings = self.node_embedders[0](
-            inputs["element_indices_nodes"], inputs["momenta"]
+            inputs["element_indices_nodes"], inputs["momentum"]
         )
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
         for combination_norm, combination_mlp, gnn_layer in zip(
@@ -767,7 +767,7 @@ class FlashMDSymplectic(ModelInterface):
             self.node_embedders, self.gnn_layers, strict=True
         ):
             input_node_embeddings = node_embedder(
-                inputs["element_indices_nodes"], inputs["momenta"]
+                inputs["element_indices_nodes"], inputs["momentum"]
             )
             output_node_embeddings, output_edge_embeddings = gnn_layer(
                 input_node_embeddings,
@@ -1452,7 +1452,7 @@ def should_compute_last_layer_features(
 def verify_masses(systems: list[System], masses: torch.Tensor):
     """Attach masses to systems that don't have them yet."""
     for system_index, system in enumerate(systems):
-        if "masses" not in system.known_data():
+        if "mass" not in system.known_data():
             # obtain the masses from the atomic types
             values = masses[system.types].unsqueeze(-1)
 
@@ -1484,11 +1484,11 @@ def verify_masses(systems: list[System], masses: torch.Tensor):
                     )
                 ],
             )
-            system.add_data("masses", masses_map)
+            system.add_data("mass", masses_map)
         else:
             # verify that the masses are correct
             # (compare them to the ones stored in the model)
-            system_masses = system.get_data("masses").block(0).values.squeeze(-1)
+            system_masses = system.get_data("mass").block(0).values.squeeze(-1)
             expected_system_masses = masses[system.types]
             # NOTE: 1e-3 is a bit rough, but it covers the case that someone is using
             # the wrong isotope

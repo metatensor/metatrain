@@ -65,8 +65,8 @@ class FlashMDTests(ArchitectureTests):
         }
 
         return {
-            "positions": positions_target,
-            "momenta": momenta_target,
+            "position": positions_target,
+            "momentum": momenta_target,
         }
 
 

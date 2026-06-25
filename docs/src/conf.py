@@ -147,7 +147,10 @@ bibtex_reference_style = "author_year"
 # sitemap/SEO settings
 html_baseurl = "https://docs.metatensor.org/metatrain/latest/"  # prefix for the sitemap
 sitemap_url_scheme = "{link}"  # avoids language settings
-html_extra_path = ["robots.txt"]  # extra files to move
+html_extra_path = [
+    "robots.txt",
+    "architectures/generated/schemas",
+]  # extra files to move
 
 # -- Options for HTML output -------------------------------------------------
 
