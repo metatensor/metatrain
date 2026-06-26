@@ -206,9 +206,9 @@ class MetatrainArchitectureValidationError(MetatrainValidationError):
             error_dict[top_level].append(err)
 
         error_str = (
-            f"{len(errors)} validation errors occurred for the  {self._architecture} "
-            if self._architecture
-            else " architecture options:\n"
+            f"{len(errors)} validation errors occurred for the "
+            + (f"{self._architecture} " if self._architecture else "")
+            + "architecture options:\n"
         )
 
         # Log errors for the model hyperparameters
