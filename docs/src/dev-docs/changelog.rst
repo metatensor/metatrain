@@ -35,6 +35,9 @@ Added
   support this situation.
 - Metatrain now supports spherical rank 2 targets (although only PET can handle
   them for now).
+- Generated JSON schema to validate yaml files passed to ``mtt train``. It is
+  included in the online documentation and can be used e.g. with VScode for
+  autocomplete, documentation and validation.
 
 Fixed
 #####
