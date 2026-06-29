@@ -5,11 +5,6 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatrain.utils.scaler.checkpoints import update_per_property_scales
 
 
-# Single source of truth for the current model checkpoint version;
-# ``PET.__checkpoint_version__`` reads this value.
-MODEL_CHECKPOINT_VERSION = 14
-
-
 ###########################
 # MODEL ###################
 ###########################

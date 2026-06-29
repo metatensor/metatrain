@@ -59,7 +59,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = checkpoints.MODEL_CHECKPOINT_VERSION
+    __checkpoint_version__ = 14
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
