@@ -183,13 +183,20 @@ def _eval_targets(
     target_keys = list(model.capabilities().outputs.keys())
     requested_neighbor_lists = get_requested_neighbor_lists(model)
     callables = [get_system_with_neighbor_lists_transform(requested_neighbor_lists)]
-    requested_inputs = list(model.requested_inputs(use_new_names=True).keys())
+
+    # Attach additional per-system inputs
+    requested_inputs = [
+        name
+        for name, output in model.requested_inputs(use_new_names=True).items()
+        if output.sample_kind == "system"
+    ]
     if requested_inputs:
         callables.append(get_system_data_transform(requested_inputs))
     collate_fn = CollateFn(target_keys, callables=callables)
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, collate_fn=collate_fn, shuffle=False
     )
+
     rmse_acc = RMSEAccumulator()
     mae_acc = MAEAccumulator()
 
