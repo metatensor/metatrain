@@ -344,7 +344,7 @@ class PET(ModelInterface[ModelHypers]):
     def requested_inputs(self) -> Dict[str, ModelOutput]:
         if self.system_conditioning is not None:
             return {
-                key: ModelOutput(quantity="", unit="", per_atom=False)
+                key: ModelOutput(quantity="", unit="", sample_kind="system")
                 for key in self.system_conditioning.required_data_keys
             }
         return {}

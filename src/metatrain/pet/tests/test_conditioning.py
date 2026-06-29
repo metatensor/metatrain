@@ -110,7 +110,7 @@ def test_conditioning_different_d_node_d_pet():
     model.eval()
 
     system = _make_system(model, charge=1, spin_multiplicity=2)
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     with torch.no_grad():
         result = model([system], outputs)
     assert "energy" in result
@@ -122,7 +122,7 @@ def _train_steps(model, n_steps=20):
     model.train()
     for _ in range(n_steps):
         system = _make_system(model, charge=2, spin_multiplicity=3)
-        outputs = {"energy": ModelOutput(per_atom=False)}
+        outputs = {"energy": ModelOutput(sample_kind="system")}
         result = model([system], outputs)
         loss = result["energy"].block().values.sum()
         loss.backward()
@@ -143,7 +143,7 @@ def test_conditioning_changes_output():
     system_neutral = _make_system(model, charge=0, spin_multiplicity=1)
     system_charged = _make_system(model, charge=2, spin_multiplicity=1)
 
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     with torch.no_grad():
         result_neutral = model([system_neutral], outputs)
         result_charged = model([system_charged], outputs)
@@ -165,7 +165,7 @@ def test_conditioning_disabled_unchanged():
     # Model should still run fine
     model.eval()
     system = _make_system(model)
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     with torch.no_grad():
         result = model([system], outputs)
     assert "energy" in result
@@ -198,7 +198,7 @@ def test_conditioning_batch_independence():
     system_b_v1 = _make_system(model, charge=1, spin_multiplicity=1)
     system_b_v2 = _make_system(model, charge=3, spin_multiplicity=2)
 
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     with torch.no_grad():
         result_v1 = model([system_a, system_b_v1], outputs)
         result_v2 = model([system_a, system_b_v2], outputs)
@@ -226,7 +226,7 @@ def test_conditioning_default_values():
     # System with explicit charge=0, spin_multiplicity=1
     system_explicit = _make_system(model, charge=0, spin_multiplicity=1)
 
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     with torch.no_grad():
         result_default = model([system_default], outputs)
         result_explicit = model([system_explicit], outputs)
@@ -352,7 +352,7 @@ def test_eval_routes_extra_data_to_conditioning():
     systems_neutral = [s.to(dtype=torch.float32) for s in systems_neutral]
     systems_charged = [s.to(dtype=torch.float32) for s in systems_charged]
 
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     with torch.no_grad():
         e_neutral = model(systems_neutral, outputs)["energy"].block().values
         e_charged = model(systems_charged, outputs)["energy"].block().values
@@ -408,7 +408,7 @@ def test_non_integer_charge_raises():
     model = PET(hypers, _dataset_info())
     model.eval()
 
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
 
     system_bad_charge = _make_system(model, charge=0.5, spin_multiplicity=1)
     with pytest.raises(ValueError, match="charge must be an integer value"):
