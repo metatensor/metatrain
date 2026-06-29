@@ -324,9 +324,13 @@ def compute_batch_tensors(
     # ``max_edges_per_node`` (the largest neighbour count of any atom) becomes the size
     # of the NEF grid's second dimension. The ``numel`` guard keeps empty systems
     # (no atoms) well defined.
+
     max_edges_per_node = (
         int(torch.max(num_neighbors)) if num_neighbors.numel() > 0 else 0
     )
+
+    if torch.compile.is_compiling():
+        torch._check_is_size(max_edges_per_node)
 
     if cutoff_function.lower() == "bump":
         # use bump switching function for adaptive cutoff

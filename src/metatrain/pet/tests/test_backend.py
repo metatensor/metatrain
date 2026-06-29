@@ -99,7 +99,8 @@ def test_backend_preprocess_fullgraph_compile(num_neighbors_adaptive):
     inputs = _backend_inputs(model, _make_system(model))
 
     batch_data_e = backend.preprocess(*inputs)
-    batch_data_c = torch.compile(backend.preprocess, fullgraph=True)(*inputs)
+    with torch._dynamo.config.patch(capture_scalar_outputs=True):
+        batch_data_c = torch.compile(backend.preprocess, fullgraph=True)(*inputs)
 
     # capture_scalar = torch._dynamo.config.capture_scalar_outputs
     # capture_shape = torch._dynamo.config.capture_dynamic_output_shape_ops
