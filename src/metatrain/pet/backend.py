@@ -369,8 +369,6 @@ class PETBackend(torch.nn.Module):
 
         :param batch_data: Dictionary containing input tensors required for feature
             computation
-        :param use_manual_attention: Whether to use manual attention computation
-            (required for double backward when edge vectors require gradients)
         :param capture_diagnostics: Whether to capture diagnostic features via temporary
             module hooks. This is only used when diagnostic outputs are requested, and
             it is skipped in TorchScript / tracing mode where hooks are not supported.

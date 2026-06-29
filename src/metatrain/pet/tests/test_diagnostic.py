@@ -18,11 +18,12 @@ import torch
 from metatomic.torch import ModelOutput, System
 
 from metatrain.pet import PET
-from metatrain.pet.core import PETCore
+from metatrain.pet.backend import PETBackend
 from metatrain.pet.modules.diagnostic import (
     DIAGNOSTIC_PREFIX,
     EXCLUDED_MODULE_PREFIXES,
     FEATURIZER_INPUT_NAMES,
+    MODULE_NAMESPACE,
 )
 from metatrain.pet.modules.transformer import (
     CartesianTransformer,
@@ -49,14 +50,14 @@ _TUPLE_MODULE_TYPES = (CartesianTransformer, Transformer, TransformerLayer)
 # invokes it in forward(), so its hook would never fire; and (b) the other
 # Identity instances in the model (gnn_layers_post_mp_node, node_backbone, …)
 # are simple pass-throughs that do not produce interesting diagnostic tensors.
-# PETCore is the pure-PyTorch core container: ``PET.forward`` calls its
+# PETBackend is the pure-PyTorch backend container: ``PET.forward`` calls its
 # ``preprocess`` / ``compute_features`` / ``predict`` methods directly rather than
 # its ``forward``, so a hook on the container itself never fires.
 _SKIP_MODULE_TYPES = (
     torch.nn.ModuleList,
     torch.nn.ModuleDict,
     torch.nn.Identity,
-    PETCore,
+    PETBackend,
     DummyModule,
 )
 
@@ -114,7 +115,7 @@ def test_energy_unaffected_by_hook_changes():
         [system],
         {
             "energy": ModelOutput(sample_kind="system"),
-            "mtt::feature::core.node_heads.energy.0": ModelOutput(sample_kind="atom"),
+            "mtt::feature::node_heads.energy.0": ModelOutput(sample_kind="atom"),
         },
     )
 
@@ -132,18 +133,17 @@ def test_energy_unaffected_by_hook_changes():
 
 
 def test_node_head_output_returned():
-    """mtt::feature::core.node_heads.energy.0 is present and non-empty."""
+    """mtt::feature::node_heads.energy.0 is present and non-empty."""
     dataset_info = _make_dataset_info()
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {
-        "mtt::feature::core.node_heads.energy.0": ModelOutput(sample_kind="atom")
-    }
+    outputs = {"mtt::feature::node_heads.energy.0": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
+    print(result)
 
-    assert "mtt::feature::core.node_heads.energy.0" in result
-    block = result["mtt::feature::core.node_heads.energy.0"].block()
+    assert "mtt::feature::node_heads.energy.0" in result
+    block = result["mtt::feature::node_heads.energy.0"].block()
     assert block.values.shape[0] == 3  # 3 atoms in water
 
 
@@ -153,12 +153,10 @@ def test_node_head_output_sample_labels():
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {
-        "mtt::feature::core.node_heads.energy.0": ModelOutput(sample_kind="atom")
-    }
+    outputs = {"mtt::feature::node_heads.energy.0": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
 
-    block = result["mtt::feature::core.node_heads.energy.0"].block()
+    block = result["mtt::feature::node_heads.energy.0"].block()
     assert set(block.samples.names) == {"system", "atom"}
     # One row per atom
     assert block.samples.values.shape[0] == 3
@@ -170,12 +168,10 @@ def test_node_head_output_sample_labels_batch():
     model = PET(MODEL_HYPERS, dataset_info)
     systems = _make_multi_system(model)
 
-    outputs = {
-        "mtt::feature::core.node_heads.energy.0": ModelOutput(sample_kind="atom")
-    }
+    outputs = {"mtt::feature::node_heads.energy.0": ModelOutput(sample_kind="atom")}
     result = model(systems, outputs)
 
-    block = result["mtt::feature::core.node_heads.energy.0"].block()
+    block = result["mtt::feature::node_heads.energy.0"].block()
     # Two water molecules, 3 atoms each = 6 atoms total
     assert block.samples.values.shape[0] == 6
     system_col = block.samples.column("system")
@@ -188,18 +184,16 @@ def test_node_head_output_sample_labels_batch():
 
 
 def test_edge_head_output_returned():
-    """mtt::feature::core.edge_heads.energy.0 is present and non-empty."""
+    """mtt::feature::edge_heads.energy.0 is present and non-empty."""
     dataset_info = _make_dataset_info()
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {
-        "mtt::feature::core.edge_heads.energy.0": ModelOutput(sample_kind="atom")
-    }
+    outputs = {"mtt::feature::edge_heads.energy.0": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
 
-    assert "mtt::feature::core.edge_heads.energy.0" in result
-    block = result["mtt::feature::core.edge_heads.energy.0"].block()
+    assert "mtt::feature::edge_heads.energy.0" in result
+    block = result["mtt::feature::edge_heads.energy.0"].block()
     # At least one pair must exist for a water molecule
     assert block.values.shape[0] > 0
 
@@ -211,12 +205,10 @@ def test_edge_head_output_sample_labels():
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {
-        "mtt::feature::core.edge_heads.energy.0": ModelOutput(sample_kind="atom")
-    }
+    outputs = {"mtt::feature::edge_heads.energy.0": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
 
-    block = result["mtt::feature::core.edge_heads.energy.0"].block()
+    block = result["mtt::feature::edge_heads.energy.0"].block()
     assert set(block.samples.names) == {
         "system",
         "first_atom",
@@ -237,12 +229,10 @@ def test_edge_head_pair_labels_valid_atoms():
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {
-        "mtt::feature::core.edge_heads.energy.0": ModelOutput(sample_kind="atom")
-    }
+    outputs = {"mtt::feature::edge_heads.energy.0": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
 
-    block = result["mtt::feature::core.edge_heads.energy.0"].block()
+    block = result["mtt::feature::edge_heads.energy.0"].block()
     n_atoms = len(system.types)
     first = block.samples.column("first_atom")
     second = block.samples.column("second_atom")
@@ -261,11 +251,11 @@ def test_gnn_layer_node_output():
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {"mtt::feature::core.gnn_layers.0_node": ModelOutput(sample_kind="atom")}
+    outputs = {"mtt::feature::gnn_layers.0_node": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
 
-    assert "mtt::feature::core.gnn_layers.0_node" in result
-    block = result["mtt::feature::core.gnn_layers.0_node"].block()
+    assert "mtt::feature::gnn_layers.0_node" in result
+    block = result["mtt::feature::gnn_layers.0_node"].block()
     assert set(block.samples.names) == {"system", "atom"}
     assert block.samples.values.shape[0] == 3
 
@@ -276,11 +266,11 @@ def test_gnn_layer_edge_output():
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {"mtt::feature::core.gnn_layers.0_edge": ModelOutput(sample_kind="atom")}
+    outputs = {"mtt::feature::gnn_layers.0_edge": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
 
-    assert "mtt::feature::core.gnn_layers.0_edge" in result
-    block = result["mtt::feature::core.gnn_layers.0_edge"].block()
+    assert "mtt::feature::gnn_layers.0_edge" in result
+    block = result["mtt::feature::gnn_layers.0_edge"].block()
     assert set(block.samples.names) == {
         "system",
         "first_atom",
@@ -330,11 +320,11 @@ def test_node_embedder_output():
     model = PET(MODEL_HYPERS, dataset_info)
     system = _make_water_system(model)
 
-    outputs = {"mtt::feature::core.node_embedders.0": ModelOutput(sample_kind="atom")}
+    outputs = {"mtt::feature::node_embedders.0": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
 
-    assert "mtt::feature::core.node_embedders.0" in result
-    block = result["mtt::feature::core.node_embedders.0"].block()
+    assert "mtt::feature::node_embedders.0" in result
+    block = result["mtt::feature::node_embedders.0"].block()
     assert set(block.samples.names) == {"system", "atom"}
     assert block.samples.values.shape[0] == 3
 
@@ -352,16 +342,16 @@ def test_multiple_diagnostic_outputs():
 
     outputs = {
         "energy": ModelOutput(sample_kind="system"),
-        "mtt::feature::core.node_heads.energy.0": ModelOutput(sample_kind="atom"),
-        "mtt::feature::core.edge_heads.energy.0": ModelOutput(sample_kind="atom"),
-        "mtt::feature::core.gnn_layers.0_node": ModelOutput(sample_kind="atom"),
+        "mtt::feature::node_heads.energy.0": ModelOutput(sample_kind="atom"),
+        "mtt::feature::edge_heads.energy.0": ModelOutput(sample_kind="atom"),
+        "mtt::feature::gnn_layers.0_node": ModelOutput(sample_kind="atom"),
     }
     result = model([system], outputs)
 
     assert "energy" in result
-    assert "mtt::feature::core.node_heads.energy.0" in result
-    assert "mtt::feature::core.edge_heads.energy.0" in result
-    assert "mtt::feature::core.gnn_layers.0_node" in result
+    assert "mtt::feature::node_heads.energy.0" in result
+    assert "mtt::feature::edge_heads.energy.0" in result
+    assert "mtt::feature::gnn_layers.0_node" in result
 
 
 @pytest.mark.parametrize("featurizer_type", ["feedforward", "residual"])
@@ -380,10 +370,10 @@ def test_multiple_diagnostic_outputs_raw_features(featurizer_type):
 
     for readout_layer in range(model.num_readout_layers):
         outputs = [
-            f"mtt::feature::core.node_backbone.{readout_layer}",
-            f"mtt::feature::core.edge_backbone.{readout_layer}",
-            f"mtt::feature::core.node_heads.energy.{readout_layer}",
-            f"mtt::feature::core.edge_heads.energy.{readout_layer}",
+            f"mtt::feature::node_backbone.{readout_layer}",
+            f"mtt::feature::edge_backbone.{readout_layer}",
+            f"mtt::feature::node_heads.energy.{readout_layer}",
+            f"mtt::feature::edge_heads.energy.{readout_layer}",
         ]
         result = model(
             [system], {name: ModelOutput(sample_kind="atom") for name in outputs}
@@ -429,7 +419,7 @@ def test_tuple_module_without_suffix_raises():
     with pytest.raises(ValueError, match="_node.*_edge|_edge.*_node"):
         model(
             [system],
-            {"mtt::feature::core.gnn_layers.0": ModelOutput(sample_kind="atom")},
+            {"mtt::feature::gnn_layers.0": ModelOutput(sample_kind="atom")},
         )
 
 
@@ -445,7 +435,7 @@ def test_diagnostic_outputs_are_deterministic():
     model.eval()
     system = _make_water_system(model)
 
-    key = "mtt::feature::core.node_heads.energy.0"
+    key = "mtt::feature::node_heads.energy.0"
     outputs = {key: ModelOutput(sample_kind="atom")}
 
     result1 = model([system], outputs)
@@ -474,15 +464,20 @@ def _build_all_outputs(model) -> dict:
     # diagnostic-only sweep would register hooks that never fire, causing the
     # "key not in result" assertion to fail.
     _CONDITIONAL_MODULE_PREFIXES = [
-        "core.node_last_layers",
-        "core.edge_last_layers",
+        "node_last_layers",
+        "edge_last_layers",
     ]
 
     outputs = {}
 
-    for name, module in model.named_modules():
+    # Capturable modules live under ``model.backend``; the user-facing diagnostic
+    # path omits this ``backend.`` namespace prefix.
+    for full_name, module in model.named_modules():
+        if not full_name.startswith(MODULE_NAMESPACE):
+            continue  # only modules under ``backend`` are capturable
+        name = full_name.removeprefix(MODULE_NAMESPACE)
         if not name:
-            continue  # skip the root module itself
+            continue  # skip the backend container itself
         if any(name.startswith(p) for p in EXCLUDED_MODULE_PREFIXES):
             continue
         if any(name.startswith(p) for p in _CONDITIONAL_MODULE_PREFIXES):

@@ -22,6 +22,11 @@ FEATURIZER_INPUT_NAMES: Set[str] = {
 
 DIAGNOSTIC_PREFIX = "mtt::feature::"
 
+# Capturable modules live under ``model.backend``.  User-facing diagnostic paths
+# omit this namespace (e.g. the request ``mtt::feature::node_heads.energy.0``
+# resolves to the module ``backend.node_heads.energy.0``).
+MODULE_NAMESPACE = "backend."
+
 EXCLUDED_MODULE_PREFIXES = [
     "additive_models",
     "scaler",
@@ -177,7 +182,8 @@ def prepare_diagnostic_handles(
         }
 
     For example, after seeing ``backend`` → ``node_heads`` → ``energy`` → ``0`` in the
-    repr, the user can request ``"mtt::feature::backend.node_heads.energy.0"``.
+    repr, the user can request ``"mtt::feature::node_heads.energy.0"`` (the
+    ``backend.`` namespace prefix is omitted from the request).
 
     **Modules that return tuples**
 
@@ -186,9 +192,9 @@ def prepare_diagnostic_handles(
     ``(node_features, edge_features)`` tuple.  To capture only one element of the tuple,
     append ``_node`` or ``_edge`` to the module path::
 
-        "mtt::feature::backend.gnn_layers.0_node"  # node features from layer 0
+        "mtt::feature::gnn_layers.0_node"  # node features from layer 0
 
-        "mtt::feature::backend.gnn_layers.0_edge"  # edge features from layer 0
+        "mtt::feature::gnn_layers.0_edge"  # edge features from layer 0
 
     The suffix is tried *after* an exact module-path lookup, so it only applies when no
     module with the literal name ``<path>_node`` / ``<path>_edge`` exists.
@@ -267,41 +273,47 @@ def prepare_diagnostic_handles(
         if path in FEATURIZER_INPUT_NAMES:
             continue
 
+        # Capturable modules live under ``model.backend``; the user-facing path
+        # omits this namespace, so resolve it against the ``backend.`` prefix.
         # 1) Exact match
-        if path in named_modules_dict:
-            module = named_modules_dict[path]
+        if MODULE_NAMESPACE + path in named_modules_dict:
+            module = named_modules_dict[MODULE_NAMESPACE + path]
             handle = module.register_forward_hook(make_hook(path, ""))
             diagnostic_handles.append(handle)
             continue
 
-        # 2) Suffix match: special module that returns bothnode and edge features in a
+        # 2) Suffix match: special module that returns both node and edge features in a
         # tuple
         resolved_path = path
         suffix = ""
         for s in ("_node", "_edge"):
             if path.endswith(s):
                 candidate = path[: -len(s)]
-                if candidate in named_modules_dict:
+                if MODULE_NAMESPACE + candidate in named_modules_dict:
                     resolved_path = candidate
                     suffix = s
                     break
 
-        if resolved_path in named_modules_dict:
-            module = named_modules_dict[resolved_path]
+        if MODULE_NAMESPACE + resolved_path in named_modules_dict:
+            module = named_modules_dict[MODULE_NAMESPACE + resolved_path]
             handle = module.register_forward_hook(make_hook(resolved_path, suffix))
             diagnostic_handles.append(handle)
             continue
 
         # 3) No match - raise error
         valid_paths = sorted(
-            p
+            stripped
             for p in named_modules_dict
-            if p and not any([p.startswith(m) for m in EXCLUDED_MODULE_PREFIXES])
+            if p.startswith(MODULE_NAMESPACE)
+            for stripped in [p[len(MODULE_NAMESPACE) :]]
+            if stripped
+            and not any(stripped.startswith(m) for m in EXCLUDED_MODULE_PREFIXES)
         )
         raise AttributeError(
             f"Module path '{path}' (from output key '{output_key}') was not "
             "found in the model.  Print repr(model) to see the architecture "
-            "and discover valid module paths.  A selection of valid paths: "
+            "and discover valid module paths (the 'backend.' namespace prefix "
+            "is omitted from requests).  A selection of valid paths: "
             f"{valid_paths[:30]}{'...' if len(valid_paths) > 30 else ''}."
         )
 
