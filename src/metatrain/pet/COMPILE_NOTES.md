@@ -50,10 +50,11 @@ In `modules/structures.py :: compute_batch_tensors`:
 - **(2)** replace `bincount` with a static-shape `scatter_add_` into a
   `num_nodes`-sized buffer.
 - **(1)** keep `int(torch.max(num_neighbors))` but add
-  `torch._check_is_size(max_edges_per_node)` (guarded by
+  `torch._check(max_edges_per_node >= 0)` (guarded by
   `if not torch.jit.is_scripting()`, since it is a compile-only hint and not
   TorchScript-able). This tells the compiler the symbolic NEF dimension is a valid
-  (non-negative) size.
+  (non-negative) size. (`torch._check(x >= 0)` is the forward-compatible replacement
+  for the now-deprecated `torch._check_is_size`.)
 - **(3)** the boolean-mask assignment was already rewritten to a static-shape
   `torch.where(mask, value, cumsum(~mask) - 1)` (bit-identical; verified over 2000
   random trials).
@@ -68,9 +69,12 @@ function has an empty-edge early return whose `centers.numel() == 0` cannot be g
 on an unbacked size, and its `amin/amax(dim=0)` reductions over the edge dimension
 internally guard `Ne(edge_count, 0)`. Fixes in `get_corresponding_edges`:
 
-- resolve the empty check with `guard_size_oblivious(centers.numel() == 0)` (imported at
+- resolve the empty check with `guard_or_false(centers.numel() == 0)` (imported at
   module level with an identity fallback; only *called* inside
-  `if not torch.jit.is_scripting():` so TorchScript dead-code-eliminates it);
+  `if not torch.jit.is_scripting():` so TorchScript dead-code-eliminates it). An
+  unbacked size yields `False`, so the compiled path falls through to the non-empty
+  branch. (`guard_or_false` is the forward-compatible replacement for the now-deprecated
+  `guard_size_oblivious`.)
 - right after, `torch._check(centers.shape[0] > 0)` so the `amin/amax` reductions know
   the edge dimension is non-empty.
 
@@ -97,9 +101,8 @@ unchanged: `scatter_add` ≡ `bincount`).
 ### Caveats / fragility of Path A
 
 - Relies on `capture_scalar_outputs` / `capture_dynamic_output_shape_ops` (global,
-  non-default Dynamo flags) and on `torch._check_is_size` / `guard_size_oblivious` /
-  `torch._check`. These are torch-version sensitive — re-run the compile test when
-  bumping torch.
+  non-default Dynamo flags) and on `torch._check` / `guard_or_false`. These are
+  torch-version sensitive — re-run the compile test when bumping torch.
 - The compiled adaptive path assumes ≥ 1 edge (see above).
 
 ## Alternatives considered (not implemented)

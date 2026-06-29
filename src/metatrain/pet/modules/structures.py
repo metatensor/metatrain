@@ -329,8 +329,15 @@ def compute_batch_tensors(
         int(torch.max(num_neighbors)) if num_neighbors.numel() > 0 else 0
     )
 
-    if torch.compile.is_compiling():
-        torch._check_is_size(max_edges_per_node)
+    # Tell the compiler this data-dependent scalar is a valid (non-negative) size, so
+    # the symbolic NEF dimension is well defined. ``torch._check`` is a compile-only
+    # hint and not a TorchScript builtin, so it must be dead-code-eliminated under
+    # scripting. ``torch.jit.is_scripting()`` is the guard TorchScript recognises and
+    # prunes (``torch.compiler.is_compiling()`` is not, so it would try to script the
+    # unknown op). ``_check(x >= 0)`` is the forward-compatible replacement for the
+    # now-deprecated ``torch._check_is_size``.
+    if not torch.jit.is_scripting():
+        torch._check(max_edges_per_node >= 0)
 
     if cutoff_function.lower() == "bump":
         # use bump switching function for adaptive cutoff

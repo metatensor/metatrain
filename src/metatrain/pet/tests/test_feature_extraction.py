@@ -73,7 +73,7 @@ def test_hooks_cleaned_up_after_diagnostic_forward():
     for _ in range(3):
         model(
             [system],
-            {"mtt::feature::core.node_heads.energy.0": ModelOutput(per_atom=True)},
+            {"mtt::feature::node_heads.energy.0": ModelOutput(per_atom=True)},
         )
         stale = _all_forward_hooks(model)
         assert not stale, f"Stale hooks after diagnostic forward: {stale}"
@@ -88,8 +88,8 @@ def test_hooks_cleaned_up_after_mixed_forward():
         [system],
         {
             "energy": ModelOutput(per_atom=False),
-            "mtt::feature::core.node_heads.energy.0": ModelOutput(per_atom=True),
-            "mtt::feature::core.gnn_layers.0_node": ModelOutput(per_atom=True),
+            "mtt::feature::node_heads.energy.0": ModelOutput(per_atom=True),
+            "mtt::feature::gnn_layers.0_node": ModelOutput(per_atom=True),
         },
     )
     stale = _all_forward_hooks(model)
@@ -144,9 +144,7 @@ def test_gradients_unaffected_by_diagnostic_outputs():
         )
         outputs = {"energy": ModelOutput(per_atom=False)}
         if with_diagnostic:
-            outputs["mtt::feature::core.node_heads.energy.0"] = ModelOutput(
-                per_atom=True
-            )
+            outputs["mtt::feature::node_heads.energy.0"] = ModelOutput(per_atom=True)
         result = model([system], outputs)
         result["energy"].block().values.sum().backward()
         return system.positions.grad.clone()

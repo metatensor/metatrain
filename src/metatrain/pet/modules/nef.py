@@ -18,6 +18,15 @@ from typing import Optional, Tuple
 import torch
 
 
+try:
+    from torch.fx.experimental.symbolic_shapes import guard_or_false
+except ImportError:  # pragma: no cover - older torch without the helper
+
+    def guard_or_false(expr: bool) -> bool:
+        """Identity fallback when ``guard_or_false`` is unavailable."""
+        return expr
+
+
 def get_nef_indices(
     centers: torch.Tensor, num_neighbors: torch.Tensor, n_edges_per_node: int
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -94,9 +103,24 @@ def get_corresponding_edges(
         in the opposite direction). If the input is empty, an empty
         tensor is returned.
     """
-
-    if centers.numel() == 0:
+    # Under ``torch.compile`` the adaptive-cutoff path feeds ``centers`` through a
+    # ``nonzero`` filter, so its edge count is an *unbacked* symbolic size and a plain
+    # ``centers.numel() == 0`` cannot be guarded. ``guard_or_false`` resolves it without
+    # a data-dependent guard (an unbacked size yields ``False``, so we fall through to
+    # the non-empty path). It is dead-code-eliminated under TorchScript, where the early
+    # return still supports genuinely empty systems. ``guard_or_false`` is the
+    # forward-compatible replacement for the now-deprecated ``guard_size_oblivious``.
+    if torch.jit.is_scripting():
+        is_empty = centers.numel() == 0
+    else:
+        is_empty = guard_or_false(centers.numel() == 0)
+    if is_empty:
         return torch.empty((0,), dtype=torch.int64, device=centers.device)
+
+    if not torch.jit.is_scripting():
+        # Tell the compiler the edge dimension is non-empty so the ``amin``/``amax``
+        # reductions below don't try to guard ``Ne(edge_count, 0)``.
+        torch._check(centers.shape[0] > 0)
 
     centers = centers.to(torch.int64)
     neighbors = neighbors.to(torch.int64)

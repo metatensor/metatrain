@@ -5,6 +5,9 @@ These verify that the core (structure preprocessing, featurization and predictio
 runs on plain tensors and is ``torch.compile``-able, matching eager execution.
 """
 
+import contextlib
+import warnings
+
 import pytest
 import torch
 from metatomic.torch import ModelOutput, System
@@ -16,6 +19,26 @@ from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import MODEL_HYPERS
+
+
+@contextlib.contextmanager
+def _ignore_nonleaf_grad_warning():
+    """Silence the benign non-leaf ``.grad`` warning while compiling ``predict``.
+
+    When Dynamo's builder wraps a grad-tracking (non-leaf, ``requires_grad``) tensor as
+    a graph input, it reads its ``.grad`` and PyTorch emits a harmless ``UserWarning``.
+    The repo's ``filterwarnings = ["error", ...]`` pytest config would escalate that to
+    an exception (surfaced as ``InternalTorchDynamoError``), so we ignore just this one
+    message. The autograd graph is left intact, so forces via ``autograd.grad`` still
+    work.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=".*grad attribute of a Tensor that is not a leaf Tensor.*",
+            category=UserWarning,
+        )
+        yield
 
 
 def _make_dataset_info():
@@ -34,7 +57,7 @@ def _make_system(model):
     system = System(
         types=torch.tensor([8, 1, 1]),
         positions=torch.tensor(
-            [[0.0, 0.0, 0.119], [0.0, 0.757, -0.477], [0.0, -0.757, -0.477]]
+            [[0.0, 0.0, 0.119], [0.0, 0.757, -0.477], [0.0, -0.757, -0.477]],
         ),
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
@@ -78,7 +101,7 @@ def test_backend_runs_on_plain_tensors():
     assert all(isinstance(t, torch.Tensor) for t in atomic_predictions["energy"])
 
 
-@pytest.mark.parametrize("num_neighbors_adaptive", [None])
+@pytest.mark.parametrize("num_neighbors_adaptive", [None, 5.0])
 def test_backend_preprocess_fullgraph_compile(num_neighbors_adaptive):
     """``preprocess`` compiles with ``fullgraph=True`` and matches eager.
 
@@ -99,19 +122,11 @@ def test_backend_preprocess_fullgraph_compile(num_neighbors_adaptive):
     inputs = _backend_inputs(model, _make_system(model))
 
     batch_data_e = backend.preprocess(*inputs)
-    with torch._dynamo.config.patch(capture_scalar_outputs=True):
+    with torch._dynamo.config.patch(
+        capture_scalar_outputs=True,
+        capture_dynamic_output_shape_ops=True,
+    ):
         batch_data_c = torch.compile(backend.preprocess, fullgraph=True)(*inputs)
-
-    # capture_scalar = torch._dynamo.config.capture_scalar_outputs
-    # capture_shape = torch._dynamo.config.capture_dynamic_output_shape_ops
-    # torch._dynamo.config.capture_scalar_outputs = True
-    # torch._dynamo.config.capture_dynamic_output_shape_ops = True
-    # try:
-    #     # torch._dynamo.reset()
-
-    # finally:
-    #     torch._dynamo.config.capture_scalar_outputs = capture_scalar
-    #     torch._dynamo.config.capture_dynamic_output_shape_ops = capture_shape
 
     for key in batch_data_e:
         assert batch_data_e[key].shape == batch_data_c[key].shape, key
@@ -135,16 +150,25 @@ def test_backend_torch_compile_matches_eager():
         node_e, edge_e, batch_data, cells, system_indices, ["energy"]
     )
 
-    # Compiled (fullgraph=False tolerates the data-dependent max-neighbors sync)
-    compiled_preprocess = torch.compile(backend.preprocess, fullgraph=False)
-    compiled_calculate_features = torch.compile(
-        backend.calculate_features, fullgraph=False
-    )
-    batch_data_c = compiled_preprocess(*inputs)
-    node_c, edge_c = compiled_calculate_features(batch_data_c)
-    preds_c, _, _ = backend.predict(
-        node_c, edge_c, batch_data_c, cells, system_indices, ["energy"]
-    )
+    with (
+        torch._dynamo.config.patch(
+            capture_scalar_outputs=True,
+            capture_dynamic_output_shape_ops=True,
+            specialize_int=True,
+        ),
+        _ignore_nonleaf_grad_warning(),
+    ):
+        compiled_preprocess = torch.compile(backend.preprocess, fullgraph=True)
+        compiled_calculate_features = torch.compile(
+            backend.calculate_features, fullgraph=True
+        )
+        compiled_predict = torch.compile(backend.predict, fullgraph=True)
+
+        batch_data_c = compiled_preprocess(*inputs)
+        node_c, edge_c = compiled_calculate_features(batch_data_c)
+        preds_c, _, _ = compiled_predict(
+            node_c, edge_c, batch_data_c, cells, system_indices, ["energy"]
+        )
 
     torch.testing.assert_close(preds_e["energy"][0], preds_c["energy"][0])
 
@@ -170,3 +194,45 @@ def test_backend_predictions_match_full_model():
     )
 
     torch.testing.assert_close(atomic_predictions["energy"][0], wrapped)
+
+
+def test_compiled_backend_predictions_match_full_model():
+    """``torch.compile`` of the core's methods matches the wrapped energy output."""
+    model = PET(MODEL_HYPERS, _make_dataset_info()).eval()
+    system = _make_system(model)
+
+    # Wrapped per-atom energy from the full model (no additive / scaler contributions
+    # for an untrained model with zero composition weights and identity scaler).
+    per_atom = model([system], {"energy": ModelOutput(sample_kind="atom")})
+    wrapped = per_atom["energy"].block().values
+
+    backend = model.backend
+    inputs = _backend_inputs(model, system)
+    cells = inputs[4]
+    system_indices = inputs[6]
+    # The Dynamo flags must be active while the compiled functions actually trace,
+    # which happens lazily on first *call* — so the calls (not just the
+    # ``torch.compile`` wrapping) must run inside the ``config.patch`` context. The
+    # autograd graph is kept intact (no ``no_grad``); the warning filter only silences
+    # the benign non-leaf ``.grad`` warning so forces via autograd remain possible.
+    with (
+        torch._dynamo.config.patch(
+            capture_scalar_outputs=True,
+            capture_dynamic_output_shape_ops=True,
+            specialize_int=True,
+        ),
+        _ignore_nonleaf_grad_warning(),
+    ):
+        backend.preprocess = torch.compile(backend.preprocess, fullgraph=True)
+        backend.calculate_features = torch.compile(
+            backend.calculate_features, fullgraph=True
+        )
+        backend.predict = torch.compile(backend.predict, fullgraph=True)
+
+        batch_data_c = backend.preprocess(*inputs)
+        node_c, edge_c = backend.calculate_features(batch_data_c)
+        atomic_predictions_c, _, _ = backend.predict(
+            node_c, edge_c, batch_data_c, cells, system_indices, ["energy"]
+        )
+
+    torch.testing.assert_close(atomic_predictions_c["energy"][0], wrapped)
