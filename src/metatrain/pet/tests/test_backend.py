@@ -1,7 +1,7 @@
 """
-Tests for the pure-PyTorch :class:`metatrain.pet.backend.PETCore`.
+Tests for the pure-PyTorch :class:`metatrain.pet.backend.PETBackend`.
 
-These verify that the core (structure preprocessing, featurization and prediction)
+These verify that the backend (structure preprocessing, featurization and prediction)
 runs on plain tensors and is ``torch.compile``-able, matching eager execution.
 """
 
@@ -80,7 +80,7 @@ def _backend_inputs(model, system):
 
 
 def test_backend_runs_on_plain_tensors():
-    """The core consumes and returns only plain tensors (no metatensor objects)."""
+    """The backend consumes and returns only plain tensors (no metatensor objects)."""
     model = PET(MODEL_HYPERS, _make_dataset_info()).eval()
     backend = model.backend
     inputs = _backend_inputs(model, _make_system(model))
@@ -125,6 +125,7 @@ def test_backend_preprocess_fullgraph_compile(num_neighbors_adaptive):
     with torch._dynamo.config.patch(
         capture_scalar_outputs=True,
         capture_dynamic_output_shape_ops=True,
+        specialize_int=True,
     ):
         batch_data_c = torch.compile(backend.preprocess, fullgraph=True)(*inputs)
 
@@ -136,7 +137,7 @@ def test_backend_preprocess_fullgraph_compile(num_neighbors_adaptive):
 
 
 def test_backend_torch_compile_matches_eager():
-    """``torch.compile`` of the core methods matches eager execution."""
+    """``torch.compile`` of the backend methods matches eager execution."""
     model = PET(MODEL_HYPERS, _make_dataset_info()).eval()
     backend = model.backend
     inputs = _backend_inputs(model, _make_system(model))
@@ -150,13 +151,10 @@ def test_backend_torch_compile_matches_eager():
         node_e, edge_e, batch_data, cells, system_indices, ["energy"]
     )
 
-    with (
-        torch._dynamo.config.patch(
-            capture_scalar_outputs=True,
-            capture_dynamic_output_shape_ops=True,
-            specialize_int=True,
-        ),
-        _ignore_nonleaf_grad_warning(),
+    with torch._dynamo.config.patch(
+        capture_scalar_outputs=True,
+        capture_dynamic_output_shape_ops=True,
+        specialize_int=True,
     ):
         compiled_preprocess = torch.compile(backend.preprocess, fullgraph=True)
         compiled_calculate_features = torch.compile(
@@ -164,6 +162,7 @@ def test_backend_torch_compile_matches_eager():
         )
         compiled_predict = torch.compile(backend.predict, fullgraph=True)
 
+    with _ignore_nonleaf_grad_warning():
         batch_data_c = compiled_preprocess(*inputs)
         node_c, edge_c = compiled_calculate_features(batch_data_c)
         preds_c, _, _ = compiled_predict(
@@ -174,7 +173,7 @@ def test_backend_torch_compile_matches_eager():
 
 
 def test_backend_predictions_match_full_model():
-    """The core's per-block predictions match the wrapped model's energy output."""
+    """The backend's per-block predictions match the wrapped model's energy output."""
     model = PET(MODEL_HYPERS, _make_dataset_info()).eval()
     system = _make_system(model)
 
@@ -197,7 +196,7 @@ def test_backend_predictions_match_full_model():
 
 
 def test_compiled_backend_predictions_match_full_model():
-    """``torch.compile`` of the core's methods matches the wrapped energy output."""
+    """``torch.compile`` of the backend's methods matches the wrapped energy output."""
     model = PET(MODEL_HYPERS, _make_dataset_info()).eval()
     system = _make_system(model)
 
@@ -215,13 +214,10 @@ def test_compiled_backend_predictions_match_full_model():
     # ``torch.compile`` wrapping) must run inside the ``config.patch`` context. The
     # autograd graph is kept intact (no ``no_grad``); the warning filter only silences
     # the benign non-leaf ``.grad`` warning so forces via autograd remain possible.
-    with (
-        torch._dynamo.config.patch(
-            capture_scalar_outputs=True,
-            capture_dynamic_output_shape_ops=True,
-            specialize_int=True,
-        ),
-        _ignore_nonleaf_grad_warning(),
+    with torch._dynamo.config.patch(
+        capture_scalar_outputs=True,
+        capture_dynamic_output_shape_ops=True,
+        specialize_int=True,
     ):
         backend.preprocess = torch.compile(backend.preprocess, fullgraph=True)
         backend.calculate_features = torch.compile(
@@ -229,6 +225,7 @@ def test_compiled_backend_predictions_match_full_model():
         )
         backend.predict = torch.compile(backend.predict, fullgraph=True)
 
+    with _ignore_nonleaf_grad_warning():
         batch_data_c = backend.preprocess(*inputs)
         node_c, edge_c = backend.calculate_features(batch_data_c)
         atomic_predictions_c, _, _ = backend.predict(
