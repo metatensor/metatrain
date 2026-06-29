@@ -18,7 +18,7 @@ import torch
 from metatomic.torch import ModelOutput, System
 
 from metatrain.pet import PET
-from metatrain.pet.backend import PETBackend
+from metatrain.pet.modules.backend import PETBackend
 from metatrain.pet.modules.diagnostic import (
     DIAGNOSTIC_PREFIX,
     EXCLUDED_MODULE_PREFIXES,

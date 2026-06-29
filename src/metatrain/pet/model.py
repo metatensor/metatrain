@@ -30,8 +30,8 @@ from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
-from .backend import PETBackend
 from .documentation import ModelHypers
+from .modules.backend import PETBackend
 from .modules.diagnostic import (
     DIAGNOSTIC_PREFIX,
     FEATURIZER_INPUT_NAMES,
