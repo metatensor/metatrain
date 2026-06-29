@@ -318,21 +318,15 @@ def compute_batch_tensors(
     # unbacked symbolic dimension under ``torch.compile`` and corrupts the whole NEF
     # grid. ``scatter_add`` into a ``num_nodes``-sized buffer is equivalent but keeps a
     # static (backed) shape.
-    centers_long = centers.to(torch.long)
     num_neighbors = torch.zeros(
-        num_nodes, dtype=torch.long, device=centers.device
-    ).scatter_add_(0, centers_long, torch.ones_like(centers_long))
+        num_nodes, dtype=centers.dtype, device=centers.device
+    ).scatter_add_(0, centers, torch.ones_like(centers))
     # ``max_edges_per_node`` (the largest neighbour count of any atom) becomes the size
     # of the NEF grid's second dimension. The ``numel`` guard keeps empty systems
     # (no atoms) well defined.
     max_edges_per_node = (
         int(torch.max(num_neighbors)) if num_neighbors.numel() > 0 else 0
     )
-    if not torch.jit.is_scripting():
-        # Tell torch.compile this scalar is a valid (non-negative) size. Without this,
-        # under ``capture_scalar_outputs=True`` the symbolic NEF dimension is mishandled
-        # and the whole NEF layout silently miscompiles. See ``COMPILE_NOTES.md``.
-        torch._check_is_size(max_edges_per_node)
 
     if cutoff_function.lower() == "bump":
         # use bump switching function for adaptive cutoff
