@@ -31,6 +31,8 @@ class MatrixSpecification(TypedDict):
     )
     preprocessing_nodes: Optional[str] = None
     edge_cutoff: float
+    learn_log: bool = False
+    """Whether to learn the log of the matrix instead of the matrix itself."""
 
 
 class ModelHypers(TypedDict):
