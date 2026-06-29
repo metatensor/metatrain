@@ -134,9 +134,10 @@ def _train_steps(model, n_steps=20):
     model.eval()
 
 
-def test_conditioning_changes_output():
+@pytest.mark.parametrize("featurizer_type", ["feedforward", "residual"])
+def test_conditioning_changes_output(featurizer_type):
     """Same structure with different charges should produce different predictions."""
-    hypers = _small_hypers()
+    hypers = _small_hypers(featurizer_type=featurizer_type)
     model = PET(hypers, _dataset_info())
     _train_steps(model)
 
