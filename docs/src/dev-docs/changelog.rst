@@ -21,6 +21,16 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 .. Removed
 .. #######
 
+Unreleased
+----------
+
+Added
+#####
+
+- Optional per-system charge and spin-multiplicity conditioning for PET. Enabled via the
+  ``system_conditioning`` model hyperparameter, with per-system ``charge`` and
+  ``spin_multiplicity`` provided as ``extra_data``.
+
 Version 2026.3 - 2026-06-26
 -----------------------------
 
