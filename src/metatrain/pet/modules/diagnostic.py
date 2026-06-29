@@ -176,8 +176,8 @@ def prepare_diagnostic_handles(
             "mtt::feature::<module_path>": ModelOutput(sample_kind="atom"), ...
         }
 
-    For example, after seeing ``node_heads`` → ``energy`` → ``0`` in the repr, the user
-    can request ``"mtt::feature::node_heads.energy.0"``.
+    For example, after seeing ``backend`` → ``node_heads`` → ``energy`` → ``0`` in the
+    repr, the user can request ``"mtt::feature::backend.node_heads.energy.0"``.
 
     **Modules that return tuples**
 
@@ -186,9 +186,9 @@ def prepare_diagnostic_handles(
     ``(node_features, edge_features)`` tuple.  To capture only one element of the tuple,
     append ``_node`` or ``_edge`` to the module path::
 
-        "mtt::feature::gnn_layers.0_node"  # node features from layer 0
+        "mtt::feature::backend.gnn_layers.0_node"  # node features from layer 0
 
-        "mtt::feature::gnn_layers.0_edge"  # edge features from layer 0
+        "mtt::feature::backend.gnn_layers.0_edge"  # edge features from layer 0
 
     The suffix is tried *after* an exact module-path lookup, so it only applies when no
     module with the literal name ``<path>_node`` / ``<path>_edge`` exists.
