@@ -3,6 +3,7 @@ import copy
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
+import json
 
 import torch
 from mace.tools.scripts_utils import (
@@ -78,6 +79,8 @@ def get_optimizer_and_scheduler(
         lr_scheduler_gamma=trainer_hypers["lr_scheduler_gamma"],
         lr_factor=trainer_hypers["lr_factor"],
         scheduler_patience=trainer_hypers["lr_scheduler_patience"],
+        lr_params_factors=json.dumps(trainer_hypers["lr_params_factors"]),
+        freeze=trainer_hypers["freeze"],
     )
 
     # Take into account distributed training
