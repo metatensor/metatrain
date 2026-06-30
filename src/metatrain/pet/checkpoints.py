@@ -290,6 +290,23 @@ def model_update_v12_v13(checkpoint: dict) -> None:
     update_per_property_scales(checkpoint)
 
 
+def model_update_v13_v14(checkpoint: dict) -> None:
+    """
+    Update a v13 checkpoint to v14.
+
+    Old checkpoints used the main ``cutoff_width`` as the taper width of the
+    adaptive cutoff scheme. Pin ``cutoff_width_adaptive`` to that value so
+    reload behaviour matches what they were trained with. New trainings
+    default to ``1.0`` via ``ModelHypers``.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    if "cutoff_width_adaptive" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["cutoff_width_adaptive"] = checkpoint[
+            "model_data"
+        ]["model_hypers"]["cutoff_width"]
+
+
 ###########################
 # TRAINER #################
 ###########################

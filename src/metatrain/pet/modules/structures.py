@@ -174,6 +174,7 @@ def systems_to_batch(
     cutoff_width: float,
     num_neighbors_adaptive: Optional[float] = None,
     adaptive_cutoff_method: str = "solver",
+    cutoff_width_adaptive: float = 1.0,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -207,6 +208,8 @@ def systems_to_batch(
         cutoffs when ``num_neighbors_adaptive`` is set. ``"grid"`` uses the legacy
         probe-grid + Gaussian-weighted average; ``"solver"`` uses a Newton-bisection
         root finder on the smoothed neighbor count.
+    :param cutoff_width_adaptive: Width of the smooth cutoff taper used by the
+        adaptive cutoff scheme when ``num_neighbors_adaptive`` is set.
     :return: A tuple containing the batch tensors.
         The batch consists of the following tensors:
         - `element_indices_nodes`: The atomic species of the central atoms
@@ -278,7 +281,7 @@ def systems_to_batch(
                     num_neighbors_adaptive,
                     num_nodes,
                     options.cutoff,
-                    cutoff_width=cutoff_width,
+                    cutoff_width=cutoff_width_adaptive,
                 )
             elif adaptive_cutoff_method.lower() == "grid":
                 atomic_cutoffs = get_adaptive_cutoffs_grid(
@@ -287,7 +290,7 @@ def systems_to_batch(
                     num_neighbors_adaptive,
                     num_nodes,
                     options.cutoff,
-                    cutoff_width=cutoff_width,
+                    cutoff_width=cutoff_width_adaptive,
                 )
             else:
                 raise ValueError(

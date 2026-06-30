@@ -58,7 +58,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 13
+    __checkpoint_version__ = 14
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -74,6 +74,7 @@ class PET(ModelInterface[ModelHypers]):
         self.cutoff = float(self.hypers["cutoff"])
         self.cutoff_function = self.hypers["cutoff_function"]
         self.cutoff_width = float(self.hypers["cutoff_width"])
+        self.cutoff_width_adaptive = float(self.hypers["cutoff_width_adaptive"])
         self.num_neighbors_adaptive = (
             float(self.hypers["num_neighbors_adaptive"])
             if self.hypers["num_neighbors_adaptive"] is not None
@@ -479,6 +480,7 @@ class PET(ModelInterface[ModelHypers]):
                 self.cutoff_width,
                 self.num_neighbors_adaptive,
                 self.adaptive_cutoff_method,
+                self.cutoff_width_adaptive,
             )
 
         # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
