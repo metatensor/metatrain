@@ -254,8 +254,8 @@ def get_adaptive_cutoffs_grid(
     :param num_neighbors_adaptive: Target number of neighbors per atom.
     :param num_nodes: Total number of center atoms.
     :param max_cutoff: Maximum cutoff distance to consider.
-    :param min_cutoff: Minimum cutoff distance to consider.
     :param cutoff_width: Width of the smooth cutoff taper region.
+    :param min_cutoff: Minimum cutoff distance to consider.
     :param probe_spacing: Spacing between probe cutoffs. If None, it will be
         automatically determined from the cutoff width.
     :param weight_width: Width of the cutoff selection weight function. If None, it
