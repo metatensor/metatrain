@@ -100,6 +100,11 @@ class AttentionBlock(nn.Module):
         queries, keys, values = x[0], x[1], x[2]
         attn_weights = torch.clamp(cutoff_factors[:, None, :, :], self.epsilon)
         attn_weights = torch.log(attn_weights)
+        # SDPA's CUDA backward grids the batch (n_nodes) over gridDim.y/z.
+        # Above that the backward fails.
+        max_cuda_grid_dim = 65535
+        if x.requires_grad and initial_shape[0] > max_cuda_grid_dim:
+            use_manual_attention = True
         if use_manual_attention:
             x = manual_attention(queries, keys, values, attn_weights, self.temperature)
         else:
