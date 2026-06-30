@@ -9,11 +9,6 @@ from .utilities import cutoff_func_bump as cutoff_func
 # minimum value for the probe cutoff. this avoids getting too close
 # to the central atom. in practice it could be also set to a larger value
 DEFAULT_MIN_PROBE_CUTOFF = 0.5
-# recommended smooth cutoff width for effective neighbor number calculation
-# smaller values lead to a more "step-like" behavior, but can be
-# numerically unstable. in practice this will be called with the
-# same cutoff as the main cutoff function
-DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH = 1.0
 
 
 def _n_total(
@@ -118,7 +113,7 @@ def get_adaptive_cutoffs_solver(
     num_neighbors_adaptive: float,
     num_nodes: int,
     max_cutoff: float,
-    cutoff_width: float = DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH,
+    cutoff_width: float,
 ) -> torch.Tensor:
     """
     Adaptive per-atom cutoff via root-finding on the smoothed neighbor count.
@@ -240,8 +235,8 @@ def get_adaptive_cutoffs_grid(
     num_neighbors_adaptive: float,
     num_nodes: int,
     max_cutoff: float,
+    cutoff_width: float,
     min_cutoff: float = DEFAULT_MIN_PROBE_CUTOFF,
-    cutoff_width: float = DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH,
     probe_spacing: Optional[float] = None,
     weight_width: Optional[float] = None,
 ) -> torch.Tensor:
@@ -304,7 +299,7 @@ def get_effective_num_neighbors(
     probe_cutoffs: torch.Tensor,
     centers: torch.Tensor,
     num_nodes: int,
-    width: float = DEFAULT_EFFECTIVE_NUM_NEIGHBORS_WIDTH,
+    width: float,
 ) -> torch.Tensor:
     """
     Computes the effective number of neighbors for each probe cutoff.

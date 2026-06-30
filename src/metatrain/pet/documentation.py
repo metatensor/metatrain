@@ -111,6 +111,13 @@ class ModelHypers(TypedDict):
     """Type of the smoothing function at the cutoff"""
     cutoff_width: float = 0.5
     """Width of the smoothing function at the cutoff"""
+    cutoff_width_adaptive: float = 1.0
+    """Width of the smooth cutoff taper used by the adaptive cutoff scheme.
+
+    This controls the taper width of the smoothed neighbor count used to
+    compute the per-atom adaptive cutoffs. Only has effect when
+    ``num_neighbors_adaptive`` is set.
+    """
     d_pet: int = 128
     """Dimension of the edge features.
 
