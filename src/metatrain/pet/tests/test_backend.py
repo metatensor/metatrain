@@ -8,9 +8,10 @@ runs on plain tensors and is ``torch.compile``-able, matching eager execution.
 import contextlib
 import warnings
 
+import metatensor.torch as mts
 import pytest
 import torch
-from metatomic.torch import ModelOutput, System
+from metatomic.torch import ModelOutput, System, register_autograd_neighbors
 
 from metatrain.pet import PET
 from metatrain.pet.modules.structures import concatenate_structures
@@ -63,6 +64,35 @@ def _make_system(model):
         pbc=torch.tensor([False, False, False]),
     )
     return get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+
+
+def _make_periodic_system(model):
+    """A small periodic system so that strain (stress) gradients are non-trivial.
+
+    A 3.5 Angstrom cubic cell with a 4.5 Angstrom cutoff pulls in periodic images, so
+    the ``cell_shifts @ cells`` term in the edge vectors carries a real strain gradient.
+    """
+    system = System(
+        types=torch.tensor([6, 8]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [1.5, 1.5, 1.5]]),
+        cell=3.5 * torch.eye(3),
+        pbc=torch.tensor([True, True, True]),
+    )
+    return get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+
+
+def _forces_and_strain_grad(energy_fn, base_positions):
+    """Compute ``(forces, strain_grad)`` from an energy closure via the strain trick.
+
+    ``energy_fn`` maps ``(positions, strain)`` to a scalar energy; ``positions`` and
+    ``strain`` are fresh leaf tensors so the returned ``forces = -dE/dpositions`` and
+    ``strain_grad = dE/dstrain`` come straight from :func:`torch.autograd.grad`.
+    """
+    positions = base_positions.detach().clone().requires_grad_(True)
+    strain = torch.eye(3, dtype=base_positions.dtype).requires_grad_(True)
+    energy = energy_fn(positions, strain)
+    minus_forces, strain_grad = torch.autograd.grad(energy, [positions, strain])
+    return -minus_forces, strain_grad
 
 
 def _backend_inputs(model, system):
@@ -233,3 +263,90 @@ def test_compiled_backend_predictions_match_full_model():
         )
 
     torch.testing.assert_close(atomic_predictions_c["energy"][0], wrapped)
+
+
+def test_compiled_backend_forces_and_stresses_match_full_model():
+    """Forces and stresses from the compiled backend match the wrapped model.
+
+    Both quantities come from autograd of the total energy via the strain trick
+    (``positions @ strain``, ``cell @ strain``): ``forces = -dE/dpositions`` and the
+    strain gradient ``dE/dstrain`` (the unnormalised stress / virial). A periodic
+    system is used so that the ``cell_shifts @ cells`` edge term carries a real strain
+    gradient, exercising the backend's cell path.
+    """
+    model = PET(MODEL_HYPERS, _make_dataset_info()).eval()
+    system = _make_periodic_system(model)
+
+    # Reference forces and strain gradient from the full (eager) model. This must run
+    # before the backend methods are compiled, since the full model shares the same
+    # backend instance.
+    def full_energy(positions, strain):
+        new_system = System(
+            positions=positions @ strain,
+            cell=system.cell @ strain,
+            types=system.types,
+            pbc=system.pbc,
+        )
+        for options in system.known_neighbor_lists():
+            neighbors = mts.detach_block(system.get_neighbor_list(options))
+            register_autograd_neighbors(new_system, neighbors)
+            new_system.add_neighbor_list(options, neighbors)
+        out = model([new_system], {"energy": ModelOutput(sample_kind="system")})
+        return out["energy"].block().values.sum()
+
+    forces_full, strain_grad_full = _forces_and_strain_grad(
+        full_energy, system.positions
+    )
+
+    (
+        positions,
+        centers,
+        neighbors,
+        species,
+        cells,
+        cell_shifts,
+        system_indices,
+    ) = _backend_inputs(model, system)
+
+    backend = model.backend
+
+    with torch._dynamo.config.patch(
+        capture_scalar_outputs=True,
+        capture_dynamic_output_shape_ops=True,
+        specialize_int=True,
+    ):
+        backend.preprocess = torch.compile(backend.preprocess, fullgraph=True)
+        backend.calculate_features = torch.compile(
+            backend.calculate_features, fullgraph=True
+        )
+        backend.predict = torch.compile(backend.predict, fullgraph=True)
+
+    def backend_energy(positions, strain):
+        strained_cells = cells @ strain
+        batch_data = backend.preprocess(
+            positions @ strain,
+            centers,
+            neighbors,
+            species,
+            strained_cells,
+            cell_shifts,
+            system_indices,
+        )
+        node_list, edge_list = backend.calculate_features(batch_data)
+        preds, _, _ = backend.predict(
+            node_list,
+            edge_list,
+            batch_data,
+            strained_cells,
+            system_indices,
+            ["energy"],
+        )
+        return preds["energy"][0].sum()
+
+    with _ignore_nonleaf_grad_warning():
+        forces_backend, strain_grad_backend = _forces_and_strain_grad(
+            backend_energy, positions
+        )
+
+    torch.testing.assert_close(forces_backend, forces_full)
+    torch.testing.assert_close(strain_grad_backend, strain_grad_full)
