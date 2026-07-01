@@ -134,6 +134,16 @@ def radial_to_spherical_harmonics(
         samples = batched_neighborlist.block(
             dict(first_atom_type=type1, second_atom_type=type2)
         ).samples
+        
+        if type1 == type2:
+            # Select only the upper triangular part of the block to avoid double counting.
+            mask = samples.values[:, 1] < samples.values[:, 2]
+            samples = Labels(
+                names=samples.names,
+                values=samples.values[mask],
+            )
+            sph_out = sph_out[mask]
+        
         block = TensorBlock(
             values=sph_out,
             samples=samples,
