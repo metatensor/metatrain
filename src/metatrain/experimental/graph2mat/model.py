@@ -11,7 +11,7 @@ from graph2mat.bindings.e3nn import (
     E3nnSimpleEdgeBlock,
     E3nnSimpleNodeBlock,
 )
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap, sort_block
 from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
@@ -521,13 +521,22 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
                 # sparse sum is implemented in metatensor.operations
                 output_blocks: List[TensorBlock] = []
                 for k, b in values[name].items():
-                    if k in additive_contributions[name].keys:
+                    search_k = k
+                    if len(k) != additive_contributions[name].keys.values.shape[-1]:
+                        search_k = (k["o3_lambda_1"], k["o3_lambda_2"], k["first_atom_type"], k["second_atom_type"])
+                        k = dict(o3_lambda_1=k["o3_lambda_1"], o3_lambda_2=k["o3_lambda_2"], first_atom_type=k["first_atom_type"], second_atom_type=k["second_atom_type"])
+                    if search_k in additive_contributions[name].keys:
+                        additive_block = additive_contributions[name].block(k)
+                        
+                        if isinstance(k, dict) and "first_atom_type" in k:
+                            # Sort samples in both blocks to make sure they are in the same order
+                            b = sort_block(b, axes="samples")
+                            additive_block = sort_block(additive_block, axes="samples")
+
                         output_blocks.append(
                             _add_block_block(
                                 b,
-                                additive_contributions[name]
-                                .block(k)
-                                .to(device=b.device, dtype=b.dtype),
+                                additive_block
                             )
                         )
                     else:
