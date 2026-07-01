@@ -74,6 +74,10 @@ class ZConditionedReadout(torch.nn.Module):
         self.weights = torch.nn.ParameterList(weights)
         self.biases = torch.nn.ParameterList(biases)
 
+        import os as _os
+        _chunk_env = _os.getenv("ZCOND_CHUNK_SIZE")
+        self.gather_chunk_size: int = int(_chunk_env) if _chunk_env else 128
+
     def forward(
         self, features: torch.Tensor, species_idx: torch.Tensor
     ) -> torch.Tensor:
@@ -87,28 +91,38 @@ class ZConditionedReadout(torch.nn.Module):
         :return: Tensor of shape ``(n_atoms, out_features)`` or
             ``(n_atoms, n_neighbours, out_features)``.
         """
-        if self.z_conditioned:
-            idx = species_idx
-        else:
-            # All atoms share the single set of parameters stored at index 0.
-            idx = torch.zeros(
-                features.shape[0], dtype=torch.long, device=features.device
-            )
-
-        # Node features arrive as 2-D; unsqueeze so every path through the
-        # layers is uniformly 3-D (..., seq, dim) for the batched matmul.
         is_node = features.dim() == 2
         if is_node:
             features = features.unsqueeze(1)  # (n_atoms, 1, in_features)
 
         x = features
         n_layers = self.weights.__len__()  # type: ignore[attr-defined]
-        for i, (W, b) in enumerate(zip(self.weights, self.biases, strict=True)):
-            W_ = W[idx]  # (n_atoms, out_dim, in_dim)
-            b_ = b[idx]  # (n_atoms, out_dim)
-            x = torch.matmul(x, W_.transpose(-2, -1)) + b_.unsqueeze(1)
-            if i < n_layers - 1:
-                x = torch.nn.functional.silu(x)
+        if not self.z_conditioned:
+            # All atoms share weights[i][0]; use F.linear to avoid
+            # materialising the (n_atoms, out_dim, in_dim) gather tensor.
+            for i in range(n_layers):
+                W = self.weights[i]  # type: ignore[index]
+                b = self.biases[i]  # type: ignore[index]
+                x = torch.nn.functional.linear(x, W[0], b[0])
+                if i < n_layers - 1:
+                    x = torch.nn.functional.silu(x)
+        else:
+            idx = species_idx
+            CHUNK = self.gather_chunk_size
+            n_chunks = (x.shape[0] + CHUNK - 1) // CHUNK
+            for i, (W, b) in enumerate(zip(self.weights, self.biases, strict=True)):
+                x_out = torch.empty(
+                    x.shape[0], x.shape[1], W.shape[-2], dtype=x.dtype, device=x.device
+                )
+                for ci in range(n_chunks):
+                    s = ci * CHUNK
+                    e = min(s + CHUNK, x.shape[0])
+                    W_ = W[idx[s:e]]
+                    b_ = b[idx[s:e]]
+                    x_out[s:e] = torch.matmul(x[s:e], W_.transpose(-2, -1)) + b_.unsqueeze(1)
+                x = x_out
+                if i < n_layers - 1:
+                    x = torch.nn.functional.silu(x)
 
         if is_node:
             x = x.squeeze(1)
