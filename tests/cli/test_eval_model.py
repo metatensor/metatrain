@@ -31,6 +31,7 @@ def model(MODEL_PATH):
 def options():
     return OmegaConf.load(EVAL_OPTIONS_PATH)
 
+
 @pytest.mark.parametrize("warm_up", [True, False])
 def test_eval_cli(monkeypatch, tmp_path, MODEL_PATH, warm_up):
     """Test succesful run of the eval script via the CLI with default arguments"""
@@ -63,7 +64,7 @@ def test_eval_cli(monkeypatch, tmp_path, MODEL_PATH, warm_up):
         raise RuntimeError(
             "Failed to evaluate model via CLI. Logs should be printed above."
         )
-    
+
     log_text = result.stdout.decode()
 
     assert "100%|██████████" in log_text
