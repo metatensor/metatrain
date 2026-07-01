@@ -32,7 +32,8 @@ def options():
     return OmegaConf.load(EVAL_OPTIONS_PATH)
 
 
-def test_eval_cli(monkeypatch, tmp_path, MODEL_PATH):
+@pytest.mark.parametrize("warm_up", [True, False])
+def test_eval_cli(monkeypatch, tmp_path, MODEL_PATH, warm_up):
     """Test succesful run of the eval script via the CLI with default arguments"""
     monkeypatch.chdir(tmp_path)
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
@@ -46,6 +47,8 @@ def test_eval_cli(monkeypatch, tmp_path, MODEL_PATH):
         str(MODEL_PATH.parent / "extensions"),
         "--check-consistency",
     ]
+    if not warm_up:
+        command.append("--no-warm-up")
 
     result = subprocess.run(
         command,
@@ -62,8 +65,20 @@ def test_eval_cli(monkeypatch, tmp_path, MODEL_PATH):
             "Failed to evaluate model via CLI. Logs should be printed above."
         )
 
-    assert "100%|██████████" in result.stdout.decode()
-    assert "energy RMSE" in result.stdout.decode()
+    log_text = result.stdout.decode()
+
+    assert "100%|██████████" in log_text
+    assert "energy RMSE" in log_text
+
+    # Check that the warm-up flag is correctly used
+    warm_up_str = "Warming up the model with 10 batches..."
+    no_warm_up_str = "Skipping warm-up of the model."
+    if warm_up:
+        assert warm_up_str in log_text
+        assert no_warm_up_str not in log_text
+    else:
+        assert warm_up_str not in log_text
+        assert no_warm_up_str in log_text
 
     assert Path("output.xyz").is_file()
 

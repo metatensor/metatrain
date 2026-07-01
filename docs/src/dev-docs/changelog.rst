@@ -30,6 +30,8 @@ Fixed
 Added
 #####
 
+- Possibility to avoid warm-up in ``mtt eval`` with the ``--no-warm-up`` flag.
+
 Changed
 #######
 
