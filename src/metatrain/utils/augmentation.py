@@ -260,9 +260,28 @@ def _apply_wigner_D_matrices(
         if block.samples.names == ["system"]:
             split_values = torch.split(values, [1 for _ in systems])
         elif not is_atomic_basis:
-            split_values = torch.split(
-                values, [len(system.positions) for system in systems]
-            )
+            if block.samples.names == ["system", "atom"]:
+                # This is a per atom target
+                split_values = torch.split(
+                    values, [len(system.positions) for system in systems]
+                )
+            elif block.samples.names == [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ]:
+                # This is a per atom pair target
+                unique_system_ids, inverse_indices = torch.unique(
+                    block.samples.values[:, 0], return_inverse=True
+                )
+                split_values = [
+                    values[inverse_indices == i] for i in range(len(unique_system_ids))
+                ]
+            else:
+                raise ValueError("Unknown sample kind")
         else:
             # Atomic basis: not straightforward because a given block doesn't
             # necessarily have all atoms nor all systems.

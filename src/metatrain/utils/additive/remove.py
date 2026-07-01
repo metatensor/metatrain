@@ -8,6 +8,7 @@ from metatensor.torch.operations._add import _add_block_block
 from metatensor.torch.operations._multiply import _multiply_block_constant
 from metatomic.torch import System
 
+from metatrain.experimental.edge_composition.utils.samples import match_samples
 from ..data import TargetInfo
 from ..evaluate_model import evaluate_model
 
@@ -17,6 +18,7 @@ def remove_additive(
     targets: Dict[str, TensorMap],
     additive_model: torch.nn.Module,
     target_info_dict: Dict[str, TargetInfo],
+    extra_data: Dict[str, TensorMap] = {},
 ) -> Dict[str, TensorMap]:
     """Remove an additive contribution from the training targets.
 
@@ -35,6 +37,7 @@ def remove_additive(
             "require grad and does not have a grad_fn"
         ),
     )
+    additive_model.eval()
     additive_contribution = evaluate_model(
         additive_model,
         systems,
@@ -44,6 +47,15 @@ def remove_additive(
             if key in additive_model.outputs
         },
         is_training=False,  # we don't need any gradients w.r.t. any parameters
+    )
+
+    atom_pair_contribs = {
+        key: v for key, v in additive_contribution.items()
+        if target_info_dict[key].sample_kind == "atom_pair"
+    }
+
+    targets.update(
+        match_samples(atom_pair_contribs, targets, extra_data)
     )
 
     for target_key in additive_contribution.keys():
@@ -159,6 +171,7 @@ def get_remove_additive_transform(
                 targets,
                 additive_model,
                 target_info_dict,
+                extra_data=extra
             )
         return systems, targets, extra
 

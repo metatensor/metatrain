@@ -92,6 +92,10 @@ dpa3 = [
     "deepmd-kit[torch]>=3.1.0",
     "torch>=2.7",
 ]
+edge-composition = [
+    "sphericart-torch",
+    'sphericart-torch == 1.0.8 ; platform_system == "Windows"', # for some reason sphericart-torch 1.0.9 can't load on windows
+]
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]

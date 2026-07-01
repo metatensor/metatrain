@@ -191,17 +191,17 @@ def _eval_targets(
     mae_acc = MAEAccumulator()
 
     # Warm-up
-    cycled = itertools.cycle(dataloader)
-    for _ in range(10):
-        batch = unpack_batch(next(cycled))
-        systems = [system.to(device=device, dtype=dtype) for system in batch[0]]
-        evaluate_model(
-            model,
-            systems,
-            options,
-            is_training=False,
-            check_consistency=check_consistency,
-        )
+    # cycled = itertools.cycle(dataloader)
+    # for _ in range(10):
+    #     batch = unpack_batch(next(cycled))
+    #     systems = [system.to(device=device, dtype=dtype) for system in batch[0]]
+    #     evaluate_model(
+    #         model,
+    #         systems,
+    #         options,
+    #         is_training=False,
+    #         check_consistency=check_consistency,
+    #     )
 
     total_time = 0.0
     timings_per_atom = []
@@ -225,12 +225,24 @@ def _eval_targets(
             torch.cuda.synchronize()
         end_time = time.time()
 
+        # For metrics, filter out the targets that have sample_kind "atom_pair"
+        # for now.
+        preds_for_metrics = {
+            k: v
+            for k, v in batch_predictions.items()
+            if options[k].sample_kind != "atom_pair"
+        }
+        targ_for_metrics = {
+            k: v
+            for k, v in batch_targets.items()
+            if options[k].sample_kind != "atom_pair"
+        }
         # Update metrics
         preds_per_atom = average_by_num_atoms(
-            batch_predictions, systems, per_structure_keys=[]
+            preds_for_metrics, systems, per_structure_keys=[]
         )
         targ_per_atom = average_by_num_atoms(
-            batch_targets, systems, per_structure_keys=[]
+            targ_for_metrics, systems, per_structure_keys=[]
         )
         rmse_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
         mae_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
@@ -290,11 +302,14 @@ def eval_model(
     :param check_consistency: Whether to run consistency checks during model evaluation.
     :param append: If ``True``, open the output file in append mode.
     """
+    model.eval()
     logging.info("Setting up evaluation set.")
     output = Path(output) if isinstance(output, str) else output
 
     options = validate_eval_options(OmegaConf.to_container(options))
     options = OmegaConf.create(options)
+    model = model.eval()
+
     options_list = expand_dataset_config(options)
     for i, options in enumerate(options_list):
         idx_suffix = f"_{i}" if len(options_list) > 1 else ""

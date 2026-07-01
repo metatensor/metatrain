@@ -7,8 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from metatrain.utils.architectures import get_default_hypers
-
 
 def pytest_xdist_auto_num_workers():
     """Limit the number of workers used by pytest"""
@@ -16,7 +14,7 @@ def pytest_xdist_auto_num_workers():
     return min(12, math.ceil(n_processes * 0.8))
 
 
-MODEL_HYPERS = get_default_hypers("soap_bpnn")["model"]
+# MODEL_HYPERS = get_default_hypers("soap_bpnn")["model"]
 
 # -------------------------------
 #      PATHS TO RESOURCES

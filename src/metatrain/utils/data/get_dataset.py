@@ -32,7 +32,7 @@ def get_dataset(
     if options["systems"]["read_from"].endswith(".zip"):  # disk dataset
         dataset = DiskDataset(
             options["systems"]["read_from"],
-            fields=[*options["targets"], *options.get("extra_data", {})],
+            fields={**options["targets"], **options.get("extra_data", {})},
         )
         target_info_dictionary = dataset.get_target_info(options["targets"])
         extra_data_info_dictionary = dataset.get_target_info(

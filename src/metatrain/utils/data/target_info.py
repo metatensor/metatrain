@@ -97,6 +97,8 @@ class TargetInfo:
         sample_names = self.layout.block(0).samples.names
         if "atom" in sample_names:
             return "atom"
+        elif "first_atom" in sample_names:
+            return "atom_pair"
         else:
             return "system"
 
@@ -135,14 +137,22 @@ class TargetInfo:
 
         :param layout: The layout TensorMap to check.
         """
-
+        valid_sample_names = [
+            "system",
+            "atom",
+            "first_atom",
+            "second_atom",
+            "cell_shift_a",
+            "cell_shift_b",
+            "cell_shift_c",
+        ]
         # examine basic properties of all blocks
         for block in layout.blocks():
             for sample_name in block.samples.names:
-                if sample_name not in ["system", "atom"]:
+                if sample_name not in valid_sample_names:
                     raise ValueError(
                         "The layout ``TensorMap`` of a target should only have samples "
-                        "named 'system' or 'atom', but found "
+                        f"named one of {valid_sample_names} but found "
                         f"'{sample_name}' instead."
                     )
             if len(block.values) != 0:
@@ -559,6 +569,16 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
     sample_names = ["system"]
     if target["sample_kind"] == "atom":
         sample_names.append("atom")
+    if target["sample_kind"] == "atom_pair":
+        sample_names.extend(
+            [
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ]
+        )
 
     irreps = target["type"]["spherical"]["irreps"]
     product = target["type"]["spherical"].get("product", None)
@@ -580,11 +600,17 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
         )
 
     if is_atomic_basis:
-        keys_names.append("atom_type")
+        if target["sample_kind"] == "atom":
+            keys_names.append("atom_type")
+        elif target["sample_kind"] == "atom_pair":
+            keys_names.extend(["first_atom_type", "second_atom_type"])
 
+    symmetric_product = target["sample_kind"] == "atom"
     # Build the tensormap blocks, and store their corresponding keys.
     if not is_atomic_basis:
-        irreps_iter, properties = _get_spherical_irreps_iter(irreps, target, product)
+        irreps_iter, properties = _get_spherical_irreps_iter(
+            irreps, target, product, symmetric_product=symmetric_product
+        )
 
         for irrep, props in zip(irreps_iter, properties, strict=True):
             block = _build_spherical_target_block(
@@ -597,13 +623,16 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
 
             keys.append([*lambdas, *sigmas])
             blocks.append(block)
-    else:
+    elif target["sample_kind"] == "atom":
         # Loop over atomic types
         for atom_type, atom_irreps in irreps.items():
             # For each atomic type, essentially do the same as for the case with
             # no types. We simply have an extra key corresponding to the atomic type.
             irreps_iter, properties = _get_spherical_irreps_iter(
-                atom_irreps, target, product=product
+                atom_irreps,
+                target,
+                product=product,
+                symmetric_product=symmetric_product,
             )
 
             for irrep, props in zip(irreps_iter, properties, strict=True):
@@ -615,6 +644,30 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
                 )
                 _, lambdas, sigmas = torch.tensor(irrep).T
                 keys.append([*lambdas, *sigmas, atom_type])
+                blocks.append(block)
+    elif target["sample_kind"] == "atom_pair":
+        # Loop over pairs of atomic types.
+        atom_type_pairs = list(itertools.product(irreps.keys(), repeat=2))
+        for first_atom_type, second_atom_type in atom_type_pairs:
+            first_irreps = irreps[first_atom_type]
+            second_irreps = irreps[second_atom_type]
+            irreps_iter, properties = _get_spherical_irreps_iter(
+                first_irreps,
+                target,
+                product=product,
+                symmetric_product=symmetric_product,
+                irreps_2=second_irreps,
+            )
+
+            for irrep, props in zip(irreps_iter, properties, strict=True):
+                block = _build_spherical_target_block(
+                    sample_names=sample_names,
+                    target_name=target_name,
+                    irreps=irrep,
+                    properties=props,
+                )
+                _, lambdas, sigmas = torch.tensor(irrep).T
+                keys.append([*lambdas, *sigmas, first_atom_type, second_atom_type])
                 blocks.append(block)
 
     layout = TensorMap(
@@ -712,11 +765,17 @@ def _get_spherical_irreps_iter(
     irreps: list[dict],
     target: dict,
     product: Optional[Literal["cartesian", "coupled"]] = None,
+    symmetric_product: bool = False,
+    irreps_2: Optional[list[dict]] = None,
 ) -> tuple[list[list[tuple[int, int, int]]], list[Labels]]:
     if product not in [None, "cartesian", "coupled"]:
         raise ValueError(
             f"Product '{product}' is not supported. Supported products are"
             " 'cartesian' and 'coupled'."
+        )
+    if product is None and irreps_2 is not None:
+        raise ValueError(
+            "The 'irreps_2' argument should only be provided if 'product' is not None."
         )
 
     irreps_iter = [
@@ -730,9 +789,21 @@ def _get_spherical_irreps_iter(
         for irrep in irreps
     ]
     if product in ["cartesian", "coupled"]:
+        if irreps_2 is None:
+            irreps_2 = irreps
+        irreps_2_iter = [
+            [
+                (
+                    irrep.get("num", 1) * target["num_subtargets"],
+                    irrep["o3_lambda"],
+                    irrep["o3_sigma"],
+                )
+            ]
+            for irrep in irreps_2
+        ]
         irreps_iter = [
             i_irrep + j_irrep
-            for i_irrep, j_irrep in itertools.product(irreps_iter, repeat=2)
+            for i_irrep, j_irrep in itertools.product(irreps_iter, irreps_2_iter)
         ]
     if product == "coupled":
         coupled_blocks: dict[tuple[int, int], int] = defaultdict(int)
@@ -748,7 +819,7 @@ def _get_spherical_irreps_iter(
                 # add an input to specify if the target has this property.
                 # For per-pair targets (not introduced yet), this will not be
                 # the case.
-                if sig == -1:
+                if symmetric_product and sig == -1:
                     continue
 
                 coupled_blocks[(lam, sig)] += num1 * num2
