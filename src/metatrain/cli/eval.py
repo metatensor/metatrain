@@ -120,11 +120,11 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
         dest="warm_up",
         default=True,
         help=(
-            "whether to do a warm-up of the model before evaluation (default: %(default)s)."
-            " The warm-up is done by running 10 model evaluations. "
-            "This will give timings that are more representative of the model's performance"
-            "on a large dataset. However, it will delay evaluation, which might be undesirable"
-            "for expensive evaluations. "
+            "whether to do a warm-up of the model before evaluation "
+            "(default: %(default)s). The warm-up is done by running 10 "
+            "model evaluations. This will give timings that are more representative "
+            "of the model's performance on a large dataset. However, it will delay "
+            "evaluation, which might be undesirable for expensive evaluations."
         ),
     )
 
