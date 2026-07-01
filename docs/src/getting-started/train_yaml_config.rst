@@ -488,12 +488,12 @@ If multiple datasets are provided for a split (e.g. a list under ``training_set`
 are suffixed with ``_0``, ``_1``, … to distinguish them.
 
 **Format** ``xyz``
-^^^^^^^^^^^^^^^^^^
+------------------
 
 Each split is written to a single extended XYZ file. Every structure in the file carries
 the predicted target values (and gradients, e.g. forces and stresses, if the model
 outputs them) as extra fields in the info/arrays section, using the same naming as
-:ref:`mtt eval <cli-eval>`. The file can be read back with ASE:
+``mtt eval``. The file can be read back with ASE:
 
 .. code-block:: python
 
@@ -501,7 +501,7 @@ outputs them) as extra fields in the info/arrays section, using the same naming 
     frames = ase.io.read("final_evaluation/train_predictions.xyz", index=":")
 
 **Format** ``memmap``
-^^^^^^^^^^^^^^^^^^^^^
+---------------------
 
 Each target (and gradient) is saved as a self-describing ``.npy`` file next to the base
 filename:
