@@ -297,18 +297,17 @@ def model_update_v13_v14(checkpoint: dict) -> None:
     """
     Update a v13 checkpoint to v14.
 
-    Adds the system-conditioning hyperparameters introduced on this version,
-    disabled by default so existing models keep their behaviour.
+    Old checkpoints used the main ``cutoff_width`` as the taper width of the
+    adaptive cutoff scheme. Pin ``cutoff_width_adaptive`` to that value so
+    reload behaviour matches what they were trained with. New trainings
+    default to ``1.0`` via ``ModelHypers``.
 
     :param checkpoint: The checkpoint to update.
     """
-    hypers = checkpoint["model_data"]["model_hypers"]
-    if "system_conditioning" not in hypers:
-        hypers["system_conditioning"] = False
-    if "max_charge" not in hypers:
-        hypers["max_charge"] = 10
-    if "max_spin_multiplicity" not in hypers:
-        hypers["max_spin_multiplicity"] = 10
+    if "cutoff_width_adaptive" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["cutoff_width_adaptive"] = checkpoint[
+            "model_data"
+        ]["model_hypers"]["cutoff_width"]
 
 
 ###########################
