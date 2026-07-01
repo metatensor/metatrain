@@ -207,6 +207,7 @@ def _eval_targets(
 
     # Warm-up
     if warm_up:
+        logging.info("Warming up the model with 10 batches...")
         cycled = itertools.cycle(dataloader)
         for _ in range(10):
             batch = unpack_batch(next(cycled))
@@ -218,6 +219,8 @@ def _eval_targets(
                 is_training=False,
                 check_consistency=check_consistency,
             )
+    else:
+        logging.info("Skipping warm-up of the model.")
 
     total_time = 0.0
     timings_per_atom = []
