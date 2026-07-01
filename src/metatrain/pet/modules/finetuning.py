@@ -153,8 +153,12 @@ def apply_finetuning_strategy(model: nn.Module, strategy: FinetuneHypers) -> nn.
         heads_config = strategy.get(
             "config",
             {
-                "head_modules": ["node_heads", "edge_heads"],
-                "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+                # The heads and last layers live on the pure-PyTorch ``core`` submodule.
+                "head_modules": ["core.node_heads", "core.edge_heads"],
+                "last_layer_modules": [
+                    "core.node_last_layers",
+                    "core.edge_last_layers",
+                ],
             },
         )
 

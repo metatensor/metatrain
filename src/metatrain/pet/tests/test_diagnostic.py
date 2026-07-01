@@ -18,10 +18,12 @@ import torch
 from metatomic.torch import ModelOutput, System
 
 from metatrain.pet import PET
+from metatrain.pet.modules.backend import PETBackend
 from metatrain.pet.modules.diagnostic import (
     DIAGNOSTIC_PREFIX,
     EXCLUDED_MODULE_PREFIXES,
     FEATURIZER_INPUT_NAMES,
+    MODULE_NAMESPACE,
 )
 from metatrain.pet.modules.transformer import (
     CartesianTransformer,
@@ -48,10 +50,14 @@ _TUPLE_MODULE_TYPES = (CartesianTransformer, Transformer, TransformerLayer)
 # invokes it in forward(), so its hook would never fire; and (b) the other
 # Identity instances in the model (gnn_layers_post_mp_node, node_backbone, …)
 # are simple pass-throughs that do not produce interesting diagnostic tensors.
+# PETBackend is the pure-PyTorch backend container: ``PET.forward`` calls its
+# ``preprocess`` / ``compute_features`` / ``predict`` methods directly rather than
+# its ``forward``, so a hook on the container itself never fires.
 _SKIP_MODULE_TYPES = (
     torch.nn.ModuleList,
     torch.nn.ModuleDict,
     torch.nn.Identity,
+    PETBackend,
     DummyModule,
 )
 
@@ -134,6 +140,7 @@ def test_node_head_output_returned():
 
     outputs = {"mtt::feature::node_heads.energy.0": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
+    print(result)
 
     assert "mtt::feature::node_heads.energy.0" in result
     block = result["mtt::feature::node_heads.energy.0"].block()
@@ -463,9 +470,14 @@ def _build_all_outputs(model) -> dict:
 
     outputs = {}
 
-    for name, module in model.named_modules():
+    # Capturable modules live under ``model.backend``; the user-facing diagnostic
+    # path omits this ``backend.`` namespace prefix.
+    for full_name, module in model.named_modules():
+        if not full_name.startswith(MODULE_NAMESPACE):
+            continue  # only modules under ``backend`` are capturable
+        name = full_name.removeprefix(MODULE_NAMESPACE)
         if not name:
-            continue  # skip the root module itself
+            continue  # skip the backend container itself
         if any(name.startswith(p) for p in EXCLUDED_MODULE_PREFIXES):
             continue
         if any(name.startswith(p) for p in _CONDITIONAL_MODULE_PREFIXES):
