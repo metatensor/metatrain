@@ -31,6 +31,7 @@ from ..utils.data import (
     load_indices,
 )
 from ..utils.data.dataset import _save_indices, _train_test_random_split
+from ..utils.data.writers import Writer, get_writer
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError, OutOfMemoryError
@@ -789,11 +790,32 @@ def train_model(
     else:
         logging.info(f"Running final evaluation with batch size {batch_size}")
 
+    final_eval_options = options.get("final_evaluation", {})
+    write_predictions = final_eval_options.get("write_predictions", False)
+    pred_format = final_eval_options.get("format", "xyz")
+    pred_ext = ".xyz" if pred_format == "xyz" else ".npy"
+
+    if write_predictions:
+        final_eval_dir = checkpoint_dir / "final_evaluation"
+        final_eval_dir.mkdir(parents=True, exist_ok=True)
+        logging.info(
+            f"Saving {pred_format} predictions to {final_eval_dir.absolute().resolve()}"
+        )
+
+    def _make_writer(split: str, index: Optional[int]) -> Optional[Writer]:
+        if not write_predictions:
+            return None
+        suffix = f"_{index}" if index is not None else ""
+        fname = final_eval_dir / f"{split}_predictions{suffix}{pred_ext}"
+        return get_writer(fname, capabilities=mts_atomistic_model.capabilities())
+
     for i, train_dataset in enumerate(train_datasets):
         if len(train_datasets) == 1:
             extra_log_message = ""
+            dataset_index = None
         else:
             extra_log_message = f" with index {i}"
+            dataset_index = i
 
         logging.info(f"Evaluating training dataset{extra_log_message}")
         _eval_targets(
@@ -801,13 +823,16 @@ def train_model(
             train_dataset,
             dataset_info.targets,
             batch_size=batch_size,
+            writer=_make_writer("train", dataset_index),
         )
 
     for i, val_dataset in enumerate(val_datasets):
         if len(val_datasets) == 1:
             extra_log_message = ""
+            dataset_index = None
         else:
             extra_log_message = f" with index {i}"
+            dataset_index = i
 
         logging.info(f"Evaluating validation dataset{extra_log_message}")
         _eval_targets(
@@ -815,13 +840,16 @@ def train_model(
             val_dataset,
             dataset_info.targets,
             batch_size=batch_size,
+            writer=_make_writer("val", dataset_index),
         )
 
     for i, test_dataset in enumerate(test_datasets):
         if len(test_datasets) == 1:
             extra_log_message = ""
+            dataset_index = None
         else:
             extra_log_message = f" with index {i}"
+            dataset_index = i
 
         logging.info(f"Evaluating test dataset{extra_log_message}")
         _eval_targets(
@@ -829,6 +857,7 @@ def train_model(
             test_dataset,
             dataset_info.targets,
             batch_size=batch_size,
+            writer=_make_writer("test", dataset_index),
         )
 
 

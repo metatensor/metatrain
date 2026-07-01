@@ -5,6 +5,7 @@ from metatomic.torch import ModelCapabilities
 
 from .ase import ASEWriter
 from .diskdataset import DiskDatasetWriter
+from .memmap import MemMapWriter
 from .metatensor import MetatensorWriter
 from .writers import (
     Writer,
@@ -40,6 +41,7 @@ PREDICTIONS_WRITERS: Dict[str, WriterFactory] = {
     ".xyz": _make_factory(ASEWriter),
     ".mts": _make_factory(MetatensorWriter),
     ".zip": _make_factory(DiskDatasetWriter),
+    ".npy": _make_factory(MemMapWriter),
 }
 """:py:class:`dict`: dictionary mapping file suffixes to a prediction writer"""
 
@@ -81,4 +83,7 @@ def get_writer(
     except KeyError:
         raise ValueError(f"fileformat '{fileformat}' is not supported")
 
-    return writer_factory(Path(filename).stem + fileformat, capabilities, append)
+    filename = Path(filename)
+    return writer_factory(
+        filename.parent / (filename.stem + fileformat), capabilities, append
+    )

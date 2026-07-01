@@ -421,6 +421,28 @@ WandbConfig = dict
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))
+class FinalEvaluationHypers(TypedDict):
+    """Hyperparameters controlling prediction output at the end of training."""
+
+    write_predictions: NotRequired[bool] = False
+    """If ``True``, save the model's predicted labels for the training,
+    validation and test sets to disk once the final train/valid/test MAEs have
+    been computed.
+
+    Predictions are written to ``<checkpoint_dir>/final_evaluation/``."""
+
+    format: NotRequired[Literal["xyz", "memmap"]] = "xyz"
+    """Output format for the saved predictions.
+
+    - ``"xyz"``: one extended XYZ file per split, readable with ASE.
+    - ``"memmap"``: one memory-mapped ``.npy`` file per target (and gradient)
+      per split, loadable via ``numpy.load(path, mmap_mode="r")``. This
+      follows the same on-disk array convention used by
+      :class:`metatrain.utils.data.dataset.MemmapDataset`.
+    """
+
+
+@with_config(ConfigDict(extra="forbid", strict=True))
 class BaseHypers(TypedDict):
     """Base hyperparameters for all models."""
 
@@ -465,3 +487,8 @@ class BaseHypers(TypedDict):
     a full dataset specification, or an ``indices`` dict referencing
     the training source file.
     """
+
+    final_evaluation: NotRequired[FinalEvaluationHypers]
+    """Options controlling prediction output at the end of training.
+
+    If not provided, only RMSE/MAE metrics are logged (no files are written)."""

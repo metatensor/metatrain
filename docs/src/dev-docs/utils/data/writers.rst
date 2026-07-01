@@ -37,6 +37,10 @@ the ``Writer`` abstract class.
     :members:
     :undoc-members:
     :show-inheritance:
+.. autoclass:: metatrain.utils.data.writers.MemMapWriter
+    :members:
+    :undoc-members:
+    :show-inheritance:
 .. autoclass:: metatrain.utils.data.writers.MetatensorWriter
     :members:
     :undoc-members:
