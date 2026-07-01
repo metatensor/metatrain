@@ -31,7 +31,7 @@ from ..utils.data import (
     load_indices,
 )
 from ..utils.data.dataset import _save_indices, _train_test_random_split
-from ..utils.data.writers import get_writer
+from ..utils.data.writers import Writer, get_writer
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError, OutOfMemoryError
@@ -802,7 +802,7 @@ def train_model(
             f"Saving {pred_format} predictions to {final_eval_dir.absolute().resolve()}"
         )
 
-    def _make_writer(split: str, index: Optional[int]):
+    def _make_writer(split: str, index: Optional[int]) -> Optional[Writer]:
         if not write_predictions:
             return None
         suffix = f"_{index}" if index is not None else ""
