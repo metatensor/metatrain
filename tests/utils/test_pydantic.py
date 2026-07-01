@@ -156,3 +156,58 @@ def test_validation_error_doc_link():
     for link in [modelhypers_link, trainerhypers_link]:
         response = requests.head(link)
         assert response.status_code == 200, f"Link {link} is not reachable"
+
+
+# ============================================================================
+# Tests for validate_base_options with final_evaluation
+# ============================================================================
+
+_BASE_CONFIG = {
+    "architecture": {"name": "soap_bpnn"},
+    "training_set": "data.xyz",
+    "validation_set": 0.1,
+}
+
+
+@pytest.mark.parametrize("fmt", ["xyz", "memmap"])
+def test_final_evaluation_valid_format(fmt):
+    """Both 'xyz' and 'memmap' are accepted as final_evaluation.format."""
+    config = {
+        **_BASE_CONFIG,
+        "final_evaluation": {"write_predictions": True, "format": fmt},
+    }
+    validate_base_options(config)  # must not raise
+
+
+def test_final_evaluation_write_predictions_false():
+    """write_predictions=False is valid and is the documented default."""
+    config = {
+        **_BASE_CONFIG,
+        "final_evaluation": {"write_predictions": False},
+    }
+    validate_base_options(config)  # must not raise
+
+
+def test_final_evaluation_invalid_format():
+    """Unknown format values are rejected with a clear validation error."""
+    config = {
+        **_BASE_CONFIG,
+        "final_evaluation": {"write_predictions": True, "format": "hdf5"},
+    }
+    with pytest.raises(MetatrainValidationError, match="format"):
+        validate_base_options(config)
+
+
+def test_final_evaluation_unknown_key():
+    """Extra keys inside final_evaluation are rejected (extra='forbid')."""
+    config = {
+        **_BASE_CONFIG,
+        "final_evaluation": {"write_predictions": True, "unknown_option": 42},
+    }
+    with pytest.raises(MetatrainValidationError, match="unknown_option"):
+        validate_base_options(config)
+
+
+def test_final_evaluation_omitted():
+    """Omitting final_evaluation entirely is valid (it is NotRequired)."""
+    validate_base_options(_BASE_CONFIG)  # must not raise

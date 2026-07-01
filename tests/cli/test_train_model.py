@@ -1863,3 +1863,52 @@ def test_input_sanitized(monkeypatch, tmp_path, options_spherical):
         match="The `per_atom` key in target specifications is deprecated",
     ):
         train_model(options_spherical)
+
+
+# ============================================================================
+# Tests for the final_evaluation flag
+# ============================================================================
+
+
+@pytest.mark.parametrize("pred_format", ["xyz", "memmap"])
+def test_train_final_evaluation_writes_predictions(
+    monkeypatch, tmp_path, pred_format, options
+):
+    """Training with write_predictions=True creates prediction files for every split."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["final_evaluation"] = OmegaConf.create(
+        {"write_predictions": True, "format": pred_format}
+    )
+
+    train_model(options, checkpoint_dir=str(tmp_path))
+
+    final_eval_dir = tmp_path / "final_evaluation"
+    assert final_eval_dir.is_dir(), "final_evaluation/ directory was not created"
+
+    if pred_format == "xyz":
+        for split in ["train", "val", "test"]:
+            out = final_eval_dir / f"{split}_predictions.xyz"
+            assert out.exists(), f"{out.name} missing"
+            frames = read(str(out), ":")
+            assert len(frames) > 0, f"{out.name} is empty"
+    else:  # memmap
+        for split in ["train", "val", "test"]:
+            energy_out = final_eval_dir / f"{split}_predictions_energy.npy"
+            assert energy_out.exists(), f"{energy_out.name} missing"
+            arr = np.load(energy_out, mmap_mode="r")
+            assert arr.ndim == 2
+            assert arr.shape[1] == 1
+            assert arr.dtype == np.float32
+            assert len(arr) > 0
+
+
+def test_train_final_evaluation_off_by_default(monkeypatch, tmp_path, options):
+    """Default training (write_predictions not set) does not create prediction files."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    train_model(options, checkpoint_dir=str(tmp_path))
+
+    assert not (tmp_path / "final_evaluation").exists()

@@ -14,12 +14,13 @@ parameters provided by the training YAML input. For a minimal example of a YAML 
 file, suitable to start a first training, we refer the viewer to the sample YAML file in
 the :ref:`Quickstart <label_quickstart>` section.
 
-The YAML input file can be divided into five sections:
+The YAML input file can be divided into six sections:
 
 - :ref:`computational-parameters-section`
 - :ref:`architecture-section`
 - :ref:`loss-section`
 - :ref:`data-section`
+- :ref:`final-evaluation-section`
 - :ref:`wandb-integration-section`
 
 .. _computational-parameters-section:
@@ -451,6 +452,87 @@ file:
    Even though parsing several datasets is supported by the library, it may not work
    with every architecture. Check your :ref:`desired architecture
    <available-architectures>` if they **support multiple datasets**.
+
+.. _final-evaluation-section:
+
+Final Evaluation
+================
+
+After training ends, ``metatrain`` evaluates the final model on the training, validation
+and test sets and logs the RMSE and MAE for each target. The ``final_evaluation`` section
+lets you additionally save the predicted labels to disk, which is useful for post-training
+analysis or for building new datasets from model predictions.
+
+.. code-block:: yaml
+
+    final_evaluation:
+        write_predictions: true
+        format: xyz
+
+.. container:: mtt-hypers-remove-classname
+
+    .. autoattribute:: metatrain.share.base_hypers.FinalEvaluationHypers.write_predictions
+        :no-index:
+
+    .. autoattribute:: metatrain.share.base_hypers.FinalEvaluationHypers.format
+        :no-index:
+
+When ``write_predictions`` is ``true``, one output file (or set of files) per split is
+written to the ``final_evaluation/`` subdirectory inside the checkpoint directory:
+
+- ``train_predictions.<ext>``
+- ``val_predictions.<ext>``
+- ``test_predictions.<ext>``
+
+If multiple datasets are provided for a split (e.g. a list under ``training_set``), files
+are suffixed with ``_0``, ``_1``, … to distinguish them.
+
+**Format** ``xyz``
+^^^^^^^^^^^^^^^^^^
+
+Each split is written to a single extended XYZ file. Every structure in the file carries
+the predicted target values (and gradients, e.g. forces and stresses, if the model
+outputs them) as extra fields in the info/arrays section, using the same naming as
+:ref:`mtt eval <cli-eval>`. The file can be read back with ASE:
+
+.. code-block:: python
+
+    import ase.io
+    frames = ase.io.read("final_evaluation/train_predictions.xyz", index=":")
+
+**Format** ``memmap``
+^^^^^^^^^^^^^^^^^^^^^
+
+Each target (and gradient) is saved as a self-describing ``.npy`` file next to the base
+filename:
+
+- ``{split}_predictions_{target}.npy`` — e.g. ``train_predictions_energy.npy``
+- ``{split}_predictions_{gradient}.npy`` — e.g. ``train_predictions_forces.npy``
+
+Gradient files use the same user-facing names and sign/scale conventions as the
+``xyz`` format: position gradients of an energy are written as negated ``forces``,
+and strain gradients are written as both a negated ``virial`` and a
+volume-normalized ``stress`` (``NaN`` for structures without a valid cell). All
+arrays are stored as ``float32`` and can be loaded memory-mapped without reading
+the full dataset into RAM:
+
+.. code-block:: python
+
+    import numpy as np
+    energy = np.load("final_evaluation/train_predictions_energy.npy", mmap_mode="r")
+
+Unlike :class:`metatrain.utils.data.dataset.MemmapDataset` (which stores raw
+``.bin`` shards alongside external shape metadata), this format writes
+self-describing ``.npy`` files; the two share the "float32, memory-mappable"
+convention but are not directly interchangeable.
+
+.. note::
+
+    Only single-block
+    :class:`TensorMap <metatensor.torch.TensorMap>` outputs are supported by the
+    ``memmap`` format. For models that produce multi-block outputs (e.g. spherical tensor
+    targets), use ``format: xyz`` or run ``mtt eval`` with a ``.mts`` output file
+    instead.
 
 .. _wandb-integration-section:
 
