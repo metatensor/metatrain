@@ -21,6 +21,30 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 .. Removed
 .. #######
 
+Unreleased
+-----------------------------
+
+Fixed
+#####
+
+Added
+#####
+
+Changed
+#######
+
+Removed
+#######
+
+Version 2026.3.1 - 2026-07-01
+-----------------------------
+
+Fixed
+#####
+
+- Fixed a bug for FlashMD symplectic and new metatomic singular standard outputs.
+- Fixes in PET and LLPR to make upet work.
+
 Version 2026.3 - 2026-06-26
 -----------------------------
 
