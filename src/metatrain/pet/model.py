@@ -441,10 +441,10 @@ class PET(ModelInterface[ModelHypers]):
                     batch_data["padding_mask"],
                     sample_labels,
                     selected_atoms,
-                    outputs["mtt::aux::cutoff_stats"].sample_kind == "atom",
+                    outputs["mtt::aux::cutoff_stats"].sample_kind,
                 )
 
-        with torch.profiler.record_function("PET::compute_features"):
+        with torch.profiler.record_function("PET::backend::compute_features"):
             # **Stage 1: Feature Computation via GNN Layers**
 
             if self.system_conditioning is not None:
@@ -684,7 +684,7 @@ class PET(ModelInterface[ModelHypers]):
         padding_mask: torch.Tensor,
         sample_labels: Labels,
         selected_atoms: Optional[Labels],
-        per_atom: bool,
+        sample_kind: str,
     ) -> TensorMap:
         # padding_mask is True for real edges, False for padding, shape
         # (num_nodes, max_edges_per_node).
@@ -707,7 +707,7 @@ class PET(ModelInterface[ModelHypers]):
         )
         if selected_atoms is not None:
             tmap = mts.slice(tmap, axis="samples", selection=selected_atoms)
-        if not per_atom:
+        if sample_kind == "per_atom":
             tmap = mts.mean_over_samples(tmap, sample_names=["atom"])
         return tmap
 

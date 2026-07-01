@@ -245,12 +245,34 @@ class PETBackend(torch.nn.Module):
         :param system_indices: System index for each atom, shape ``(num_nodes,)``.
         :param cutoff_width_adaptive: Width of the smooth cutoff taper used by the
             adaptive cutoff scheme when ``num_neighbors_adaptive`` is set.
-        :return: A dictionary ``aux`` of the intermediate tensors. The keys in
-            :data:`metatrain.pet.modules.diagnostic.FEATURIZER_INPUT_NAMES` are the
-            inputs to :meth:`compute_features`; the remaining keys
-            (``atomic_cutoffs_stats``, ``centers``, ``neighbors``,
-            ``nef_to_edges_neighbor``, ``cell_shifts``) are used by :class:`PET` to
-            build the output ``TensorMap`` objects.
+        :return: A dictionary ``batch_data`` of the intermediate tensors:
+            - `element_indices_nodes`: The atomic species of the central atoms
+            - `element_indices_neighbors`: The atomic species of the neighboring atoms
+            - `edge_vectors`: The cartesian edge vectors between the central atoms and
+                their neighbors
+            - `edge_distances`: The distances between the central atoms and their
+                neighbors
+            - `padding_mask`: A padding mask indicating which neighbors are real, and
+                which are padded
+            - `reverse_neighbor_index`: The reversed neighbor list for each central atom
+            - `cutoff_factors`: The cutoff function values for each edge
+            - `atomic_cutoffs_stats`: Diagnostic per-atom cutoff radius (detached
+                from the autograd graph). With adaptive cutoff active this is
+                the per-atom adapted cutoff; otherwise every entry equals
+                ``cutoff``. Always shape ``(num_nodes,)``.
+            - `centers`: Flat tensor of center atom global indices for each real
+            (non-padded) edge, shape ``(n_edges,)``. Suitable for use with
+            :func:`get_pair_sample_labels`.
+            - `neighbors`: Flat tensor of neighbor atom global indices for each real
+            (non-padded) edge, shape ``(n_edges,)``. Suitable for use with
+            :func:`get_pair_sample_labels`.
+            - `nef_to_edges_neighbor`: Index tensor of shape ``(n_edges,)`` such that
+            `nef_tensor[centers, nef_to_edges_neighbor]` recovers the flat edge array
+            from a NEF-format tensor. Needed to flatten 3D (edge-like) hook outputs back
+            to per-edge arrays for TensorMap construction.
+            - `cell_shifts`: Integer cell shift vectors for each real (non-padded) edge,
+            shape ``(n_edges, 3)``. Columns correspond to ``(cell_shift_a, cell_shift_b,
+            cell_shift_c)``. Suitable for use with :func:`get_pair_sample_labels`.
         """
         (
             element_indices_nodes,
@@ -287,8 +309,8 @@ class PETBackend(torch.nn.Module):
             "element_indices_neighbors": element_indices_neighbors,
             "edge_vectors": edge_vectors,
             "edge_distances": edge_distances,
-            "reverse_neighbor_index": reverse_neighbor_index,
             "padding_mask": padding_mask,
+            "reverse_neighbor_index": reverse_neighbor_index,
             "cutoff_factors": cutoff_factors,
             "atomic_cutoffs_stats": atomic_cutoffs_stats,
             "centers": centers,
