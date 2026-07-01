@@ -1,9 +1,10 @@
 from math import prod
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 
 from ..documentation import ModelHypers
+from .conditioning import SystemConditioningEmbedding
 from .structures import compute_batch_tensors
 from .transformer import CartesianTransformer
 
@@ -116,6 +117,17 @@ class PETBackend(torch.nn.Module):
         )
         self.edge_embedder = torch.nn.Embedding(num_atomic_species, self.d_pet)
 
+        if hypers["system_conditioning"]:
+            self.system_conditioning: Optional[SystemConditioningEmbedding] = (
+                SystemConditioningEmbedding(
+                    d_out=self.d_node,
+                    max_charge=hypers["max_charge"],
+                    max_spin_multiplicity=hypers["max_spin_multiplicity"],
+                )
+            )
+        else:
+            self.system_conditioning = None
+
         # Per-output heads and last layers, populated by ``PET._add_output``.
         self.node_heads = torch.nn.ModuleDict()
         self.edge_heads = torch.nn.ModuleDict()
@@ -212,6 +224,7 @@ class PETBackend(torch.nn.Module):
         cells: torch.Tensor,
         cell_shifts: torch.Tensor,
         system_indices: torch.Tensor,
+        cutoff_width_adaptive: float,
     ) -> Dict[str, torch.Tensor]:
         """
         Run structure preprocessing on plain tensors.
@@ -230,6 +243,8 @@ class PETBackend(torch.nn.Module):
         :param cells: Stacked cell tensors, shape ``(num_systems, 3, 3)``.
         :param cell_shifts: Integer cell shift vectors, shape ``(n_edges, 3)``.
         :param system_indices: System index for each atom, shape ``(num_nodes,)``.
+        :param cutoff_width_adaptive: Width of the smooth cutoff taper used by the
+            adaptive cutoff scheme when ``num_neighbors_adaptive`` is set.
         :return: A dictionary ``aux`` of the intermediate tensors. The keys in
             :data:`metatrain.pet.modules.diagnostic.FEATURIZER_INPUT_NAMES` are the
             inputs to :meth:`compute_features`; the remaining keys
@@ -264,6 +279,7 @@ class PETBackend(torch.nn.Module):
             self.cutoff_width,
             self.num_neighbors_adaptive,
             self.adaptive_cutoff_method,
+            cutoff_width_adaptive,
         )
 
         batch_data: Dict[str, torch.Tensor] = {
@@ -389,6 +405,10 @@ class PETBackend(torch.nn.Module):
             "padding_mask": batch_data["padding_mask"],
             "cutoff_factors": batch_data["cutoff_factors"],
         }
+        if self.system_conditioning is not None:
+            featurizer_inputs["charge"] = batch_data["charge"]
+            featurizer_inputs["spin_multiplicity"] = batch_data["spin_multiplicity"]
+            featurizer_inputs["system_indices"] = batch_data["system_indices"]
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
@@ -451,6 +471,15 @@ class PETBackend(torch.nn.Module):
 
         input_node_embeddings = self.node_embedders[0](inputs["element_indices_nodes"])
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
+        # Compute conditioning embedding once: same inputs at every GNN layer.
+        cond_embedding: Optional[torch.Tensor] = None
+        if self.system_conditioning is not None:
+            cond_embedding = self.system_conditioning(
+                inputs["charge"],
+                inputs["spin_multiplicity"],
+                inputs["system_indices"],
+            )
+
         for (
             combination_norm,
             combination_mlp,
@@ -475,6 +504,9 @@ class PETBackend(torch.nn.Module):
                 inputs["cutoff_factors"],
                 use_manual_attention,
             )
+
+            if cond_embedding is not None:
+                output_node_embeddings = output_node_embeddings + cond_embedding
 
             # The GNN contraction happens by reordering the messages,
             # using a reversed neighbor list, so the new input message
@@ -529,6 +561,14 @@ class PETBackend(torch.nn.Module):
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
+        # Compute conditioning embedding once: same inputs at every GNN layer.
+        cond_embedding: Optional[torch.Tensor] = None
+        if self.system_conditioning is not None:
+            cond_embedding = self.system_conditioning(
+                inputs["charge"],
+                inputs["spin_multiplicity"],
+                inputs["system_indices"],
+            )
         for node_embedder, gnn_layer in zip(
             self.node_embedders, self.gnn_layers, strict=True
         ):
@@ -543,6 +583,9 @@ class PETBackend(torch.nn.Module):
                 inputs["cutoff_factors"],
                 use_manual_attention,
             )
+            if cond_embedding is not None:
+                output_node_embeddings = output_node_embeddings + cond_embedding
+
             node_features_list.append(output_node_embeddings)
             edge_features_list.append(output_edge_embeddings)
 

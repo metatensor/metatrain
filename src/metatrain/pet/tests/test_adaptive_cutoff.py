@@ -232,12 +232,10 @@ def test_effective_num_neighbors():
     centers = torch.tensor([0, 0, 1, 1, 1, 2, 2])
     probe_cutoffs = torch.tensor([1.0, 2.0, 3.0, 4.0])
     num_nodes = 3
+    width = 1.0
 
     effective_num_neighbors = get_effective_num_neighbors(
-        edge_distances,
-        probe_cutoffs,
-        centers,
-        num_nodes,
+        edge_distances, probe_cutoffs, centers, num_nodes, width
     )
 
     effective_num_neighbors_expected = torch.tensor(

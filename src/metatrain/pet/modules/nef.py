@@ -23,7 +23,11 @@ try:
 except ImportError:  # pragma: no cover - older torch without the helper
 
     def guard_or_false(expr: bool) -> bool:
-        """Identity fallback when ``guard_or_false`` is unavailable."""
+        """Identity fallback when ``guard_or_false`` is unavailable.
+
+        :param expr: The expression to (not) guard on.
+        :return: ``expr``, unchanged.
+        """
         return expr
 
 

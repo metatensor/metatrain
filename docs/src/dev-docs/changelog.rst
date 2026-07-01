@@ -21,6 +21,35 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 .. Removed
 .. #######
 
+Unreleased
+-----------------------------
+
+Fixed
+#####
+
+Added
+#####
+
+- Possibility to avoid warm-up in ``mtt eval`` with the ``--no-warm-up`` flag.
+- Optional per-system charge and spin-multiplicity conditioning for PET. Enabled via the
+  ``system_conditioning`` model hyperparameter, with per-system ``charge`` and
+  ``spin_multiplicity`` provided as ``extra_data``.
+
+Changed
+#######
+
+Removed
+#######
+
+Version 2026.3.1 - 2026-07-01
+-----------------------------
+
+Fixed
+#####
+
+- Fixed a bug for FlashMD symplectic and new metatomic singular standard outputs.
+- Fixes in PET and LLPR to make upet work.
+
 Version 2026.3 - 2026-06-26
 -----------------------------
 

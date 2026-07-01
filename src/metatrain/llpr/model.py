@@ -22,7 +22,6 @@ from metatrain.utils.data import (
     unpack_batch,
 )
 from metatrain.utils.data.target_info import (
-    DEPRECATED_METATOMIC_OUTPUT_NAMES,
     is_auxiliary_output,
 )
 from metatrain.utils.io import model_from_checkpoint
@@ -131,10 +130,21 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     f"{old_capabilities.outputs[target_name].unit}"
                 )
 
+        # Build the LLPR capabilities from the wrapped model's *native* outputs rather
+        # than from its export-time capabilities. The latter additionally contain the
+        # new-name aliases that metatomic injects for deprecated output names (e.g.
+        # `non_conservative_force` for `non_conservative_forces`), while the wrapped
+        # model's `forward` only responds to the native names. Building on the native
+        # names keeps this wrapper transparent: it requests from and returns to the
+        # wrapped model under the names the model actually understands, and metatomic's
+        # `AtomisticModel` re-adds the new-name aliases (and bridges engine requests to
+        # them) when this wrapper is itself exported.
+        backbone_outputs = self.model.supported_outputs()
+
         # update capabilities: now we have additional outputs for the uncertainty
         additional_capabilities = {}
         self.outputs_list = []
-        for name, output in old_capabilities.outputs.items():
+        for name, output in backbone_outputs.items():
             if is_auxiliary_output(name):
                 continue  # auxiliary output
             self.outputs_list.append(name)
@@ -146,11 +156,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 description=output.description,
             )
 
-        backbone_outputs = {
-            name: output
-            for name, output in old_capabilities.outputs.items()
-            if name not in DEPRECATED_METATOMIC_OUTPUT_NAMES
-        }
         self.capabilities = ModelCapabilities(
             outputs={**backbone_outputs, **additional_capabilities},
             atomic_types=old_capabilities.atomic_types,

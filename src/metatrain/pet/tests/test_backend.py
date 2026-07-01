@@ -106,7 +106,16 @@ def _backend_inputs(model, system):
         system_indices,
         _sample_labels,
     ) = concatenate_structures([system], model.requested_neighbor_lists()[0])
-    return positions, centers, neighbors, species, cells, cell_shifts, system_indices
+    return (
+        positions,
+        centers,
+        neighbors,
+        species,
+        cells,
+        cell_shifts,
+        system_indices,
+        model.cutoff_width_adaptive,
+    )
 
 
 def test_backend_runs_on_plain_tensors():
@@ -114,7 +123,16 @@ def test_backend_runs_on_plain_tensors():
     model = PET(MODEL_HYPERS, _make_dataset_info()).eval()
     backend = model.backend
     inputs = _backend_inputs(model, _make_system(model))
-    positions, centers, neighbors, species, cells, cell_shifts, system_indices = inputs
+    (
+        positions,
+        centers,
+        neighbors,
+        species,
+        cells,
+        cell_shifts,
+        system_indices,
+        cutoff_width_adaptive,
+    ) = inputs
 
     batch_data = backend.preprocess(*inputs)
     assert isinstance(batch_data, dict)
@@ -306,6 +324,7 @@ def test_compiled_backend_forces_and_stresses_match_full_model():
         cells,
         cell_shifts,
         system_indices,
+        cutoff_width_adaptive,
     ) = _backend_inputs(model, system)
 
     backend = model.backend
@@ -331,6 +350,7 @@ def test_compiled_backend_forces_and_stresses_match_full_model():
             strained_cells,
             cell_shifts,
             system_indices,
+            cutoff_width_adaptive,
         )
         node_list, edge_list = backend.calculate_features(batch_data)
         preds, _, _ = backend.predict(

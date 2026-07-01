@@ -1,7 +1,7 @@
 import logging
 import typing
 import warnings
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import metatensor.torch as mts
 import torch
@@ -58,7 +58,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 14
+    __checkpoint_version__ = 16
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -73,6 +73,15 @@ class PET(ModelInterface[ModelHypers]):
         # Cache the hyperparameters that PET itself (as opposed to the pure-PyTorch
         # core) needs. The remaining hyperparameters are cached on ``self.backend``.
         self.cutoff = float(self.hypers["cutoff"])
+        self.cutoff_function = self.hypers["cutoff_function"]
+        self.cutoff_width = float(self.hypers["cutoff_width"])
+        self.cutoff_width_adaptive = float(self.hypers["cutoff_width_adaptive"])
+        self.num_neighbors_adaptive = (
+            float(self.hypers["num_neighbors_adaptive"])
+            if self.hypers["num_neighbors_adaptive"] is not None
+            else None
+        )
+        self.adaptive_cutoff_method = self.hypers["adaptive_cutoff_method"]
         self.d_pet = self.hypers["d_pet"]
         self.d_node = self.hypers["d_node"]
         self.d_head = self.hypers["d_head"]
@@ -97,6 +106,7 @@ class PET(ModelInterface[ModelHypers]):
         # first entry of the ``state_dict`` (relied upon by ``load_checkpoint``).
         self.backend = PETBackend(self.hypers, self.atomic_types)
         self.num_readout_layers = self.backend.num_readout_layers
+        self.system_conditioning = self.backend.system_conditioning
         self.last_layer_feature_size = (
             self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
         )  # for LLPR
@@ -242,6 +252,14 @@ class PET(ModelInterface[ModelHypers]):
 
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
+
+    def requested_inputs(self) -> Dict[str, ModelOutput]:
+        if self.system_conditioning is not None:
+            return {
+                key: ModelOutput(quantity="", unit="", sample_kind="system")
+                for key in self.system_conditioning.required_data_keys
+            }
+        return {}
 
     def forward(
         self,
@@ -390,6 +408,7 @@ class PET(ModelInterface[ModelHypers]):
                 cells,
                 cell_shifts,
                 system_indices,
+                self.cutoff_width_adaptive,
             )
 
         # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
@@ -427,6 +446,15 @@ class PET(ModelInterface[ModelHypers]):
 
         with torch.profiler.record_function("PET::compute_features"):
             # **Stage 1: Feature Computation via GNN Layers**
+
+            if self.system_conditioning is not None:
+                charges, spin_multiplicities = _extract_charge_spin_multiplicity(
+                    systems, device
+                )
+                self.system_conditioning.validate(charges, spin_multiplicities)
+                batch_data["charge"] = charges
+                batch_data["spin_multiplicity"] = spin_multiplicities
+                batch_data["system_indices"] = system_indices
 
             # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
             # Allow direct diagnostic capture of raw featurizer input tensors (e.g.
@@ -1089,6 +1117,83 @@ class PET(ModelInterface[ModelHypers]):
             "best_model_state_dict": self.state_dict(),
         }
         return checkpoint
+
+
+def _extract_charge_spin_multiplicity(
+    systems: List[System], device: torch.device
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Pull per-system ``charge`` and ``spin_multiplicity`` off each ``System``.
+
+    Systems without the keys fall back to charge=0 / spin_multiplicity=1. Values
+    are validated to be integer-valued before the long() cast and a clear error
+    is raised otherwise.
+
+    :param systems: list of systems to extract charge/spin_multiplicity from.
+    :param device: device on which to allocate the returned tensors.
+    :return: ``(charges, spin_multiplicities)`` tensors of shape ``[n_systems]``,
+        ``dtype=torch.long``.
+    """
+    n_systems = len(systems)
+    charges = torch.zeros(n_systems, dtype=torch.long, device=device)
+    spin_multiplicities = torch.ones(n_systems, dtype=torch.long, device=device)
+    for i, system in enumerate(systems):
+        if "charge" in system.known_data():
+            raw_charge = system.get_data("charge").block().values
+            if not torch.equal(raw_charge.round(), raw_charge):
+                raise ValueError(
+                    "charge must be an integer value, got "
+                    + str(raw_charge.item())
+                    + " for system "
+                    + str(i)
+                )
+            charges[i] = raw_charge.long().squeeze()
+        if "spin_multiplicity" in system.known_data():
+            raw_spin_multiplicity = system.get_data("spin_multiplicity").block().values
+            if not torch.equal(raw_spin_multiplicity.round(), raw_spin_multiplicity):
+                raise ValueError(
+                    "spin_multiplicity must be an integer value, got "
+                    + str(raw_spin_multiplicity.item())
+                    + " for system "
+                    + str(i)
+                )
+            spin_multiplicities[i] = raw_spin_multiplicity.long().squeeze()
+    return charges, spin_multiplicities
+
+
+def process_non_conservative_stress(
+    tensor: torch.Tensor,
+    systems: List[System],
+    system_indices: torch.Tensor,
+    num_properties: int,
+) -> torch.Tensor:
+    """
+    Symmetrizes and normalizes by the volume rank-2 Cartesian tensors that are meant
+    to predict the non-conservative stress.
+
+    :param tensor: Tensor of shape [n_atoms, 9 * num_properties].
+    :param systems: List of `metatomic.torch.System` objects to process.
+    :param system_indices: Tensor mapping each atom to its system index [n_atoms].
+    :param num_properties: Number of properties in the tensor (e.g., 6 for stress).
+    :return: Symmetrized tensor of shape [n_atoms, 3, 3, num_properties], divided by the
+        cell volume.
+    """
+    # Reshape to 3x3 matrix per atom
+    tensor_as_three_by_three = tensor.reshape(-1, 3, 3, num_properties)
+
+    # Normalize by cell volume
+    volumes = torch.stack([torch.abs(torch.det(system.cell)) for system in systems])
+    # Zero volume can happen due to metatomic's convention of zero cell
+    # vectors for non-periodic directions. The actual volume is +inf
+    volumes[volumes == 0.0] = torch.inf
+    volumes_by_atom = volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+    tensor_as_three_by_three = tensor_as_three_by_three / volumes_by_atom
+
+    # Symmetrize
+    tensor_as_three_by_three = (
+        tensor_as_three_by_three + tensor_as_three_by_three.transpose(1, 2)
+    ) / 2.0
+
+    return tensor_as_three_by_three
 
 
 def get_last_layer_features_name(target_name: str) -> str:
