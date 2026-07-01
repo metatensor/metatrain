@@ -244,11 +244,27 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.scaler.to(device)
         model.scaler.scales_to(device=device, dtype=torch.float64)
 
-        # Create collate functions:
+        # Create collate functions
+
         conditioning_keys = list(model.requested_inputs().keys())
+        if conditioning_keys:
+            splits = [("training", train_datasets), ("validation", val_datasets)]
+            for split, datasets in splits:
+                if len(datasets[0]) == 0:
+                    continue
+
+                fields = datasets[0][0]._asdict()
+                missing_keys = [key for key in conditioning_keys if key not in fields]
+                if missing_keys:
+                    logging.warning(
+                        f"System conditioning is enabled but {missing_keys} are not in "
+                        f"the {split} data and will fall back to defaults."
+                    )
+
         conditioning_callables = (
             [get_system_data_transform(conditioning_keys)] if conditioning_keys else []
         )
+
         target_keys = list(train_targets.keys())
         # Shared callables that run after `atomic_basis_transform` (and after
         # rotational augmentation in training).
