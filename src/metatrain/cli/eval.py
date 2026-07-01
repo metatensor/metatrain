@@ -114,6 +114,19 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
         action="store_true",
         help="whether to run consistency checks (default: %(default)s)",
     )
+    parser.add_argument(
+        "--warm-up",
+        action=argparse.BooleanOptionalAction,
+        dest="warm_up",
+        default=True,
+        help=(
+            "whether to do a warm-up of the model before evaluation (default: %(default)s)."
+            " The warm-up is done by running 10 model evaluations. "
+            "This will give timings that are more representative of the model's performance"
+            "on a large dataset. However, it will delay evaluation, which might be undesirable"
+            "for expensive evaluations. "
+        ),
+    )
 
 
 def _prepare_eval_model_args(args: argparse.Namespace) -> None:
@@ -136,6 +149,7 @@ def _eval_targets(
     batch_size: int = 1,
     check_consistency: bool = False,
     writer: Optional[Writer] = None,
+    warm_up: bool = True,
 ) -> None:
     """
     Evaluate `model` on `dataset`, accumulate RMSE/MAE, and (if `writer` is provided)
@@ -147,6 +161,7 @@ def _eval_targets(
     :param batch_size: Batch size for evaluation.
     :param check_consistency: Whether to run consistency checks during model evaluation.
     :param writer: Optional writer to write out per-sample predictions.
+    :param warm_up: Whether to do a warm-up of the model before evaluation.
     """
     # Disable static fusion. Besides the fact that atomistic batches have variable
     # sizes, statically fused CUDA kernels cannot allocate new tensors at runtime,
@@ -191,17 +206,18 @@ def _eval_targets(
     mae_acc = MAEAccumulator()
 
     # Warm-up
-    cycled = itertools.cycle(dataloader)
-    for _ in range(10):
-        batch = unpack_batch(next(cycled))
-        systems = [system.to(device=device, dtype=dtype) for system in batch[0]]
-        evaluate_model(
-            model,
-            systems,
-            options,
-            is_training=False,
-            check_consistency=check_consistency,
-        )
+    if warm_up:
+        cycled = itertools.cycle(dataloader)
+        for _ in range(10):
+            batch = unpack_batch(next(cycled))
+            systems = [system.to(device=device, dtype=dtype) for system in batch[0]]
+            evaluate_model(
+                model,
+                systems,
+                options,
+                is_training=False,
+                check_consistency=check_consistency,
+            )
 
     total_time = 0.0
     timings_per_atom = []
@@ -275,6 +291,7 @@ def eval_model(
     batch_size: int = 1,
     check_consistency: bool = False,
     append: Optional[bool] = None,
+    warm_up: bool = True,
 ) -> None:
     """
     Evaluate an exported model on a given data set.
@@ -289,6 +306,7 @@ def eval_model(
     :param batch_size: Batch size for evaluation.
     :param check_consistency: Whether to run consistency checks during model evaluation.
     :param append: If ``True``, open the output file in append mode.
+    :param warm_up: Whether to do a warm-up of the model before evaluation.
     """
     logging.info("Setting up evaluation set.")
     output = Path(output) if isinstance(output, str) else output
@@ -356,6 +374,7 @@ def eval_model(
                 batch_size=batch_size,
                 check_consistency=check_consistency,
                 writer=writer,
+                warm_up=warm_up,
             )
         except Exception as e:
             raise ArchitectureError(e)
