@@ -7,9 +7,6 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.data import CollateFn, CombinedDataLoader, Dataset, unpack_batch
-from metatrain.utils.data.atomic_basis_helpers import (
-    get_prepare_atomic_basis_targets_transform,
-)
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists_transform
 from metatrain.utils.transfer import batch_to
 
@@ -52,16 +49,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 requested_neighbor_lists += additive_model.requested_neighbor_lists()
 
         callables = [get_system_with_neighbor_lists_transform(requested_neighbor_lists)]
-        has_atomic_basis = any(
-            info.is_atomic_basis for info in model.dataset_info.targets.values()
-        ) or any(
-            info.is_atomic_basis for info in model.dataset_info.extra_data.values()
-        )
-        if has_atomic_basis:
-            atomic_basis_transform, _ = get_prepare_atomic_basis_targets_transform(
-                model.dataset_info.targets, model.dataset_info.extra_data
-            )
-            callables.insert(0, atomic_basis_transform)
 
         collate_fn = CollateFn(
             target_keys=list(model.dataset_info.targets.keys()),
