@@ -12,6 +12,9 @@ from metatrain.utils.data.target_info import get_energy_target_info
 from . import DATASET_PATH
 
 
+pytestmark = pytest.mark.filterwarnings("ignore::FutureWarning")
+
+
 torch.set_default_dtype(torch.float64)
 
 

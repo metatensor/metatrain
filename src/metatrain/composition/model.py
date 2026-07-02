@@ -1,4 +1,5 @@
 import logging
+import warnings
 from typing import Callable, Dict, List, Literal, Optional, Sequence, Union
 
 import metatensor.torch as mts
@@ -12,21 +13,11 @@ from metatomic.torch import (
     NeighborListOptions,
     System,
 )
-from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.data import (
-    CollateFn,
-    CombinedDataLoader,
-    Dataset,
-    DatasetInfo,
-    TargetInfo,
-    unpack_batch,
-)
+from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists_transform
-from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
 from ._base_composition import (
@@ -40,7 +31,7 @@ from .documentation import ModelHypers
 class CompositionModel(ModelInterface[ModelHypers]):
     __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
-    __supported_dtypes__ = [torch.float32, torch.float64]
+    __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
         references={
             "architecture": [
@@ -53,6 +44,10 @@ class CompositionModel(ModelInterface[ModelHypers]):
     atomic_types: List[int]
     target_infos: Dict[str, TargetInfo]
     _new_outputs: List[str]
+
+    @staticmethod
+    def requested_neighbor_lists() -> List[NeighborListOptions]:
+        return []
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -112,69 +107,9 @@ class CompositionModel(ModelInterface[ModelHypers]):
                 length_unit=dataset_info.length_unit,
                 atomic_types=sorted(atomic_types),
                 targets=targets,
+                extra_data=dataset_info.extra_data,
             ),
         )
-
-    def _get_dataloader(
-        self,
-        datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        requested_neighbor_lists: List[NeighborListOptions],
-        batch_size: int,
-        is_distributed: bool,
-        initial_transforms: Sequence[Callable],
-    ) -> DataLoader:
-        collate_fn = CollateFn(
-            target_keys=list(self.dataset_info.targets.keys()),
-            callables=[
-                *initial_transforms,
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-            ],
-        )
-
-        dtype = datasets[0][0]["system"].positions.dtype
-        if dtype != torch.float64:
-            raise ValueError(
-                "The composition model only supports float64 during training. "
-                f"Got dtype: {dtype}."
-            )
-
-        if is_distributed:
-            world_size = torch.distributed.get_world_size()
-            rank = torch.distributed.get_rank()
-            samplers = [
-                DistributedSampler(
-                    dataset,
-                    num_replicas=world_size,
-                    rank=rank,
-                    shuffle=False,
-                    drop_last=False,
-                )
-                for dataset in datasets
-            ]
-        else:
-            samplers = [None] * len(datasets)
-
-        dataloaders = []
-        for dataset, sampler in zip(datasets, samplers, strict=True):
-            if len(dataset) < batch_size:
-                raise ValueError(
-                    f"A training dataset has fewer samples "
-                    f"({len(dataset)}) than the batch size "
-                    f"({batch_size}). "
-                    "Please reduce the batch size."
-                )
-            dataloaders.append(
-                DataLoader(
-                    dataset=dataset,
-                    batch_size=batch_size,
-                    sampler=sampler,
-                    shuffle=None if sampler else False,
-                    drop_last=False,
-                    collate_fn=collate_fn,
-                )
-            )
-
-        return CombinedDataLoader(dataloaders, shuffle=False)
 
     def train_model(
         self,
@@ -185,77 +120,33 @@ class CompositionModel(ModelInterface[ModelHypers]):
         fixed_weights: Optional[FixedCompositionWeights] = None,
         initial_transforms: Sequence[Callable] = (),
     ) -> None:
+        warnings.warn(
+            "train_model is deprecated, use Trainer.train() instead.",
+            FutureWarning,
+            stacklevel=2,
+        )
+        from .trainer import Trainer as CompositionTrainer
+
         if not isinstance(datasets, list):
             datasets = [datasets]
-
         if len(self.target_infos) == 0:
             return
 
-        requested_neighbor_lists = []
-        for additive_model in additive_models:
-            if hasattr(additive_model, "requested_neighbor_lists"):
-                requested_neighbor_lists += additive_model.requested_neighbor_lists()
-
-        dataloader = self._get_dataloader(
-            datasets,
-            requested_neighbor_lists,
-            batch_size,
-            is_distributed=is_distributed,
-            initial_transforms=initial_transforms,
+        hypers: dict = {}
+        if fixed_weights is not None:
+            hypers["atomic_baseline"] = fixed_weights
+        hypers["batch_size"] = batch_size
+        trainer = CompositionTrainer(hypers=hypers)  # type: ignore[arg-type]
+        trainer._additive_models = additive_models
+        trainer._is_distributed = is_distributed
+        trainer.train(
+            model=self,
+            dtype=torch.float64,
+            devices=[torch.device("cpu")],
+            train_datasets=datasets,
+            val_datasets=datasets,
+            checkpoint_dir="",
         )
-
-        if fixed_weights is None:
-            fixed_weights = {}
-
-        device = self.dummy_buffer.device
-
-        for batch in dataloader:
-            systems, targets, _ = unpack_batch(batch)
-            systems, targets, _ = batch_to(systems, targets, device=device)
-            targets = {
-                target_name: targets[target_name]
-                for target_name, target in targets.items()
-                if target_name not in fixed_weights and target_name in self._new_outputs
-            }
-            if len(targets) == 0:
-                break
-
-            for additive_model in additive_models:
-                targets = remove_additive(
-                    systems,
-                    targets,
-                    additive_model,
-                    {
-                        target_name: self.target_infos[target_name]
-                        for target_name in targets
-                    },
-                )
-            self.model.accumulate(systems, targets)
-
-        if is_distributed:
-            torch.distributed.barrier()
-            for target_name in self._new_outputs:
-                if target_name in fixed_weights:
-                    continue
-                for XTX_block, XTY_block in zip(
-                    self.model.XTX[target_name],
-                    self.model.XTY[target_name],
-                    strict=True,
-                ):
-                    torch.distributed.all_reduce(XTX_block.values)
-                    torch.distributed.all_reduce(XTY_block.values)
-
-        self.model.fit(fixed_weights, targets_to_fit=self._new_outputs)
-
-        for target_name in self.model.weights.keys():
-            self.register_buffer(
-                target_name + "_composition_buffer",
-                mts.save_buffer(
-                    mts.make_contiguous(
-                        self.model.weights[target_name].to("cpu", torch.float64)
-                    )
-                ).to(device),
-            )
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
         for target_name, target_info in dataset_info.targets.items():

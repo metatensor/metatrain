@@ -1,3 +1,4 @@
+import pytest
 import torch
 from metatomic.torch import ModelMetadata
 
@@ -5,6 +6,9 @@ from metatrain.utils.data.readers import read_systems
 
 from . import DATASET_PATH
 from .test_regression import _make_synthetic_targets, _train_composition_model
+
+
+pytestmark = pytest.mark.filterwarnings("ignore::FutureWarning")
 
 
 torch.set_default_dtype(torch.float64)

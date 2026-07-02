@@ -1,5 +1,5 @@
 import logging
-from typing import Callable, List, Sequence, Union
+from typing import List, Union
 
 import torch
 from torch import nn
@@ -31,7 +31,6 @@ def train_or_load_composition_model(
     other_additive_models: List[nn.Module],
     batch_size: int,
     is_distributed: bool,
-    initial_transforms: Sequence[Callable] = (),
 ) -> None:
     """
     Train the composition model from data or load pre-trained weights.
@@ -46,7 +45,6 @@ def train_or_load_composition_model(
         subtract before fitting
     :param batch_size: Batch size for data loading
     :param is_distributed: Whether training is distributed
-    :param initial_transforms: Transforms applied before data loading
     """
     if isinstance(atomic_baseline, str):
         logging.info(f"Loading composition model from {atomic_baseline}")
@@ -57,12 +55,16 @@ def train_or_load_composition_model(
         composition_model.load_state_dict(loaded.state_dict())
         composition_model.sync_tensor_maps()
     else:
+        assert isinstance(atomic_baseline, dict)
         logging.info("Calculating composition weights")
-        composition_model.train_model(
-            train_datasets,
-            other_additive_models,
-            batch_size,
-            is_distributed,
-            atomic_baseline,
-            initial_transforms=initial_transforms,
+        trainer = Trainer(hypers={"atomic_baseline": atomic_baseline})
+        trainer._additive_models = other_additive_models
+        trainer._is_distributed = is_distributed
+        trainer.train(
+            model=composition_model,
+            dtype=torch.float64,
+            devices=[torch.device("cpu")],
+            train_datasets=train_datasets,
+            val_datasets=train_datasets,
+            checkpoint_dir="",
         )

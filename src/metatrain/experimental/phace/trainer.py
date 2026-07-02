@@ -214,7 +214,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
             other_additive_models=list(model.additive_models[1:]),
             batch_size=self.hypers["batch_size"],
             is_distributed=is_distributed,
-            initial_transforms=[atomic_basis_transform],
         )
 
         if self.hypers["scale_targets"]:

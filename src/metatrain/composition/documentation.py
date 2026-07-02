@@ -11,7 +11,7 @@ training the main model.
 
 from typing import Dict, Union
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 
 FixedCompositionWeights = Dict[str, Union[float, Dict[int, float]]]
@@ -26,4 +26,5 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for the composition trainer."""
 
-    pass
+    atomic_baseline: NotRequired[FixedCompositionWeights]
+    batch_size: NotRequired[int]

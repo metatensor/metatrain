@@ -29,6 +29,9 @@ from metatrain.utils.neighbor_lists import (
 )
 
 
+pytestmark = pytest.mark.filterwarnings("ignore::FutureWarning")
+
+
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
 
 

@@ -1,6 +1,7 @@
 import copy
 import os
 
+import pytest
 import torch
 from omegaconf import OmegaConf
 
@@ -12,6 +13,9 @@ from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
 
 from . import DATASET_PATH, DEFAULT_HYPERS
+
+
+pytestmark = pytest.mark.filterwarnings("ignore::FutureWarning")
 
 
 def test_composition_checkpoint_consistency(tmp_path):
