@@ -28,10 +28,12 @@ DATASET_PATH_ETHANOL = RESOURCES_PATH / "ethanol_reduced_100.xyz"
 DATASET_PATH_CARBON = RESOURCES_PATH / "carbon_reduced_100.xyz"
 DATASET_PATH_QM7X = RESOURCES_PATH / "qm7x_reduced_100.xyz"
 DATASET_PATH_DOS = RESOURCES_PATH / "dos_100.xyz"
+DATASET_PATH_SPHERICAL = RESOURCES_PATH / "spherical_disk_dataset.zip"
 EVAL_OPTIONS_PATH = RESOURCES_PATH / "eval.yaml"
 OPTIONS_PATH = RESOURCES_PATH / "options.yaml"
 OPTIONS_PET_PATH = RESOURCES_PATH / "options-pet.yaml"
 OPTIONS_EXTRA_DATA_PATH = RESOURCES_PATH / "options-extra-data.yaml"
+OPTIONS_SPHERICAL_PATH = RESOURCES_PATH / "options-spherical.yaml"
 
 
 # -------------------------------
@@ -68,13 +70,13 @@ def _find_bash() -> str:
     )
 
 
-def ensure_path(mode: str, uid: str) -> Path:
+def ensure_path(mode: str) -> Path:
     """Checks if the path for a model exists, and if not
     runs the training script to generate it."""
-    path = RESOURCES_PATH / f"model-{mode}-{uid}.pt"
+    path = RESOURCES_PATH / f"train_{mode}" / f"model-{mode}.pt"
     if not path.exists():
         result = subprocess.run(
-            [_find_bash(), str(RESOURCES_PATH / "run_trainings.sh"), mode, uid],
+            [_find_bash(), str(RESOURCES_PATH / "run_trainings.sh"), mode, "1"],
             stderr=subprocess.STDOUT,
             stdout=subprocess.PIPE,
         )
@@ -90,15 +92,15 @@ def ensure_path(mode: str, uid: str) -> Path:
 
 
 @pytest.fixture(scope="session")
-def MODEL_PATH(testrun_uid) -> Path:
-    return ensure_path("32-bit", testrun_uid)
+def MODEL_PATH() -> Path:
+    return ensure_path("32-bit")
 
 
 @pytest.fixture(scope="session")
-def MODEL_PATH_64_BIT(testrun_uid) -> Path:
-    return ensure_path("64-bit", testrun_uid)
+def MODEL_PATH_64_BIT() -> Path:
+    return ensure_path("64-bit")
 
 
 @pytest.fixture(scope="session")
-def MODEL_PATH_PET(testrun_uid) -> Path:
-    return ensure_path("pet", testrun_uid)
+def MODEL_PATH_PET() -> Path:
+    return ensure_path("pet")

@@ -155,7 +155,7 @@ def test_classifier_initialization():
                     "unit": "",
                     "num_subtargets": 3,
                     "type": "scalar",
-                    "per_atom": False,
+                    "sample_kind": "system",
                 },
             )
         },

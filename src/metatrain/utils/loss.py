@@ -8,6 +8,7 @@ from typing import Any, Dict, Literal, Optional, Type
 
 import metatensor.torch as mts
 import torch
+import torch.nn.functional as F
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from pydantic import ConfigDict, with_config
 from torch.nn.modules.loss import _Loss
@@ -661,13 +662,13 @@ class DensityMSELossViaC(LossInterface):
             raise NotImplementedError(
                 "DensityMSELossViaC does not support gradients of RI targets."
             )
-        assert extra_data is not None, (
-            "DensityMSELossViaC requires extra_data with the packed metric matrix."
-        )
+        assert (
+            extra_data is not None
+        ), "DensityMSELossViaC requires extra_data with the packed metric matrix."
         mat_name = metric_matrix_name(self.target, self.metric)
-        assert mat_name in extra_data, (
-            f"DensityMSELossViaC requires '{mat_name}' in extra_data"
-        )
+        assert (
+            mat_name in extra_data
+        ), f"DensityMSELossViaC requires '{mat_name}' in extra_data"
 
         tensor_map_pred = predictions[self.target]
         tensor_map_targ = targets[self.target]
@@ -692,7 +693,9 @@ class DensityMSELossViaC(LossInterface):
                 "systems."
             )
         print("SIZES FOR BATCH")
-        for i, (coeff_size, basis_size) in enumerate(zip(coefficient_sizes, basis_sizes, strict=True)):
+        for i, (coeff_size, basis_size) in enumerate(
+            zip(coefficient_sizes, basis_sizes, strict=True)
+        ):
             print("SIZE", i, coeff_size, basis_size)
             if coeff_size != basis_size:
                 raise ValueError(
@@ -762,7 +765,8 @@ class DensityMSELossViaW(LossInterface):
         super().__init__(name, gradient, weight, reduction)
         self.metric = metric
         self.projections_key = (
-            projections_key if projections_key is not None
+            projections_key
+            if projections_key is not None
             else ri_projections_name(name)
         )
 
@@ -782,12 +786,12 @@ class DensityMSELossViaW(LossInterface):
         )
         mat_name = metric_matrix_name(self.target, self.metric)
         projection_name = self.projections_key
-        assert mat_name in extra_data, (
-            f"DensityMSELossViaW requires '{mat_name}' in extra_data"
-        )
-        assert projection_name in extra_data, (
-            f"DensityMSELossViaW requires '{projection_name}' in extra_data"
-        )
+        assert (
+            mat_name in extra_data
+        ), f"DensityMSELossViaW requires '{mat_name}' in extra_data"
+        assert (
+            projection_name in extra_data
+        ), f"DensityMSELossViaW requires '{projection_name}' in extra_data"
 
         tensor_map_pred = predictions[self.target]
         projection_map = extra_data[projection_name]
@@ -796,7 +800,7 @@ class DensityMSELossViaW(LossInterface):
         # flat vectors are the same length per system.
         aligned = _ri_coefficients_pyscf_order_aligned(tensor_map_pred, projection_map)
         coefficients = [item[0] for item in aligned]
-        projections  = [item[1] for item in aligned]
+        projections = [item[1] for item in aligned]
 
         if len(coefficients) == 0:
             first_block = tensor_map_pred.block(tensor_map_pred.keys[0])
@@ -855,16 +859,27 @@ class DensityMSELossViaW(LossInterface):
         else:
             raise ValueError(f"Unknown reduction '{self.reduction}'")
 
-class MaskedDOSLoss(LossInterface):
-    """
-    Masked DOS loss on :py:class:`TensorMap` entries.
 
-    :param name: key for the dos in the prediction/target dictionary.
+class ShiftAgnosticMSE(LossInterface):
+    """
+    Shift agnostic MSE loss on :py:class:`TensorMap` entries.
+
+    This loss assumes that the target is some kind of profile
+    along the properties of the ``TensorBlock``. It finds the
+    rigid shift between the predictions and targets that
+    minimizes the MSE, and returns that minimal MSE.
+
+    :param name: key for the target in the prediction/target dictionary.
     :param gradient: optional gradient field name.
     :param weight: weight of the loss contribution in the final aggregation.
-    :param grad_weight: Multiplier for the gradient of the unmasked DOS component.
-    :param int_weight: Multiplier for the cumulative DOS component.
-    :param extra_targets: Number of extra targets predicted by the model.
+    :param int_weight: The loss function can also contain the MSE on the
+      cumulative profile. This number weights the contribution of the
+      cumulative term in the final loss. If 0, no cumulative term is added.
+    :param grad_penalty_weight: The loss function penalizes gradients of the
+      predicted profiles in the regions where the target is NaN.
+      This number weights the contribution of the penalty term
+      in the final loss. If 0, the predictions on those regions are
+      free to be what they want.
     :param reduction: reduction mode for torch loss.
     """
 
@@ -873,9 +888,8 @@ class MaskedDOSLoss(LossInterface):
         name: str,
         gradient: Optional[str],
         weight: float,
-        grad_weight: float,
         int_weight: float,
-        extra_targets: int,
+        grad_penalty_weight: float,
         reduction: str,
     ):
         super().__init__(
@@ -884,9 +898,8 @@ class MaskedDOSLoss(LossInterface):
             weight,
             reduction,
         )
-        self.grad_weight = grad_weight
+        self.grad_penalty_weight = grad_penalty_weight
         self.int_weight = int_weight
-        self.extra_targets = extra_targets
 
         interval = 0.05
         self.grid = (
@@ -900,77 +913,87 @@ class MaskedDOSLoss(LossInterface):
         self,
         model_predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
-        extra_data: Optional[Dict[str, TensorMap]] = None,
+        extra_data: Any | None = None,
     ) -> torch.Tensor:
         """
-        Gather and flatten target and prediction blocks, then compute loss.
+        Gather and flatten target and prediction blocks, then compute shift
+        agnostic loss.
 
         :param model_predictions: Mapping from target names to TensorMaps.
         :param targets: Mapping from target names to TensorMaps.
-        :param extra_data: Additional data for loss computation. Assumes that, for the
-            target ``name`` used in the constructor, there is a corresponding data field
-            ``name + "_mask"`` that contains the tensor to be used for masking. It
-            should have the same metadata as the target and prediction tensors.
+        :param extra_data: extra data, not needed for this loss function
+
         :return: Scalar loss tensor.
         """
-        mask_key = f"{self.target}_mask"
-        if extra_data is None or mask_key not in extra_data:
-            raise ValueError(
-                f"Expected extra_data to contain TensorMap under '{mask_key}'"
-            )
 
         tensor_map_pred = model_predictions[self.target]
         tensor_map_targ = targets[self.target]
-        tensor_map_mask = extra_data[mask_key]
 
         # There should only be one block
 
-        predictions = tensor_map_pred.block().values
-        target = tensor_map_targ.block().values[:, self.extra_targets :]
-        mask = tensor_map_mask.block().values[:, self.extra_targets :].bool()
+        predictions = tensor_map_pred.block().values.float()
+        convolution_pad = torch.zeros_like(predictions)
+        predictions = torch.hstack([convolution_pad, predictions, convolution_pad])
+
+        target = tensor_map_targ.block().values.float()
+        mask = (~torch.isnan(target)).float()
+        target = torch.nan_to_num(target)
+
         dtype = predictions.dtype
         device = predictions.device
-        predictions_unfolded = predictions.unfold(1, len(target[0]), 1)
-        target_expanded = target[:, None, :]
-        delta = target_expanded - predictions_unfolded
-        dynamic_delta = delta * mask.unsqueeze(dim=1)
-        losses = torch.trapezoid(dynamic_delta * dynamic_delta, dx=0.05, dim=2)
-        front_tail = torch.cumulative_trapezoid(predictions**2, dx=0.05, dim=1)
+        # Uses convolutions to find the optimal shift that minimzes the MSE
+        # between the prediction and the target
+        sum_sq_smaller = torch.sum((target**2) * mask, dim=1, keepdim=True)
+        batch_size = predictions.shape[0]
+        bigger_reshaped = predictions.unsqueeze(0)
+        kernel = (target * mask).unsqueeze(1)
+        cross_corr = F.conv1d(bigger_reshaped, kernel, groups=batch_size)
+        cross_corr = cross_corr.squeeze(0)
+        bigger_sq_reshaped = (predictions**2).unsqueeze(0)
+        mask_kernel = mask.unsqueeze(1)
+        sum_sq_bigger = F.conv1d(bigger_sq_reshaped, mask_kernel, groups=batch_size)
+        sum_sq_bigger = sum_sq_bigger.squeeze(0)
+        losses = sum_sq_bigger - 2 * cross_corr + sum_sq_smaller
+        losses = torch.clamp(losses, min=0.0)
+        front_tail = torch.cumsum(predictions**2, dim=1)
+        shape_difference = predictions.shape[1] - target.shape[1]
         additional_error = torch.hstack(
             [
-                torch.zeros(len(predictions), device=device).reshape(-1, 1),
-                front_tail[:, : self.extra_targets],
+                torch.zeros(len(predictions), device=predictions.device).reshape(-1, 1),
+                front_tail[:, :shape_difference],
             ]
         )
         total_losses = losses + additional_error
         final_loss, shift = torch.min(total_losses, dim=1)
-        dos_loss = torch.mean(final_loss)
+
+        loss = torch.mean(final_loss)
         # Compute gradient loss
         aligned_predictions = []
-        adjusted_dos_mask = []
+        adjusted_mask = []
         for index, prediction in enumerate(predictions):
             aligned_prediction = prediction[
                 shift[index] : shift[index] + len(target[0])
             ]
-            dos_mask_i = (
-                torch.hstack(  # Adjust the mask to account for the discrete shift
-                    [
-                        (torch.ones(shift[index])).bool().to(device),
-                        mask[index],
-                        (torch.zeros(int(self.extra_targets - shift[index])))
-                        .bool()
-                        .to(device),
-                    ]
-                )
+            mask_i = torch.hstack(  # Adjust the mask to account for the discrete shift
+                [
+                    (torch.ones(shift[index])).bool().to(device),
+                    mask[index].bool().to(device),
+                    torch.zeros(
+                        int(predictions.shape[1] - len(mask[index]) - shift[index])
+                    )
+                    .bool()
+                    .to(device),
+                ]
             )
             aligned_predictions.append(aligned_prediction)
-            adjusted_dos_mask.append(dos_mask_i)
+            adjusted_mask.append(mask_i)
         aligned_predictions = torch.vstack(aligned_predictions)
-        adjusted_dos_mask = torch.vstack(adjusted_dos_mask)
-        if self.grad_weight > 0:
+        adjusted_mask = torch.vstack(adjusted_mask)
+        if self.grad_penalty_weight > 0:
             grad_predictions = torch.nn.functional.conv1d(
                 predictions.unsqueeze(dim=1), self.grid.to(device).to(dtype)
             ).squeeze(dim=1)
+
             dim_loss = (
                 predictions.shape[1] - grad_predictions.shape[1]
             )  # Dimensions lost due to the gradient convolution
@@ -978,13 +1001,13 @@ class MaskedDOSLoss(LossInterface):
                 torch.mean(
                     torch.trapezoid(
                         (
-                            (grad_predictions * (~adjusted_dos_mask[:, dim_loss:])) ** 2
+                            (grad_predictions * (~adjusted_mask[:, dim_loss:])) ** 2
                         ),  # non-zero gradients outside the window are penalized
                         dx=0.05,
                         dim=1,
                     )
                 )
-                * self.grad_weight
+                * self.grad_penalty_weight
             )
         else:
             gradient_loss = 0.0
@@ -996,14 +1019,14 @@ class MaskedDOSLoss(LossInterface):
             int_error = (int_predictions - int_target) ** 2
             int_error = int_error * mask[:, 1:].unsqueeze(
                 dim=1
-            )  # only penalize the integral where the DOS is defined
+            )  # only penalize the integral where the target is defined
             int_MSE = (
                 torch.mean(torch.trapezoid(int_error, dx=0.05, dim=1)) * self.int_weight
             )
         else:
             int_MSE = 0.0
 
-        return dos_loss + gradient_loss + int_MSE
+        return loss + gradient_loss + int_MSE
 
 
 class TensorMapEnsembleLoss(BaseTensorMapLoss):
@@ -1592,7 +1615,7 @@ class LossType(Enum):
     MASKED_HUBER = ("masked_huber", TensorMapMaskedHuberLoss)
     POINTWISE = ("pointwise", BaseTensorMapLoss)
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
-    MASKED_DOS = ("masked_dos", MaskedDOSLoss)
+    SHIFT_AGNOSTIC_MSE = ("shift_agnostic_mse", ShiftAgnosticMSE)
     GAUSSIAN_NLL = ("gaussian_nll_ensemble", TensorMapGaussianNLLLoss)
     GAUSSIAN_CRPS = ("gaussian_crps_ensemble", TensorMapGaussianCRPSLoss)
     EMPIRICAL_CRPS = ("empirical_crps_ensemble", TensorMapEmpiricalCRPSLoss)

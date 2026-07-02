@@ -224,7 +224,7 @@ def test_regression_init():
 
     output = model(
         systems,
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind="system")},
     )
 
     expected_output = torch.tensor(
@@ -264,7 +264,7 @@ def test_regression_energies_forces_train(device):
             "key": "energy",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": "system",
             "num_subtargets": 1,
             "forces": {"read_from": DATASET_WITH_FORCES_PATH, "key": "force"},
             "stress": False,
@@ -423,7 +423,7 @@ def test_regression_energy_non_conservative_stress(batch_size):
                     "quantity": "stress",
                     "unit": "eV/A^3",
                     "type": {"cartesian": {"rank": 2}},
-                    "per_atom": False,
+                    "sample_kind": "system",
                     "num_subtargets": 1,
                 },
             ),
@@ -471,8 +471,8 @@ def test_regression_energy_non_conservative_stress(batch_size):
     outputs = model(
         eval_systems,
         {
-            "energy": ModelOutput(quantity="energy", unit="", per_atom=False),
-            "non_conservative_stress": ModelOutput(per_atom=False),
+            "energy": ModelOutput(quantity="energy", unit="", sample_kind="system"),
+            "non_conservative_stress": ModelOutput(sample_kind="system"),
         },
     )
     energy_output = outputs["energy"].block().values
@@ -544,7 +544,7 @@ def test_regression_train_spherical(device):
                         ]
                     },
                 },
-                "per_atom": True,
+                "sample_kind": "atom",
                 "num_subtargets": 1,  # dummy value
             },
         },
@@ -592,7 +592,7 @@ def test_regression_train_spherical(device):
         systems,
         {
             "mtt::electron_density_basis": ModelOutput(
-                quantity="", unit="", per_atom=True
+                quantity="", unit="", sample_kind="atom"
             )
         },
     )

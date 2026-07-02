@@ -5,7 +5,7 @@ import math
 import os
 import pickle
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Callable, Callable, Dict, List, Literal, Optional, Union, cast
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
@@ -54,6 +54,7 @@ from metatrain.utils.pyscf_loss import (
     ri_projections_name,
 )
 from metatrain.utils.scaler import get_remove_scale_transform
+from metatrain.utils.system_data import get_system_data_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
@@ -114,7 +115,6 @@ def get_scheduler(
 
     scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
     return scheduler
-
 
 
 def _mem(label: str, rank: int) -> None:
@@ -293,11 +293,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Classify which targets use each RI loss type (needed for in-loop scaling).
         density_overlap_targets: set[str] = {
-            name for name, spec in loss_hypers.items()
+            name
+            for name, spec in loss_hypers.items()
             if spec.get("type") == "density_mse_via_c"
         }
         density_fit_targets: set[str] = {
-            name for name, spec in loss_hypers.items()
+            name
+            for name, spec in loss_hypers.items()
             if spec.get("type") == "density_mse_via_w"
         }
         log_density_loss: bool = bool(self.hypers.get("log_density_loss", False))
@@ -306,27 +308,69 @@ class Trainer(TrainerInterface[TrainerHypers]):
             loss_hypers, dtype
         )
 
-        # Create collate functions:
+        # Classify which targets use each RI loss type (needed for in-loop scaling).
+        density_overlap_targets: set[str] = {
+            name
+            for name, spec in loss_hypers.items()
+            if spec.get("type") == "density_mse_via_c"
+        }
+        density_fit_targets: set[str] = {
+            name
+            for name, spec in loss_hypers.items()
+            if spec.get("type") == "density_mse_via_w"
+        }
+        log_density_loss: bool = bool(self.hypers.get("log_density_loss", False))
+
+        ri_train_transforms, ri_val_transforms = self._get_ri_transforms(
+            loss_hypers, dtype
+        )
+
+        # Create collate functions
+
+        conditioning_keys = list(model.requested_inputs().keys())
+        if conditioning_keys:
+            splits = [("training", train_datasets), ("validation", val_datasets)]
+            for split, datasets in splits:
+                if len(datasets[0]) == 0:
+                    continue
+
+                fields = datasets[0][0]._asdict()
+                missing_keys = [key for key in conditioning_keys if key not in fields]
+                if missing_keys:
+                    logging.warning(
+                        f"System conditioning is enabled but {missing_keys} are not in "
+                        f"the {split} data and will fall back to defaults."
+                    )
+
+        conditioning_callables = (
+            [get_system_data_transform(conditioning_keys)] if conditioning_keys else []
+        )
+
+        target_keys = list(train_targets.keys())
+        # Shared callables that run after `atomic_basis_transform` (and after
+        # rotational augmentation in training).
+        base_callables: List[Callable[..., Any]] = [
+            get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+            *conditioning_callables,
+            get_remove_additive_transform(additive_models, train_targets),
+            get_remove_scale_transform(scaler),
+        ]
         collate_fn_train = CollateFn(
-            target_keys=list(train_targets.keys()),
+            target_keys=target_keys,
             callables=[
                 atomic_basis_transform,
                 rotational_augmenter.apply_random_augmentations,
                 *ri_train_transforms,
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
+                *base_callables,
             ],
             batch_atom_bounds=batch_atom_bounds,
         )
         collate_fn_val = CollateFn(
-            target_keys=list(train_targets.keys()),
+            target_keys=target_keys,
             callables=[  # no augmentation for validation
                 atomic_basis_transform,
                 *ri_val_transforms,
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
+                *base_callables,
             ],
             batch_atom_bounds=batch_atom_bounds,
         )
@@ -530,14 +574,18 @@ class Trainer(TrainerInterface[TrainerHypers]):
         _snapshot_batches = int(os.getenv("PROFILE_MEMORY_SNAPSHOT", 0))
         if _snapshot_batches and rank == 0:
             torch.cuda.memory._record_memory_history(max_entries=100_000)
-            logging.info(f"[MEM] Recording memory history for first {_snapshot_batches} train batches")
+            logging.info(
+                f"[MEM] Recording memory history for first {_snapshot_batches} train batches"
+            )
 
         for epoch in range(start_epoch, self.hypers["num_epochs"]):
             if rank == 0 and torch.cuda.is_available():
                 torch.cuda.synchronize()
                 _alloc = torch.cuda.memory_allocated() / 1e9
                 _peak = torch.cuda.max_memory_allocated() / 1e9
-                logging.info(f"[MEM epoch {epoch}] alloc={_alloc:.3f}GB peak_prev={_peak:.3f}GB")
+                logging.info(
+                    f"[MEM epoch {epoch}] alloc={_alloc:.3f}GB peak_prev={_peak:.3f}GB"
+                )
                 torch.cuda.reset_peak_memory_stats()
             for sampler in epoch_samplers:
                 sampler.set_epoch(epoch)
@@ -593,8 +641,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # active RI loss type (density_overlap or density_fit).  For direct-c
                 # this is a no-op.
                 loss_predictions, loss_targets = self._prepare_for_ri_loss(
-                    predictions, targets, systems, model.module if is_distributed else model,
-                    density_overlap_targets, density_fit_targets, train_targets,
+                    predictions,
+                    targets,
+                    systems,
+                    model.module if is_distributed else model,
+                    density_overlap_targets,
+                    density_fit_targets,
+                    train_targets,
                 )
                 print("TYPES IN BATCH")
                 for I_SYS, SYSTEM in enumerate(systems):
@@ -625,7 +678,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     _mem(f"e{epoch} b{_train_batch_idx} after optim_step", rank)
 
                 _train_batch_idx += 1
-                if _snapshot_batches and rank == 0 and epoch == start_epoch and _train_batch_idx == _snapshot_batches:
+                if (
+                    _snapshot_batches
+                    and rank == 0
+                    and epoch == start_epoch
+                    and _train_batch_idx == _snapshot_batches
+                ):
                     _snap = torch.cuda.memory._snapshot()
                     _snap_path = f"mem_snapshot_rank{rank}.pkl"
                     with open(_snap_path, "wb") as _f:
@@ -738,8 +796,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
 
                     loss_predictions, loss_targets = self._prepare_for_ri_loss(
-                        predictions, targets, systems, model.module if is_distributed else model,
-                        density_overlap_targets, density_fit_targets, train_targets,
+                        predictions,
+                        targets,
+                        systems,
+                        model.module if is_distributed else model,
+                        density_overlap_targets,
+                        density_fit_targets,
+                        train_targets,
                     )
                     val_loss_batch = loss_fn(loss_predictions, loss_targets, extra_data)
 
@@ -854,14 +917,20 @@ class Trainer(TrainerInterface[TrainerHypers]):
             if val_metric < self.best_metric:
                 self.best_metric = val_metric
                 _model_buf = io.BytesIO()
-                torch.save((model.module if is_distributed else model).state_dict(), _model_buf)
+                torch.save(
+                    (model.module if is_distributed else model).state_dict(), _model_buf
+                )
                 _model_buf.seek(0)
-                self.best_model_state_dict = torch.load(_model_buf, map_location="cpu", weights_only=False)
+                self.best_model_state_dict = torch.load(
+                    _model_buf, map_location="cpu", weights_only=False
+                )
                 self.best_epoch = epoch
                 _ckpt_buf = io.BytesIO()
                 torch.save(optimizer.state_dict(), _ckpt_buf)
                 _ckpt_buf.seek(0)
-                self.best_optimizer_state_dict = torch.load(_ckpt_buf, map_location="cpu", weights_only=False)
+                self.best_optimizer_state_dict = torch.load(
+                    _ckpt_buf, map_location="cpu", weights_only=False
+                )
 
             if epoch % self.hypers["checkpoint_interval"] == 0:
                 if is_distributed:
@@ -956,12 +1025,18 @@ class Trainer(TrainerInterface[TrainerHypers]):
             if loss_type not in ri_loss_types:
                 if not log_density_loss:
                     continue
-            metric = target_spec.get("metric", "overlap") if loss_type in ri_loss_types else "overlap"
+            metric = (
+                target_spec.get("metric", "overlap")
+                if loss_type in ri_loss_types
+                else "overlap"
+            )
             aux_basis = resolve_ri_aux_basis(
                 target_name,
-                cast(str, ri_aux_basis)
-                if isinstance(ri_aux_basis, str)
-                else cast(dict, ri_aux_basis),
+                (
+                    cast(str, ri_aux_basis)
+                    if isinstance(ri_aux_basis, str)
+                    else cast(dict, ri_aux_basis)
+                ),
             )
             metric_targets.setdefault(metric, {})[target_name] = aux_basis
             if loss_type == "density_mse_via_w":
@@ -975,9 +1050,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
             for target_name in loss_hypers:
                 aux_basis = resolve_ri_aux_basis(
                     target_name,
-                    cast(str, ri_aux_basis)
-                    if isinstance(ri_aux_basis, str)
-                    else cast(dict, ri_aux_basis),
+                    (
+                        cast(str, ri_aux_basis)
+                        if isinstance(ri_aux_basis, str)
+                        else cast(dict, ri_aux_basis)
+                    ),
                 )
                 metric_targets.setdefault("overlap", {})[target_name] = aux_basis
 
@@ -1002,7 +1079,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         val_transforms = _build_transforms(include_constant=True)
 
         return train_transforms, val_transforms
-
 
     def _prepare_for_ri_loss(
         self,
@@ -1066,7 +1142,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Add CM back to predictions for density_fit.
         if density_fit_targets:
             loss_predictions = self._add_composition_model_contribution(
-                inner_model, systems, loss_predictions, train_targets,
+                inner_model,
+                systems,
+                loss_predictions,
+                train_targets,
                 density_fit_targets,
             )
 

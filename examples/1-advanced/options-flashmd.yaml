@@ -14,22 +14,22 @@ training_set:
     read_from: flashmd.xyz
     length_unit: A
   targets:
-    positions:
+    position:
       key: future_positions
       quantity: length
       unit: A
       type:
         cartesian:
           rank: 1
-      per_atom: true
-    momenta:
+      sample_kind: atom
+    momentum:
       key: future_momenta
       quantity: momentum
       unit: (eV*u)^(1/2)
       type:
         cartesian:
           rank: 1
-      per_atom: true
+      sample_kind: atom
 
 validation_set: 0.1
 test_set: 0.1

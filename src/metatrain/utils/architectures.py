@@ -71,7 +71,10 @@ def check_architecture_options(
     """
     hypers_classes = get_hypers_classes(name)
     validate_architecture_options(
-        options, hypers_classes["model"], hypers_classes["trainer"]
+        options,
+        hypers_classes["model"],
+        hypers_classes["trainer"],
+        architecture_name=name,
     )
 
 

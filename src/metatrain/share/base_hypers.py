@@ -1,10 +1,18 @@
 # mypy: disable-error-code=misc
 # We ignore misc errors in this file because TypedDict
 # with default values is not allowed by mypy.
-from typing import Annotated, Literal, Optional
+import warnings
+from typing import Annotated, Any, Literal, Optional
 
 from annotated_types import Interval
-from pydantic import ConfigDict, NonNegativeInt, with_config
+from pydantic import (
+    AfterValidator,
+    ConfigDict,
+    Discriminator,
+    NonNegativeInt,
+    Tag,
+    with_config,
+)
 from typing_extensions import NotRequired, TypedDict
 
 
@@ -116,7 +124,7 @@ class SphericalTargetIrrepsConfig(TypedDict):
     specified in ``TargetHypers``.
     """
     o3_lambda: int
-    o3_sigma: float
+    o3_sigma: int
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))
@@ -142,6 +150,37 @@ class SphericalTargetTypeHypers(TypedDict):
     """Hyperparameters to specify spherical target types."""
 
     spherical: SphericalTargetConfig
+
+
+def target_type_discriminator(v: Any) -> str | None:
+    """Discriminator function for the TargetType union.
+
+    It helps pydantic determine whether it is dealing with a scalar,
+    cartesian or spherical target. This will make pydantic try to
+    validate only against the relevant typed dict, which makes
+    validation errors much cleaner.
+
+    :param v: The value to discriminate.
+    :return: The tag of the type that pydantic should validate.
+    """
+    if isinstance(v, dict):
+        if "cartesian" in v:
+            return "cartesian"
+        elif "spherical" in v:
+            return "spherical"
+    elif isinstance(v, str) and v == "scalar":
+        return "scalar"
+    # Could not determine the target type, pydantic will raise a
+    # validation error with the appropriate message.
+    return None
+
+
+TargetType = Annotated[
+    Annotated[ScalarTargetTypeHyper, Tag("scalar")]
+    | Annotated[CartesianTargetTypeHypers, Tag("cartesian")]
+    | Annotated[SphericalTargetTypeHypers, Tag("spherical")],
+    Discriminator(target_type_discriminator),
+]
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))
@@ -175,12 +214,23 @@ class TargetHypers(TypedDict):
 
     The list of possible units is available `here
     <https://docs.metatensor.org/metatomic/latest/torch/reference/misc.html#known-quantities-units>`_."""
-    per_atom: NotRequired[bool] = False
-    """Whether the target is a per-atom quantity, as opposed to a global
-    (per-structure) quantity."""
-    type: NotRequired[
-        ScalarTargetTypeHyper | CartesianTargetTypeHypers | SphericalTargetTypeHypers
-    ]
+
+    sample_kind: NotRequired[Literal["system", "atom"]]
+    """Which kind of sample the target corresponds to.
+
+    If not provided and ``per_atom`` is also not provided,
+    it defaults to ``"system"``.
+    """
+    per_atom: NotRequired[bool]
+    """Old key that is deprecated, ``sample_kind`` should be used instead.
+
+    If set to true, ``sample_kind`` is set to ``"atom"``.
+    If set to false, ``sample_kind`` is set to ``"system"``.
+
+    If this and ``sample_kind`` are both provided and they are not
+    consistent with each other, an error is raised.
+    """
+    type: NotRequired[TargetType]
     """Specifies the type of the target.
 
     See :ref:`Fitting Generic Targets <fitting-generic-targets>` to understand
@@ -215,12 +265,48 @@ class TargetHypers(TypedDict):
     """
 
 
+def sanitize_target_hypers(target_hypers: TargetHypers) -> TargetHypers:
+    """Sanitize the target hypers by handling deprecated keys and setting defaults."""
+
+    if "per_atom" in target_hypers:
+        per_atom = target_hypers.pop("per_atom")
+        sample_kind: Literal["system", "atom"] = "atom" if per_atom else "system"
+
+        warnings.warn(
+            "DEPRECATED[per_atom]: The `per_atom` key in target specifications is"
+            " deprecated and will be removed at some point. Please use "
+            f"`sample_kind` instead. You passed {per_atom=} which corresponds "
+            f"to {sample_kind=}.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+        if (
+            "sample_kind" in target_hypers
+            and target_hypers["sample_kind"] != sample_kind
+        ):
+            raise ValueError(
+                f"Conflict between `per_atom` and `sample_kind`: The input "
+                f"{per_atom=} corresponds to {sample_kind=}, but sample_kind is "
+                f"set to '{target_hypers['sample_kind']}'. Please remove the "
+                "`per_atom` key and set `sample_kind` to the desired value."
+            )
+
+        target_hypers["sample_kind"] = sample_kind
+    elif "sample_kind" not in target_hypers:
+        target_hypers["sample_kind"] = "system"
+
+    return target_hypers
+
+
 @with_config(ConfigDict(extra="forbid", strict=True))
 class DatasetDictHypers(TypedDict):
     systems: str | SystemsHypers
     """Path to the dataset file or a dictionary specifying the dataset."""
-    targets: dict[str, TargetHypers | str]
-
+    targets: dict[
+        str, Annotated[TargetHypers, AfterValidator(sanitize_target_hypers)] | str
+    ]
+    """A dictionary specifying the targets in the dataset."""
     extra_data: NotRequired[dict]
     """Additional data to include from the dataset."""
     indices: NotRequired[list[int] | str]
@@ -230,9 +316,6 @@ class DatasetDictHypers(TypedDict):
     text file containing one index per line. When specified, only the structures
     at these indices will be used from the dataset.
     """
-
-
-DatasetSpec = DatasetDictHypers | list[DatasetDictHypers] | str
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))
@@ -248,6 +331,90 @@ class IndicesOnlyHypers(TypedDict):
     text file containing one index per line. The indices reference the same
     source file as specified in ``training_set.systems.read_from``.
     """
+
+
+def training_set_discriminator(v: Any) -> str | None:
+    """Discriminator function for the TrainingSetSpec union.
+
+    It helps pydantic determine whether it is dealing with a single dataset
+    specification, a list of dataset specifications or a string path to a
+    dataset. This will make pydantic try to validate only against the
+    relevant type, which makes validation errors much cleaner.
+
+    :param v: The value to discriminate.
+    :return: The tag of the type that pydantic should validate.
+    """
+    if isinstance(v, dict):
+        return "dict"
+    elif isinstance(v, list):
+        return "list"
+    elif isinstance(v, str):
+        return "str"
+    # Could not determine the training set spec type, pydantic will raise a
+    # validation error with the appropriate message.
+    return None
+
+
+def val_or_test_set_discriminator(v: Any) -> str | None:
+    """Discriminator function for the ValOrTestSetSpec union.
+
+    Same as the training discriminator, but accepts also numbers.
+
+    :param v: The value to discriminate.
+    :return: The tag of the type that pydantic should validate.
+    """
+    if isinstance(v, dict):
+        if len(v) == 1 and "indices" in v:
+            return "indices"
+        return "dict"
+    elif isinstance(v, list):
+        return "list"
+    elif isinstance(v, str):
+        return "str"
+    elif isinstance(v, (int, float)):
+        return "fraction"
+    # Could not determine the val/test set spec type, pydantic will raise a
+    # validation error with the appropriate message.
+    return None
+
+
+TrainingSetSpec = Annotated[
+    Annotated[DatasetDictHypers, Tag("dict")]
+    | Annotated[list[DatasetDictHypers], Tag("list")]
+    | Annotated[str, Tag("str")],
+    Discriminator(training_set_discriminator),
+]
+
+ValOrTestSetSpec = Annotated[
+    Annotated[IndicesOnlyHypers, Tag("indices")]
+    | Annotated[DatasetDictHypers, Tag("dict")]
+    | Annotated[list[DatasetDictHypers], Tag("list")]
+    | Annotated[str, Tag("str")]
+    | Annotated[int | float, Interval(ge=0.0, lt=1.0), Tag("fraction")],
+    Discriminator(val_or_test_set_discriminator),
+]
+
+
+@with_config(ConfigDict(extra="forbid", strict=True))
+class EvalDatasetDictHypers(TypedDict):
+    systems: str | SystemsHypers
+    """Path to the dataset file or a dictionary specifying the dataset."""
+    targets: NotRequired[
+        dict[str, Annotated[TargetHypers, AfterValidator(sanitize_target_hypers)] | str]
+    ]
+    """A dictionary specifying the targets in the dataset."""
+    extra_data: NotRequired[dict]
+    """Additional data to include from the dataset."""
+    indices: NotRequired[list[int] | str]
+    """Explicit indices to select from the dataset.
+
+    Can be either a list of integers (e.g., ``[0, 1, 5, 10]``) or a path to a
+    text file containing one index per line. When specified, only the structures
+    at these indices will be used from the dataset.
+    """
+
+
+EvalHypers = EvalDatasetDictHypers | list[EvalDatasetDictHypers]
 
 
 WandbConfig = dict
@@ -282,24 +449,16 @@ class BaseHypers(TypedDict):
 
     If ``None``, W&B logging is disabled."""
 
-    training_set: DatasetSpec
+    training_set: TrainingSetSpec
     """Specification of the training dataset."""
-    validation_set: (
-        IndicesOnlyHypers
-        | DatasetSpec
-        | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
-    )
+    validation_set: ValOrTestSetSpec
     """Specification of the validation dataset.
 
     Can be a float fraction (e.g., ``0.1`` for 10% of training data),
     a full dataset specification, or an ``indices`` dict referencing
     the training source file.
     """
-    test_set: NotRequired[
-        IndicesOnlyHypers
-        | DatasetSpec
-        | Annotated[int | float, Interval(ge=0.0, lt=1.0)]
-    ]
+    test_set: NotRequired[ValOrTestSetSpec] = 0.0
     """Specification of the test dataset.
 
     Can be a float fraction (e.g., ``0.1`` for 10% of training data),

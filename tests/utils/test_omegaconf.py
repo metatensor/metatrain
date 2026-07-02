@@ -970,6 +970,27 @@ def test_check_dataset_options_extra_data_unit(list_conf):
         check_dataset_options(list_conf)
 
 
+def test_rename_deprecated_target_names_renames_with_warning():
+    """Plural target keys are renamed to singular form with a DeprecationWarning"""
+    targets = OmegaConf.create({"momenta": {"unit": "eV"}, "energy": {"unit": "eV"}})
+    with pytest.warns(DeprecationWarning, match="'momenta' target name is deprecated"):
+        renamed = omegaconf._rename_deprecated_target_names(targets)
+
+    assert "momenta" not in renamed
+    assert "momentum" in renamed
+    assert "energy" in renamed
+
+
+def test_rename_deprecated_target_names_raises_if_both_present():
+    """If both deprecated and new name are present, raise rather than silently overwrite
+    the new key with the deprecated value"""
+    targets = OmegaConf.create({"momenta": {"unit": "eV"}, "momentum": {"unit": "eV"}})
+
+    match = "target dict contains both 'momenta' \\(deprecated\\) and 'momentum'"
+    with pytest.raises(ValueError, match=match):
+        omegaconf._rename_deprecated_target_names(targets)
+
+
 def generate_reference_config():
     return OmegaConf.create(
         {

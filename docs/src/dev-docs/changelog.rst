@@ -22,7 +22,51 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 .. #######
 
 Unreleased
-----------
+-----------------------------
+
+Fixed
+#####
+
+Added
+#####
+
+- Possibility to avoid warm-up in ``mtt eval`` with the ``--no-warm-up`` flag.
+- Optional per-system charge and spin-multiplicity conditioning for PET. Enabled via the
+  ``system_conditioning`` model hyperparameter, with per-system ``charge`` and
+  ``spin_multiplicity`` provided as ``extra_data``.
+
+Changed
+#######
+
+Removed
+#######
+
+Version 2026.3.1 - 2026-07-01
+-----------------------------
+
+Fixed
+#####
+
+- Fixed a bug for FlashMD symplectic and new metatomic singular standard outputs.
+- Fixes in PET and LLPR to make upet work.
+
+Version 2026.3 - 2026-06-26
+-----------------------------
+
+Added
+#####
+
+- Allow extraction of the outputs of arbitrary internal layers in PET. These are
+  requested model outputs named with a ``"mtt::feature::<layer_name>"`` when running
+  inference of a PET checkpoint programmatically.
+- Metatrain now supports spherical targets where the irreps are different for each
+  atomic species. All models that support spherical targets have been adapted to
+  support this situation.
+- Metatrain now supports spherical rank 2 targets (although only PET can handle
+  them for now).
+- Generated JSON schema to validate yaml files passed to ``mtt train``. It is
+  included in the online documentation and can be used e.g. with VScode for
+  autocomplete, documentation and validation.
 
 Fixed
 #####
@@ -34,6 +78,7 @@ Fixed
   ``per_structure_targets`` when fitting scaler weights and correctly ignoring NaN
   stress entries. This will produce different training runs when
   ``non_conservative_stress`` is a target.
+- Validation errors issued by pydantic have been made clearer.
 
 Changed
 #######
@@ -41,6 +86,10 @@ Changed
 - ``ASEWriter`` now writes each batch to disk immediately. If a run is interrupted,
   the output file will contain all batches that completed before the interruption
   (previously no output was produced until the run finished).
+- ``MaskedDOSLoss`` has been renamed and refactored to a more general
+  ``ShiftAgnosticMSE``.
+- Code has been adapted to work with ``metatensor-core>=0.2.0`` and ``metatomic>0.1.12``
+  which had breaking changes.
 
 Version 2026.2.1 - 2026-03-03
 -----------------------------

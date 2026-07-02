@@ -51,7 +51,7 @@ def test_adaptive_cutoff_functionality(num_neighbors_adaptive, adaptive_cutoff_m
         pbc=torch.tensor([True, True, True]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     _ = model([system], outputs)
 
 
@@ -95,8 +95,8 @@ def test_cutoff_stats_output(num_neighbors_adaptive):
     result = model(
         [system_a, system_b],
         {
-            "energy": ModelOutput(per_atom=False),
-            "mtt::aux::cutoff_stats": ModelOutput(per_atom=True),
+            "energy": ModelOutput(sample_kind="system"),
+            "mtt::aux::cutoff_stats": ModelOutput(sample_kind="atom"),
         },
     )
     n_atoms = 3 + 2
@@ -124,9 +124,9 @@ def test_cutoff_stats_output(num_neighbors_adaptive):
 
 
 def test_cutoff_stats_mean_over_atoms():
-    """With ``per_atom=False`` the output is averaged across atoms in each
-    system (sum would mix two unrelated quantities — atomic cutoffs and
-    integer counts — into a meaningless total)."""
+    """With ``sample_kind="system"`` the output is averaged across atoms
+    in each system (sum would mix two unrelated quantities — atomic cutoffs
+    and integer counts — into a meaningless total)."""
     torch.manual_seed(0)
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
@@ -160,11 +160,11 @@ def test_cutoff_stats_mean_over_atoms():
 
     per_atom_result = model(
         [system_a, system_b],
-        {"mtt::aux::cutoff_stats": ModelOutput(per_atom=True)},
+        {"mtt::aux::cutoff_stats": ModelOutput(sample_kind="atom")},
     )["mtt::aux::cutoff_stats"]
     per_system_result = model(
         [system_a, system_b],
-        {"mtt::aux::cutoff_stats": ModelOutput(per_atom=False)},
+        {"mtt::aux::cutoff_stats": ModelOutput(sample_kind="system")},
     )["mtt::aux::cutoff_stats"]
 
     per_system_block = per_system_result.block()
@@ -203,7 +203,7 @@ def test_cutoff_stats_not_requested():
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    result = model([system], {"energy": ModelOutput(per_atom=False)})
+    result = model([system], {"energy": ModelOutput(sample_kind="system")})
     assert "mtt::aux::cutoff_stats" not in result
 
 
@@ -232,12 +232,10 @@ def test_effective_num_neighbors():
     centers = torch.tensor([0, 0, 1, 1, 1, 2, 2])
     probe_cutoffs = torch.tensor([1.0, 2.0, 3.0, 4.0])
     num_nodes = 3
+    width = 1.0
 
     effective_num_neighbors = get_effective_num_neighbors(
-        edge_distances,
-        probe_cutoffs,
-        centers,
-        num_nodes,
+        edge_distances, probe_cutoffs, centers, num_nodes, width
     )
 
     effective_num_neighbors_expected = torch.tensor(
@@ -431,7 +429,7 @@ def test_adaptive_cutoff_empty_system(adaptive_cutoff_method):
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     energy = model([system], outputs)["energy"].block().values.squeeze(-1)
     assert torch.numel(energy) == 0
 
@@ -465,7 +463,7 @@ def test_adaptive_cutoff_isolated_atom(adaptive_cutoff_method):
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     _ = model([system], outputs)
 
 
@@ -499,5 +497,5 @@ def test_adaptive_cutoff_dissociated_atoms(cutoff, adaptive_cutoff_method):
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     _ = model([system], outputs)

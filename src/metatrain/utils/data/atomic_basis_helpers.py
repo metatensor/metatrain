@@ -133,7 +133,7 @@ def _densify_per_atom_atomic_basis_target(
                 properties=existing_block.properties,
             )
         else:
-            block = layout_block.copy()
+            block = layout_block.copy(deep=False)
             assert len(block.samples) == 0
         blocks.append(block)
 

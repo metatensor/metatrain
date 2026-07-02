@@ -4,7 +4,7 @@ set -eux
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 MODE=$1
-TRAIN_ID=$2
+TRAIN_ID=${2:-""}
 
 if [ -z "$MODE" ]; then
     echo "Error: First argument of the script is the mode"
@@ -29,8 +29,6 @@ if [ -n "$TRAIN_ID" ]; then
 fi
 
 echo "Clearing previous generated files..."
-# Clean previous generated files
-rm $ROOT_DIR/model-$MODE-*.pt $ROOT_DIR/model-$MODE-*.ckpt || true
 # Remove lock files from previous runs (but avoid removing the
 # current one!)
 find $ROOT_DIR -maxdepth 1 -name  "$MODE-*.trainlock" ! -name "$MODE-$TRAIN_ID.trainlock" -delete || true
@@ -38,21 +36,29 @@ find $ROOT_DIR -maxdepth 1 -name  "$MODE-*.trainlock" ! -name "$MODE-$TRAIN_ID.t
 echo "Generating data for testing..."
 
 cd "$ROOT_DIR"
+
+TRAIN_DIR="$ROOT_DIR/train_$MODE"
+rm -r "$TRAIN_DIR" || true
+mkdir -p "$TRAIN_DIR"
+cp *yaml *xyz "$TRAIN_DIR" 
+cd "$TRAIN_DIR"
 # The generated files are uniquely identified by the TRAIN_ID passed as second argument,
 # in this way a test run can know if the files have already been generated.
 if [ "$MODE" == "32-bit" ]; then
-    mtt train options.yaml -o model-32-bit-$TRAIN_ID.pt -r base_precision=32
+    mtt train ../options.yaml -o model-32-bit.pt -r base_precision=32
 elif [ "$MODE" == "64-bit" ]; then
-    mtt train options.yaml -o model-64-bit-$TRAIN_ID.pt -r base_precision=64
+    mtt train ../options.yaml -o model-64-bit.pt -r base_precision=64
 elif [ "$MODE" == "pet" ]; then
-    mtt train options-pet.yaml -o model-pet-$TRAIN_ID.pt
+    mtt train ../options-pet.yaml -o model-pet.pt
 else
     echo "Error: Unknown training mode (first argument): '$MODE'"
     echo " Please set it to '32-bit', '64-bit' or 'pet'"
     exit 1
 fi
 
-rm $LOCKFILE || true
+if [ -n "$TRAIN_ID" ]; then
+    rm $LOCKFILE || true
+fi
 
 # If the mode is 32-bit, we will try to upload the model to Hugging Face,
 # otherwise we are done here
@@ -70,7 +76,7 @@ set -x
 if [ $TOKEN_PRESENT = true ]; then
     hf upload \
         "metatensor/metatrain-test" \
-        "model-32-bit-$TRAIN_ID.ckpt" \
+        "model-32-bit.ckpt" \
         "model.ckpt" \
         --commit-message="Overwrite test model with new version" \
         --token="$HUGGINGFACE_TOKEN_METATRAIN"

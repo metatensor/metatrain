@@ -74,8 +74,8 @@ calc = MetatomicCalculator(
 predictions = calc.run_model(
     structures,
     {
-        "energy": ModelOutput(per_atom=False),
-        "energy_uncertainty": ModelOutput(per_atom=False),
+        "energy": ModelOutput(sample_kind="system"),
+        "energy_uncertainty": ModelOutput(sample_kind="system"),
     },
 )
 
@@ -97,8 +97,8 @@ structure = structures[0]
 predictions = calc.run_model(
     structure,
     {
-        # here, we use per_atom=True to request per-atom uncertainties
-        "energy_uncertainty": ModelOutput(per_atom=True),
+        # here, we use sample_kind="atom" to request per-atom uncertainties
+        "energy_uncertainty": ModelOutput(sample_kind="atom"),
     },
 )
 local_uncertainty = predictions["energy_uncertainty"].block().values.squeeze().numpy()
