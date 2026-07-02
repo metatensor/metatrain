@@ -19,6 +19,11 @@ component_management:
   individual_components:
 
     # stable architectures
+    - component_id: composition
+      name: Composition
+      paths:
+        - "src/metatrain/composition/.*"
+
     - component_id: gap
       name: GAP
       paths:

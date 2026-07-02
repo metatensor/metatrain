@@ -7,9 +7,9 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
+from metatrain.composition import CompositionModel
 from metatrain.utils.additive import (
     ZBL,
-    CompositionModel,
     remove_additive,
 )
 from metatrain.utils.data import Dataset, DatasetInfo

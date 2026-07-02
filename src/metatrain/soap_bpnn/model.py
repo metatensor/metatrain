@@ -16,8 +16,9 @@ from metatomic.torch import (
     System,
 )
 
+from metatrain.composition import CompositionModel
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.additive import ZBL
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
@@ -392,17 +393,8 @@ class SoapBpnn(ModelInterface[ModelHypers]):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel(
-            hypers={},
-            dataset_info=DatasetInfo(
-                length_unit=train_dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in train_dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
+        composition_model = CompositionModel.from_dataset(
+            train_dataset_info, self.atomic_types
         )
         additive_models = [composition_model]
         if self.hypers["zbl"]:

@@ -34,6 +34,7 @@ model:
 
 | Name                                          | Description                                                                                                                          |
 |-----------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| [Composition][arch-composition]               | Per-species linear fit to training targets                                                                                           |
 | [PET][arch-pet]                               | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
 | [SOAP-BPNN][arch-soap_bpnn]                   | A Behler-Parrinello neural network with SOAP features                                                                                |
 | [MACE][arch-mace]                             | A higher order equivariant message passing neural network.                                                                           |
@@ -47,6 +48,7 @@ model:
 
 <!-- links for the different architectures. To be replaced if we are building the docs locally or
 on a PR, since the docs use this README file directly.-->
+[arch-composition]: https://docs.metatensor.org/metatrain/latest/architectures/generated/composition.html
 [arch-dpa3]: https://docs.metatensor.org/metatrain/latest/architectures/generated/dpa3.html
 [arch-flashmd]: https://docs.metatensor.org/metatrain/latest/architectures/generated/flashmd.html
 [arch-gap]: https://docs.metatensor.org/metatrain/latest/architectures/generated/gap.html

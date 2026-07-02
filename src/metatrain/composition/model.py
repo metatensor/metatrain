@@ -1,59 +1,69 @@
 import logging
-from typing import Callable, Dict, List, Optional, Sequence, Union
+from typing import Callable, Dict, List, Literal, Optional, Sequence, Union
 
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import ModelOutput, NeighborListOptions, System
+from metatomic.torch import (
+    AtomisticModel,
+    ModelCapabilities,
+    ModelMetadata,
+    ModelOutput,
+    NeighborListOptions,
+    System,
+)
 from torch.utils.data import DataLoader, DistributedSampler
 
+from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    DatasetInfo,
+    TargetInfo,
+    unpack_batch,
 )
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists_transform
+from metatrain.utils.transfer import batch_to
 
-from ..data import DatasetInfo, TargetInfo, unpack_batch
-from ..transfer import batch_to
+from . import checkpoints
 from ._base_composition import (
     BaseCompositionModel,
     FixedCompositionWeights,
     _include_key,
 )
-from .remove import remove_additive
+from .documentation import ModelHypers
 
 
-class CompositionModel(torch.nn.Module):
-    """
-    A simple model that calculates the per-species contributions to targets
-    based on the stoichiometry in a system.
+class CompositionModel(ModelInterface[ModelHypers]):
+    __checkpoint_version__ = 1
+    __supported_devices__ = ["cuda", "cpu"]
+    __supported_dtypes__ = [torch.float32, torch.float64]
+    __default_metadata__ = ModelMetadata(
+        references={
+            "architecture": [
+                "Composition model: per-species linear fit to training targets"
+            ]
+        }
+    )
 
-    :param hypers: A dictionary of model hyperparameters. This parameter is ignored and
-        is only present to be consistent with the general model API.
-    :param dataset_info: An object containing information about the dataset, including
-        target quantities and atomic types.
-    """
-
-    # Needed for torchscript compatibility
     outputs: Dict[str, ModelOutput]
+    atomic_types: List[int]
+    target_infos: Dict[str, TargetInfo]
+    _new_outputs: List[str]
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
-        super().__init__()
+    def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
 
-        # `hypers` should be an empty dictionary
         if not (isinstance(hypers, dict) and len(hypers) == 0):
             raise ValueError(
                 f"{self.__class__.__name__} hypers takes an empty dictionary. "
                 f"Got: {hypers}."
             )
 
-        self.dataset_info = dataset_info
-        """An :py:class:`DatasetInfo` containing information about the dataset,
-        including target quantities and atomic types."""
-
         self.atomic_types = sorted(dataset_info.atomic_types)
-        """The list of atomic types used in the composition model."""
 
         for target_name, target_info in dataset_info.targets.items():
             if not self.is_valid_target(target_name, target_info):
@@ -67,31 +77,43 @@ class CompositionModel(torch.nn.Module):
             target_name: target_info
             for target_name, target_info in dataset_info.targets.items()
         }
-        """A dictionary with a :py:class:`TargetInfo` for each target that can be
-        predicted by the model."""
 
-        # Initialize the composition model
-        self.model = BaseCompositionModel(
+        self.model: BaseCompositionModel = BaseCompositionModel(
             atomic_types=self.atomic_types,
             layouts={
                 target_name: target_info.layout
                 for target_name, target_info in self.target_infos.items()
             },
         )
-        """The underlying composition model that handles the accumulation and fitting of
-        the weights."""
 
         self.outputs: Dict[str, ModelOutput] = {}
-        """A dictionary with a :py:class:`metatomic.torch.ModelOutput` for each target
-        that can be predicted by the model."""
 
-        # keeps track of dtype and device of the composition model
         self.register_buffer("dummy_buffer", torch.randn(1))
 
         self._new_outputs = []
         for target_name, target_info in self.dataset_info.targets.items():
             self._new_outputs.append(target_name)
             self._add_output(target_name, target_info)
+
+    @classmethod
+    def from_dataset(
+        cls,
+        dataset_info: DatasetInfo,
+        atomic_types: List[int],
+    ) -> "CompositionModel":
+        targets = {
+            name: info
+            for name, info in dataset_info.targets.items()
+            if cls.is_valid_target(name, info)
+        }
+        return cls(
+            hypers={},
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=sorted(atomic_types),
+                targets=targets,
+            ),
+        )
 
     def _get_dataloader(
         self,
@@ -101,33 +123,10 @@ class CompositionModel(torch.nn.Module):
         is_distributed: bool,
         initial_transforms: Sequence[Callable],
     ) -> DataLoader:
-        """
-        Create a DataLoader for the provided datasets. As the dataloader is only used to
-        accumulate the quanitites needed for fitting the composition weights, there is
-        no need to shuffle or drop the last non-full batch. Distributed sampling can be
-        used or not, based on the `is_distributed` argument, and training with double
-        precision is enforced.
-
-        :param datasets: A list of datasets to create the dataloader from.
-        :param requested_neighbor_lists: A list of `NeighborListOptions` objects,
-            each of which specifies the parameters for a neighbor list that might be
-            required by the additive models whose contributions will be removed from
-            the targets before fitting the composition weights.
-        :param batch_size: The batch size to use for the dataloader.
-        :param is_distributed: Whether to use distributed sampling for the dataloader.
-        :param initial_transforms: A list of callables to be included in
-            the collate function. The callables passed here will be applied before the
-            other callables set by the composition model.
-        :return: A DataLoader for the CompositionModel fitting.
-        """
-        # Create the collate function
         collate_fn = CollateFn(
             target_keys=list(self.dataset_info.targets.keys()),
             callables=[
                 *initial_transforms,
-                # these neighbor lists might be required by the other additive models
-                # that need to be removed from the targets before fitting the
-                # composition weights
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
             ],
         )
@@ -139,7 +138,6 @@ class CompositionModel(torch.nn.Module):
                 f"Got dtype: {dtype}."
             )
 
-        # Build the dataloaders
         if is_distributed:
             world_size = torch.distributed.get_world_size()
             rank = torch.distributed.get_rank()
@@ -187,47 +185,17 @@ class CompositionModel(torch.nn.Module):
         fixed_weights: Optional[FixedCompositionWeights] = None,
         initial_transforms: Sequence[Callable] = (),
     ) -> None:
-        """
-        Train the composition model on the provided training data in the ``datasets``.
-
-        Assumes the systems are stored in the ``system`` attribute of each sample, with
-        targets expected to be stored as well, with keys corresponding to the target
-        names defined in the dataset info.
-
-        Any additive contributions from the provided ``additive_models`` will be removed
-        from the targets before training. The `fixed_weights` argument can be used to
-        specify which targets should be treated as fixed weights during training.
-
-        :param datasets: A list of datasets to use for training.
-        :param additive_models: A list of additive models whose contributions will be
-            removed from the targets before training.
-        :param batch_size: The batch size to use for training.
-        :param is_distributed: Whether to use distributed sampling for the dataloader.
-        :param fixed_weights: Optional dict of target names to either (1) a single
-            weight for all atomic_types or (2) a dict of atomic types to weights.
-            If provided, these weights will be fixed instead of being fitted.
-            If a dict of weights is provided for a target, all atomic types handled
-            by the model must have a weight specified.
-            If ``None``, all weights will be fitted normally.
-        :param initial_transforms: A list of callables to be included in
-            the collate function of the dataloader. The callables passed here will be
-            applied before the other callables set by the composition model.
-        """
-
         if not isinstance(datasets, list):
             datasets = [datasets]
 
-        if len(self.target_infos) == 0:  # no (new) targets to fit
+        if len(self.target_infos) == 0:
             return
 
-        # Create dataloader for the training datasets. Note that these might need
-        # neighbor lists if any of the `additive_models` require them.
         requested_neighbor_lists = []
         for additive_model in additive_models:
             if hasattr(additive_model, "requested_neighbor_lists"):
                 requested_neighbor_lists += additive_model.requested_neighbor_lists()
 
-        # Create dataloader for the training datasets
         dataloader = self._get_dataloader(
             datasets,
             requested_neighbor_lists,
@@ -241,11 +209,9 @@ class CompositionModel(torch.nn.Module):
 
         device = self.dummy_buffer.device
 
-        # accumulate
         for batch in dataloader:
             systems, targets, _ = unpack_batch(batch)
             systems, targets, _ = batch_to(systems, targets, device=device)
-            # only accumulate the targets that do not use fixed weights
             targets = {
                 target_name: targets[target_name]
                 for target_name, target in targets.items()
@@ -254,7 +220,6 @@ class CompositionModel(torch.nn.Module):
             if len(targets) == 0:
                 break
 
-            # remove additive contributions from these targets
             for additive_model in additive_models:
                 targets = remove_additive(
                     systems,
@@ -269,10 +234,9 @@ class CompositionModel(torch.nn.Module):
 
         if is_distributed:
             torch.distributed.barrier()
-            # All-reduce the accumulated TensorMaps across all processes
             for target_name in self._new_outputs:
                 if target_name in fixed_weights:
-                    continue  # nothing was accumulated
+                    continue
                 for XTX_block, XTY_block in zip(
                     self.model.XTX[target_name],
                     self.model.XTY[target_name],
@@ -281,10 +245,8 @@ class CompositionModel(torch.nn.Module):
                     torch.distributed.all_reduce(XTX_block.values)
                     torch.distributed.all_reduce(XTY_block.values)
 
-        # Fit the model on all ranks
         self.model.fit(fixed_weights, targets_to_fit=self._new_outputs)
 
-        # update the buffer weights now they are fitted
         for target_name in self.model.weights.keys():
             self.register_buffer(
                 target_name + "_composition_buffer",
@@ -296,12 +258,6 @@ class CompositionModel(torch.nn.Module):
             )
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
-        """
-        Restart the model with a new dataset info.
-
-        :param dataset_info: New dataset information to be used.
-        :return: An instance of the restarted model.
-        """
         for target_name, target_info in dataset_info.targets.items():
             if not self.is_valid_target(target_name, target_info):
                 raise ValueError(
@@ -310,7 +266,6 @@ class CompositionModel(torch.nn.Module):
                     "Please report this issue and help us improve!"
                 )
 
-        # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
             at for at in merged_info.atomic_types if at not in self.atomic_types
@@ -330,7 +285,6 @@ class CompositionModel(torch.nn.Module):
 
         self.dataset_info = merged_info
 
-        # register new outputs
         self._new_outputs = []
         buffer_names = [n for n, _ in self.named_buffers()]
         for target_name, target_info in self.target_infos.items():
@@ -348,17 +302,6 @@ class CompositionModel(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        """Compute the targets for each system based on the composition weights.
-
-        :param systems: List of systems to calculate the energy.
-        :param outputs: Dictionary containing the model outputs.
-        :param selected_atoms: Optional selection of samples for which to compute the
-            predictions.
-        :return: A dictionary with the computed predictions for each system.
-
-        :raises ValueError: If no weights have been computed or if `outputs` keys
-            contain unsupported keys.
-        """
         dtype = systems[0].positions.dtype
         device = systems[0].positions.device
 
@@ -390,8 +333,6 @@ class CompositionModel(torch.nn.Module):
             description=target_info.description,
         )
 
-        # Create a fake weights buffer for the target, filtering the blocks that will
-        # not be fitted
         layout = mts.filter_blocks(
             target_info.layout,
             Labels(
@@ -444,14 +385,6 @@ class CompositionModel(torch.nn.Module):
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
-        """Finds if a ``TargetInfo`` object is compatible with a composition model.
-
-        :param target_name: The name of the target to be checked.
-        :param target_info: The ``TargetInfo`` object to be checked.
-        :return: ``True`` if the target is compatible with a composition model,
-            ``False`` otherwise.
-        """
-        # only scalars can have composition contributions
         if not target_info.is_scalar and not target_info.is_spherical:
             logging.debug(
                 f"Composition model does not support target {target_name} "
@@ -460,22 +393,20 @@ class CompositionModel(torch.nn.Module):
             return False
 
         if target_info.is_spherical:
-            if "o3_lambda" in target_info.layout.keys.names:  # rank 1
+            if "o3_lambda" in target_info.layout.keys.names:
                 if len(target_info.layout.blocks({"o3_lambda": 0, "o3_sigma": 1})) == 0:
-                    # No invariant blocks
                     logging.debug(
                         "Composition model does not support spherical "
                         f"target {target_name} since it does not have "
                         "any invariant blocks."
                     )
                     return False
-            elif "o3_lambda_2" in target_info.layout.keys.names:  # rank 2
+            elif "o3_lambda_2" in target_info.layout.keys.names:
                 if not any(
                     key["o3_lambda_1"] == key["o3_lambda_2"]
                     and key["o3_sigma_1"] == key["o3_sigma_2"]
                     for key in target_info.layout.keys
                 ):
-                    # No invariant contribution
                     logging.debug(
                         "Composition model does not support spherical "
                         f"target {target_name} since it does not have "
@@ -486,9 +417,113 @@ class CompositionModel(torch.nn.Module):
         return True
 
     def sync_tensor_maps(self) -> None:
-        # Reload the weights of the (old) targets, which are not stored in the model
-        # state_dict, from the buffers
         for k in self.dataset_info.targets:
             self.model.weights[k] = mts.load_buffer(
                 self.__getattr__(k + "_composition_buffer")
             )
+
+    def get_checkpoint(self) -> Dict:
+        model_state_dict = self.state_dict()
+        checkpoint = {
+            "architecture_name": "composition",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.metadata,
+            "model_data": {
+                "model_hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "epoch": None,
+            "best_epoch": None,
+            "model_state_dict": model_state_dict,
+            "best_model_state_dict": model_state_dict,
+        }
+        return checkpoint
+
+    @classmethod
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict,
+        context: Literal["restart", "finetune", "export"],
+    ) -> "CompositionModel":
+        if context == "restart":
+            logging.info("Using latest model from checkpoint")
+            model_state_dict = checkpoint["model_state_dict"]
+        elif context in {"finetune", "export"}:
+            logging.info("Using best model from checkpoint")
+            model_state_dict = checkpoint.get(
+                "best_model_state_dict", checkpoint["model_state_dict"]
+            )
+        else:
+            raise ValueError("Unknown context tag for checkpoint loading!")
+
+        model_data = checkpoint["model_data"]
+        model = cls(
+            hypers=model_data["model_hypers"],
+            dataset_info=model_data["dataset_info"],
+        )
+
+        model.load_state_dict(model_state_dict)
+        model.sync_tensor_maps()
+
+        model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
+
+        return model
+
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
+
+        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current model "
+                f"version is {cls.__checkpoint_version__}."
+            )
+
+        return checkpoint
+
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
+        dtype = self.dummy_buffer.dtype
+        if dtype not in self.__supported_dtypes__:
+            raise ValueError(f"unsupported dtype {dtype} for composition model")
+
+        self.to(dtype)
+        self.weights_to(torch.device("cpu"), torch.float64)
+
+        interaction_range = 0.0
+
+        capabilities = ModelCapabilities(
+            outputs=self.outputs,
+            atomic_types=self.atomic_types,
+            interaction_range=interaction_range,
+            length_unit=self.dataset_info.length_unit,
+            supported_devices=self.__supported_devices__,
+            dtype=dtype_to_str(dtype),
+        )
+
+        metadata = merge_metadata(self.metadata, metadata)
+
+        return AtomisticModel(self.eval(), metadata, capabilities)
+
+
+def remove_additive(
+    systems: List[System],
+    targets: Dict[str, TensorMap],
+    additive_model: torch.nn.Module,
+    target_infos: Dict[str, TargetInfo],
+) -> Dict[str, TensorMap]:
+    """Remove additive contributions from targets by delegating to metatrain's utility.
+
+    :param systems: list of atomic systems
+    :param targets: target tensormaps
+    :param additive_model: model whose predictions to subtract
+    :param target_infos: target metadata
+    :returns: targets with additive contributions removed
+    """
+    from metatrain.utils.additive.remove import remove_additive as _remove_additive
+
+    return _remove_additive(systems, targets, additive_model, target_infos)
