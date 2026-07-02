@@ -150,6 +150,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
             else:
                 matches = [i for i, h in enumerate(head_names) if h == requested]
                 if not matches and len(head_names) == 1:
+                    # The head name of the single-head model MACE-OMAT-0 is "omat_pbe"
+                    # but not "default"...
                     matches = [0]
                     warnings.warn(
                         f"The loaded MACE model has a single head '{head_names[0]}', "
@@ -170,7 +172,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
             # will be handled by metatrain's scaler and composition model.
             if not getattr(self.mace_model, "_metatrain_extracted_scaleshift", False):
                 if hasattr(self.mace_model, "atomic_energies_fn"):
-                    # Some single-head models store a 1D [n_species] tensor, while some other single-head models (e.g. matpes-r2scan) and multi-head
+                    # Some single-head models store a 1D [n_species] tensor, while some
+                    # other single-head models (e.g. matpes-r2scan) and multi-head
                     # models store 2D [n_heads, n_species]. Slice only the latter.
                     atomic_energies = (
                         self.mace_model.atomic_energies_fn.atomic_energies
