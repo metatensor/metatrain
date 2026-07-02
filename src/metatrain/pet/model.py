@@ -707,7 +707,7 @@ class PET(ModelInterface[ModelHypers]):
         )
         if selected_atoms is not None:
             tmap = mts.slice(tmap, axis="samples", selection=selected_atoms)
-        if sample_kind == "per_atom":
+        if sample_kind == "system":
             tmap = mts.mean_over_samples(tmap, sample_names=["atom"])
         return tmap
 
