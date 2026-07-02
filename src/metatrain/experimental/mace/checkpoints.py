@@ -29,6 +29,16 @@ def model_update_v2_v3(checkpoint: dict) -> None:
     update_per_property_scales(checkpoint)
 
 
+def model_update_v3_v4(checkpoint: dict) -> None:
+    """
+    Update a v3 checkpoint to v4.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    if "mace_head_name" not in checkpoint["model_data"]["hypers"]:
+        checkpoint["model_data"]["hypers"]["mace_head_name"] = "default"
+
+
 ###########################
 # TRAINER #################
 ###########################

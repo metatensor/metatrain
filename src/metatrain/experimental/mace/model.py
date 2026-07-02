@@ -50,7 +50,7 @@ from .utils.structures import create_batch
 class MetaMACE(ModelInterface[ModelHypers]):
     """Interface of MACE for metatrain."""
 
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -738,7 +738,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             # Fake head that will not compute the target, but will help
             # us extract the last layer features from MACE internal head.
             self.heads[target_name] = MACEHeadWrapper(
-                self.mace_model.readouts, self.per_layer_irreps
+                self.mace_model.readouts, self.per_layer_irreps, self.head_index
             )
         else:
             output_info = copy.deepcopy(target_info)

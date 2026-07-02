@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import ase.io
+import pytest
 import torch
 from mace.calculators import MACECalculator
 from metatomic_ase import MetatomicCalculator
@@ -12,6 +13,38 @@ from .test_basic import MACETests
 
 class TestFoundation(MACETests):
     """Tests for MACE foundational models."""
+
+    @pytest.mark.parametrize("head_name", ["default", "extra"])
+    def test_mace_selects_correct_head(
+        self,
+        device: torch.device,
+        mace_model_path: Path,
+        head_name: str,
+    ) -> None:
+        """The exported metatomic model must reproduce the selected head,
+        matching the native MACE calculator run with the same ``head``.
+        """
+        periodic_water_file = (
+            Path(__file__).parents[5] / "tests" / "resources" / "periodic_water.data"
+        )
+        atoms = ase.io.read(periodic_water_file, format="lammps-data")
+
+        model = load_mace_model_file(
+            mace_model_path,
+            mace_head_target="energy",
+            device=device,
+            mace_head_name=head_name,
+        )
+        atoms.calc = MetatomicCalculator(model.export(), device=device)
+        mta_energy = atoms.get_potential_energy()
+        mta_forces = atoms.get_forces()
+
+        atoms.calc = MACECalculator(mace_model_path, head=head_name)
+        mace_energy = atoms.get_potential_energy()
+        mace_forces = atoms.get_forces()
+
+        assert abs(mta_energy - mace_energy) < 1e-3
+        assert ((mta_forces - mace_forces) ** 2).sum() < 1e-9
 
     def test_mace_equals_metatomic(
         self,

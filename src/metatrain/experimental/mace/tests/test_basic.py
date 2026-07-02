@@ -62,6 +62,13 @@ class MACETests(ArchitectureTests):
                 )
                 torch.manual_seed(0)
                 species = [1, 6, 7, 8]
+                heads = ["default", "extra"]
+                atomic_energies = torch.stack(
+                    [
+                        torch.linspace(-1, 1, len(species)),
+                        torch.linspace(-2, 2, len(species)),
+                    ]
+                )
                 hypers = copy.deepcopy(get_default_hypers("experimental.mace")["model"])
                 hypers["hidden_irreps"] = "10x0e + 10x1o + 10x2e"
                 hypers["correlation"] = 2
@@ -79,7 +86,7 @@ class MACETests(ArchitectureTests):
                     edge_irreps=o3.Irreps(hypers["edge_irreps"])
                     if hypers["edge_irreps"] is not None
                     else None,
-                    atomic_energies=torch.linspace(-1, 1, len(species)),
+                    atomic_energies=atomic_energies,
                     apply_cutoff=hypers["apply_cutoff"],
                     avg_num_neighbors=hypers["avg_num_neighbors"],
                     atomic_numbers=torch.tensor(species),
@@ -98,8 +105,9 @@ class MACETests(ArchitectureTests):
                     use_embedding_readout=hypers["use_embedding_readout"],
                     use_last_readout_only=hypers["use_last_readout_only"],
                     use_agnostic_product=hypers["use_agnostic_product"],
-                    atomic_inter_scale=0.4,
-                    atomic_inter_shift=2.8,
+                    atomic_inter_scale=[0.4, 0.7],
+                    atomic_inter_shift=[2.8, -1.5],
+                    heads=heads,
                 )
 
                 torch.save(mace_model, mace_model_path)
