@@ -130,7 +130,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 raise ValueError(
                     "The 'mace_model' hyper must be a path or a torch.nn.Module"
                 )
-            
+
             # Resolve which internal head to use. Official foundation models
             # are inconsistent: some have no ``heads`` attribute at all (older
             # single-head MP-0a/0b, OFF23), some name their single head
@@ -145,7 +145,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 self.mace_head = requested
                 warnings.warn(
                     f"The loaded MACE model has no 'heads' attribute. "
-                    f"Ignoring the head request '{requested}'."
+                    f"Ignoring the head request '{requested}'.",
+                    stacklevel=2,
                 )
             else:
                 matches = [i for i, h in enumerate(head_names) if h == requested]
@@ -156,7 +157,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     warnings.warn(
                         f"The loaded MACE model has a single head '{head_names[0]}', "
                         f"but the requested head was '{requested}'. Using the only "
-                        f"available head."
+                        f"available head.",
+                        stacklevel=2,
                     )
                 if not matches:
                     raise ValueError(
@@ -175,9 +177,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     # Some single-head models store a 1D [n_species] tensor, while some
                     # other single-head models (e.g. matpes-r2scan) and multi-head
                     # models store 2D [n_heads, n_species]. Slice only the latter.
-                    atomic_energies = (
-                        self.mace_model.atomic_energies_fn.atomic_energies
-                    )
+                    atomic_energies = self.mace_model.atomic_energies_fn.atomic_energies
                     if atomic_energies.ndim == 2:
                         atomic_energies = atomic_energies[self.head_index]
                     self._loaded_atomic_baseline = atomic_energies.clone().ravel()
