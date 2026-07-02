@@ -710,8 +710,11 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
         "method": "heads",
         "read_from": str(ckpt_path),
         "config": {
-            "head_modules": ["node_heads", "edge_heads"],
-            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+            "head_modules": ["backend.node_heads", "backend.edge_heads"],
+            "last_layer_modules": [
+                "backend.node_last_layers",
+                "backend.edge_last_layers",
+            ],
         },
         "inherit_heads": {},
     }
@@ -733,8 +736,11 @@ def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_P
         "method": "heads",
         "read_from": str(ckpt_path),
         "config": {
-            "head_modules": ["node_heads", "edge_heads"],
-            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+            "head_modules": ["backend.node_heads", "backend.edge_heads"],
+            "last_layer_modules": [
+                "backend.node_last_layers",
+                "backend.edge_last_layers",
+            ],
         },
         "inherit_heads": {},
     }
@@ -761,8 +767,11 @@ def test_transfer_learn_with_forces(
         "method": "heads",
         "read_from": str(ckpt_path),
         "config": {
-            "head_modules": ["node_heads", "edge_heads"],
-            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+            "head_modules": ["backend.node_heads", "backend.edge_heads"],
+            "last_layer_modules": [
+                "backend.node_last_layers",
+                "backend.edge_last_layers",
+            ],
         },
         "inherit_heads": {},
     }
