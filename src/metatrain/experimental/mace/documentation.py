@@ -137,9 +137,10 @@ class ModelHypers(TypedDict):
     mace_head_name: str = "default"
     """Name of the head of the MACE model to use.
 
-    If the pretrained MACE model has `multiple heads<https://huggingface.co/mace-foundations/mace-mh-1>`_
-    , this hyperparameter specifies which head is used in the training and export of the
-    model. Uses the "default" head if not specified.
+    If the pretrained MACE model has `multiple heads
+    <https://huggingface.co/mace-foundations/mace-mh-1>`_, this hyperparameter specifies
+    which head is used in the training and export of the model. Uses the "default" head
+    if not specified.
     """
     mace_head_target: str = "energy"
     """Target to which the MACE head is related.
