@@ -126,6 +126,15 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 raise ValueError(
                     "The 'mace_model' hyper must be a path or a torch.nn.Module"
                 )
+            
+            # Search for the head specified in the hypers
+            for ihead, head in enumerate(self.mace_model.heads):
+                if head == self.hypers["mace_head_name"]:
+                    self.mace_head = head
+                    head_index = ihead
+                    break
+            else:  # executed if no break occurs in the loop
+                raise ValueError(f"Head '{self.hypers['mace_head_name']}' not found in the loaded MACE model")
 
             # If this is the first time we load this model,
             # extract atomic baselines and scales from the loaded model,
@@ -134,14 +143,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
             if not getattr(self.mace_model, "_metatrain_extracted_scaleshift", False):
                 if hasattr(self.mace_model, "atomic_energies_fn"):
                     self._loaded_atomic_baseline = (
-                        self.mace_model.atomic_energies_fn.atomic_energies.clone()
+                        self.mace_model.atomic_energies_fn.atomic_energies[head_index].clone()
                     ).ravel()
 
                     self.mace_model.atomic_energies_fn.atomic_energies[:] = 0.0
 
                 if hasattr(self.mace_model, "scale_shift"):
-                    self._loaded_scale = self.mace_model.scale_shift.scale.item()
-                    added_baseline = self.mace_model.scale_shift.shift.item()
+                    self._loaded_scale = self.mace_model.scale_shift.scale[head_index].item()
+                    added_baseline = self.mace_model.scale_shift.shift[head_index].item()
                     if self._loaded_atomic_baseline is not None:
                         self._loaded_atomic_baseline = (
                             self._loaded_atomic_baseline + added_baseline
