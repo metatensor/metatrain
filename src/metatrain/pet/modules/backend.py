@@ -320,82 +320,6 @@ class PETBackend(torch.nn.Module):
         }
         return batch_data
 
-    def predict(
-        self,
-        node_features_list: List[torch.Tensor],
-        edge_features_list: List[torch.Tensor],
-        batch_data: Dict[str, torch.Tensor],
-        cells: torch.Tensor,
-        system_indices: torch.Tensor,
-        requested_output_names: List[str],
-    ) -> Tuple[
-        Dict[str, List[torch.Tensor]],
-        Dict[str, List[torch.Tensor]],
-        Dict[str, List[torch.Tensor]],
-    ]:
-        """
-        Compute the per-block atomic predictions and last-layer features.
-
-        :param node_features_list: Per-layer node features (possibly modified by the
-            long-range featurizer).
-        :param edge_features_list: Per-layer edge features.
-        :param batch_data: Dictionary containing input tensors required for feature
-            calculation.
-        :param cells: Stacked cell tensors, shape ``(num_systems, 3, 3)``, used to
-            normalize non-conservative stress predictions by cell volume.
-        :param system_indices: System index for each atom, shape ``(num_nodes,)``.
-        :param requested_output_names: Names of the target outputs to compute.
-        :return: A tuple ``(atomic_predictions, node_ll_features, edge_ll_features)``
-            where ``atomic_predictions`` maps each requested output to a list of
-            per-block flat prediction tensors, and the last-layer feature dictionaries
-            map each output to its per-layer node / edge last-layer features.
-        """
-        padding_mask = batch_data["padding_mask"]
-        cutoff_factors = batch_data["cutoff_factors"]
-
-        node_ll_features, edge_ll_features = self._calculate_last_layer_features(
-            node_features_list,
-            edge_features_list,
-        )
-
-        node_atomic_predictions_dict, edge_atomic_predictions_dict = (
-            self._calculate_atomic_predictions(
-                node_ll_features,
-                edge_ll_features,
-                padding_mask,
-                cutoff_factors,
-                requested_output_names,
-            )
-        )
-
-        # Sum the node and edge contributions over all GNN layers, block by block.
-        atomic_predictions: Dict[str, List[torch.Tensor]] = {}
-        for output_name in node_atomic_predictions_dict.keys():
-            node_by_layer = node_atomic_predictions_dict[output_name]
-            edge_by_layer = edge_atomic_predictions_dict[output_name]
-            num_blocks = len(node_by_layer[0])
-            block_sums: List[torch.Tensor] = []
-            for b in range(num_blocks):
-                block_sum = node_by_layer[0][b] + edge_by_layer[0][b]
-                for layer in range(1, len(node_by_layer)):
-                    block_sum = (
-                        block_sum + node_by_layer[layer][b] + edge_by_layer[layer][b]
-                    )
-                block_sums.append(block_sum)
-
-            if output_name == "non_conservative_stress":  # TODO: variants
-                num_properties = block_sums[0].shape[1] // 9
-                block_sums[0] = process_non_conservative_stress(
-                    block_sums[0],
-                    cells,
-                    system_indices,
-                    num_properties,
-                )
-
-            atomic_predictions[output_name] = block_sums
-
-        return atomic_predictions, node_ll_features, edge_ll_features
-
     def calculate_features(
         self,
         batch_data: Dict[str, torch.Tensor],
@@ -471,6 +395,82 @@ class PETBackend(torch.nn.Module):
         # ===== END DIAGNOSTIC-RELATED BLOCK
 
         return node_features_list, edge_features_list
+
+    def predict(
+        self,
+        node_features_list: List[torch.Tensor],
+        edge_features_list: List[torch.Tensor],
+        batch_data: Dict[str, torch.Tensor],
+        cells: torch.Tensor,
+        system_indices: torch.Tensor,
+        requested_output_names: List[str],
+    ) -> Tuple[
+        Dict[str, List[torch.Tensor]],
+        Dict[str, List[torch.Tensor]],
+        Dict[str, List[torch.Tensor]],
+    ]:
+        """
+        Compute the per-block atomic predictions and last-layer features.
+
+        :param node_features_list: Per-layer node features (possibly modified by the
+            long-range featurizer).
+        :param edge_features_list: Per-layer edge features.
+        :param batch_data: Dictionary containing input tensors required for feature
+            calculation.
+        :param cells: Stacked cell tensors, shape ``(num_systems, 3, 3)``, used to
+            normalize non-conservative stress predictions by cell volume.
+        :param system_indices: System index for each atom, shape ``(num_nodes,)``.
+        :param requested_output_names: Names of the target outputs to compute.
+        :return: A tuple ``(atomic_predictions, node_ll_features, edge_ll_features)``
+            where ``atomic_predictions`` maps each requested output to a list of
+            per-block flat prediction tensors, and the last-layer feature dictionaries
+            map each output to its per-layer node / edge last-layer features.
+        """
+        padding_mask = batch_data["padding_mask"]
+        cutoff_factors = batch_data["cutoff_factors"]
+
+        node_ll_features, edge_ll_features = self._calculate_last_layer_features(
+            node_features_list,
+            edge_features_list,
+        )
+
+        node_atomic_predictions_dict, edge_atomic_predictions_dict = (
+            self._calculate_atomic_predictions(
+                node_ll_features,
+                edge_ll_features,
+                padding_mask,
+                cutoff_factors,
+                requested_output_names,
+            )
+        )
+
+        # Sum the node and edge contributions over all GNN layers, block by block.
+        atomic_predictions: Dict[str, List[torch.Tensor]] = {}
+        for output_name in node_atomic_predictions_dict.keys():
+            node_by_layer = node_atomic_predictions_dict[output_name]
+            edge_by_layer = edge_atomic_predictions_dict[output_name]
+            num_blocks = len(node_by_layer[0])
+            block_sums: List[torch.Tensor] = []
+            for b in range(num_blocks):
+                block_sum = node_by_layer[0][b] + edge_by_layer[0][b]
+                for layer in range(1, len(node_by_layer)):
+                    block_sum = (
+                        block_sum + node_by_layer[layer][b] + edge_by_layer[layer][b]
+                    )
+                block_sums.append(block_sum)
+
+            if output_name == "non_conservative_stress":  # TODO: variants
+                num_properties = block_sums[0].shape[1] // 9
+                block_sums[0] = process_non_conservative_stress(
+                    block_sums[0],
+                    cells,
+                    system_indices,
+                    num_properties,
+                )
+
+            atomic_predictions[output_name] = block_sums
+
+        return atomic_predictions, node_ll_features, edge_ll_features
 
     def _feedforward_featurization_impl(
         self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool

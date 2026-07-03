@@ -81,18 +81,19 @@ def _make_periodic_system(model):
     return get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
 
-def _forces_and_strain_grad(energy_fn, base_positions):
-    """Compute ``(forces, strain_grad)`` from an energy closure via the strain trick.
+def _energy_forces_and_strain_grad(energy_fn, base_positions):
+    """Compute ``(energy, forces, strain_grad)`` from an energy closure.
 
-    ``energy_fn`` maps ``(positions, strain)`` to a scalar energy; ``positions`` and
-    ``strain`` are fresh leaf tensors so the returned ``forces = -dE/dpositions`` and
-    ``strain_grad = dE/dstrain`` come straight from :func:`torch.autograd.grad`.
+    Uses the strain trick: ``energy_fn`` maps ``(positions, strain)`` to a scalar
+    energy, with ``positions`` and ``strain`` fresh leaf tensors, so the returned
+    ``forces = -dE/dpositions`` and ``strain_grad = dE/dstrain`` come straight from
+    :func:`torch.autograd.grad`.
     """
     positions = base_positions.detach().clone().requires_grad_(True)
     strain = torch.eye(3, dtype=base_positions.dtype).requires_grad_(True)
     energy = energy_fn(positions, strain)
     minus_forces, strain_grad = torch.autograd.grad(energy, [positions, strain])
-    return -minus_forces, strain_grad
+    return energy.detach(), -minus_forces, strain_grad
 
 
 def _backend_inputs(model, system):
@@ -149,77 +150,6 @@ def test_backend_runs_on_plain_tensors():
     assert all(isinstance(t, torch.Tensor) for t in atomic_predictions["energy"])
 
 
-@pytest.mark.parametrize("num_neighbors_adaptive", [None, 5.0])
-def test_backend_preprocess_fullgraph_compile(num_neighbors_adaptive):
-    """``preprocess`` compiles with ``fullgraph=True`` and matches eager.
-
-    This requires ``capture_scalar_outputs`` (for the data-dependent
-    ``max_edges_per_node``) together with the ``torch._check_is_size`` hint and the
-    ``scatter_add`` neighbour count in :func:`compute_batch_tensors` (``bincount`` has a
-    data-dependent output shape that miscompiles). The adaptive-cutoff path
-    (``num_neighbors_adaptive`` set) additionally exercises the ``nonzero`` edge filter
-    and the unbacked-size handling in ``get_corresponding_edges``.
-
-    :param num_neighbors_adaptive: ``None`` for the fixed-cutoff path, or a float to
-        exercise the adaptive-cutoff path.
-    """
-    hypers = dict(MODEL_HYPERS)
-    hypers["num_neighbors_adaptive"] = num_neighbors_adaptive
-    model = PET(hypers, _make_dataset_info()).eval()
-    backend = model.backend
-    inputs = _backend_inputs(model, _make_system(model))
-
-    batch_data_e = backend.preprocess(*inputs)
-    with torch._dynamo.config.patch(
-        capture_scalar_outputs=True,
-        capture_dynamic_output_shape_ops=True,
-        specialize_int=True,
-    ):
-        batch_data_c = torch.compile(backend.preprocess, fullgraph=True)(*inputs)
-
-    for key in batch_data_e:
-        assert batch_data_e[key].shape == batch_data_c[key].shape, key
-        torch.testing.assert_close(
-            batch_data_e[key], batch_data_c[key], atol=0.0, rtol=0.0
-        )
-
-
-def test_backend_torch_compile_matches_eager():
-    """``torch.compile`` of the backend methods matches eager execution."""
-    model = PET(MODEL_HYPERS, _make_dataset_info()).eval()
-    backend = model.backend
-    inputs = _backend_inputs(model, _make_system(model))
-    cells = inputs[4]
-    system_indices = inputs[6]
-
-    # Eager
-    batch_data = backend.preprocess(*inputs)
-    node_e, edge_e = backend.calculate_features(batch_data)
-    preds_e, _, _ = backend.predict(
-        node_e, edge_e, batch_data, cells, system_indices, ["energy"]
-    )
-
-    with torch._dynamo.config.patch(
-        capture_scalar_outputs=True,
-        capture_dynamic_output_shape_ops=True,
-        specialize_int=True,
-    ):
-        compiled_preprocess = torch.compile(backend.preprocess, fullgraph=True)
-        compiled_calculate_features = torch.compile(
-            backend.calculate_features, fullgraph=True
-        )
-        compiled_predict = torch.compile(backend.predict, fullgraph=True)
-
-    with _ignore_nonleaf_grad_warning():
-        batch_data_c = compiled_preprocess(*inputs)
-        node_c, edge_c = compiled_calculate_features(batch_data_c)
-        preds_c, _, _ = compiled_predict(
-            node_c, edge_c, batch_data_c, cells, system_indices, ["energy"]
-        )
-
-    torch.testing.assert_close(preds_e["energy"][0], preds_c["energy"][0])
-
-
 def test_backend_predictions_match_full_model():
     """The backend's per-block predictions match the wrapped model's energy output."""
     model = PET(MODEL_HYPERS, _make_dataset_info()).eval()
@@ -243,61 +173,34 @@ def test_backend_predictions_match_full_model():
     torch.testing.assert_close(atomic_predictions["energy"][0], wrapped)
 
 
-def test_compiled_backend_predictions_match_full_model():
-    """``torch.compile`` of the backend's methods matches the wrapped energy output."""
-    model = PET(MODEL_HYPERS, _make_dataset_info()).eval()
-    system = _make_system(model)
+@pytest.mark.parametrize("fullgraph", [True, False])
+def test_backend_torch_compile(fullgraph):
+    """``torch.compile`` of the backend matches eager execution, end to end.
 
-    # Wrapped per-atom energy from the full model (no additive / scaler contributions
-    # for an untrained model with zero composition weights and identity scaler).
-    per_atom = model([system], {"energy": ModelOutput(sample_kind="atom")})
-    wrapped = per_atom["energy"].block().values
+    ``torch.compile`` is by far the most expensive part of the PET test suite
+    (especially with ``fullgraph=True``, which enforces strict single-graph
+    capture), so this is the *only* test in this module that compiles the backend;
+    it is parametrized over ``fullgraph`` rather than split across several tests.
 
-    backend = model.backend
-    inputs = _backend_inputs(model, system)
-    cells = inputs[4]
-    system_indices = inputs[6]
-    # The Dynamo flags must be active while the compiled functions actually trace,
-    # which happens lazily on first *call* — so the calls (not just the
-    # ``torch.compile`` wrapping) must run inside the ``config.patch`` context. The
-    # autograd graph is kept intact (no ``no_grad``); the warning filter only silences
-    # the benign non-leaf ``.grad`` warning so forces via autograd remain possible.
-    with torch._dynamo.config.patch(
-        capture_scalar_outputs=True,
-        capture_dynamic_output_shape_ops=True,
-        specialize_int=True,
-    ):
-        backend.preprocess = torch.compile(backend.preprocess, fullgraph=True)
-        backend.calculate_features = torch.compile(
-            backend.calculate_features, fullgraph=True
-        )
-        backend.predict = torch.compile(backend.predict, fullgraph=True)
-
-    with _ignore_nonleaf_grad_warning():
-        batch_data_c = backend.preprocess(*inputs)
-        node_c, edge_c = backend.calculate_features(batch_data_c)
-        atomic_predictions_c, _, _ = backend.predict(
-            node_c, edge_c, batch_data_c, cells, system_indices, ["energy"]
-        )
-
-    torch.testing.assert_close(atomic_predictions_c["energy"][0], wrapped)
-
-
-def test_compiled_backend_forces_and_stresses_match_full_model():
-    """Forces and stresses from the compiled backend match the wrapped model.
-
-    Both quantities come from autograd of the total energy via the strain trick
-    (``positions @ strain``, ``cell @ strain``): ``forces = -dE/dpositions`` and the
-    strain gradient ``dE/dstrain`` (the unnormalised stress / virial). A periodic
-    system is used so that the ``cell_shifts @ cells`` edge term carries a real strain
-    gradient, exercising the backend's cell path.
+    It exercises the adaptive-cutoff path (harder to compile than the fixed-cutoff
+    one: on top of the data-dependent ``max_edges_per_node`` handled via
+    ``capture_scalar_outputs``, ``torch._check_is_size`` and the ``scatter_add``
+    neighbour count in ``compute_batch_tensors``, it also needs the ``nonzero`` edge
+    filter and the unbacked-size handling in ``get_corresponding_edges``) on a
+    periodic system, so that forces and the strain gradient (stress) are both
+    non-trivial. It checks, against the eager backend and the wrapped full model:
+    ``preprocess``'s output (shapes and values), and the compiled pipeline's energy,
+    forces and stress.
     """
-    model = PET(MODEL_HYPERS, _make_dataset_info()).eval()
+    hypers = dict(MODEL_HYPERS)
+    hypers["num_neighbors_adaptive"] = 5.0
+    model = PET(hypers, _make_dataset_info()).eval()
     system = _make_periodic_system(model)
+    backend = model.backend
 
-    # Reference forces and strain gradient from the full (eager) model. This must run
-    # before the backend methods are compiled, since the full model shares the same
-    # backend instance.
+    # Reference energy/forces/stress from the full (eager) model. This must run
+    # before the backend methods are compiled below, since the full model shares the
+    # same backend instance.
     def full_energy(positions, strain):
         new_system = System(
             positions=positions @ strain,
@@ -312,7 +215,7 @@ def test_compiled_backend_forces_and_stresses_match_full_model():
         out = model([new_system], {"energy": ModelOutput(sample_kind="system")})
         return out["energy"].block().values.sum()
 
-    forces_full, strain_grad_full = _forces_and_strain_grad(
+    energy_full, forces_full, strain_grad_full = _energy_forces_and_strain_grad(
         full_energy, system.positions
     )
 
@@ -327,46 +230,72 @@ def test_compiled_backend_forces_and_stresses_match_full_model():
         cutoff_width_adaptive,
     ) = _backend_inputs(model, system)
 
-    backend = model.backend
+    inputs = (
+        positions,
+        centers,
+        neighbors,
+        species,
+        cells,
+        cell_shifts,
+        system_indices,
+        cutoff_width_adaptive,
+    )
+    batch_data_e = backend.preprocess(*inputs)
 
+    # The Dynamo flags must be active while the compiled functions actually trace,
+    # which happens lazily on first *call* -- so the calls (not just the
+    # ``torch.compile`` wrapping) must run inside the ``config.patch`` context. The
+    # autograd graph is kept intact (no ``no_grad``); the warning filter only silences
+    # the benign non-leaf ``.grad`` warning so forces via autograd remain possible.
     with torch._dynamo.config.patch(
         capture_scalar_outputs=True,
         capture_dynamic_output_shape_ops=True,
         specialize_int=True,
     ):
-        backend.preprocess = torch.compile(backend.preprocess, fullgraph=True)
+        backend.preprocess = torch.compile(backend.preprocess, fullgraph=fullgraph)
         backend.calculate_features = torch.compile(
-            backend.calculate_features, fullgraph=True
+            backend.calculate_features, fullgraph=fullgraph
         )
-        backend.predict = torch.compile(backend.predict, fullgraph=True)
+        backend.predict = torch.compile(backend.predict, fullgraph=fullgraph)
 
-    def backend_energy(positions, strain):
-        strained_cells = cells @ strain
-        batch_data = backend.preprocess(
-            positions @ strain,
-            centers,
-            neighbors,
-            species,
-            strained_cells,
-            cell_shifts,
-            system_indices,
-            cutoff_width_adaptive,
-        )
-        node_list, edge_list = backend.calculate_features(batch_data)
-        preds, _, _ = backend.predict(
-            node_list,
-            edge_list,
-            batch_data,
-            strained_cells,
-            system_indices,
-            ["energy"],
-        )
-        return preds["energy"][0].sum()
+        def backend_energy(positions, strain):
+            strained_cells = cells @ strain
+            batch_data = backend.preprocess(
+                positions @ strain,
+                centers,
+                neighbors,
+                species,
+                strained_cells,
+                cell_shifts,
+                system_indices,
+                cutoff_width_adaptive,
+            )
+            node_list, edge_list = backend.calculate_features(batch_data)
+            preds, _, _ = backend.predict(
+                node_list,
+                edge_list,
+                batch_data,
+                strained_cells,
+                system_indices,
+                ["energy"],
+            )
+            return preds["energy"][0].sum()
 
-    with _ignore_nonleaf_grad_warning():
-        forces_backend, strain_grad_backend = _forces_and_strain_grad(
-            backend_energy, positions
+        with _ignore_nonleaf_grad_warning():
+            batch_data_c = backend.preprocess(*inputs)
+            energy_backend, forces_backend, strain_grad_backend = (
+                _energy_forces_and_strain_grad(backend_energy, system.positions)
+            )
+
+    # ``preprocess`` matches eager exactly (shapes and values).
+    for key in batch_data_e:
+        assert batch_data_e[key].shape == batch_data_c[key].shape, key
+        torch.testing.assert_close(
+            batch_data_e[key], batch_data_c[key], atol=0.0, rtol=0.0
         )
 
+    # Energy, forces and stress from the compiled backend match the wrapped full
+    # model.
+    torch.testing.assert_close(energy_backend, energy_full)
     torch.testing.assert_close(forces_backend, forces_full)
     torch.testing.assert_close(strain_grad_backend, strain_grad_full)
