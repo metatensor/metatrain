@@ -12,6 +12,7 @@ from mace.tools.scripts_utils import (
 )
 from torch.utils.data import DataLoader, DistributedSampler
 
+from metatrain.composition import train_or_load_composition_model
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.data import (
@@ -216,14 +217,20 @@ class Trainer(TrainerInterface):
             )
         )
 
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
-            is_distributed,
-            {**model.get_fixed_composition_weights(), **self.hypers["atomic_baseline"]},
-            initial_transforms=[atomic_basis_transform],
+        atomic_baseline = self.hypers["atomic_baseline"]
+        if not isinstance(atomic_baseline, str):
+            atomic_baseline = {
+                **model.get_fixed_composition_weights(),
+                **atomic_baseline,
+            }
+        train_or_load_composition_model(
+            composition_model=model.additive_models[0],
+            atomic_baseline=atomic_baseline,
+            train_datasets=train_datasets,
+            other_additive_models=list(model.additive_models[1:]),
+            batch_size=self.hypers["batch_size"],
+            is_distributed=is_distributed,
+            checkpoint_dir=checkpoint_dir,
         )
 
         if self.hypers["scale_targets"]:

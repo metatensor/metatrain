@@ -19,8 +19,8 @@ from metatomic.torch import (
     System,
 )
 
+from metatrain.composition import CompositionModel
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
@@ -192,17 +192,8 @@ class DPA3(ModelInterface[ModelHypers]):
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
 
-        composition_model = CompositionModel(
-            hypers={},
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
+        composition_model = CompositionModel.from_dataset(
+            dataset_info, self.atomic_types
         )
         additive_models = [composition_model]
         self.additive_models = torch.nn.ModuleList(additive_models)
