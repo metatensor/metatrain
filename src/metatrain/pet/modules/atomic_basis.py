@@ -102,9 +102,9 @@ class ZConditionedReadout(torch.nn.Module):
         if not self.z_conditioned:
             # All atoms share weights[i][0]; use F.linear to avoid
             # materialising the (n_atoms, out_dim, in_dim) gather tensor.
-            for i in range(n_layers):
-                W = self.weights[i]  # type: ignore[index]
-                b = self.biases[i]  # type: ignore[index]
+            # TorchScript only allows ModuleList/ParameterList indexing via a
+            # literal or `enumerate`, not a `range()` loop variable.
+            for i, (W, b) in enumerate(zip(self.weights, self.biases, strict=True)):
                 x = torch.nn.functional.linear(x, W[0], b[0])
                 if i < n_layers - 1:
                     x = torch.nn.functional.silu(x)
