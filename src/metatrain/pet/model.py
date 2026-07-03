@@ -71,7 +71,7 @@ class PET(ModelInterface[ModelHypers]):
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         # Cache the hyperparameters that PET itself (as opposed to the pure-PyTorch
-        # core) needs. The remaining hyperparameters are cached on ``self.backend``.
+        # backend) needs. The remaining hyperparameters are cached on ``self.backend``.
         self.cutoff = float(self.hypers["cutoff"])
         self.cutoff_function = self.hypers["cutoff_function"]
         self.cutoff_width = float(self.hypers["cutoff_width"])
@@ -861,21 +861,18 @@ class PET(ModelInterface[ModelHypers]):
     def _get_output_atomic_predictions(
         self,
         atomic_predictions: Dict[str, List[torch.Tensor]],
-        edge_vectors: torch.Tensor,
         sample_labels: Labels,
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels],
     ) -> Dict[str, TensorMap]:
         """
-        Wrap the per-block atomic predictions computed by the core into TensorMaps.
+        Wrap the per-block atomic predictions computed by the backend into TensorMaps.
         Returns per-atom or per-structure predictions based on output configuration.
 
         :param atomic_predictions: Dictionary mapping output names to lists of per-block
-            flat prediction tensors, as returned by :meth:`PETCore.predict` (the node
+            flat prediction tensors, as returned by :meth:`PETBackend.predict` (the node
             and edge contributions are already summed and rank-2 Cartesian tensors are
             already symmetrized).
-        :param edge_vectors: Tensor of edge vectors [n_atoms, max_num_neighbors, 3],
-            used only for its dtype / device.
         :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
         :param outputs: Dictionary of requested outputs.
         :param selected_atoms: Optional Labels specifying a subset of atoms to include.
@@ -1038,7 +1035,7 @@ class PET(ModelInterface[ModelHypers]):
             description=target_info.description,
         )
 
-        # The learnable heads and last layers live on the pure-PyTorch core.
+        # The learnable heads and last layers live on the pure-PyTorch backend.
         self.backend.add_output(target_name, self.output_shapes[target_name])
 
         # Register last-layer parameters, in the same order as they are returned as
@@ -1158,42 +1155,6 @@ def _extract_charge_spin_multiplicity(
                 )
             spin_multiplicities[i] = raw_spin_multiplicity.long().squeeze()
     return charges, spin_multiplicities
-
-
-def process_non_conservative_stress(
-    tensor: torch.Tensor,
-    systems: List[System],
-    system_indices: torch.Tensor,
-    num_properties: int,
-) -> torch.Tensor:
-    """
-    Symmetrizes and normalizes by the volume rank-2 Cartesian tensors that are meant
-    to predict the non-conservative stress.
-
-    :param tensor: Tensor of shape [n_atoms, 9 * num_properties].
-    :param systems: List of `metatomic.torch.System` objects to process.
-    :param system_indices: Tensor mapping each atom to its system index [n_atoms].
-    :param num_properties: Number of properties in the tensor (e.g., 6 for stress).
-    :return: Symmetrized tensor of shape [n_atoms, 3, 3, num_properties], divided by the
-        cell volume.
-    """
-    # Reshape to 3x3 matrix per atom
-    tensor_as_three_by_three = tensor.reshape(-1, 3, 3, num_properties)
-
-    # Normalize by cell volume
-    volumes = torch.stack([torch.abs(torch.det(system.cell)) for system in systems])
-    # Zero volume can happen due to metatomic's convention of zero cell
-    # vectors for non-periodic directions. The actual volume is +inf
-    volumes[volumes == 0.0] = torch.inf
-    volumes_by_atom = volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
-    tensor_as_three_by_three = tensor_as_three_by_three / volumes_by_atom
-
-    # Symmetrize
-    tensor_as_three_by_three = (
-        tensor_as_three_by_three + tensor_as_three_by_three.transpose(1, 2)
-    ) / 2.0
-
-    return tensor_as_three_by_three
 
 
 def get_last_layer_features_name(target_name: str) -> str:
