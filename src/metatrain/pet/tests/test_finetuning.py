@@ -6,12 +6,10 @@ import torch
 from omegaconf import OmegaConf
 
 from metatrain.pet import PET, Trainer
-from metatrain.pet.modules.finetuning import (
-    apply_finetuning_strategy,
-)
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.finetuning import apply_finetuning_strategy
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.loss import LossSpecification

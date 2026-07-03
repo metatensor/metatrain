@@ -24,6 +24,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.finetuning import apply_finetuning_strategy
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
@@ -39,7 +40,6 @@ from .modules.diagnostic import (
     prepare_diagnostic_handles,
     standardize_featurizer_input_tensor,
 )
-from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import concatenate_structures, get_pair_sample_labels
 
 

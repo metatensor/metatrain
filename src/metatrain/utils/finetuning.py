@@ -101,12 +101,20 @@ class HeadsFinetuneHypers(TypedDict):
 FinetuneHypers = FullFinetuneHypers | LoRaFinetuneHypers | HeadsFinetuneHypers
 
 
-def _add_backend_prefix(module_names: list[str]) -> list[str]:
+def _add_backend_prefix(model: nn.Module, module_names: list[str]) -> list[str]:
     """Prepend the ``backend.`` prefix to module names that do not already have it.
 
+    Some architectures (e.g. PET) keep their pure-PyTorch layers on a ``backend``
+    submodule, while others (e.g. FlashMD) define them directly on the model. The
+    prefix is only added for models that actually have a ``backend`` submodule, so
+    that the same finetuning strategy can be reused across both kinds of models.
+
+    :param model: The model the finetuning strategy is being applied to.
     :param module_names: List of module name prefixes as specified by the user.
-    :return: The module name prefixes, each guaranteed to start with ``backend.``.
+    :return: The module name prefixes, prefixed with ``backend.`` if applicable.
     """
+    if not hasattr(model, "backend"):
+        return module_names
     return [
         name if name.startswith("backend.") else f"backend.{name}"
         for name in module_names
@@ -177,12 +185,13 @@ def apply_finetuning_strategy(model: nn.Module, strategy: FinetuneHypers) -> nn.
             },
         )
 
-        # The heads and last layers actually live on the pure-PyTorch ``backend``
-        # submodule, but users should only need to refer to them by their old,
-        # un-prefixed names, so the ``backend.`` prefix is added automatically here.
-        head_keywords = _add_backend_prefix(heads_config.get("head_modules", []))
+        # On architectures like PET, the heads and last layers actually live on
+        # the pure-PyTorch ``backend`` submodule, but users should only need to
+        # refer to them by their old, un-prefixed names, so the ``backend.``
+        # prefix is added automatically here when applicable.
+        head_keywords = _add_backend_prefix(model, heads_config.get("head_modules", []))
         last_layer_keywords = _add_backend_prefix(
-            heads_config.get("last_layer_modules", [])
+            model, heads_config.get("last_layer_modules", [])
         )
         all_keywords = head_keywords + last_layer_keywords
 
