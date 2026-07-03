@@ -27,6 +27,10 @@ class ZConditionedReadout(torch.nn.Module):
         ``in_features → out_features``.  A non-empty list gives an MLP
         ``in_features → h0 → h1 → … → out_features`` with SiLU activations
         after every hidden layer.
+    :param gather_chunk_size: Chunk size for the per-species weight gather in
+        ``forward`` when ``z_conditioned=True``. Bounds the materialised
+        ``(chunk, out_dim, in_dim)`` gather tensor instead of scaling with the
+        full atom count; memory/performance only, does not affect results.
     """
 
     def __init__(
@@ -36,6 +40,7 @@ class ZConditionedReadout(torch.nn.Module):
         n_species: int,
         z_conditioned: bool,
         hidden_layer_widths: Optional[List[int]] = None,
+        gather_chunk_size: int = 128,
     ) -> None:
         super().__init__()
 
@@ -73,10 +78,7 @@ class ZConditionedReadout(torch.nn.Module):
 
         self.weights = torch.nn.ParameterList(weights)
         self.biases = torch.nn.ParameterList(biases)
-
-        import os as _os
-        _chunk_env = _os.getenv("ZCOND_CHUNK_SIZE")
-        self.gather_chunk_size: int = int(_chunk_env) if _chunk_env else 128
+        self.gather_chunk_size = gather_chunk_size
 
     def forward(
         self, features: torch.Tensor, species_idx: torch.Tensor

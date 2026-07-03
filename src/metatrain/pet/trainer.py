@@ -1,11 +1,8 @@
 import copy
-import io
 import logging
 import math
-import os
-import pickle
 from pathlib import Path
-from typing import Any, Callable, Callable, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
@@ -117,14 +114,19 @@ def get_scheduler(
     return scheduler
 
 
-def _mem(label: str, rank: int) -> None:
-    if rank != 0 or not torch.cuda.is_available():
-        return
-    torch.cuda.synchronize()
-    a = torch.cuda.memory_allocated() / 1e9
-    p = torch.cuda.max_memory_allocated() / 1e9
-    logging.info(f"[MEM] {label}: alloc={a:.3f}GB peak={p:.3f}GB")
-    torch.cuda.reset_peak_memory_stats()
+def _clone_state_dict_to_cpu(state: Any) -> Any:
+    """Recursively clone a (possibly nested) state dict, moving tensors to CPU.
+
+    Keeps the "best" checkpoint off the training device instead of holding a second
+    copy of every model/optimizer tensor on GPU (as ``copy.deepcopy`` would).
+    """
+    if isinstance(state, torch.Tensor):
+        return state.detach().cpu().clone()
+    if isinstance(state, dict):
+        return {k: _clone_state_dict_to_cpu(v) for k, v in state.items()}
+    if isinstance(state, list):
+        return [_clone_state_dict_to_cpu(v) for v in state]
+    return copy.deepcopy(state)
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
@@ -570,23 +572,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         logging.info("Starting training")
         epoch = start_epoch
 
-        _profile_stages = bool(os.getenv("PROFILE_MEMORY"))
-        _snapshot_batches = int(os.getenv("PROFILE_MEMORY_SNAPSHOT", 0))
-        if _snapshot_batches and rank == 0:
-            torch.cuda.memory._record_memory_history(max_entries=100_000)
-            logging.info(
-                f"[MEM] Recording memory history for first {_snapshot_batches} train batches"
-            )
-
         for epoch in range(start_epoch, self.hypers["num_epochs"]):
-            if rank == 0 and torch.cuda.is_available():
-                torch.cuda.synchronize()
-                _alloc = torch.cuda.memory_allocated() / 1e9
-                _peak = torch.cuda.max_memory_allocated() / 1e9
-                logging.info(
-                    f"[MEM epoch {epoch}] alloc={_alloc:.3f}GB peak_prev={_peak:.3f}GB"
-                )
-                torch.cuda.reset_peak_memory_stats()
             for sampler in epoch_samplers:
                 sampler.set_epoch(epoch)
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
@@ -598,15 +584,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
             train_loss = 0.0
-            _train_batch_idx = 0
             for batch in train_dataloader:
                 # Skip None batches (those outside batch_atom_bounds)
                 if should_skip_batch(batch, is_distributed, device):
                     continue
 
                 optimizer.zero_grad()
-                if _profile_stages and epoch == start_epoch and _train_batch_idx < 5:
-                    _mem(f"e{epoch} b{_train_batch_idx} after zero_grad", rank)
 
                 systems, targets, extra_data = _unpack_batch_to(batch, dtype, device)
                 predictions = evaluate_model(
@@ -615,8 +598,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=True,
                 )
-                if _profile_stages and epoch == start_epoch and _train_batch_idx < 5:
-                    _mem(f"e{epoch} b{_train_batch_idx} after forward", rank)
 
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
@@ -649,16 +630,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     density_fit_targets,
                     train_targets,
                 )
-                print("TYPES IN BATCH")
-                for I_SYS, SYSTEM in enumerate(systems):
-                    print(I_SYS, SYSTEM.types)
-                print("SAMPLES")
-                print(targets["mtt::rho_c_jfit_coulomb"][0].samples["system"])
-                print(extra_data["mtt::aux::system_index"][0].samples)
-                print(extra_data["mtt::aux::system_index"][0].values)
                 train_loss_batch = loss_fn(loss_predictions, loss_targets, extra_data)
-                if _profile_stages and epoch == start_epoch and _train_batch_idx < 5:
-                    _mem(f"e{epoch} b{_train_batch_idx} after loss", rank)
 
                 if is_distributed:
                     # make sure all parameters contribute to the gradient calculation
@@ -667,29 +639,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         train_loss_batch += 0.0 * param.sum()
 
                 train_loss_batch.backward()
-                if _profile_stages and epoch == start_epoch and _train_batch_idx < 5:
-                    _mem(f"e{epoch} b{_train_batch_idx} after backward", rank)
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
                 )
                 optimizer.step()
                 lr_scheduler.step()
-                if _profile_stages and epoch == start_epoch and _train_batch_idx < 5:
-                    _mem(f"e{epoch} b{_train_batch_idx} after optim_step", rank)
-
-                _train_batch_idx += 1
-                if (
-                    _snapshot_batches
-                    and rank == 0
-                    and epoch == start_epoch
-                    and _train_batch_idx == _snapshot_batches
-                ):
-                    _snap = torch.cuda.memory._snapshot()
-                    _snap_path = f"mem_snapshot_rank{rank}.pkl"
-                    with open(_snap_path, "wb") as _f:
-                        pickle.dump(_snap, _f)
-                    torch.cuda.memory._record_memory_history(enabled=None)
-                    logging.info(f"[MEM] Memory snapshot saved to {_snap_path}")
 
                 if is_distributed:
                     # sum the loss over all processes
@@ -916,20 +870,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
             if val_metric < self.best_metric:
                 self.best_metric = val_metric
-                _model_buf = io.BytesIO()
-                torch.save(
-                    (model.module if is_distributed else model).state_dict(), _model_buf
-                )
-                _model_buf.seek(0)
-                self.best_model_state_dict = torch.load(
-                    _model_buf, map_location="cpu", weights_only=False
+                self.best_model_state_dict = _clone_state_dict_to_cpu(
+                    (model.module if is_distributed else model).state_dict()
                 )
                 self.best_epoch = epoch
-                _ckpt_buf = io.BytesIO()
-                torch.save(optimizer.state_dict(), _ckpt_buf)
-                _ckpt_buf.seek(0)
-                self.best_optimizer_state_dict = torch.load(
-                    _ckpt_buf, map_location="cpu", weights_only=False
+                self.best_optimizer_state_dict = _clone_state_dict_to_cpu(
+                    optimizer.state_dict()
                 )
 
             if epoch % self.hypers["checkpoint_interval"] == 0:

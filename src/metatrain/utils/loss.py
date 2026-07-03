@@ -692,11 +692,7 @@ class DensityMSELossViaC(LossInterface):
                 "The number of packed metric matrices does not match the number of "
                 "systems."
             )
-        print("SIZES FOR BATCH")
-        for i, (coeff_size, basis_size) in enumerate(
-            zip(coefficient_sizes, basis_sizes, strict=True)
-        ):
-            print("SIZE", i, coeff_size, basis_size)
+        for coeff_size, basis_size in zip(coefficient_sizes, basis_sizes, strict=True):
             if coeff_size != basis_size:
                 raise ValueError(
                     "The RI target size does not match the configured auxiliary basis. "

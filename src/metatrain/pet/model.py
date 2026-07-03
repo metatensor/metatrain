@@ -1558,6 +1558,7 @@ class PET(ModelInterface[ModelHypers]):
                 n_species,
                 z_conditioned=True,
                 hidden_layer_widths=args.get("hidden_layer_widths", None),
+                gather_chunk_size=args.get("gather_chunk_size", 128),
             )
 
         elif name == "MoE":

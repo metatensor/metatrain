@@ -272,6 +272,7 @@ class ModelHypers(TypedDict):
           name: ZConditioned
           args:
             hidden_layer_widths: [64]   # omit or [] for plain linear
+            gather_chunk_size: 128      # optional, default 128; memory/perf only
 
         # ── Mixture-of-Experts, routing conditioned on Z ────────────────────
         readout_type:
