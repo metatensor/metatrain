@@ -140,7 +140,6 @@ def test_node_head_output_returned():
 
     outputs = {"mtt::feature::node_heads.energy.0": ModelOutput(sample_kind="atom")}
     result = model([system], outputs)
-    print(result)
 
     assert "mtt::feature::node_heads.energy.0" in result
     block = result["mtt::feature::node_heads.energy.0"].block()
