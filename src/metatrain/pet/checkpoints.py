@@ -334,7 +334,7 @@ def model_update_v15_v16(checkpoint: dict) -> None:
 
     The pure-PyTorch core of PET (GNN layers, embedders, heads, last layers, the
     diagnostic identity modules and the ``species_to_species_index`` buffer) was
-    extracted into a ``PETCore`` submodule registered as ``self.core``. This prefixes
+    extracted into a ``PETBackend`` submodule registered as ``self.backend``. This prefixes
     the affected ``state_dict`` keys with ``core.``, leaving the additive models,
     scaler, long-range featurizer and ``finetune_config`` untouched.
 
