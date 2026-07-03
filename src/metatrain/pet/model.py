@@ -556,7 +556,6 @@ class PET(ModelInterface[ModelHypers]):
         with torch.profiler.record_function("PET::_get_output_atomic_predictions"):
             atomic_predictions_dict = self._get_output_atomic_predictions(
                 atomic_predictions,
-                batch_data["edge_vectors"],
                 sample_labels,
                 outputs,
                 selected_atoms,
