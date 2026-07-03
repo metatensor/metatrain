@@ -255,6 +255,27 @@ def densify_atomic_basis_target(
     )
 
 
+def keys_to_samples_atomic_basis(tensor: TensorMap) -> TensorMap:
+    """Densify a sparse atomic basis TensorMap by moving ``atom_type``-like key
+    dimensions to the samples, without any layout alignment or padding.
+
+    This is a lightweight version of :func:`densify_atomic_basis_target`, intended for
+    additive contributions where the keys and properties already match the model output.
+
+    :param tensor: the sparse atomic basis TensorMap to densify.
+    :return: the densified TensorMap with ``atom_type`` moved to samples.
+    """
+    type_names: List[str] = []
+    for n in tensor.keys.names:
+        if n.endswith("atom_type"):
+            type_names.append(n)
+    if type_names:
+        tensor = tensor.keys_to_samples(type_names, sort_samples=True)
+        for n in type_names:
+            tensor = mts.remove_dimension(tensor, "samples", n)
+    return tensor
+
+
 def _pad_samples_per_atom_atomic_basis_target(
     systems: List[System],
     tensor: TensorMap,

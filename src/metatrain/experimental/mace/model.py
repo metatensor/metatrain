@@ -25,6 +25,7 @@ from metatrain.composition import CompositionModel
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.atomic_basis_helpers import (
+    keys_to_samples_atomic_basis,
     densify_atomic_basis_dataset_info,
     sparsify_atomic_basis_target,
 )
@@ -495,6 +496,12 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 selected_atoms,
             )
             for name in additive_contributions:
+                # densify additive contributions for atomic basis targets
+                # to match return_dict's key format
+                additive_contributions[name] = keys_to_samples_atomic_basis(
+                    additive_contributions[name]
+                )
+
                 # # TODO: uncomment this after metatensor.torch.add is updated to
                 # # handle sparse sums
                 # return_dict[name] = metatensor.torch.add(
