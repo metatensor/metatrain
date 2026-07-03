@@ -332,11 +332,11 @@ def model_update_v15_v16(checkpoint: dict) -> None:
     """
     Update a v15 checkpoint to v16.
 
-    The pure-PyTorch core of PET (GNN layers, embedders, heads, last layers, the
+    The pure-PyTorch backend of PET (GNN layers, embedders, heads, last layers, the
     diagnostic identity modules and the ``species_to_species_index`` buffer) was
-    extracted into a ``PETBackend`` submodule registered as ``self.backend``. This prefixes
-    the affected ``state_dict`` keys with ``core.``, leaving the additive models,
-    scaler, long-range featurizer and ``finetune_config`` untouched.
+    extracted into a ``PETBackend`` submodule registered as ``self.backend``.
+    These prefixes the affected ``state_dict`` keys with ``backend.``, leaving the
+    additive models, scaler, long-range featurizer and ``finetune_config`` untouched.
 
     :param checkpoint: The checkpoint to update.
     """
