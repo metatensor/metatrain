@@ -285,9 +285,47 @@ def model_update_v12_v13(checkpoint: dict) -> None:
     """
     Update a v12 checkpoint to v13.
 
+    Adds per-property scales to comply with the scaler changes introduced in
+    https://github.com/metatensor/metatrain/pull/1107.
+
     :param checkpoint: The checkpoint to update.
     """
     update_per_property_scales(checkpoint)
+
+
+def model_update_v13_v14(checkpoint: dict) -> None:
+    """
+    Update a v13 checkpoint to v14.
+
+    Old checkpoints used the main ``cutoff_width`` as the taper width of the
+    adaptive cutoff scheme. Pin ``cutoff_width_adaptive`` to that value so
+    reload behaviour matches what they were trained with. New trainings
+    default to ``1.0`` via ``ModelHypers``.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    if "cutoff_width_adaptive" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["cutoff_width_adaptive"] = checkpoint[
+            "model_data"
+        ]["model_hypers"]["cutoff_width"]
+
+
+def model_update_v14_v15(checkpoint: dict) -> None:
+    """
+    Update a v14 checkpoint to v15.
+
+    Adds the system-conditioning hyperparameters introduced on this version,
+    disabled by default so existing models keep their behaviour.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    hypers = checkpoint["model_data"]["model_hypers"]
+    if "system_conditioning" not in hypers:
+        hypers["system_conditioning"] = False
+    if "max_charge" not in hypers:
+        hypers["max_charge"] = 10
+    if "max_spin_multiplicity" not in hypers:
+        hypers["max_spin_multiplicity"] = 10
 
 
 ###########################
