@@ -179,7 +179,8 @@ def test_consistency():
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a CUDA device")
 def test_attention_above_cuda_grid_limit():
     """Above 65535 nodes, SDPA's CUDA backward overflows the grid limit and crashes;
-    AttentionBlock must fall back to manual attention. Skipped without a GPU."""
+    AttentionBlock must fall back to a for-loop over batch chunks of SDPA, warning
+    that this may reduce performance. Skipped without a GPU."""
 
     device = "cuda"
     # Just over the grid limit; tiny other dims keep it cheap.
@@ -202,13 +203,15 @@ def test_attention_above_cuda_grid_limit():
     except RuntimeError as error:
         assert "65535" in str(error)
 
-    # AttentionBlock auto-falls back to manual attention and succeeds.
+    # AttentionBlock auto-falls back to a chunked for-loop over SDPA, warning about
+    # the reduced performance, and succeeds.
     attention = AttentionBlock(hidden_size, num_heads, temperature=1.0).to(device)
     inputs = torch.randn(
         batch, seq_length, hidden_size, device=device, requires_grad=True
     )
     cutoff_factors = torch.rand(batch, seq_length, seq_length, device=device)
-    output = attention(inputs, cutoff_factors, use_manual_attention=False)
+    with pytest.warns(UserWarning, match="CUDA grid dimension"):
+        output = attention(inputs, cutoff_factors, use_manual_attention=False)
     output.sum().backward()
     assert inputs.grad is not None
     assert inputs.grad.shape == inputs.shape
