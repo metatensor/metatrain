@@ -287,12 +287,14 @@ def test_backend_torch_compile(fullgraph):
                 _energy_forces_and_strain_grad(backend_energy, system.positions)
             )
 
-    # ``preprocess`` matches eager exactly (shapes and values).
+    # ``preprocess`` matches eager (shapes and values). Integer/index tensors must
+    # match exactly; floating-point tensors are allowed the default tolerance, since
+    # ``torch.compile`` (Inductor) is not guaranteed to reduce e.g. the ``scatter_add``
+    # neighbour counts in the same order as eager, which can shift the last bit or two
+    # of a float32 value without indicating an actual bug.
     for key in batch_data_e:
         assert batch_data_e[key].shape == batch_data_c[key].shape, key
-        torch.testing.assert_close(
-            batch_data_e[key], batch_data_c[key], atol=0.0, rtol=0.0
-        )
+        torch.testing.assert_close(batch_data_e[key], batch_data_c[key])
 
     # Energy, forces and stress from the compiled backend match the wrapped full
     # model.

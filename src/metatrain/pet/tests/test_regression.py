@@ -111,7 +111,7 @@ def test_regression_energies_forces_train(device):
     targets, target_info_dict = read_targets(OmegaConf.create(conf))
     targets = {"energy": targets["energy"]}
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["num_workers"] = 0  # for reproducibility
     hypers["training"]["scheduler_patience"] = 1
