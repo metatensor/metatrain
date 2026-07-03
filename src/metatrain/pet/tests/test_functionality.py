@@ -176,6 +176,47 @@ def test_consistency():
     assert torch.allclose(attention_output_torch, attention_output_manual, atol=1e-6)
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a CUDA device")
+def test_attention_above_cuda_grid_limit():
+    """Above 65535 nodes, SDPA's CUDA backward overflows the grid limit and crashes;
+    AttentionBlock must fall back to a for-loop over batch chunks of SDPA, warning
+    that this may reduce performance. Skipped without a GPU."""
+
+    device = "cuda"
+    # Just over the grid limit; tiny other dims keep it cheap.
+    batch = 65536
+    seq_length = 1
+    num_heads = 1
+    head_dim = 4
+    hidden_size = num_heads * head_dim
+
+    # Where the flash/mem-efficient kernel is used, the raw SDPA backward overflows
+    # the grid limit.
+    queries = torch.randn(
+        batch, num_heads, seq_length, head_dim, device=device, requires_grad=True
+    )
+    keys = torch.randn_like(queries)
+    values = torch.randn_like(queries)
+    out = torch.nn.functional.scaled_dot_product_attention(queries, keys, values)
+    try:
+        out.sum().backward()
+    except RuntimeError as error:
+        assert "65535" in str(error)
+
+    # AttentionBlock auto-falls back to a chunked for-loop over SDPA, warning about
+    # the reduced performance, and succeeds.
+    attention = AttentionBlock(hidden_size, num_heads, temperature=1.0).to(device)
+    inputs = torch.randn(
+        batch, seq_length, hidden_size, device=device, requires_grad=True
+    )
+    cutoff_factors = torch.rand(batch, seq_length, seq_length, device=device)
+    with pytest.warns(UserWarning, match="CUDA grid dimension"):
+        output = attention(inputs, cutoff_factors, use_manual_attention=False)
+    output.sum().backward()
+    assert inputs.grad is not None
+    assert inputs.grad.shape == inputs.shape
+
+
 @pytest.mark.parametrize("sample_kind", ["atom", "system"])
 def test_nc_stress(sample_kind):
     """Tests that the model can predict a symmetric rank-2 tensor as the NC stress."""
