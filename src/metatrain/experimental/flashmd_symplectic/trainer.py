@@ -187,6 +187,7 @@ class Trainer(TrainerInterface):
             other_additive_models=list(model.additive_models[1:]),
             batch_size=self.hypers["batch_size"],
             is_distributed=is_distributed,
+            checkpoint_dir=checkpoint_dir,
         )
 
         if self.hypers["scale_targets"]:

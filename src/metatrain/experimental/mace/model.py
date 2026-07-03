@@ -277,7 +277,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # Their purpose is to adapt the data for optimal training.
         # At evaluation time, the model applies them on forward.
         composition_model = CompositionModel.from_dataset(
-            train_dataset_info, self.atomic_types
+            dataset_info, self.atomic_types
         )
         self.additive_models = torch.nn.ModuleList([composition_model])
 
@@ -319,12 +319,11 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # restart the composition and scaler models
         self.additive_models[0] = self.additive_models[0].restart(
             dataset_info=DatasetInfo(
-                length_unit=train_dataset_info.length_unit,
+                length_unit=dataset_info.length_unit,
                 atomic_types=self.dataset_info.atomic_types,
                 targets={
                     target_name: target_info
-                    for target_name, target_info in train_dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
+                    for target_name, target_info in dataset_info.targets.items()
                 },
             ),
         )

@@ -252,7 +252,7 @@ class PET(ModelInterface[ModelHypers]):
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
         composition_model = CompositionModel.from_dataset(
-            train_dataset_info, self.atomic_types
+            dataset_info, self.atomic_types
         )
         additive_models = [composition_model]
 
@@ -318,12 +318,11 @@ class PET(ModelInterface[ModelHypers]):
         # restart the composition and scaler models
         self.additive_models[0] = self.additive_models[0].restart(
             dataset_info=DatasetInfo(
-                length_unit=train_dataset_info.length_unit,
+                length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
                 targets={
                     target_name: target_info
-                    for target_name, target_info in train_dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
+                    for target_name, target_info in dataset_info.targets.items()
                 },
             ),
         )

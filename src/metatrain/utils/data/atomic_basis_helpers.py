@@ -117,16 +117,35 @@ def _densify_per_atom_atomic_basis_target(
 
     # First ensure that the tensor has all keys present in the layout tensor (i.e. the
     # global basis set definition). If any blocks aren't present, they are added as
-    # zero-sample blocks with the correct components and properties.
+    # zero-sample blocks with the correct components and properties. Align property
+    # labels to the layout so the TensorMap constructor doesn't reject mixed labels.
     blocks = []
     for key, layout_block in layout.items():
         if key in tensor.keys:
             existing_block = tensor.block(key)
+            aligned_values = torch.full(
+                (
+                    len(existing_block.samples),
+                    *[len(c) for c in existing_block.components],
+                    len(layout_block.properties),
+                ),
+                torch.nan,
+                dtype=existing_block.values.dtype,
+            )
+            if existing_block.properties.names == layout_block.properties.names:
+                properties_mask = layout_block.properties.select(
+                    existing_block.properties
+                )
+                aligned_values[..., properties_mask] = existing_block.values
+            else:
+                aligned_values[..., : existing_block.values.shape[-1]] = (
+                    existing_block.values
+                )
             block = TensorBlock(
-                values=existing_block.values,
+                values=aligned_values,
                 samples=existing_block.samples,
                 components=existing_block.components,
-                properties=existing_block.properties,
+                properties=layout_block.properties,
             )
         else:
             block = layout_block.copy(deep=False)
@@ -156,6 +175,9 @@ def _densify_per_atom_atomic_basis_target(
         i for i, name in enumerate(tensor.keys.names) if not name.endswith("atom_type")
     ]
     type_names = [tensor.keys.names[i] for i in type_indices]
+
+    if len(type_names) == 0:
+        return tensor
 
     # Using the layout TensorMap, build the union of the property labels values across
     # all atom types
@@ -689,6 +711,16 @@ def get_prepare_atomic_basis_targets_transform(
 # ===== DatasetInfo manipulation utilities
 
 
+def _layout_is_atomic_basis(layout: TensorMap) -> bool:
+    """Check if a layout has an ``atom_type`` key dimension (i.e. it's an
+    atomic basis target).
+
+    :param layout: the layout TensorMap to check.
+    :return: True if the layout has an ``atom_type`` key dimension.
+    """
+    return any(name.endswith("atom_type") for name in layout.keys.names)
+
+
 def densify_atomic_basis_dataset_info(dataset_info: DatasetInfo) -> DatasetInfo:
     """
     Densify the atomic basis target layouts in the TargetInfos of the input
@@ -713,7 +745,7 @@ def densify_atomic_basis_dataset_info(dataset_info: DatasetInfo) -> DatasetInfo:
                     ),
                     description=target_info.description,
                 )
-                if target_info.is_atomic_basis
+                if _layout_is_atomic_basis(target_info.layout)
                 else target_info
             )
             for target_name, target_info in dataset_info.targets.items()

@@ -3,10 +3,18 @@ from typing import Any, Dict, List, Literal, Union
 
 import metatensor.torch as mts
 import torch
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
-from metatrain.utils.data import CollateFn, CombinedDataLoader, Dataset, unpack_batch
+from metatrain.utils.data import (
+    CollateFn,
+    CombinedDataLoader,
+    Dataset,
+    TargetInfo,
+    unpack_batch,
+)
+from metatrain.utils.io import check_file_extension
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists_transform
 from metatrain.utils.transfer import batch_to
 
@@ -43,12 +51,18 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if fixed_weights is None:
             fixed_weights = {}
 
+        for target_name in list(fixed_weights.keys()):
+            if target_name not in model.model.target_names:
+                _add_scalar_output(model, target_name)
+
         requested_neighbor_lists = []
         for additive_model in additive_models:
             if hasattr(additive_model, "requested_neighbor_lists"):
                 requested_neighbor_lists += additive_model.requested_neighbor_lists()
 
-        callables = [get_system_with_neighbor_lists_transform(requested_neighbor_lists)]
+        callables = [
+            get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+        ]
 
         collate_fn = CollateFn(
             target_keys=list(model.dataset_info.targets.keys()),
@@ -150,10 +164,25 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 ).to(device),
             )
 
-    def save_checkpoint(
-        self, model: ModelInterface, checkpoint_dir: Union[str, Path]
-    ) -> None:
-        pass
+        ckpt_path = Path(checkpoint_dir) / "composition_model.ckpt"
+        self.save_checkpoint(model, ckpt_path)
+
+    def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
+        checkpoint = model.get_checkpoint()
+        checkpoint.update(
+            {
+                "train_hypers": self.hypers,
+                "trainer_ckpt_version": self.__checkpoint_version__,
+                "epoch": None,
+                "optimizer_state_dict": None,
+                "scheduler_state_dict": None,
+                "best_epoch": None,
+                "best_metric": None,
+                "best_model_state_dict": model.state_dict(),
+                "best_optimizer_state_dict": None,
+            }
+        )
+        torch.save(checkpoint, check_file_extension(path, ".ckpt"))
 
     @classmethod
     def load_checkpoint(
@@ -173,3 +202,37 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 f"trainer version is {Trainer.__checkpoint_version__}."
             )
         return checkpoint
+
+
+def _add_scalar_output(model: ModelInterface, target_name: str) -> None:
+    """Add a scalar per-atom output to the model for a target in atomic_baseline.
+
+    This handles targets in ``atomic_baseline`` that are not already known,
+    allowing training on one target while using fixed composition weights for
+    another.
+
+    :param model: The composition model
+    :param target_name: Name of the target to add
+    """
+    from .model import CompositionModel
+
+    assert isinstance(model, CompositionModel)
+
+    layout = TensorMap(
+        keys=Labels(["_"], torch.tensor([[0]])),
+        blocks=[
+            TensorBlock(
+                values=torch.zeros((0, 1), dtype=torch.float64),
+                samples=Labels(
+                    ["system", "atom"],
+                    torch.zeros((0, 2), dtype=torch.int32),
+                ),
+                components=[],
+                properties=Labels(["_"], torch.tensor([[0]])),
+            )
+        ],
+    )
+    model.model.add_output(target_name, layout)
+    model._new_outputs.append(target_name)
+    target_info = TargetInfo(layout=layout)
+    model._add_output(target_name, target_info)

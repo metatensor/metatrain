@@ -59,6 +59,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             other_additive_models=list(model.additive_models[1:]),
             batch_size=1,
             is_distributed=False,
+            checkpoint_dir=checkpoint_dir,
         )
 
         logging.info("Setting up data loaders")

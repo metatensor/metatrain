@@ -1,6 +1,6 @@
 import logging
 import warnings
-from typing import Callable, Dict, List, Literal, Optional, Sequence, Union
+from typing import Dict, List, Literal, Optional, Union
 
 import metatensor.torch as mts
 import torch
@@ -31,7 +31,7 @@ from .documentation import ModelHypers
 class CompositionModel(ModelInterface[ModelHypers]):
     __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
-    __supported_dtypes__ = [torch.float64, torch.float32]
+    __supported_dtypes__ = [torch.float64]
     __default_metadata__ = ModelMetadata(
         references={
             "architecture": [
@@ -86,9 +86,9 @@ class CompositionModel(ModelInterface[ModelHypers]):
         self.register_buffer("dummy_buffer", torch.randn(1))
 
         self._new_outputs = []
-        for target_name, target_info in self.dataset_info.targets.items():
+        for target_name in self.dataset_info.targets:
             self._new_outputs.append(target_name)
-            self._add_output(target_name, target_info)
+            self._add_output(target_name, self.target_infos[target_name])
 
     @classmethod
     def from_dataset(
@@ -118,7 +118,6 @@ class CompositionModel(ModelInterface[ModelHypers]):
         batch_size: int,
         is_distributed: bool,
         fixed_weights: Optional[FixedCompositionWeights] = None,
-        initial_transforms: Sequence[Callable] = (),
     ) -> None:
         warnings.warn(
             "train_model is deprecated, use Trainer.train() instead.",
@@ -149,19 +148,30 @@ class CompositionModel(ModelInterface[ModelHypers]):
         )
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
-        for target_name, target_info in dataset_info.targets.items():
-            if not self.is_valid_target(target_name, target_info):
-                raise ValueError(
+        raw_targets = {}
+        for target_name in dataset_info.targets:
+            target_info = dataset_info.targets[target_name]
+            if self.is_valid_target(target_name, target_info):
+                raw_targets[target_name] = target_info
+            else:
+                logging.debug(
                     f"Composition model does not support target "
-                    f"{target_name}. This is an architecture bug. "
-                    "Please report this issue and help us improve!"
+                    f"'{target_name}', skipping."
                 )
 
-        merged_info = self.dataset_info.union(dataset_info)
+        if len(raw_targets) == 0:
+            return self
+
+        merged_info = self.dataset_info.union(
+            DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=dataset_info.atomic_types,
+                targets=raw_targets,
+            )
+        )
         new_atomic_types = [
             at for at in merged_info.atomic_types if at not in self.atomic_types
         ]
-
         if len(new_atomic_types) > 0:
             raise ValueError(
                 f"New atomic types found in the dataset: {new_atomic_types}. "
@@ -169,8 +179,8 @@ class CompositionModel(ModelInterface[ModelHypers]):
             )
 
         self.target_infos = {
-            target_name: target_info
-            for target_name, target_info in merged_info.targets.items()
+            target_name: merged_info.targets[target_name]
+            for target_name in raw_targets
             if target_name not in self.dataset_info.targets
         }
 

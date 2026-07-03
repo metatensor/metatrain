@@ -31,6 +31,7 @@ def train_or_load_composition_model(
     other_additive_models: List[nn.Module],
     batch_size: int,
     is_distributed: bool,
+    checkpoint_dir: str = "",
 ) -> None:
     """
     Train the composition model from data or load pre-trained weights.
@@ -45,6 +46,7 @@ def train_or_load_composition_model(
         subtract before fitting
     :param batch_size: Batch size for data loading
     :param is_distributed: Whether training is distributed
+    :param checkpoint_dir: Directory to save the composition model checkpoint
     """
     if isinstance(atomic_baseline, str):
         logging.info(f"Loading composition model from {atomic_baseline}")
@@ -66,5 +68,5 @@ def train_or_load_composition_model(
             devices=[torch.device("cpu")],
             train_datasets=train_datasets,
             val_datasets=train_datasets,
-            checkpoint_dir="",
+            checkpoint_dir=checkpoint_dir,
         )
