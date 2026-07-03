@@ -35,6 +35,7 @@ from .modules.additive import PositionAdditive
 from .modules.encoder import NodeEncoder
 from .modules.structures import systems_to_batch
 
+
 AVAILABLE_FEATURIZERS = ["feedforward", "residual"]
 
 

@@ -56,6 +56,7 @@ from metatrain.utils.long_range import LongRangeHypers
 from metatrain.utils.loss import LossSpecification
 from metatrain.utils.scaler import FixedScalerWeights
 
+
 ###########################
 #  MODEL HYPERPARAMETERS  #
 ###########################

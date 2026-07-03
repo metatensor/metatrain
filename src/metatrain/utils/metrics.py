@@ -65,6 +65,12 @@ class RMSEAccumulator:
                     mask = extra_data[mask_key]
 
             for block_key in target.keys:
+                if block_key not in prediction.keys:
+                    # The model may legitimately not predict every block of the
+                    # target (e.g. a composition model only fits invariant blocks
+                    # of a spherical target), so skip those here.
+                    continue
+
                 target_block = target.block(block_key)
                 prediction_block = prediction.block(block_key)
 
@@ -258,6 +264,12 @@ class MAEAccumulator:
                     mask = extra_data[mask_key]
 
             for block_key in target.keys:
+                if block_key not in prediction.keys:
+                    # The model may legitimately not predict every block of the
+                    # target (e.g. a composition model only fits invariant blocks
+                    # of a spherical target), so skip those here.
+                    continue
+
                 target_block = target.block(block_key)
                 prediction_block = prediction.block(block_key)
 

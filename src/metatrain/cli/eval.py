@@ -24,6 +24,7 @@ from metatrain.utils.data import (
     read_systems,
     unpack_batch,
 )
+from metatrain.utils.data.atomic_basis_helpers import align_predictions_to_target_layout
 from metatrain.utils.data.readers import read_extra_data
 from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.data.writers import (
@@ -253,6 +254,10 @@ def _eval_targets(
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         end_time = time.time()
+
+        batch_predictions = align_predictions_to_target_layout(
+            systems, batch_predictions, batch_targets
+        )
 
         # Update metrics
         preds_per_atom = average_by_num_atoms(

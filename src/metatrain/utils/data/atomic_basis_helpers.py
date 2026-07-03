@@ -491,6 +491,39 @@ def sparsify_atomic_basis_target(
     )
 
 
+def align_predictions_to_target_layout(
+    systems: List[System],
+    predictions: Dict[str, TensorMap],
+    targets: Dict[str, TensorMap],
+) -> Dict[str, TensorMap]:
+    """Sparsify predictions whose key schema is denser than their target's.
+
+    A model may predict a densified view of an atomic basis target (fewer key
+    dimensions, e.g. no ``atom_type``) while the dataset stores the target
+    natively sparse. This happens for the standalone ``composition``
+    architecture, which always fits and predicts dense weights (see
+    :class:`~metatrain.composition.CompositionModel`) even when the declared
+    target is genuinely sparse. Evaluation code compares predictions against
+    targets block-by-block, which requires matching key schemas, so sparsify
+    the prediction using the target's own (already correctly-shaped) structure
+    as the reference layout.
+
+    :param systems: list of systems in the batch.
+    :param predictions: dictionary of prediction TensorMaps.
+    :param targets: dictionary of target TensorMaps.
+    :return: ``predictions``, with any densified entries sparsified to match
+        their target's key schema.
+    """
+    aligned = dict(predictions)
+    for name, target in targets.items():
+        prediction = aligned.get(name)
+        if prediction is None or target.keys.names == prediction.keys.names:
+            continue
+        if len(target.keys.names) > len(prediction.keys.names):
+            aligned[name] = sparsify_atomic_basis_target(systems, prediction, target)
+    return aligned
+
+
 # ===== dataloader transforms
 
 

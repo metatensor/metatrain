@@ -296,13 +296,11 @@ class Trainer(TrainerInterface):
                     sampler=train_sampler,
                     shuffle=(
                         # the sampler takes care of this (if present)
-                        train_sampler
-                        is None
+                        train_sampler is None
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        train_sampler
-                        is None
+                        train_sampler is None
                     ),
                     collate_fn=collate_fn_train,
                     num_workers=num_workers,
