@@ -29,6 +29,7 @@ from metatrain.utils.distributed.distributed_data_parallel import (
 )
 from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
 from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.finetuning import apply_finetuning_strategy
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator, LossSpecification
@@ -45,7 +46,6 @@ from metatrain.utils.transfer import batch_to
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import PET
-from .modules.finetuning import apply_finetuning_strategy
 
 
 def get_scheduler(

@@ -711,7 +711,10 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
         "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
-            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+            "last_layer_modules": [
+                "node_last_layers",
+                "edge_last_layers",
+            ],
         },
         "inherit_heads": {},
     }
@@ -734,7 +737,10 @@ def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_P
         "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
-            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+            "last_layer_modules": [
+                "node_last_layers",
+                "edge_last_layers",
+            ],
         },
         "inherit_heads": {},
     }
@@ -762,7 +768,10 @@ def test_transfer_learn_with_forces(
         "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
-            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+            "last_layer_modules": [
+                "node_last_layers",
+                "edge_last_layers",
+            ],
         },
         "inherit_heads": {},
     }

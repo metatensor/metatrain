@@ -1,3 +1,4 @@
+import copy
 import shutil
 
 import pytest
@@ -5,12 +6,10 @@ import torch
 from omegaconf import OmegaConf
 
 from metatrain.pet import PET, Trainer
-from metatrain.pet.modules.finetuning import (
-    apply_finetuning_strategy,
-)
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.finetuning import apply_finetuning_strategy
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.loss import LossSpecification
@@ -92,8 +91,8 @@ def test_heads_finetuning_functionality():
         "read_from": None,
         "method": "heads",
         "config": {
-            "head_modules": ["input_linear", "output_linear"],
-            "last_layer_modules": ["last_layers", "bond_last_layers"],
+            "head_modules": ["node_heads", "edge_heads"],
+            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
         },
         "inherit_heads": {},
     }
@@ -101,7 +100,34 @@ def test_heads_finetuning_functionality():
     model = apply_finetuning_strategy(model, finetuning_strategy)
     num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     num_params = sum(p.numel() for p in model.parameters())
-    assert num_trainable_params < num_params
+    assert 0 < num_trainable_params < num_params
+
+
+def test_heads_finetuning_unknown_modules():
+    """Unknown 'head_modules'/'last_layer_modules' should raise, not silently
+    freeze the whole model."""
+    target_info_dict = {}
+    target_info_dict["energy"] = get_energy_target_info(
+        "energy", {"quantity": "energy", "unit": "eV"}
+    )
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
+    )
+
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    finetuning_strategy = {
+        "read_from": None,
+        "method": "heads",
+        "config": {
+            "head_modules": ["does_not_exist"],
+            "last_layer_modules": ["also_does_not_exist"],
+        },
+        "inherit_heads": {},
+    }
+
+    with pytest.raises(ValueError, match="No parameters were found matching"):
+        apply_finetuning_strategy(model, finetuning_strategy)
 
 
 def test_finetuning_restart(monkeypatch, tmp_path):
@@ -147,7 +173,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
 
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
 
     hypers["training"]["num_epochs"] = 1
 
@@ -173,9 +199,10 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     assert isinstance(model_finetune, PET)
     model_finetune.restart(dataset_info)
 
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
 
     hypers["training"]["num_epochs"] = 0
+    hypers["training"]["loss"] = loss_conf
 
     hypers["training"]["finetune"] = {
         "read_from": "tmp.ckpt",
@@ -212,16 +239,17 @@ def test_finetuning_restart(monkeypatch, tmp_path):
         ["lora_" in name for name, _ in model_finetune_restart.named_parameters()]
     )
 
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
 
     hypers["training"]["num_epochs"] = 0
+    hypers["training"]["loss"] = loss_conf
 
     hypers["training"]["finetune"] = {
         "read_from": "finetuned.ckpt",
         "method": "heads",
         "config": {
-            "head_modules": ["input_linear", "output_linear"],
-            "last_layer_modules": ["last_layers", "bond_last_layers"],
+            "head_modules": ["node_heads", "edge_heads"],
+            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
         },
         "inherit_heads": {},
     }
