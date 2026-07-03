@@ -101,6 +101,18 @@ class HeadsFinetuneHypers(TypedDict):
 FinetuneHypers = FullFinetuneHypers | LoRaFinetuneHypers | HeadsFinetuneHypers
 
 
+def _add_backend_prefix(module_names: list[str]) -> list[str]:
+    """Prepend the ``backend.`` prefix to module names that do not already have it.
+
+    :param module_names: List of module name prefixes as specified by the user.
+    :return: The module name prefixes, each guaranteed to start with ``backend.``.
+    """
+    return [
+        name if name.startswith("backend.") else f"backend.{name}"
+        for name in module_names
+    ]
+
+
 def apply_finetuning_strategy(model: nn.Module, strategy: FinetuneHypers) -> nn.Module:
     """
     Apply the specified finetuning strategy to the model.
@@ -129,20 +141,27 @@ def apply_finetuning_strategy(model: nn.Module, strategy: FinetuneHypers) -> nn.
 
     elif strategy["method"] == "lora":
         lora_config = strategy["config"]
+        target_modules = tuple(
+            lora_config.get("target_modules", ["input_linear", "output_linear"])
+        )
         lora_already_applied = any(isinstance(m, LoRALinear) for m in model.modules())
         if not lora_already_applied:
             model_device = next(model.parameters()).device
             model_dtype = next(model.parameters()).dtype
             model = inject_lora_layers(
                 model,
-                target_modules=tuple(
-                    lora_config.get("target_modules", ["input_linear", "output_linear"])
-                ),
+                target_modules=target_modules,
                 rank=lora_config.get("rank", 4),
                 alpha=lora_config.get("alpha", 8),
                 device=model_device,
                 dtype=model_dtype,
             )
+            if not any(isinstance(m, LoRALinear) for m in model.modules()):
+                raise ValueError(
+                    "No LoRA layers were injected: no modules matching "
+                    f"'target_modules' {list(target_modules)} were found in the "
+                    "model. Please check that these module names are correct."
+                )
 
         # Freeze all except LoRA
         for name, param in model.named_parameters():
@@ -153,24 +172,35 @@ def apply_finetuning_strategy(model: nn.Module, strategy: FinetuneHypers) -> nn.
         heads_config = strategy.get(
             "config",
             {
-                # The heads and last layers live on the pure-PyTorch ``backend``
-                # submodule.
-                "head_modules": ["backend.node_heads", "backend.edge_heads"],
-                "last_layer_modules": [
-                    "backend.node_last_layers",
-                    "backend.edge_last_layers",
-                ],
+                "head_modules": ["node_heads", "edge_heads"],
+                "last_layer_modules": ["node_last_layers", "edge_last_layers"],
             },
         )
 
-        head_keywords = heads_config.get("head_modules", [])
-        last_layer_keywords = heads_config.get("last_layer_modules", [])
+        # The heads and last layers actually live on the pure-PyTorch ``backend``
+        # submodule, but users should only need to refer to them by their old,
+        # un-prefixed names, so the ``backend.`` prefix is added automatically here.
+        head_keywords = _add_backend_prefix(heads_config.get("head_modules", []))
+        last_layer_keywords = _add_backend_prefix(
+            heads_config.get("last_layer_modules", [])
+        )
+        all_keywords = head_keywords + last_layer_keywords
 
+        matched_any = False
         for name, param in model.named_parameters():
-            if any(name.startswith(kw) for kw in head_keywords + last_layer_keywords):
+            if any(name.startswith(kw) for kw in all_keywords):
                 param.requires_grad = True
+                matched_any = True
             else:
                 param.requires_grad = False
+
+        if not matched_any:
+            raise ValueError(
+                "No parameters were found matching the specified 'head_modules' "
+                f"({heads_config.get('head_modules', [])}) or "
+                f"'last_layer_modules' ({heads_config.get('last_layer_modules', [])}). "
+                "Please check that these module name prefixes are correct."
+            )
 
     else:
         raise ValueError(
