@@ -1,7 +1,9 @@
 import pytest
+import torch
+from metatomic.torch import System
 
-from metatrain.composition import CompositionModel
-from metatrain.utils.data import DatasetInfo
+from metatrain.composition import CompositionModel, Trainer
+from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 
 from . import DATASET_PATH
@@ -44,6 +46,48 @@ def test_unsupported_target_raises():
     )
     with pytest.raises(ValueError, match="does not support target"):
         CompositionModel(hypers={}, dataset_info=dataset_info)
+
+
+def test_train_float32_raises():
+    """Test that training on float32 systems raises: the composition model only
+    supports float64."""
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ).to(torch.float32),
+    ]
+    dataset = Dataset.from_dict({"system": systems, "energy": [1.0]})
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[8],
+        targets={
+            "energy": get_energy_target_info(
+                "energy", {"quantity": "energy", "unit": "eV"}
+            )
+        },
+    )
+    model = CompositionModel(hypers={}, dataset_info=dataset_info)
+    trainer = Trainer(hypers={})
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "The composition model only supports float64 "
+            "during training. Got dtype: torch.float32."
+        ),
+    ):
+        trainer.train(
+            model=model,
+            dtype=torch.float32,
+            devices=[torch.device("cpu")],
+            train_datasets=[dataset],
+            val_datasets=[dataset],
+            checkpoint_dir="",
+        )
 
 
 def test_forward_unknown_output_raises():

@@ -91,7 +91,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
 
         self.outputs: Dict[str, ModelOutput] = {}
 
-        self.register_buffer("dummy_buffer", torch.randn(1))
+        self.register_buffer("dummy_buffer", torch.randn(1, dtype=torch.float64))
 
         self._new_outputs = []
         for target_name in self.dataset_info.targets:
