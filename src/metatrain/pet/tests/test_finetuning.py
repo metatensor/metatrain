@@ -619,3 +619,124 @@ def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path
 
     for name, param in _target_params(model_restart, "mtt::U0").items():
         torch.testing.assert_close(param, snapshot[name])
+
+
+def test_restart_with_fewer_targets_does_not_crash(monkeypatch, tmp_path):
+    """Continuing training (plain restart, no ``finetune_method``) from a
+    checkpoint that has 3 targets, specifying only 2 of them, must not raise --
+    the 3rd target's head is kept in the model, untouched, rather than being
+    required to be part of every subsequent run."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+
+    systems = [system.to(torch.float64) for system in read_systems(DATASET_PATH)]
+
+    target_names = ["mtt::target_a", "mtt::target_b", "mtt::target_c"]
+    all_targets = {
+        name: get_energy_target_info(name, {"quantity": "energy", "unit": "eV"})
+        for name in target_names
+    }
+    all_dataset_info = DatasetInfo(
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=all_targets
+    )
+    model = PET(MODEL_HYPERS, all_dataset_info)
+
+    conf = {
+        name: {
+            "quantity": "energy",
+            "read_from": DATASET_PATH,
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "type": "scalar",
+            "sample_kind": "system",
+            "num_subtargets": 1,
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+        for name in target_names
+    }
+    targets, _ = read_targets(OmegaConf.create(conf))
+    all_dataset = Dataset.from_dict(
+        {"system": systems, **{name: targets[name] for name in target_names}}
+    )
+
+    loss_conf = OmegaConf.create(
+        {name: init_with_defaults(LossSpecification) for name in target_names}
+    )
+    OmegaConf.resolve(loss_conf)
+
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    hypers["training"]["num_epochs"] = 1
+    hypers["training"]["loss"] = loss_conf
+
+    # Pre-training on all 3 targets.
+    trainer = Trainer(hypers["training"])
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[all_dataset],
+        val_datasets=[all_dataset],
+        checkpoint_dir=".",
+    )
+    trainer.save_checkpoint(model, "pretrained.ckpt")
+
+    target_c_snapshot = {
+        name: param.detach().clone()
+        for name, param in _target_params(model, "mtt::target_c").items()
+    }
+    assert len(target_c_snapshot) > 0
+
+    # Continue training (plain restart) specifying only 2 of the 3 targets.
+    reduced_dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "mtt::target_a": all_targets["mtt::target_a"],
+            "mtt::target_b": all_targets["mtt::target_b"],
+        },
+    )
+    reduced_dataset = Dataset.from_dict(
+        {
+            "system": systems,
+            "mtt::target_a": targets["mtt::target_a"],
+            "mtt::target_b": targets["mtt::target_b"],
+        }
+    )
+
+    checkpoint = torch.load("pretrained.ckpt", weights_only=False, map_location="cpu")
+    model_restart = model_from_checkpoint(checkpoint, context="restart")
+    model_restart.restart(reduced_dataset_info)
+
+    reduced_loss_conf = OmegaConf.create(
+        {
+            name: init_with_defaults(LossSpecification)
+            for name in ["mtt::target_a", "mtt::target_b"]
+        }
+    )
+    OmegaConf.resolve(reduced_loss_conf)
+
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    hypers["training"]["num_epochs"] = 1
+    hypers["training"]["loss"] = reduced_loss_conf
+
+    trainer = trainer_from_checkpoint(
+        checkpoint, context="restart", hypers=hypers["training"]
+    )
+    # This must not raise.
+    trainer.train(
+        model=model_restart,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[reduced_dataset],
+        val_datasets=[reduced_dataset],
+        checkpoint_dir=".",
+    )
+
+    # "mtt::target_c" is kept in the model, and its head is untouched since it
+    # never appeared in this run's dataset/loss.
+    _assert_target_present(model_restart, "mtt::target_c")
+    for name, param in _target_params(model_restart, "mtt::target_c").items():
+        torch.testing.assert_close(param, target_c_snapshot[name])

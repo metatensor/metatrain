@@ -225,3 +225,30 @@ def test_restart_without_finetune_method_keeps_stale_targets():
     assert "position" in model.node_heads
     assert "momentum" in model.dataset_info.targets
     assert "momentum" in model.node_heads
+
+
+def _get_three_target_dataset_info():
+    return DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 6],
+        targets={
+            **_get_dataset_info().targets,  # "position", "momentum"
+            **_get_single_target_dataset_info("mtt::extra").targets,
+        },
+    )
+
+
+def test_restart_with_fewer_targets_does_not_crash():
+    """Continuing training (plain restart, no ``finetune_method``) from a model
+    that has 3 targets, specifying only 2 of them, must not raise -- the 3rd
+    target's head is kept in the model, untouched, rather than being required to
+    be part of every subsequent run."""
+    model = FlashMDSymplectic(MODEL_HYPERS, _get_three_target_dataset_info())
+    reduced_dataset_info = _get_dataset_info()  # only "position", "momentum"
+
+    model.restart(reduced_dataset_info)
+
+    assert "mtt::extra" in model.dataset_info.targets
+    assert "mtt::extra" in model.node_heads
+    assert "position" in model.dataset_info.targets
+    assert "momentum" in model.dataset_info.targets

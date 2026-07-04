@@ -514,9 +514,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 if is_distributed:
                     # make sure all parameters contribute to the gradient calculation
-                    # to make torch DDP happy
-                    for param in model.parameters():
-                        train_loss_batch += 0.0 * param.sum()
+                    # to make torch DDP happy (e.g. when a target's head is kept in
+                    # the model but not part of the current run's targets)
+                    train_loss_batch += 0.0 * sum(
+                        p.sum() for p in model.parameters() if p.requires_grad
+                    )
 
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
