@@ -11,7 +11,7 @@ from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.finetuning import apply_finetuning_strategy
 from metatrain.utils.hypers import init_with_defaults
-from metatrain.utils.io import model_from_checkpoint
+from metatrain.utils.io import model_from_checkpoint, trainer_from_checkpoint
 from metatrain.utils.loss import LossSpecification
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
@@ -471,3 +471,151 @@ def test_set_default_target_unknown_source_raises():
 
     with pytest.raises(ValueError, match="is not a target of this model"):
         model.set_default_target("does_not_exist")
+
+
+def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path):
+    """Restarting an interrupted finetuning run must not redo the one-time
+    ``inherit_heads`` weight copy: the destination head's weights, once trained,
+    should survive a restart with ``num_epochs=0`` unchanged."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+
+    systems = [system.to(torch.float64) for system in read_systems(DATASET_PATH)]
+
+    old_target = get_energy_target_info("energy", {"quantity": "energy", "unit": "eV"})
+    old_dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={"energy": old_target},
+    )
+    model = PET(MODEL_HYPERS, old_dataset_info)
+
+    energy_conf = {
+        "energy": {
+            "quantity": "energy",
+            "read_from": DATASET_PATH,
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "type": "scalar",
+            "sample_kind": "system",
+            "num_subtargets": 1,
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    energy_targets, _ = read_targets(OmegaConf.create(energy_conf))
+    energy_dataset = Dataset.from_dict(
+        {"system": systems, "energy": energy_targets["energy"]}
+    )
+
+    loss_conf = OmegaConf.create({"energy": init_with_defaults(LossSpecification)})
+    OmegaConf.resolve(loss_conf)
+
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    hypers["training"]["num_epochs"] = 1
+    hypers["training"]["loss"] = loss_conf
+
+    # Pre-training on "energy".
+    trainer = Trainer(hypers["training"])
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[energy_dataset],
+        val_datasets=[energy_dataset],
+        checkpoint_dir=".",
+    )
+    trainer.save_checkpoint(model, "pretrained.ckpt")
+
+    # Finetune: introduce a new target "mtt::U0", inheriting its initial weights
+    # from "energy". Use ``heads`` so "energy" is not pruned as stale, and the new
+    # target's head is trainable (and therefore actually changes during training).
+    # The finetuning run's dataset only trains on "mtt::U0" (matching the flow
+    # where "energy" is not part of the current run's training set) --
+    # ``inherit_heads`` copies weights directly and does not require the source
+    # target to be part of the current training batch.
+    new_target = get_energy_target_info("mtt::U0", {"quantity": "energy", "unit": "eV"})
+    new_dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={"mtt::U0": new_target},
+    )
+    conf = {"mtt::U0": dict(energy_conf["energy"])}
+    targets, _ = read_targets(OmegaConf.create(conf))
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
+
+    checkpoint = torch.load("pretrained.ckpt", weights_only=False, map_location="cpu")
+    model_finetune = model_from_checkpoint(checkpoint, context="finetune")
+    model_finetune.restart(new_dataset_info, finetune_method="heads")
+
+    loss_conf = OmegaConf.create({"mtt::U0": init_with_defaults(LossSpecification)})
+    OmegaConf.resolve(loss_conf)
+
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    hypers["training"]["num_epochs"] = 1
+    hypers["training"]["loss"] = loss_conf
+    hypers["training"]["finetune"] = _finetuning_strategy(
+        "heads", inherit_heads={"mtt::U0": "energy"}
+    )
+    hypers["training"]["finetune"]["read_from"] = "pretrained.ckpt"
+
+    trainer = Trainer(hypers["training"])
+    trainer.train(
+        model=model_finetune,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
+    trainer.save_checkpoint(model_finetune, "finetuned.ckpt")
+
+    # Snapshot of "mtt::U0"'s head weights right after the finetuning run: they
+    # started as a copy of "energy", then diverged from it during training.
+    snapshot = {
+        name: param.detach().clone()
+        for name, param in _target_params(model_finetune, "mtt::U0").items()
+    }
+    assert len(snapshot) > 0
+    energy_params_after_finetune = {
+        name: param.detach().clone()
+        for name, param in _target_params(model_finetune, "energy").items()
+    }
+    mtt_u0_to_energy = {name: name.replace("mtt::U0", "energy") for name in snapshot}
+    assert any(
+        not torch.equal(param, energy_params_after_finetune[mtt_u0_to_energy[name]])
+        for name, param in snapshot.items()
+    ), "the new target's head should have diverged from 'energy' during training"
+
+    # Restart the (still ongoing) finetuning run from the checkpoint just saved,
+    # with num_epochs=0: since no actual training happens, "mtt::U0" must come out
+    # exactly as it went in -- if ``inherit_heads`` were redundantly reapplied, it
+    # would instead be reset to (the current) "energy"'s weights.
+    checkpoint = torch.load("finetuned.ckpt", weights_only=False, map_location="cpu")
+    model_restart = model_from_checkpoint(checkpoint, context="restart")
+    model_restart.restart(new_dataset_info)
+
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    hypers["training"]["num_epochs"] = 0
+    hypers["training"]["loss"] = loss_conf
+    hypers["training"]["finetune"] = _finetuning_strategy(
+        "heads", inherit_heads={"mtt::U0": "energy"}
+    )
+    hypers["training"]["finetune"]["read_from"] = "finetuned.ckpt"
+
+    trainer = trainer_from_checkpoint(
+        checkpoint, context="restart", hypers=hypers["training"]
+    )
+    trainer.train(
+        model=model_restart,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
+
+    for name, param in _target_params(model_restart, "mtt::U0").items():
+        torch.testing.assert_close(param, snapshot[name])

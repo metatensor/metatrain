@@ -155,7 +155,18 @@ class Trainer(TrainerInterface):
 
         # Apply fine-tuning strategy if provided
         if is_finetune:
-            model = apply_finetuning_strategy(model, self.hypers["finetune"])
+            # ``inherit_heads`` is a one-time weight-copy initialization step that
+            # must only run when finetuning first starts (a fresh ``Trainer``), not
+            # again when a restart resumes an already-started finetuning run (a
+            # restarted ``Trainer`` has its ``optimizer_state_dict`` restored by
+            # ``load_checkpoint``); otherwise it would clobber the head weights
+            # trained so far with a fresh copy from the (possibly since-changed, or
+            # already stale-pruned) source target.
+            model = apply_finetuning_strategy(
+                model,
+                self.hypers["finetune"],
+                apply_inherit_heads=self.optimizer_state_dict is None,
+            )
             method = self.hypers["finetune"]["method"]
             num_params = sum(p.numel() for p in model.parameters())
             num_trainable_params = sum(
