@@ -539,6 +539,30 @@ class Scaler(torch.nn.Module):
             if hasattr(self, buffer_name):
                 delattr(self, buffer_name)
 
+    def _copy_output(self, source_target_name: str, dest_target_name: str) -> None:
+        """
+        Copy a previously registered output target's fitted state into another
+        target name, overwriting it if already present, mirroring ``_add_output``.
+
+        :param source_target_name: Name of the target to copy from.
+        :param dest_target_name: Name of the target to copy into.
+        """
+        self.outputs[dest_target_name] = self.outputs[source_target_name]
+        self.dataset_info.targets[dest_target_name] = self.dataset_info.targets[
+            source_target_name
+        ]
+        self.model.copy_output(source_target_name, dest_target_name)
+        for suffix in (
+            "_scaler_buffer",
+            "_per_target_scaler_buffer",
+            "_per_property_scaler_buffer",
+        ):
+            source_buffer = self.__getattr__(source_target_name + suffix).clone()
+            dest_buffer_name = dest_target_name + suffix
+            if hasattr(self, dest_buffer_name):
+                delattr(self, dest_buffer_name)
+            self.register_buffer(dest_buffer_name, source_buffer)
+
     def scales_to(self, device: torch.device, dtype: torch.dtype) -> None:
         if len(self.model.scales) != 0:
             if self.model.scales[list(self.model.scales.keys())[0]].device != device:

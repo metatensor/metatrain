@@ -369,6 +369,7 @@ class TrainerHypers(TypedDict):
         "method": "full",
         "config": {},
         "inherit_heads": {},
+        "default_target": None,
     }
     """Parameters for fine-tuning trained PET models.
 

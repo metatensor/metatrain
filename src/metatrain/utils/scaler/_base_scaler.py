@@ -6,6 +6,7 @@ The class ``Scaler`` wraps this to be compatible with metatrain-style objects.
 import logging
 from typing import Dict, List, Optional, Tuple, Union
 
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
@@ -256,6 +257,37 @@ class BaseScaler(torch.nn.Module):
         self.per_property_N.pop(target_name, None)
         self.per_property_Y2.pop(target_name, None)
         self.per_property_scales.pop(target_name, None)
+
+    def copy_output(self, source_target_name: str, dest_target_name: str) -> None:
+        """
+        Copy a previously registered target's fitted state into another target
+        name, overwriting it if already present. The ``TensorMap``\\ s are
+        round-tripped through :func:`metatensor.torch.save_buffer`/``load_buffer``
+        so the copy does not alias the source's tensors.
+
+        :param source_target_name: Name of the target to copy from.
+        :param dest_target_name: Name of the target to copy into.
+        """
+        if dest_target_name not in self.target_names:
+            self.target_names.append(dest_target_name)
+        if (
+            source_target_name in self.multi_property_target_names
+            and dest_target_name not in self.multi_property_target_names
+        ):
+            self.multi_property_target_names.append(dest_target_name)
+        self.sample_kinds[dest_target_name] = self.sample_kinds[source_target_name]
+        for tensor_maps in (
+            self.N,
+            self.Y2,
+            self.scales,
+            self.per_target_scales,
+            self.per_property_N,
+            self.per_property_Y2,
+            self.per_property_scales,
+        ):
+            tensor_maps[dest_target_name] = mts.load_buffer(
+                mts.save_buffer(mts.make_contiguous(tensor_maps[source_target_name]))
+            )
 
     def _compute_N_and_Y2(
         self,

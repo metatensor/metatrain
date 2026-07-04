@@ -227,6 +227,29 @@ class BaseCompositionModel(torch.nn.Module):
         self.XTY.pop(target_name, None)
         self.weights.pop(target_name, None)
 
+    def copy_output(self, source_target_name: str, dest_target_name: str) -> None:
+        """
+        Copy a previously registered target's fitted state into another target
+        name, overwriting it if already present. The ``TensorMap``\\ s are
+        round-tripped through :func:`metatensor.torch.save_buffer`/``load_buffer``
+        so the copy does not alias the source's tensors.
+
+        :param source_target_name: Name of the target to copy from.
+        :param dest_target_name: Name of the target to copy into.
+        """
+        if dest_target_name not in self.target_names:
+            self.target_names.append(dest_target_name)
+        self.sample_kinds[dest_target_name] = self.sample_kinds[source_target_name]
+        self.XTX[dest_target_name] = mts.load_buffer(
+            mts.save_buffer(mts.make_contiguous(self.XTX[source_target_name]))
+        )
+        self.XTY[dest_target_name] = mts.load_buffer(
+            mts.save_buffer(mts.make_contiguous(self.XTY[source_target_name]))
+        )
+        self.weights[dest_target_name] = mts.load_buffer(
+            mts.save_buffer(mts.make_contiguous(self.weights[source_target_name]))
+        )
+
     def accumulate(
         self,
         systems: List[System],

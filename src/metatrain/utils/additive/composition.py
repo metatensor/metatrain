@@ -442,6 +442,26 @@ class CompositionModel(torch.nn.Module):
         if hasattr(self, buffer_name):
             delattr(self, buffer_name)
 
+    def _copy_output(self, source_target_name: str, dest_target_name: str) -> None:
+        """
+        Copy a previously registered output target's fitted state into another
+        target name, overwriting it if already present, mirroring ``_add_output``.
+
+        :param source_target_name: Name of the target to copy from.
+        :param dest_target_name: Name of the target to copy into.
+        """
+        self.outputs[dest_target_name] = self.outputs[source_target_name]
+        self.dataset_info.targets[dest_target_name] = self.dataset_info.targets[
+            source_target_name
+        ]
+        self.model.copy_output(source_target_name, dest_target_name)
+        source_buffer_name = source_target_name + "_composition_buffer"
+        dest_buffer_name = dest_target_name + "_composition_buffer"
+        source_buffer = self.__getattr__(source_buffer_name).clone()
+        if hasattr(self, dest_buffer_name):
+            delattr(self, dest_buffer_name)
+        self.register_buffer(dest_buffer_name, source_buffer)
+
     def weights_to(self, device: torch.device, dtype: torch.dtype) -> None:
         if len(self.model.weights) != 0:
             if self.model.weights[list(self.model.weights.keys())[0]].device != device:

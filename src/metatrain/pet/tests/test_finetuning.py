@@ -384,3 +384,90 @@ def test_restart_without_finetune_method_keeps_stale_targets():
 
     _assert_target_present(model, "energy")
     _assert_target_present(model, "mtt::U0")
+
+
+def _two_coexisting_targets_model():
+    """A single model with two co-existing energy-like targets, ``"energy"`` and
+    ``"energy_new"``, used to test ``PET.set_default_target``."""
+    target_a = get_energy_target_info("energy", {"quantity": "energy", "unit": "eV"})
+    target_b = get_energy_target_info(
+        "energy_new", {"quantity": "energy", "unit": "eV"}
+    )
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={"energy": target_a, "energy_new": target_b},
+    )
+    return PET(MODEL_HYPERS, dataset_info)
+
+
+def _target_params(model, target_name):
+    return {
+        name: param
+        for name, param in model.named_parameters()
+        if f".{target_name}." in name
+    }
+
+
+def _fill_target_params(model, target_name, value):
+    for param in _target_params(model, target_name).values():
+        param.data.fill_(value)
+
+
+def test_set_default_target_copies_head_weights():
+    """``set_default_target`` overwrites the destination's head/last-layer weights
+    with the source's, and the two remain independent afterwards."""
+    model = _two_coexisting_targets_model()
+    _fill_target_params(model, "energy", 1.0)
+    _fill_target_params(model, "energy_new", 2.0)
+
+    model.set_default_target("energy_new")
+
+    energy_params = _target_params(model, "energy")
+    energy_new_params = _target_params(model, "energy_new")
+    assert len(energy_params) == len(energy_new_params) > 0
+    for name, param in energy_new_params.items():
+        dest_name = name.replace("energy_new", "energy")
+        torch.testing.assert_close(param, energy_params[dest_name])
+
+    # Independence: mutating the source afterwards must not affect the copy.
+    _fill_target_params(model, "energy_new", 3.0)
+    for param in energy_params.values():
+        assert not torch.allclose(param, torch.full_like(param, 3.0))
+
+
+def test_set_default_target_copies_composition_and_scaler_state():
+    """``set_default_target`` also copies composition/scaler per-target state
+    (not reachable via ``named_parameters()``), and it is independent of the
+    source afterwards."""
+    model = _two_coexisting_targets_model()
+    composition_model = model.additive_models[0]
+
+    model.set_default_target("energy_new")
+
+    assert "energy" in composition_model.outputs
+    assert "energy" in model.scaler.outputs
+
+    source_buffer = composition_model.__getattr__("energy_new_composition_buffer")
+    dest_buffer = composition_model.__getattr__("energy_composition_buffer")
+    assert torch.equal(source_buffer, dest_buffer)
+    assert source_buffer is not dest_buffer
+
+
+def test_set_default_target_overwrites_existing_destination():
+    """If the destination target already exists, it is fully replaced."""
+    model = _two_coexisting_targets_model()
+    _fill_target_params(model, "energy", 1.0)
+    _fill_target_params(model, "energy_new", 2.0)
+
+    model.set_default_target("energy_new")
+
+    for param in _target_params(model, "energy").values():
+        assert torch.allclose(param, torch.full_like(param, 2.0))
+
+
+def test_set_default_target_unknown_source_raises():
+    model = _two_coexisting_targets_model()
+
+    with pytest.raises(ValueError, match="is not a target of this model"):
+        model.set_default_target("does_not_exist")

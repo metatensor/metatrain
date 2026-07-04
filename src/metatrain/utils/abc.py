@@ -161,6 +161,26 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
             handle the new dataset.
         """
 
+    def set_default_target(
+        self, source_target_name: str, dest_target_name: str = "energy"
+    ) -> None:
+        """
+        Copy the full state (heads, composition and scaler weights) of an existing
+        target into ``dest_target_name``, so that engines (e.g. LAMMPS, ASE) that
+        look for a target literally named ``"energy"`` will use it. The source
+        target is left untouched in the model.
+
+        Not every architecture supports this; the default implementation raises
+        ``NotImplementedError``.
+
+        :param source_target_name: Name of the existing target to copy from.
+        :param dest_target_name: Name of the target to overwrite (or create) with
+            a copy of ``source_target_name``'s state. Defaults to ``"energy"``.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support setting a default target."
+        )
+
     @classmethod
     @abstractmethod
     def load_checkpoint(

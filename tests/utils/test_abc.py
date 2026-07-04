@@ -110,3 +110,20 @@ def test_model_interface():
             _ = MyModel({}, DatasetInfo("", [], {}), ModelMetadata())
 
         setattr(MyModel, attr, None)
+
+
+def test_model_interface_default_set_default_target():
+    """Architectures that do not override ``set_default_target`` should raise
+    ``NotImplementedError``, since not every architecture supports it."""
+    for attr in [
+        "__checkpoint_version__",
+        "__supported_devices__",
+        "__supported_dtypes__",
+        "__default_metadata__",
+    ]:
+        setattr(MyModel, attr, None)
+
+    model = MyModel({}, DatasetInfo("", [], {}), ModelMetadata())
+
+    with pytest.raises(NotImplementedError, match="does not support"):
+        model.set_default_target("some_target")

@@ -24,7 +24,11 @@ from metatrain.utils.data.atomic_basis_helpers import (
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.finetuning import apply_finetuning_strategy, compute_stale_targets
+from metatrain.utils.finetuning import (
+    apply_finetuning_strategy,
+    compute_stale_targets,
+    copy_head_weights,
+)
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
@@ -265,6 +269,39 @@ class PET(ModelInterface[ModelHypers]):
         )
 
         return self
+
+    def set_default_target(
+        self, source_target_name: str, dest_target_name: str = "energy"
+    ) -> None:
+        if source_target_name not in self.dataset_info.targets:
+            raise ValueError(
+                f"Cannot set '{dest_target_name}' as a copy of "
+                f"'{source_target_name}': '{source_target_name}' is not a target "
+                "of this model."
+            )
+
+        if dest_target_name in self.dataset_info.targets:
+            self._remove_output(dest_target_name)
+            if dest_target_name in self.target_names:
+                self.target_names.remove(dest_target_name)
+            self.dataset_info.targets.pop(dest_target_name, None)
+            for additive_model in self.additive_models:
+                if dest_target_name in additive_model.outputs:
+                    additive_model._remove_output(dest_target_name)
+            if dest_target_name in self.scaler.outputs:
+                self.scaler._remove_output(dest_target_name)
+
+        source_target_info = self.dataset_info.targets[source_target_name]
+        self.target_names.append(dest_target_name)
+        self._add_output(dest_target_name, source_target_info)
+        self.dataset_info.targets[dest_target_name] = source_target_info
+        copy_head_weights(self, source_target_name, dest_target_name)
+
+        for additive_model in self.additive_models:
+            if source_target_name in additive_model.outputs:
+                additive_model._copy_output(source_target_name, dest_target_name)
+        if source_target_name in self.scaler.outputs:
+            self.scaler._copy_output(source_target_name, dest_target_name)
 
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]

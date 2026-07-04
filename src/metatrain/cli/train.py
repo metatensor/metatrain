@@ -713,6 +713,14 @@ def train_model(
     if not is_main_process():
         return  # only save and evaluate on the main process
 
+    if training_context == "finetune":
+        default_target = hypers["training"]["finetune"].get("default_target")
+        if default_target:
+            try:
+                model.set_default_target(default_target)
+            except Exception as e:
+                raise ArchitectureError(e) from e
+
     ###########################
     # SAVE FINAL MODEL ########
     ###########################
