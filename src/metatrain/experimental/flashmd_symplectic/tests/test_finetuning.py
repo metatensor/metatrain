@@ -154,15 +154,40 @@ def _get_single_target_dataset_info(target_name):
     )
 
 
+def _finetuning_strategy(method):
+    if method == "lora":
+        config = {
+            "target_modules": ["input_linear", "output_linear"],
+            "rank": 4,
+            "alpha": 8,
+        }
+    elif method == "heads":
+        config = {
+            "head_modules": ["node_heads", "edge_heads"],
+            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+        }
+    else:
+        config = {}
+    return {"read_from": None, "method": method, "config": config, "inherit_heads": {}}
+
+
 @pytest.mark.parametrize("method", ["full", "lora"])
 def test_finetune_full_lora_prunes_stale_targets(method):
     """A target not part of the current full/lora finetuning run's dataset (here
     ``"position"``) is dropped from the model, since its head is no longer
-    compatible with the fine-tuned backbone."""
+    compatible with the fine-tuned backbone.
+
+    Removal only happens once ``apply_finetuning_strategy`` runs (as it would when
+    training actually starts): ``restart`` alone must not remove it yet, since
+    ``inherit_heads`` (applied within ``apply_finetuning_strategy``) may still need
+    to copy weights from the stale target's head."""
     model = FlashMDSymplectic(MODEL_HYPERS, _get_dataset_info())
     new_dataset_info = _get_single_target_dataset_info("momentum")
 
     model.restart(new_dataset_info, finetune_method=method)
+    assert "position" in model.node_heads
+
+    apply_finetuning_strategy(model, _finetuning_strategy(method))
 
     assert "position" not in model.dataset_info.targets
     assert "position" not in model.supported_outputs()
@@ -181,6 +206,7 @@ def test_finetune_heads_keeps_stale_targets():
     new_dataset_info = _get_single_target_dataset_info("momentum")
 
     model.restart(new_dataset_info, finetune_method="heads")
+    apply_finetuning_strategy(model, _finetuning_strategy("heads"))
 
     assert "position" in model.dataset_info.targets
     assert "position" in model.node_heads

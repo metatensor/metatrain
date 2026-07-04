@@ -296,17 +296,12 @@ class FlashMD(ModelInterface[ModelHypers]):
         )
         self.scaler = self.scaler.restart(dataset_info)
 
-        if finetune_method in ("full", "lora"):
-            for target_name in stale_targets:
-                self._remove_output(target_name)
-                if target_name in self.target_names:
-                    self.target_names.remove(target_name)
-                self.dataset_info.targets.pop(target_name, None)
-                for additive_model in self.additive_models:
-                    if target_name in additive_model.outputs:
-                        additive_model._remove_output(target_name)
-                if target_name in self.scaler.outputs:
-                    self.scaler._remove_output(target_name)
+        # Actual removal is deferred to ``apply_finetuning_strategy`` (called later,
+        # once training starts), since ``inherit_heads`` needs these stale targets'
+        # heads to still be around to copy weights from.
+        self._stale_finetune_targets = (
+            stale_targets if finetune_method in ("full", "lora") else []
+        )
 
         return self
 
@@ -1193,8 +1188,14 @@ class FlashMD(ModelInterface[ModelHypers]):
 
         finetune_config = model_state_dict.pop("finetune_config", {})
         if finetune_config:
-            # Apply the finetuning strategy
-            model = apply_finetuning_strategy(model, finetune_config)
+            # Re-apply the finetuning strategy to restore the trainable/frozen
+            # parameter state (and LoRA layers, if any). ``inherit_heads`` is
+            # skipped here: it is a one-time weight-copy initialization step that
+            # already ran when finetuning first started, and by now its source
+            # target may have been pruned as stale.
+            model = apply_finetuning_strategy(
+                model, finetune_config, apply_inherit_heads=False
+            )
         state_dict_iter = iter(model_state_dict.values())
         next(state_dict_iter)  # skip the species_to_species_index
         dtype = next(state_dict_iter).dtype

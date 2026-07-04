@@ -141,7 +141,9 @@ def _add_backend_prefix(model: nn.Module, module_names: list[str]) -> list[str]:
     ]
 
 
-def apply_finetuning_strategy(model: nn.Module, strategy: FinetuneHypers) -> nn.Module:
+def apply_finetuning_strategy(
+    model: nn.Module, strategy: FinetuneHypers, apply_inherit_heads: bool = True
+) -> nn.Module:
     """
     Apply the specified finetuning strategy to the model.
     This function modifies the model in place based on the provided strategy.
@@ -157,6 +159,15 @@ def apply_finetuning_strategy(model: nn.Module, strategy: FinetuneHypers) -> nn.
         which is a dictionary mapping the new trainable targets to the existing
         targets in the model. This allows for copying weights from the corresponding
         source heads to the destination heads instead of random initialization.
+    :param apply_inherit_heads: Whether to process the "inherit_heads" weight copy
+        (and the removal of targets left stale by a backbone-altering finetuning
+        run, see :func:`compute_stale_targets`). Both are one-time initialization
+        steps that must run exactly once, when finetuning actually starts. Callers
+        that re-apply an already-active strategy after reloading a checkpoint
+        (e.g. to restore the trainable/frozen parameter state) should pass
+        ``False``: by then, any inherited-from source target may already have been
+        pruned, so redoing the copy would fail (or silently clobber trained
+        weights if the source were still around).
     :return: The modified model with the finetuning strategy applied.
     """
 
@@ -240,7 +251,7 @@ def apply_finetuning_strategy(model: nn.Module, strategy: FinetuneHypers) -> nn.
     model.finetune_config = strategy
 
     inherit_heads_config = strategy["inherit_heads"]
-    if inherit_heads_config:
+    if apply_inherit_heads and inherit_heads_config:
         for dest_target_name, source_target_name in inherit_heads_config.items():
             model_parameters = dict(model.named_parameters())
             if not any(f".{source_target_name}." in name for name in model_parameters):
@@ -266,6 +277,27 @@ def apply_finetuning_strategy(model: nn.Module, strategy: FinetuneHypers) -> nn.
                         raise ValueError(
                             f"Destination head '{dest_target_name}' not found in model."
                         )
+
+    # Targets not part of this run's dataset are dropped now that weight
+    # inheritance (if any) has had a chance to copy from their heads: with
+    # ``full``/``lora``, the backbone has changed, so these targets' heads are no
+    # longer meaningful. ``restart`` stashes the list on the model rather than
+    # removing right away, since it runs before this function (and before
+    # ``inherit_heads`` above needs the stale heads to still be present).
+    stale_targets = getattr(model, "_stale_finetune_targets", None)
+    if stale_targets:
+        for target_name in stale_targets:
+            model._remove_output(target_name)
+            if target_name in model.target_names:
+                model.target_names.remove(target_name)
+            model.dataset_info.targets.pop(target_name, None)
+            for additive_model in model.additive_models:
+                if target_name in additive_model.outputs:
+                    additive_model._remove_output(target_name)
+            if target_name in model.scaler.outputs:
+                model.scaler._remove_output(target_name)
+        model._stale_finetune_targets = []
+
     return model
 
 

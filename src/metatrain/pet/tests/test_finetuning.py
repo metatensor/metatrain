@@ -307,14 +307,58 @@ def _assert_target_present(model, target_name):
     assert target_name in model.backend.edge_last_layers
 
 
+def _finetuning_strategy(method, inherit_heads=None):
+    if method == "lora":
+        config = {
+            "target_modules": ["input_linear", "output_linear"],
+            "rank": 4,
+            "alpha": 8,
+        }
+    elif method == "heads":
+        config = {
+            "head_modules": ["node_heads", "edge_heads"],
+            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+        }
+    else:
+        config = {}
+    return {
+        "read_from": None,
+        "method": method,
+        "config": config,
+        "inherit_heads": inherit_heads or {},
+    }
+
+
 @pytest.mark.parametrize("method", ["full", "lora"])
 def test_finetune_full_lora_prunes_stale_targets(method):
     """A target not part of the current full/lora finetuning run's dataset is
     dropped from the model, since its head is no longer compatible with the
-    fine-tuned backbone."""
+    fine-tuned backbone.
+
+    Removal only happens once ``apply_finetuning_strategy`` runs (as it would when
+    training actually starts): ``restart`` alone must not remove it yet, since
+    ``inherit_heads`` (applied within ``apply_finetuning_strategy``) may still need
+    to copy weights from the stale target's head."""
     model, new_dataset_info = _two_target_setup()
 
     model.restart(new_dataset_info, finetune_method=method)
+    _assert_target_present(model, "energy")
+
+    apply_finetuning_strategy(model, _finetuning_strategy(method))
+
+    _assert_target_absent(model, "energy")
+    _assert_target_present(model, "mtt::U0")
+
+
+def test_finetune_full_inherit_heads_then_prunes_source_target():
+    """``inherit_heads`` can copy weights from a stale target's head into the new
+    target's head; the stale target is only removed afterwards."""
+    model, new_dataset_info = _two_target_setup()
+
+    model.restart(new_dataset_info, finetune_method="full")
+    apply_finetuning_strategy(
+        model, _finetuning_strategy("full", inherit_heads={"mtt::U0": "energy"})
+    )
 
     _assert_target_absent(model, "energy")
     _assert_target_present(model, "mtt::U0")
@@ -326,6 +370,7 @@ def test_finetune_heads_keeps_stale_targets():
     model, new_dataset_info = _two_target_setup()
 
     model.restart(new_dataset_info, finetune_method="heads")
+    apply_finetuning_strategy(model, _finetuning_strategy("heads"))
 
     _assert_target_present(model, "energy")
     _assert_target_present(model, "mtt::U0")
