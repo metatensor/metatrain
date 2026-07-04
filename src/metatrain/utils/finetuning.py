@@ -1,11 +1,13 @@
 # mypy: disable-error-code=misc
 # We ignore misc errors in this file because TypedDict
 # with default values is not allowed by mypy.
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
 from typing_extensions import Literal, NotRequired, TypedDict
+
+from metatrain.utils.data.target_info import TargetInfo
 
 
 class LoRaFinetuneConfig(TypedDict):
@@ -99,6 +101,24 @@ class HeadsFinetuneHypers(TypedDict):
 
 
 FinetuneHypers = FullFinetuneHypers | LoRaFinetuneHypers | HeadsFinetuneHypers
+
+
+def compute_stale_targets(
+    old_targets: Dict[str, TargetInfo], new_targets: Dict[str, TargetInfo]
+) -> List[str]:
+    """Determine which targets are made stale by a fine-tuning run.
+
+    A target is stale if it was already present in the model before this run
+    (``old_targets``) but is not part of the dataset the current run trains on
+    (``new_targets``). When fine-tuning changes the backbone (``full``/``lora``
+    methods), such targets' heads are no longer meaningful, since they were fit
+    against a feature space the backbone no longer produces.
+
+    :param old_targets: Targets already present in the model before this run.
+    :param new_targets: Targets that are part of the dataset for this run.
+    :return: Names of the stale targets.
+    """
+    return [key for key in old_targets if key not in new_targets]
 
 
 def _add_backend_prefix(model: nn.Module, module_names: list[str]) -> list[str]:

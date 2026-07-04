@@ -521,6 +521,24 @@ class Scaler(torch.nn.Module):
             mts.save_buffer(mts.make_contiguous(fake_scales_per_property)),
         )
 
+    def _remove_output(self, target_name: str) -> None:
+        """
+        Remove a previously registered output target, mirroring ``_add_output``.
+
+        :param target_name: Name of the target to remove.
+        """
+        self.outputs.pop(target_name, None)
+        self.dataset_info.targets.pop(target_name, None)
+        self.model.remove_output(target_name)
+        for suffix in (
+            "_scaler_buffer",
+            "_per_target_scaler_buffer",
+            "_per_property_scaler_buffer",
+        ):
+            buffer_name = target_name + suffix
+            if hasattr(self, buffer_name):
+                delattr(self, buffer_name)
+
     def scales_to(self, device: torch.device, dtype: torch.dtype) -> None:
         if len(self.model.scales) != 0:
             if self.model.scales[list(self.model.scales.keys())[0]].device != device:

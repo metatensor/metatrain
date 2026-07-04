@@ -26,7 +26,7 @@ from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.finetuning import apply_finetuning_strategy
+from metatrain.utils.finetuning import apply_finetuning_strategy, compute_stale_targets
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
@@ -226,7 +226,9 @@ class FlashMDSymplectic(ModelInterface):
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
-    def restart(self, dataset_info: DatasetInfo) -> "FlashMDSymplectic":
+    def restart(
+        self, dataset_info: DatasetInfo, finetune_method: Optional[str] = None
+    ) -> "FlashMDSymplectic":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -238,6 +240,13 @@ class FlashMDSymplectic(ModelInterface):
             if key not in self.dataset_info.targets
         }
         self.has_new_targets = len(new_targets) > 0
+
+        # Targets that were present before this run but are not part of the current
+        # run's dataset: with a backbone-altering finetuning method (full/lora), their
+        # heads are no longer meaningful and are dropped below.
+        stale_targets = compute_stale_targets(
+            self.dataset_info.targets, dataset_info.targets
+        )
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -268,6 +277,18 @@ class FlashMDSymplectic(ModelInterface):
             ),
         )
         self.scaler = self.scaler.restart(dataset_info)
+
+        if finetune_method in ("full", "lora"):
+            for target_name in stale_targets:
+                self._remove_output(target_name)
+                if target_name in self.target_names:
+                    self.target_names.remove(target_name)
+                self.dataset_info.targets.pop(target_name, None)
+                for additive_model in self.additive_models:
+                    if target_name in additive_model.outputs:
+                        additive_model._remove_output(target_name)
+                if target_name in self.scaler.outputs:
+                    self.scaler._remove_output(target_name)
 
         return self
 
@@ -1365,6 +1386,31 @@ class FlashMDSymplectic(ModelInterface):
         self.property_labels[target_name] = [
             block.properties for block in target_info.layout.blocks()
         ]
+
+    def _remove_output(self, target_name: str) -> None:
+        """
+        Remove a previously registered output target, mirroring ``_add_output``.
+
+        Used to drop targets whose heads are no longer meaningful after a
+        backbone-altering fine-tuning run (``full``/``lora``).
+
+        :param target_name: Name of the target to remove.
+        """
+        self.output_shapes.pop(target_name, None)
+        self.outputs.pop(target_name, None)
+        self.outputs.pop(get_last_layer_features_name(target_name), None)
+        # ``torch.nn.ModuleDict.pop`` has no ``default`` argument.
+        if target_name in self.node_heads:
+            del self.node_heads[target_name]
+        if target_name in self.edge_heads:
+            del self.edge_heads[target_name]
+        if target_name in self.node_last_layers:
+            del self.node_last_layers[target_name]
+        if target_name in self.edge_last_layers:
+            del self.edge_last_layers[target_name]
+        self.key_labels.pop(target_name, None)
+        self.component_labels.pop(target_name, None)
+        self.property_labels.pop(target_name, None)
 
     def _move_labels_to_device(self, device: torch.device) -> None:
         self.single_label = self.single_label.to(device)

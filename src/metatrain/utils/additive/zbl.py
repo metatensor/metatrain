@@ -109,6 +109,15 @@ class ZBL(torch.nn.Module):
         self.dataset_info = self.dataset_info.union(dataset_info)
         return self
 
+    def _remove_output(self, target_name: str) -> None:
+        """
+        Remove a previously registered output target.
+
+        :param target_name: Name of the target to remove.
+        """
+        self.outputs.pop(target_name, None)
+        self.dataset_info.targets.pop(target_name, None)
+
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 

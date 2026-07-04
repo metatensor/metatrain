@@ -123,3 +123,79 @@ def test_heads_finetuning_unknown_modules():
 
     with pytest.raises(ValueError, match="No parameters were found matching"):
         apply_finetuning_strategy(model, finetuning_strategy)
+
+
+def _get_single_target_dataset_info(target_name):
+    return DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 6],
+        targets={
+            target_name: TargetInfo(
+                layout=TensorMap(
+                    keys=Labels.single(),
+                    blocks=[
+                        TensorBlock(
+                            values=torch.empty((0, 3, 1), dtype=torch.float64),
+                            samples=Labels(
+                                names=["system", "atom"],
+                                values=torch.empty((0, 2), dtype=int),
+                            ),
+                            components=[
+                                Labels.range("xyz", 3),
+                            ],
+                            properties=Labels.range("length", 1),
+                        )
+                    ],
+                ),
+                quantity="length",
+                unit="angstrom",
+            )
+        },
+    )
+
+
+@pytest.mark.parametrize("method", ["full", "lora"])
+def test_finetune_full_lora_prunes_stale_targets(method):
+    """A target not part of the current full/lora finetuning run's dataset (here
+    ``"position"``) is dropped from the model, since its head is no longer
+    compatible with the fine-tuned backbone."""
+    model = FlashMDSymplectic(MODEL_HYPERS, _get_dataset_info())
+    new_dataset_info = _get_single_target_dataset_info("momentum")
+
+    model.restart(new_dataset_info, finetune_method=method)
+
+    assert "position" not in model.dataset_info.targets
+    assert "position" not in model.supported_outputs()
+    assert "position" not in model.node_heads
+    assert "position" not in model.edge_heads
+    assert "position" not in model.node_last_layers
+    assert "position" not in model.edge_last_layers
+    assert "momentum" in model.dataset_info.targets
+    assert "momentum" in model.node_heads
+
+
+def test_finetune_heads_keeps_stale_targets():
+    """With heads-only finetuning, the backbone is unchanged, so a target not part
+    of the current run's dataset must be kept."""
+    model = FlashMDSymplectic(MODEL_HYPERS, _get_dataset_info())
+    new_dataset_info = _get_single_target_dataset_info("momentum")
+
+    model.restart(new_dataset_info, finetune_method="heads")
+
+    assert "position" in model.dataset_info.targets
+    assert "position" in model.node_heads
+    assert "momentum" in model.dataset_info.targets
+    assert "momentum" in model.node_heads
+
+
+def test_restart_without_finetune_method_keeps_stale_targets():
+    """A plain restart (not part of a finetuning run) must not prune any target."""
+    model = FlashMDSymplectic(MODEL_HYPERS, _get_dataset_info())
+    new_dataset_info = _get_single_target_dataset_info("momentum")
+
+    model.restart(new_dataset_info)
+
+    assert "position" in model.dataset_info.targets
+    assert "position" in model.node_heads
+    assert "momentum" in model.dataset_info.targets
+    assert "momentum" in model.node_heads

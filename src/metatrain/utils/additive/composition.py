@@ -429,6 +429,19 @@ class CompositionModel(torch.nn.Module):
             mts.save_buffer(mts.make_contiguous(fake_weights)),
         )
 
+    def _remove_output(self, target_name: str) -> None:
+        """
+        Remove a previously registered output target, mirroring ``_add_output``.
+
+        :param target_name: Name of the target to remove.
+        """
+        self.outputs.pop(target_name, None)
+        self.dataset_info.targets.pop(target_name, None)
+        self.model.remove_output(target_name)
+        buffer_name = target_name + "_composition_buffer"
+        if hasattr(self, buffer_name):
+            delattr(self, buffer_name)
+
     def weights_to(self, device: torch.device, dtype: torch.dtype) -> None:
         if len(self.model.weights) != 0:
             if self.model.weights[list(self.model.weights.keys())[0]].device != device:

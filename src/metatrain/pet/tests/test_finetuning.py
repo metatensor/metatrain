@@ -263,3 +263,79 @@ def test_finetuning_restart(monkeypatch, tmp_path):
         val_datasets=[dataset],
         checkpoint_dir=".",
     )
+
+
+def _two_target_setup():
+    """A model pre-trained on ``"energy"``, plus a second, unrelated ``"mtt::U0"``
+    target to fine-tune on."""
+    old_target = get_energy_target_info("energy", {"quantity": "energy", "unit": "eV"})
+    new_target = get_energy_target_info("mtt::U0", {"quantity": "energy", "unit": "eV"})
+
+    old_dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={"energy": old_target},
+    )
+    model = PET(MODEL_HYPERS, old_dataset_info)
+
+    new_dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={"mtt::U0": new_target},
+    )
+    return model, new_dataset_info
+
+
+def _assert_target_absent(model, target_name):
+    assert target_name not in model.dataset_info.targets
+    assert target_name not in model.supported_outputs()
+    assert target_name not in model.backend.node_heads
+    assert target_name not in model.backend.edge_heads
+    assert target_name not in model.backend.node_last_layers
+    assert target_name not in model.backend.edge_last_layers
+    for additive_model in model.additive_models:
+        assert target_name not in additive_model.outputs
+    assert target_name not in model.scaler.outputs
+
+
+def _assert_target_present(model, target_name):
+    assert target_name in model.dataset_info.targets
+    assert target_name in model.supported_outputs()
+    assert target_name in model.backend.node_heads
+    assert target_name in model.backend.edge_heads
+    assert target_name in model.backend.node_last_layers
+    assert target_name in model.backend.edge_last_layers
+
+
+@pytest.mark.parametrize("method", ["full", "lora"])
+def test_finetune_full_lora_prunes_stale_targets(method):
+    """A target not part of the current full/lora finetuning run's dataset is
+    dropped from the model, since its head is no longer compatible with the
+    fine-tuned backbone."""
+    model, new_dataset_info = _two_target_setup()
+
+    model.restart(new_dataset_info, finetune_method=method)
+
+    _assert_target_absent(model, "energy")
+    _assert_target_present(model, "mtt::U0")
+
+
+def test_finetune_heads_keeps_stale_targets():
+    """With heads-only finetuning, the backbone is unchanged, so a target not part
+    of the current run's dataset must be kept."""
+    model, new_dataset_info = _two_target_setup()
+
+    model.restart(new_dataset_info, finetune_method="heads")
+
+    _assert_target_present(model, "energy")
+    _assert_target_present(model, "mtt::U0")
+
+
+def test_restart_without_finetune_method_keeps_stale_targets():
+    """A plain restart (not part of a finetuning run) must not prune any target."""
+    model, new_dataset_info = _two_target_setup()
+
+    model.restart(new_dataset_info)
+
+    _assert_target_present(model, "energy")
+    _assert_target_present(model, "mtt::U0")

@@ -235,7 +235,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 bias=False,
             )
 
-    def restart(self, dataset_info: DatasetInfo) -> "LLPRUncertaintyModel":
+    def restart(
+        self, dataset_info: DatasetInfo, finetune_method: Optional[str] = None
+    ) -> "LLPRUncertaintyModel":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [

@@ -398,7 +398,9 @@ class DPA3(ModelInterface[ModelHypers]):
 
         return return_dict
 
-    def restart(self, dataset_info: DatasetInfo) -> "DPA3":
+    def restart(
+        self, dataset_info: DatasetInfo, finetune_method: Optional[str] = None
+    ) -> "DPA3":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [

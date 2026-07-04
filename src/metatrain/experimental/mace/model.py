@@ -294,7 +294,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         self.finetune_config: Dict[str, Any] = {}
 
-    def restart(self, dataset_info: DatasetInfo) -> "MetaMACE":
+    def restart(
+        self, dataset_info: DatasetInfo, finetune_method: Optional[str] = None
+    ) -> "MetaMACE":
         # Check that the new dataset info does not contain new atomic types
         if new_atomic_types := set(dataset_info.atomic_types) - set(
             self.dataset_info.atomic_types
