@@ -1,4 +1,4 @@
 # MACE model downloaded for testing
-tests/mace_small.model
+tests/mace_small_*head.model
 
 _dev/documentation.py

@@ -1,3 +1,4 @@
+import contextlib
 from pathlib import Path
 
 import ase.io
@@ -9,6 +10,11 @@ from metatomic_ase import MetatomicCalculator
 from metatrain.experimental.mace.utils._load_model_file import load_mace_model_file
 
 from .test_basic import MACETests
+
+
+def _available_heads(path: Path) -> list[str]:
+    """Head names present in a saved MACE model (empty for old headless models)."""
+    return list(getattr(torch.load(path, weights_only=False), "heads", []))
 
 
 class TestFoundation(MACETests):
@@ -23,18 +29,30 @@ class TestFoundation(MACETests):
     ) -> None:
         """The exported metatomic model must reproduce the selected head,
         matching the native MACE calculator run with the same ``head``.
+
+        When ``head_name`` is not one of the model's heads (e.g. a single-head
+        model), both metatrain and native MACE fall back to the only head; we
+        assert metatrain's warning instead of letting it fail the test. Only
+        metatrain emits a Python warning here — native MACE logs instead.
         """
         periodic_water_file = (
             Path(__file__).parents[5] / "tests" / "resources" / "periodic_water.data"
         )
         atoms = ase.io.read(periodic_water_file, format="lammps-data")
 
-        model = load_mace_model_file(
-            mace_model_path,
-            mace_head_target="energy",
-            device=device,
-            mace_head_name=head_name,
+        head_present = head_name in _available_heads(mace_model_path)
+        load_ctx = (
+            contextlib.nullcontext()
+            if head_present
+            else pytest.warns(UserWarning, match="only one head")
         )
+        with load_ctx:
+            model = load_mace_model_file(
+                mace_model_path,
+                mace_head_target="energy",
+                device=device,
+                mace_head_name=head_name,
+            )
         atoms.calc = MetatomicCalculator(model.export(), device=device)
         mta_energy = atoms.get_potential_energy()
         mta_forces = atoms.get_forces()

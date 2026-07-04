@@ -38,6 +38,7 @@ from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.heads import MACEHeadWrapper, NonLinearHead
 from .modules.scale_shift import FakeScaleShift
+from .utils.mace_head import get_mace_head_index
 from .utils.mts import (
     e3nn_to_tensormap,
     get_e3nn_mts_layout,
@@ -116,7 +117,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # Which internal MACE head to use at inference. Defaults to 0 so
         # models built from hypers (single "default" head) always have it
         # defined (required by create_batch and torchscript).
-        self.head_index = 0
+        self.mace_head_index = 0
 
         if self.loaded_mace:
             # MACE model provided, load it in case it's a path or use it directly
@@ -130,43 +131,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 raise ValueError(
                     "The 'mace_model' hyper must be a path or a torch.nn.Module"
                 )
-
-            # Resolve which internal head to use. Official foundation models
-            # are inconsistent: some have no ``heads`` attribute at all (older
-            # single-head MP-0a/0b, OFF23), some name their single head
-            # "default"/"Default" or something else entirely (e.g. "omat_pbe").
-            # Match by exact name, then case-insensitively, then fall back to
-            # the only head for single-head models.
-            head_names = list(getattr(self.mace_model, "heads", []))
-            requested = self.hypers["mace_head_name"]
-            if not head_names:
-                # This is the case for MP-0a / MP-0b / OFF23
-                self.head_index = 0
-                self.mace_head = requested
-                warnings.warn(
-                    f"The loaded MACE model has no 'heads' attribute. "
-                    f"Ignoring the head request '{requested}'.",
-                    stacklevel=2,
-                )
-            else:
-                matches = [i for i, h in enumerate(head_names) if h == requested]
-                if not matches and len(head_names) == 1:
-                    # The head name of the single-head model MACE-OMAT-0 is "omat_pbe"
-                    # but not "default"...
-                    matches = [0]
-                    warnings.warn(
-                        f"The loaded MACE model has a single head '{head_names[0]}', "
-                        f"but the requested head was '{requested}'. Using the only "
-                        f"available head.",
-                        stacklevel=2,
-                    )
-                if not matches:
-                    raise ValueError(
-                        f"Head '{requested}' not found in the loaded MACE model. "
-                        f"Available heads: {head_names}"
-                    )
-                self.head_index = matches[0]
-                self.mace_head = head_names[self.head_index]
+            self.mace_head_index = get_mace_head_index(
+                self.mace_model, self.hypers["mace_head_name"]
+            )
 
             # If this is the first time we load this model,
             # extract atomic baselines and scales from the loaded model,
@@ -179,7 +146,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     # models store 2D [n_heads, n_species]. Slice only the latter.
                     atomic_energies = self.mace_model.atomic_energies_fn.atomic_energies
                     if atomic_energies.ndim == 2:
-                        atomic_energies = atomic_energies[self.head_index]
+                        atomic_energies = atomic_energies[self.mace_head_index]
                     self._loaded_atomic_baseline = atomic_energies.clone().ravel()
 
                     self.mace_model.atomic_energies_fn.atomic_energies[:] = 0.0
@@ -190,8 +157,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     scale = self.mace_model.scale_shift.scale
                     shift = self.mace_model.scale_shift.shift
                     if scale.ndim > 0:
-                        scale = scale[self.head_index]
-                        shift = shift[self.head_index]
+                        scale = scale[self.mace_head_index]
+                        shift = shift[self.mace_head_index]
                     self._loaded_scale = scale.item()
                     added_baseline = shift.item()
                     if self._loaded_atomic_baseline is not None:
@@ -423,7 +390,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             neighbor_list_options=self.requested_nl,
             atomic_types_to_species_index=self.atomic_types_to_species_index,
             n_types=len(self.atomic_types),
-            head_index=self.head_index,
+            head_index=self.mace_head_index,
         )
 
         # Change coordinates to YZX
@@ -738,7 +705,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             # Fake head that will not compute the target, but will help
             # us extract the last layer features from MACE internal head.
             self.heads[target_name] = MACEHeadWrapper(
-                self.mace_model.readouts, self.per_layer_irreps, self.head_index
+                self.mace_model.readouts, self.per_layer_irreps, self.mace_head_index
             )
         else:
             output_info = copy.deepcopy(target_info)
