@@ -169,9 +169,9 @@ _BASE_CONFIG = {
 }
 
 
-@pytest.mark.parametrize("fmt", ["xyz", "memmap"])
+@pytest.mark.parametrize("fmt", ["xyz", "memmap", "zip"])
 def test_final_evaluation_valid_format(fmt):
-    """Both 'xyz' and 'memmap' are accepted as final_evaluation.format."""
+    """'xyz', 'memmap' and 'zip' are all accepted as final_evaluation.format."""
     config = {
         **_BASE_CONFIG,
         "final_evaluation": {"write_predictions": True, "format": fmt},

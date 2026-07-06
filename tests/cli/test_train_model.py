@@ -23,6 +23,7 @@ from omegaconf import OmegaConf
 import metatrain.soap_bpnn
 from metatrain import RANDOM_SEED
 from metatrain.cli.train import _process_restart_from, train_model
+from metatrain.utils.data.dataset import DiskDataset
 from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
@@ -1870,7 +1871,7 @@ def test_input_sanitized(monkeypatch, tmp_path, options_spherical):
 # ============================================================================
 
 
-@pytest.mark.parametrize("pred_format", ["xyz", "memmap"])
+@pytest.mark.parametrize("pred_format", ["xyz", "memmap", "zip"])
 def test_train_final_evaluation_writes_predictions(
     monkeypatch, tmp_path, pred_format, options
 ):
@@ -1893,7 +1894,7 @@ def test_train_final_evaluation_writes_predictions(
             assert out.exists(), f"{out.name} missing"
             frames = read(str(out), ":")
             assert len(frames) > 0, f"{out.name} is empty"
-    else:  # memmap
+    elif pred_format == "memmap":
         for split in ["train", "val", "test"]:
             energy_out = final_eval_dir / f"{split}_predictions_energy.npy"
             assert energy_out.exists(), f"{energy_out.name} missing"
@@ -1902,6 +1903,13 @@ def test_train_final_evaluation_writes_predictions(
             assert arr.shape[1] == 1
             assert arr.dtype == np.float32
             assert len(arr) > 0
+    else:  # zip
+        for split in ["train", "val", "test"]:
+            out = final_eval_dir / f"{split}_predictions.zip"
+            assert out.exists(), f"{out.name} missing"
+            dataset = DiskDataset(str(out))
+            assert len(dataset) > 0, f"{out.name} is empty"
+            assert "energy" in dataset[0]._fields
 
 
 def test_train_final_evaluation_off_by_default(monkeypatch, tmp_path, options):

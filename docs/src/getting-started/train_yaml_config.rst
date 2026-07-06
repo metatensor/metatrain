@@ -583,6 +583,29 @@ convention but are not directly interchangeable.
     targets), use ``format: xyz`` or run ``mtt eval`` with a ``.mts`` output file
     instead.
 
+**Format** ``zip``
+-------------------
+
+Each split is written to a ``.zip`` disk-dataset archive, with one folder per system
+(named by its index) containing the system itself and each of its predicted targets:
+
+- ``{index}/system.mta``
+- ``{index}/{target_name}.mts`` — e.g. ``0/energy.mts``
+
+This is the same archive format produced by
+:class:`metatrain.utils.data.writers.DiskDatasetWriter` and can be loaded back lazily,
+without reading the whole split into memory, using
+:class:`metatrain.utils.data.dataset.DiskDataset`:
+
+.. code-block:: python
+
+    from metatrain.utils.data.dataset import DiskDataset
+    dataset = DiskDataset("final_evaluation/train_predictions.zip")
+
+Unlike the ``xyz`` and ``memmap`` formats, ``zip`` preserves multi-block
+:class:`TensorMap <metatensor.torch.TensorMap>` outputs (e.g. spherical tensor targets)
+without any loss of structure.
+
 .. _wandb-integration-section:
 
 WandB Integration

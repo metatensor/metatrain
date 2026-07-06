@@ -793,7 +793,7 @@ def train_model(
     final_eval_options = options.get("final_evaluation", {})
     write_predictions = final_eval_options.get("write_predictions", False)
     pred_format = final_eval_options.get("format", "xyz")
-    pred_ext = ".xyz" if pred_format == "xyz" else ".npy"
+    pred_ext = {"xyz": ".xyz", "memmap": ".npy", "zip": ".zip"}[pred_format]
     write_training_set = final_eval_options.get("write_training_set", True)
     write_validation_set = final_eval_options.get("write_validation_set", True)
     write_test_set = final_eval_options.get("write_test_set", True)

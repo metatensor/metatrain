@@ -431,7 +431,7 @@ class FinalEvaluationHypers(TypedDict):
 
     Predictions are written to ``<checkpoint_dir>/final_evaluation/``."""
 
-    format: NotRequired[Literal["xyz", "memmap"]] = "xyz"
+    format: NotRequired[Literal["xyz", "memmap", "zip"]] = "xyz"
     """Output format for the saved predictions.
 
     - ``"xyz"``: one extended XYZ file per split, readable with ASE.
@@ -439,6 +439,11 @@ class FinalEvaluationHypers(TypedDict):
       per split, loadable via ``numpy.load(path, mmap_mode="r")``. This
       follows the same on-disk array convention used by
       :class:`metatrain.utils.data.dataset.MemmapDataset`.
+    - ``"zip"``: one ``.zip`` disk-dataset archive per split, with one folder per
+      system containing the system and its predicted targets. This is the same
+      format produced by :class:`metatrain.utils.data.writers.DiskDatasetWriter`
+      and can be loaded back with
+      :class:`metatrain.utils.data.dataset.DiskDataset`.
     """
 
     write_training_set: NotRequired[bool] = True
