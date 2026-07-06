@@ -392,7 +392,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         logging.info("Starting training")
         epoch = start_epoch
 
-        for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
+        def run_epoch(metric_logger: Optional[MetricLogger] = None) -> MetricLogger:
             if is_distributed:
                 for train_sampler in train_samplers:
                     train_sampler.set_epoch(epoch)
@@ -408,10 +408,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
-                systems, targets, extra_data = unpack_batch(batch)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype, device=device
-                )
+                with torch.profiler.record_function("G2M_trainer::unpack_batch"):
+
+                    systems, targets, extra_data = unpack_batch(batch)
+                    systems, targets, extra_data = batch_to(
+                        systems, targets, extra_data, dtype=dtype, device=device
+                    )
+
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -419,89 +422,94 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     is_training=True,
                 )
 
-                # targets, predictions = filter_out_nans(targets, predictions)
+                with torch.profiler.record_function("G2M_trainer::pred_processing"):
 
-                # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                    # average by the number of atoms
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                # Apply per-property scales to the predictions before loss computation.
-                # The targets from the dataloader have only been scaled per-target, and
-                # not per-property. This transformation only applies to targets with
-                # per-property scales (i.e. multiple blocks or multiple properties), and
-                # leaves the others unchanged.
-                predictions = scale_targets(
-                    (model.module if is_distributed else model).scaler,
-                    systems,
-                    predictions,
-                    extra_data,
-                    per_property=True,
-                )
+                    # Apply per-property scales to the predictions before loss computation.
+                    # The targets from the dataloader have only been scaled per-target, and
+                    # not per-property. This transformation only applies to targets with
+                    # per-property scales (i.e. multiple blocks or multiple properties), and
+                    # leaves the others unchanged.
+                    predictions = scale_targets(
+                        (model.module if is_distributed else model).scaler,
+                        systems,
+                        predictions,
+                        extra_data,
+                        per_property=True,
+                    )
 
-                extra_data["model"] = model.module if is_distributed else model
-                extra_data["systems"] = systems
-                train_loss_batch = loss_fn(predictions, targets, extra_data)
+                    extra_data["model"] = model.module if is_distributed else model
+                    extra_data["systems"] = systems
 
-                if is_distributed:
-                    # make sure all parameters contribute to the gradient calculation
-                    # to make torch DDP happy
-                    for param in model.parameters():
-                        train_loss_batch += 0.0 * param.sum()
+                with torch.profiler.record_function("G2M_trainer::loss_computation"):
+                    train_loss_batch = loss_fn(predictions, targets, extra_data)
 
-                train_loss_batch.backward()
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), self.hypers["grad_clip_norm"]
-                )
-                optimizer.step()
+                    if is_distributed:
+                        # make sure all parameters contribute to the gradient calculation
+                        # to make torch DDP happy
+                        for param in model.parameters():
+                            train_loss_batch += 0.0 * param.sum()
+
+                with torch.profiler.record_function("G2M_trainer::backward"):
+                    train_loss_batch.backward()
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), self.hypers["grad_clip_norm"]
+                    )
+                    optimizer.step()
 
                 if is_distributed:
                     # sum the loss over all processes
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                scaled_predictions = scale_targets(
-                    (model.module if is_distributed else model).scaler,
-                    systems,
-                    predictions,
-                    extra_data,
-                )
-                scaled_targets = scale_targets(
-                    (model.module if is_distributed else model).scaler,
-                    systems,
-                    targets,
-                    extra_data,
-                )
-                if self.hypers["log_separate_blocks"] and False:
-                    for matrix_name, matrix_spec in model.hypers["matrices"].items():
-                        scaled_predictions.update(
-                            graph2mat_to_tensormap(
+                with torch.profiler.record_function("G2M_trainer::metrics"):
+
+                    scaled_predictions = scale_targets(
+                        (model.module if is_distributed else model).scaler,
+                        systems,
+                        predictions,
+                        extra_data,
+                    )
+                    scaled_targets = scale_targets(
+                        (model.module if is_distributed else model).scaler,
+                        systems,
+                        targets,
+                        extra_data,
+                    )
+                    if self.hypers["log_separate_blocks"] and False:
+                        for matrix_name, matrix_spec in model.hypers["matrices"].items():
+                            scaled_predictions.update(
+                                graph2mat_to_tensormap(
+                                    batch=model.datas[matrix_name],
+                                    out=scaled_predictions,
+                                    processor=(
+                                        model.module if is_distributed else model
+                                    ).graph2mat_processors[matrix_name],
+                                    node_labels_name=matrix_spec["nodes"],
+                                    edge_labels_name=matrix_spec["edges"],
+                                )
+                            )
+                            scaled_targets = graph2mat_to_tensormap(
                                 batch=model.datas[matrix_name],
-                                out=scaled_predictions,
+                                out=scaled_targets,
                                 processor=(
                                     model.module if is_distributed else model
                                 ).graph2mat_processors[matrix_name],
                                 node_labels_name=matrix_spec["nodes"],
                                 edge_labels_name=matrix_spec["edges"],
                             )
-                        )
-                        scaled_targets = graph2mat_to_tensormap(
-                            batch=model.datas[matrix_name],
-                            out=scaled_targets,
-                            processor=(
-                                model.module if is_distributed else model
-                            ).graph2mat_processors[matrix_name],
-                            node_labels_name=matrix_spec["nodes"],
-                            edge_labels_name=matrix_spec["edges"],
-                        )
-                train_rmse_calculator.update(
-                    scaled_predictions, scaled_targets, extra_data
-                )
-                if self.hypers["log_mae"]:
-                    train_mae_calculator.update(
+                    train_rmse_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )
+                    if self.hypers["log_mae"]:
+                        train_mae_calculator.update(
+                            scaled_predictions, scaled_targets, extra_data
+                        )
 
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -529,8 +537,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
                 )
-
-                # targets, predictions = filter_out_nans(targets, predictions)
 
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
@@ -670,6 +676,24 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
 
+            return metric_logger
+        
+        metric_logger = None
+        for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
+            # If this is the last epoch, profile it
+            if self.hypers.get("profile") and epoch == start_epoch + self.hypers["num_epochs"] - 1:
+                with torch.profiler.profile(
+                    activities=[
+                        torch.profiler.ProfilerActivity.CPU,
+                        torch.profiler.ProfilerActivity.CUDA,
+                    ],
+                    record_shapes=True,
+                    profile_memory=True,
+                ) as prof:
+                    metric_logger = run_epoch(metric_logger=metric_logger)
+                prof.export_chrome_trace(self.hypers.get("profile"))
+            else:
+                metric_logger = run_epoch(metric_logger=metric_logger)
         # prepare for the checkpoint that will be saved outside the function
         self.epoch = epoch
         self.optimizer_state_dict = optimizer.state_dict()
