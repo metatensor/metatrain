@@ -754,6 +754,25 @@ class DiskDataset(torch.utils.data.Dataset):
                     self._field_names.append(file_name[len(f"{first_entry}/"):-4])
             self._len = len(self._valid_entry_indices)
 
+            # Optional atom-count sidecar (written by DiskDatasetWriter), keyed by
+            # zip entry number. Lets get_num_atoms()/get_all_atom_counts() below
+            # answer without opening/deserializing every system, which is what makes
+            # this dataset usable with MaxAtomDistributedBatchSampler.
+            self._atom_counts: Optional[np.ndarray] = None
+            if "_atom_counts.npy" in namelist:
+                with zip_file.open("_atom_counts.npy", "r") as f:
+                    atom_counts = np.load(f)
+                if len(atom_counts) > self._valid_entry_indices[-1]:
+                    self._atom_counts = atom_counts
+                else:
+                    warnings.warn(
+                        "Ignoring '_atom_counts.npy' in this DiskDataset: it has "
+                        f"{len(atom_counts)} entries, too few for the highest zip "
+                        f"entry number found ({self._valid_entry_indices[-1]}). The "
+                        "sidecar is likely stale.",
+                        stacklevel=2,
+                    )
+
         # Determine which fields are going to be read
         if fields is None:
             self._fields_to_read = self._field_names
@@ -799,6 +818,42 @@ class DiskDataset(torch.utils.data.Dataset):
 
     def __len__(self) -> int:
         return self._len
+
+    def get_num_atoms(self, i: int) -> int:
+        """
+        Return the atom count for positional index ``i``, using the
+        ``_atom_counts.npy`` sidecar. Enables use with
+        :class:`~metatrain.utils.data.samplers.MaxAtomDistributedBatchSampler`.
+
+        :param i: Positional dataset index.
+        :raises TypeError: If this dataset has no atom-count sidecar (older
+            datasets, written before this feature existed).
+        """
+        if self._atom_counts is None:
+            raise TypeError(
+                "This DiskDataset has no '_atom_counts.npy' sidecar, so "
+                "get_num_atoms() is unavailable. Datasets written with an older "
+                "DiskDatasetWriter lack this metadata; backfill it onto the zip "
+                "file, or re-write the dataset, to enable max_atoms_per_batch."
+            )
+        return int(self._atom_counts[self._valid_entry_indices[i]])
+
+    def get_all_atom_counts(self) -> np.ndarray:
+        """
+        Return atom counts for all positional indices in one vectorised call, using
+        the ``_atom_counts.npy`` sidecar.
+
+        :raises TypeError: If this dataset has no atom-count sidecar (older
+            datasets, written before this feature existed).
+        """
+        if self._atom_counts is None:
+            raise TypeError(
+                "This DiskDataset has no '_atom_counts.npy' sidecar, so "
+                "get_all_atom_counts() is unavailable. Datasets written with an "
+                "older DiskDatasetWriter lack this metadata; backfill it onto the "
+                "zip file, or re-write the dataset, to enable max_atoms_per_batch."
+            )
+        return self._atom_counts[self._valid_entry_indices].astype(np.int64)
 
     def __getitem__(self, index: int) -> Any:
         self._open_zip_once()

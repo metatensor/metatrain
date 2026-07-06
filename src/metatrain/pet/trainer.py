@@ -231,6 +231,45 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
         loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])
 
+        # Determined here (rather than down by the main data loaders) because the
+        # composition/scaler fitting below also reads through the training data and
+        # would otherwise default to synchronous, single-process loading, which is
+        # very slow on large (e.g. disk-based) datasets.
+        if self.hypers["num_workers"] is None:
+            num_workers = get_num_workers()
+            logging.info(
+                "Number of workers for data-loading not provided and chosen "
+                f"automatically. Using {num_workers} workers."
+            )
+        else:
+            num_workers = self.hypers["num_workers"]
+            validate_num_workers(num_workers)
+
+        # On CUDA (especially GH200 unified memory), forking after CUDA init causes
+        # workers to inherit GPU memory mappings, inflating per-worker RSS and triggering
+        # OOM. Use 'spawn' to start workers as fresh processes instead.
+        mp_context = "spawn" if num_workers > 0 and device.type == "cuda" else None
+
+        if mp_context == "spawn":
+            # Some container setups (e.g. CSCS daint ml4es) restrict /dev/shm so that
+            # ftruncate() fails with EINVAL.  PyTorch's default 'file_descriptor' sharing
+            # strategy creates POSIX shared-memory files in /dev/shm; switching to
+            # 'file_system' uses regular files in /tmp instead, which always works.
+            import torch.multiprocessing as _torch_mp
+
+            _torch_mp.set_sharing_strategy("file_system")
+
+        # The composition/scaler fitting dataloaders are short-lived (created once,
+        # used for a single pass, then torn down) rather than persistent like the main
+        # training loop's. On at least one observed container setup, spawning 8 workers
+        # for such a short-lived pool made a worker abort during shutdown and left the
+        # process's multiprocessing state unable to start a subsequent worker pool
+        # (i.e. the following composition/scaler/main-loop pool would hang forever).
+        # Capping at 4 avoided this in testing; the persistent main-loop pool below is
+        # unaffected and keeps using the full `num_workers`.
+        fitting_num_workers = min(num_workers, 4)
+        fitting_mp_context = mp_context if fitting_num_workers > 0 else None
+
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
             train_datasets,
@@ -239,6 +278,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
             is_distributed,
             self.hypers["atomic_baseline"],
             initial_transforms=[atomic_basis_transform],
+            num_workers=fitting_num_workers,
+            multiprocessing_context=fitting_mp_context,
         )
 
         if self.hypers["scale_targets"]:
@@ -251,6 +292,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 self.hypers["fixed_scaling_weights"],
                 initial_transforms=[atomic_basis_transform],
                 per_structure_targets=self.hypers["per_structure_targets"],
+                num_workers=fitting_num_workers,
+                multiprocessing_context=fitting_mp_context,
             )
 
         logging.info("Setting up data loaders")
@@ -378,29 +421,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
 
         # Create dataloader for the training datasets:
-        if self.hypers["num_workers"] is None:
-            num_workers = get_num_workers()
-            logging.info(
-                "Number of workers for data-loading not provided and chosen "
-                f"automatically. Using {num_workers} workers."
-            )
-        else:
-            num_workers = self.hypers["num_workers"]
-            validate_num_workers(num_workers)
-
-        # On CUDA (especially GH200 unified memory), forking after CUDA init causes
-        # workers to inherit GPU memory mappings, inflating per-worker RSS and triggering
-        # OOM. Use 'spawn' to start workers as fresh processes instead.
-        mp_context = "spawn" if num_workers > 0 and device.type == "cuda" else None
-
-        if mp_context == "spawn":
-            # Some container setups (e.g. CSCS daint ml4es) restrict /dev/shm so that
-            # ftruncate() fails with EINVAL.  PyTorch's default 'file_descriptor' sharing
-            # strategy creates POSIX shared-memory files in /dev/shm; switching to
-            # 'file_system' uses regular files in /tmp instead, which always works.
-            import torch.multiprocessing as _torch_mp
-
-            _torch_mp.set_sharing_strategy("file_system")
+        # (num_workers/mp_context were already computed above, before the
+        # composition/scaler fitting steps)
 
         # Samplers that need set_epoch() called each epoch (may be DistributedSampler
         # or MaxAtomDistributedBatchSampler depending on which path is taken below).

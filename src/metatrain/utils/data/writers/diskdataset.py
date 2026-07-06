@@ -34,6 +34,8 @@ class DiskDatasetWriter(Writer):
         mode: Literal["w", "a"] = "a" if append else "w"
         self.zip_file = zipfile.ZipFile(path, mode)
         self.index = 0
+        self._append = bool(append)
+        self._atom_counts: List[int] = []
 
     def write(self, systems: List[System], predictions: Dict[str, TensorMap]) -> None:
         """
@@ -56,6 +58,7 @@ class DiskDatasetWriter(Writer):
             # system
             with self.zip_file.open(f"{self.index}/system.mta", "w") as f:
                 mta.save(f, system.to("cpu").to(torch.float64))
+            self._atom_counts.append(len(system))
 
             # each target
             for target_name, tensor_map in preds.items():
@@ -70,6 +73,14 @@ class DiskDatasetWriter(Writer):
 
     def finish(self) -> None:
         """
-        Close the zip file.
+        Write the per-structure atom-count sidecar (``_atom_counts.npy``) and close
+        the zip file.
+
+        The sidecar is skipped in append mode: this writer does not know the atom
+        counts of entries written by a previous session, so it cannot produce a
+        complete array without risking a silently wrong one.
         """
+        if not self._append:
+            with self.zip_file.open("_atom_counts.npy", "w") as f:
+                np.save(f, np.array(self._atom_counts, dtype=np.int64))
         self.zip_file.close()

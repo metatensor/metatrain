@@ -1,3 +1,4 @@
+import gc
 import logging
 from typing import Callable, Dict, List, Optional, Sequence, Union
 
@@ -100,6 +101,8 @@ class CompositionModel(torch.nn.Module):
         batch_size: int,
         is_distributed: bool,
         initial_transforms: Sequence[Callable],
+        num_workers: int = 0,
+        multiprocessing_context: Optional[str] = None,
     ) -> DataLoader:
         """
         Create a DataLoader for the provided datasets. As the dataloader is only used to
@@ -118,6 +121,12 @@ class CompositionModel(torch.nn.Module):
         :param initial_transforms: A list of callables to be included in
             the collate function. The callables passed here will be applied before the
             other callables set by the composition model.
+        :param num_workers: Number of worker processes for data loading. Defaults to 0
+            (synchronous loading in the main process), which can be very slow when
+            fitting on large (e.g. disk-based) datasets.
+        :param multiprocessing_context: Multiprocessing context to use for the worker
+            processes (e.g. ``"spawn"``), forwarded to the underlying ``DataLoader``
+            when ``num_workers > 0``.
         :return: A DataLoader for the CompositionModel fitting.
         """
         # Create the collate function
@@ -173,6 +182,9 @@ class CompositionModel(torch.nn.Module):
                     shuffle=None if sampler else False,
                     drop_last=False,
                     collate_fn=collate_fn,
+                    num_workers=num_workers,
+                    multiprocessing_context=multiprocessing_context,
+                    persistent_workers=False,
                 )
             )
 
@@ -186,6 +198,8 @@ class CompositionModel(torch.nn.Module):
         is_distributed: bool,
         fixed_weights: Optional[FixedCompositionWeights] = None,
         initial_transforms: Sequence[Callable] = (),
+        num_workers: int = 0,
+        multiprocessing_context: Optional[str] = None,
     ) -> None:
         """
         Train the composition model on the provided training data in the ``datasets``.
@@ -212,6 +226,12 @@ class CompositionModel(torch.nn.Module):
         :param initial_transforms: A list of callables to be included in
             the collate function of the dataloader. The callables passed here will be
             applied before the other callables set by the composition model.
+        :param num_workers: Number of worker processes for data loading. Defaults to 0
+            (synchronous loading in the main process), which can be very slow when
+            fitting on large (e.g. disk-based) datasets.
+        :param multiprocessing_context: Multiprocessing context to use for the worker
+            processes (e.g. ``"spawn"``), forwarded to the underlying ``DataLoader``
+            when ``num_workers > 0``.
         """
 
         if not isinstance(datasets, list):
@@ -234,6 +254,8 @@ class CompositionModel(torch.nn.Module):
             batch_size,
             is_distributed=is_distributed,
             initial_transforms=initial_transforms,
+            num_workers=num_workers,
+            multiprocessing_context=multiprocessing_context,
         )
 
         if fixed_weights is None:
@@ -266,6 +288,14 @@ class CompositionModel(torch.nn.Module):
                     },
                 )
             self.model.accumulate(systems, targets)
+
+        # Force worker processes to be reaped now rather than whenever Python's
+        # garbage collector gets around to it. Otherwise, a subsequent DataLoader
+        # using the same (spawn) multiprocessing context (e.g. the scaler's, or the
+        # main training loop's) can hang while starting its own worker pool.
+        del dataloader
+        if num_workers > 0:
+            gc.collect()
 
         if is_distributed:
             torch.distributed.barrier()

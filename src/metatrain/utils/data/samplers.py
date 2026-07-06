@@ -34,8 +34,8 @@ def _get_num_atoms(dataset: torch.utils.data.Dataset, i: int) -> int:
         return dataset.get_num_atoms(i)
     raise TypeError(
         f"Dataset of type {type(dataset).__name__} does not support "
-        "get_num_atoms(). Only MemmapDataset (and Subsets thereof) is "
-        "currently supported with max_atoms_per_batch."
+        "get_num_atoms(). Only MemmapDataset and DiskDataset (and Subsets "
+        "thereof) are currently supported with max_atoms_per_batch."
     )
 
 
@@ -110,7 +110,8 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
     ``MaxAtomDistributedBatchSampler`` design.
 
     :param dataset: The dataset to sample from. Must support ``get_num_atoms(i)``
-        (currently only ``MemmapDataset`` and ``Subset`` wrappers thereof).
+        (currently ``MemmapDataset``, ``DiskDataset`` with an ``_atom_counts.npy``
+        sidecar, and ``Subset`` wrappers thereof).
     :param max_atoms: Maximum total number of atoms across all structures in a batch.
     :param num_replicas: Number of distributed processes (world size).
     :param rank: Rank of the current process.
