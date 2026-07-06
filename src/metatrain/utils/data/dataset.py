@@ -831,7 +831,7 @@ class DiskDataset(torch.utils.data.Dataset):
         return target_info_dict
 
     def __del__(self) -> None:
-        if self.zip_file is not None:
+        if hasattr(self, "zip_file") and self.zip_file is not None:
             self.zip_file.close()
 
 
