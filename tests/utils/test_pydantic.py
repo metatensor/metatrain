@@ -211,3 +211,25 @@ def test_final_evaluation_unknown_key():
 def test_final_evaluation_omitted():
     """Omitting final_evaluation entirely is valid (it is NotRequired)."""
     validate_base_options(_BASE_CONFIG)  # must not raise
+
+
+@pytest.mark.parametrize(
+    "split", ["write_training_set", "write_validation_set", "write_test_set"]
+)
+def test_final_evaluation_split_toggle(split):
+    """Each split flag inside final_evaluation accepts a bool, default True."""
+    config = {
+        **_BASE_CONFIG,
+        "final_evaluation": {split: False},
+    }
+    validate_base_options(config)  # must not raise
+
+
+def test_final_evaluation_split_toggle_invalid_type():
+    """Non-bool values for the split toggles are rejected."""
+    config = {
+        **_BASE_CONFIG,
+        "final_evaluation": {"write_training_set": "yes"},
+    }
+    with pytest.raises(MetatrainValidationError, match="write_training_set"):
+        validate_base_options(config)

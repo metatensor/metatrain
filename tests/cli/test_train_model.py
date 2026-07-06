@@ -1912,3 +1912,35 @@ def test_train_final_evaluation_off_by_default(monkeypatch, tmp_path, options):
     train_model(options, checkpoint_dir=str(tmp_path))
 
     assert not (tmp_path / "final_evaluation").exists()
+
+
+def test_train_final_evaluation_skip_split_predictions(
+    monkeypatch, caplog, tmp_path, options
+):
+    """write_training_set/write_validation_set/write_test_set flags only skip writing
+    prediction files for those splits; RMSE/MAE metrics are still always logged for
+    every split."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["final_evaluation"] = OmegaConf.create(
+        {
+            "write_predictions": True,
+            "write_training_set": False,
+            "write_validation_set": False,
+            "write_test_set": True,
+        }
+    )
+
+    with caplog.at_level(logging.INFO):
+        train_model(options, checkpoint_dir=str(tmp_path))
+
+    final_eval_dir = tmp_path / "final_evaluation"
+    assert not (final_eval_dir / "train_predictions.xyz").exists()
+    assert not (final_eval_dir / "val_predictions.xyz").exists()
+    assert (final_eval_dir / "test_predictions.xyz").exists()
+
+    # metrics are still computed/logged for all three splits
+    assert "Evaluating training dataset" in caplog.text
+    assert "Evaluating validation dataset" in caplog.text
+    assert "Evaluating test dataset" in caplog.text

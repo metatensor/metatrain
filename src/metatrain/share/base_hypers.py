@@ -441,6 +441,21 @@ class FinalEvaluationHypers(TypedDict):
       :class:`metatrain.utils.data.dataset.MemmapDataset`.
     """
 
+    write_training_set: NotRequired[bool] = True
+    """If ``False``, prediction files for the training set are not written, even
+    if ``write_predictions`` is ``True``. RMSE/MAE metrics for the training set are
+    still always computed and logged."""
+
+    write_validation_set: NotRequired[bool] = True
+    """If ``False``, prediction files for the validation set are not written, even
+    if ``write_predictions`` is ``True``. RMSE/MAE metrics for the validation set are
+    still always computed and logged."""
+
+    write_test_set: NotRequired[bool] = True
+    """If ``False``, prediction files for the test set are not written, even
+    if ``write_predictions`` is ``True``. RMSE/MAE metrics for the test set are
+    still always computed and logged."""
+
 
 @with_config(ConfigDict(extra="forbid", strict=True))
 class BaseHypers(TypedDict):

@@ -459,9 +459,18 @@ Final Evaluation
 ================
 
 After training ends, ``metatrain`` evaluates the final model on the training, validation
-and test sets and logs the RMSE and MAE for each target. The ``final_evaluation`` section
-lets you additionally save the predicted labels to disk, which is useful for post-training
-analysis or for building new datasets from model predictions.
+and test sets and **always** logs the RMSE and MAE for each target — this happens
+unconditionally, regardless of anything described below.
+
+The optional ``final_evaluation`` section controls whether the model's
+predictions are additionally saved to disk, which is useful for post-training analysis or
+for building new datasets from model predictions. By default nothing is written; saving
+predictions is opt-in.
+
+Saving predictions
+-------------------
+
+Set ``write_predictions: true`` to save predictions for every split:
 
 .. code-block:: yaml
 
@@ -477,8 +486,48 @@ analysis or for building new datasets from model predictions.
     .. autoattribute:: metatrain.share.base_hypers.FinalEvaluationHypers.format
         :no-index:
 
-When ``write_predictions`` is ``true``, one output file (or set of files) per split is
-written to the ``final_evaluation/`` subdirectory inside the checkpoint directory:
+Excluding individual splits
+-----------------------------
+
+Once ``write_predictions`` is enabled, ``write_training_set``, ``write_validation_set``
+and ``write_test_set`` let you exclude individual splits from having their prediction
+files written, while leaving the other splits' files unaffected. All three
+default to ``true``, so you only need to list the ones you want to turn off — there's
+no need to explicitly set the rest to ``true``.
+
+For example, the configuration below only saves predictions for the test set:
+
+.. code-block:: yaml
+
+    final_evaluation:
+        write_predictions: true
+        write_training_set: false
+        write_validation_set: false
+
+.. container:: mtt-hypers-remove-classname
+
+    .. autoattribute:: metatrain.share.base_hypers.FinalEvaluationHypers.write_training_set
+        :no-index:
+
+    .. autoattribute:: metatrain.share.base_hypers.FinalEvaluationHypers.write_validation_set
+        :no-index:
+
+    .. autoattribute:: metatrain.share.base_hypers.FinalEvaluationHypers.write_test_set
+        :no-index:
+
+.. note::
+
+    These flags have no effect if ``write_predictions`` is ``false`` (the default), and
+    they are unrelated to the top-level :ref:`training_set / validation_set / test_set
+    <data-section>` keys, which specify the datasets themselves rather than whether to
+    write predictions for them.
+
+Output files
+-------------
+
+When ``write_predictions`` is ``true``, one output file (or set of files) per enabled
+split is written to the ``final_evaluation/`` subdirectory inside the checkpoint
+directory:
 
 - ``train_predictions.<ext>``
 - ``val_predictions.<ext>``

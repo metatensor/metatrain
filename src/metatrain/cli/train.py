@@ -794,6 +794,9 @@ def train_model(
     write_predictions = final_eval_options.get("write_predictions", False)
     pred_format = final_eval_options.get("format", "xyz")
     pred_ext = ".xyz" if pred_format == "xyz" else ".npy"
+    write_training_set = final_eval_options.get("write_training_set", True)
+    write_validation_set = final_eval_options.get("write_validation_set", True)
+    write_test_set = final_eval_options.get("write_test_set", True)
 
     if write_predictions:
         final_eval_dir = checkpoint_dir / "final_evaluation"
@@ -802,8 +805,10 @@ def train_model(
             f"Saving {pred_format} predictions to {final_eval_dir.absolute().resolve()}"
         )
 
-    def _make_writer(split: str, index: Optional[int]) -> Optional[Writer]:
-        if not write_predictions:
+    def _make_writer(
+        split: str, index: Optional[int], enabled: bool
+    ) -> Optional[Writer]:
+        if not write_predictions or not enabled:
             return None
         suffix = f"_{index}" if index is not None else ""
         fname = final_eval_dir / f"{split}_predictions{suffix}{pred_ext}"
@@ -823,7 +828,7 @@ def train_model(
             train_dataset,
             dataset_info.targets,
             batch_size=batch_size,
-            writer=_make_writer("train", dataset_index),
+            writer=_make_writer("train", dataset_index, write_training_set),
         )
 
     for i, val_dataset in enumerate(val_datasets):
@@ -840,7 +845,7 @@ def train_model(
             val_dataset,
             dataset_info.targets,
             batch_size=batch_size,
-            writer=_make_writer("val", dataset_index),
+            writer=_make_writer("val", dataset_index, write_validation_set),
         )
 
     for i, test_dataset in enumerate(test_datasets):
@@ -857,7 +862,7 @@ def train_model(
             test_dataset,
             dataset_info.targets,
             batch_size=batch_size,
-            writer=_make_writer("test", dataset_index),
+            writer=_make_writer("test", dataset_index, write_test_set),
         )
 
 

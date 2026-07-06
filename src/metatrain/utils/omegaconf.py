@@ -143,6 +143,9 @@ BASE_OPTIONS = OmegaConf.create(
         "final_evaluation": {
             "write_predictions": False,
             "format": "xyz",
+            "write_training_set": True,
+            "write_validation_set": True,
+            "write_test_set": True,
         },
     }
 )
