@@ -125,7 +125,8 @@ class ASEWriter(Writer):
 
             # assign arrays
             for array_name, array in arrays.items():
-                atoms.arrays[array_name] = array
+                clean_array_name = array_name.replace("::", "_")
+                atoms.arrays[clean_array_name] = array
 
             frames.append(atoms)
 
