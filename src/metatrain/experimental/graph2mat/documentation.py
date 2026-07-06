@@ -73,6 +73,10 @@ class ModelHypers(TypedDict):
 
 
 class TrainerHypers(TypedDict):
+    profile: Optional[str] = None
+    """If not None, the last epoch of training will be profiled and
+    the trace will be saved to this path as json."""
+
     # Optimizer hypers
     optimizer: str = "Adam"
     """Optimizer for parameter optimization.

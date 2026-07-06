@@ -67,15 +67,21 @@ def get_mts_components(point_basis):
 
 
 def _wrap_in_tensorblock(data_values, i, dtype=torch.float64):
+
+    samples = Labels(
+        names=["system", "matrix_element"],
+        values=torch.stack(
+            [
+                torch.full((data_values.shape[0],), i, device=data_values.device),
+                torch.arange(data_values.shape[0], device=data_values.device)
+            ],
+            dim=-1,
+        ),
+    )
+
     return TensorBlock(
         values=data_values.reshape(-1, 1).to(dtype),
-        samples=Labels(
-            names=["system", "matrix_element"],
-            values=torch.tensor(
-                [[i] * data_values.shape[0], torch.arange(data_values.shape[0])],
-                device=data_values.device,
-            ).T,
-        ),
+        samples=samples,
         components=[],
         properties=Labels(["_"], torch.tensor([[0]], device=data_values.device)),
     )

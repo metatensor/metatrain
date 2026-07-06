@@ -39,6 +39,8 @@ from .utils.dataset import add_neighbor_lists, graph2mat_to_tensormap
 from .utils.mtt import g2m_labels_to_tensormap, split_dataset_info
 from .utils.structures import create_batch, get_edge_vectors_and_lengths
 
+from sphericart.torch import SphericalHarmonics
+
 
 class MetaGraph2Mat(ModelInterface[ModelHypers]):
     """Interface of MACE for metatrain."""
@@ -101,9 +103,7 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
 
         # Embedding of the direction of the edge.
         sh_irreps = o3.Irreps.spherical_harmonics(self.hypers["edge_max_ell"])
-        self.spherical_harmonics = o3.SphericalHarmonics(
-            sh_irreps, normalize=True, normalization="component"
-        )
+        self.spherical_harmonics = SphericalHarmonics(self.hypers["edge_max_ell"])
 
         # ----------------------------------------------------
         #        Initialize one Graph2Mat per target
@@ -294,11 +294,13 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
     ) -> Dict[str, TensorMap]:
         if selected_atoms is not None:
             raise NotImplementedError("selected_atoms not implemented yet")
+        
+        with torch.profiler.record_function("G2M::neighbor_lists"):
 
-        if not self.training:
-            systems = add_neighbor_lists(
-                systems, self.graph2mat_processors, self.graph2mat_nls
-            )
+            if not self.training:
+                systems = add_neighbor_lists(
+                    systems, self.graph2mat_processors, self.graph2mat_nls
+                )
 
         # -------------------------------------------------------
         #  Split outputs according to whether the featurizer or
@@ -334,93 +336,100 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
         # We add extra outputs to the featurizer to retrieve the node
         # features that graph2mat will use.
 
-        featurizer_return = self.featurizer_model.forward(
-            systems=systems,
-            outputs=featurizer_outputs,
-            selected_atoms=selected_atoms,
-        )
+        with torch.profiler.record_function("G2M::featurizer_forward"):
+
+            featurizer_return = self.featurizer_model.forward(
+                systems=systems,
+                outputs=featurizer_outputs,
+                selected_atoms=selected_atoms,
+            )
 
         # ----------------------------------------------------------------
         #   Concatenate tensormap outputs to get flat tensors (e3nn-like)
         # ----------------------------------------------------------------
 
-        graph2mat_inputs = {}
-        # Concatenate outputs to get the e3nn representations from the tensormap
-        for name in featurizer_outputs.keys():
-            if not name.startswith("mtt::aux::graph2mat_"):
-                continue
-            matrix_name = name[len("mtt::aux::graph2mat_") :]
-            graph2mat_inputs[matrix_name] = []
+        with torch.profiler.record_function("G2M::input_setup"):
 
-            tensormap = featurizer_return.pop(f"mtt::aux::graph2mat_{matrix_name}")
+            graph2mat_inputs = {}
+            # Concatenate outputs to get the e3nn representations from the tensormap
+            for name in featurizer_outputs.keys():
+                if not name.startswith("mtt::aux::graph2mat_"):
+                    continue
+                matrix_name = name[len("mtt::aux::graph2mat_") :]
+                graph2mat_inputs[matrix_name] = []
 
-            for block in tensormap.blocks():
-                # Move components dimension to last and then flatten to get (n_atoms, irreps_dim)
-                block_values = block.values.transpose(1, 2)
-                graph2mat_inputs[matrix_name].append(
-                    block_values.reshape(block_values.shape[0], -1)
+                tensormap = featurizer_return.pop(f"mtt::aux::graph2mat_{matrix_name}")
+
+                for block in tensormap.blocks():
+                    # Move components dimension to last and then flatten to get (n_atoms, irreps_dim)
+                    block_values = block.values.transpose(1, 2)
+                    graph2mat_inputs[matrix_name].append(
+                        block_values.reshape(block_values.shape[0], -1)
+                    )
+
+                graph2mat_inputs[matrix_name] = torch.cat(
+                    graph2mat_inputs[matrix_name], dim=-1
                 )
-
-            graph2mat_inputs[matrix_name] = torch.cat(
-                graph2mat_inputs[matrix_name], dim=-1
-            )
 
         # -----------------------------
         #      Run each Graph2Mat
         # -----------------------------
 
-        graph2mat_returns = {}
-        datas = {}
+        with torch.profiler.record_function("G2M::graph2mat_forwards"):
 
-        for matrix_name, graph2mat in self.graph2mats.items():
-            node_taget = self.hypers["matrices"][matrix_name]["nodes"]
-            edge_target = self.hypers["matrices"][matrix_name]["edges"]
-            if (
-                node_taget not in graph2mat_outputs
-                and edge_target not in graph2mat_outputs
-            ):
-                continue
+            graph2mat_returns = {}
+            datas = {}
 
-            # Create the batch with the graph that this graph2mat will use
-            data = create_batch(
-                systems=systems,
-                neighbor_list_options=self.graph2mat_nls[matrix_name],
-                atomic_types_to_species_index=self.atomic_types_to_species_index,
-                n_types=len(self.atomic_types),
-                data_processor=self.graph2mat_processors[matrix_name],
-            )
+            for matrix_name, graph2mat in self.graph2mats.items():
+                node_taget = self.hypers["matrices"][matrix_name]["nodes"]
+                edge_target = self.hypers["matrices"][matrix_name]["edges"]
+                if (
+                    node_taget not in graph2mat_outputs
+                    and edge_target not in graph2mat_outputs
+                ):
+                    continue
 
-            # Convert coordinates from XYZ to YZX so that the outputs are spherical
-            # harmonics.
-            data["positions"] = data["positions"][:, [1, 2, 0]]
-            data["cell"] = data["cell"][:, [1, 2, 0]]
-            data["shifts"] = data["shifts"][:, [1, 2, 0]]
+                # Create the batch with the graph that this graph2mat will use
+                data = create_batch(
+                    systems=systems,
+                    neighbor_list_options=self.graph2mat_nls[matrix_name],
+                    atomic_types_to_species_index=self.atomic_types_to_species_index,
+                    n_types=len(self.atomic_types),
+                    data_processor=self.graph2mat_processors[matrix_name],
+                )
 
-            # Embed edges and add them to the batch
-            vectors, lengths = get_edge_vectors_and_lengths(
-                positions=data["positions"],
-                edge_index=data["edge_index"],
-                shifts=data["shifts"],
-            )
-            edge_attrs = self.spherical_harmonics(vectors)
-            edge_feats = self.radial_embeddings[matrix_name](
-                lengths,
-                data["node_attrs"],
-                data["edge_index"],
-                self.dataset_info.atomic_types,
-            )
+                # Embed edges and add them to the batch
+                vectors, lengths = get_edge_vectors_and_lengths(
+                    positions=data["positions"],
+                    edge_index=data["edge_index"],
+                    shifts=data["shifts"],
+                )
+                
+                edge_attrs = self.spherical_harmonics(vectors)
 
-            data["edge_attrs"] = edge_attrs
-            data["edge_feats"] = edge_feats
+                edge_feats = self.radial_embeddings[matrix_name](
+                    lengths,
+                    data["node_attrs"],
+                    data["edge_index"],
+                    self.dataset_info.atomic_types,
+                )
+                # Convert coordinates from XYZ to YZX so that the outputs are spherical
+                # harmonics.
+                data["positions"] = data["positions"][:, [1, 2, 0]]
+                data["cell"] = data["cell"][:, [1, 2, 0]]
+                data["shifts"] = data["shifts"][:, [1, 2, 0]]
 
-            datas[matrix_name] = data
+                data["edge_attrs"] = edge_attrs
+                data["edge_feats"] = edge_feats
 
-            # Run graph2mat and store the outputs (a tuple of tensors: node labels and edge labels)
-            graph2mat_returns[matrix_name] = graph2mat(
-                data=data, node_feats=graph2mat_inputs[matrix_name]
-            )
+                datas[matrix_name] = data
 
-        self.datas = datas
+                # Run graph2mat and store the outputs (a tuple of tensors: node labels and edge labels)
+                graph2mat_returns[matrix_name] = graph2mat(
+                    data=data, node_feats=graph2mat_inputs[matrix_name]
+                )
+
+            self.datas = datas
 
         # -----------------------------------
         #   Convert outputs to TensorMaps
@@ -431,52 +440,56 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
 
         # Get the labels for the samples (system and atom of each value)
 
-        return_dict: Dict[str, TensorMap] = {
-            **featurizer_return,
-        }
+        with torch.profiler.record_function("G2M::output_conversion"):
 
-        for matrix_name, graph2mat_return in graph2mat_returns.items():
-            node_target = self.hypers["matrices"][matrix_name]["nodes"]
-            edge_target = self.hypers["matrices"][matrix_name]["edges"]
+            return_dict: Dict[str, TensorMap] = {
+                **featurizer_return,
+            }
 
-            return_dict[node_target], return_dict[edge_target] = (
-                g2m_labels_to_tensormap(
-                    node_labels=graph2mat_return[0],
-                    edge_labels=graph2mat_return[1],
-                    dtype=graph2mat_return[0].dtype,
+            for matrix_name, graph2mat_return in graph2mat_returns.items():
+                node_target = self.hypers["matrices"][matrix_name]["nodes"]
+                edge_target = self.hypers["matrices"][matrix_name]["edges"]
+
+                return_dict[node_target], return_dict[edge_target] = (
+                    g2m_labels_to_tensormap(
+                        node_labels=graph2mat_return[0],
+                        edge_labels=graph2mat_return[1],
+                        dtype=graph2mat_return[0].dtype,
+                    )
                 )
-            )
 
         # -----------------------------------------
         #   Undo data preprocessing (eval only)
         # -----------------------------------------
 
-        # At evaluation, we also introduce the scaler and additive contributions
-        if not self.training:
-            for matrix_name in graph2mat_returns.keys():
-                node_target = self.hypers["matrices"][matrix_name]["nodes"]
-                edge_target = self.hypers["matrices"][matrix_name]["edges"]
+        with torch.profiler.record_function("G2M::eval_postprocessing"):
 
-                return_dict.update(
-                    graph2mat_to_tensormap(
-                        batch=datas[matrix_name],
-                        out=return_dict,
-                        processor=self.graph2mat_processors[matrix_name],
-                        node_labels_name=node_target,
-                        edge_labels_name=edge_target,
+            # At evaluation, we also introduce the scaler and additive contributions
+            if not self.training:
+                for matrix_name in graph2mat_returns.keys():
+                    node_target = self.hypers["matrices"][matrix_name]["nodes"]
+                    edge_target = self.hypers["matrices"][matrix_name]["edges"]
+
+                    return_dict.update(
+                        graph2mat_to_tensormap(
+                            batch=datas[matrix_name],
+                            out=return_dict,
+                            processor=self.graph2mat_processors[matrix_name],
+                            node_labels_name=node_target,
+                            edge_labels_name=edge_target,
+                        )
                     )
-                )
 
-            return_dict = self.scaler(
-                systems,
-                return_dict,
-                selected_atoms=selected_atoms,
-                use_per_target_scales=True,
-                use_per_property_scales=True,
-            )
-            self.add_additive_contributions(
-                return_dict, systems, outputs, selected_atoms
-            )
+                return_dict = self.scaler(
+                    systems,
+                    return_dict,
+                    selected_atoms=selected_atoms,
+                    use_per_target_scales=True,
+                    use_per_property_scales=True,
+                )
+                self.add_additive_contributions(
+                    return_dict, systems, outputs, selected_atoms
+                )
 
         return return_dict
 
