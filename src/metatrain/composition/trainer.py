@@ -46,7 +46,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         additive_models = getattr(self, "_additive_models", [])
         is_distributed = getattr(self, "_is_distributed", False)
         fixed_weights = self.hypers.get("atomic_baseline", None)
-        batch_size = self.hypers.get("batch_size", len(train_datasets[0]))
+        batch_size = self.hypers.get("batch_size", None) or len(train_datasets[0])
 
         if len(model.target_infos) == 0:
             return
