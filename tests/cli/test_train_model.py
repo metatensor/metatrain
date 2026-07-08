@@ -693,20 +693,20 @@ def test_same_name_targets_extra_data(
         train_model(options_extra)
 
 
-def test_no_evaluate_best_model(caplog, monkeypatch, tmp_path, options):
-    """Tests that the evaluation of the best model can be disabled."""
+def test_no_final_eval(caplog, monkeypatch, tmp_path, options):
+    """Tests that the final evaluation can be disabled."""
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.DEBUG)
 
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     options = copy.deepcopy(options)
-    options["evaluate_best_model"] = False
+    options["final_eval"] = False
 
     train_model(options)
 
     log_text = caplog.text
-    assert "Skipping evaluation of the best model." in log_text
+    assert "Skipping final evaluation." in log_text
     assert "Running final evaluation" not in log_text
 
 
