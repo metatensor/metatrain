@@ -35,10 +35,13 @@ ASE-readable files
 Most examples in the documentation use files read by ASE. In this case,
 per-structure quantities, such as energies or extra data like ``charge``, are
 read from ``atoms.info[key]``. Per-atom quantities, such as forces, are read
-from ``atoms.arrays[key]``.
+from ``atoms.arrays[key]``. Not every target type can be stored this way,
+spherical tensors with more than one irreducible representation cannot be read
+by the ASE reader.
 
-Targets can also be read from metatensor ``.mts`` files by setting the target's
-``read_from`` option to the corresponding file. See
+Targets can also be read from metatensor ``.mts`` files (one ``TensorMap`` per
+structure) by setting the target's ``read_from`` option to the corresponding
+file. See
 :doc:`../getting-started/train_yaml_config` for the full data configuration
 reference.
 
@@ -59,28 +62,15 @@ folder for each structure, named by index:
     │   └── ...
     └── ...
 
-Each folder contains the structure in ``system.mta``, stored as a
-``metatomic.torch.System``. Targets and extra data are stored next to it as
-per-structure ``metatensor.torch.TensorMap`` objects in ``.mts`` files. The
-file name, without the extension, must match the corresponding entry in the
-options file: an ``energy:`` target is read from ``energy.mts``, a
-``charge:`` extra-data entry from ``charge.mts``, and so on. The same rule
-applies to ``spin_multiplicity.mts`` when using spin conditioning.
+Each target or extra-data entry is a separate ``.mts`` file containing a per-structure
+``metatensor.torch.TensorMap``. The file is selected by the ``key`` option of the
+corresponding section, as for the other formats. If no ``key`` is given, the section
+name is used.
 
 The easiest way to create such a file is the
-:py:class:`metatrain.utils.data.writers.DiskDatasetWriter` class, which takes
-care of the serialization details:
-
-.. code-block:: python
-
-    from metatrain.utils.data.writers import DiskDatasetWriter
-
-    writer = DiskDatasetWriter("dataset.zip")
-    for system, targets in zip(systems, target_dicts):
-        # targets is a dictionary of per-structure TensorMaps, e.g.
-        # {"energy": ..., "charge": ...}
-        writer.write([system], targets)
-    writer.finish()
+:py:class:`metatrain.utils.data.writers.DiskDatasetWriter` class, which takes care of
+the serialization details (see
+:ref:`sphx_glr_generated_examples_0-beginner_01-data_preparation.py` for an example).
 
 Memory-mapped directories
 -------------------------
