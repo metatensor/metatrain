@@ -718,19 +718,19 @@ class DiskDataset(torch.utils.data.Dataset):
             self._fields_to_read = self._field_names
         else:
             # Check that the requested fields are present in the dataset
-            fields = ["system", *fields]
-            missing_fields = set(fields) - set(self._field_names)
+            fields_to_read = ["system", *fields]
+            missing_fields = set(fields_to_read) - set(self._field_names)
             if missing_fields:
                 raise ValueError(
                     f"Fields {list(missing_fields)} were requested but "
                     "are not present in this disk dataset. "
                     f"Available fields: {self._field_names[1:]}"
                 )
-            self._fields_to_read = fields
+            self._fields_to_read = fields_to_read
 
         self._fields_to_read.append("mtt::aux::system_index")
 
-        fields_map: dict = fields if isinstance(fields, dict) else {}
+        fields_map = fields if isinstance(fields, dict) else {}
         self._sample_class = namedtuple(
             "Sample", [fields_map.get(field, field) for field in self._fields_to_read]
         )
@@ -809,8 +809,7 @@ class DiskDataset(torch.utils.data.Dataset):
                 and target["num_subtargets"] == 1
                 and target["type"] == "scalar"
             )
-            field_key = target.get("key", target_key)
-            tensor_map = self[0][field_key]  # always > 0 samples, see above
+            tensor_map = self[0][target_key]  # always > 0 samples, see above
             if is_energy:
                 if len(tensor_map) != 1:
                     raise ValueError("Energy TensorMaps should have exactly one block.")
