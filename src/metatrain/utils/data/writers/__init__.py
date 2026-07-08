@@ -5,6 +5,7 @@ from metatomic.torch import ModelCapabilities
 
 from .ase import ASEWriter
 from .diskdataset import DiskDatasetWriter
+from .memmap import MemmapWriter
 from .metatensor import MetatensorWriter
 from .writers import (
     Writer,
@@ -40,6 +41,7 @@ PREDICTIONS_WRITERS: Dict[str, WriterFactory] = {
     ".xyz": _make_factory(ASEWriter),
     ".mts": _make_factory(MetatensorWriter),
     ".zip": _make_factory(DiskDatasetWriter),
+    ".memmap": _make_factory(MemmapWriter),
 }
 """:py:class:`dict`: dictionary mapping file suffixes to a prediction writer"""
 

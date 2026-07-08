@@ -1,15 +1,19 @@
+from pathlib import Path
 from typing import Dict, List, Tuple
 
 import metatensor.torch as mts
+import numpy as np
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelCapabilities, ModelOutput, System
 
+from metatrain.utils.data.dataset import MemmapDataset
 from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import (
     ASEWriter,
     DiskDatasetWriter,
+    MemmapWriter,
     MetatensorWriter,
     get_writer,
 )
@@ -212,7 +216,8 @@ def test_write_xyz_cell(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "filename", ("test_output.xyz", "test_output.mts", "test_output.zip")
+    "filename",
+    ("test_output.xyz", "test_output.mts", "test_output.zip", "test_output.memmap"),
 )
 @pytest.mark.parametrize("fileformat", (None, "same_as_filename"))
 @pytest.mark.parametrize("cell", (None, torch.eye(3)))
@@ -249,6 +254,41 @@ def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
         assert tensormap.block().gradient("positions").values.shape == (4, 3, 1)
         if cell is not None:
             assert tensormap.block().gradient("strain").values.shape == (2, 3, 3, 1)
+
+    elif filename.endswith(".memmap"):
+        directory = Path(filename).with_suffix("")
+        ns = int(np.load(directory / "ns.npy"))
+        na = np.load(directory / "na.npy")
+        assert ns == len(systems)
+        assert na.tolist() == [0, 2, 4]
+
+        x = np.fromfile(directory / "x.bin", dtype=np.float32).reshape(-1, 3)
+        assert x.shape == (4, 3)
+
+        a = np.fromfile(directory / "a.bin", dtype=np.int32)
+        assert a.shape == (4,)
+
+        c = np.fromfile(directory / "c.bin", dtype=np.float32).reshape(-1, 3, 3)
+        assert c.shape == (2, 3, 3)
+
+        energy = np.fromfile(directory / "energy.bin", dtype=np.float32).reshape(2, 1)
+        np.testing.assert_allclose(
+            energy, predictions["energy"].block().values.numpy(), atol=1e-6
+        )
+
+        forces = np.fromfile(directory / "energy_forces.bin", dtype=np.float32).reshape(
+            4, 3, 1
+        )
+        expected_forces = -(
+            predictions["energy"].block().gradient("positions").values.numpy()
+        )
+        np.testing.assert_allclose(forces, expected_forces, atol=1e-6)
+
+        stress_path = directory / "energy_stress.bin"
+        if cell is not None:
+            assert stress_path.is_file()
+        else:
+            assert not stress_path.exists()
 
     else:
         ValueError("This test only does `.xyz` and `.mts`")
@@ -388,3 +428,133 @@ def test_disk_dataset_writer_multi_batch_strain_gradients(monkeypatch, tmp_path)
     writer.write(systems, predictions)
     writer.write(systems, predictions)
     writer.finish()
+
+
+def test_memmap_writer_streams_to_disk(monkeypatch, tmp_path):
+    """MemmapWriter should append to .bin files in write(), not accumulate."""
+    monkeypatch.chdir(tmp_path)
+
+    systems, capabilities, predictions = systems_capabilities_predictions()
+    filename = "test_streaming.memmap"
+
+    writer = MemmapWriter(filename, capabilities=capabilities)
+
+    # first batch
+    writer.write(systems, predictions)
+    assert not hasattr(writer, "_systems") or len(getattr(writer, "_systems", [])) == 0
+    assert not hasattr(writer, "_preds") or len(getattr(writer, "_preds", [])) == 0
+
+    # second batch
+    writer.write(systems, predictions)
+    assert not hasattr(writer, "_systems") or len(getattr(writer, "_systems", [])) == 0
+    assert not hasattr(writer, "_preds") or len(getattr(writer, "_preds", [])) == 0
+
+    writer.finish()
+
+    # verify all 4 structures (2 batches x 2 systems) present with correct offsets
+    directory = Path(filename).with_suffix("")
+    ns = int(np.load(directory / "ns.npy"))
+    na = np.load(directory / "na.npy")
+    assert ns == 4
+    assert na.tolist() == [0, 2, 4, 6, 8]
+
+    energy = np.fromfile(directory / "energy.bin", dtype=np.float32).reshape(4, 1)
+    expected_energy = torch.cat(2 * [predictions["energy"].block().values]).numpy()
+    np.testing.assert_allclose(energy, expected_energy, atol=1e-6)
+
+
+def test_memmap_writer_append_not_supported(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match="Appending is not supported"):
+        MemmapWriter("test.memmap", append=True)
+
+
+def test_memmap_writer_moves_aside_existing_directory(monkeypatch, tmp_path):
+    """A pre-existing directory at the target path must be preserved (renamed to a
+    backup), never deleted outright."""
+    monkeypatch.chdir(tmp_path)
+
+    directory = Path("test_preexisting")
+    directory.mkdir()
+    sentinel = directory / "unrelated_file.txt"
+    sentinel.write_text("do not delete me")
+
+    systems, capabilities, predictions = systems_capabilities_predictions()
+    writer = MemmapWriter("test_preexisting.memmap", capabilities=capabilities)
+    writer.write(systems, predictions)
+    writer.finish()
+
+    # the original directory (and its unrelated content) must still exist, just moved
+    backup = Path("test_preexisting.bak0")
+    assert backup.is_dir()
+    assert (backup / "unrelated_file.txt").read_text() == "do not delete me"
+
+    # the fresh directory must contain the newly written memmap dataset
+    assert directory.is_dir()
+    assert (directory / "ns.npy").is_file()
+    assert not (directory / "unrelated_file.txt").exists()
+
+
+def test_memmap_writer_moves_aside_multiple_existing_directories(monkeypatch, tmp_path):
+    """Repeated writes to the same path must keep incrementing the backup index
+    instead of overwriting earlier backups."""
+    monkeypatch.chdir(tmp_path)
+
+    systems, capabilities, predictions = systems_capabilities_predictions()
+
+    for _ in range(3):
+        writer = MemmapWriter("test_repeat.memmap", capabilities=capabilities)
+        writer.write(systems, predictions)
+        writer.finish()
+
+    assert Path("test_repeat").is_dir()
+    assert Path("test_repeat.bak0").is_dir()
+    assert Path("test_repeat.bak1").is_dir()
+
+
+def test_memmap_writer_stress_sign_left_handed_cell(monkeypatch, tmp_path):
+    """The stress round-trip through MemmapDataset must reconstruct the original
+    strain gradient, including its sign, even for a left-handed (negative
+    determinant) cell.
+
+    ``MemmapWriter`` stores ``stress = strain_derivative / volume`` while
+    ``MemmapDataset`` reconstructs the gradient as ``stress * |det(cell)|``. Both
+    sides must use the *same* (absolute) volume convention, or the sign flips for
+    any cell with a negative determinant.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    # left-handed cell: det < 0
+    cell = torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, -1.0]])
+    assert torch.det(cell).item() < 0
+
+    systems, capabilities, predictions = systems_capabilities_predictions(cell=cell)
+
+    filename = "test_left_handed.memmap"
+    writer = MemmapWriter(filename, capabilities=capabilities)
+    writer.write(systems, predictions)
+    writer.finish()
+
+    target_options = {
+        "energy": {
+            "key": "energy",
+            "quantity": "energy",
+            "sample_kind": "system",
+            "type": "scalar",
+            "num_subtargets": 1,
+            "forces": False,
+            "stress": {"key": "energy_stress"},
+            "virial": False,
+        }
+    }
+    dataset = MemmapDataset(Path(filename).with_suffix(""), target_options)
+
+    expected_strain = predictions["energy"].block().gradient("strain").values
+    for i in range(len(systems)):
+        reconstructed = dataset[i].energy.block().gradient("strain").values
+        torch.testing.assert_close(
+            reconstructed[0],
+            expected_strain[i].to(torch.float64),
+            atol=1e-4,
+            rtol=1e-4,
+        )

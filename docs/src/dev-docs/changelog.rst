@@ -34,6 +34,10 @@ Added
 - Optional per-system charge and spin-multiplicity conditioning for PET. Enabled via the
   ``system_conditioning`` model hyperparameter, with per-system ``charge`` and
   ``spin_multiplicity`` provided as ``extra_data``.
+- ``mtt eval`` can now write predictions in the memory-mapped ``MemmapDataset`` layout
+  by passing a ``.memmap`` output filename (e.g. ``-o predictions.memmap``). The
+  written directory can be read back directly as a ``systems: read_from:`` dataset,
+  which is useful for very large evaluation runs.
 
 Changed
 #######

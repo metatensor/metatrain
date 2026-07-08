@@ -28,6 +28,7 @@ from metatrain.utils.data.readers import read_extra_data
 from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.data.writers import (
     DiskDatasetWriter,
+    MemmapWriter,
     Writer,
     get_writer,
 )
@@ -340,10 +341,10 @@ def eval_model(
         if hasattr(options, "targets"):
             eval_dataset, eval_info_dict, _ = get_dataset(options)
         else:
-            if isinstance(writer, DiskDatasetWriter):
+            if isinstance(writer, (DiskDatasetWriter, MemmapWriter)):
                 raise ValueError(
-                    "Writing to DiskDataset is not allowed without explicitly"
-                    " defining targets in the input file."
+                    "Writing to DiskDataset or MemmapDataset is not allowed without"
+                    " explicitly defining targets in the input file."
                 )
             eval_systems = read_systems(
                 filename=options["systems"]["read_from"],
