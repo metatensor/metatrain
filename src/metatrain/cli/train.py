@@ -766,6 +766,10 @@ def train_model(
     # EVALUATE FINAL MODEL ####
     ###########################
 
+    if not options["evaluate_best_model"]:
+        logging.info("Skipping evaluation of the best model.")
+        return
+
     # TODO: possibly control this better if and when wrappers archs will be treated
     # differently in the future
     if architecture_name == "llpr":
