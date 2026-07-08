@@ -129,4 +129,8 @@ def test_regression_checkpoint():
             -93.42914705278939,
         ]
     )
+
+    # if you need to change the hardcoded values:
+    # torch.set_printoptions(precision=12)
+    # print(repr(system_energies.tolist()))
     torch.testing.assert_close(system_energies, expected, rtol=1e-10, atol=1e-10)

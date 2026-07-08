@@ -53,13 +53,21 @@ def train_or_load_composition_model(
         checkpoint = torch.load(atomic_baseline, map_location="cpu", weights_only=False)
         checkpoint = CompositionModel.upgrade_checkpoint(checkpoint)
         loaded = CompositionModel.load_checkpoint(checkpoint, context="export")
+        if loaded.atomic_types != composition_model.atomic_types:
+            raise ValueError(
+                "Composition checkpoint atomic types "
+                f"({loaded.atomic_types}) do not match the current model's "
+                f"atomic types ({composition_model.atomic_types})."
+            )
         loaded.sync_tensor_maps()
         composition_model.load_state_dict(loaded.state_dict())
         composition_model.sync_tensor_maps()
     else:
         assert isinstance(atomic_baseline, dict)
         logging.info("Calculating composition weights")
-        trainer = Trainer(hypers={"atomic_baseline": atomic_baseline})
+        trainer = Trainer(
+            hypers={"atomic_baseline": atomic_baseline, "batch_size": batch_size}
+        )
         trainer._additive_models = other_additive_models
         trainer._is_distributed = is_distributed
         trainer.train(

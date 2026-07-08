@@ -117,24 +117,26 @@ class TestAutograd(AutogradTests, CompositionTests):
 
 
 class TestTorchscript(TorchscriptTests, CompositionTests):
+    # Composition only supports float64 (see CompositionModel.__supported_dtypes__),
+    # so the dtype fixture is fixed to float64 instead of being parametrized over
+    # (float32, float64) like the default one.
     @pytest.fixture
     def dtype(self):
-        return torch.float32
-
-    def test_torchscript(self, model_hypers, dataset_info, dtype):
-        pytest.skip("Composition model not TorchScript compatible")
-
-    def test_torchscript_dtypechange(self, model_hypers, dataset_info, dtype):
-        pytest.skip("Composition model not TorchScript compatible")
+        return torch.float64
 
     def test_torchscript_spherical(self, model_hypers, dataset_info_spherical):
-        pytest.skip("Composition model not TorchScript compatible")
-
-    def test_torchscript_save_load(self, tmpdir, model_hypers, dataset_info):
-        pytest.skip("Composition model not TorchScript compatible")
+        # Overridden because the base implementation hardcodes dtype=torch.float32.
+        self.test_torchscript(
+            model_hypers=model_hypers,
+            dataset_info=dataset_info_spherical,
+            dtype=torch.float64,
+        )
 
     def test_torchscript_integers(self, model_hypers, dataset_info):
-        pytest.skip("Composition model not TorchScript compatible")
+        # Overridden because the base implementation hardcodes dtype=torch.float32.
+        self.test_torchscript(
+            model_hypers=model_hypers, dataset_info=dataset_info, dtype=torch.float64
+        )
 
 
 class TestExported(ExportedTests, CompositionTests):
