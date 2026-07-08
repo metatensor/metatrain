@@ -448,6 +448,14 @@ class BaseHypers(TypedDict):
     """Configuration for Weights & Biases logging.
 
     If ``None``, W&B logging is disabled."""
+    evaluate_best_model: NotRequired[bool] = True
+    """Whether to evaluate the best model (the one exported by ``mtt train``) on the
+    training, validation and test sets after training, logging the resulting RMSE/MAE
+    metrics.
+
+    For very large datasets, this evaluation can be expensive. Set this to ``False``
+    to skip it.
+    """
 
     training_set: TrainingSetSpec
     """Specification of the training dataset."""

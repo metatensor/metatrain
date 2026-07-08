@@ -31,6 +31,8 @@ Added
 #####
 
 - Possibility to avoid warm-up in ``mtt eval`` with the ``--no-warm-up`` flag.
+- Possibility to skip the RMSE/MAE evaluation of the best model in ``mtt train`` with
+  the ``evaluate_best_model`` input.
 - Optional per-system charge and spin-multiplicity conditioning for PET. Enabled via the
   ``system_conditioning`` model hyperparameter, with per-system ``charge`` and
   ``spin_multiplicity`` provided as ``extra_data``.
