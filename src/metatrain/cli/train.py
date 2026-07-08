@@ -766,8 +766,8 @@ def train_model(
     # EVALUATE FINAL MODEL ####
     ###########################
 
-    if not options["evaluate_best_model"]:
-        logging.info("Skipping evaluation of the best model.")
+    if not options["final_eval"]:
+        logging.info("Skipping final evaluation.")
         return
 
     # TODO: possibly control this better if and when wrappers archs will be treated

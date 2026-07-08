@@ -48,8 +48,8 @@ Added
   stores the number of atoms of every structure in a ``metadata/atom_counts.npy``
   file, which the sampler reads without opening every entry in the zip.
 - Possibility to avoid warm-up in ``mtt eval`` with the ``--no-warm-up`` flag.
-- Possibility to skip the RMSE/MAE evaluation of the best model in ``mtt train`` with
-  the ``evaluate_best_model`` input.
+- Possibility to skip the final RMSE/MAE evaluation in ``mtt train`` with the
+  ``final_eval`` input.
 - Optional per-system charge and spin-multiplicity conditioning for PET. Enabled via the
   ``system_conditioning`` model hyperparameter, with per-system ``charge`` and
   ``spin_multiplicity`` provided as ``extra_data``.
