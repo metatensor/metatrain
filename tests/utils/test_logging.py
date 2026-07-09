@@ -357,6 +357,7 @@ def test_metric_logger(caplog, monkeypatch, tmp_path):
             "loss": 0.1,
             "baz": 1e-5,
             "energy RMSE": 1.0,
+            "energy MAE": 0.0,
             "energy_positions_gradients MAE": 0.5,
             "mtt::foo RMSE": 1.0,
             "mtt::bar RMSE": 0.1,
@@ -386,6 +387,7 @@ def test_metric_logger(caplog, monkeypatch, tmp_path):
     assert "train loss: 1.000e-01 | " in caplog.text
     assert "train baz: 1.000e-05 | " in caplog.text
     assert "train energy RMSE: 1000.0 meV | " in caplog.text
+    assert "train energy MAE: 0.0000 meV | " in caplog.text
     assert "train energy_positions_gradients MAE: 500.00 meV/A | " in caplog.text
     assert "train mtt::bar RMSE: 0.10000 hartree | " in caplog.text
     assert "train mtt::foo RMSE: 1000.0 meV" in caplog.text  # eV converted to meV
@@ -402,16 +404,18 @@ def test_metric_logger(caplog, monkeypatch, tmp_path):
         "train loss",
         "train baz",
         "train energy RMSE",
+        "train energy MAE",
         "train energy_positions_gradients MAE",
         "train mtt::bar RMSE",
         "train mtt::foo RMSE",
     ]
-    assert rows[1] == ["", "", "", "meV", "meV/A", "hartree", "meV"]
+    assert rows[1] == ["", "", "", "meV", "meV", "meV/A", "hartree", "meV"]
     assert rows[2] == [
         "   1",
         "1.000e-01",
         "1.000e-05",
         "1000.0",
+        "0.0000",
         "500.00",
         "0.10000",
         "1000.0",
