@@ -38,6 +38,8 @@ Added
 Changed
 #######
 
+- The ``DiskDataset`` now uses the ``key`` option of targets (i.e. it looks for that key
+  in the dataset, instead of looking for the target name).
 - Avoid reindexing of spherical atomic basis targets during densification and
   padding of atomic types.
 
