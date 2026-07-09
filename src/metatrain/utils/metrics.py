@@ -1,5 +1,5 @@
 import copy
-import logging
+import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch.distributed
@@ -70,11 +70,14 @@ class RMSEAccumulator:
                     # The model may legitimately not predict every block of the
                     # target (e.g. a composition model only fits invariant blocks
                     # of a spherical target), so skip those here.
-                    logging.warning(
+                    # warnings.warn (rather than logging.warning) so this is only
+                    # reported once, instead of on every batch.
+                    warnings.warn(
                         f"Block {block_key} of target '{key}' is not present in "
                         "the model's predictions. It will be skipped when "
                         "computing the error metrics, which will be computed "
-                        "over fewer blocks than the full target."
+                        "over fewer blocks than the full target.",
+                        stacklevel=2,
                     )
                     continue
 
@@ -275,11 +278,14 @@ class MAEAccumulator:
                     # The model may legitimately not predict every block of the
                     # target (e.g. a composition model only fits invariant blocks
                     # of a spherical target), so skip those here.
-                    logging.warning(
+                    # warnings.warn (rather than logging.warning) so this is only
+                    # reported once, instead of on every batch.
+                    warnings.warn(
                         f"Block {block_key} of target '{key}' is not present in "
                         "the model's predictions. It will be skipped when "
                         "computing the error metrics, which will be computed "
-                        "over fewer blocks than the full target."
+                        "over fewer blocks than the full target.",
+                        stacklevel=2,
                     )
                     continue
 

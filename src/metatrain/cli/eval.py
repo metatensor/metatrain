@@ -4,7 +4,7 @@ import itertools
 import logging
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, cast
 
 import numpy as np
 import torch
@@ -256,7 +256,10 @@ def _eval_targets(
         end_time = time.time()
 
         batch_predictions = align_predictions_to_target_layout(
-            systems, batch_predictions, batch_targets
+            systems,
+            batch_predictions,
+            batch_targets,
+            cast(Dict[str, TargetInfo], options),
         )
 
         # Update metrics

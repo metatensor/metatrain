@@ -495,6 +495,7 @@ def align_predictions_to_target_layout(
     systems: List[System],
     predictions: Dict[str, TensorMap],
     targets: Dict[str, TensorMap],
+    target_info_dict: Dict[str, TargetInfo],
 ) -> Dict[str, TensorMap]:
     """Sparsify predictions whose key schema is denser than their target's.
 
@@ -505,12 +506,20 @@ def align_predictions_to_target_layout(
     :class:`~metatrain.composition.CompositionModel`) even when the declared
     target is genuinely sparse. Evaluation code compares predictions against
     targets block-by-block, which requires matching key schemas, so sparsify
-    the prediction using the target's own (already correctly-shaped) structure
-    as the reference layout.
+    the prediction to match the target's key schema.
+
+    The properties used to sparsify are computed from each target's global
+    layout (``target_info_dict[name].layout``), not from the batch's own
+    target: a single batch may not contain every atom type present in the
+    full dataset, so using it as the reference layout could compute the
+    wrong property indices to select from the (globally-padded) dense
+    prediction.
 
     :param systems: list of systems in the batch.
     :param predictions: dictionary of prediction TensorMaps.
     :param targets: dictionary of target TensorMaps.
+    :param target_info_dict: dictionary mapping target names to their global
+        :class:`~metatrain.utils.data.target_info.TargetInfo`.
     :return: ``predictions``, with any densified entries sparsified to match
         their target's key schema.
     """
@@ -520,7 +529,9 @@ def align_predictions_to_target_layout(
         if prediction is None or target.keys.names == prediction.keys.names:
             continue
         if len(target.keys.names) > len(prediction.keys.names):
-            aligned[name] = sparsify_atomic_basis_target(systems, prediction, target)
+            aligned[name] = sparsify_atomic_basis_target(
+                systems, prediction, target_info_dict[name].layout
+            )
     return aligned
 
 
