@@ -316,6 +316,14 @@ class DatasetDictHypers(TypedDict):
     text file containing one index per line. When specified, only the structures
     at these indices will be used from the dataset.
     """
+    to_memmap: NotRequired[bool]
+    """Whether to build a memory-mapped copy of a ``.zip`` ``DiskDataset``.
+
+    When ``True`` (and ``systems.read_from`` is a ``.zip`` file), metatrain builds
+    a generic memory-mapped copy of the dataset in a temporary directory and reads
+    from it during training, which is much faster than reading from the zip file.
+    The temporary files are removed automatically when training finishes.
+    """
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))
