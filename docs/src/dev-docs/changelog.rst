@@ -38,6 +38,9 @@ Added
 Changed
 #######
 
+- Avoid reindexing of spherical atomic basis targets during densification and
+  padding of atomic types.
+
 Removed
 #######
 
