@@ -27,14 +27,19 @@ class PETBackend(torch.nn.Module):
 
     :param hypers: Hyperparameters for the PET model. See the documentation for details.
     :param atomic_types: Sorted list of atomic types the model supports.
+    :param nl_is_strict: Whether the neighbor lists only contain pairs within the
+        cutoff. If ``False``, :meth:`preprocess` filters out the extra pairs.
     """
 
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
-    def __init__(self, hypers: ModelHypers, atomic_types: List[int]) -> None:
+    def __init__(
+        self, hypers: ModelHypers, atomic_types: List[int], nl_is_strict: bool = True
+    ) -> None:
         super().__init__()
 
         # Cache frequently accessed hyperparameters
+        self.nl_is_strict = nl_is_strict
         self.cutoff = float(hypers["cutoff"])
         self.cutoff_function = hypers["cutoff_function"]
         self.cutoff_width = float(hypers["cutoff_width"])
@@ -302,6 +307,7 @@ class PETBackend(torch.nn.Module):
             self.num_neighbors_adaptive,
             self.adaptive_cutoff_method,
             cutoff_width_adaptive,
+            self.nl_is_strict,
         )
 
         batch_data: Dict[str, torch.Tensor] = {

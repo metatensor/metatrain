@@ -89,10 +89,11 @@ class PET(ModelInterface[ModelHypers]):
         self.featurizer_type = self.hypers["featurizer_type"]
 
         self.atomic_types = dataset_info.atomic_types
+        nl_is_strict = bool(self.hypers["long_range"]["enable"])
         self.requested_nl = NeighborListOptions(
             cutoff=self.cutoff,
             full_list=True,
-            strict=True,
+            strict=nl_is_strict,
         )
         if self.featurizer_type not in AVAILABLE_FEATURIZERS:
             raise ValueError(
@@ -104,7 +105,7 @@ class PET(ModelInterface[ModelHypers]):
         # structure-preprocessing / featurization / prediction logic. It is
         # registered first so that ``backend.species_to_species_index`` remains the
         # first entry of the ``state_dict`` (relied upon by ``load_checkpoint``).
-        self.backend = PETBackend(self.hypers, self.atomic_types)
+        self.backend = PETBackend(self.hypers, self.atomic_types, nl_is_strict)
         self.num_readout_layers = self.backend.num_readout_layers
         self.system_conditioning = self.backend.system_conditioning
         self.last_layer_feature_size = (
