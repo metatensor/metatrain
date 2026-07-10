@@ -43,7 +43,7 @@ The tutorial is structured as follows:
 
 import ase
 import torch
-from metatomic.torch import ModelOutput, NeighborListOptions, systems_to_torch
+from metatomic.torch import ModelOutput, systems_to_torch
 
 from metatrain.pet import PET
 from metatrain.utils.architectures import get_default_hypers
@@ -87,9 +87,9 @@ frames = [
 ]
 systems = systems_to_torch(frames)
 
-nl_options = NeighborListOptions(cutoff=4.5, full_list=True, strict=True)
 systems = [
-    get_system_with_neighbor_lists(system, [nl_options]).to(dtype) for system in systems
+    get_system_with_neighbor_lists(system, model.requested_neighbor_lists()).to(dtype)
+    for system in systems
 ]
 
 
