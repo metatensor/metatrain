@@ -43,6 +43,7 @@ Changed
   in the dataset, instead of looking for the target name).
 - Avoid reindexing of spherical atomic basis targets during densification and
   padding of atomic types.
+- PET requests a non-strict neighbor list and filters out-of-cutoff pairs internally.
 
 Removed
 #######
