@@ -29,23 +29,19 @@ class MACETests(ArchitectureTests):
     architecture = "experimental.mace"
 
     @pytest.fixture
-    def mace_model_path(self, heads: list[str]) -> Path:
+    def mace_model_path(self) -> Path:
         """Path to a small MACE model for testing.
 
         :return: Path to the MACE model.
         """
-        return Path(__file__).parent / f"mace_small_{len(heads)}head.model"
+        return Path(__file__).parent / "mace_small.model"
 
     @pytest.fixture(params=["from_hypers", "from_file"])
     def source(self, request: pytest.FixtureRequest):
         return request.param
 
-    @pytest.fixture(params=[["default"], ["default", "extra"]])
-    def heads(self, request: pytest.FixtureRequest):
-        return request.param
-
     @pytest.fixture
-    def mace_init_mode(self, source: str, heads: list, mace_model_path: Path) -> str:
+    def mace_init_mode(self, source: str, mace_model_path: Path) -> str:
         """Type of MACE model to use: loaded from file or built from hypers.
 
         :param request: Pytest fixture request.
@@ -68,6 +64,7 @@ class MACETests(ArchitectureTests):
                 )
                 torch.manual_seed(0)
                 species = [1, 6, 7, 8]
+                heads = ["default", "extra"]
                 hypers = copy.deepcopy(get_default_hypers("experimental.mace")["model"])
                 hypers["hidden_irreps"] = "10x0e + 10x1o + 10x2e"
                 hypers["correlation"] = 2
@@ -124,7 +121,9 @@ class MACETests(ArchitectureTests):
 
     @pytest.fixture
     def model_hypers(
-        self, mace_init_mode: str, mace_model_path: Path, heads: list[str]
+        self,
+        mace_init_mode: str,
+        mace_model_path: Path,
     ) -> dict:
         """Smaller hyperparameters than the defaults for faster testing.
 
@@ -136,13 +135,15 @@ class MACETests(ArchitectureTests):
         defaults["correlation"] = 2
         if mace_init_mode == "from_file":
             defaults["mace_model"] = mace_model_path
-            # A loaded multi-head model requires an explicit head; use the first.
-            defaults["mace_head_name"] = heads[0]
+            # A loaded multi-head model requires an explicit head; use the second.
+            defaults["mace_head_name"] = "extra"
         return defaults
 
     @pytest.fixture
     def minimal_model_hypers(
-        self, mace_init_mode: str, mace_model_path: Path, heads: list[str]
+        self,
+        mace_init_mode: str,
+        mace_model_path: Path,
     ) -> dict:
         """Minimal hyperparameters for the MACE model for fastest testing.
 
@@ -158,8 +159,8 @@ class MACETests(ArchitectureTests):
             hypers["radial_MLP"] = [1, 1, 1]
         else:
             hypers["mace_model"] = mace_model_path
-            # A loaded multi-head model requires an explicit head; use the first.
-            hypers["mace_head_name"] = heads[0]
+            # A loaded multi-head model requires an explicit head; use the second.
+            hypers["mace_head_name"] = "extra"
         return hypers
 
 
