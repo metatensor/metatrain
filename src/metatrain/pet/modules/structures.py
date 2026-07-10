@@ -227,8 +227,8 @@ def compute_batch_tensors(
     :param cutoff_width_adaptive: Width of the smooth cutoff taper used by the
         adaptive cutoff scheme when ``num_neighbors_adaptive`` is set.
     :param nl_is_strict: Whether the neighbor list only contains pairs within the
-        cutoff. If ``False``, the extra pairs are filtered out here. Has no effect
-        with adaptive cutoff, which already filters the edges by distance.
+        cutoff. If ``False``, the extra pairs are filtered out here. Only used with a
+        fixed cutoff, since the adaptive cutoff filters the edges anyway.
     :return: A tuple containing the batch tensors.
         The batch consists of the following tensors:
         - `element_indices_nodes`: The atomic species of the central atoms
