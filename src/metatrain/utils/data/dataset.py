@@ -676,7 +676,10 @@ class DiskDataset(torch.utils.data.Dataset):
     directory. The directory's name is the index of the sample (e.g. ``0/``), and the
     files in the directory are the system (``system.mta``) and the targets (each named
     ``<target_name>.mts``). These are ``metatomic.torch.System`` and
-    ``metatensor.torch.TensorMap`` objects, respectively.
+    ``metatensor.torch.TensorMap`` objects, respectively. Extra data fields (e.g.
+    ``charge.mts`` and ``spin_multiplicity.mts`` for charge and spin conditioning)
+    can be stored in the same way and are read when the corresponding names appear
+    in the ``extra_data`` section of the options file.
 
     Such a dataset can be created conveniently using the :py:class:`DiskDatasetWriter`
     class.

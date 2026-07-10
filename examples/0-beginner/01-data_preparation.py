@@ -1,4 +1,6 @@
 """
+.. _data-preparation-tutorial:
+
 How to prepare data for training
 ================================
 
@@ -40,6 +42,8 @@ from metatrain.utils.data.writers import DiskDatasetWriter
 
 
 # %%
+# .. _create-xyz-file:
+#
 # Create a XYZ training file (small datasets)
 # -------------------------------------------
 #
@@ -91,6 +95,8 @@ ase.io.write("data.xyz", frames)
 #
 #   The names of the added properties (like, ``U0``, etc.) must be referenced correctly
 #   in the ``options.yaml`` file.
+#
+# .. _create-disk-dataset:
 #
 # Create a ``DiskDataset`` (large datasets)
 # -----------------------------------------
@@ -158,6 +164,8 @@ disk_dataset_writer.finish()
 # The dataset is saved to disk. You can now provide it to ``metatrain`` as a
 # dataset to train from, simply by replacing your ``.xyz`` file with the newly created
 # zip file (e.g. ``read_from: qm9_reduced_100.zip``).
+#
+# .. _create-memmap-dataset:
 #
 # Create a ``MemmapDataset`` (large datasets, parallel filesystems)
 # -----------------------------------------------------------------
