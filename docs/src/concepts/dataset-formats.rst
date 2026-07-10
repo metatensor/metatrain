@@ -40,7 +40,8 @@ with more than one irreducible representation cannot be read by the ASE reader.
 
 Targets can also be read from metatensor ``.mts`` files (one ``TensorMap`` per
 structure) by setting the target's ``read_from`` option to the corresponding file. See
-:doc:`../getting-started/train_yaml_config` for the full data configuration reference.
+:ref:`train_yaml_config` for the full data configuration reference and
+:ref:`create-xyz-file` for an example of preparing an ``.xyz`` file.
 
 Zip files
 ---------
@@ -66,8 +67,7 @@ name is used.
 
 The easiest way to create such a file is the
 :py:class:`metatrain.utils.data.writers.DiskDatasetWriter` class, which takes care of
-the serialization details (see
-:ref:`sphx_glr_generated_examples_0-beginner_01-data_preparation.py` for an example).
+the serialization details (see :ref:`create-disk-dataset` for an example).
 
 Memory-mapped directories
 -------------------------
@@ -91,5 +91,4 @@ from their own ``key`` options. Extra data, for example ``charge.bin`` or
 1)``.
 
 Spherical targets and virials are not supported in this format. A complete walkthrough,
-including forces and stresses, is available in
-:ref:`sphx_glr_generated_examples_0-beginner_01-data_preparation.py`.
+including forces and stresses, is available in :ref:`create-memmap-dataset`.
