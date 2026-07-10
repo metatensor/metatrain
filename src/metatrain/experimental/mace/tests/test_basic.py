@@ -37,9 +37,11 @@ class MACETests(ArchitectureTests):
         return Path(__file__).parent / "mace_small.model"
 
     @pytest.fixture(params=["from_hypers", "from_file"])
-    def mace_init_mode(
-        self, request: pytest.FixtureRequest, mace_model_path: Path
-    ) -> str:
+    def source(self, request: pytest.FixtureRequest):
+        return request.param
+
+    @pytest.fixture
+    def mace_init_mode(self, source: str, mace_model_path: Path) -> str:
         """Type of MACE model to use: loaded from file or built from hypers.
 
         :param request: Pytest fixture request.
@@ -47,7 +49,7 @@ class MACETests(ArchitectureTests):
         :return: Whether to load the MACE model from file.
         """
 
-        if request.param == "from_file" and not mace_model_path.exists():
+        if source == "from_file" and not mace_model_path.exists():
             # Save a small MACE model to disk
             with warnings.catch_warnings():
                 # Don't show warnings from e3nn to user (these warnings
@@ -62,6 +64,7 @@ class MACETests(ArchitectureTests):
                 )
                 torch.manual_seed(0)
                 species = [1, 6, 7, 8]
+                heads = ["default", "extra"]
                 hypers = copy.deepcopy(get_default_hypers("experimental.mace")["model"])
                 hypers["hidden_irreps"] = "10x0e + 10x1o + 10x2e"
                 hypers["correlation"] = 2
@@ -79,7 +82,12 @@ class MACETests(ArchitectureTests):
                     edge_irreps=o3.Irreps(hypers["edge_irreps"])
                     if hypers["edge_irreps"] is not None
                     else None,
-                    atomic_energies=torch.linspace(-1, 1, len(species)),
+                    atomic_energies=torch.stack(
+                        [
+                            torch.linspace(-1, 1, len(species)) * (1 + i)
+                            for i in range(len(heads))
+                        ]
+                    ),
                     apply_cutoff=hypers["apply_cutoff"],
                     avg_num_neighbors=hypers["avg_num_neighbors"],
                     atomic_numbers=torch.tensor(species),
@@ -98,16 +106,25 @@ class MACETests(ArchitectureTests):
                     use_embedding_readout=hypers["use_embedding_readout"],
                     use_last_readout_only=hypers["use_last_readout_only"],
                     use_agnostic_product=hypers["use_agnostic_product"],
-                    atomic_inter_scale=0.4,
-                    atomic_inter_shift=2.8,
+                    atomic_inter_scale=0.4
+                    if len(heads) == 1
+                    else [0.4 + 0.3 * i for i in range(len(heads))],
+                    atomic_inter_shift=2.8
+                    if len(heads) == 1
+                    else [2.8 - 4.3 * i for i in range(len(heads))],
+                    heads=heads,
                 )
 
                 torch.save(mace_model, mace_model_path)
 
-        return request.param
+        return source
 
     @pytest.fixture
-    def model_hypers(self, mace_init_mode: str, mace_model_path: Path) -> dict:
+    def model_hypers(
+        self,
+        mace_init_mode: str,
+        mace_model_path: Path,
+    ) -> dict:
         """Smaller hyperparameters than the defaults for faster testing.
 
         :param mace_init_mode: How to initialize the MACE model.
@@ -118,10 +135,16 @@ class MACETests(ArchitectureTests):
         defaults["correlation"] = 2
         if mace_init_mode == "from_file":
             defaults["mace_model"] = mace_model_path
+            # A loaded multi-head model requires an explicit head; use the second.
+            defaults["mace_head_name"] = "extra"
         return defaults
 
     @pytest.fixture
-    def minimal_model_hypers(self, mace_init_mode: str, mace_model_path: Path) -> dict:
+    def minimal_model_hypers(
+        self,
+        mace_init_mode: str,
+        mace_model_path: Path,
+    ) -> dict:
         """Minimal hyperparameters for the MACE model for fastest testing.
 
         :param mace_init_mode: How to initialize the MACE model.
@@ -136,6 +159,8 @@ class MACETests(ArchitectureTests):
             hypers["radial_MLP"] = [1, 1, 1]
         else:
             hypers["mace_model"] = mace_model_path
+            # A loaded multi-head model requires an explicit head; use the second.
+            hypers["mace_head_name"] = "extra"
         return hypers
 
 
