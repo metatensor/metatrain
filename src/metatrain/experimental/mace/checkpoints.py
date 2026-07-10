@@ -36,7 +36,7 @@ def model_update_v3_v4(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     if "mace_head_name" not in checkpoint["model_data"]["hypers"]:
-        checkpoint["model_data"]["hypers"]["mace_head_name"] = "default"
+        checkpoint["model_data"]["hypers"]["mace_head_name"] = None
 
 
 ###########################
