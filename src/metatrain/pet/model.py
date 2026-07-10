@@ -105,7 +105,7 @@ class PET(ModelInterface[ModelHypers]):
         # structure-preprocessing / featurization / prediction logic. It is
         # registered first so that ``backend.species_to_species_index`` remains the
         # first entry of the ``state_dict`` (relied upon by ``load_checkpoint``).
-        self.backend = PETBackend(self.hypers, self.atomic_types, nl_is_strict)
+        self.backend = PETBackend(self.hypers, self.atomic_types)
         self.num_readout_layers = self.backend.num_readout_layers
         self.system_conditioning = self.backend.system_conditioning
         self.last_layer_feature_size = (

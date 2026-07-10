@@ -67,9 +67,10 @@ def _attach_non_strict_neighbor_list(system, nl_options):
 
 
 def test_requested_neighbor_list_is_not_strict():
-    """By default PET requests a non-strict NL"""
+    """By default PET requests a non-strict NL and the backend filters the edges"""
     model = _make_model()
     assert model.requested_neighbor_lists()[0].strict is False
+    assert model.backend.nl_is_strict is False
 
 
 def test_requested_neighbor_list_is_strict_with_long_range():
@@ -80,6 +81,7 @@ def test_requested_neighbor_list_is_strict_with_long_range():
     hypers["long_range"]["use_ewald"] = True
     model = _make_model(hypers)
     assert model.requested_neighbor_lists()[0].strict is True
+    assert model.backend.nl_is_strict is True
 
 
 def test_non_strict_nl_matches_strict_nl():
