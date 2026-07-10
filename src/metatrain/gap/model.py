@@ -143,8 +143,8 @@ class GAP(ModelInterface[ModelHypers]):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel.from_dataset(
-            dataset_info, sorted(dataset_info.atomic_types)
+        composition_model = CompositionModel.from_valid_targets(
+            dataset_info, dataset_info.atomic_types
         )
         additive_models = [composition_model]
         if self.hypers["zbl"]:

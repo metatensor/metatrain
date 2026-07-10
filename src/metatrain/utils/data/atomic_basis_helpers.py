@@ -83,35 +83,16 @@ def _densify_per_atom_atomic_basis_target(
 
     # First ensure that the tensor has all keys present in the layout tensor (i.e. the
     # global basis set definition). If any blocks aren't present, they are added as
-    # zero-sample blocks with the correct components and properties. Align property
-    # labels to the layout so the TensorMap constructor doesn't reject mixed labels.
+    # zero-sample blocks with the correct components and properties.
     blocks = []
     for key, layout_block in layout.items():
         if key in tensor.keys:
             existing_block = tensor.block(key)
-            aligned_values = torch.full(
-                (
-                    len(existing_block.samples),
-                    *[len(c) for c in existing_block.components],
-                    len(layout_block.properties),
-                ),
-                torch.nan,
-                dtype=existing_block.values.dtype,
-            )
-            if existing_block.properties.names == layout_block.properties.names:
-                properties_mask = layout_block.properties.select(
-                    existing_block.properties
-                )
-                aligned_values[..., properties_mask] = existing_block.values
-            else:
-                aligned_values[..., : existing_block.values.shape[-1]] = (
-                    existing_block.values
-                )
             block = TensorBlock(
-                values=aligned_values,
+                values=existing_block.values,
                 samples=existing_block.samples,
                 components=existing_block.components,
-                properties=layout_block.properties,
+                properties=existing_block.properties,
             )
         else:
             block = layout_block.copy(deep=False)
@@ -141,9 +122,6 @@ def _densify_per_atom_atomic_basis_target(
         i for i, name in enumerate(tensor.keys.names) if not name.endswith("atom_type")
     ]
     type_names = [tensor.keys.names[i] for i in type_indices]
-
-    if len(type_names) == 0:
-        return tensor
 
     # Using the layout TensorMap, build the union of the property labels values across
     # all atom types
@@ -307,7 +285,7 @@ def prepare_atomic_basis_targets(
 # ===== Sparsification utilities (atom types back to keys)
 
 
-def _compute_sparse_properties(layout: TensorMap) -> TensorMap:
+def compute_sparse_properties(layout: TensorMap) -> TensorMap:
     """Compute the properties of the sparse tensor map that results from
     sparsifying a given dense tensor map.
 
@@ -479,7 +457,7 @@ def sparsify_atomic_basis_target(
     :return: the sparsified atomic basis target TensorMap
     """
     if sparse_properties is None:
-        sparse_properties = _compute_sparse_properties(layout)
+        sparse_properties = compute_sparse_properties(layout)
 
     if "atom" in tensor.sample_names:
         return _sparsify_per_atom_atomic_basis_target(
@@ -496,6 +474,7 @@ def align_predictions_to_target_layout(
     predictions: Dict[str, TensorMap],
     targets: Dict[str, TensorMap],
     target_info_dict: Dict[str, TargetInfo],
+    sparse_properties: Optional[Dict[str, TensorMap]] = None,
 ) -> Dict[str, TensorMap]:
     """Sparsify predictions whose key schema is denser than their target's.
 
@@ -520,6 +499,10 @@ def align_predictions_to_target_layout(
     :param targets: dictionary of target TensorMaps.
     :param target_info_dict: dictionary mapping target names to their global
         :class:`~metatrain.utils.data.target_info.TargetInfo`.
+    :param sparse_properties: optional dictionary mapping target names to
+        pre-computed sparse properties (see
+        :func:`compute_sparse_properties`), to avoid recomputing them on
+        every batch.
     :return: ``predictions``, with any densified entries sparsified to match
         their target's key schema.
     """
@@ -530,7 +513,14 @@ def align_predictions_to_target_layout(
             continue
         if len(target.keys.names) > len(prediction.keys.names):
             aligned[name] = sparsify_atomic_basis_target(
-                systems, prediction, target_info_dict[name].layout
+                systems,
+                prediction,
+                target_info_dict[name].layout,
+                sparse_properties=(
+                    sparse_properties.get(name)
+                    if sparse_properties is not None
+                    else None
+                ),
             )
     return aligned
 
@@ -571,7 +561,13 @@ def get_prepare_atomic_basis_targets_transform(
         """
         for name, tensor in targets.items():
             if name in target_info_dict and target_info_dict[name].is_atomic_basis:
-                assert "mtt::aux::system_index" in extra
+                if "mtt::aux::system_index" not in extra:
+                    raise ValueError(
+                        "Atomic-basis targets require the "
+                        "'mtt::aux::system_index' extra data, which is "
+                        "currently only provided by datasets read from disk "
+                        "(DiskDataset)."
+                    )
                 system_ids = (
                     extra["mtt::aux::system_index"][0]
                     .values[:, 0]
@@ -591,7 +587,13 @@ def get_prepare_atomic_basis_targets_transform(
                 name in extra_data_info_dict
                 and extra_data_info_dict[name].is_atomic_basis
             ):
-                assert "mtt::aux::system_index" in extra
+                if "mtt::aux::system_index" not in extra:
+                    raise ValueError(
+                        "Atomic-basis targets require the "
+                        "'mtt::aux::system_index' extra data, which is "
+                        "currently only provided by datasets read from disk "
+                        "(DiskDataset)."
+                    )
                 system_ids = (
                     extra["mtt::aux::system_index"][0]
                     .values[:, 0]
@@ -614,10 +616,10 @@ def get_prepare_atomic_basis_targets_transform(
     sparse_properties: dict[str, TensorMap] = {}
     for name, info in target_info_dict.items():
         if info.is_atomic_basis:
-            sparse_properties[name] = _compute_sparse_properties(info.layout)
+            sparse_properties[name] = compute_sparse_properties(info.layout)
     for name, info in extra_data_info_dict.items():
         if info.is_atomic_basis:
-            sparse_properties[name] = _compute_sparse_properties(info.layout)
+            sparse_properties[name] = compute_sparse_properties(info.layout)
 
     def reverse_transform(
         systems: List[System],
@@ -667,16 +669,6 @@ def get_prepare_atomic_basis_targets_transform(
 # ===== DatasetInfo manipulation utilities
 
 
-def _layout_is_atomic_basis(layout: TensorMap) -> bool:
-    """Check if a layout has an ``atom_type`` key dimension (i.e. it's an
-    atomic basis target).
-
-    :param layout: the layout TensorMap to check.
-    :return: True if the layout has an ``atom_type`` key dimension.
-    """
-    return any(name.endswith("atom_type") for name in layout.keys.names)
-
-
 def densify_atomic_basis_dataset_info(dataset_info: DatasetInfo) -> DatasetInfo:
     """
     Densify the atomic basis target layouts in the TargetInfos of the input
@@ -701,7 +693,7 @@ def densify_atomic_basis_dataset_info(dataset_info: DatasetInfo) -> DatasetInfo:
                     ),
                     description=target_info.description,
                 )
-                if _layout_is_atomic_basis(target_info.layout)
+                if target_info.is_atomic_basis
                 else target_info
             )
             for target_name, target_info in dataset_info.targets.items()

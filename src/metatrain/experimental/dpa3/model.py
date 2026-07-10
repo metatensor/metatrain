@@ -192,7 +192,7 @@ class DPA3(ModelInterface[ModelHypers]):
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
 
-        composition_model = CompositionModel.from_dataset(
+        composition_model = CompositionModel.from_valid_targets(
             dataset_info, self.atomic_types
         )
         additive_models = [composition_model]

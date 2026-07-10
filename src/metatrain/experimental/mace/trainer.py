@@ -218,7 +218,15 @@ class Trainer(TrainerInterface):
         )
 
         atomic_baseline = self.hypers["atomic_baseline"]
-        if not isinstance(atomic_baseline, str):
+        if isinstance(atomic_baseline, str):
+            if model.get_fixed_composition_weights():
+                raise ValueError(
+                    "The loaded MACE model provides its own atomic baselines, "
+                    "which cannot be combined with a composition model "
+                    "checkpoint passed as `atomic_baseline`. Use the dict form "
+                    "of `atomic_baseline` instead."
+                )
+        else:
             atomic_baseline = {
                 **model.get_fixed_composition_weights(),
                 **atomic_baseline,

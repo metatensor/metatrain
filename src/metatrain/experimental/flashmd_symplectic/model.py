@@ -189,7 +189,7 @@ class FlashMDSymplectic(ModelInterface):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel.from_dataset(
+        composition_model = CompositionModel.from_valid_targets(
             dataset_info, self.atomic_types
         )
         additive_models = [composition_model]

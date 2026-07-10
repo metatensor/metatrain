@@ -6,6 +6,7 @@ from torch import nn
 
 from metatrain.utils.data import Dataset
 from metatrain.utils.data.dataset import Subset
+from metatrain.utils.io import load_model
 
 from ._base_composition import FixedCompositionWeights
 from .model import CompositionModel
@@ -50,16 +51,39 @@ def train_or_load_composition_model(
     """
     if isinstance(atomic_baseline, str):
         logging.info(f"Loading composition model from {atomic_baseline}")
-        checkpoint = torch.load(atomic_baseline, map_location="cpu", weights_only=False)
-        checkpoint = CompositionModel.upgrade_checkpoint(checkpoint)
-        loaded = CompositionModel.load_checkpoint(checkpoint, context="export")
+        loaded = load_model(atomic_baseline)
+        if not isinstance(loaded, CompositionModel):
+            raise ValueError(
+                f"The model loaded from {atomic_baseline} is a "
+                f"{type(loaded).__name__}, not a composition model."
+            )
         if loaded.atomic_types != composition_model.atomic_types:
             raise ValueError(
                 "Composition checkpoint atomic types "
                 f"({loaded.atomic_types}) do not match the current model's "
                 f"atomic types ({composition_model.atomic_types})."
             )
-        loaded.sync_tensor_maps()
+        loaded_targets = loaded.dataset_info.targets
+        current_targets = composition_model.dataset_info.targets
+        if set(loaded_targets) != set(current_targets):
+            raise ValueError(
+                "Composition checkpoint targets "
+                f"({sorted(loaded_targets)}) do not match the current model's "
+                f"targets ({sorted(current_targets)})."
+            )
+        for name, target_info in current_targets.items():
+            loaded_info = loaded_targets[name]
+            if (loaded_info.quantity, loaded_info.unit) != (
+                target_info.quantity,
+                target_info.unit,
+            ):
+                raise ValueError(
+                    f"Target '{name}' from the composition checkpoint has "
+                    f"quantity '{loaded_info.quantity}' and unit "
+                    f"'{loaded_info.unit}', while the current model expects "
+                    f"quantity '{target_info.quantity}' and unit "
+                    f"'{target_info.unit}'."
+                )
         composition_model.load_state_dict(loaded.state_dict())
         composition_model.sync_tensor_maps()
     else:

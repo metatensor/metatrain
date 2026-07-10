@@ -38,10 +38,13 @@ class TrainerHypers(TypedDict):
 
     atomic_baseline: NotRequired[FixedCompositionWeights] = {}
     """Fixed per-species baselines, overriding the least-squares fit for the
-    targets/atomic types they cover. See the identically-named hyperparameter
-    of :ref:`arch-pet_trainer_hypers` for the accepted format."""
+    targets/atomic types they cover. A dict mapping each target name to either
+    a single weight for all atomic types, or a dict mapping atomic types to
+    weights. Unlike the identically-named hyperparameter of other
+    architectures, a path to a composition checkpoint is not accepted here."""
     batch_size: NotRequired[Optional[int]] = None
     """Number of structures to accumulate at a time when building the
     least-squares problem. This only affects memory usage, not the fitted
     weights, since the composition model is a deterministic fit rather than
-    an iterative optimization. Defaults to the size of the training set."""
+    an iterative optimization. Defaults to the size of the smallest training
+    dataset."""

@@ -99,11 +99,23 @@ class CompositionModel(ModelInterface[ModelHypers]):
             self._add_output(target_name, self.target_infos[target_name])
 
     @classmethod
-    def from_dataset(
+    def from_valid_targets(
         cls,
         dataset_info: DatasetInfo,
         atomic_types: List[int],
     ) -> "CompositionModel":
+        """Build a composition model from the valid targets of ``dataset_info``.
+
+        Targets the composition model cannot handle (see ``is_valid_target``)
+        are dropped.
+
+        :param dataset_info: dataset information to build the model from.
+        :param atomic_types: atomic types the model should support. Passed
+            separately because it can be wider than
+            ``dataset_info.atomic_types``, e.g. all the types known to a
+            pretrained backbone (MACE).
+        :return: a composition model for the valid targets.
+        """
         targets = {
             name: info
             for name, info in dataset_info.targets.items()
@@ -168,6 +180,10 @@ class CompositionModel(ModelInterface[ModelHypers]):
                 )
 
         if len(raw_targets) == 0:
+            # No new targets to fit: reset so a subsequent Trainer.train() does not
+            # refit (and zero out) the already-fitted targets from __init__.
+            self.target_infos = {}
+            self._new_outputs = []
             return self
 
         merged_info = self.dataset_info.union(
@@ -362,10 +378,10 @@ class CompositionModel(ModelInterface[ModelHypers]):
         context: Literal["restart", "finetune", "export"],
     ) -> "CompositionModel":
         if context == "restart":
-            logging.info("Using latest model from checkpoint")
+            logging.info(f"Using latest model from epoch {checkpoint.get('epoch')}")
             model_state_dict = checkpoint["model_state_dict"]
         elif context in {"finetune", "export"}:
-            logging.info("Using best model from checkpoint")
+            logging.info(f"Using best model from epoch {checkpoint.get('best_epoch')}")
             model_state_dict = checkpoint.get(
                 "best_model_state_dict", checkpoint["model_state_dict"]
             )
@@ -388,15 +404,16 @@ class CompositionModel(ModelInterface[ModelHypers]):
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["model_ckpt_version"] == v:
+            if checkpoint.get("model_ckpt_version") == v:
                 update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
                 update(checkpoint)
                 checkpoint["model_ckpt_version"] = v + 1
 
-        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+        version = checkpoint.get("model_ckpt_version")
+        if version != cls.__checkpoint_version__:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {checkpoint['model_ckpt_version']}, while the current model "
+                f"version {version}, while the current model "
                 f"version is {cls.__checkpoint_version__}."
             )
 
@@ -424,22 +441,3 @@ class CompositionModel(ModelInterface[ModelHypers]):
         metadata = merge_metadata(self.metadata, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
-
-
-def remove_additive(
-    systems: List[System],
-    targets: Dict[str, TensorMap],
-    additive_model: torch.nn.Module,
-    target_infos: Dict[str, TargetInfo],
-) -> Dict[str, TensorMap]:
-    """Remove additive contributions from targets by delegating to metatrain's utility.
-
-    :param systems: list of atomic systems
-    :param targets: target tensormaps
-    :param additive_model: model whose predictions to subtract
-    :param target_infos: target metadata
-    :returns: targets with additive contributions removed
-    """
-    from metatrain.utils.additive.remove import remove_additive as _remove_additive
-
-    return _remove_additive(systems, targets, additive_model, target_infos)

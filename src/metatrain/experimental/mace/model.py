@@ -295,7 +295,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # The composition model and scaler are handled by the trainer during training.
         # Their purpose is to adapt the data for optimal training.
         # At evaluation time, the model applies them on forward.
-        composition_model = CompositionModel.from_dataset(
+        composition_model = CompositionModel.from_valid_targets(
             dataset_info, self.atomic_types
         )
         self.additive_models = torch.nn.ModuleList([composition_model])

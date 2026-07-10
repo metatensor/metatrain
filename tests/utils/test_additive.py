@@ -16,6 +16,7 @@ from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.readers.metatensor import _empty_tensor_map_like
 from metatrain.utils.data.target_info import (
+    TargetInfo,
     get_energy_target_info,
     get_generic_target_info,
 )
@@ -1077,7 +1078,7 @@ def test_composition_spherical_atomic_basis(missing_type):
                         values=torch.tensor([[0]]),
                     )
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
             ),
             TensorBlock(
                 values=torch.randn((1, 3, 1), dtype=torch.float64),
@@ -1088,7 +1089,7 @@ def test_composition_spherical_atomic_basis(missing_type):
                         values=torch.arange(-1, 2).reshape(-1, 1),
                     )
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
             ),
         ],
     )
@@ -1112,7 +1113,7 @@ def test_composition_spherical_atomic_basis(missing_type):
                         values=torch.tensor([[0]]),
                     )
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
             ),
             TensorBlock(
                 values=torch.tensor([[2.0]], dtype=torch.float64).reshape(-1, 1, 1),
@@ -1126,7 +1127,7 @@ def test_composition_spherical_atomic_basis(missing_type):
                         values=torch.tensor([[0]]),
                     )
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
             ),
             TensorBlock(
                 values=torch.randn((1, 3, 1), dtype=torch.float64),
@@ -1140,7 +1141,7 @@ def test_composition_spherical_atomic_basis(missing_type):
                         values=torch.arange(-1, 2).reshape(-1, 1),
                     )
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
             ),
         ],
     )
@@ -1223,7 +1224,7 @@ def test_composition_spherical_atomic_basis(missing_type):
     )
 
     if missing_type:
-        # Check that if we pass a system with the missing type, we get a NaN
+        # Check that if we pass a system with the missing type, we get a zero
         # contribution from the composition model (no data was ever seen for it).
         system_F = System(
             positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
@@ -1237,7 +1238,7 @@ def test_composition_spherical_atomic_basis(missing_type):
         F_block = output_F["spherical_atomic_basis"].block(
             {"o3_lambda": 0, "o3_sigma": 1}
         )
-        assert torch.isnan(F_block.values).all()
+        assert (F_block.values == 0.0).all()
 
 
 def test_composition_spherical_atomic_basis_dense():
@@ -1715,51 +1716,14 @@ def test_composition_spherical_per_atom_rank_2():
         ],
     )
 
-    # ``mtt::aux::system_index`` is needed for densifying atomic basis targets.
-    system_indices = [
-        TensorMap(
-            keys=Labels(names=["_"], values=torch.tensor([[0]])),
-            blocks=[
-                TensorBlock(
-                    values=torch.tensor([[i]], dtype=torch.float64),
-                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
-                    components=[],
-                    properties=Labels(names=["_"], values=torch.tensor([[0]])),
-                )
-            ],
-        )
-        for i in range(len(systems))
-    ]
     dataset = Dataset.from_dict(
         {
             "system": systems,
             "rank_2_target": [tensor_map_1, tensor_map_2],
-            "mtt::aux::system_index": system_indices,
         }
     )
 
-    target_info = get_generic_target_info(
-        "rank_2_target",
-        {
-            "quantity": "",
-            "unit": "",
-            "type": {
-                "spherical": {
-                    "irreps": {
-                        1: [{"o3_lambda": 0, "o3_sigma": 1}],
-                        8: [
-                            {"o3_lambda": 0, "o3_sigma": 1},
-                            {"o3_lambda": 1, "o3_sigma": 1},
-                        ],
-                    },
-                    "product": "cartesian",
-                }
-            },
-            "num_subtargets": 1,
-            "sample_kind": "atom",
-        },
-    )
-    target_info.layout = _empty_tensor_map_like(tensor_map_1)
+    target_info = TargetInfo(layout=_empty_tensor_map_like(tensor_map_1))
 
     composition_model = CompositionModel(
         hypers={},
@@ -1872,28 +1836,9 @@ def test_composition_spherical_per_atom_rank_2_rotation_invariance():
             ],
         )
 
-    target_info = get_generic_target_info(
-        "rank_2_target",
-        {
-            "quantity": "",
-            "unit": "",
-            "type": {
-                "spherical": {
-                    "irreps": {
-                        1: [{"o3_lambda": 0, "o3_sigma": 1}],
-                        8: [
-                            {"o3_lambda": 0, "o3_sigma": 1},
-                            {"o3_lambda": 1, "o3_sigma": 1},
-                        ],
-                    },
-                    "product": "cartesian",
-                }
-            },
-            "num_subtargets": 1,
-            "sample_kind": "atom",
-        },
+    target_info = TargetInfo(
+        layout=_empty_tensor_map_like(make_tensor_map(ss_vals, pp_full, 0))
     )
-    target_info.layout = _empty_tensor_map_like(make_tensor_map(ss_vals, pp_full, 0))
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
@@ -1901,25 +1846,10 @@ def test_composition_spherical_per_atom_rank_2_rotation_invariance():
         targets={"rank_2_target": target_info},
     )
 
-    # ``mtt::aux::system_index`` is needed for densifying atomic basis targets.
-    system_index = [
-        TensorMap(
-            keys=Labels(names=["_"], values=torch.tensor([[0]])),
-            blocks=[
-                TensorBlock(
-                    values=torch.tensor([[0]], dtype=torch.float64),
-                    samples=Labels(names=["system"], values=torch.tensor([[0]])),
-                    components=[],
-                    properties=Labels(names=["_"], values=torch.tensor([[0]])),
-                )
-            ],
-        )
-    ]
     dataset_orig = Dataset.from_dict(
         {
             "system": [system],
             "rank_2_target": [make_tensor_map(ss_vals, pp_full, 0)],
-            "mtt::aux::system_index": system_index,
         }
     )
     model_orig = CompositionModel(hypers={}, dataset_info=dataset_info)
@@ -1929,7 +1859,6 @@ def test_composition_spherical_per_atom_rank_2_rotation_invariance():
         {
             "system": [system_rotated],
             "rank_2_target": [make_tensor_map(ss_vals, pp_vals_rotated, 0)],
-            "mtt::aux::system_index": system_index,
         }
     )
     model_rot = CompositionModel(hypers={}, dataset_info=dataset_info)
@@ -2005,7 +1934,7 @@ def test_composition_spherical_atomic_basis_rank_2(missing_type):
                     Labels(names=["o3_mu_1"], values=torch.tensor([[0]])),
                     Labels(names=["o3_mu_2"], values=torch.tensor([[0]])),
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n_1", "n_2"], values=torch.tensor([[0, 0]])),
             ),
             TensorBlock(
                 values=pp_full_sys1,
@@ -2018,7 +1947,7 @@ def test_composition_spherical_atomic_basis_rank_2(missing_type):
                         names=["o3_mu_2"], values=torch.arange(-1, 2).reshape(-1, 1)
                     ),
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n_1", "n_2"], values=torch.tensor([[0, 0]])),
             ),
         ],
     )
@@ -2045,7 +1974,7 @@ def test_composition_spherical_atomic_basis_rank_2(missing_type):
                     Labels(names=["o3_mu_1"], values=torch.tensor([[0]])),
                     Labels(names=["o3_mu_2"], values=torch.tensor([[0]])),
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n_1", "n_2"], values=torch.tensor([[0, 0]])),
             ),
             TensorBlock(
                 values=torch.tensor([[[[2.0]]]], dtype=torch.float64),
@@ -2057,7 +1986,7 @@ def test_composition_spherical_atomic_basis_rank_2(missing_type):
                     Labels(names=["o3_mu_1"], values=torch.tensor([[0]])),
                     Labels(names=["o3_mu_2"], values=torch.tensor([[0]])),
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n_1", "n_2"], values=torch.tensor([[0, 0]])),
             ),
             TensorBlock(
                 values=pp_full_sys2,
@@ -2073,7 +2002,7 @@ def test_composition_spherical_atomic_basis_rank_2(missing_type):
                         names=["o3_mu_2"], values=torch.arange(-1, 2).reshape(-1, 1)
                     ),
                 ],
-                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                properties=Labels(names=["n_1", "n_2"], values=torch.tensor([[0, 0]])),
             ),
         ],
     )
@@ -2173,7 +2102,7 @@ def test_composition_spherical_atomic_basis_rank_2(missing_type):
             [system_F], {"uncoupled_hamiltonian": ModelOutput(sample_kind="atom")}
         )
         F_ss_block = output_F["uncoupled_hamiltonian"].block(ss_key)
-        assert torch.isnan(F_ss_block.values).all()
+        assert (F_ss_block.values == 0.0).all()
 
 
 @pytest.mark.parametrize("missing_type", [False, True])
@@ -2240,7 +2169,9 @@ def test_composition_spherical_atomic_basis_rank_2_rotation_invariance(missing_t
                         Labels(names=["o3_mu_1"], values=torch.tensor([[0]])),
                         Labels(names=["o3_mu_2"], values=torch.tensor([[0]])),
                     ],
-                    properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                    properties=Labels(
+                        names=["n_1", "n_2"], values=torch.tensor([[0, 0]])
+                    ),
                 ),
                 TensorBlock(
                     values=torch.tensor([[[[2.0]]]], dtype=torch.float64),
@@ -2252,7 +2183,9 @@ def test_composition_spherical_atomic_basis_rank_2_rotation_invariance(missing_t
                         Labels(names=["o3_mu_1"], values=torch.tensor([[0]])),
                         Labels(names=["o3_mu_2"], values=torch.tensor([[0]])),
                     ],
-                    properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                    properties=Labels(
+                        names=["n_1", "n_2"], values=torch.tensor([[0, 0]])
+                    ),
                 ),
                 TensorBlock(
                     values=pp_O_vals,
@@ -2270,7 +2203,9 @@ def test_composition_spherical_atomic_basis_rank_2_rotation_invariance(missing_t
                             values=torch.arange(-1, 2).reshape(-1, 1),
                         ),
                     ],
-                    properties=Labels(names=["_"], values=torch.tensor([[0]])),
+                    properties=Labels(
+                        names=["n_1", "n_2"], values=torch.tensor([[0, 0]])
+                    ),
                 ),
             ],
         )

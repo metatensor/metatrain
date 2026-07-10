@@ -154,7 +154,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
 
-        logging.info("Calculating composition weights")
         train_or_load_composition_model(
             composition_model=model.additive_models[0],
             atomic_baseline={

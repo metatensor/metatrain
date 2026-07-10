@@ -12,21 +12,14 @@ from metatrain.utils.testing import (
     CheckpointTests,
     ExportedTests,
     InputTests,
+    OutputTests,
     TorchscriptTests,
     TrainingTests,
 )
-from metatrain.utils.testing.output import OutputTests
 
 
 class CompositionTests(ArchitectureTests):
     architecture = "composition"
-
-    @pytest.fixture
-    def dataset_path(self) -> str:
-        return str(
-            __file__[: -len("/tests/test_basic.py")]
-            + "/../../tests/resources/qm9_reduced_100.xyz"
-        )
 
     @pytest.fixture
     def dataset_info(self) -> DatasetInfo:
@@ -71,6 +64,8 @@ class TestOutput(OutputTests, CompositionTests):
     supports_vector_outputs: bool = False
     supports_spherical_outputs: bool = True
     supports_spherical_rank2_outputs: bool = False
+    # The model fits atomic-basis targets, but always predicts their densified
+    # layout (no atom_type keys), which is not what this common test expects.
     supports_spherical_atomic_basis_outputs: bool = False
     supports_selected_atoms: bool = False
     supports_features: bool = False
@@ -144,20 +139,18 @@ class TestExported(ExportedTests, CompositionTests):
     def device(self):
         return torch.device("cpu")
 
+    # Composition only supports float64 (see CompositionModel.__supported_dtypes__)
     @pytest.fixture
     def dtype(self):
-        return torch.float32
-
-    def test_to(self, device, dtype, model_hypers, dataset_info):
-        pytest.skip("Composition model export not implemented")
+        return torch.float64
 
 
 class TestCheckpoints(CheckpointTests, CompositionTests):
-    @pytest.fixture
-    def model_trainer(
-        self, dataset_path, dataset_targets, minimal_model_hypers, default_hypers
-    ):
-        pytest.skip("Composition model does not support checkpoint save/load")
+    # The composition trainer does not support restarting training, so its
+    # checkpoints cannot be loaded in the "restart" context.
+    incompatible_trainer_checkpoints = [
+        "checkpoints/model-v1_trainer-v1.ckpt.gz",
+    ]
 
 
 class TestTraining(TrainingTests, CompositionTests):
