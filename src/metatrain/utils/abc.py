@@ -161,24 +161,24 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
             handle the new dataset.
         """
 
-    def set_default_target(
-        self, source_target_name: str, dest_target_name: str = "energy"
+    def set_default_head(
+        self, source_head_name: str, dest_head_name: str = "energy"
     ) -> None:
         """
         Copy the full state (heads, composition and scaler weights) of an existing
-        target into ``dest_target_name``, so that engines (e.g. LAMMPS, ASE) that
+        target into ``dest_head_name``, so that engines (e.g. LAMMPS, ASE) that
         look for a target literally named ``"energy"`` will use it. The source
         target is left untouched in the model.
 
         Not every architecture supports this; the default implementation raises
         ``NotImplementedError``.
 
-        :param source_target_name: Name of the existing target to copy from.
-        :param dest_target_name: Name of the target to overwrite (or create) with
-            a copy of ``source_target_name``'s state. Defaults to ``"energy"``.
+        :param source_head_name: Name of the existing target to copy from.
+        :param dest_head_name: Name of the target to overwrite (or create) with
+            a copy of ``source_head_name``'s state. Defaults to ``"energy"``.
         """
         raise NotImplementedError(
-            f"{type(self).__name__} does not support setting a default target."
+            f"{type(self).__name__} does not support setting a default head."
         )
 
     @classmethod
@@ -316,14 +316,14 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
         :param path: The path where to save the checkpoint.
         """
 
-    def apply_default_target(
+    def apply_default_head(
         self,
         model: ModelInterface,
-        source_target_name: str,
-        dest_target_name: str = "energy",
+        source_head_name: str,
+        dest_head_name: str = "energy",
     ) -> None:
         """
-        Apply :py:meth:`ModelInterface.set_default_target` to ``model``, keeping
+        Apply :py:meth:`ModelInterface.set_default_head` to ``model``, keeping
         any trainer-tracked snapshot of the model (e.g. a "best epoch" state
         dict) consistent with the copy.
 
@@ -331,12 +331,12 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
         ``NotImplementedError``.
 
         :param model: The model to apply the copy to.
-        :param source_target_name: Name of the existing target to copy from.
-        :param dest_target_name: Name of the target to overwrite (or create) with
-            a copy of ``source_target_name``'s state. Defaults to ``"energy"``.
+        :param source_head_name: Name of the existing target to copy from.
+        :param dest_head_name: Name of the target to overwrite (or create) with
+            a copy of ``source_head_name``'s state. Defaults to ``"energy"``.
         """
         raise NotImplementedError(
-            f"{type(self).__name__} does not support setting a default target."
+            f"{type(self).__name__} does not support setting a default head."
         )
 
     @classmethod

@@ -40,7 +40,7 @@ class NoFinetuneHypers(TypedDict):
     method: NotRequired[Any]
     config: NotRequired[Any]
     inherit_heads: NotRequired[Any]
-    default_target: NotRequired[Any]
+    default_head: NotRequired[Any]
 
 
 class FullFinetuneHypers(TypedDict):
@@ -60,7 +60,7 @@ class FullFinetuneHypers(TypedDict):
     in the model (values).
     This allows for copying weights from the corresponding
     source heads to the destination heads instead of random initialization."""
-    default_target: NotRequired[Optional[str]]
+    default_head: NotRequired[Optional[str]]
     """Name of an existing target whose full state (heads, composition and scaler
     weights) should be copied into the model's default ``"energy"`` target, once
     training for this run has finished. ``None`` (the default) means no copy is
@@ -84,7 +84,7 @@ class LoRaFinetuneHypers(TypedDict):
     in the model (values).
     This allows for copying weights from the corresponding
     source heads to the destination heads instead of random initialization."""
-    default_target: NotRequired[Optional[str]]
+    default_head: NotRequired[Optional[str]]
     """Name of an existing target whose full state (heads, composition and scaler
     weights) should be copied into the model's default ``"energy"`` target, once
     training for this run has finished. ``None`` (the default) means no copy is
@@ -109,7 +109,7 @@ class HeadsFinetuneHypers(TypedDict):
     in the model (values).
     This allows for copying weights from the corresponding
     source heads to the destination heads instead of random initialization."""
-    default_target: NotRequired[Optional[str]]
+    default_head: NotRequired[Optional[str]]
     """Name of an existing target whose full state (heads, composition and scaler
     weights) should be copied into the model's default ``"energy"`` target, once
     training for this run has finished. ``None`` (the default) means no copy is
@@ -138,42 +138,42 @@ def compute_stale_targets(
 
 
 def copy_head_weights(
-    model: nn.Module, source_target_name: str, dest_target_name: str
+    model: nn.Module, source_head_name: str, dest_head_name: str
 ) -> None:
     """Copy trainable head/last-layer parameter values between two targets.
 
-    Every parameter whose fully-qualified name contains ``source_target_name`` is
-    copied into the correspondingly-named parameter for ``dest_target_name``
+    Every parameter whose fully-qualified name contains ``source_head_name`` is
+    copied into the correspondingly-named parameter for ``dest_head_name``
     (found by substituting the target name in the parameter's name). Both targets
     must already exist in the model, with matching parameter shapes (i.e. the same
     target layout) -- this only copies values, it does not create or resize
     anything.
 
     :param model: The model whose parameters to copy between.
-    :param source_target_name: Name of the target to copy weights from.
-    :param dest_target_name: Name of the target to copy weights into.
+    :param source_head_name: Name of the target to copy weights from.
+    :param dest_head_name: Name of the target to copy weights into.
     """
     model_parameters = dict(model.named_parameters())
-    if not any(f".{source_target_name}." in name for name in model_parameters):
+    if not any(f".{source_head_name}." in name for name in model_parameters):
         raise ValueError(
             f"Weight copy was requested, but the source target name "
-            f"'{source_target_name}' was not found in the model. Please specify "
+            f"'{source_head_name}' was not found in the model. Please specify "
             "the correct source target name."
         )
-    if not any(f".{dest_target_name}." in name for name in model_parameters):
+    if not any(f".{dest_head_name}." in name for name in model_parameters):
         raise ValueError(
             f"Weight copy was requested, but the destination target name "
-            f"'{dest_target_name}' was not found in the model. Please specify "
+            f"'{dest_head_name}' was not found in the model. Please specify "
             "the correct destination target name."
         )
     for name, param in model_parameters.items():
-        if f".{source_target_name}." in name:
-            corresponding_dest_name = name.replace(source_target_name, dest_target_name)
+        if f".{source_head_name}." in name:
+            corresponding_dest_name = name.replace(source_head_name, dest_head_name)
             if corresponding_dest_name in model_parameters:
                 model_parameters[corresponding_dest_name].data.copy_(param.data)
             else:
                 raise ValueError(
-                    f"Destination head '{dest_target_name}' not found in model."
+                    f"Destination head '{dest_head_name}' not found in model."
                 )
 
 
@@ -308,8 +308,8 @@ def apply_finetuning_strategy(
 
     inherit_heads_config = strategy["inherit_heads"]
     if apply_inherit_heads and inherit_heads_config:
-        for dest_target_name, source_target_name in inherit_heads_config.items():
-            copy_head_weights(model, source_target_name, dest_target_name)
+        for dest_head_name, source_head_name in inherit_heads_config.items():
+            copy_head_weights(model, source_head_name, dest_head_name)
 
     # Targets not part of this run's dataset are dropped now that weight
     # inheritance (if any) has had a chance to copy from their heads: with

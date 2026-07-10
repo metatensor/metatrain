@@ -753,22 +753,22 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if is_distributed:
             torch.distributed.destroy_process_group()
 
-    def apply_default_target(
+    def apply_default_head(
         self,
         model: ModelInterface,
-        source_target_name: str,
-        dest_target_name: str = "energy",
+        source_head_name: str,
+        dest_head_name: str = "energy",
     ) -> None:
-        model.set_default_target(source_target_name, dest_target_name)
+        model.set_default_head(source_head_name, dest_head_name)
 
         if self.best_model_state_dict is None:
             return
 
         # ``best_model_state_dict`` is a snapshot taken during training, before
-        # this copy happened, so it doesn't have ``dest_target_name``'s state
+        # this copy happened, so it doesn't have ``dest_head_name``'s state
         # yet. Rebuild it from a clone of the (now updated) live model, loading
         # everything else from the snapshot, then redo the copy so
-        # ``dest_target_name`` reflects ``source_target_name``'s best-epoch
+        # ``dest_head_name`` reflects ``source_head_name``'s best-epoch
         # weights rather than the final-epoch ones it was just seeded with.
         best_model_state_dict = dict(self.best_model_state_dict)
         best_model_state_dict.pop("finetune_config", None)
@@ -780,19 +780,19 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if unexpected:
             raise RuntimeError(
                 "Unexpected keys found while reconciling the best-epoch "
-                f"checkpoint snapshot with 'default_target': {unexpected}. This "
+                f"checkpoint snapshot with 'default_head': {unexpected}. This "
                 "is an internal inconsistency; please report this issue."
             )
-        unrelated_missing = [key for key in missing if dest_target_name not in key]
+        unrelated_missing = [key for key in missing if dest_head_name not in key]
         if unrelated_missing:
             raise RuntimeError(
                 "Missing keys found while reconciling the best-epoch checkpoint "
-                f"snapshot with 'default_target' that do not belong to "
-                f"'{dest_target_name}': {unrelated_missing}. This is an internal "
+                f"snapshot with 'default_head' that do not belong to "
+                f"'{dest_head_name}': {unrelated_missing}. This is an internal "
                 "inconsistency; please report this issue."
             )
 
-        best_model.set_default_target(source_target_name, dest_target_name)
+        best_model.set_default_head(source_head_name, dest_head_name)
         self.best_model_state_dict = best_model.state_dict()
 
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:

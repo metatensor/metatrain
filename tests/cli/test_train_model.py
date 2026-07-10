@@ -830,10 +830,10 @@ def test_transfer_learn_variant(
     assert f"Starting finetuning from '{ckpt_path}'" in caplog.text
 
 
-def test_transfer_learn_default_target(
+def test_transfer_learn_default_head(
     options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
 ):
-    """``default_target`` must be applied before training starts, so it survives
+    """``default_head`` must be applied before training starts, so it survives
     into the final exported checkpoint (which is loaded via
     ``best_model_state_dict``) even though its destination ("energy") is stale
     (dropped by the "full" finetuning method since it isn't part of this run's
@@ -848,7 +848,7 @@ def test_transfer_learn_default_target(
         "read_from": str(ckpt_path),
         "config": {},
         "inherit_heads": {},
-        "default_target": "mtt::energy",
+        "default_head": "mtt::energy",
     }
     options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
         options_pet_transfer_learn["training_set"]["targets"].pop("energy")

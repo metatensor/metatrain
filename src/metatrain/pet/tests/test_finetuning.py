@@ -388,7 +388,7 @@ def test_restart_without_finetune_method_keeps_stale_targets():
 
 def _two_coexisting_targets_model(zbl: bool = False):
     """A single model with two co-existing energy-like targets, ``"energy"`` and
-    ``"energy_new"``, used to test ``PET.set_default_target``."""
+    ``"energy_new"``, used to test ``PET.set_default_head``."""
     target_a = get_energy_target_info("energy", {"quantity": "energy", "unit": "eV"})
     target_b = get_energy_target_info(
         "energy_new", {"quantity": "energy", "unit": "eV"}
@@ -416,14 +416,14 @@ def _fill_target_params(model, target_name, value):
         param.data.fill_(value)
 
 
-def test_set_default_target_copies_head_weights():
-    """``set_default_target`` overwrites the destination's head/last-layer weights
+def test_set_default_head_copies_head_weights():
+    """``set_default_head`` overwrites the destination's head/last-layer weights
     with the source's, and the two remain independent afterwards."""
     model = _two_coexisting_targets_model()
     _fill_target_params(model, "energy", 1.0)
     _fill_target_params(model, "energy_new", 2.0)
 
-    model.set_default_target("energy_new")
+    model.set_default_head("energy_new")
 
     energy_params = _target_params(model, "energy")
     energy_new_params = _target_params(model, "energy_new")
@@ -438,14 +438,14 @@ def test_set_default_target_copies_head_weights():
         assert not torch.allclose(param, torch.full_like(param, 3.0))
 
 
-def test_set_default_target_copies_composition_and_scaler_state():
-    """``set_default_target`` also copies composition/scaler per-target state
+def test_set_default_head_copies_composition_and_scaler_state():
+    """``set_default_head`` also copies composition/scaler per-target state
     (not reachable via ``named_parameters()``), and it is independent of the
     source afterwards."""
     model = _two_coexisting_targets_model()
     composition_model = model.additive_models[0]
 
-    model.set_default_target("energy_new")
+    model.set_default_head("energy_new")
 
     assert "energy" in composition_model.outputs
     assert "energy" in model.scaler.outputs
@@ -456,33 +456,33 @@ def test_set_default_target_copies_composition_and_scaler_state():
     assert source_buffer is not dest_buffer
 
 
-def test_set_default_target_overwrites_existing_destination():
+def test_set_default_head_overwrites_existing_destination():
     """If the destination target already exists, it is fully replaced."""
     model = _two_coexisting_targets_model()
     _fill_target_params(model, "energy", 1.0)
     _fill_target_params(model, "energy_new", 2.0)
 
-    model.set_default_target("energy_new")
+    model.set_default_head("energy_new")
 
     for param in _target_params(model, "energy").values():
         assert torch.allclose(param, torch.full_like(param, 2.0))
 
 
-def test_set_default_target_unknown_source_raises():
+def test_set_default_head_unknown_source_raises():
     model = _two_coexisting_targets_model()
 
     with pytest.raises(ValueError, match="is not a target of this model"):
-        model.set_default_target("does_not_exist")
+        model.set_default_head("does_not_exist")
 
 
-def test_set_default_target_source_equals_dest_is_noop():
+def test_set_default_head_source_equals_dest_is_noop():
     """If the source and destination target names are the same, nothing should
     be changed."""
     model = _two_coexisting_targets_model()
     _fill_target_params(model, "energy", 1.0)
     state_dict_before = copy.deepcopy(model.state_dict())
 
-    model.set_default_target("energy", dest_target_name="energy")
+    model.set_default_head("energy", dest_head_name="energy")
 
     state_dict_after = model.state_dict()
     assert state_dict_before.keys() == state_dict_after.keys()
@@ -490,15 +490,15 @@ def test_set_default_target_source_equals_dest_is_noop():
         torch.testing.assert_close(value, state_dict_after[name])
 
 
-def test_set_default_target_copies_zbl_state():
-    """When ZBL is enabled, ``set_default_target`` must also copy the source
+def test_set_default_head_copies_zbl_state():
+    """When ZBL is enabled, ``set_default_head`` must also copy the source
     target's registration into the destination on the ``ZBL`` additive model
     (regression test for a missing ``ZBL._copy_output``)."""
     model = _two_coexisting_targets_model(zbl=True)
     zbl_model = next(m for m in model.additive_models if type(m).__name__ == "ZBL")
     assert "energy_new" in zbl_model.outputs
 
-    model.set_default_target("energy_new")
+    model.set_default_head("energy_new")
 
     assert "energy" in zbl_model.outputs
 
@@ -651,8 +651,8 @@ def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path
         torch.testing.assert_close(param, snapshot[name])
 
 
-def test_apply_default_target_uses_best_epoch_weights():
-    """``Trainer.apply_default_target`` must reconcile ``best_model_state_dict``
+def test_apply_default_head_uses_best_epoch_weights():
+    """``Trainer.apply_default_head`` must reconcile ``best_model_state_dict``
     using the *best*-epoch weights of the source target, not the live model's
     current (final-epoch) ones -- this is the whole point of the "replay on best
     snapshot" strategy, as opposed to simply reusing the live model's
@@ -672,7 +672,7 @@ def test_apply_default_target_uses_best_epoch_weights():
     # different set of weights for the same target.
     _fill_target_params(model, "energy_new", 9.0)
 
-    trainer.apply_default_target(model, "energy_new")
+    trainer.apply_default_head(model, "energy_new")
 
     # The live model's "energy" head reflects the *current* (final-epoch)
     # "energy_new" weights.
@@ -688,8 +688,8 @@ def test_apply_default_target_uses_best_epoch_weights():
         assert torch.allclose(reconciled[name], torch.full_like(reconciled[name], 5.0))
 
 
-def test_apply_default_target_reconciliation_validates_state_dict():
-    """``Trainer.apply_default_target`` must raise instead of silently producing
+def test_apply_default_head_reconciliation_validates_state_dict():
+    """``Trainer.apply_default_head`` must raise instead of silently producing
     a broken ``best_model_state_dict`` if the snapshot doesn't line up with the
     live model the way it's expected to: any missing key must belong to the
     destination target, and there must be no unexpected keys."""
@@ -713,7 +713,7 @@ def test_apply_default_target_reconciliation_validates_state_dict():
     trainer.best_model_state_dict = copy.deepcopy(model.state_dict())
     trainer.best_model_state_dict["bogus_key"] = torch.tensor(0.0)
     with pytest.raises(RuntimeError, match="Unexpected keys"):
-        trainer.apply_default_target(copy.deepcopy(model), "energy_new")
+        trainer.apply_default_head(copy.deepcopy(model), "energy_new")
 
     # Case 2: a missing key unrelated to the destination target ("energy").
     trainer2 = Trainer(hypers["training"])
@@ -722,11 +722,11 @@ def test_apply_default_target_reconciliation_validates_state_dict():
     del best_state[unrelated_key]
     trainer2.best_model_state_dict = best_state
     with pytest.raises(RuntimeError, match="Missing keys"):
-        trainer2.apply_default_target(copy.deepcopy(model), "energy_new")
+        trainer2.apply_default_head(copy.deepcopy(model), "energy_new")
 
 
-def test_default_target_survives_checkpoint_reload(monkeypatch, tmp_path):
-    """Regression test: ``Trainer.apply_default_target`` (called after
+def test_default_head_survives_checkpoint_reload(monkeypatch, tmp_path):
+    """Regression test: ``Trainer.apply_default_head`` (called after
     ``trainer.train()`` finishes, matching the CLI's order) must keep
     ``best_model_state_dict`` in the saved checkpoint consistent with the copy,
     not just the live model's ``model_state_dict``. ``best_model_state_dict`` is
@@ -788,7 +788,7 @@ def test_default_target_survives_checkpoint_reload(monkeypatch, tmp_path):
 
     # Finetune on an unrelated target, "mtt::U0", using full finetuning: "energy"
     # is not part of this run's dataset, so it would normally become stale and
-    # get pruned. ``default_target`` is used instead to alias "energy" onto a
+    # get pruned. ``default_head`` is used instead to alias "energy" onto a
     # copy of "mtt::U0" -- the real use case of still exposing "energy" for MD
     # engines even though this run doesn't train on it directly.
     new_target = get_energy_target_info("mtt::U0", {"quantity": "energy", "unit": "eV"})
@@ -813,7 +813,7 @@ def test_default_target_survives_checkpoint_reload(monkeypatch, tmp_path):
     hypers["training"]["loss"] = loss_conf
     hypers["training"]["finetune"] = _finetuning_strategy("full")
     hypers["training"]["finetune"]["read_from"] = "pretrained.ckpt"
-    hypers["training"]["finetune"]["default_target"] = "mtt::U0"
+    hypers["training"]["finetune"]["default_head"] = "mtt::U0"
 
     trainer = Trainer(hypers["training"])
     trainer.train(
@@ -825,9 +825,9 @@ def test_default_target_survives_checkpoint_reload(monkeypatch, tmp_path):
         checkpoint_dir=".",
     )
 
-    # This is the order the CLI now uses: ``apply_default_target`` after
+    # This is the order the CLI now uses: ``apply_default_head`` after
     # ``trainer.train()`` returns.
-    trainer.apply_default_target(model_finetune, "mtt::U0")
+    trainer.apply_default_head(model_finetune, "mtt::U0")
     trainer.save_checkpoint(model_finetune, "finetuned.ckpt")
 
     checkpoint = torch.load("finetuned.ckpt", weights_only=False, map_location="cpu")

@@ -714,10 +714,10 @@ def train_model(
         return  # only save and evaluate on the main process
 
     if training_context == "finetune":
-        default_target = hypers["training"]["finetune"].get("default_target")
-        if default_target:
+        default_head = hypers["training"]["finetune"].get("default_head")
+        if default_head:
             try:
-                trainer.apply_default_target(model, default_target)
+                trainer.apply_default_head(model, default_head)
             except Exception as e:
                 raise ArchitectureError(e) from e
 

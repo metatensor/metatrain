@@ -270,41 +270,41 @@ class PET(ModelInterface[ModelHypers]):
 
         return self
 
-    def set_default_target(
-        self, source_target_name: str, dest_target_name: str = "energy"
+    def set_default_head(
+        self, source_head_name: str, dest_head_name: str = "energy"
     ) -> None:
-        if source_target_name not in self.dataset_info.targets:
+        if source_head_name not in self.dataset_info.targets:
             raise ValueError(
-                f"Cannot set '{dest_target_name}' as a copy of "
-                f"'{source_target_name}': '{source_target_name}' is not a target "
+                f"Cannot set '{dest_head_name}' as a copy of "
+                f"'{source_head_name}': '{source_head_name}' is not a target "
                 "of this model."
             )
 
-        if source_target_name == dest_target_name:
+        if source_head_name == dest_head_name:
             return
 
-        if dest_target_name in self.dataset_info.targets:
-            self._remove_output(dest_target_name)
-            if dest_target_name in self.target_names:
-                self.target_names.remove(dest_target_name)
-            self.dataset_info.targets.pop(dest_target_name, None)
+        if dest_head_name in self.dataset_info.targets:
+            self._remove_output(dest_head_name)
+            if dest_head_name in self.target_names:
+                self.target_names.remove(dest_head_name)
+            self.dataset_info.targets.pop(dest_head_name, None)
             for additive_model in self.additive_models:
-                if dest_target_name in additive_model.outputs:
-                    additive_model._remove_output(dest_target_name)
-            if dest_target_name in self.scaler.outputs:
-                self.scaler._remove_output(dest_target_name)
+                if dest_head_name in additive_model.outputs:
+                    additive_model._remove_output(dest_head_name)
+            if dest_head_name in self.scaler.outputs:
+                self.scaler._remove_output(dest_head_name)
 
-        source_target_info = self.dataset_info.targets[source_target_name]
-        self.target_names.append(dest_target_name)
-        self._add_output(dest_target_name, source_target_info)
-        self.dataset_info.targets[dest_target_name] = source_target_info
-        copy_head_weights(self, source_target_name, dest_target_name)
+        source_target_info = self.dataset_info.targets[source_head_name]
+        self.target_names.append(dest_head_name)
+        self._add_output(dest_head_name, source_target_info)
+        self.dataset_info.targets[dest_head_name] = source_target_info
+        copy_head_weights(self, source_head_name, dest_head_name)
 
         for additive_model in self.additive_models:
-            if source_target_name in additive_model.outputs:
-                additive_model._copy_output(source_target_name, dest_target_name)
-        if source_target_name in self.scaler.outputs:
-            self.scaler._copy_output(source_target_name, dest_target_name)
+            if source_head_name in additive_model.outputs:
+                additive_model._copy_output(source_head_name, dest_head_name)
+        if source_head_name in self.scaler.outputs:
+            self.scaler._copy_output(source_head_name, dest_head_name)
 
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]

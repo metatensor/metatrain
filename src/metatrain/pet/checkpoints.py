@@ -541,4 +541,4 @@ def trainer_update_v13_v14(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to update.
     """
-    checkpoint["train_hypers"]["finetune"]["default_target"] = None
+    checkpoint["train_hypers"]["finetune"]["default_head"] = None

@@ -241,7 +241,7 @@ Setting a default target
 External engines (``LAMMPS``, ASE via the `metatomic ASE documentation`_) look for a
 target literally named ``"energy"`` to use as the potential energy surface. If you
 fine-tuned on a custom-named target (e.g. ``energy/variant``) and want it to become
-that default ``"energy"`` target, set ``default_target`` in the ``finetune`` section
+that default ``"energy"`` target, set ``default_head`` in the ``finetune`` section
 to the name of that target:
 
 .. code-block:: yaml
@@ -251,7 +251,7 @@ to the name of that target:
       finetune:
         method: full
         read_from: path/to/checkpoint.ckpt
-        default_target: energy/variant
+        default_head: energy/variant
 
 This copies the full state of ``energy/variant`` (heads, composition weights, scaler
 settings) into ``"energy"``, overwriting it if it already exists. The copy happens
@@ -260,7 +260,7 @@ checkpoint is saved), so ``energy/variant`` must already be fully trained -- eit
 from a previous run, or from training that took place earlier within the same run.
 The source target (``energy/variant``) is left in the model unchanged.
 
-``default_target`` is currently only supported by the PET architecture, and defaults
+``default_head`` is currently only supported by the PET architecture, and defaults
 to ``None`` (no copy is performed).
 
 
