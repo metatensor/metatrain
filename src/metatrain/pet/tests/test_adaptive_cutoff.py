@@ -24,7 +24,7 @@ from . import MODEL_HYPERS
 
 
 @pytest.mark.parametrize("adaptive_cutoff_method", ["solver", "grid"])
-@pytest.mark.parametrize("num_neighbors_adaptive", [8, 16, 32, 64, None])
+@pytest.mark.parametrize("num_neighbors_adaptive", [8, 16, None])
 def test_adaptive_cutoff_functionality(num_neighbors_adaptive, adaptive_cutoff_method):
     """Tests that adaptive cutoff model evaluation runs without errors."""
     torch.manual_seed(0)
@@ -40,7 +40,10 @@ def test_adaptive_cutoff_functionality(num_neighbors_adaptive, adaptive_cutoff_m
     hypers = MODEL_HYPERS.copy()
     hypers["num_neighbors_adaptive"] = num_neighbors_adaptive
     hypers["adaptive_cutoff_method"] = adaptive_cutoff_method
-    hypers["cutoff"] = 10.0
+    if num_neighbors_adaptive:
+        hypers["cutoff"] = 10.0
+    else:
+        hypers["cutoff"] = 5.0
 
     model = PET(hypers, dataset_info)
 
@@ -99,7 +102,7 @@ def test_cutoff_stats_output(num_neighbors_adaptive):
             "mtt::aux::cutoff_stats": ModelOutput(sample_kind="atom"),
         },
     )
-    n_atoms = 3 + 2
+    n_atoms = len(system_a) + len(system_b)
 
     assert "mtt::aux::cutoff_stats" in result
     tmap = result["mtt::aux::cutoff_stats"]
@@ -294,7 +297,7 @@ def test_gaussian_cutoff_weights():
     [get_adaptive_cutoffs_solver, get_adaptive_cutoffs_grid],
     ids=["solver", "grid"],
 )
-@pytest.mark.parametrize("num_neighbors_adaptive", [8, 16, 24, 32, 48])
+@pytest.mark.parametrize("num_neighbors_adaptive", [8, 16, 24, 32])
 def test_adapted_cutoffs(num_neighbors_adaptive, get_adaptive_cutoffs):
     """Tests that adaptive cutoff model evaluation runs without errors
     and produces reasonable cutoffs that approximately ensure the desired

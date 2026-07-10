@@ -119,8 +119,8 @@ from typing import Literal, Optional
 
 from typing_extensions import NotRequired, TypedDict
 
-from metatrain.pet.modules.finetuning import FullFinetuneHypers
 from metatrain.utils.additive import FixedCompositionWeights
+from metatrain.utils.finetuning import FullFinetuneHypers
 from metatrain.utils.loss import LossSpecification
 from metatrain.utils.scaler import FixedScalerWeights
 

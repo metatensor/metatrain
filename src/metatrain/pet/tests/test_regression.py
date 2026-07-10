@@ -111,7 +111,7 @@ def test_regression_energies_forces_train(device):
     targets, target_info_dict = read_targets(OmegaConf.create(conf))
     targets = {"energy": targets["energy"]}
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["num_workers"] = 0  # for reproducibility
     hypers["training"]["scheduler_patience"] = 1
@@ -149,17 +149,17 @@ def test_regression_energies_forces_train(device):
 
     expected_output = torch.tensor(
         [
-            [23.681182861328],
-            [24.079591751099],
-            [23.690107345581],
-            [24.619163513184],
-            [24.360023498535],
+            [4.501883506775],
+            [4.585022926331],
+            [4.512884616852],
+            [4.663134098053],
+            [4.619622230530],
         ],
         device=device,
     )
 
     expected_gradients_output = torch.tensor(
-        [0.141418337822, 0.238168984652, -0.696541965008], device=device
+        [0.018032819033, 0.056510597467, -0.138630092144], device=device
     )
 
     # if you need to change the hardcoded values:

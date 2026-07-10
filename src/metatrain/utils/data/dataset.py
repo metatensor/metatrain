@@ -683,11 +683,21 @@ class DiskDataset(torch.utils.data.Dataset):
 
     :param path: Path to the zip file containing the dataset.
     :param fields: List of fields to read from the dataset.
-        If None, all fields will be read.
+        If None, all fields will be read. If it is a dictionary,
+        it is treated as the target configuration, and we search for a "key"
+        entry that maps the target name to the field name in the dataset.
     """
 
-    def __init__(self, path: Union[str, Path], fields: Optional[List[str]] = None):
+    def __init__(
+        self,
+        path: Union[str, Path],
+        fields: Optional[list[str] | dict[str, Any]] = None,
+    ):
         self.zip_file_path = path
+
+        if isinstance(fields, dict):
+            fields = {options.get("key", key): key for key, options in fields.items()}
+
         self._field_names = ["system"]
         # check that we have at least one sample:
         with zipfile.ZipFile(path, "r") as zip_file:
@@ -708,19 +718,22 @@ class DiskDataset(torch.utils.data.Dataset):
             self._fields_to_read = self._field_names
         else:
             # Check that the requested fields are present in the dataset
-            fields = ["system", *fields]
-            missing_fields = set(fields) - set(self._field_names)
+            fields_to_read = ["system", *fields]
+            missing_fields = set(fields_to_read) - set(self._field_names)
             if missing_fields:
                 raise ValueError(
                     f"Fields {list(missing_fields)} were requested but "
                     "are not present in this disk dataset. "
                     f"Available fields: {self._field_names[1:]}"
                 )
-            self._fields_to_read = fields
+            self._fields_to_read = fields_to_read
 
         self._fields_to_read.append("mtt::aux::system_index")
 
-        self._sample_class = namedtuple("Sample", self._fields_to_read)
+        fields_map = fields if isinstance(fields, dict) else {}
+        self._sample_class = namedtuple(
+            "Sample", [fields_map.get(field, field) for field in self._fields_to_read]
+        )
 
         # Do not open file in the main process and start sub-processes with None
         self.zip_file: Optional[zipfile.ZipFile] = None
@@ -831,7 +844,7 @@ class DiskDataset(torch.utils.data.Dataset):
         return target_info_dict
 
     def __del__(self) -> None:
-        if self.zip_file is not None:
+        if hasattr(self, "zip_file") and self.zip_file is not None:
             self.zip_file.close()
 
 

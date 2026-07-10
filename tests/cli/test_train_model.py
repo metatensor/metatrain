@@ -711,7 +711,10 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
         "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
-            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+            "last_layer_modules": [
+                "node_last_layers",
+                "edge_last_layers",
+            ],
         },
         "inherit_heads": {},
     }
@@ -734,7 +737,10 @@ def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_P
         "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
-            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+            "last_layer_modules": [
+                "node_last_layers",
+                "edge_last_layers",
+            ],
         },
         "inherit_heads": {},
     }
@@ -762,7 +768,10 @@ def test_transfer_learn_with_forces(
         "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
-            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+            "last_layer_modules": [
+                "node_last_layers",
+                "edge_last_layers",
+            ],
         },
         "inherit_heads": {},
     }
@@ -1306,11 +1315,10 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
             keys=Labels.single(),
             blocks=[energy_block],
         )
-        disk_dataset_writer.write([system], {"energy": energy})
+        disk_dataset_writer.write([system], {"U0": energy})
     disk_dataset_writer.finish()
 
     options["training_set"]["systems"]["read_from"] = "carbon.zip"
-    options["training_set"]["targets"]["energy"]["read_from"] = "carbon.zip"
     train_model(options)
 
 

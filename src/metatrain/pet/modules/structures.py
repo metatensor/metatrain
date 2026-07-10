@@ -165,11 +165,16 @@ def concatenate_structures(
     )
 
 
-def systems_to_batch(
-    systems: List[System],
-    options: NeighborListOptions,
-    all_species_list: List[int],
+def compute_batch_tensors(
+    positions: torch.Tensor,
+    centers: torch.Tensor,
+    neighbors: torch.Tensor,
+    species: torch.Tensor,
+    cells: torch.Tensor,
+    cell_shifts: torch.Tensor,
+    system_indices: torch.Tensor,
     species_to_species_index: torch.Tensor,
+    cutoff: float,
     cutoff_function: str,
     cutoff_width: float,
     num_neighbors_adaptive: Optional[float] = None,
@@ -184,21 +189,31 @@ def systems_to_batch(
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
-    Labels,
-    torch.Tensor,
-    torch.Tensor,
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
 ]:
     """
-    Converts a list of systems to a batch required for the PET model.
+    Convert the concatenated, pure-tensor structure representation into the per-edge
+    NEF batch tensors required by the PET featurizer.
 
-    :param systems: List of systems to convert to a batch.
-    :param options: Options for the neighbor list.
-    :param all_species_list: List of all atomic species in the dataset.
+    This is the pure-PyTorch tail of the structure preprocessing: it takes the plain
+    tensors produced by :func:`concatenate_structures` (which is where the metatomic
+    ``System`` objects are read) and computes edge vectors, optional adaptive cutoffs,
+    cutoff factors, and the NEF (node-edge-feature) reshaping. It contains no
+    metatensor / metatomic objects so that it can be ``torch.compile``-d.
+
+    :param positions: Concatenated atomic positions, shape ``(num_nodes, 3)``.
+    :param centers: Flat center atom global indices for each edge, shape ``(n_edges,)``.
+    :param neighbors: Flat neighbor atom global indices for each edge, shape
+        ``(n_edges,)``.
+    :param species: Concatenated atomic species, shape ``(num_nodes,)``.
+    :param cells: Stacked cell tensors, shape ``(num_systems, 3, 3)``.
+    :param cell_shifts: Integer cell shift vectors per edge, shape ``(n_edges, 3)``.
+    :param system_indices: System index for each atom, shape ``(num_nodes,)``.
     :param species_to_species_index: Mapping from atomic species to species indices.
+    :param cutoff: Neighbor list cutoff radius.
     :param cutoff_function: Type of the smoothing function at the cutoff.
     :param cutoff_width: Width of the cutoff function for a cutoff mask.
     :param num_neighbors_adaptive: Optional maximum number of neighbors per atom.
@@ -221,13 +236,10 @@ def systems_to_batch(
             are padded
         - `reverse_neighbor_index`: The reversed neighbor list for each central atom
         - `cutoff_factors`: The cutoff function values for each edge
-        - `system_indices`: The system index for each atom in the batch
-        - `sample_labels`: Labels indicating the system and atom indices for each atom
-        - `species`: The atomic species of each atom in the batch
         - `atomic_cutoffs_stats`: Diagnostic per-atom cutoff radius (detached
             from the autograd graph). With adaptive cutoff active this is
             the per-atom adapted cutoff; otherwise every entry equals
-            ``options.cutoff``. Always shape ``(num_nodes,)``.
+            ``cutoff``. Always shape ``(num_nodes,)``.
         - `centers`: Flat tensor of center atom global indices for each real
           (non-padded) edge, shape ``(n_edges,)``. Suitable for use with
           :func:`get_pair_sample_labels`.
@@ -243,17 +255,6 @@ def systems_to_batch(
           cell_shift_c)``. Suitable for use with :func:`get_pair_sample_labels`.
 
     """
-    (
-        positions,
-        centers,
-        neighbors,
-        species,
-        cells,
-        cell_shifts,
-        system_indices,
-        sample_labels,
-    ) = concatenate_structures(systems, options)
-
     # somehow the backward of this operation is very slow at evaluation,
     # where there is only one cell, therefore we simplify the calculation
     # for that case
@@ -280,7 +281,7 @@ def systems_to_batch(
                     edge_distances,
                     num_neighbors_adaptive,
                     num_nodes,
-                    options.cutoff,
+                    cutoff,
                     cutoff_width=cutoff_width_adaptive,
                 )
             elif adaptive_cutoff_method.lower() == "grid":
@@ -289,7 +290,7 @@ def systems_to_batch(
                     edge_distances,
                     num_neighbors_adaptive,
                     num_nodes,
-                    options.cutoff,
+                    cutoff,
                     cutoff_width=cutoff_width_adaptive,
                 )
             else:
@@ -310,18 +311,37 @@ def systems_to_batch(
             cell_shifts = cell_shifts.index_select(0, keep)
             edge_distances = edge_distances.index_select(0, keep)
     else:
-        pair_cutoffs = options.cutoff * torch.ones(
+        pair_cutoffs = cutoff * torch.ones(
             len(centers), device=positions.device, dtype=positions.dtype
         )
-        atomic_cutoffs_stats = options.cutoff * torch.ones(
+        atomic_cutoffs_stats = cutoff * torch.ones(
             num_nodes, device=positions.device, dtype=positions.dtype
         )
 
-    num_neighbors = torch.bincount(centers, minlength=num_nodes)
-    # this logic shouldn't be needed thanks to `minlength` above, but just to be safe:
+    # ``torch.bincount`` has a data-dependent output shape, which becomes an
+    # unbacked symbolic dimension under ``torch.compile`` and corrupts the whole NEF
+    # grid. ``scatter_add`` into a ``num_nodes``-sized buffer is equivalent but keeps a
+    # static (backed) shape.
+    num_neighbors = torch.zeros(
+        num_nodes, dtype=centers.dtype, device=centers.device
+    ).scatter_add_(0, centers, torch.ones_like(centers))
+    # ``max_edges_per_node`` (the largest neighbour count of any atom) becomes the size
+    # of the NEF grid's second dimension. The ``numel`` guard keeps empty systems
+    # (no atoms) well defined.
+
     max_edges_per_node = (
         int(torch.max(num_neighbors)) if num_neighbors.numel() > 0 else 0
     )
+
+    # Tell the compiler this data-dependent scalar is a valid (non-negative) size, so
+    # the symbolic NEF dimension is well defined. ``torch._check`` is a compile-only
+    # hint and not a TorchScript builtin, so it must be dead-code-eliminated under
+    # scripting. ``torch.jit.is_scripting()`` is the guard TorchScript recognises and
+    # prunes (``torch.compiler.is_compiling()`` is not, so it would try to script the
+    # unknown op). ``_check(x >= 0)`` is the forward-compatible replacement for the
+    # now-deprecated ``torch._check_is_size``.
+    if not torch.jit.is_scripting():
+        torch._check(max_edges_per_node >= 0)
 
     if cutoff_function.lower() == "bump":
         # use bump switching function for adaptive cutoff
@@ -372,12 +392,15 @@ def systems_to_batch(
     # creates too many of the same index which slows down backward enormously.
     # (See see https://github.com/pytorch/pytorch/issues/41162)
     # We therefore replace the padded indices with a sequence of unique indices.
-    # The count of padded slots equals total slots minus real edges — derive it
-    # from shapes to avoid a `torch.sum(...).item()` host sync every forward.
-    num_padded = reverse_neighbor_index.numel() - centers.shape[0]
-    reverse_neighbor_index[~nef_mask] = torch.arange(
-        num_padded, device=reverse_neighbor_index.device
-    )
+    # ``cumsum(~mask) - 1`` gives, at each padded slot, its running position among the
+    # padded slots in flattened (row-major) order — identical to assigning
+    # ``arange(num_padded)`` via a boolean mask, but with static shapes. This avoids a
+    # data-dependent kernel and lets the preprocessing be captured by ``torch.compile``.
+    flat_mask = nef_mask.reshape(-1)
+    flat_reverse = reverse_neighbor_index.reshape(-1)
+    padded_unique = torch.cumsum((~flat_mask).to(torch.long), dim=0) - 1
+    flat_reverse = torch.where(flat_mask, flat_reverse, padded_unique)
+    reverse_neighbor_index = flat_reverse.reshape(reverse_neighbor_index.shape)
 
     return (
         element_indices_nodes,
@@ -387,9 +410,6 @@ def systems_to_batch(
         nef_mask,
         reverse_neighbor_index,
         cutoff_factors,
-        system_indices,
-        sample_labels,
-        species,
         atomic_cutoffs_stats,
         centers,
         neighbors,
