@@ -280,6 +280,9 @@ class PET(ModelInterface[ModelHypers]):
                 "of this model."
             )
 
+        if source_target_name == dest_target_name:
+            return
+
         if dest_target_name in self.dataset_info.targets:
             self._remove_output(dest_target_name)
             if dest_target_name in self.target_names:

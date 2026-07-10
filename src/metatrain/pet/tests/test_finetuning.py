@@ -386,7 +386,7 @@ def test_restart_without_finetune_method_keeps_stale_targets():
     _assert_target_present(model, "mtt::U0")
 
 
-def _two_coexisting_targets_model():
+def _two_coexisting_targets_model(zbl: bool = False):
     """A single model with two co-existing energy-like targets, ``"energy"`` and
     ``"energy_new"``, used to test ``PET.set_default_target``."""
     target_a = get_energy_target_info("energy", {"quantity": "energy", "unit": "eV"})
@@ -394,11 +394,13 @@ def _two_coexisting_targets_model():
         "energy_new", {"quantity": "energy", "unit": "eV"}
     )
     dataset_info = DatasetInfo(
-        length_unit="Angstrom",
+        length_unit="angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={"energy": target_a, "energy_new": target_b},
     )
-    return PET(MODEL_HYPERS, dataset_info)
+    model_hypers = copy.deepcopy(MODEL_HYPERS)
+    model_hypers["zbl"] = zbl
+    return PET(model_hypers, dataset_info)
 
 
 def _target_params(model, target_name):
@@ -471,6 +473,34 @@ def test_set_default_target_unknown_source_raises():
 
     with pytest.raises(ValueError, match="is not a target of this model"):
         model.set_default_target("does_not_exist")
+
+
+def test_set_default_target_source_equals_dest_is_noop():
+    """If the source and destination target names are the same, nothing should
+    be changed."""
+    model = _two_coexisting_targets_model()
+    _fill_target_params(model, "energy", 1.0)
+    state_dict_before = copy.deepcopy(model.state_dict())
+
+    model.set_default_target("energy", dest_target_name="energy")
+
+    state_dict_after = model.state_dict()
+    assert state_dict_before.keys() == state_dict_after.keys()
+    for name, value in state_dict_before.items():
+        torch.testing.assert_close(value, state_dict_after[name])
+
+
+def test_set_default_target_copies_zbl_state():
+    """When ZBL is enabled, ``set_default_target`` must also copy the source
+    target's registration into the destination on the ``ZBL`` additive model
+    (regression test for a missing ``ZBL._copy_output``)."""
+    model = _two_coexisting_targets_model(zbl=True)
+    zbl_model = next(m for m in model.additive_models if type(m).__name__ == "ZBL")
+    assert "energy_new" in zbl_model.outputs
+
+    model.set_default_target("energy_new")
+
+    assert "energy" in zbl_model.outputs
 
 
 def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path):
@@ -619,6 +649,194 @@ def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path
 
     for name, param in _target_params(model_restart, "mtt::U0").items():
         torch.testing.assert_close(param, snapshot[name])
+
+
+def test_apply_default_target_uses_best_epoch_weights():
+    """``Trainer.apply_default_target`` must reconcile ``best_model_state_dict``
+    using the *best*-epoch weights of the source target, not the live model's
+    current (final-epoch) ones -- this is the whole point of the "replay on best
+    snapshot" strategy, as opposed to simply reusing the live model's
+    already-copied values."""
+    model = _two_coexisting_targets_model()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    trainer = Trainer(hypers["training"])
+
+    # Simulate a "best" epoch snapshot where "energy_new" had one set of
+    # weights...
+    _fill_target_params(model, "energy_new", 5.0)
+    trainer.best_model_state_dict = copy.deepcopy(model.state_dict())
+    trainer.best_epoch = 3
+    trainer.best_metric = 0.1
+
+    # ...and the live model has since moved on (more epochs passed) to a
+    # different set of weights for the same target.
+    _fill_target_params(model, "energy_new", 9.0)
+
+    trainer.apply_default_target(model, "energy_new")
+
+    # The live model's "energy" head reflects the *current* (final-epoch)
+    # "energy_new" weights.
+    for param in _target_params(model, "energy").values():
+        assert torch.allclose(param, torch.full_like(param, 9.0))
+
+    # The reconciled best-epoch snapshot's "energy" head reflects the
+    # *best-epoch* "energy_new" weights instead.
+    reconciled = trainer.best_model_state_dict
+    energy_keys = [name for name in reconciled if ".energy." in name]
+    assert len(energy_keys) > 0
+    for name in energy_keys:
+        assert torch.allclose(reconciled[name], torch.full_like(reconciled[name], 5.0))
+
+
+def test_apply_default_target_reconciliation_validates_state_dict():
+    """``Trainer.apply_default_target`` must raise instead of silently producing
+    a broken ``best_model_state_dict`` if the snapshot doesn't line up with the
+    live model the way it's expected to: any missing key must belong to the
+    destination target, and there must be no unexpected keys."""
+    target_a = get_energy_target_info("energy", {"quantity": "energy", "unit": "eV"})
+    target_b = get_energy_target_info(
+        "energy_new", {"quantity": "energy", "unit": "eV"}
+    )
+    target_c = get_energy_target_info(
+        "mtt::third", {"quantity": "energy", "unit": "eV"}
+    )
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={"energy": target_a, "energy_new": target_b, "mtt::third": target_c},
+    )
+    model = PET(MODEL_HYPERS, dataset_info)
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+
+    # Case 1: an unexpected key, not part of the model at all.
+    trainer = Trainer(hypers["training"])
+    trainer.best_model_state_dict = copy.deepcopy(model.state_dict())
+    trainer.best_model_state_dict["bogus_key"] = torch.tensor(0.0)
+    with pytest.raises(RuntimeError, match="Unexpected keys"):
+        trainer.apply_default_target(copy.deepcopy(model), "energy_new")
+
+    # Case 2: a missing key unrelated to the destination target ("energy").
+    trainer2 = Trainer(hypers["training"])
+    best_state = copy.deepcopy(model.state_dict())
+    unrelated_key = next(name for name in best_state if ".mtt::third." in name)
+    del best_state[unrelated_key]
+    trainer2.best_model_state_dict = best_state
+    with pytest.raises(RuntimeError, match="Missing keys"):
+        trainer2.apply_default_target(copy.deepcopy(model), "energy_new")
+
+
+def test_default_target_survives_checkpoint_reload(monkeypatch, tmp_path):
+    """Regression test: ``Trainer.apply_default_target`` (called after
+    ``trainer.train()`` finishes, matching the CLI's order) must keep
+    ``best_model_state_dict`` in the saved checkpoint consistent with the copy,
+    not just the live model's ``model_state_dict``. ``best_model_state_dict`` is
+    a snapshot taken during the epoch loop, before the copy happens -- without
+    reconciliation, reloading for export (which uses ``best_model_state_dict``)
+    would fail to load the state dict entirely.
+    """
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+
+    systems = [system.to(torch.float64) for system in read_systems(DATASET_PATH)]
+
+    old_target = get_energy_target_info("energy", {"quantity": "energy", "unit": "eV"})
+    old_dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={"energy": old_target},
+    )
+    model = PET(MODEL_HYPERS, old_dataset_info)
+
+    energy_conf = {
+        "energy": {
+            "quantity": "energy",
+            "read_from": DATASET_PATH,
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "type": "scalar",
+            "sample_kind": "system",
+            "num_subtargets": 1,
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    energy_targets, _ = read_targets(OmegaConf.create(energy_conf))
+    energy_dataset = Dataset.from_dict(
+        {"system": systems, "energy": energy_targets["energy"]}
+    )
+
+    loss_conf = OmegaConf.create({"energy": init_with_defaults(LossSpecification)})
+    OmegaConf.resolve(loss_conf)
+
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    hypers["training"]["num_epochs"] = 1
+    hypers["training"]["loss"] = loss_conf
+
+    # Pre-training on "energy".
+    trainer = Trainer(hypers["training"])
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[energy_dataset],
+        val_datasets=[energy_dataset],
+        checkpoint_dir=".",
+    )
+    trainer.save_checkpoint(model, "pretrained.ckpt")
+
+    # Finetune on an unrelated target, "mtt::U0", using full finetuning: "energy"
+    # is not part of this run's dataset, so it would normally become stale and
+    # get pruned. ``default_target`` is used instead to alias "energy" onto a
+    # copy of "mtt::U0" -- the real use case of still exposing "energy" for MD
+    # engines even though this run doesn't train on it directly.
+    new_target = get_energy_target_info("mtt::U0", {"quantity": "energy", "unit": "eV"})
+    new_dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={"mtt::U0": new_target},
+    )
+    conf = {"mtt::U0": dict(energy_conf["energy"])}
+    targets, _ = read_targets(OmegaConf.create(conf))
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
+
+    checkpoint = torch.load("pretrained.ckpt", weights_only=False, map_location="cpu")
+    model_finetune = model_from_checkpoint(checkpoint, context="finetune")
+    model_finetune.restart(new_dataset_info, finetune_method="full")
+
+    loss_conf = OmegaConf.create({"mtt::U0": init_with_defaults(LossSpecification)})
+    OmegaConf.resolve(loss_conf)
+
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    hypers["training"]["num_epochs"] = 1
+    hypers["training"]["loss"] = loss_conf
+    hypers["training"]["finetune"] = _finetuning_strategy("full")
+    hypers["training"]["finetune"]["read_from"] = "pretrained.ckpt"
+    hypers["training"]["finetune"]["default_target"] = "mtt::U0"
+
+    trainer = Trainer(hypers["training"])
+    trainer.train(
+        model=model_finetune,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
+
+    # This is the order the CLI now uses: ``apply_default_target`` after
+    # ``trainer.train()`` returns.
+    trainer.apply_default_target(model_finetune, "mtt::U0")
+    trainer.save_checkpoint(model_finetune, "finetuned.ckpt")
+
+    checkpoint = torch.load("finetuned.ckpt", weights_only=False, map_location="cpu")
+    # This is the exact path the CLI uses to produce the final exported model: it
+    # reads ``best_model_state_dict``, which must already contain "energy".
+    model_export = model_from_checkpoint(checkpoint, context="export")
+
+    _assert_target_present(model_export, "energy")
+    _assert_target_present(model_export, "mtt::U0")
 
 
 def test_restart_with_fewer_targets_does_not_crash(monkeypatch, tmp_path):

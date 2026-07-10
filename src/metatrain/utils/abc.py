@@ -316,6 +316,29 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
         :param path: The path where to save the checkpoint.
         """
 
+    def apply_default_target(
+        self,
+        model: ModelInterface,
+        source_target_name: str,
+        dest_target_name: str = "energy",
+    ) -> None:
+        """
+        Apply :py:meth:`ModelInterface.set_default_target` to ``model``, keeping
+        any trainer-tracked snapshot of the model (e.g. a "best epoch" state
+        dict) consistent with the copy.
+
+        Not every architecture supports this; the default implementation raises
+        ``NotImplementedError``.
+
+        :param model: The model to apply the copy to.
+        :param source_target_name: Name of the existing target to copy from.
+        :param dest_target_name: Name of the target to overwrite (or create) with
+            a copy of ``source_target_name``'s state. Defaults to ``"energy"``.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support setting a default target."
+        )
+
     @classmethod
     @abstractmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:

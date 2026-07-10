@@ -717,7 +717,7 @@ def train_model(
         default_target = hypers["training"]["finetune"].get("default_target")
         if default_target:
             try:
-                model.set_default_target(default_target)
+                trainer.apply_default_target(model, default_target)
             except Exception as e:
                 raise ArchitectureError(e) from e
 
