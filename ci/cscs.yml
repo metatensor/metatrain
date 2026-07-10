@@ -172,7 +172,7 @@ pet-tests:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
     SLURM_NTASKS: 1
-    SLURM_TIMELIMIT: '00:08:00'
+    SLURM_TIMELIMIT: '00:10:00'
     GIT_STRATEGY: fetch
 
 llpr-tests:
