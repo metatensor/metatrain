@@ -70,6 +70,13 @@ The same ``extra_data`` section is used for evaluation with ``mtt eval``:
       spin_multiplicity:
         key: spin_multiplicity
 
+The examples above read the values from ``atoms.info`` of an ASE-readable file.
+The same ``extra_data`` section can also be used with zip and memory-mapped
+datasets. In zip datasets, charge and spin conditioning are read from
+``charge.mts`` and ``spin_multiplicity.mts``. In memory-mapped datasets, they
+are read from ``charge.bin`` and ``spin_multiplicity.bin``. See
+:ref:`dataset-formats` for details.
+
 Systems without a value fall back to ``charge=0`` and ``spin_multiplicity=1``,
 so a conditioned model can still be used on data without this information.
 Values must be integers within ``[-max_charge, max_charge]`` and

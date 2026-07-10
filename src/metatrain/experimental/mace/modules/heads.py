@@ -143,6 +143,7 @@ class MACEHeadWrapper(torch.nn.Module):
         self,
         readouts: torch.nn.ModuleList,
         per_layer_irreps: o3.Irreps,
+        head_index: int = 0,
     ):
         super().__init__()
 
@@ -158,12 +159,22 @@ class MACEHeadWrapper(torch.nn.Module):
         self.only_last_readout = len(readouts) == 1
         self.mace_llf_extractors = torch.nn.ModuleList()
         self.per_layer_n_llfs = []
+        # Offset into each readout's hidden features for the selected head. For
+        # multi-head non-linear readouts, MACE lays out the hidden features as
+        # ``[n_nodes, num_heads, n_llf]`` flattened head-major (see ``mask_head``),
+        # so head ``h`` occupies the contiguous block ``[h * n_llf:(h + 1) * n_llf]``.
+        # We keep only that head's features rather than all heads'.
+        self.per_layer_llf_starts = []
         for i, readout in enumerate(readouts):
             if readout_is_linear(readout):
+                # Linear readouts extract the (head-independent) node features.
                 n_llf = self.per_layer_irreps[i].count((0, 1))
+                start = 0
                 extractor = torch.nn.Identity()
             else:
-                n_llf = readout.linear_2.irreps_in.count((0, 1))
+                num_heads = getattr(readout, "num_heads", 1)
+                n_llf = readout.linear_2.irreps_in.count((0, 1)) // num_heads
+                start = head_index * n_llf
                 extractor = torch.nn.Sequential(
                     readout.linear_1,
                     readout.non_linearity,
@@ -171,6 +182,7 @@ class MACEHeadWrapper(torch.nn.Module):
 
             self.mace_llf_extractors.append(extractor)
             self.per_layer_n_llfs.append(n_llf)
+            self.per_layer_llf_starts.append(start)
 
         self.last_layer_features_irreps = sum(self.per_layer_n_llfs) * o3.Irrep(0, 1)
         # Set a dummy tensor for last layer features, which will be replaced
@@ -207,7 +219,11 @@ class MACEHeadWrapper(torch.nn.Module):
                 per_layer_features = [per_layer_features[-1]]
 
             ll_feats_list = [
-                extractor(per_layer_features[i])[:, : self.per_layer_n_llfs[i]]
+                extractor(per_layer_features[i])[
+                    :,
+                    self.per_layer_llf_starts[i] : self.per_layer_llf_starts[i]
+                    + self.per_layer_n_llfs[i],
+                ]
                 for i, extractor in enumerate(self.mace_llf_extractors)
             ]
 

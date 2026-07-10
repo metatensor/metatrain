@@ -347,9 +347,12 @@ def _get_digits(value: float) -> Tuple[int, int]:
     :return: A tuple with the total number of characters and the number of digits
         after the decimal point.
     """
-
     # Get order of magnitude of the value:
-    order = int(np.floor(np.log10(value)))
+    if value != 0:
+        order = int(np.floor(np.log10(value)))
+    else:
+        # Avoid log10(0) error
+        order = 0
 
     # Get the number of digits before the decimal point:
     if order < 0:

@@ -5,8 +5,12 @@ from metatomic.torch import System
 
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_target,
+    get_per_atom_sample_labels,
+    get_prepare_atomic_basis_targets_transform,
+    prepare_atomic_basis_targets,
     sparsify_atomic_basis_target,
 )
+from metatrain.utils.data.target_info import TargetInfo
 
 
 # ---------------------------------------------------------------------------
@@ -100,22 +104,29 @@ def _make_systems():
     ]
 
 
-def _make_sparse_tensor():
+def _make_sparse_tensor(system_ids=(0, 1)):
     """
     Construct an atomic basis spherical target in the coupled basis, per-atom, for the
     two systems from ``_make_systems()``.
 
-    Samples within each block are sorted by (system, atom) – this is the ordering that
-    densification produces, so starting from sorted samples ensures the round-trip
-    comparison is straightforward.
+    Samples within each block are ordered following ``_make_systems()`` (system 0's
+    atoms, then system 1's atoms) – this is the order that the padding step in
+    ``prepare_atomic_basis_targets`` produces, so starting from this order makes
+    round-trip comparisons straightforward.
+
+    :param system_ids: the "system" sample label value to use for system 0 and system
+        1 respectively. Defaults to ``(0, 1)``; pass non-contiguous values (e.g. ``(7,
+        2)``) to check that a target's own "system" ids are round-tripped rather than
+        assumed to be batch-local positions.
     """
+    s0, s1 = system_ids
     h_samples = Labels(
         names=["system", "atom"],
-        values=torch.tensor([[0, 0], [1, 0], [1, 1]], dtype=torch.int32),
+        values=torch.tensor([[s0, 0], [s1, 0], [s1, 1]], dtype=torch.int32),
     )
     c_samples = Labels(
         names=["system", "atom"],
-        values=torch.tensor([[0, 1], [1, 2]], dtype=torch.int32),
+        values=torch.tensor([[s0, 1], [s1, 2]], dtype=torch.int32),
     )
     l0_comp = [Labels(names=["o3_mu"], values=torch.tensor([[0]], dtype=torch.int32))]
     l1_comp = [
@@ -260,3 +271,77 @@ def test_densify_nan_padding_structure():
     c_l1_orig = torch.arange(12, dtype=torch.float64).reshape(2, 3, 2) + 300.0
     assert not torch.any(torch.isnan(l1.values[c_idx][..., :]))
     torch.testing.assert_close(l1.values[c_idx][..., :], c_l1_orig)
+
+
+def test_prepare_atomic_basis_targets_nontrivial_system_ids():
+    """
+    ``prepare_atomic_basis_targets`` (densify + pad) must label samples with a
+    target's own "system" ids, not with the position of each system within the batch.
+
+    Uses non-contiguous, non-zero-based ids (system 0 -> 7, system 1 -> 2) so that a
+    regression reintroducing an implicit reindexing to 0, ..., n-1 would be caught by
+    the exact round-trip check below, rather than just a shape/crash check.
+    """
+    system_ids = torch.tensor([7, 2])
+    layout = _make_layout_coupled_per_atom()
+    sparse = _make_sparse_tensor(system_ids=tuple(system_ids.tolist()))
+    systems = _make_systems()
+
+    prepared = prepare_atomic_basis_targets(systems, system_ids, sparse, layout)
+
+    # The padded samples must carry the target's own system ids, in the same order
+    # as `systems`/`system_ids` (not sorted, not renumbered to 0, ..., n-1).
+    expected_samples = get_per_atom_sample_labels(systems, system_ids)
+    for block in prepared.blocks():
+        assert block.samples == expected_samples
+
+    recovered = sparsify_atomic_basis_target(systems, prepared, layout)
+    mts.allclose_raise(recovered, sparse, atol=0.0, rtol=0.0)
+
+
+def test_get_prepare_atomic_basis_targets_transform_batch_from_larger_dataset():
+    """
+    ``get_prepare_atomic_basis_targets_transform`` is the actual function every
+    trainer's collate function uses. This simulates a batch of 2 drawn from a larger
+    dataset (absolute, non-adjacent "system" ids 1 and 3), built the way
+    ``metatensor_learn``'s ``group_and_join`` does: joining per-system tensors while
+    preserving each system's true absolute dataset index (not renumbering to 0, 1).
+
+    A round trip through ``transform`` then ``reverse_transform`` must recover the
+    original per-system data exactly.
+    """
+    system_ids = torch.tensor([1, 3])
+    layout = _make_layout_coupled_per_atom()
+    sparse = _make_sparse_tensor(system_ids=tuple(system_ids.tolist()))
+    systems = _make_systems()
+
+    target_info = TargetInfo(layout=layout)
+    assert target_info.is_atomic_basis
+
+    system_index_extra = TensorMap(
+        keys=Labels(names=["_"], values=torch.tensor([[0]])),
+        blocks=[
+            TensorBlock(
+                values=system_ids.reshape(-1, 1).to(torch.float64),
+                samples=Labels(names=["system"], values=system_ids.reshape(-1, 1)),
+                components=[],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            )
+        ],
+    )
+
+    transform, reverse_transform = get_prepare_atomic_basis_targets_transform(
+        {"target": target_info}, {}
+    )
+
+    _, prepared, _ = transform(
+        systems,
+        {"target": sparse},
+        {"mtt::aux::system_index": system_index_extra},
+    )
+    expected_samples = get_per_atom_sample_labels(systems, system_ids)
+    for block in prepared["target"].blocks():
+        assert block.samples == expected_samples
+
+    _, recovered, _ = reverse_transform(systems, prepared, {})
+    mts.allclose_raise(recovered["target"], sparse, atol=0.0, rtol=0.0)

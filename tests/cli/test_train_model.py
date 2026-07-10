@@ -1350,11 +1350,10 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
             keys=Labels.single(),
             blocks=[energy_block],
         )
-        disk_dataset_writer.write([system], {"energy": energy})
+        disk_dataset_writer.write([system], {"U0": energy})
     disk_dataset_writer.finish()
 
     options["training_set"]["systems"]["read_from"] = "carbon.zip"
-    options["training_set"]["targets"]["energy"]["read_from"] = "carbon.zip"
     train_model(options)
 
 
